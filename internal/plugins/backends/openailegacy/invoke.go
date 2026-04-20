@@ -214,7 +214,7 @@ func userPartsToContentUnion(parts []lipapi.Part) ([]openai.ChatCompletionConten
 		switch p.Kind {
 		case lipapi.PartText:
 			if strings.TrimSpace(p.Text) == "" {
-				return nil, fmt.Errorf("openailegacy: empty text part")
+				continue
 			}
 			out = append(out, openai.TextContentPart(p.Text))
 		case lipapi.PartImageRef:

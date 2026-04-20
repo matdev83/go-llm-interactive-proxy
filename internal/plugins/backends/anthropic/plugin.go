@@ -25,8 +25,6 @@ func defaultBackendCaps() lipapi.BackendCaps {
 		lipapi.CapabilityTools,
 		lipapi.CapabilityVision,
 		lipapi.CapabilityDocuments,
-		lipapi.CapabilityStructuredOutputs,
-		lipapi.CapabilityReasoning,
 		lipapi.CapabilityParallelToolCalls,
 	)
 }

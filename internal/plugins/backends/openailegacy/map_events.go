@@ -17,6 +17,7 @@ type chatStream struct {
 	sawMsg          bool
 	terminalEmitted bool
 	closed          bool
+	activeTools     map[int64]string
 }
 
 func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk]) lipapi.EventStream {
@@ -67,12 +68,51 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 			s.sawMsg = true
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
+
+		if len(d.ToolCalls) > 0 {
+			if !s.sawMsg {
+				s.sawMsg = true
+				s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventMessageStarted})
+			}
+			for _, tc := range d.ToolCalls {
+				if s.activeTools == nil {
+					s.activeTools = make(map[int64]string)
+				}
+				if tc.ID != "" {
+					s.activeTools[tc.Index] = tc.ID
+					s.pending = append(s.pending, lipapi.Event{
+						Kind:       lipapi.EventToolCallStarted,
+						ToolCallID: tc.ID,
+						ToolName:   tc.Function.Name,
+					})
+				}
+				if tc.Function.Arguments != "" {
+					id := s.activeTools[tc.Index]
+					s.pending = append(s.pending, lipapi.Event{
+						Kind:       lipapi.EventToolCallArgsDelta,
+						ToolCallID: id,
+						Delta:      tc.Function.Arguments,
+					})
+				}
+			}
+		}
+
 		if d.Content != "" {
 			if !s.sawMsg {
 				s.sawMsg = true
 				s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventMessageStarted})
 			}
 			s.pending = append(s.pending, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content})
+		}
+
+		if choice.FinishReason == "tool_calls" {
+			for _, id := range s.activeTools {
+				s.pending = append(s.pending, lipapi.Event{
+					Kind:       lipapi.EventToolCallFinished,
+					ToolCallID: id,
+				})
+			}
+			s.activeTools = nil
 		}
 	}
 

@@ -169,7 +169,7 @@ func messageToParam(m lipapi.Message) (anthropic.MessageParam, error) {
 }
 
 func userMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
-	if len(m.Parts) == 1 && m.Parts[0].Kind == lipapi.PartText {
+	if len(m.Parts) == 1 && m.Parts[0].Kind == lipapi.PartText && strings.TrimSpace(m.Parts[0].Text) != "" {
 		return anthropic.NewUserMessage(anthropic.NewTextBlock(m.Parts[0].Text)), nil
 	}
 	blocks, err := userPartsToBlocks(m.Parts)
