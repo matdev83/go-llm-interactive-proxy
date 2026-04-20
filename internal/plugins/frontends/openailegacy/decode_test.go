@@ -1,6 +1,7 @@
 package openailegacy_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,5 +211,26 @@ func TestDecodeChat_assistantToolCallsRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tool_calls") {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeChat_streamOptionsExtension(t *testing.T) {
+	t.Parallel()
+	want := json.RawMessage(`{"include_usage":true}`)
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"user","content":"x"}],
+  "stream_options": ` + string(want) + `
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, ok := d.Call.Extensions["openailegacy.stream_options"]
+	if !ok {
+		t.Fatal("missing stream_options extension")
+	}
+	if string(raw) != string(want) {
+		t.Fatalf("extension got %s want %s", raw, want)
 	}
 }

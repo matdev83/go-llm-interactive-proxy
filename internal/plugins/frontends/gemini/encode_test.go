@@ -52,6 +52,37 @@ func TestWriteNonStreamJSON_textFromStream(t *testing.T) {
 	if p0["text"] != "hello-out" {
 		t.Fatalf("text: %v", p0["text"])
 	}
+	if _, has := body["usageMetadata"]; has {
+		t.Fatalf("non-stream JSON must not include usageMetadata (subset contract); body=%v", body)
+	}
+}
+
+func TestWriteNonStreamJSON_ignoresUsageFromStream(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	call.Extensions = map[string]json.RawMessage{
+		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
+	}
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10, OutputTokens: 5},
+		{Kind: lipapi.EventTextDelta, Delta: "out"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteNonStreamJSON(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := body["usageMetadata"]; has {
+		t.Fatalf("expected no usageMetadata on non-stream response; body=%v", body)
+	}
 }
 
 func TestWriteStreamSSE_dataLine(t *testing.T) {

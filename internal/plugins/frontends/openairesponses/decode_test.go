@@ -130,6 +130,40 @@ func TestDecodeCreate_unsupportedInputItemType(t *testing.T) {
 	}
 }
 
+func TestDecodeCreate_inputString(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","stream":false,"input":"plain user string"}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 1 || d.Call.Messages[0].Role != lipapi.RoleUser {
+		t.Fatalf("messages: %+v", d.Call.Messages)
+	}
+	if len(d.Call.Messages[0].Parts) != 1 || d.Call.Messages[0].Parts[0].Text != "plain user string" {
+		t.Fatalf("parts: %+v", d.Call.Messages[0].Parts)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeCreate_instructionsNonStringRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","stream":false,"input":"hi","instructions":[{"type":"text","text":"sys"}]}`)
+	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "instructions must be a JSON string") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestDecodeCreate_toolsSamplingAndParallelToolCalls(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{

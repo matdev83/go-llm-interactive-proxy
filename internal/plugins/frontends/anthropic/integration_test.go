@@ -138,6 +138,25 @@ func TestIntegration_refclientMultimodalCanonicalParts(t *testing.T) {
 	}
 }
 
+func TestIntegration_invalidPath_returns404(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "x", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:claude-3-5-haiku-20241022"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/messages", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := http.Post(srv.URL+"/v1/other", "application/json", strings.NewReader(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
 func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	t.Parallel()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "x", nil)

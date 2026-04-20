@@ -132,6 +132,48 @@ func TestIntegration_refclientMultimodalCanonicalParts(t *testing.T) {
 	}
 }
 
+func TestIntegration_invalidPath_returns404(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "x", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/chat/completions", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := http.Post(srv.URL+"/v1/chat/other", "application/json", strings.NewReader(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"x"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
+func TestIntegration_methodNotAllowed(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "x", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/chat/completions", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/v1/chat/completions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
 func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	t.Parallel()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "x", nil)

@@ -1,0 +1,181 @@
+package anthropic_test
+
+import (
+	"context"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
+	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+// Minimal Anthropic SSE with one text block streaming "stream-ok" (SDK-parseable).
+const refbackendStreamTextSSE = "event: message_start\ndata: " +
+	`{"type":"message_start","message":{"id":"m_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: content_block_start\ndata: " +
+	`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` +
+	"\n\n" +
+	"event: content_block_delta\ndata: " +
+	`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"stream-ok"}}` +
+	"\n\n" +
+	"event: content_block_stop\ndata: " +
+	`{"type":"content_block_stop","index":0}` +
+	"\n\n" +
+	"event: message_stop\ndata: " +
+	`{"type":"message_stop"}` +
+	"\n\n"
+
+func TestIntegration_refbackendStreamingText(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		StreamSSE: refbackendStreamTextSSE,
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	call := lipapi.Call{
+		ID: "int1",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "claude-3-5-haiku-20241022"},
+		Key:     "anthropic:claude-3-5-haiku-20241022",
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+}
+
+func TestIntegration_refbackendDefaultStreamCompletes(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	call := lipapi.Call{
+		ID: "int-def",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("ping")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "claude-3-5-haiku-20241022"},
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !col.FinishReceived {
+		t.Fatal("expected response_finished")
+	}
+	if col.Text.String() != "" {
+		t.Fatalf("default refbackend stream has no text deltas; got %q", col.Text.String())
+	}
+	_ = col
+}
+
+func TestIntegration_refbackendStreamUsage(t *testing.T) {
+	t.Parallel()
+	usageDelta := "event: message_start\ndata: " +
+		`{"type":"message_start","message":{"id":"m_u","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
+		"\n\n" +
+		"event: content_block_start\ndata: " +
+		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}` +
+		"\n\n" +
+		"event: content_block_delta\ndata: " +
+		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"done"}}` +
+		"\n\n" +
+		"event: content_block_stop\ndata: " +
+		`{"type":"content_block_stop","index":0}` +
+		"\n\n" +
+		"event: message_delta\ndata: " +
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":""},"usage":{"input_tokens":3,"output_tokens":7,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"server_tool_use":{"web_fetch_requests":0,"web_search_requests":0}}}` +
+		"\n\n" +
+		"event: message_stop\ndata: " +
+		`{"type":"message_stop"}` +
+		"\n\n"
+
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		StreamSSE: usageDelta,
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	call := lipapi.Call{
+		ID: "int2",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("ping")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "claude-3-5-haiku-20241022"},
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if col.InputTokens != 3 || col.OutputTokens != 7 {
+		t.Fatalf("usage: in=%d out=%d", col.InputTokens, col.OutputTokens)
+	}
+	if col.Text.String() != "done" {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+}
+
+func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
+	t.Parallel()
+	var captured string
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		OnRequestBody: func(b []byte) { captured = string(b) },
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	call := lipapi.Call{
+		ID: "mm",
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser,
+			Parts: []lipapi.Part{
+				lipapi.TextPart("x"),
+				{Kind: lipapi.PartImageRef, ImageRef: "https://example.com/i.png"},
+				lipapi.FilePart("data:application/pdf;base64,QUFB", "application/pdf", "f.pdf"),
+			},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "claude-3-5-haiku-20241022"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), es); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(captured, `"type":"image"`) || !strings.Contains(captured, `"type":"document"`) {
+		t.Fatalf("expected multimodal request markers, got: %s", captured)
+	}
+}

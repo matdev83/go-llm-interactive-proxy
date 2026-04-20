@@ -180,6 +180,33 @@ func TestDecodeGenerateContent_modelRole(t *testing.T) {
 	}
 }
 
+func TestDecodeGenerateContent_generationConfig(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "contents": [{"role":"user","parts":[{"text":"x"}]}],
+  "generationConfig": {"temperature": 0.7, "topP": 0.95, "maxOutputTokens": 123}
+}`)
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Options.Temperature == nil || *d.Call.Options.Temperature != 0.7 {
+		t.Fatalf("temperature %+v", d.Call.Options.Temperature)
+	}
+	if d.Call.Options.TopP == nil || *d.Call.Options.TopP != 0.95 {
+		t.Fatalf("topP %+v", d.Call.Options.TopP)
+	}
+	if d.Call.Options.MaxOutputTokens == nil || *d.Call.Options.MaxOutputTokens != 123 {
+		t.Fatalf("maxOutputTokens %+v", d.Call.Options.MaxOutputTokens)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDecodeGenerateContent_toolsAndToolConfig(t *testing.T) {
 	t.Parallel()
 	t.Run("tools_and_auto_tool_config", func(t *testing.T) {

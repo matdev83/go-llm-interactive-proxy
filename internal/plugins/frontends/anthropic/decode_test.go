@@ -241,3 +241,50 @@ func TestDecodeMessage_toolsAndToolChoice(t *testing.T) {
 		}
 	})
 }
+
+func TestDecodeMessage_systemBlockArray(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "system": [
+    {"type":"text","text":"First block."},
+    {"type":"text","text":"Second block."}
+  ],
+  "messages": [{"role":"user","content":"hi"}]
+}`)
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Instructions) != 1 || d.Call.Instructions[0].Role != lipapi.RoleSystem {
+		t.Fatalf("instructions: %+v", d.Call.Instructions)
+	}
+	parts := d.Call.Instructions[0].Parts
+	if len(parts) != 2 || parts[0].Text != "First block." || parts[1].Text != "Second block." {
+		t.Fatalf("system parts: %+v", parts)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeMessage_unsupportedRole(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"tool","content":"result"}]
+}`)
+	_, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported message role") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
