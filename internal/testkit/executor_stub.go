@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 
@@ -13,12 +14,28 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func stubToolPrefixEvents(call lipapi.Call) []lipapi.Event {
+	if len(call.Tools) == 0 {
+		return nil
+	}
+	name := strings.TrimSpace(call.Tools[0].Name)
+	if name == "" {
+		name = "stub_tool"
+	}
+	return []lipapi.Event{
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_stub1", ToolName: name},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_stub1", Delta: `{"q":"ok"}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_stub1"},
+	}
+}
+
 func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []string, capture *sync.Map) *runtime.Executor {
 	t.Helper()
 	events := []lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 	}
+	// Note: WithDeltas does not auto-inject tool events; use NewStubExecutor when tools are present.
 	for _, d := range deltas {
 		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
 	}
@@ -60,12 +77,16 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 					}
 					_ = ctx
 					_ = cand
-					return lipapi.FixedEventStream([]lipapi.Event{
+					evs := []lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventTextDelta, Delta: text},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
+					}
+					evs = append(evs, stubToolPrefixEvents(call)...)
+					evs = append(evs,
+						lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
+						lipapi.Event{Kind: lipapi.EventResponseFinished},
+					)
+					return lipapi.FixedEventStream(evs), nil
 				},
 			},
 		},

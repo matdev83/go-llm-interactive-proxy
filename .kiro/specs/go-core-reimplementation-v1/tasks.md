@@ -281,7 +281,7 @@
   - _Boundary: backends/openaicompat_
   - _Depends: 10.0.2, 7_
 
-- [ ] 10.3 (P) Implement the Anthropic backend
+- [x] 10.3 (P) Implement the Anthropic backend
   - Add adapter tests for message/tool/stream mapping on the shared subset, including **multimodal** content blocks.
   - **Gate:** 10.0.3 completed and spec cross-check recorded.
   - _Requirements: 4.3, 4.7, 4.8, 5.1_

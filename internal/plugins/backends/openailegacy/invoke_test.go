@@ -133,6 +133,71 @@ func TestParamsForCall_generationOptions(t *testing.T) {
 	}
 }
 
+func TestParamsForCall_toolsAndToolChoiceWireJSON(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{"type":"object","properties":{"loc":{"type":"string"}}}`)
+	call := lipapi.Call{
+		ID: "tools",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("weather?")},
+		}},
+		Tools: []lipapi.ToolDef{{
+			Name:        "get_weather",
+			Description: "Weather tool",
+			Parameters:  schema,
+		}},
+		ToolChoice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "get_weather"},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	p, err := backend.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `"tools"`) || !strings.Contains(s, `"function"`) || !strings.Contains(s, `"name":"get_weather"`) {
+		t.Fatalf("expected chat tools in wire JSON: %s", s)
+	}
+	if !strings.Contains(s, `"tool_choice"`) || !strings.Contains(s, `"get_weather"`) {
+		t.Fatalf("expected tool_choice with named function: %s", s)
+	}
+}
+
+func TestParamsForCall_toolResultMessage(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		ID: "tool-msg",
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("run tool")}},
+			{
+				Role: lipapi.RoleTool,
+				Parts: []lipapi.Part{{
+					Kind:       lipapi.PartToolResult,
+					ToolCallID: "call_abc",
+					Content:    []byte(`{"temp":72}`),
+				}},
+			},
+		},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	p, err := backend.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `"role":"tool"`) || !strings.Contains(s, "call_abc") {
+		t.Fatalf("expected tool role message with call id: %s", s)
+	}
+}
+
 func TestUpstreamError_returnsAPIError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

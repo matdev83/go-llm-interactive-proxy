@@ -1,9 +1,16 @@
 package anthropic_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
@@ -205,5 +212,37 @@ func TestParamsForCall_systemInstructions(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "You are concise.") {
 		t.Fatalf("system prompt missing: %s", raw)
+	}
+}
+
+func TestUpstreamError_returnsAPIError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := anthropic.NewClient(
+		option.WithBaseURL(srv.URL),
+		option.WithAPIKey("sk-ant-test"),
+	)
+	_, err := cli.Messages.New(context.Background(), anthropic.MessageNewParams{
+		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
+		MaxTokens: 8,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock("x")),
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *anthropic.Error, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status: %d", apiErr.StatusCode)
 	}
 }

@@ -43,13 +43,36 @@ type wireChatChoice struct {
 }
 
 type wireAssistant struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string           `json:"role"`
+	Content   string           `json:"content,omitempty"`
+	ToolCalls []wireToolCallNS `json:"tool_calls,omitempty"`
+}
+
+type wireToolCallNS struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 type wireDelta struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
+	Role      string                `json:"role,omitempty"`
+	Content   string                `json:"content,omitempty"`
+	ToolCalls []wireLegacyToolDelta `json:"tool_calls,omitempty"`
+}
+
+type wireLegacyToolDelta struct {
+	Index    int                    `json:"index"`
+	ID       string                 `json:"id,omitempty"`
+	Type     string                 `json:"type,omitempty"`
+	Function *wireLegacyToolDeltaFn `json:"function,omitempty"`
+}
+
+type wireLegacyToolDeltaFn struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 type wireUsageLegacy struct {
@@ -91,18 +114,28 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if ts == 0 {
 		ts = time.Now().Unix()
 	}
+	tools := col.OrderedToolCalls()
 	stop := "stop"
+	if len(tools) > 0 {
+		stop = "tool_calls"
+	}
+	msg := &wireAssistant{Role: "assistant", Content: text}
+	for _, tc := range tools {
+		var wtc wireToolCallNS
+		wtc.ID = tc.ID
+		wtc.Type = "function"
+		wtc.Function.Name = tc.Name
+		wtc.Function.Arguments = tc.Arguments
+		msg.ToolCalls = append(msg.ToolCalls, wtc)
+	}
 	out := wireChatCompletion{
 		ID:      cid,
 		Object:  "chat.completion",
 		Created: ts,
 		Model:   model,
 		Choices: []wireChatChoice{{
-			Index: 0,
-			Message: &wireAssistant{
-				Role:    "assistant",
-				Content: text,
-			},
+			Index:        0,
+			Message:      msg,
 			FinishReason: &stop,
 		}},
 	}
@@ -161,6 +194,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	fl.Flush()
 
 	var inTok, outTok int
+	streamToolIndex := make(map[string]int)
+	nextToolStreamIndex := 0
+	sawTool := false
 
 	for {
 		ev, err := es.Recv(ctx)
@@ -195,8 +231,75 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 			fl.Flush()
+		case lipapi.EventToolCallStarted:
+			sawTool = true
+			idx := nextToolStreamIndex
+			nextToolStreamIndex++
+			streamToolIndex[ev.ToolCallID] = idx
+			fn := &wireLegacyToolDeltaFn{Name: ev.ToolName}
+			td := wireLegacyToolDelta{
+				Index:    idx,
+				ID:       ev.ToolCallID,
+				Type:     "function",
+				Function: fn,
+			}
+			contChunk := wireChatCompletion{
+				ID:      cid,
+				Object:  "chat.completion.chunk",
+				Created: ts,
+				Model:   model,
+				Choices: []wireChatChoice{{
+					Index:        0,
+					Delta:        &wireDelta{ToolCalls: []wireLegacyToolDelta{td}},
+					FinishReason: nil,
+				}},
+			}
+			b, err := json.Marshal(contChunk)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+				return err
+			}
+			fl.Flush()
+		case lipapi.EventToolCallArgsDelta:
+			sawTool = true
+			idx, ok := streamToolIndex[ev.ToolCallID]
+			if !ok {
+				idx = nextToolStreamIndex
+				nextToolStreamIndex++
+				streamToolIndex[ev.ToolCallID] = idx
+			}
+			td := wireLegacyToolDelta{
+				Index:    idx,
+				Function: &wireLegacyToolDeltaFn{Arguments: ev.Delta},
+			}
+			contChunk := wireChatCompletion{
+				ID:      cid,
+				Object:  "chat.completion.chunk",
+				Created: ts,
+				Model:   model,
+				Choices: []wireChatChoice{{
+					Index:        0,
+					Delta:        &wireDelta{ToolCalls: []wireLegacyToolDelta{td}},
+					FinishReason: nil,
+				}},
+			}
+			b, err := json.Marshal(contChunk)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+				return err
+			}
+			fl.Flush()
+		case lipapi.EventToolCallFinished:
+			sawTool = true
 		case lipapi.EventResponseFinished:
 			stop := "stop"
+			if sawTool {
+				stop = "tool_calls"
+			}
 			finalChunk := wireChatCompletion{
 				ID:      cid,
 				Object:  "chat.completion.chunk",
@@ -230,7 +333,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			return nil
 		case lipapi.EventError:
 			return fmt.Errorf("openailegacy stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
-		case lipapi.EventWarning, lipapi.EventReasoningDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+		case lipapi.EventWarning, lipapi.EventReasoningDelta:
 		default:
 		}
 	}

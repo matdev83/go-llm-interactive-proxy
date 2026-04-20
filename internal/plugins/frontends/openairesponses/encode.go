@@ -29,13 +29,13 @@ type wireAPIError struct {
 }
 
 type wireResponse struct {
-	ID        string       `json:"id"`
-	Object    string       `json:"object"`
-	CreatedAt int64        `json:"created_at"`
-	Status    string       `json:"status"`
-	Model     string       `json:"model"`
-	Output    []wireOutput `json:"output"`
-	Usage     *wireUsage   `json:"usage,omitempty"`
+	ID        string     `json:"id"`
+	Object    string     `json:"object"`
+	CreatedAt int64      `json:"created_at"`
+	Status    string     `json:"status"`
+	Model     string     `json:"model"`
+	Output    []any      `json:"output"`
+	Usage     *wireUsage `json:"usage,omitempty"`
 }
 
 type wireUsage struct {
@@ -43,17 +43,8 @@ type wireUsage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-type wireOutput struct {
-	Type    string        `json:"type"`
-	ID      string        `json:"id"`
-	Status  string        `json:"status"`
-	Role    string        `json:"role"`
-	Content []wireOutPart `json:"content"`
-}
-
-type wireOutPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+func fcItemID(callID string) string {
+	return "fc_" + strings.ReplaceAll(callID, ":", "_")
 }
 
 type wireStreamEnvelope struct {
@@ -120,6 +111,17 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var inTok, outTok int
 	var fullText strings.Builder
 
+	type toolStream struct {
+		CallID      string
+		ItemID      string
+		OutputIndex int64
+		Name        string
+		Args        strings.Builder
+	}
+	toolByCallID := make(map[string]*toolStream)
+	var toolOrder []*toolStream
+	nextOutIdx := int64(1)
+
 	writeStreamEvent := func(evName string, payload map[string]any) error {
 		b, err := json.Marshal(payload)
 		if err != nil {
@@ -130,6 +132,37 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}
 		fl.Flush()
 		return nil
+	}
+
+	ensureToolStream := func(callID string) (*toolStream, error) {
+		if st := toolByCallID[callID]; st != nil {
+			return st, nil
+		}
+		st := &toolStream{
+			CallID:      callID,
+			ItemID:      fcItemID(callID),
+			OutputIndex: nextOutIdx,
+			Name:        "",
+		}
+		nextOutIdx++
+		toolByCallID[callID] = st
+		toolOrder = append(toolOrder, st)
+		if err := writeStreamEvent("response.output_item.added", map[string]any{
+			"type":            "response.output_item.added",
+			"sequence_number": nextSeq(),
+			"output_index":    st.OutputIndex,
+			"item": map[string]any{
+				"type":      "function_call",
+				"id":        st.ItemID,
+				"call_id":   st.CallID,
+				"name":      st.Name,
+				"arguments": "",
+				"status":    "in_progress",
+			},
+		}); err != nil {
+			return nil, err
+		}
+		return st, nil
 	}
 
 	createdResponse := map[string]any{
@@ -157,6 +190,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	if err := writeStreamEvent("response.output_item.added", map[string]any{
 		"type":            "response.output_item.added",
 		"sequence_number": nextSeq(),
+		"output_index":    int64(0),
 		"item": map[string]any{
 			"type":    "message",
 			"id":      mid,
@@ -170,6 +204,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	if err := writeStreamEvent("response.content_part.added", map[string]any{
 		"type":            "response.content_part.added",
 		"sequence_number": nextSeq(),
+		"output_index":    int64(0),
 		"part": map[string]any{
 			"type": "output_text",
 			"text": "",
@@ -200,6 +235,83 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
+		case lipapi.EventToolCallStarted:
+			if st, ok := toolByCallID[ev.ToolCallID]; ok {
+				if ev.ToolName != "" {
+					st.Name = ev.ToolName
+				}
+				break
+			}
+			st := &toolStream{
+				CallID:      ev.ToolCallID,
+				ItemID:      fcItemID(ev.ToolCallID),
+				OutputIndex: nextOutIdx,
+				Name:        ev.ToolName,
+			}
+			nextOutIdx++
+			toolByCallID[ev.ToolCallID] = st
+			toolOrder = append(toolOrder, st)
+			if err := writeStreamEvent("response.output_item.added", map[string]any{
+				"type":            "response.output_item.added",
+				"sequence_number": nextSeq(),
+				"output_index":    st.OutputIndex,
+				"item": map[string]any{
+					"type":      "function_call",
+					"id":        st.ItemID,
+					"call_id":   st.CallID,
+					"name":      st.Name,
+					"arguments": "",
+					"status":    "in_progress",
+				},
+			}); err != nil {
+				return err
+			}
+		case lipapi.EventToolCallArgsDelta:
+			st, err := ensureToolStream(ev.ToolCallID)
+			if err != nil {
+				return err
+			}
+			st.Args.WriteString(ev.Delta)
+			if err := writeStreamEvent("response.function_call_arguments.delta", map[string]any{
+				"type":            "response.function_call_arguments.delta",
+				"sequence_number": nextSeq(),
+				"item_id":         st.ItemID,
+				"output_index":    st.OutputIndex,
+				"delta":           ev.Delta,
+			}); err != nil {
+				return err
+			}
+		case lipapi.EventToolCallFinished:
+			st := toolByCallID[ev.ToolCallID]
+			if st == nil {
+				continue
+			}
+			args := st.Args.String()
+			if err := writeStreamEvent("response.function_call_arguments.done", map[string]any{
+				"type":            "response.function_call_arguments.done",
+				"sequence_number": nextSeq(),
+				"item_id":         st.ItemID,
+				"name":            st.Name,
+				"arguments":       args,
+				"output_index":    st.OutputIndex,
+			}); err != nil {
+				return err
+			}
+			if err := writeStreamEvent("response.output_item.done", map[string]any{
+				"type":            "response.output_item.done",
+				"sequence_number": nextSeq(),
+				"output_index":    st.OutputIndex,
+				"item": map[string]any{
+					"type":      "function_call",
+					"id":        st.ItemID,
+					"call_id":   st.CallID,
+					"name":      st.Name,
+					"arguments": args,
+					"status":    "completed",
+				},
+			}); err != nil {
+				return err
+			}
 		case lipapi.EventResponseFinished:
 			text := fullText.String()
 			if err := writeStreamEvent("response.output_text.done", map[string]any{
@@ -210,26 +322,38 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 
+			out := []any{
+				map[string]any{
+					"type":   "message",
+					"id":     mid,
+					"status": "completed",
+					"role":   "assistant",
+					"content": []any{
+						map[string]any{
+							"type": "output_text",
+							"text": text,
+						},
+					},
+				},
+			}
+			for _, st := range toolOrder {
+				out = append(out, map[string]any{
+					"type":      "function_call",
+					"id":        st.ItemID,
+					"call_id":   st.CallID,
+					"name":      st.Name,
+					"arguments": st.Args.String(),
+					"status":    "completed",
+				})
+			}
+
 			completedResp := map[string]any{
 				"id":         rid,
 				"object":     "response",
 				"created_at": ts,
 				"status":     "completed",
 				"model":      model,
-				"output": []any{
-					map[string]any{
-						"type":   "message",
-						"id":     mid,
-						"status": "completed",
-						"role":   "assistant",
-						"content": []any{
-							map[string]any{
-								"type": "output_text",
-								"text": text,
-							},
-						},
-					},
-				},
+				"output":     out,
 			}
 			if inTok > 0 || outTok > 0 {
 				completedResp["usage"] = map[string]any{
@@ -251,7 +375,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			return nil
 		case lipapi.EventError:
 			return fmt.Errorf("openairesponses stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
-		case lipapi.EventWarning, lipapi.EventReasoningDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+		case lipapi.EventWarning, lipapi.EventReasoningDelta:
 		default:
 		}
 	}
@@ -279,15 +403,23 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		ts = time.Now().Unix()
 	}
 	text := col.Text.String()
-	out := wireOutput{
-		Type:   "message",
-		ID:     mid,
-		Status: "completed",
-		Role:   "assistant",
-		Content: []wireOutPart{{
-			Type: "output_text",
-			Text: text,
-		}},
+	msgOut := map[string]any{
+		"type":    "message",
+		"id":      mid,
+		"status":  "completed",
+		"role":    "assistant",
+		"content": []any{map[string]any{"type": "output_text", "text": text}},
+	}
+	out := []any{msgOut}
+	for _, tc := range col.OrderedToolCalls() {
+		out = append(out, map[string]any{
+			"type":      "function_call",
+			"id":        fcItemID(tc.ID),
+			"call_id":   tc.ID,
+			"name":      tc.Name,
+			"arguments": tc.Arguments,
+			"status":    "completed",
+		})
 	}
 	resp := wireResponse{
 		ID:        rid,
@@ -295,7 +427,7 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		CreatedAt: ts,
 		Status:    "completed",
 		Model:     model,
-		Output:    []wireOutput{out},
+		Output:    out,
 	}
 	if col.InputTokens > 0 || col.OutputTokens > 0 {
 		resp.Usage = &wireUsage{

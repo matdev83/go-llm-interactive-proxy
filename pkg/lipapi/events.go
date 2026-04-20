@@ -77,14 +77,54 @@ func (f *fixedEventStream) Close() error { return nil }
 
 // Collected aggregates a canonical stream for non-streaming responses.
 type Collected struct {
-	Text           strings.Builder
-	Reasoning      strings.Builder
-	ToolArgs       map[string]*strings.Builder // keyed by tool_call_id
+	Text      strings.Builder
+	Reasoning strings.Builder
+	ToolArgs  map[string]*strings.Builder // keyed by tool_call_id
+	// ToolNames maps tool_call_id to the function name from EventToolCallStarted.
+	ToolNames map[string]string
+	// ToolCallOrder is the order tool_call_ids first appear (started or first args delta).
+	ToolCallOrder  []string
 	Warnings       []string
 	InputTokens    int
 	OutputTokens   int
 	TerminalError  *Event
 	FinishReceived bool
+}
+
+func toolCallSeenBefore(order []string, id string) bool {
+	for _, x := range order {
+		if x == id {
+			return true
+		}
+	}
+	return false
+}
+
+// ToolCallSummary is one completed tool invocation aggregated from the stream.
+type ToolCallSummary struct {
+	ID        string
+	Name      string
+	Arguments string
+}
+
+// OrderedToolCalls returns tool calls in first-seen order for stable encoding.
+func (c Collected) OrderedToolCalls() []ToolCallSummary {
+	if len(c.ToolCallOrder) == 0 {
+		return nil
+	}
+	out := make([]ToolCallSummary, 0, len(c.ToolCallOrder))
+	for _, id := range c.ToolCallOrder {
+		name := ""
+		if c.ToolNames != nil {
+			name = c.ToolNames[id]
+		}
+		args := ""
+		if b := c.ToolArgs[id]; b != nil {
+			args = b.String()
+		}
+		out = append(out, ToolCallSummary{ID: id, Name: name, Arguments: args})
+	}
+	return out
 }
 
 // Collect drains a stream until a terminal event or an error.
@@ -94,6 +134,7 @@ func Collect(ctx context.Context, s EventStream) (Collected, error) {
 
 	var out Collected
 	out.ToolArgs = make(map[string]*strings.Builder)
+	out.ToolNames = make(map[string]string)
 
 	var sawResponseStarted bool
 	var sawMessage bool
@@ -158,14 +199,40 @@ func Collect(ctx context.Context, s EventStream) (Collected, error) {
 			out.Text.WriteString(ev.Delta)
 		case EventReasoningDelta:
 			out.Reasoning.WriteString(ev.Delta)
+		case EventToolCallStarted:
+			if strings.TrimSpace(ev.ToolCallID) == "" {
+				return out, fmt.Errorf("%s without tool_call_id", EventToolCallStarted)
+			}
+			id := ev.ToolCallID
+			if !toolCallSeenBefore(out.ToolCallOrder, id) {
+				out.ToolCallOrder = append(out.ToolCallOrder, id)
+			}
+			if strings.TrimSpace(ev.ToolName) != "" {
+				out.ToolNames[id] = ev.ToolName
+			}
 		case EventToolCallArgsDelta:
-			b := out.ToolArgs[ev.ToolCallID]
+			if strings.TrimSpace(ev.ToolCallID) == "" {
+				return out, fmt.Errorf("%s without tool_call_id", EventToolCallArgsDelta)
+			}
+			id := ev.ToolCallID
+			if !toolCallSeenBefore(out.ToolCallOrder, id) {
+				out.ToolCallOrder = append(out.ToolCallOrder, id)
+			}
+			b := out.ToolArgs[id]
 			if b == nil {
 				nb := new(strings.Builder)
-				out.ToolArgs[ev.ToolCallID] = nb
+				out.ToolArgs[id] = nb
 				b = nb
 			}
 			b.WriteString(ev.Delta)
+		case EventToolCallFinished:
+			if strings.TrimSpace(ev.ToolCallID) == "" {
+				return out, fmt.Errorf("%s without tool_call_id", EventToolCallFinished)
+			}
+			id := ev.ToolCallID
+			if !toolCallSeenBefore(out.ToolCallOrder, id) {
+				out.ToolCallOrder = append(out.ToolCallOrder, id)
+			}
 		case EventWarning:
 			out.Warnings = append(out.Warnings, ev.WarningMessage)
 		case EventUsageDelta:
