@@ -1,0 +1,94 @@
+// Package anthropicmessages is a reference backend emulator for the Anthropic Messages API.
+// It serves POST /v1/messages with JSON or SSE bodies compatible with
+// github.com/anthropics/anthropic-sdk-go.
+package anthropicmessages
+
+import (
+	"io"
+	"net/http"
+	"strings"
+)
+
+// Config tunes the emulator handler.
+type Config struct {
+	// AllowMissingAPIKey, if true, skips the x-api-key header check.
+	AllowMissingAPIKey bool
+	// OnRequestBody is invoked with the full request body after a successful route/auth
+	// check and before the response is written.
+	OnRequestBody func(body []byte)
+	// NonStreamJSON overrides the JSON body for non-streaming responses. When empty, a
+	// minimal completed message is returned.
+	NonStreamJSON string
+	// StreamSSE overrides the full SSE payload for streaming responses. When empty, a
+	// minimal message_start plus message_stop stream is returned.
+	StreamSSE string
+}
+
+// NewHandler returns an http.Handler that emulates POST …/v1/messages for the official SDK.
+func NewHandler(cfg Config) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/v1/messages") {
+			http.NotFound(w, r)
+			return
+		}
+		if !cfg.AllowMissingAPIKey {
+			if r.Header.Get("x-api-key") == "" {
+				http.Error(w, "missing api key", http.StatusUnauthorized)
+				return
+			}
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body", http.StatusBadRequest)
+			return
+		}
+		if cfg.OnRequestBody != nil {
+			cfg.OnRequestBody(body)
+		}
+
+		stream := strings.Contains(string(body), `"stream":true`)
+		if stream {
+			writeStream(w, cfg)
+			return
+		}
+		writeJSON(w, cfg)
+	})
+}
+
+func writeJSON(w http.ResponseWriter, cfg Config) {
+	body := cfg.NonStreamJSON
+	if body == "" {
+		body = defaultNonStreamJSON
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
+func writeStream(w http.ResponseWriter, cfg Config) {
+	body := cfg.StreamSSE
+	if body == "" {
+		body = defaultStreamSSE
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
+const defaultNonStreamJSON = `{
+  "id": "msg_refbackend_1",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [{"type":"text","text":"ok"}],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 1, "output_tokens": 1}
+}`
+
+const defaultStreamSSE = "event: message_start\ndata: " +
+	`{"type":"message_start","message":{"id":"msg_refbackend_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: message_stop\ndata: " +
+	`{"type":"message_stop"}` +
+	"\n\n"

@@ -35,6 +35,8 @@ Otherwise follow the normal repo workflow described in the root `AGENTS.md`.
 |  `- archive/
 |- steering/
 |  |- product.md
+|  |- api-standards.md
+|  |- routing-and-orchestration.md
 |  |- structure.md
 |  |- tech.md
 |  `- testing.md
@@ -45,6 +47,10 @@ Otherwise follow the normal repo workflow described in the root `AGENTS.md`.
 ## Steering expectations
 
 Steering files are project memory. They capture patterns and guardrails, not exhaustive lists.
+
+Before changing protocol surfaces (frontend or backend plugins), read `.kiro/steering/api-standards.md` and
+`.kiro/steering/routing-and-orchestration.md` together with `.kiro/steering/structure.md` so translation and
+orchestration rules stay consistent.
 
 In this repository they must stay aligned with these truths:
 - the runtime is a small Go core,

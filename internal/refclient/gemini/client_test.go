@@ -1,0 +1,134 @@
+package gemini_test
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
+	"google.golang.org/genai"
+)
+
+func TestGenerateContent_nonStreaming(t *testing.T) {
+	t.Parallel()
+	const respJSON = `{"candidates":[{"content":{"parts":[{"text":"hello-gemini"}],"role":"model"}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+			return
+		}
+		if !strings.Contains(r.URL.Path, "generateContent") {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if r.Header.Get("x-goog-api-key") == "" {
+			t.Error("expected x-goog-api-key header")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(respJSON))
+	}))
+	t.Cleanup(srv.Close)
+
+	cli, err := gemini.New(context.Background(), gemini.Config{
+		APIKey:     "fake-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cli.GenerateContent(context.Background(), "gemini-2.0-flash", []*genai.Content{
+		genai.NewContentFromText("ping", genai.RoleUser),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Candidates) == 0 || out.Candidates[0].Content == nil {
+		t.Fatalf("candidates: %+v", out.Candidates)
+	}
+	parts := out.Candidates[0].Content.Parts
+	if len(parts) == 0 || parts[0].Text != "hello-gemini" {
+		t.Fatalf("parts: %+v", parts)
+	}
+}
+
+func TestGenerateContent_multimodal_inlineImageAndPDF(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		s := string(b)
+		if !strings.Contains(s, "inlineData") && !strings.Contains(s, "inline_data") {
+			t.Fatalf("expected inline image/pdf payload in body, got: %s", s)
+		}
+		const respJSON = `{"candidates":[{"content":{"parts":[{"text":"ok"}],"role":"model"}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(respJSON))
+	}))
+	t.Cleanup(srv.Close)
+
+	cli, err := gemini.New(context.Background(), gemini.Config{
+		APIKey:     "k",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
+	pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
+	contents := []*genai.Content{{
+		Role: genai.RoleUser,
+		Parts: []*genai.Part{
+			{Text: "describe"},
+			{InlineData: &genai.Blob{MIMEType: "image/png", Data: png}},
+			{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: pdf}},
+		},
+	}}
+	_, err = cli.GenerateContent(context.Background(), "gemini-2.0-flash", contents, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGenerateContentStream_readsChunk(t *testing.T) {
+	t.Parallel()
+	line := `data: {"candidates":[{"content":{"parts":[{"text":"Z"}],"role":"model"}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "streamGenerateContent") {
+			t.Fatalf("path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, line+"\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	cli, err := gemini.New(context.Background(), gemini.Config{
+		APIKey:     "k",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for res, serr := range cli.GenerateContentStream(context.Background(), "gemini-2.0-flash",
+		[]*genai.Content{genai.NewContentFromText("s", genai.RoleUser)}, nil) {
+		if serr != nil {
+			t.Fatal(serr)
+		}
+		for _, c := range res.Candidates {
+			if c.Content != nil {
+				for _, p := range c.Content.Parts {
+					got += p.Text
+				}
+			}
+		}
+	}
+	if got != "Z" {
+		t.Fatalf("stream text: %q", got)
+	}
+}

@@ -34,9 +34,24 @@ edits before `requirements.md` and `design.md` are approved in `spec.json`.
 
 Key locations:
 - Specs: `.kiro/specs/{feature-name}/`
-- Steering: `.kiro/steering/`
+- Steering: `.kiro/steering/` (see index below)
 - Kiro workflow guide: `.kiro/AGENTS.md`
 - Templates and rules: `.kiro/settings/`
+
+### Steering index
+
+Short guide to `.kiro/steering/` (enduring project memory; not spec-specific):
+
+- [`product.md`](.kiro/steering/product.md) — product promise, capability pillars, greenfield priorities, non-goals.
+- [`api-standards.md`](.kiro/steering/api-standards.md) — canonical middle, streaming-first, errors, versioning; frontend/backend compatibility surfaces.
+- [`routing-and-orchestration.md`](.kiro/steering/routing-and-orchestration.md) — core-owned routing, failover, B2BUA pre-output recovery, attempt lineage, hook seams.
+- [`structure.md`](.kiro/steering/structure.md) — repository zones, package map, where to change code by intent.
+- [`tech.md`](.kiro/steering/tech.md) — stack, composition roots, provider SDK policy (SDKs only in backend plugins), concurrency.
+- [`testing.md`](.kiro/steering/testing.md) — TDD philosophy, suite topology, high-value test targets, canonical commands.
+
+### Spec numbering vs requirement numbering
+
+In `.kiro/specs/go-core-reimplementation-v1/`, **task IDs** in `tasks.md` (for example task **10.1** = OpenAI Responses **backend** plugin) are unrelated to **requirement IDs** in `requirements.md` (for example requirement **10.1** = request-part **hooks**). Always use the filename (`tasks.md` vs `requirements.md`) to disambiguate.
 
 ## Project identity
 
@@ -78,8 +93,8 @@ Treat these paths as the default structure unless a spec says otherwise:
 - `pkg/lipapi/` - stable canonical request, event, capability, and error contracts.
 - `pkg/lipsdk/` - stable plugin SDK and registration contracts for plugins outside the repo.
 - `internal/core/` - runtime, orchestration, routing, capability negotiation, stream engine, config, admin.
-- `internal/plugins/frontends/` - official frontend API adapters.
-- `internal/plugins/backends/` - official backend API adapters.
+- `internal/plugins/frontends/` - official frontend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`.
+- `internal/plugins/backends/` - official backend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`.
 - `internal/plugins/features/` - official feature plugins and hook implementations.
 - `internal/infra/` - persistence, clocks, ids, logging helpers, metrics, and environment adapters.
 - `internal/testkit/` - provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
@@ -87,20 +102,29 @@ Treat these paths as the default structure unless a spec says otherwise:
 - `docs/` - architecture notes, operator docs, and migration notes.
 - `.kiro/` - steering and spec artifacts.
 
+### Backend protocol plugins (spec Task 10.x)
+
+When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend work:
+
+- **Emulator-first:** deliver the matching reference backend emulator task **10.0.x** before the corresponding `internal/plugins/backends/*` connector; use it for spec-faithful, deterministic tests (see `tasks.md` section 10 and 10.0).
+- **Gates:** each backend task (10.1, 10.2, …) depends on its **10.0.n** emulator being completed and the spec cross-check recorded.
+- **Tests:** include streaming/event coverage, usage propagation where applicable, and **multimodal** mapping tests per the spec (Requirement 15.8 and Task 10 bullet text).
+- **SDKs:** use official vendor Go SDKs only inside backend plugins (see `.kiro/steering/tech.md`; OpenAI: `openai-go`). Do not import provider SDKs from `internal/core`, `pkg/lipapi`, or `pkg/lipsdk`.
+
 ## Quick start commands
 
-Prefer repo-defined scripts or make targets if they exist. If not, default to these commands:
+Prefer repo-defined scripts or make targets:
 
-- `go test ./...`
-- `go test -race ./...`
+- `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
+- `make test` — quality checks plus `go test -short -parallel=8 ./...`
+- `make test-race` — race scan (best-effort locally when CGO/CC is unavailable; strict in CI)
+- `make qa` — quality checks, unit tests, `golangci-lint` (or `staticcheck`), `govulncheck` (install tools locally)
+- `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
 - `go test -run TestName ./path/to/pkg`
 - `go test -fuzz=Fuzz -run=^$ ./path/to/pkg`
-- `go vet ./...`
-- `staticcheck ./...`
-- `govulncheck ./...`
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
-If the repo adds `golangci-lint` or `make`, use the repo-standard command instead of inventing custom sequences.
+CI runs `.github/workflows/qa.yml` (quality checks, tests, race on Linux, golangci-lint, govulncheck).
 
 ## Go engineering standards
 

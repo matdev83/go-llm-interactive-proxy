@@ -36,6 +36,7 @@
 - Create stable hook surfaces for future advanced features without re-coupling the core
 - Use official SDKs where appropriate
 - Make implementation TDD-first and conformance-driven
+- Carry **multimodal** user and model content through the canonical model and every bundled frontend/backend adapter for the **v1 shared multimodal subset** (at minimum images and documents such as PDFs where each protocol supports them), and prove behavior with multimodal scenarios in reference emulators and the conformance matrix
 
 ### Non-Goals
 
@@ -46,6 +47,7 @@
 - A dynamic runtime plugin loader based on Go’s native `plugin` package
 - Full ACP surface beyond the prompt-turn subset
 - Full persistence and clustering for B2BUA state in v1
+- Every vendor-specific attachment, preview, or niche media option outside the **v1 declared shared multimodal subset** (the exhaustive long tail of multimodal features across providers)
 
 ## Architecture
 
@@ -214,6 +216,12 @@ flowchart LR
 
 9. **Keep packages small**  
    If a package begins to know too many details, split it or move the behavior outward.
+
+10. **Multimodal data is first-class in adapters**  
+   Images, documents (e.g. PDFs), and other modalities in the v1 shared subset are modeled as explicit **canonical parts** in `lipapi` (with media type, inline vs reference, and ordering preserved as required by each protocol). Frontend plugins decode multimodal wire shapes into those parts; backend plugins expand them to provider SDK or HTTP payloads and map multimodal outputs back to canonical events. The core remains modality-agnostic: it routes and streams canonical parts; it does not embed image codecs or PDF parsers. Capability negotiation must include modalities so unsupported combinations fail explicitly (per requirements 2.6–2.7).
+
+11. **Reference emulators must exercise multimodal paths**  
+   Client emulators (task 9.0.x) and backend emulators (task 10.0.x) are not text-only tools: they must support scripted scenarios with at least one image case and one document case per protocol where the official API allows it, so E2E tests can catch regressions in multimodal translation without treating production APIs as the first validator.
 
 ## File Structure Plan
 
@@ -435,9 +443,9 @@ flowchart TD
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
 | 1 | Small core | `lipapi`, `lipsdk`, `lipcore`, `cmd/lipstd` | plugin registry contracts | 1, 2, 3 |
-| 2 | Canonical model | `lipapi`, frontend/backends, capability negotiation | `CanonicalCall`, `CanonicalEvent`, capabilities | 1, 2, 3 |
-| 3 | Frontends | `frontends/*` | frontend contracts | 1, 3 |
-| 4 | Backends | `backends/*` | backend contracts | 1, 2, 3 |
+| 2 | Canonical model | `lipapi`, frontend/backends, capability negotiation | `CanonicalCall`, `CanonicalEvent`, multimodal parts, capabilities | 1, 2, 3 |
+| 3 | Frontends | `frontends/*` | frontend contracts, multimodal decode/encode | 1, 3 |
+| 4 | Backends | `backends/*` | backend contracts, multimodal invoke/map | 1, 2, 3 |
 | 5 | Streaming-first | `lipcore/stream`, `runtime/collector`, backend contracts | `EventStream` | 1, 2, 3 |
 | 6 | Routing/failover | `lipcore/routing` | selector / route plan contracts | 1, 2 |
 | 7 | First-request routing | `lipcore/routing`, `lipcore/b2bua` | weighted session state | 1, 2 |
@@ -448,7 +456,7 @@ flowchart TD
 | 12 | Plugin config/capabilities | `lipsdk/plugin`, `lipcore/config`, `cmd/lipstd` | registration/config contracts | startup |
 | 13 | Diagnostics | `lipcore/diag`, `lipcore/b2bua` | health / attempt read interfaces | 1, 2 |
 | 14 | Idiomatic Go | cross-cutting | `context.Context`, typed errors | all |
-| 15 | TDD/conformance | `internal/testkit`, all packages | contract tests | all |
+| 15 | TDD/conformance | `internal/testkit`, all packages | contract tests, multimodal emulator + matrix coverage | all |
 
 ## Components and Interfaces
 
@@ -456,15 +464,15 @@ flowchart TD
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| Canonical Model | API | Shared semantic surface across protocols | 1, 2, 5 | none | Service, State |
+| Canonical Model | API | Shared semantic surface across protocols (including multimodal parts) | 1, 2, 5 | none | Service, State |
 | Plugin Registry | SDK/runtime | Register bundled plugins explicitly | 1, 12 | `lipsdk` | Service |
 | Capability Negotiator | Core | Prevent unsupported translations | 2, 4, 12 | canonical model, plugin capabilities | Service |
 | Route Planner | Core | Parse selectors and produce attempt plans | 6, 7 | config, session state | Service, State |
 | B2BUA Coordinator | Core | Manage A-leg/B-leg lineage and continuity | 7, 8, 13 | store, routing state | Service, State |
 | Execution Engine | Core | Orchestrate call -> attempts -> events | 5, 6, 8 | planner, B2BUA, backends, hooks | Service |
 | Hook Bus | Core | Execute submit / part / tool hooks | 9, 10, 11 | hooks, validation | Service |
-| Frontend Plugins | Plugin | Protocol decode and encode | 3, 5 | canonical model, runtime facade | API |
-| Backend Plugins | Plugin | Provider invocation and event mapping | 4, 5 | canonical model, provider SDKs | API |
+| Frontend Plugins | Plugin | Protocol decode and encode (including multimodal) | 3, 5 | canonical model, runtime facade | API |
+| Backend Plugins | Plugin | Provider invocation and event mapping (including multimodal) | 4, 5 | canonical model, provider SDKs | API |
 | Diagnostics | Core | Health and attempt diagnostics | 13 | executor, B2BUA | API, State |
 
 ### API / Canonical Layer

@@ -1,0 +1,33 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Local QA / race logs
+.tmp/
+
+# Workspace files
+.idea/
+.vscode/
+
+# Local env/config overrides
+.env
+.env.*
+config/local.*
+
+# Project specific files
+.kiro/
+.kiro-testkit/
+.kiro-testkit-logs/
+.claude/
+.cursor/
+.opencode/

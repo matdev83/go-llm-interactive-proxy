@@ -193,18 +193,58 @@ ACP is important, but it has richer concepts than a plain LLM request/response A
 - https://raw.githubusercontent.com/matdev83/llm-interactive-proxy/dev/src/core/interfaces/tool_call_reactor_orchestrator_interface.py
 - https://github.com/matdev83/llm-interactive-proxy/commits/dev
 
-### Official / primary Go and protocol references
+### Official API specification references (normative docs)
 
-- https://github.com/openai/openai-go
-- https://platform.openai.com/docs/api-reference/responses-streaming
-- https://github.com/anthropics/anthropic-sdk-go
-- https://github.com/googleapis/go-genai
-- https://pkg.go.dev/google.golang.org/genai
-- https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html
-- https://agentclientprotocol.com/protocol/overview
-- https://agentclientprotocol.com/protocol/transports
-- https://agentclientprotocol.com/libraries/community
-- https://pkg.go.dev/plugin
+Primary vendor documentation for the **frontend** and **backend** protocol matrix. Use these for emulator cross-checks and connector compliance; SDK repos (below) are implementation aids, not substitutes for the HTTP/API contracts.
+
+#### OpenAI Responses API (frontend + backend)
+
+- Responses API reference: https://platform.openai.com/docs/api-reference/responses
+- Create response: https://platform.openai.com/docs/api-reference/responses/create
+- Streaming responses: https://platform.openai.com/docs/api-reference/responses-streaming
+- Migration / conceptual guide (Responses vs Chat Completions): https://platform.openai.com/docs/guides/migrate-to-responses
+- **Implementation cross-check (2026-04-20):** Go frontend `internal/plugins/frontends/openairesponses` decode/encode + SSE `response.completed` / `[DONE]` verified against `internal/refclient/openairesponses` (official `openai-go` client) in integration tests.
+- **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/openairesponses` (JSON + SSE for `responses.create`) verified round-trip with `internal/refclient/openairesponses` in `server_test.go`, including multimodal `input_image` / `input_file` request paths and custom JSON response bodies.
+
+#### OpenAI Chat Completions — legacy OpenAI-compatible surface (frontend + backend)
+
+- Chat Completions API reference: https://platform.openai.com/docs/api-reference/chat
+- Create chat completion: https://platform.openai.com/docs/api-reference/chat/create
+- **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/openaichat` (JSON + SSE for `chat/completions`) verified round-trip with `internal/refclient/openaichat` in `server_test.go`, including multimodal `image_url` / `file` content parts and custom JSON response bodies.
+
+#### Anthropic Messages API (frontend + backend)
+
+- Messages API reference: https://docs.anthropic.com/en/api/messages
+- **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/anthropicmessages` (JSON + SSE for `messages` with `x-api-key`) verified round-trip with `internal/refclient/anthropicmessages` in `server_test.go`, including multimodal `image` / `document` content blocks and custom JSON response bodies.
+
+#### Google Gemini `generateContent` / streaming (frontend + backend)
+
+- Gemini API documentation hub: https://ai.google.dev/gemini-api/docs
+- REST method catalog (includes `generateContent`, `streamGenerateContent`, batch, live): https://ai.google.dev/api/all-methods
+- Text generation guide: https://ai.google.dev/gemini-api/docs/text-generation
+
+#### AWS Bedrock — `Converse` / `ConverseStream` (backend)
+
+- `Converse` (API reference): https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+- `ConverseStream` (API reference): https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html
+- Conversation inference (user guide): https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html
+- **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/bedrock` (`POST /model/{modelId}/converse` JSON + `POST /model/{modelId}/converse-stream` as `application/vnd.amazon.eventstream`) verified round-trip with the official `bedrockruntime` AWS SDK for Go v2 in `server_test.go`, including multimodal `image` + `document` (inline bytes) request paths.
+
+#### Agent Client Protocol — ACP subset (backend)
+
+- Protocol overview: https://agentclientprotocol.com/protocol/overview
+- Schema: https://agentclientprotocol.com/protocol/schema
+- Transports (e.g. stdio, HTTP drafts): https://agentclientprotocol.com/protocol/transports
+- Specification source (GitHub): https://github.com/agentclientprotocol/agent-client-protocol
+- Community libraries index: https://agentclientprotocol.com/libraries/community
+- **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/acp` implements JSON-RPC `initialize`, `authenticate`, `session/new`, streaming `session/prompt` (`application/x-ndjson` with `session/update` progress plus terminal result), `session/cancel` (HTTP 204), and rejects `session/load` when `loadSession` is false; `server_test.go` covers resource-style prompt content and cancellation. Wire shapes follow https://agentclientprotocol.com/protocol/prompt-turn and package doc (custom HTTP test transport, not normative stdio).
+
+### Official / primary Go and SDK repositories (non-normative aids)
+
+- OpenAI Go SDK: https://github.com/openai/openai-go
+- Anthropic Go SDK: https://github.com/anthropics/anthropic-sdk-go
+- Google Gen AI Go SDK: https://github.com/googleapis/go-genai — https://pkg.go.dev/google.golang.org/genai
+- Go `plugin` package (not used in v1 per design; listed for boundary clarity only): https://pkg.go.dev/plugin
 
 ## Open questions intentionally left for implementation discovery
 

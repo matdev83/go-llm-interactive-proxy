@@ -1,0 +1,94 @@
+package lipapi
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// ValidationError reports a canonical request invariant violation.
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	if e.Field == "" {
+		return e.Message
+	}
+	return fmt.Sprintf("%s: %s", e.Field, e.Message)
+}
+
+func (e *ValidationError) Unwrap() error { return ErrInvalidCall }
+
+// ErrInvalidCall is the shared root for call validation failures.
+var ErrInvalidCall = errors.New("invalid canonical call")
+
+// RejectError is returned when capability negotiation deterministically rejects
+// a request before any upstream work begins.
+type RejectError struct {
+	Missing []Capability
+	Reason  string
+}
+
+func (e *RejectError) Error() string {
+	if e.Reason != "" {
+		return e.Reason
+	}
+	if len(e.Missing) == 0 {
+		return "capability negotiation rejected request"
+	}
+	names := make([]string, 0, len(e.Missing))
+	for _, c := range e.Missing {
+		names = append(names, string(c))
+	}
+	return fmt.Sprintf("missing required capabilities: %s", strings.Join(names, ", "))
+}
+
+func (e *RejectError) Unwrap() error { return ErrCapabilityReject }
+
+// ErrCapabilityReject is the stable root error for hard capability rejects.
+var ErrCapabilityReject = errors.New("capability reject")
+
+// IsReject reports whether err is or wraps a RejectError.
+func IsReject(err error) bool {
+	var rej *RejectError
+	return errors.As(err, &rej)
+}
+
+// ErrHookMutation is the stable root for hook-produced canonical mutations that fail validation.
+var ErrHookMutation = errors.New("hook mutation invalid")
+
+// HookMutationError reports a part or event rewrite that violated canonical invariants.
+type HookMutationError struct {
+	HookID  string
+	Details string
+	Cause   error
+}
+
+func (e *HookMutationError) Error() string {
+	if e.HookID != "" && e.Details != "" {
+		return "hook " + e.HookID + ": " + e.Details
+	}
+	if e.HookID != "" {
+		return "hook " + e.HookID + ": invalid mutation"
+	}
+	if e.Details != "" {
+		return e.Details
+	}
+	return "invalid hook mutation"
+}
+
+func (e *HookMutationError) Unwrap() error { return e.Cause }
+
+// IsHookMutation reports whether err is or wraps a HookMutationError or ErrHookMutation.
+func IsHookMutation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrHookMutation) {
+		return true
+	}
+	var hm *HookMutationError
+	return errors.As(err, &hm)
+}

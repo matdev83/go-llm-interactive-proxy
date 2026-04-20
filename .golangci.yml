@@ -1,0 +1,30 @@
+run:
+  timeout: 10m
+  tests: false
+
+linters:
+  disable-all: true
+  enable:
+    - staticcheck
+    - govet
+    - ineffassign
+    - misspell
+    - revive
+
+linters-settings:
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: indent-error-flow
+      # Bootstrap scaffold: many packages are placeholders; re-enable when APIs stabilize.
+      - name: exported
+        disabled: true
+      - name: package-comments
+        disabled: true
+
+issues:
+  exclude-use-default: false
