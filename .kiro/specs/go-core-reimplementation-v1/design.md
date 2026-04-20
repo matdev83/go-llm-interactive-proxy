@@ -456,7 +456,7 @@ flowchart TD
 | 12 | Plugin config/capabilities | `lipsdk/plugin`, `lipcore/config`, `cmd/lipstd` | registration/config contracts | startup |
 | 13 | Diagnostics | `lipcore/diag`, `lipcore/b2bua` | health / attempt read interfaces | 1, 2 |
 | 14 | Idiomatic Go | cross-cutting | `context.Context`, typed errors | all |
-| 15 | TDD/conformance | `internal/testkit`, all packages | contract tests, multimodal emulator + matrix coverage | all |
+| 15 | TDD/conformance | `internal/testkit`, `internal/testkit/conformance`, all packages | contract tests, multimodal emulator + matrix coverage, migration fixtures, release gates | all |
 
 ## Components and Interfaces
 
@@ -1017,6 +1017,35 @@ Record at least:
 - tool definitions and basic tool calls
 - usage propagation
 - streaming + collected non-streaming
+
+**Harness architecture** (`internal/testkit/conformance/`):
+
+The conformance harness is a parameterized Go test suite that enumerates every frontend × backend combination. Each cell is driven by a **9.0.x reference client** issuing requests to the proxy and a **10.0.x reference backend emulator** serving responses, ensuring end-to-end wire fidelity without ad-hoc mocks.
+
+Per-cell minimum coverage (Task 12.1, Requirement 15.10):
+1. text prompt round-trip (decode → canonical → encode → emulator decode)
+2. streaming + collected non-streaming verification
+3. protocol-valid error-shape test on recoverable backend failure
+
+Additional rows layered on top:
+- tool-call + usage-propagation rows (Task 12.2, Requirement 15.11)
+- multimodal rows — image and document separately — for every multimodal-capable pair (Task 12.3, Requirement 15.9)
+- Python-repo migration fixtures in `testdata/` (Task 12.4, Requirement 15.13)
+
+The matrix definition is machine-readable so that registering a new frontend or backend automatically generates failing stubs for the new combinations (Requirement 15.12). Cells where the shared subset is empty or degenerate are explicitly justified rather than silently skipped.
+
+**Matrix structure (24 cells):**
+
+|  | OpenAI Responses BE | OpenAI Legacy BE | Anthropic BE | Gemini BE | Bedrock BE | ACP BE |
+|--|---------------------|------------------|--------------|-----------|------------|--------|
+| **OpenAI Responses FE** | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 |
+| **OpenAI Legacy FE** | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 |
+| **Anthropic FE** | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 |
+| **Gemini FE** | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 + 12.3 | 12.1 + 12.2 |
+
+*(ACP column shows 12.1 + 12.2 only as initial assumption; actual multimodal viability is determined per Task 12.3.)*
+
+**Release gates** (Task 12.5): conformance matrix 100 % pass on shared subset, race-detector green on full suite, critical fuzz targets (selector parser, protocol decoders, canonical mutation validators) passing.
 
 ### Fuzz / race / load
 

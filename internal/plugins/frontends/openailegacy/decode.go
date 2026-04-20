@@ -11,7 +11,8 @@ import (
 
 // Extension keys for round-trip metadata on the canonical call.
 const (
-	extModelJSONKey = "openailegacy.model"
+	extModelJSONKey      = "openailegacy.model"
+	extStreamOptsJSONKey = "openailegacy.stream_options"
 )
 
 // DecodeOptions configures decoding of a Chat Completions request.
@@ -37,6 +38,7 @@ type wireCreate struct {
 	TopP              *float64          `json:"top_p"`
 	MaxTokens         *int              `json:"max_tokens"`
 	ParallelToolCalls *bool             `json:"parallel_tool_calls"`
+	StreamOptions     json.RawMessage   `json:"stream_options"`
 }
 
 // DecodeChatRequest maps a Chat Completions JSON body into a canonical call.
@@ -75,6 +77,9 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 		return nil, err
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
+	if len(w.StreamOptions) > 0 && string(w.StreamOptions) != "null" {
+		ext[extStreamOptsJSONKey] = w.StreamOptions
+	}
 
 	call := &lipapi.Call{
 		Route:      lipapi.RouteIntent{Selector: sel},

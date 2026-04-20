@@ -264,17 +264,17 @@
   - _Boundary: testkit / runnable emulator_
   - _Depends: 2_
 
-- [ ] 10.0.7 Security Hardening of Reference remote backend emulators
+- [x] 10.0.7 Security Hardening of Reference remote backend emulators
   - Ensure all remote inference backend emulators created in tasks 10.0.1 to 10.0.6 are protected vs instance creation during runtime of the production code. This is to avoid accidental confusion of components. They should be only used / available to create instances during the test runs.
 
-- [ ] 10.1 (P) Implement the OpenAI Responses backend
+- [x] 10.1 (P) Implement the OpenAI Responses backend
   - Add stub tests for streaming events and usage propagation, including **multimodal** mapping tests.
   - **Gate:** 10.0.1 completed and spec cross-check recorded.
   - _Requirements: 4.1, 4.7, 4.8, 5.1_
   - _Boundary: backends/openairesponses_
   - _Depends: 10.0.1, 7_
 
-- [ ] 10.2 (P) Implement the legacy OpenAI-compatible backend
+- [x] 10.2 (P) Implement the legacy OpenAI-compatible backend
   - Add adapter tests proving canonical mapping and typed error classification, including **multimodal** messages where supported.
   - **Gate:** 10.0.2 completed and spec cross-check recorded.
   - _Requirements: 4.2, 4.7, 4.8, 5.1_
@@ -329,16 +329,63 @@
   - _Depends: 4.3_
 
 - [ ] 12. Build the conformance matrix, migration fixtures, and release gates
-  - Add cross-product tests for bundled frontends and backends on the shared subset, driven by **9.0.x reference clients** against the proxy and **10.0.x reference backends** behind the proxy (not ad-hoc mocks) wherever feasible.
-  - This means all possible combinations of proxy front-end interfaces vs all combinations of back-end connector interfaces must have proper translation layer/service created, example:
-    - Responses API (proxy front-end) <-> Responses API backend
-    - Responses API (proxy front-end) <-> Legacy OpenAI Chat Completions backend
-    - Responses API (proxy front-end) <-> Anthropic Messages API backend
-    - Responses API (proxy front-end) <-> Gemini API backend
-    - Responses API (proxy front-end) <-> ACP Agent Client Protocol pseudo backend
-  - Include **multimodal** matrix rows (at least one viable frontend/backend pair with image + document-style content per Requirement 15.9).
-  - Import or derive Python-repo fixtures/goldens where practical.
-  - Gate readiness on conformance, race, and critical fuzz targets.
-  - _Requirements: 15.2, 15.3, 15.4, 15.5, 15.6, 15.9, 14.6_
-  - _Boundary: internal/testkit, all protocol plugins_
+  - Validate every bundled frontend × backend combination through a parameterized conformance harness driven by **9.0.x reference clients** against the proxy and **10.0.x reference backends** behind the proxy (not ad-hoc mocks).
+  - The full cross-product (4 frontends × 6 backends = 24 combinations) must be enumerated; cells where the shared subset is empty or degenerate shall be explicitly listed and justified rather than silently skipped.
+  - Example rows (all 24 follow this shape):
+    - Responses API (frontend) ↔ Responses API backend
+    - Responses API (frontend) ↔ Legacy OpenAI Chat Completions backend
+    - Responses API (frontend) ↔ Anthropic Messages API backend
+    - Responses API (frontend) ↔ Gemini API backend
+    - Responses API (frontend) ↔ Bedrock Converse backend
+    - Responses API (frontend) ↔ ACP backend
+    - *(analogous rows for OpenAI Legacy, Anthropic, and Gemini frontends × all 6 backends)*
+  - _Requirements: 2.5, 2.6, 2.7, 3.1–3.8, 4.1–4.8, 5.1–5.5, 14.6, 15.2–15.6, 15.9–15.13_
+  - _Boundary: internal/testkit/conformance, testdata/, all protocol plugins_
   - _Depends: 9, 10, 11_
+
+- [ ] 12.0 Build the conformance test harness and matrix definition
+  - Create the parameterized test infrastructure in `internal/testkit/conformance/`.
+  - Define the machine-readable matrix (4 frontends × 6 backends) with per-cell shared-subset metadata and skip/justify annotations.
+  - Add a CI gate that fails if a new frontend or backend is registered without corresponding matrix stubs.
+  - _Requirements: 15.3, 15.10, 15.12_
+  - _Boundary: internal/testkit/conformance_
+  - _Depends: 9, 10, 11_
+
+- [ ] 12.1 Implement text-only conformance matrix cells
+  - For every frontend × backend combination with a non-empty shared text subset, add: text prompt round-trip, streaming plus non-streaming collection, and error-shape test on recoverable failure.
+  - _Requirements: 2.5, 3.1–3.4, 3.5–3.6, 4.1–4.6, 5.1, 5.2, 15.3, 15.10_
+  - _Boundary: internal/testkit/conformance, all protocol plugins_
+  - _Depends: 12.0_
+
+- [ ] 12.2 Implement tool-call and usage-propagation conformance rows
+  - For every combination that supports tools in the shared subset: tool-definition round-trip, basic tool-call round-trip, and usage-propagation assertion. Document exclusions where the shared subset cannot express tool semantics.
+  - _Requirements: 3.5, 4.7, 4.8, 5.1, 15.11_
+  - _Boundary: internal/testkit/conformance, all protocol plugins_
+  - _Depends: 12.1_
+
+- [ ] 12.3 Implement multimodal conformance matrix rows
+  - For every multimodal-capable frontend × multimodal-capable backend pair: image input round-trip and document (PDF) input round-trip, verifying canonical part preservation (no content-type confusion, no silent truncation). Explicitly list pairs where multimodal is not viable with justification.
+  - _Requirements: 2.6, 2.7, 3.7, 3.8, 4.8, 15.9_
+  - _Boundary: internal/testkit/conformance, all protocol plugins_
+  - _Depends: 12.1_
+
+- [ ] 12.4 Derive migration fixtures from the Python repository
+  - Import or derive streaming and non-streaming captures from the Python repo for at minimum the OpenAI Responses protocol pair and at least one additional protocol pair where practical. Add golden files to `testdata/` with documented provenance (source repo commit, endpoint, streaming mode).
+  - _Requirements: 15.5, 15.13_
+  - _Boundary: testdata/, internal/testkit/conformance_
+  - _Depends: 12.1_
+
+- [ ] 12.5 Define and enforce release gates
+  - Document the quantitative release-readiness criteria: conformance matrix pass percentage, race-detector gate, critical fuzz target list (selector parser, protocol decoders, canonical mutation validators), and minimum migration fixture count.
+  - Wire gates into CI so that merging to main requires them to be green.
+  - _Requirements: 15.4, 15.6, 14.6_
+  - _Boundary: CI, internal/testkit_
+  - _Depends: 12.1, 12.2, 12.3, 12.4_
+
+- [ ] 13. Sanity checks
+
+- [ ] 13.1. Each of the front-end connectors has integration tests made by using of the front-end API emulator/client.
+
+- [ ] 13.2. Each of the back-end connectors has integration tests made by using of the remote back-end emulator.
+
+- [ ] 13.3. Each combination of front-end and back-end has integration tests made by using of the client emulator on the client side and remote backend emulator on the backend side.

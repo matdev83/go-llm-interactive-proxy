@@ -13,10 +13,52 @@ type goListPackage struct {
 	Standard   bool
 }
 
+// depRule is a substring match against ImportPath with a dedicated failure line.
+type depRule struct {
+	Substr string
+	ErrMsg string
+}
+
 func TestCorePackagesDoNotDependOnConcretePluginPackages(t *testing.T) {
 	t.Parallel()
 
-	cmd := exec.Command("go", "list", "-deps", "-json", "./internal/core/...")
+	assertDepsExcludeRules(t, []string{"./internal/core/..."}, []depRule{
+		{"/internal/plugins/", "core package dependency leaked to concrete plugin package"},
+		{"/internal/refclient", "core package dependency leaked to reference client emulator package"},
+		{"/internal/refbackend", "core package dependency leaked to reference backend emulator package"},
+	})
+}
+
+// TestProductionPackagesDoNotDependOnReferenceBackendEmulators ensures the
+// reference backend emulator tree is not in the non-test dependency closure
+// of production entrypoints (cmd, plugins, core, pkg, support packages).
+// See task 10.0.7 (go-core-reimplementation-v1).
+func TestProductionPackagesDoNotDependOnReferenceBackendEmulators(t *testing.T) {
+	t.Parallel()
+
+	roots := []string{
+		"./cmd/...",
+		"./internal/plugins/...",
+		"./internal/core/...",
+		"./internal/infra/...",
+		"./internal/qa/...",
+		"./pkg/...",
+	}
+	assertDepsExcludeRules(t, roots, []depRule{
+		{"/internal/refbackend", "production package dependency leaked to reference backend emulator package"},
+	})
+}
+
+// assertDepsExcludeRules runs `go list -deps -test=false -json` on the given
+// patterns and fails if any non-standard package ImportPath matches a rule
+// substring. Test dependencies are excluded so imports from *_test.go files
+// do not affect the graph.
+func assertDepsExcludeRules(t *testing.T, patterns []string, rules []depRule) {
+	t.Helper()
+
+	args := append([]string{"list", "-deps", "-test=false", "-json"}, patterns...)
+
+	cmd := exec.Command("go", args...)
 	cmd.Dir = repoRoot(t)
 
 	output, err := cmd.Output()
@@ -33,15 +75,10 @@ func TestCorePackagesDoNotDependOnConcretePluginPackages(t *testing.T) {
 		if pkg.Standard {
 			continue
 		}
-
-		if strings.Contains(pkg.ImportPath, "/internal/plugins/") {
-			t.Fatalf("core package dependency leaked to concrete plugin package: %s", pkg.ImportPath)
-		}
-		if strings.Contains(pkg.ImportPath, "/internal/refclient") {
-			t.Fatalf("core package dependency leaked to reference client emulator package: %s", pkg.ImportPath)
-		}
-		if strings.Contains(pkg.ImportPath, "/internal/refbackend") {
-			t.Fatalf("core package dependency leaked to reference backend emulator package: %s", pkg.ImportPath)
+		for _, rule := range rules {
+			if strings.Contains(pkg.ImportPath, rule.Substr) {
+				t.Fatalf("%s: %s", rule.ErrMsg, pkg.ImportPath)
+			}
 		}
 	}
 }

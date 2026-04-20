@@ -94,14 +94,8 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	return json.NewEncoder(w).Encode(out)
 }
 
-// WriteStreamSSE drains the canonical stream and emits Anthropic Messages SSE events
-// (collect-then-emit; sufficient for SDK clients that accept message_start … message_stop).
 func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
-	col, err := lipapi.Collect(ctx, es)
-	if err != nil {
-		return err
-	}
-	text := col.Text.String()
+	defer func() { _ = es.Close() }()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
@@ -119,77 +113,112 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return fmt.Errorf("anthropic: ResponseWriter is not a Flusher")
 	}
 
-	startPayload := map[string]any{
-		"type": "message_start",
-		"message": map[string]any{
-			"id":            mid,
-			"type":          "message",
-			"role":          "assistant",
-			"content":       []any{},
-			"model":         model,
-			"stop_reason":   nil,
-			"stop_sequence": nil,
-			"usage": map[string]int{
-				"input_tokens":  col.InputTokens,
-				"output_tokens": 0,
+	var inTok, outTok int
+	var started bool
+
+	flushStart := func() error {
+		if started {
+			return nil
+		}
+		started = true
+		startPayload := map[string]any{
+			"type": "message_start",
+			"message": map[string]any{
+				"id":            mid,
+				"type":          "message",
+				"role":          "assistant",
+				"content":       []any{},
+				"model":         model,
+				"stop_reason":   nil,
+				"stop_sequence": nil,
+				"usage": map[string]int{
+					"input_tokens":  inTok,
+					"output_tokens": 0,
+				},
 			},
-		},
-	}
-	if err := writeSSEEvent(w, fl, "message_start", startPayload); err != nil {
-		return err
-	}
-
-	cbStart := map[string]any{
-		"type":  "content_block_start",
-		"index": 0,
-		"content_block": map[string]any{
-			"type": "text",
-			"text": "",
-		},
-	}
-	if err := writeSSEEvent(w, fl, "content_block_start", cbStart); err != nil {
-		return err
+		}
+		if err := writeSSEEvent(w, fl, "message_start", startPayload); err != nil {
+			return err
+		}
+		cbStart := map[string]any{
+			"type":  "content_block_start",
+			"index": 0,
+			"content_block": map[string]any{
+				"type": "text",
+				"text": "",
+			},
+		}
+		return writeSSEEvent(w, fl, "content_block_start", cbStart)
 	}
 
-	delta := map[string]any{
-		"type":  "content_block_delta",
-		"index": 0,
-		"delta": map[string]any{
-			"type": "text_delta",
-			"text": text,
-		},
+	for {
+		ev, err := es.Recv(ctx)
+		if err == io.EOF {
+			return fmt.Errorf("anthropic: stream ended without response_finished")
+		}
+		if err != nil {
+			return err
+		}
+		switch ev.Kind {
+		case lipapi.EventResponseStarted:
+		case lipapi.EventMessageStarted:
+		case lipapi.EventUsageDelta:
+			inTok += ev.InputTokens
+			outTok += ev.OutputTokens
+		case lipapi.EventTextDelta:
+			if !started {
+				if err := flushStart(); err != nil {
+					return err
+				}
+			}
+			delta := map[string]any{
+				"type":  "content_block_delta",
+				"index": 0,
+				"delta": map[string]any{
+					"type": "text_delta",
+					"text": ev.Delta,
+				},
+			}
+			if err := writeSSEEvent(w, fl, "content_block_delta", delta); err != nil {
+				return err
+			}
+		case lipapi.EventResponseFinished:
+			if !started {
+				if err := flushStart(); err != nil {
+					return err
+				}
+			}
+			cbStop := map[string]any{
+				"type":  "content_block_stop",
+				"index": 0,
+			}
+			if err := writeSSEEvent(w, fl, "content_block_stop", cbStop); err != nil {
+				return err
+			}
+			msgDelta := map[string]any{
+				"type": "message_delta",
+				"delta": map[string]any{
+					"stop_reason":   "end_turn",
+					"stop_sequence": nil,
+				},
+				"usage": map[string]int{
+					"output_tokens": outTok,
+				},
+			}
+			if err := writeSSEEvent(w, fl, "message_delta", msgDelta); err != nil {
+				return err
+			}
+			stopPayload := map[string]any{"type": "message_stop"}
+			if err := writeSSEEvent(w, fl, "message_stop", stopPayload); err != nil {
+				return err
+			}
+			return nil
+		case lipapi.EventError:
+			return fmt.Errorf("anthropic stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
+		case lipapi.EventWarning, lipapi.EventReasoningDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+		default:
+		}
 	}
-	if err := writeSSEEvent(w, fl, "content_block_delta", delta); err != nil {
-		return err
-	}
-
-	cbStop := map[string]any{
-		"type":  "content_block_stop",
-		"index": 0,
-	}
-	if err := writeSSEEvent(w, fl, "content_block_stop", cbStop); err != nil {
-		return err
-	}
-
-	msgDelta := map[string]any{
-		"type": "message_delta",
-		"delta": map[string]any{
-			"stop_reason":   "end_turn",
-			"stop_sequence": nil,
-		},
-		"usage": map[string]int{
-			"output_tokens": col.OutputTokens,
-		},
-	}
-	if err := writeSSEEvent(w, fl, "message_delta", msgDelta); err != nil {
-		return err
-	}
-
-	stopPayload := map[string]any{"type": "message_stop"}
-	if err := writeSSEEvent(w, fl, "message_stop", stopPayload); err != nil {
-		return err
-	}
-	return nil
 }
 
 func writeSSEEvent(w io.Writer, fl http.Flusher, event string, payload map[string]any) error {

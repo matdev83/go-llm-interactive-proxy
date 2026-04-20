@@ -338,4 +338,12 @@ Each acceptance criterion is labeled **`N.M`** (requirement **N**, criterion **M
 
 **15.8.** Reference **backend** emulators shall accept multimodal inputs and emit multimodal outputs (within the same v1 shared subset and protocol limits) so that integration tests can validate frontend adapters, backend connectors, and canonical translation under multimodal load.
 
-**15.9.** The conformance matrix shall include explicit **multimodal** cases in addition to text-only cases, covering at least one representative cross-frontend / cross-backend path where multimodal capability negotiation allows it.
+**15.9.** The conformance matrix shall include explicit **multimodal** cases in addition to text-only cases: at least one multimodal-capable frontend paired with at least one multimodal-capable backend, covering **image** input and **document** input separately. Each multimodal row shall verify canonical part preservation through decode → canonical → encode → emulator decode without content-type confusion or silent truncation. Combinations where the shared subset carries no viable multimodal overlap shall be explicitly listed and justified rather than silently skipped. _(Task 12.3)_
+
+**15.10.** The conformance matrix shall be expressed as a parameterized test harness that enumerates each bundled frontend × bundled backend combination, where each cell runs at minimum: (a) a text prompt round-trip, (b) a streaming plus collected non-streaming verification, and (c) a protocol-valid error-shape test when the backend emulator returns a recoverable failure. Combinations where the shared subset is empty or degenerate shall be explicitly listed and justified rather than silently skipped. _(Task 12.0, Task 12.1)_
+
+**15.11.** Each conformance matrix cell that has a non-empty shared subset shall include at least one tool-definition and basic tool-call round-trip, and at least one usage-propagation assertion, unless the specific frontend/backend combination cannot express that semantic in the shared subset—such exclusions shall be documented. _(Task 12.2)_
+
+**15.12.** The conformance test harness shall live in `internal/testkit/conformance/` (or equivalent) with a machine-readable matrix definition (for example a Go test suite or table) so that adding a new frontend or backend plugin automatically generates failing test stubs for the new combinations. _(Task 12.0)_
+
+**15.13.** The migration fixture set shall include at minimum one streaming capture and one non-streaming capture from the Python repository for the OpenAI Responses protocol pair, and at least one additional protocol pair where practical. Each fixture shall be accompanied by a golden file in `testdata/` with documented provenance. _(Task 12.4)_

@@ -139,4 +139,3 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 		t.Fatalf("usageMetadata got in=%d out=%d", lastIn, lastOut)
 	}
 }
-

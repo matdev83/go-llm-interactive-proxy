@@ -1,0 +1,47 @@
+package openairesponses
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+// Config configures the OpenAI Responses backend connector (official SDK).
+// BaseURL must include the API prefix (e.g. https://api.openai.com/v1).
+type Config struct {
+	BaseURL string
+	APIKey  string
+	// HTTPClient is optional; when nil the SDK default is used.
+	HTTPClient *http.Client
+}
+
+func defaultBackendCaps() lipapi.BackendCaps {
+	return lipapi.NewBackendCaps(
+		lipapi.CapabilityStreaming,
+		lipapi.CapabilityTools,
+		lipapi.CapabilityVision,
+		lipapi.CapabilityDocuments,
+		lipapi.CapabilityStructuredOutputs,
+		lipapi.CapabilityReasoning,
+		lipapi.CapabilityParallelToolCalls,
+	)
+}
+
+// New returns a runtime backend that invokes the OpenAI Responses API using openai-go.
+func New(cfg Config) runtime.Backend {
+	cli := newSDKClient(cfg)
+	return runtime.Backend{
+		Caps: defaultBackendCaps(),
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+			p, err := ParamsForCall(&call, cand)
+			if err != nil {
+				return nil, err
+			}
+			stream := cli.Responses.NewStreaming(ctx, p)
+			return newSDKStream(stream), nil
+		},
+	}
+}

@@ -32,6 +32,7 @@ type wireChatCompletion struct {
 	Created int64            `json:"created"`
 	Model   string           `json:"model"`
 	Choices []wireChatChoice `json:"choices"`
+	Usage   *wireUsageLegacy `json:"usage,omitempty"`
 }
 
 type wireChatChoice struct {
@@ -49,6 +50,12 @@ type wireAssistant struct {
 type wireDelta struct {
 	Role    string `json:"role,omitempty"`
 	Content string `json:"content,omitempty"`
+}
+
+type wireUsageLegacy struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 // WriteErrorJSON writes an OpenAI-shaped JSON error.
@@ -104,14 +111,9 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	return json.NewEncoder(w).Encode(out)
 }
 
-// WriteStreamSSE drains the canonical stream and emits chat.completion.chunk SSE
-// sequences terminated with data: [DONE] (compatible with github.com/openai/openai-go/v3 streaming).
+// WriteStreamSSE emits chat.completion.chunk SSE events incrementally from the canonical stream.
 func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
-	col, err := lipapi.Collect(ctx, es)
-	if err != nil {
-		return err
-	}
-	text := col.Text.String()
+	defer func() { _ = es.Close() }()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
@@ -151,52 +153,78 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	}
 	fl.Flush()
 
-	if text != "" {
-		contChunk := wireChatCompletion{
-			ID:      cid,
-			Object:  "chat.completion.chunk",
-			Created: ts,
-			Model:   model,
-			Choices: []wireChatChoice{{
-				Index:        0,
-				Delta:        &wireDelta{Content: text},
-				FinishReason: nil,
-			}},
+	var inTok, outTok int
+
+	for {
+		ev, err := es.Recv(ctx)
+		if err == io.EOF {
+			return fmt.Errorf("openailegacy: stream ended without response_finished")
 		}
-		b, err := json.Marshal(contChunk)
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-			return err
+		switch ev.Kind {
+		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
+		case lipapi.EventUsageDelta:
+			inTok += ev.InputTokens
+			outTok += ev.OutputTokens
+		case lipapi.EventTextDelta:
+			contChunk := wireChatCompletion{
+				ID:      cid,
+				Object:  "chat.completion.chunk",
+				Created: ts,
+				Model:   model,
+				Choices: []wireChatChoice{{
+					Index:        0,
+					Delta:        &wireDelta{Content: ev.Delta},
+					FinishReason: nil,
+				}},
+			}
+			b, err := json.Marshal(contChunk)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+				return err
+			}
+			fl.Flush()
+		case lipapi.EventResponseFinished:
+			stop := "stop"
+			finalChunk := wireChatCompletion{
+				ID:      cid,
+				Object:  "chat.completion.chunk",
+				Created: ts,
+				Model:   model,
+				Choices: []wireChatChoice{{
+					Index:        0,
+					Delta:        &wireDelta{},
+					FinishReason: &stop,
+				}},
+			}
+			if inTok > 0 || outTok > 0 {
+				finalChunk.Usage = &wireUsageLegacy{
+					PromptTokens:     inTok,
+					CompletionTokens: outTok,
+					TotalTokens:      inTok + outTok,
+				}
+			}
+			b, err := json.Marshal(finalChunk)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+				return err
+			}
+			fl.Flush()
+			if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+				return err
+			}
+			fl.Flush()
+			return nil
+		case lipapi.EventError:
+			return fmt.Errorf("openailegacy stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
+		case lipapi.EventWarning, lipapi.EventReasoningDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+		default:
 		}
-		fl.Flush()
 	}
-
-	stop := "stop"
-	finalChunk := wireChatCompletion{
-		ID:      cid,
-		Object:  "chat.completion.chunk",
-		Created: ts,
-		Model:   model,
-		Choices: []wireChatChoice{{
-			Index:        0,
-			Delta:        &wireDelta{},
-			FinishReason: &stop,
-		}},
-	}
-	b, err := json.Marshal(finalChunk)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-		return err
-	}
-	fl.Flush()
-
-	if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
-		return err
-	}
-	fl.Flush()
-	return nil
 }

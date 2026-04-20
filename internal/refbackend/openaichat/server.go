@@ -48,7 +48,7 @@ func NewHandler(cfg Config) http.Handler {
 
 		stream := strings.Contains(string(body), `"stream":true`)
 		if stream {
-			writeStream(w, cfg)
+			writeStream(w, cfg, body)
 			return
 		}
 		writeJSON(w, cfg)
@@ -65,10 +65,16 @@ func writeJSON(w http.ResponseWriter, cfg Config) {
 	_, _ = w.Write([]byte(body))
 }
 
-func writeStream(w http.ResponseWriter, cfg Config) {
-	body := cfg.StreamSSE
-	if body == "" {
-		body = defaultStreamSSE
+func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
+	if cfg.StreamSSE != "" {
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cfg.StreamSSE))
+		return
+	}
+	body := defaultStreamSSE
+	if strings.Contains(string(requestBody), `"include_usage":true`) {
+		body = streamWithUsageSSE
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -84,4 +90,11 @@ const defaultNonStreamJSON = `{
 }`
 
 const defaultStreamSSE = "data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream-ok\"},\"finish_reason\":null}]}\n\n" +
+	"data: [DONE]\n\n"
+
+// streamWithUsageSSE is returned when the client sets stream_options.include_usage,
+// matching OpenAI's final usage chunk before [DONE].
+const streamWithUsageSSE = "data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream-ok\"},\"finish_reason\":null}]}\n\n" +
+	"data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+	"data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":7,\"total_tokens\":10}}\n\n" +
 	"data: [DONE]\n\n"
