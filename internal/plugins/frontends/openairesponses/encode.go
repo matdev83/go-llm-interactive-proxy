@@ -35,6 +35,12 @@ type wireResponse struct {
 	Status    string       `json:"status"`
 	Model     string       `json:"model"`
 	Output    []wireOutput `json:"output"`
+	Usage     *wireUsage   `json:"usage,omitempty"`
+}
+
+type wireUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
 }
 
 type wireOutput struct {
@@ -283,12 +289,19 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 			Text: text,
 		}},
 	}
-	return wireResponse{
+	resp := wireResponse{
 		ID:        rid,
 		Object:    "response",
 		CreatedAt: ts,
 		Status:    "completed",
 		Model:     model,
 		Output:    []wireOutput{out},
-	}, nil
+	}
+	if col.InputTokens > 0 || col.OutputTokens > 0 {
+		resp.Usage = &wireUsage{
+			InputTokens:  col.InputTokens,
+			OutputTokens: col.OutputTokens,
+		}
+	}
+	return resp, nil
 }

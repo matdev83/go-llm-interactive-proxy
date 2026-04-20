@@ -204,17 +204,20 @@ Primary vendor documentation for the **frontend** and **backend** protocol matri
 - Streaming responses: https://platform.openai.com/docs/api-reference/responses-streaming
 - Migration / conceptual guide (Responses vs Chat Completions): https://platform.openai.com/docs/guides/migrate-to-responses
 - **Implementation cross-check (2026-04-20):** Go frontend `internal/plugins/frontends/openairesponses` decode/encode + SSE `response.completed` / `[DONE]` verified against `internal/refclient/openairesponses` (official `openai-go` client) in integration tests.
+- **Frontend subset vs spec (2026-04-20):** `POST /v1/responses` only; `input` as a string or an array of **`message`-typed items** (other Responses input item types are rejected). `instructions` must be a **JSON string** (array form is rejected). Request `tools` and sampling fields (`temperature`, `top_p`, `max_output_tokens`, `parallel_tool_calls`) decode into `lipapi.Call`; **`tool_choice` is not decoded** (canonical `ToolChoice` stays `auto`). Streaming and non-stream JSON responses emit **text-only** assistant output and include **`usage`** when the canonical stream contains `EventUsageDelta`; canonical **tool-call / reasoning** events are otherwise **not translated** to Responses SSE/JSON shapes yet. Contract tests live under `internal/plugins/frontends/openairesponses/*_test.go`.
 - **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/openairesponses` (JSON + SSE for `responses.create`) verified round-trip with `internal/refclient/openairesponses` in `server_test.go`, including multimodal `input_image` / `input_file` request paths and custom JSON response bodies.
 
 #### OpenAI Chat Completions — legacy OpenAI-compatible surface (frontend + backend)
 
 - Chat Completions API reference: https://platform.openai.com/docs/api-reference/chat
 - Create chat completion: https://platform.openai.com/docs/api-reference/chat/create
+- **Frontend subset vs spec (2026-04-20):** `POST …/chat/completions`; `messages`, `tools`, `tool_choice`, `stream_options`, and sampling options decode into `lipapi.Call` (`stream_options` is preserved under `openailegacy.stream_options` in `Extensions`). **Assistant messages with `tool_calls` or legacy `function_call` are rejected** at decode. Encode path is **text-only** for streaming and non-stream message bodies (canonical tool events are not mapped to `delta.tool_calls`); **`usage`** is included on non-stream and final-stream chunks when the canonical stream reports token deltas. Integration + golden-backed decode tests: `internal/plugins/frontends/openailegacy/*_test.go`.
 - **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/openaichat` (JSON + SSE for `chat/completions`) verified round-trip with `internal/refclient/openaichat` in `server_test.go`, including multimodal `image_url` / `file` content parts and custom JSON response bodies.
 
 #### Anthropic Messages API (frontend + backend)
 
 - Messages API reference: https://docs.anthropic.com/en/api/messages
+- **Frontend subset vs spec (2026-04-20):** `POST …/messages`; `system` (string), `messages`, `tools`, `tool_choice`, `max_tokens`, `stream` decode into `lipapi.Call`. The **`anthropic-version` header is read but not validated or modeled** on the canonical call. Streaming SSE covers **text** content blocks (`message_start`, `content_block_*`, `message_delta`, `message_stop`); canonical **tool-call** stream events are not mapped to Messages SSE yet. Tests: `internal/plugins/frontends/anthropic/*_test.go`.
 - **Backend emulator cross-check (2026-04-20):** Reference provider `internal/refbackend/anthropicmessages` (JSON + SSE for `messages` with `x-api-key`) verified round-trip with `internal/refclient/anthropicmessages` in `server_test.go`, including multimodal `image` / `document` content blocks and custom JSON response bodies.
 
 #### Google Gemini `generateContent` / streaming (frontend + backend)
@@ -222,6 +225,7 @@ Primary vendor documentation for the **frontend** and **backend** protocol matri
 - Gemini API documentation hub: https://ai.google.dev/gemini-api/docs
 - REST method catalog (includes `generateContent`, `streamGenerateContent`, batch, live): https://ai.google.dev/api/all-methods
 - Text generation guide: https://ai.google.dev/gemini-api/docs/text-generation
+- **Frontend subset vs spec (2026-04-20):** Google AI style paths `…/models/{model}:generateContent` and `…:streamGenerateContent` (see `internal/plugins/frontends/gemini/path.go`); request body `contents`, `systemInstruction`, `generationConfig`, `tools` / `toolConfig` decode into `lipapi.Call`. Stream encoding emits **candidate text chunks** and optional trailing **`usageMetadata`** from accumulated `EventUsageDelta`; **tool-call** canonical events are not mapped to Gemini tool fields on output yet. Tests: `internal/plugins/frontends/gemini/*_test.go`.
 
 #### AWS Bedrock — `Converse` / `ConverseStream` (backend)
 

@@ -146,3 +146,98 @@ func TestDecodeMessage_multimodal(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDecodeMessage_toolsAndToolChoice(t *testing.T) {
+	t.Parallel()
+	t.Run("tools_only_auto_choice", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"x"}],
+  "tools": [
+    {"name": "get_time", "description": "Clock", "input_schema": {"type": "object", "properties": {}}}
+  ]
+}`)
+		d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+			RouteSelector: "stub:claude-3-5-haiku-20241022",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Call.Tools) != 1 || d.Call.Tools[0].Name != "get_time" || d.Call.Tools[0].Description != "Clock" {
+			t.Fatalf("tools %+v", d.Call.Tools)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAuto {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("tool_choice_none_without_tools", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"x"}],
+  "tool_choice": {"type": "none"}
+}`)
+		d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+			RouteSelector: "stub:claude-3-5-haiku-20241022",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceNone {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("tool_choice_any_with_tools", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"x"}],
+  "tool_choice": "any",
+  "tools": [{"name": "alpha", "input_schema": {"type": "object"}}]
+}`)
+		d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+			RouteSelector: "stub:claude-3-5-haiku-20241022",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAny {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("tool_choice_tool_by_name", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"x"}],
+  "tool_choice": {"type": "tool", "name": "pick_one"},
+  "tools": [{"name": "pick_one", "input_schema": {"type": "object"}}]
+}`)
+		d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+			RouteSelector: "stub:claude-3-5-haiku-20241022",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceRequired || d.Call.ToolChoice.Name != "pick_one" {
+			t.Fatalf("choice %+v", d.Call.ToolChoice)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}

@@ -43,6 +43,43 @@ func TestWriteNonStreamJSON_matchesGolden(t *testing.T) {
 	assertJSONEqual(t, want, rec.Body.Bytes())
 }
 
+func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 0},
+		{Kind: lipapi.EventTextDelta, Delta: "x"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 0, OutputTokens: 1},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openailegacy.EncodeOptions{CompletionID: "chatcmpl_usage_ns", CreatedAt: 1715620000}
+	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Usage *struct {
+			Prompt     int `json:"prompt_tokens"`
+			Completion int `json:"completion_tokens"`
+			Total      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Usage == nil || v.Usage.Prompt != 4 || v.Usage.Completion != 1 || v.Usage.Total != 5 {
+		t.Fatalf("usage %+v", v.Usage)
+	}
+}
+
 func TestWriteErrorJSON_shape(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()

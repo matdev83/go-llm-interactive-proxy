@@ -179,3 +179,34 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 }
+
+func TestIntegration_capabilityReject_returns400(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "nope", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
+	cli, err := refcli.New(context.Background(), refcli.Config{
+		BaseURL:    srv.URL,
+		APIKey:     "fake-key",
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := []*genai.Content{{
+		Role: genai.RoleUser,
+		Parts: []*genai.Part{
+			{Text: "x"},
+			{InlineData: &genai.Blob{MIMEType: "image/png", Data: png}},
+		},
+	}}
+	_, err = cli.GenerateContent(context.Background(), "gemini-2.0-flash", contents, nil)
+	if err == nil {
+		t.Fatal("expected error from capability reject")
+	}
+}

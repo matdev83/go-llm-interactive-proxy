@@ -106,6 +106,13 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 			FinishReason: &stop,
 		}},
 	}
+	if col.InputTokens > 0 || col.OutputTokens > 0 {
+		out.Usage = &wireUsageLegacy{
+			PromptTokens:     col.InputTokens,
+			CompletionTokens: col.OutputTokens,
+			TotalTokens:      col.InputTokens + col.OutputTokens,
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	return json.NewEncoder(w).Encode(out)

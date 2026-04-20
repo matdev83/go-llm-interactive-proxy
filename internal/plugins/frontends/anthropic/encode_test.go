@@ -75,6 +75,42 @@ func TestWriteNonStreamJSON_shape(t *testing.T) {
 	}
 }
 
+func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 11, OutputTokens: 0},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 0, OutputTokens: 5},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	opts := anthropic.EncodeOptions{MessageID: "msg_usage_ut"}
+	if err := anthropic.WriteNonStreamJSON(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Usage.InputTokens != 11 || v.Usage.OutputTokens != 5 {
+		t.Fatalf("usage %+v", v.Usage)
+	}
+}
+
 func TestWriteErrorJSON_shape(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()

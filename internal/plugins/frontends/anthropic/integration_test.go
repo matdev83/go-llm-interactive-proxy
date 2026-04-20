@@ -156,3 +156,30 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))
 	}
 }
+
+func TestIntegration_capabilityReject_returns400(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "nope", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:claude-3-5-haiku-20241022"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/messages", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
+	img := anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
+		Data:      base64.StdEncoding.EncodeToString(png),
+		MediaType: anthropic.Base64ImageSourceMediaTypeImagePNG,
+	})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	_, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
+		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
+		MaxTokens: 64,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock("x"), img),
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from capability reject")
+	}
+}

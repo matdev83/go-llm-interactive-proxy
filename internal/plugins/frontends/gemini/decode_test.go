@@ -179,3 +179,76 @@ func TestDecodeGenerateContent_modelRole(t *testing.T) {
 		t.Fatalf("role %q", d.Call.Messages[0].Role)
 	}
 }
+
+func TestDecodeGenerateContent_toolsAndToolConfig(t *testing.T) {
+	t.Parallel()
+	t.Run("tools_and_auto_tool_config", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "contents": [{"role":"user","parts":[{"text":"x"}]}],
+  "tools": [{
+    "functionDeclarations": [
+      {"name": "todo_add", "description": "Add item", "parameters": {"type": "object"}}
+    ]
+  }],
+  "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}}
+}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Call.Tools) != 1 || d.Call.Tools[0].Name != "todo_add" {
+			t.Fatalf("tools %+v", d.Call.Tools)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAuto {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("tool_config_any", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "contents": [{"role":"user","parts":[{"text":"x"}]}],
+  "tools": [{"functionDeclarations": [{"name": "a", "parameters": {}}]}],
+  "toolConfig": {"functionCallingConfig": {"mode": "ANY"}}
+}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAny {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("tool_config_none_without_tools", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "contents": [{"role":"user","parts":[{"text":"x"}]}],
+  "toolConfig": {"functionCallingConfig": {"mode": "NONE"}}
+}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceNone {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}

@@ -129,3 +129,59 @@ func TestDecodeCreate_unsupportedInputItemType(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestDecodeCreate_toolsSamplingAndParallelToolCalls(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "temperature": 0.25,
+  "top_p": 0.9,
+  "max_output_tokens": 512,
+  "parallel_tool_calls": true,
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Weather lookup",
+        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}}
+      }
+    }
+  ],
+  "input": [{"type": "message", "role": "user", "content": "ping"}]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAuto {
+		t.Fatalf("tool choice mode %q", d.Call.ToolChoice.Mode)
+	}
+	if len(d.Call.Tools) != 1 || d.Call.Tools[0].Name != "get_weather" {
+		t.Fatalf("tools: %+v", d.Call.Tools)
+	}
+	if d.Call.Tools[0].Description != "Weather lookup" {
+		t.Fatal(d.Call.Tools[0].Description)
+	}
+	if string(d.Call.Tools[0].Parameters) == "" {
+		t.Fatal("expected parameters JSON")
+	}
+	if d.Call.Options.Temperature == nil || *d.Call.Options.Temperature != 0.25 {
+		t.Fatalf("temperature %+v", d.Call.Options.Temperature)
+	}
+	if d.Call.Options.TopP == nil || *d.Call.Options.TopP != 0.9 {
+		t.Fatalf("top_p %+v", d.Call.Options.TopP)
+	}
+	if d.Call.Options.MaxOutputTokens == nil || *d.Call.Options.MaxOutputTokens != 512 {
+		t.Fatalf("max_output_tokens %+v", d.Call.Options.MaxOutputTokens)
+	}
+	if d.Call.Options.ParallelToolCalls == nil || !*d.Call.Options.ParallelToolCalls {
+		t.Fatalf("parallel_tool_calls %+v", d.Call.Options.ParallelToolCalls)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

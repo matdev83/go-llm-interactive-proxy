@@ -118,3 +118,97 @@ func TestDecodeChat_invalidJSON(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestDecodeChat_toolsAndToolChoice(t *testing.T) {
+	t.Parallel()
+	t.Run("auto", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"user","content":"x"}],
+  "tool_choice": "auto",
+  "tools": [{"type":"function","function":{"name":"fn_a","description":"d","parameters":{"type":"object"}}}]
+}`)
+		d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAuto || len(d.Call.Tools) != 1 || d.Call.Tools[0].Name != "fn_a" {
+			t.Fatalf("got tools=%+v choice=%+v", d.Call.Tools, d.Call.ToolChoice)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("none_without_tools", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"x"}],"tool_choice":"none"}`)
+		d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceNone {
+			t.Fatal(d.Call.ToolChoice.Mode)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("function_by_name", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"user","content":"x"}],
+  "tool_choice": {"type":"function","function":{"name":"pick"}},
+  "tools": [{"type":"function","function":{"name":"pick","parameters":{}}}]
+}`)
+		d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceRequired || d.Call.ToolChoice.Name != "pick" {
+			t.Fatalf("choice %+v", d.Call.ToolChoice)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("parallel_tool_calls", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"user","content":"x"}],
+  "parallel_tool_calls": false,
+  "tools": [{"type":"function","function":{"name":"t","parameters":{}}}]
+}`)
+		d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.Options.ParallelToolCalls == nil || *d.Call.Options.ParallelToolCalls {
+			t.Fatalf("parallel %+v", d.Call.Options.ParallelToolCalls)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestDecodeChat_assistantToolCallsRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{
+    "role": "assistant",
+    "content": null,
+    "tool_calls": [{"id":"call_1","type":"function","function":{"name":"x","arguments":"{}"}}]
+  }]
+}`)
+	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "tool_calls") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}

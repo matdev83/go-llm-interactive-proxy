@@ -171,3 +171,38 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))
 	}
 }
+
+func TestIntegration_capabilityReject_returns400(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "nope", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/responses", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
+	imgB64 := base64.StdEncoding.EncodeToString(png)
+	dataImageURL := "data:image/png;base64," + imgB64
+	img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+	img.OfInputImage.ImageURL = openai.String(dataImageURL)
+
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test"})
+	_, err := cli.CreateResponse(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("gpt-4o-mini"),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfInputMessage(
+					responses.ResponseInputMessageContentListParam{
+						responses.ResponseInputContentParamOfInputText("x"),
+						img,
+					},
+					"user",
+				),
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from capability reject")
+	}
+}
