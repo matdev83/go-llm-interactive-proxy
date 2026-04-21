@@ -17,7 +17,7 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 | Auth | API key bearer | `Authorization: Bearer` required | `server_test.go` |
 | Routing | POST path suffix `/responses` | wrong path → 404 | `server_test.go` |
 | Multimodal — inbound | Image / file inputs | `input_image` + `input_file` in request JSON | `server_test.go` |
-| Multimodal — outbound | Assistant text only in v1 evidence | configurable `NonStreamJSON` body parsed by SDK; no image/file assistant-output contract claimed | `server_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal — outbound | Assistant message may include `input_image` / `input_file` output items | `NonStreamJSON` / scripted SSE + SDK `RawJSON` on content blocks; `TestHandler_assistantOutput_imageAndFileInMessage_refclientParse` | `server_test.go` |
 
 ### Connector stream mapping (OpenAI Responses backend plugin)
 
@@ -27,6 +27,7 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 | v1 subset — ignored stream types | Responses streaming (`response.in_progress`, `response.queued`, …) | `TestHandleUnion_nonMappedEventTypes_emitNoTextOrToolDeltas` | `internal/plugins/backends/openairesponses/map_events_internal_test.go` |
 | Streaming — function tool calls | `response.output_item.added` + `response.function_call_arguments.delta` / `.done` | `TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents` | `internal/plugins/backends/openairesponses/map_events_internal_test.go` |
 | E2E — tool stream vs refbackend | Scripted SSE + `httptest` | `TestIntegration_refbackendToolCallStream` | `internal/plugins/backends/openairesponses/integration_test.go` |
+| E2E — assistant media on `response.completed` stream | Completed response `output` message with `input_image` + `input_file` | `TestIntegration_refbackendStreamAssistantMediaCollected` | `internal/plugins/backends/openairesponses/integration_test.go` |
 
 ## 10.0.2 — Legacy OpenAI Chat Completions (`internal/refbackend/openaichat`)
 
@@ -37,7 +38,7 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 | Auth | API key bearer | `Authorization: Bearer` required | `server_test.go` |
 | Routing | POST `…/chat/completions` | wrong path → 404 | `server_test.go` |
 | Multimodal — inbound | Image URL + file parts | `image_url` + `"type":"file"` in request JSON | `server_test.go` |
-| Multimodal — outbound | Assistant text only in v1 evidence | configurable `NonStreamJSON` body parsed by SDK; no image/file assistant-output contract claimed | `server_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal — outbound | Non-stream assistant `content` may include image/file parts (proxy encoders); streaming deltas remain text-centric on the wire | `design.md` row OAC-MM-OUT; emulator `NonStreamJSON` is the hook for scripted assistant payloads | `server_test.go` |
 | Streaming — `delta.tool_calls` | Chat streaming (tool_calls + `finish_reason`) | custom `Config.StreamSSE` consumed by `openai-go` stream + `internal/plugins/backends/openailegacy` `TestIntegration_refbackendToolCallsStream` | `openailegacy/integration_test.go` |
 | Auth — missing key | Bearer required | `TestIntegration_refbackendMissingAPIKeyOpenFails` (401 on collect) | `openailegacy/integration_test.go` |
 
@@ -56,7 +57,7 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 | Auth | API key | `x-api-key` required | `server_test.go` |
 | Routing | POST `…/v1/messages` | wrong path → 404 | `server_test.go` |
 | Multimodal — inbound | Image + document blocks | `"type":"image"` + `"type":"document"` in request JSON | `server_test.go` |
-| Multimodal — outbound | Assistant text only in v1 evidence | configurable `NonStreamJSON` body parsed by SDK; no image/document assistant-output contract claimed | `server_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal — outbound | Default emulator JSON is assistant text; custom `NonStreamJSON` can carry richer blocks | Same pattern as OpenAI Responses row; connector maps streaming assistant `image` / `document` starts | `server_test.go`, `../llm-api-parity/design.md` ANT-MM-OUT |
 | Streaming — `tool_use` / `input_json_delta` | Messages streaming (tool block) | custom `Config.StreamSSE` + `internal/plugins/backends/anthropic` `TestIntegration_refbackendToolUseStream` | `anthropic/integration_test.go` |
 | Auth — missing key | `x-api-key` required | `TestIntegration_refbackendMissingAPIKeyOpenFails` (401 on collect) | `anthropic/integration_test.go` |
 
@@ -66,6 +67,7 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 |------|---------------------|--------------------|-----------|
 | `input_json_delta` / `tool_use` | Messages streaming | JSON-unmarshaled `MessageStreamEventUnion` fixtures | `internal/plugins/backends/anthropic/map_events_internal_test.go` |
 | `thinking_delta` | Extended thinking stream | JSON-unmarshaled delta fixture | `internal/plugins/backends/anthropic/map_events_internal_test.go` |
+| Assistant `image` / `document` `content_block_start` | Messages streaming (URL / base64 sources) | `TestHandleEvent_assistantImageURLContentBlockStart`, `TestHandleEvent_assistantDocumentURLContentBlockStart` | `internal/plugins/backends/anthropic/map_events_internal_test.go` |
 
 ## 10.0.4 — Gemini generateContent (`internal/refbackend/gemini`)
 
@@ -89,7 +91,7 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 | Auth | SigV4 | `Authorization` required unless `AllowMissingAuthorization` | `server_test.go` |
 | Routing | POST `/model/{modelId}/converse` and `/converse-stream` | wrong path → 404 | `server_test.go` |
 | Multimodal — inbound | Image + document blocks | request JSON contains image bytes + document bytes | `server_test.go` |
-| Multimodal — outbound | Assistant text only in v1 evidence | configurable `ConverseJSON` / default stream frames; no image/document assistant-output contract claimed | `server_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal — outbound | Assistant text in default stream frames; image/document assistant-output → canonical ref events not mapped in Bedrock connector v1 | `design.md` row BRK-MM covers **inbound** user multimodal; emulator + connector tests focus text + `toolUse` stream | `server_test.go`, `bedrock/integration_test.go` |
 | Backend connector | Same wire vs emulator | `internal/plugins/backends/bedrock` `integration_test.go` + `invoke_test.go` | connector package |
 | ConverseStream — `toolUse` block | `contentBlockStart` / `contentBlockDelta` (`toolUse.input`) / `contentBlockStop` | `TestIntegration_refbackendToolUseStream` | `bedrock/integration_test.go` |
 
@@ -116,5 +118,6 @@ Same as reference clients: `testdata/refclient/tiny.png`, `testdata/refclient/mi
 
 | Area | Normative reference | Exercised in tests | Test file |
 |------|---------------------|--------------------|-----------|
+| Candidate `Part` — `FileData` URI | Model file / image refs on the wire | `TestHandleResponse_fileDataURI_emitsAssistantImageRef`, `TestHandleResponse_fileDataURI_nonImage_emitsAssistantFileRef` | `internal/plugins/backends/gemini/map_events_internal_test.go` |
 | Candidate `Part` — `thought` | Reasoning / thought summaries (API-dependent) | `Part{Thought: true}` → `EventReasoningDelta` | `internal/plugins/backends/gemini/map_events_internal_test.go` |
 | Candidate `Part` — `functionCall` | Tool invocation | `FunctionCall` with `Args` → tool canonical events | `internal/plugins/backends/gemini/map_events_internal_test.go` |

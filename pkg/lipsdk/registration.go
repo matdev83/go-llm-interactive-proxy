@@ -3,6 +3,7 @@ package lipsdk
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var ErrDuplicateRegistration = errors.New("duplicate plugin registration")
@@ -10,7 +11,12 @@ var ErrDuplicateRegistration = errors.New("duplicate plugin registration")
 // Requirement defines a mandatory plugin that must exist in a bundle.
 type Requirement struct {
 	Kind PluginKind
-	ID   string
+	// ID is the mandatory instance id for frontends and features (matches Registration.ID).
+	// For backends, ID is the required registry factory key unless RegistryFactoryID is set.
+	ID string
+	// RegistryFactoryID selects the bundled factory when it differs from ID.
+	// Empty means the factory key equals ID for ValidateBundledFactories and backend mandatory checks.
+	RegistryFactoryID string
 }
 
 // DuplicateRegistrationError reports a conflicting plugin identity.
@@ -47,6 +53,13 @@ func (e *DisabledMandatoryPluginError) Error() string {
 	return fmt.Sprintf("mandatory plugin %s/%s is present but disabled", e.Kind, e.ID)
 }
 
+func requirementRegistryFactoryKey(r Requirement) string {
+	if s := strings.TrimSpace(r.RegistryFactoryID); s != "" {
+		return s
+	}
+	return strings.TrimSpace(r.ID)
+}
+
 // ValidateRegistrations checks duplicate IDs inside a kind and verifies mandatory entries.
 // For each mandatory requirement, a matching registration must exist; if Kind is Frontend
 // or Feature, Enabled must be true (reference config may list backends with enabled: false).
@@ -75,6 +88,25 @@ func ValidateRegistrations(registrations []Registration, required []Requirement)
 	}
 
 	for _, requirement := range required {
+		if requirement.Kind == PluginKindBackend {
+			key := requirementRegistryFactoryKey(requirement)
+			var reg *Registration
+			for i := range registrations {
+				r := &registrations[i]
+				if r.Kind != PluginKindBackend {
+					continue
+				}
+				if r.RegistryFactoryKey() == key {
+					reg = r
+					break
+				}
+			}
+			if reg == nil {
+				return &MissingRequirementError{Kind: requirement.Kind, ID: requirement.ID}
+			}
+			continue
+		}
+
 		ids := byKindID[requirement.Kind]
 		reg, ok := ids[requirement.ID]
 		if !ok {

@@ -6,4 +6,8 @@
 // OpenAI Chat and OpenAI Responses frontends implement the supported shapes; other
 // frontends may ignore or normalize unsupported tool rows. See frontend package docs
 // next to each adapter for the exact supported subset per protocol.
+//
+// Streaming assistant multimodal references: EventAssistantImageRef and EventAssistantFileRef
+// carry URL- or id-style refs (see Event fields) and aggregate into Collected.AssistantMedia.
+// Parity matrices: .kiro/specs/llm-api-parity/design.md.
 package lipapi

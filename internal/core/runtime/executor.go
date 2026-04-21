@@ -323,6 +323,9 @@ func (e *Executor) recordAttempt(ctx context.Context, aLegID string, bleg b2bua.
 		Outcome:        out,
 		Reason:         reason,
 	}
+	if sink, ok := e.CandidateHealth.(policy.RoutingAttemptOutcomeSink); ok {
+		sink.OnRoutingAttemptOutcome(cand.Key, out)
+	}
 	// Store mutations must not be skipped when the request context is already canceled.
 	return e.Store.RecordAttempt(context.WithoutCancel(ctx), rec)
 }

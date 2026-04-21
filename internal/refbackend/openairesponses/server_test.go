@@ -168,6 +168,64 @@ func TestHandler_multimodalRequest_customMultimodalResponseJSON(t *testing.T) {
 	}
 }
 
+func TestHandler_assistantOutput_imageAndFileInMessage_refclientParse(t *testing.T) {
+	t.Parallel()
+	const mmOut = `{
+  "id": "resp_asst_mm",
+  "object": "response",
+  "created_at": 1715620000,
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [
+    {
+      "type": "message",
+      "id": "m_asst",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {"type": "output_text", "text": "here"},
+        {"type": "input_image", "image_url": "https://cdn.example.com/ref-out.png"},
+        {"type": "input_file", "file_id": "file-ref-1"}
+      ]
+    }
+  ]
+}`
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		NonStreamJSON: mmOut,
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test"})
+	res, err := cli.CreateResponse(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("gpt-4o-mini"),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage("x", responses.EasyInputMessageRoleUser),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Output) != 1 || res.Output[0].Type != "message" {
+		t.Fatalf("output: %+v", res.Output)
+	}
+	msg := res.Output[0].AsMessage()
+	if len(msg.Content) < 3 {
+		t.Fatalf("content blocks: %d", len(msg.Content))
+	}
+	if msg.Content[0].Type != "output_text" || msg.Content[0].Text != "here" {
+		t.Fatalf("text block: %+v", msg.Content[0])
+	}
+	// Wire-level assistant media: SDK preserves JSON on union; backend maps via RawJSON.
+	if msg.Content[1].RawJSON() == "" || !strings.Contains(msg.Content[1].RawJSON(), "input_image") {
+		t.Fatalf("image content raw: %q", msg.Content[1].RawJSON())
+	}
+	if msg.Content[2].RawJSON() == "" || !strings.Contains(msg.Content[2].RawJSON(), "file-ref-1") {
+		t.Fatalf("file content raw: %q", msg.Content[2].RawJSON())
+	}
+}
+
 func TestHandler_wrongPath_404(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))

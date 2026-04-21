@@ -7,7 +7,8 @@ package lipapi
 // user-visible deltas and tool argument streaming do.
 func OutputCommitted(ev Event) bool {
 	switch ev.Kind {
-	case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta:
+	case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta,
+		EventAssistantImageRef, EventAssistantFileRef:
 		return true
 	default:
 		return false

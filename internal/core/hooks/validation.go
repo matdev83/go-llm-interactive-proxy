@@ -26,6 +26,7 @@ func ValidateEventAfterResponseHook(hookID string, ev *lipapi.Event) error {
 	case lipapi.EventResponseStarted, lipapi.EventMessageStarted,
 		lipapi.EventTextDelta, lipapi.EventReasoningDelta,
 		lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished,
+		lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef,
 		lipapi.EventUsageDelta, lipapi.EventWarning, lipapi.EventError, lipapi.EventResponseFinished:
 	default:
 		return &lipapi.HookMutationError{HookID: hookID, Details: fmt.Sprintf("unknown event kind %q", ev.Kind)}

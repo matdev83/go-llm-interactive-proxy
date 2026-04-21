@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"testing"
 
@@ -56,4 +57,31 @@ func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 		t.Fatalf("expected failover to healthy candidate, opened %q", opened)
 	}
 	_, _ = lipapi.Collect(context.Background(), s)
+}
+
+func TestExecutor_allCandidatesUnhealthy_returnsErrNoEligibleCandidate(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	ex := &runtime.Executor{
+		Store:           st,
+		Bus:             hooks.New(hooks.Config{}),
+		Rand:            rand.New(rand.NewSource(11)),
+		CandidateHealth: policy.StaticUnhealthy{"arm1:m": {}, "arm2:m": {}},
+		Backends:        map[string]runtime.Backend{},
+	}
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ContinuityKey: "no-eligible"},
+		Route:   lipapi.RouteIntent{Selector: "arm1:m|arm2:m"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, err := ex.Execute(context.Background(), call)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, routing.ErrNoEligibleCandidate) {
+		t.Fatalf("want ErrNoEligibleCandidate, got %v", err)
+	}
 }

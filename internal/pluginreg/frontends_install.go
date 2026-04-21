@@ -11,13 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func installFrontends() {
-	RegisterFrontend(frontopenairesponses.ID, mountOpenAIResponses)
-	RegisterFrontend(frontopenailegacy.ID, mountOpenAILegacy)
-	RegisterFrontend(frontanthropic.ID, mountAnthropic)
-	RegisterFrontend(frontgemini.ID, mountGemini)
-}
-
 func mountOpenAIResponses(mux *http.ServeMux, _ yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxBody int64) error {
 	mux.Handle("/v1/responses", &frontopenairesponses.Handler{
 		Exec:                 exec,

@@ -37,12 +37,19 @@ type wireMessage struct {
 	Usage        wireUsage          `json:"usage"`
 }
 
+type wireImageSource struct {
+	Type      string `json:"type"`
+	URL       string `json:"url"`
+	MediaType string `json:"media_type,omitempty"`
+}
+
 type wireContentBlock struct {
-	Type  string          `json:"type"`
-	Text  string          `json:"text,omitempty"`
-	ID    string          `json:"id,omitempty"`
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
+	Type   string           `json:"type"`
+	Text   string           `json:"text,omitempty"`
+	ID     string           `json:"id,omitempty"`
+	Name   string           `json:"name,omitempty"`
+	Input  json.RawMessage  `json:"input,omitempty"`
+	Source *wireImageSource `json:"source,omitempty"`
 }
 
 type wireUsage struct {
@@ -91,6 +98,15 @@ type anthropicSSEContentBlockStartTool struct {
 	Type         string                `json:"type"`
 	Index        int                   `json:"index"`
 	ContentBlock anthropicSSEToolBlock `json:"content_block"`
+}
+
+type anthropicSSEContentBlockStartMedia struct {
+	Type         string `json:"type"`
+	Index        int    `json:"index"`
+	ContentBlock struct {
+		Type   string           `json:"type"`
+		Source *wireImageSource `json:"source"`
+	} `json:"content_block"`
 }
 
 type anthropicSSEToolBlock struct {
@@ -206,6 +222,23 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 			Name:  tc.Name,
 			Input: input,
 		})
+	}
+	for _, p := range col.AssistantMedia {
+		switch p.Kind {
+		case lipapi.PartImageRef:
+			src := &wireImageSource{Type: "url", URL: p.ImageRef}
+			if strings.TrimSpace(p.ImageMIME) != "" {
+				src.MediaType = p.ImageMIME
+			}
+			blocks = append(blocks, wireContentBlock{Type: "image", Source: src})
+		case lipapi.PartFileRef:
+			// Non-stream assistant document output (URL-style ref only in v1 subset).
+			src := &wireImageSource{Type: "url", URL: p.FileRef}
+			if strings.TrimSpace(p.FileMIME) != "" {
+				src.MediaType = p.FileMIME
+			}
+			blocks = append(blocks, wireContentBlock{Type: "document", Source: src})
+		}
 	}
 	if len(blocks) == 0 {
 		blocks = []wireContentBlock{{Type: "text", Text: ""}}
@@ -369,6 +402,29 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				Delta: anthropicSSETextDeltaInner{Type: "text_delta", Text: ev.Delta},
 			}
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
+				return err
+			}
+		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
+			idx := nextBlockIdx
+			nextBlockIdx++
+			src := &wireImageSource{Type: "url", URL: ev.AssistantRef}
+			if mt := strings.TrimSpace(ev.AssistantMIME); mt != "" {
+				src.MediaType = mt
+			}
+			var cb anthropicSSEContentBlockStartMedia
+			cb.Type = "content_block_start"
+			cb.Index = idx
+			if ev.Kind == lipapi.EventAssistantImageRef {
+				cb.ContentBlock.Type = "image"
+			} else {
+				cb.ContentBlock.Type = "document"
+			}
+			cb.ContentBlock.Source = src
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb); err != nil {
+				return err
+			}
+			cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
 				return err
 			}
 		case lipapi.EventResponseFinished:

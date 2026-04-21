@@ -1,0 +1,47 @@
+# Example: two configured backends using the same adapter kind (factory id) with distinct instance ids.
+# Copy/adapt for your environment; do not commit real secrets.
+server:
+  address: ":8080"
+
+diagnostics:
+  enabled: true
+
+routing:
+  max_attempts: 3
+  # Selectors use runtime instance ids (not factory kind alone).
+  default_route: "openai-primary:gpt-4o-mini"
+
+continuity:
+  in_memory: true
+  store: memory
+
+hooks:
+  tool_reactor_error_policy: fail_open
+
+plugins:
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+  backends:
+    - kind: openai-responses
+      id: openai-primary
+      enabled: true
+      config:
+        api_key: ${OPENAI_API_KEY_PRIMARY}
+    - kind: openai-responses
+      id: openai-failover
+      enabled: true
+      config:
+        api_key: ${OPENAI_API_KEY_FAILOVER}
+        base_url: https://api.openai.com/v1
+  features:
+    - id: submit-noop
+      enabled: true
+      config: {}
+    - id: parts-noop
+      enabled: true
+      config: {}
+    - id: tool-reactor-noop
+      enabled: true
+      config: {}

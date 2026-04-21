@@ -13,15 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func installFeatures() {
-	RegisterFeature(submitnoop.ID, featureSubmitNoop)
-	RegisterFeature(partsnoop.ID, featurePartsNoop)
-	RegisterFeature(toolreactornoop.ID, featureToolReactorNoop)
-	RegisterFeature(refsubmit.ID, featureRefSubmit)
-	RegisterFeature(refparts.ID, featureRefParts)
-	RegisterFeature(reftool.ID, featureRefTool)
-}
-
 func featureSubmitNoop(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
 	cfg, err := submitnoop.DecodeHookConfig(n)
 	if err != nil {

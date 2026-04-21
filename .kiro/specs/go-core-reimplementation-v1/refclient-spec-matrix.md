@@ -18,7 +18,7 @@ Normative URLs are listed in `research.md` under **Official API specification re
 | Auth | API key bearer | `Authorization` header | `client_test.go` |
 | Multimodal — image | Image inputs guide | `input_image` in request JSON | `client_test.go` |
 | Multimodal — document | PDF / file inputs | `input_file` with base64 `file_data` | `client_test.go` |
-| Multimodal response — assistant output | Not claimed for v1 refclient evidence | Non-stream tests cover text output only; proxy canonical stream has no first-class assistant image/file event family | `client_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal response — assistant output | Responses output items (`input_image` / `input_file` in assistant message) | SDK preserves `RawJSON` on output content blocks; wire proof: `internal/refbackend/openairesponses` `TestHandler_assistantOutput_imageAndFileInMessage_refclientParse`; canonical events in `pkg/lipapi` (`EventAssistantImageRef` / `EventAssistantFileRef`) | `server_test.go` (refbackend), `../llm-api-parity/design.md` row OAR-MM-OUT |
 
 ## 9.0.2 — OpenAI Chat Completions (`internal/refclient/openaichat`)
 
@@ -29,7 +29,7 @@ Normative URLs are listed in `research.md` under **Official API specification re
 | Auth | API key bearer | `Authorization` header | `client_test.go` |
 | Multimodal — image | Vision / image_url | image_url content part | `client_test.go` |
 | Multimodal — document | Files in messages (where supported) | `file` part or image_url data URL for PDF | `client_test.go` |
-| Multimodal response — assistant output | Not claimed for v1 refclient evidence | Non-stream / stream tests cover text deltas only | `client_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal response — assistant output | Chat assistant `content` array (non-stream) | Streaming Chat deltas remain text-centric on the wire; parity row OAC-MM-OUT documents non-stream assistant media refs via canonical collect + encoders | `client_test.go`, `../llm-api-parity/design.md` row OAC-MM-OUT |
 
 ## 9.0.3 — Anthropic Messages (`internal/refclient/anthropicmessages`)
 
@@ -41,7 +41,7 @@ Normative URLs are listed in `research.md` under **Official API specification re
 | Auth | `x-api-key` | request header | `client_test.go` |
 | Multimodal — image | Image content blocks | `image` source base64 | `client_test.go` |
 | Multimodal — document | Document PDF block | `document` base64 | `client_test.go` |
-| Multimodal response — assistant output | Not claimed for v1 refclient evidence | Tests cover text / SSE events; no image/document assistant-output contract asserted for proxy v1 | `client_test.go`, `VALIDATION_REVIEW.md` |
+| Multimodal response — assistant output | Messages streaming `content_block_start` for `image` / `document` | Backend maps URL/base64 sources to canonical assistant ref events (`internal/plugins/backends/anthropic`); refclient exercises inbound multimodal + text stream | `../llm-api-parity/design.md` row ANT-MM-OUT, `map_events_internal_test.go` (backend) |
 
 ## 9.3 — Anthropic Messages frontend (`internal/plugins/frontends/anthropic`)
 

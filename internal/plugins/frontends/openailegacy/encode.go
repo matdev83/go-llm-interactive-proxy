@@ -54,7 +54,7 @@ type wireChatChoice struct {
 
 type wireAssistant struct {
 	Role      string           `json:"role"`
-	Content   string           `json:"content,omitempty"`
+	Content   json.RawMessage  `json:"content,omitempty"` // JSON string or multimodal part array
 	ToolCalls []wireToolCallNS `json:"tool_calls,omitempty"`
 }
 
@@ -91,6 +91,33 @@ type wireUsageLegacy struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// marshalChatAssistantContent returns JSON for Chat Completions assistant message content:
+// a JSON string when there is text-only output, otherwise a parts array (text + image_url / file).
+func marshalChatAssistantContent(col lipapi.Collected) (json.RawMessage, error) {
+	if len(col.AssistantMedia) == 0 {
+		return json.Marshal(col.Text.String())
+	}
+	parts := []map[string]any{}
+	if col.Text.String() != "" {
+		parts = append(parts, map[string]any{"type": "text", "text": col.Text.String()})
+	}
+	for _, p := range col.AssistantMedia {
+		switch p.Kind {
+		case lipapi.PartImageRef:
+			parts = append(parts, map[string]any{
+				"type":      "image_url",
+				"image_url": map[string]any{"url": p.ImageRef},
+			})
+		case lipapi.PartFileRef:
+			parts = append(parts, map[string]any{
+				"type": "file",
+				"file": map[string]any{"file_id": p.FileRef},
+			})
+		}
+	}
+	return json.Marshal(parts)
+}
+
 func defaultEncodeOptions(call *lipapi.Call, opts EncodeOptions) EncodeOptions {
 	if opts.CompletionID == "" {
 		opts.CompletionID = "chatcmpl_" + diag.StableCallToken(call)
@@ -121,7 +148,6 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if err != nil {
 		return err
 	}
-	text := col.Text.String()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
@@ -134,7 +160,11 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if len(tools) > 0 {
 		stop = "tool_calls"
 	}
-	msg := &wireAssistant{Role: "assistant", Content: text}
+	contentJSON, err := marshalChatAssistantContent(col)
+	if err != nil {
+		return err
+	}
+	msg := &wireAssistant{Role: "assistant", Content: contentJSON}
 	for _, tc := range tools {
 		var wtc wireToolCallNS
 		wtc.ID = tc.ID

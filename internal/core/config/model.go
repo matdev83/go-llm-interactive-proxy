@@ -1,6 +1,10 @@
 package config
 
-import "gopkg.in/yaml.v3"
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Config contains only core-owned runtime settings and opaque plugin config payloads.
 type Config struct {
@@ -47,7 +51,18 @@ type DiagnosticsConfig struct {
 type RoutingConfig struct {
 	MaxAttempts int `yaml:"max_attempts"`
 	// DefaultRoute is the selector used when the client omits X-LIP-Route (e.g. "openai-responses:gpt-4o-mini").
-	DefaultRoute string `yaml:"default_route"`
+	DefaultRoute string              `yaml:"default_route"`
+	Health       RoutingHealthConfig `yaml:"health"`
+}
+
+type RoutingHealthConfig struct {
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+}
+
+type CircuitBreakerConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	FailureThreshold int    `yaml:"failure_threshold"`
+	OpenFor          string `yaml:"open_for"`
 }
 
 type ContinuityConfig struct {
@@ -57,9 +72,9 @@ type ContinuityConfig struct {
 	Store string `yaml:"store"`
 	// SQLitePath is the database file path when store is "sqlite".
 	SQLitePath string `yaml:"sqlite_path"`
-	// TTL is a Go duration string (e.g. "24h") for A-leg eviction; empty disables TTL-based expiry.
+	// TTL is in-memory store only (A-leg eviction). Ignored by SQLite until pruning is implemented.
 	TTL string `yaml:"ttl"`
-	// MaxLegs caps concurrent A-leg rows when TTL is empty; zero uses the b2bua default.
+	// MaxLegs is in-memory store only when TTL is empty. Ignored by SQLite until pruning exists.
 	MaxLegs int `yaml:"max_legs"`
 }
 
@@ -71,7 +86,25 @@ type PluginsConfig struct {
 
 // PluginConfig keeps plugin-private config opaque to the core.
 type PluginConfig struct {
+	// Kind is the bundled factory id used for registry lookup (e.g. openai-responses).
+	// When empty, ID is treated as both factory kind and instance id (legacy single-field configs).
+	Kind string `yaml:"kind,omitempty"`
+	// ID is the runtime instance id: routing keys, executor backend map keys, and duplicate detection.
 	ID      string    `yaml:"id"`
 	Enabled bool      `yaml:"enabled"`
 	Config  yaml.Node `yaml:"config"`
+}
+
+// FactoryID returns the registry/factory identifier for this plugin row.
+func (p PluginConfig) FactoryID() string {
+	k := strings.TrimSpace(p.Kind)
+	if k != "" {
+		return k
+	}
+	return strings.TrimSpace(p.ID)
+}
+
+// InstanceID returns the configured runtime instance identifier (never empty for valid configs).
+func (p PluginConfig) InstanceID() string {
+	return strings.TrimSpace(p.ID)
 }

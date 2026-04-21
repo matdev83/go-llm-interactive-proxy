@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -81,8 +81,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	es, err := h.Exec.Execute(ctx, call)
 	if err != nil {
-		status, msg, code := mapExecuteError(err)
-		WriteErrorJSON(w, status, msg, code)
+		out := execerr.ClassifyExecute(err)
+		if out.Kind == execerr.InternalError && h.Log != nil && out.Err != nil {
+			h.Log.Error("execute failed", "error", out.Err)
+		}
+		errType := "api_error"
+		if out.Kind == execerr.ClientReject {
+			errType = "invalid_request_error"
+		}
+		WriteErrorJSON(w, out.Status, out.Message, errType)
 		return
 	}
 
@@ -97,13 +104,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := WriteNonStreamJSON(ctx, w, call, es, opts); err != nil {
-		WriteErrorJSON(w, http.StatusInternalServerError, err.Error(), "api_error")
+		if h.Log != nil {
+			h.Log.Error("non-stream encode failed", "error", err)
+		}
+		WriteErrorJSON(w, http.StatusInternalServerError, execerr.InternalWireMessage, "api_error")
 	}
-}
-
-func mapExecuteError(err error) (status int, message string, code string) {
-	if lipapi.IsReject(err) {
-		return http.StatusBadRequest, err.Error(), "invalid_request_error"
-	}
-	return http.StatusInternalServerError, err.Error(), "api_error"
 }

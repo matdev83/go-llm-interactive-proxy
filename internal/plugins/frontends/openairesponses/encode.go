@@ -48,6 +48,24 @@ func fcItemID(callID string) string {
 	return "fc_" + strings.ReplaceAll(callID, ":", "_")
 }
 
+// wireMessageContentParts builds Responses API message.content items (output_text plus optional input_image / input_file refs).
+func wireMessageContentParts(text string, media []lipapi.Part) []any {
+	out := []any{map[string]any{"type": "output_text", "text": text}}
+	for _, p := range media {
+		switch p.Kind {
+		case lipapi.PartImageRef:
+			out = append(out, map[string]any{"type": "input_image", "image_url": p.ImageRef})
+		case lipapi.PartFileRef:
+			m := map[string]any{"type": "input_file", "file_id": p.FileRef}
+			if p.FileName != "" {
+				m["filename"] = p.FileName
+			}
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 type wireStreamEnvelope struct {
 	Type           string       `json:"type"`
 	SequenceNumber int          `json:"sequence_number"`
@@ -121,6 +139,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 
 	var inTok, outTok int
 	var fullText strings.Builder
+	var assistantMedia []lipapi.Part
 
 	type toolStream struct {
 		CallID      string
@@ -279,6 +298,14 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
+		case lipapi.EventAssistantImageRef:
+			assistantMedia = append(assistantMedia, lipapi.Part{
+				Kind: lipapi.PartImageRef, ImageRef: ev.AssistantRef, ImageMIME: ev.AssistantMIME,
+			})
+		case lipapi.EventAssistantFileRef:
+			assistantMedia = append(assistantMedia, lipapi.Part{
+				Kind: lipapi.PartFileRef, FileRef: ev.AssistantRef, FileMIME: ev.AssistantMIME, FileName: ev.AssistantName,
+			})
 		case lipapi.EventToolCallFinished:
 			st := toolByCallID[ev.ToolCallID]
 			if st == nil {
@@ -320,13 +347,22 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 
+			msgParts := []streamMsgContent{{Type: "output_text", Text: text}}
+			for _, p := range assistantMedia {
+				switch p.Kind {
+				case lipapi.PartImageRef:
+					msgParts = append(msgParts, streamMsgContent{Type: "input_image", ImageURL: p.ImageRef})
+				case lipapi.PartFileRef:
+					msgParts = append(msgParts, streamMsgContent{Type: "input_file", FileID: p.FileRef, FileName: p.FileName})
+				}
+			}
 			out := make([]streamCompletedOut, 0, 1+len(toolOrder))
 			out = append(out, streamCompletedOut{
 				Type:    "message",
 				ID:      mid,
 				Status:  "completed",
 				Role:    "assistant",
-				Content: []streamMsgContent{{Type: "output_text", Text: text}},
+				Content: msgParts,
 			})
 			for _, st := range toolOrder {
 				out = append(out, streamCompletedOut{
@@ -397,7 +433,7 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		"id":      mid,
 		"status":  "completed",
 		"role":    "assistant",
-		"content": []any{map[string]any{"type": "output_text", "text": text}},
+		"content": wireMessageContentParts(text, col.AssistantMedia),
 	}
 	out := []any{msgOut}
 	for _, tc := range col.OrderedToolCalls() {

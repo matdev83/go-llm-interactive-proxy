@@ -7,13 +7,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,28 +35,14 @@ type openAIStyleYAML struct {
 	APIKey  string `yaml:"api_key"`
 }
 
-func installBackends() {
-	RegisterBackend(openairesponses.ID, lipsdk.BackendFactory(func(n yaml.Node) (lipsdk.BackendBuild, error) {
-		return backendOpenAIResponses(n)
-	}))
-	RegisterBackend(openailegacy.ID, lipsdk.BackendFactory(func(n yaml.Node) (lipsdk.BackendBuild, error) {
-		return backendOpenAILegacy(n)
-	}))
-	RegisterBackend(anthropic.ID, lipsdk.BackendFactory(func(n yaml.Node) (lipsdk.BackendBuild, error) {
-		return backendAnthropic(n)
-	}))
-	RegisterBackend(gemini.ID, lipsdk.BackendFactory(func(n yaml.Node) (lipsdk.BackendBuild, error) {
-		return backendGemini(n)
-	}))
-	RegisterBackend(bedrock.ID, lipsdk.BackendFactory(func(n yaml.Node) (lipsdk.BackendBuild, error) {
-		return backendBedrock(n)
-	}))
-	RegisterBackend(acp.ID, lipsdk.BackendFactory(func(n yaml.Node) (lipsdk.BackendBuild, error) {
-		return backendACP(n)
-	}))
+func resolveUpstreamHTTP(upstream *http.Client) *http.Client {
+	if upstream != nil {
+		return upstream
+	}
+	return httpclient.Standard()
 }
 
-func backendOpenAIResponses(n yaml.Node) (runtime.Backend, error) {
+func backendOpenAIResponses(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -71,7 +57,7 @@ func backendOpenAIResponses(n yaml.Node) (runtime.Backend, error) {
 	}), nil
 }
 
-func backendOpenAILegacy(n yaml.Node) (runtime.Backend, error) {
+func backendOpenAILegacy(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -86,7 +72,7 @@ func backendOpenAILegacy(n yaml.Node) (runtime.Backend, error) {
 	}), nil
 }
 
-func backendAnthropic(n yaml.Node) (runtime.Backend, error) {
+func backendAnthropic(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -101,7 +87,7 @@ func backendAnthropic(n yaml.Node) (runtime.Backend, error) {
 	}), nil
 }
 
-func backendGemini(n yaml.Node) (runtime.Backend, error) {
+func backendGemini(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -116,7 +102,7 @@ func backendGemini(n yaml.Node) (runtime.Backend, error) {
 	}), nil
 }
 
-func backendBedrock(n yaml.Node) (runtime.Backend, error) {
+func backendBedrock(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
 	var y bedrockBackendYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -128,11 +114,11 @@ func backendBedrock(n yaml.Node) (runtime.Backend, error) {
 		SessionToken:    y.SessionToken,
 		BaseEndpoint:    y.BaseEndpoint,
 		DisableHTTPS:    y.DisableHTTPS,
-		HTTPClient:      http.DefaultClient,
+		HTTPClient:      resolveUpstreamHTTP(upstream),
 	}), nil
 }
 
-func backendACP(n yaml.Node) (runtime.Backend, error) {
+func backendACP(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
 	var y acpBackendYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -143,6 +129,6 @@ func backendACP(n yaml.Node) (runtime.Backend, error) {
 	}
 	return acp.New(acp.Config{
 		BaseURL:    base,
-		HTTPClient: http.DefaultClient,
+		HTTPClient: resolveUpstreamHTTP(upstream),
 	}), nil
 }

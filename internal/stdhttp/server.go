@@ -6,16 +6,30 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
-// Run mounts bundled frontends and diagnostics, serves HTTP until ctx is cancelled, then shuts down.
+// Run assembles the standard runtime and serves HTTP until ctx is cancelled, then shuts down.
+// Prefer [RunWithRuntime] with a pre-built [runtimebundle.Built] from the composition root.
 func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger) error {
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, nil)
+	if err != nil {
+		return err
+	}
+	return RunWithRuntime(ctx, cfg, app, log, built)
+}
+
+// RunWithRuntime mounts bundled frontends and diagnostics, serves HTTP, then shuts down in order:
+// stop HTTP server, app feature lifecycles, then resource closers.
+func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger, built *runtimebundle.Built) error {
 	if cfg == nil {
 		return errors.New("stdhttp: nil config")
 	}
@@ -25,14 +39,21 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 	if log == nil {
 		log = slog.Default()
 	}
-	exec, store, err := BuildExecutor(cfg, app.HookBus())
-	if err != nil {
-		return err
+	if built == nil || built.Executor == nil {
+		return errors.New("stdhttp: nil built runtime")
+	}
+	exec := built.Executor
+	store := built.Store
+	closers := built.Closers
+	var closersOnce sync.Once
+	releaseClosers := func() {
+		closersOnce.Do(func() {
+			runClosers(closers)
+		})
 	}
 	route := DefaultRouteSelector(cfg)
 
 	mux := http.NewServeMux()
-	var traceBuf *diag.RouteTraceBuffer
 	if cfg.Diagnostics.Enabled {
 		hp := cfg.Diagnostics.HealthPath
 		if hp == "" {
@@ -49,24 +70,26 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 		}
 		rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath)
 		if rt != "" {
-			traceBuf = diag.NewRouteTraceBuffer(64)
+			traceBuf := diag.NewRouteTraceBuffer(64)
 			exec.RouteTrace = traceBuf
 			mux.Handle(rt, diag.RouteTraceHandler(traceBuf))
 		}
 	}
+	reg := built.PluginRegistry
+	if reg == nil {
+		reg = pluginreg.Default
+	}
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
-	if err := MountBundledFrontends(mux, exec, route, cfg.Plugins.Frontends, maxBody); err != nil {
+	if err := MountBundledFrontends(mux, exec, route, cfg.Plugins.Frontends, maxBody, reg); err != nil {
+		releaseClosers()
 		return err
 	}
 	if err := app.Start(ctx); err != nil {
+		releaseClosers()
 		return err
 	}
 
-	handler := http.Handler(mux)
-	if cfg.Diagnostics.Enabled {
-		// Header X-Trace-ID first; RequestIDMiddleware fills context when absent.
-		handler = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(mux))
-	}
+	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(mux))
 
 	srv := &http.Server{
 		Addr:    cfg.Server.Address,
@@ -81,16 +104,27 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		app.Shutdown(shutdownCtx)
 		_ = srv.Shutdown(shutdownCtx)
+		app.Shutdown(shutdownCtx)
+		releaseClosers()
 		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
+			releaseClosers()
 			return nil
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		app.Shutdown(shutdownCtx)
 		cancel()
+		releaseClosers()
 		return err
+	}
+}
+
+func runClosers(closers []func() error) {
+	for i := len(closers) - 1; i >= 0; i-- {
+		if closers[i] != nil {
+			_ = closers[i]()
+		}
 	}
 }

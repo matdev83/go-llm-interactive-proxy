@@ -165,6 +165,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		return false, err
 	}
 	c := list[0]
+	s.executor.traceRoute(s.traceID, "plan_candidate", c.Key)
+	s.executor.observeRoute(ctx, s.traceID, "plan_candidate", c.Key)
 	attempt := lipapi.CloneCall(s.baseline)
 	req := lipapi.RequiredCapabilities(attempt)
 	be, ok := s.executor.Backends[c.Primary.Backend]

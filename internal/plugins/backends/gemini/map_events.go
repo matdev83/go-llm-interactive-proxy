@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"iter"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -102,6 +103,28 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
 		}
 		if fc := part.FunctionCall; fc != nil {
 			s.handleFunctionCall(fc)
+			continue
+		}
+		if fd := part.FileData; fd != nil && strings.TrimSpace(fd.FileURI) != "" {
+			if !s.sawMessage {
+				s.sawMessage = true
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			}
+			uri := strings.TrimSpace(fd.FileURI)
+			mime := strings.TrimSpace(fd.MIMEType)
+			if strings.HasPrefix(strings.ToLower(mime), "image/") {
+				s.pending.Push(lipapi.Event{
+					Kind:          lipapi.EventAssistantImageRef,
+					AssistantRef:  uri,
+					AssistantMIME: mime,
+				})
+			} else {
+				s.pending.Push(lipapi.Event{
+					Kind:          lipapi.EventAssistantFileRef,
+					AssistantRef:  uri,
+					AssistantMIME: mime,
+				})
+			}
 		}
 	}
 }

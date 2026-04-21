@@ -20,4 +20,7 @@ func TestOutputCommitted(t *testing.T) {
 	if lipapi.OutputCommitted(lipapi.Event{Kind: lipapi.EventMessageStarted}) {
 		t.Fatal("message_started does not commit for failover")
 	}
+	if !lipapi.OutputCommitted(lipapi.Event{Kind: lipapi.EventAssistantImageRef}) {
+		t.Fatal("assistant_image_ref commits")
+	}
 }

@@ -66,9 +66,6 @@ __pycache__/
 *.py[cod]
 
 # Project specific files
-.kiro/
-.kiro-testkit/
-.kiro-testkit-logs/
 .claude/
 .cursor/
 .opencode/

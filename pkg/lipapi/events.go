@@ -12,17 +12,17 @@ import (
 // A zero value disables all limits (CollectUnbounded). Individual fields use zero to mean
 // “no limit” for that dimension only when using CollectWithLimits with a partially filled struct.
 type CollectLimits struct {
-	MaxTextBytes              int
-	MaxReasoningBytes         int
-	MaxToolArgsTotalBytes     int
-	MaxWarnings               int
-	MaxAssistantMediaParts    int // assistant_image_ref / assistant_file_ref events aggregated into Collected.AssistantMedia; 0 = unlimited
+	MaxTextBytes           int
+	MaxReasoningBytes      int
+	MaxToolArgsTotalBytes  int
+	MaxWarnings            int
+	MaxAssistantMediaParts int // assistant_image_ref / assistant_file_ref events aggregated into Collected.AssistantMedia; 0 = unlimited
 }
 
 // DefaultCollectLimits returns conservative defaults for Collect (non-streaming aggregation).
 func DefaultCollectLimits() CollectLimits {
 	return CollectLimits{
-		MaxTextBytes:             64 << 20,
+		MaxTextBytes:           64 << 20,
 		MaxReasoningBytes:      64 << 20,
 		MaxToolArgsTotalBytes:  128 << 20,
 		MaxWarnings:            100_000,

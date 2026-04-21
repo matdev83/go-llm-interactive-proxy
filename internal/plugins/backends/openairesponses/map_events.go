@@ -97,6 +97,7 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) {
 				s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text})
 			}
 		}
+		emitOutputMediaFromResponse(s, resp)
 		s.emitToolCallsFromCompletedResponse(resp)
 		if usage := usageFromResponse(resp); usage != nil {
 			s.pending.Push(*usage)

@@ -26,6 +26,8 @@ Assistant multimodal **references** (not inline megabyte payloads) are represent
 
 Optional **`FinishReason`** on `EventResponseFinished` carries adapter-normalized stop/finish semantics where the vendor documents it. Aggregated copy appears on `Collected.FinishReason`.
 
+**P2.3 — Capability audit:** No new `lipapi.Capability` values were added for assistant multimodal **output** refs. `lipapi.RequiredCapabilities` is derived from **request** message parts only (e.g. user `PartImageRef` / `PartFileRef`), not from assistant ref events on the response stream. Evidence: `pkg/lipapi/required_capabilities_assistant_output_test.go`.
+
 ## Parity matrices (row IDs)
 
 ### OpenAI Responses (`OAR-*`)
@@ -37,7 +39,7 @@ Optional **`FinishReason`** on `EventResponseFinished` carries adapter-normalize
 | OAR-TOOLS | Tool call lifecycle + continuation items | Migration + create | backends/openairesponses, `pkg/lipapi` | implemented | `invoke_test`, integration |
 | OAR-USAGE | Usage propagation | Streaming + create | front/back openairesponses | implemented | Encode + map_events |
 | OAR-MM-IN | Multimodal request (`input_image`, `input_file`) | Responses reference | front/back, refclient, refbackend | implemented | refclient matrix §9.0.1 |
-| OAR-MM-OUT | Assistant image/file output items | Responses reference | `pkg/lipapi` events, front/back | implemented | Canonical events + OpenAI Responses encode (stream completion + non-stream); backend emitters still adapter-specific |
+| OAR-MM-OUT | Assistant image/file output items | Responses reference | `pkg/lipapi` events, front/back | implemented | `output_media.go` + `output_media_test.go`; `TestIntegration_refbackendStreamAssistantMediaCollected` in `integration_test.go`; refbackend `TestHandler_assistantOutput_imageAndFileInMessage_refclientParse` |
 
 ### OpenAI Chat Completions (`OAC-*`)
 
@@ -47,7 +49,7 @@ Optional **`FinishReason`** on `EventResponseFinished` carries adapter-normalize
 | OAC-STREAM | Stream chunks + finish_reason | Chat streaming | front/back openailegacy | implemented | map_events + integration |
 | OAC-TOOLS | Tool deltas + `tool_calls` finish | Chat streaming | backends/openailegacy | implemented | internal tests |
 | OAC-MM-IN | Vision / file parts | Chat reference | refclient, refbackend, plugins | implemented | refclient §9.0.2 |
-| OAC-MM-OUT | Assistant multimodal refs | Chat reference | `pkg/lipapi`, plugins | planned | Same canonical events as OAR-MM-OUT |
+| OAC-MM-OUT | Assistant multimodal refs | Chat reference | `pkg/lipapi`, plugins | implemented | Chat non-stream `content` JSON array; stream path unchanged for media-only deltas |
 
 ### Anthropic Messages (`ANT-*`)
 
@@ -57,7 +59,7 @@ Optional **`FinishReason`** on `EventResponseFinished` carries adapter-normalize
 | ANT-TOOLS | tool_use + tool_result | Messages API | plugins | implemented | tests per research notes |
 | ANT-USAGE | usage + stop | Messages API | backends | implemented | integration |
 | ANT-MM-IN | image + document | Messages API | refclient, plugins | implemented | §9.0.3 |
-| ANT-MM-OUT | Assistant image/document output | Messages API | lipapi + anthropic encode | planned | |
+| ANT-MM-OUT | Assistant image/document output | Messages API | lipapi + anthropic encode | implemented | Frontend encode tests; backend `assistant_output_stream.go` + `TestHandleEvent_assistantImageURLContentBlockStart`, `TestHandleEvent_assistantDocumentURLContentBlockStart` in `map_events_internal_test.go` |
 
 ### Gemini (`GEM-*`)
 
@@ -67,7 +69,7 @@ Optional **`FinishReason`** on `EventResponseFinished` carries adapter-normalize
 | GEM-STREAM | stream chunk framing + usageMetadata | REST streaming | plugins, refbackend | implemented | integration |
 | GEM-FN | functionCall / functionResponse turns | Gemini docs | plugins | implemented | tests |
 | GEM-MM-IN | inline multimodal | Gemini docs | refclient, plugins | implemented | §9.0.4 |
-| GEM-MM-OUT | Assistant multimodal parts on wire | Gemini docs | lipapi + gemini encode | planned | non-stream usage omission remains documented subset |
+| GEM-MM-OUT | Assistant multimodal parts on wire | Gemini docs | lipapi + gemini encode | implemented | Backend `map_events.go` (`Part.FileData` URI → assistant ref events) + `TestHandleResponse_fileDataURI_emitsAssistantImageRef` / `_nonImage_emitsAssistantFileRef` in `map_events_internal_test.go`; non-stream `usageMetadata` omission unchanged (documented subset) |
 
 ### Bedrock (`BRK-*`)
 

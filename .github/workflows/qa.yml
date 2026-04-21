@@ -24,8 +24,8 @@ jobs:
       - name: Unit tests
         run: go test -short -parallel=8 ./...
 
-      - name: Conformance package (explicit gate)
-        run: go test ./internal/testkit/conformance/...
+      - name: Parity checks (conformance package)
+        run: make parity-checks
 
       - name: Release gates (fuzz smoke)
         env:

@@ -1,0 +1,23 @@
+package runtimebundle
+
+import (
+	"net/http"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+)
+
+// Built holds assembled runtime dependencies for the standard distribution composition root.
+type Built struct {
+	Executor *runtime.Executor
+	Store    b2bua.Store
+	Closers  []func() error
+	// UpstreamHTTP is the shared outbound HTTP client passed to backends that need upstream HTTP.
+	// Successful [Build] always sets this (explicit [BuildOptions.HTTPClient] or the default from httpclient).
+	UpstreamHTTP *http.Client
+	// PluginRegistry is the registry used to construct backends and must be used when mounting frontends
+	// or composing features so custom bundles do not implicitly use [pluginreg.Default]. [Build] sets this
+	// to the effective registry ([BuildOptions.PluginRegistry] or [pluginreg.Default]).
+	PluginRegistry *pluginreg.Registry
+}

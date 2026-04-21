@@ -1,17 +1,18 @@
-.PHONY: help test test-fast test-unit test-race test-fuzz release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -short -parallel=8 -timeout=10m
 
 help:
 	@echo "Targets:"
-	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts"
+	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
 	@echo "  make test            - quality-checks then full unit tests (-short)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./..."
 	@echo "  make test-race       - race scan (skipped on Windows; Linux CI / WSL)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
+	@echo "  make parity-checks   - conformance package tests only (API parity suites + matrix; see .kiro/specs/llm-api-parity/)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream SSE, frontend streaming encoders)"
 	@echo "  make qa              - quality-checks + unit tests + lint + vuln (local)"
@@ -84,6 +85,9 @@ test-fuzz:
 	$(GO) test -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
 	$(GO) test -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
 	$(GO) test -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
+
+parity-checks:
+	$(GO) test ./internal/testkit/conformance/...
 
 release-gates:
 	$(GO) test ./internal/testkit/conformance/...

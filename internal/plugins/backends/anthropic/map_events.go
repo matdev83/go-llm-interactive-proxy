@@ -70,15 +70,29 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
 		}
 	case anthropic.ContentBlockStartEvent:
 		cb := v.ContentBlock
-		switch cb.Type {
-		case "tool_use":
-			tu := cb.AsToolUse()
-			s.activeToolID = tu.ID
-			s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallStarted,
-				ToolCallID: tu.ID,
-				ToolName:   tu.Name,
-			})
+		if media := assistantMediaEventsFromContentBlockStart(cb); len(media) > 0 {
+			if !s.sawResp {
+				s.sawResp = true
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+			}
+			if !s.sawMsg {
+				s.sawMsg = true
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			}
+			for _, e := range media {
+				s.pending.Push(e)
+			}
+		} else {
+			switch cb.Type {
+			case "tool_use":
+				tu := cb.AsToolUse()
+				s.activeToolID = tu.ID
+				s.pending.Push(lipapi.Event{
+					Kind:       lipapi.EventToolCallStarted,
+					ToolCallID: tu.ID,
+					ToolName:   tu.Name,
+				})
+			}
 		}
 	case anthropic.ContentBlockDeltaEvent:
 		d := v.Delta

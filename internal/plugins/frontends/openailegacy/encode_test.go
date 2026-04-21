@@ -68,7 +68,7 @@ func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
 		Created int64  `json:"created"`
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -82,8 +82,12 @@ func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
 	if v.Created != diag.StableUnix(call) {
 		t.Fatalf("created %d, want %d", v.Created, diag.StableUnix(call))
 	}
-	if len(v.Choices) != 1 || v.Choices[0].Message.Content != "stable" {
-		t.Fatalf("choices: %+v", v.Choices)
+	var content string
+	if err := json.Unmarshal(v.Choices[0].Message.Content, &content); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Choices) != 1 || content != "stable" {
+		t.Fatalf("choices: %+v content=%q", v.Choices, content)
 	}
 }
 
@@ -282,7 +286,7 @@ func TestWriteNonStreamJSON_toolCalls(t *testing.T) {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
-				Content   string `json:"content"`
+				Content   json.RawMessage `json:"content"`
 				ToolCalls []struct {
 					ID       string `json:"id"`
 					Function struct {
@@ -303,8 +307,12 @@ func TestWriteNonStreamJSON_toolCalls(t *testing.T) {
 	if len(tc) != 1 || tc[0].ID != "call_1" || tc[0].Function.Name != "fn1" || tc[0].Function.Arguments != `{"a":1}` {
 		t.Fatalf("tool_calls %+v", tc)
 	}
-	if v.Choices[0].Message.Content != "hi" {
-		t.Fatalf("content %q", v.Choices[0].Message.Content)
+	var msgContent string
+	if err := json.Unmarshal(v.Choices[0].Message.Content, &msgContent); err != nil {
+		t.Fatal(err)
+	}
+	if msgContent != "hi" {
+		t.Fatalf("content %q", msgContent)
 	}
 }
 
@@ -330,6 +338,46 @@ func TestWriteStreamSSE_toolCallDelta(t *testing.T) {
 	s := rec.Body.String()
 	if !strings.Contains(s, `"tool_calls"`) || !strings.Contains(s, `"w"`) || !strings.Contains(s, "tool_calls") {
 		t.Fatalf("body: %s", s)
+	}
+}
+
+func TestWriteNonStreamJSON_assistantMediaContentArray(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "hi"},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://img.example/x.png"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Choices []struct {
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(v.Choices[0].Message.Content, &parts); err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 || parts[0]["type"] != "text" || parts[0]["text"] != "hi" {
+		t.Fatalf("parts: %#v", parts)
+	}
+	if parts[1]["type"] != "image_url" {
+		t.Fatalf("want image_url part: %#v", parts[1])
 	}
 }
 

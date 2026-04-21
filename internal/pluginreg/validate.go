@@ -2,58 +2,72 @@ package pluginreg
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-// ValidateBundledFactories ensures every mandatory plugin id has a registered factory
-// for its kind. Call from the composition root after init-time registration.
+func registryFactoryKey(r lipsdk.Requirement) string {
+	if s := strings.TrimSpace(r.RegistryFactoryID); s != "" {
+		return s
+	}
+	return r.ID
+}
+
+// ValidateBundledFactories ensures every mandatory plugin has a registered factory for its kind.
+// Call after RegisterStandardBundle (or equivalent registration on [Default]).
 func ValidateBundledFactories(required []lipsdk.Requirement) error {
-	for _, r := range required {
-		switch r.Kind {
+	return Default.ValidateBundledFactories(required)
+}
+
+// ValidateBundledFactories ensures every mandatory plugin has a registered factory for its kind on r.
+func (r *Registry) ValidateBundledFactories(required []lipsdk.Requirement) error {
+	for _, req := range required {
+		key := registryFactoryKey(req)
+		switch req.Kind {
 		case lipsdk.PluginKindBackend:
-			if _, err := lookupBackend(r.ID); err != nil {
+			if _, err := r.lookupBackend(key); err != nil {
 				return err
 			}
 		case lipsdk.PluginKindFrontend:
-			if _, err := lookupFrontend(r.ID); err != nil {
+			if _, err := r.lookupFrontend(key); err != nil {
 				return err
 			}
 		case lipsdk.PluginKindFeature:
-			if _, err := lookupFeature(r.ID); err != nil {
+			if _, err := r.lookupFeature(key); err != nil {
 				return err
 			}
 		default:
-			return fmt.Errorf("pluginreg: unknown plugin kind %q for id %q", r.Kind, r.ID)
+			return fmt.Errorf("pluginreg: unknown plugin kind %q for id %q", req.Kind, req.ID)
 		}
 	}
 	return nil
 }
 
-func lookupBackend(id string) (BackendFactory, error) {
-	mu.RLock()
-	defer mu.RUnlock()
-	fn, ok := backends[id]
+func (r *Registry) lookupBackend(id string) (backendFactory, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	fn, ok := r.backends[id]
 	if !ok {
 		return nil, fmt.Errorf("pluginreg: mandatory backend %q has no registered factory", id)
 	}
 	return fn, nil
 }
 
-func lookupFrontend(id string) (FrontendMount, error) {
-	mu.RLock()
-	defer mu.RUnlock()
-	fn, ok := frontends[id]
+func (r *Registry) lookupFrontend(id string) (FrontendMount, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	fn, ok := r.frontends[id]
 	if !ok {
 		return nil, fmt.Errorf("pluginreg: mandatory frontend %q has no registered factory", id)
 	}
 	return fn, nil
 }
 
-func lookupFeature(id string) (FeatureFactory, error) {
-	mu.RLock()
-	defer mu.RUnlock()
-	fn, ok := features[id]
+func (r *Registry) lookupFeature(id string) (FeatureFactory, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	fn, ok := r.features[id]
 	if !ok {
 		return nil, fmt.Errorf("pluginreg: mandatory feature %q has no registered factory", id)
 	}

@@ -13,16 +13,20 @@ import (
 // MountBundledFrontends registers enabled frontend protocol handlers from config on mux.
 // Gemini is mounted under /v1beta/ and /v1beta1/ only (after other prefixes when present).
 // maxRequestBodyBytes is forwarded to handlers; zero means each handler's default body cap.
-func MountBundledFrontends(mux *http.ServeMux, exec *runtime.Executor, defaultRouteSelector string, plugins []config.PluginConfig, maxRequestBodyBytes int64) error {
+// reg selects which frontend factories to use; nil means [pluginreg.Default].
+func MountBundledFrontends(mux *http.ServeMux, exec *runtime.Executor, defaultRouteSelector string, plugins []config.PluginConfig, maxRequestBodyBytes int64, reg *pluginreg.Registry) error {
 	if mux == nil || exec == nil {
 		return nil
+	}
+	if reg == nil {
+		reg = pluginreg.Default
 	}
 	var specific, geminiLast []config.PluginConfig
 	for _, p := range plugins {
 		if !p.Enabled {
 			continue
 		}
-		if p.ID == frontgemini.ID {
+		if p.FactoryID() == frontgemini.ID {
 			geminiLast = append(geminiLast, p)
 			continue
 		}
@@ -30,7 +34,7 @@ func MountBundledFrontends(mux *http.ServeMux, exec *runtime.Executor, defaultRo
 	}
 	ordered := append(specific, geminiLast...)
 	for _, p := range ordered {
-		if err := pluginreg.MountFrontend(p.ID, mux, p.Config, exec, defaultRouteSelector, maxRequestBodyBytes); err != nil {
+		if err := reg.MountFrontend(p.FactoryID(), mux, p.Config, exec, defaultRouteSelector, maxRequestBodyBytes); err != nil {
 			return err
 		}
 	}
@@ -39,7 +43,7 @@ func MountBundledFrontends(mux *http.ServeMux, exec *runtime.Executor, defaultRo
 
 // MountBundledFrontendsLegacy mounts all bundled frontends unconditionally (tests and minimal callers).
 func MountBundledFrontendsLegacy(mux *http.ServeMux, exec *runtime.Executor, defaultRouteSelector string) {
-	_ = MountBundledFrontends(mux, exec, defaultRouteSelector, allBundledFrontendsEnabled(), 0)
+	_ = MountBundledFrontends(mux, exec, defaultRouteSelector, allBundledFrontendsEnabled(), 0, nil)
 }
 
 func allBundledFrontendsEnabled() []config.PluginConfig {

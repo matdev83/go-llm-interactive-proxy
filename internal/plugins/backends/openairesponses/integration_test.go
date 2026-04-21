@@ -79,6 +79,47 @@ func TestIntegration_refbackendNonStreamUsage(t *testing.T) {
 	}
 }
 
+func TestIntegration_refbackendStreamAssistantMediaCollected(t *testing.T) {
+	t.Parallel()
+	const inner = `{"id":"resp_mm_stream","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","output":[{"type":"message","id":"m1","status":"completed","role":"assistant","content":[{"type":"output_text","text":"see"},{"type":"input_image","image_url":"https://cdn.example.com/out.png"},{"type":"input_file","file_id":"file-out-1"}]}]}`
+	wrapped := `{"type":"response.completed","sequence_number":1,"response":` + inner + `}`
+	sse := "event: response.completed\ndata: " + wrapped + "\n\ndata: [DONE]\n\n"
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{StreamSSE: sse}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test"})
+	call := lipapi.Call{
+		ID: "mm-stream",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gpt-4o-mini"},
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if col.Text.String() != "see" {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if len(col.AssistantMedia) != 2 {
+		t.Fatalf("assistant media: %#v", col.AssistantMedia)
+	}
+	if col.AssistantMedia[0].Kind != lipapi.PartImageRef || col.AssistantMedia[0].ImageRef != "https://cdn.example.com/out.png" {
+		t.Fatalf("image part: %#v", col.AssistantMedia[0])
+	}
+	if col.AssistantMedia[1].Kind != lipapi.PartFileRef || col.AssistantMedia[1].FileRef != "file-out-1" {
+		t.Fatalf("file part: %#v", col.AssistantMedia[1])
+	}
+}
+
 func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
 	t.Parallel()
 	var captured string

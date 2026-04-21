@@ -40,5 +40,9 @@ func LoadFile(path string) (*Config, error) {
 		cfg.Continuity.Store = "memory"
 	}
 
+	if err := Validate(&cfg); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
 	return &cfg, nil
 }

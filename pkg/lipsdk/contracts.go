@@ -1,6 +1,10 @@
 package lipsdk
 
-import "gopkg.in/yaml.v3"
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // PluginKind identifies a plugin family exposed through the composition root.
 type PluginKind string
@@ -18,8 +22,20 @@ type ConfigPayload struct {
 
 // Registration describes a plugin available to the composition root.
 type Registration struct {
-	ID      string
-	Kind    PluginKind
-	Config  ConfigPayload
-	Enabled bool
+	// ID is the runtime instance identifier (routing / duplicate detection within PluginKind).
+	ID string
+	// FactoryKind selects the bundled registry factory (e.g. openai-responses). When empty,
+	// ID is used as the factory key for backward compatibility.
+	FactoryKind string
+	Kind        PluginKind
+	Config      ConfigPayload
+	Enabled     bool
+}
+
+// RegistryFactoryKey returns the registry lookup key for this registration.
+func (r Registration) RegistryFactoryKey() string {
+	if s := strings.TrimSpace(r.FactoryKind); s != "" {
+		return s
+	}
+	return r.ID
 }

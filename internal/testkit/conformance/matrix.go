@@ -1,5 +1,8 @@
 package conformance
 
+// FE×BE conformance matrix for bundled plugins. Protocol-specific parity suites live in
+// parity_*.go in this package; row IDs and scope live in .kiro/specs/llm-api-parity/design.md.
+
 // BundledFrontendIDs is the authoritative list of v1 bundled frontend protocol IDs (Requirement 15.12).
 // When adding a frontend, extend this slice and add matrix rows for every backend in BundledBackendIDs.
 func BundledFrontendIDs() []string {

@@ -33,6 +33,60 @@ func TestHandleResponse_thoughtPart_emitsReasoningDelta(t *testing.T) {
 	}
 }
 
+func TestHandleResponse_fileDataURI_emitsAssistantImageRef(t *testing.T) {
+	t.Parallel()
+	s := &genaiStream{}
+	resp := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{
+				Parts: []*genai.Part{{
+					FileData: &genai.FileData{
+						FileURI:  "https://storage.example.com/model.png",
+						MIMEType: "image/png",
+					},
+				}},
+			},
+		}},
+	}
+	s.handleResponse(resp)
+	var refs []lipapi.Event
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventAssistantImageRef {
+			refs = append(refs, ev)
+		}
+	}
+	if len(refs) != 1 || refs[0].AssistantRef != "https://storage.example.com/model.png" {
+		t.Fatalf("events: %+v", refs)
+	}
+}
+
+func TestHandleResponse_fileDataURI_nonImage_emitsAssistantFileRef(t *testing.T) {
+	t.Parallel()
+	s := &genaiStream{}
+	resp := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{
+				Parts: []*genai.Part{{
+					FileData: &genai.FileData{
+						FileURI:  "gs://bucket/reports/out.pdf",
+						MIMEType: "application/pdf",
+					},
+				}},
+			},
+		}},
+	}
+	s.handleResponse(resp)
+	var refs []lipapi.Event
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventAssistantFileRef {
+			refs = append(refs, ev)
+		}
+	}
+	if len(refs) != 1 || refs[0].AssistantRef != "gs://bucket/reports/out.pdf" {
+		t.Fatalf("events: %+v", refs)
+	}
+}
+
 func TestHandleResponse_functionCall_emitsToolEvents(t *testing.T) {
 	t.Parallel()
 	s := &genaiStream{}

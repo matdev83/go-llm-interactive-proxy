@@ -168,6 +168,57 @@ func TestCollect_limitExceededOnText(t *testing.T) {
 	}
 }
 
+func TestCollect_assistantMediaAndFinishReason(t *testing.T) {
+	t.Parallel()
+	stream := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "hi"},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://example.com/x.png", AssistantMIME: "image/png"},
+		{Kind: lipapi.EventAssistantFileRef, AssistantRef: "file-abc", AssistantMIME: "application/pdf", AssistantName: "doc.pdf"},
+		{Kind: lipapi.EventResponseFinished, FinishReason: "stop"},
+	})
+	out, err := lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text.String() != "hi" {
+		t.Fatalf("text: %q", out.Text.String())
+	}
+	if len(out.AssistantMedia) != 2 {
+		t.Fatalf("assistant parts: %#v", out.AssistantMedia)
+	}
+	if out.AssistantMedia[0].Kind != lipapi.PartImageRef || out.AssistantMedia[0].ImageRef != "https://example.com/x.png" {
+		t.Fatalf("image part: %#v", out.AssistantMedia[0])
+	}
+	if out.AssistantMedia[1].Kind != lipapi.PartFileRef || out.AssistantMedia[1].FileRef != "file-abc" {
+		t.Fatalf("file part: %#v", out.AssistantMedia[1])
+	}
+	if out.FinishReason != "stop" {
+		t.Fatalf("finish: %q", out.FinishReason)
+	}
+}
+
+func TestCollect_assistantMediaLimit(t *testing.T) {
+	t.Parallel()
+	stream := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "a"},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "b"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	_, err := lipapi.CollectWithLimits(context.Background(), stream, lipapi.CollectLimits{
+		MaxAssistantMediaParts: 1,
+	})
+	if err == nil {
+		t.Fatal("expected limit error")
+	}
+	if !errors.Is(err, lipapi.ErrCollectLimitExceeded) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestCollect_contextCancellation(t *testing.T) {
 	t.Parallel()
 

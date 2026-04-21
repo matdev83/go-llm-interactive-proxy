@@ -14,8 +14,14 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
+func registerStandardBundleForTest(t *testing.T) {
+	t.Helper()
+	pluginreg.RegisterStandardBundle()
+}
+
 func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 	t.Parallel()
+	registerStandardBundleForTest(t)
 
 	cfgPath := filepath.Join("..", "..", "config", "config.yaml")
 	cfg, err := config.LoadFile(cfgPath)
@@ -64,6 +70,7 @@ func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 
 func TestFeatureHooksFromRegistrations_unknownEnabledFeature(t *testing.T) {
 	t.Parallel()
+	registerStandardBundleForTest(t)
 
 	_, _, err := pluginreg.BuildFeatureHooks([]lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "unknown-feature", Enabled: true},
@@ -75,6 +82,7 @@ func TestFeatureHooksFromRegistrations_unknownEnabledFeature(t *testing.T) {
 
 func TestRuntimeNew_withComposedHooks(t *testing.T) {
 	t.Parallel()
+	registerStandardBundleForTest(t)
 
 	cfgPath := filepath.Join("..", "..", "config", "config.yaml")
 	cfg, err := config.LoadFile(cfgPath)

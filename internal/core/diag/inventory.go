@@ -14,10 +14,11 @@ type InventorySnapshot struct {
 	Features  []PluginRow `json:"features"`
 }
 
-// PluginRow is one config row (id + enabled flag only; config payloads stay opaque/private).
+// PluginRow is one config row (instance id + factory kind + enabled; config payloads stay opaque/private).
 type PluginRow struct {
-	ID      string `json:"id"`
-	Enabled bool   `json:"enabled"`
+	ID          string `json:"id"`
+	FactoryKind string `json:"factory_kind"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // InventoryHandler serves GET JSON describing enabled plugin rows from cfg.
@@ -45,7 +46,11 @@ func InventoryHandler(cfg *config.Config) http.Handler {
 func rows(in []config.PluginConfig) []PluginRow {
 	out := make([]PluginRow, 0, len(in))
 	for _, p := range in {
-		out = append(out, PluginRow{ID: p.ID, Enabled: p.Enabled})
+		out = append(out, PluginRow{
+			ID:          p.InstanceID(),
+			FactoryKind: p.FactoryID(),
+			Enabled:     p.Enabled,
+		})
 	}
 	return out
 }

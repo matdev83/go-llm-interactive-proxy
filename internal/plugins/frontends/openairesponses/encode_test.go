@@ -405,6 +405,58 @@ func TestWriteStreamSSE_toolCallEvents(t *testing.T) {
 	}
 }
 
+func TestWriteNonStreamJSON_messageContentIncludesAssistantImageRef(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "x"},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://example.com/p.png"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "a:b"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("u")}}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openairesponses.WriteNonStreamJSON(context.Background(), rec, call, es, openairesponses.EncodeOptions{CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Output []json.RawMessage `json:"output"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Output) < 1 {
+		t.Fatal("missing output")
+	}
+	var msg struct {
+		Type    string          `json:"type"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(body.Output[0], &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Type != "message" {
+		t.Fatalf("type %q", msg.Type)
+	}
+	var content []map[string]any
+	if err := json.Unmarshal(msg.Content, &content); err != nil {
+		t.Fatal(err)
+	}
+	if len(content) != 2 {
+		t.Fatalf("content len %d: %v", len(content), content)
+	}
+	if content[0]["type"] != "output_text" || content[0]["text"] != "x" {
+		t.Fatalf("part0: %#v", content[0])
+	}
+	if content[1]["type"] != "input_image" || content[1]["image_url"] != "https://example.com/p.png" {
+		t.Fatalf("part1: %#v", content[1])
+	}
+}
+
 func mustModelExt(tb testing.TB, model string) map[string]json.RawMessage {
 	tb.Helper()
 	raw, err := json.Marshal(model)

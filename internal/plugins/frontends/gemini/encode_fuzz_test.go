@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -14,10 +15,13 @@ func FuzzBuildGenerateContentResponse_toolJSON(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		raw = testkit.CapBytes(raw, 32<<10)
-		_, _ = buildGenerateContentWire("", []lipapi.ToolCallSummary{{
-			ID:        "1",
-			Name:      "fn",
-			Arguments: string(raw),
-		}})
+		b := new(strings.Builder)
+		_, _ = b.Write(raw)
+		col := lipapi.Collected{
+			ToolArgs:      map[string]*strings.Builder{"1": b},
+			ToolNames:     map[string]string{"1": "fn"},
+			ToolCallOrder: []string{"1"},
+		}
+		_, _ = buildGenerateContentWire(col)
 	})
 }

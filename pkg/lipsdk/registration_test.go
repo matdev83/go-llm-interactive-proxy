@@ -91,3 +91,36 @@ func TestValidateRegistrationsAllowsDisabledMandatoryBackend(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateRegistrations_backendMandatoryMatchesFactoryInstance(t *testing.T) {
+	t.Parallel()
+
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{
+		{ID: "openai-primary", FactoryKind: "openai-responses", Kind: lipsdk.PluginKindBackend, Enabled: true},
+	}, []lipsdk.Requirement{{Kind: lipsdk.PluginKindBackend, ID: "openai-responses"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRegistrations_backendMandatoryUsesRequirementRegistryFactoryID(t *testing.T) {
+	t.Parallel()
+
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{
+		{ID: "p1", FactoryKind: "openai-responses", Kind: lipsdk.PluginKindBackend, Enabled: true},
+	}, []lipsdk.Requirement{{Kind: lipsdk.PluginKindBackend, ID: "ignored", RegistryFactoryID: "openai-responses"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRegistrations_backendMandatoryMissingFactory(t *testing.T) {
+	t.Parallel()
+
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{
+		{ID: "x", FactoryKind: "gemini", Kind: lipsdk.PluginKindBackend, Enabled: true},
+	}, []lipsdk.Requirement{{Kind: lipsdk.PluginKindBackend, ID: "openai-responses"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

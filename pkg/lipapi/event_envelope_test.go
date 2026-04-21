@@ -26,6 +26,14 @@ func TestValidateEventEnvelope_deltaTooLarge(t *testing.T) {
 	}
 }
 
+func TestValidateEventEnvelope_assistantImageRequiresRef(t *testing.T) {
+	t.Parallel()
+	ev := &lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantRef: " "}
+	if err := lipapi.ValidateEventEnvelope(ev); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestValidateEventEnvelope_errorMessageTooLarge(t *testing.T) {
 	t.Parallel()
 	ev := &lipapi.Event{

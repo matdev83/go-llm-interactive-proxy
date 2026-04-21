@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
@@ -27,13 +28,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := pluginreg.ValidateBundledFactories(mandatoryStandardPlugins()); err != nil {
+	pluginreg.RegisterStandardBundle()
+	reg := pluginreg.Default
+	if err := reg.ValidateBundledFactories(mandatoryStandardPlugins()); err != nil {
 		logger.Error("registry factory validation failed", "error", err)
 		os.Exit(1)
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
-	hookCfg, lifes, err := pluginreg.BuildFeatureHooks(regs)
+	hookCfg, lifes, err := reg.BuildFeatureHooks(regs)
 	if err != nil {
 		logger.Error("hook composition failed", "error", err)
 		os.Exit(1)
@@ -53,10 +56,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	built, err := runtimebundle.Build(cfg, app.HookBus(), logger, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if err != nil {
+		logger.Error("runtime assembly failed", "error", err)
+		os.Exit(1)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := stdhttp.Run(ctx, cfg, app, logger); err != nil {
+	if err := stdhttp.RunWithRuntime(ctx, cfg, app, logger, built); err != nil {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

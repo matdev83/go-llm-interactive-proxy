@@ -110,8 +110,8 @@ func TestConformance_TextOnly_upstreamErrorShape(t *testing.T) {
 				if apiErr.StatusCode != http.StatusBadRequest && apiErr.StatusCode != http.StatusInternalServerError {
 					t.Fatalf("status %d", apiErr.StatusCode)
 				}
-				if !upstreamMarkerInError(apiErr.Error()) {
-					t.Fatalf("expected error message to reference upstream failure: %v", apiErr)
+				if !clientVisibleErrorIndicatesFailure(apiErr.Error()) {
+					t.Fatalf("expected sanitized or diagnostic client error text: %v", apiErr)
 				}
 			case "anthropic":
 				var apiErr *anthropic.Error
@@ -121,16 +121,16 @@ func TestConformance_TextOnly_upstreamErrorShape(t *testing.T) {
 				if apiErr.StatusCode != http.StatusBadRequest && apiErr.StatusCode != http.StatusInternalServerError {
 					t.Fatalf("status %d", apiErr.StatusCode)
 				}
-				if !upstreamMarkerInError(apiErr.Error()) {
-					t.Fatalf("expected error message to reference upstream failure: %v", apiErr)
+				if !clientVisibleErrorIndicatesFailure(apiErr.Error()) {
+					t.Fatalf("expected sanitized or diagnostic client error text: %v", apiErr)
 				}
 			case "gemini":
 				if err == nil {
 					t.Fatal("expected error")
 				}
 				lower := strings.ToLower(err.Error())
-				if !strings.Contains(lower, "400") && !strings.Contains(lower, "invalid") {
-					t.Fatalf("expected client-visible error mentioning status or invalid, got %v", err)
+				if !strings.Contains(lower, "400") && !strings.Contains(lower, "invalid") && !strings.Contains(lower, "internal error") {
+					t.Fatalf("expected client-visible error mentioning status, invalid, or generic internal failure, got %v", err)
 				}
 			default:
 				t.Fatalf("unexpected frontend %q", cell.Frontend)
@@ -139,8 +139,13 @@ func TestConformance_TextOnly_upstreamErrorShape(t *testing.T) {
 	}
 }
 
-func upstreamMarkerInError(s string) bool {
+// clientVisibleErrorIndicatesFailure accepts either legacy upstream-shaped text or the generic
+// proxy message returned for internal executor failures (no upstream echo on the wire).
+func clientVisibleErrorIndicatesFailure(s string) bool {
 	lower := strings.ToLower(s)
+	if strings.Contains(lower, "internal error") {
+		return true
+	}
 	return strings.Contains(lower, "400") ||
 		strings.Contains(lower, "invalid") ||
 		strings.Contains(lower, "validationexception") ||

@@ -30,6 +30,7 @@ func (s *gemStreamWireScratch) initFrame() {
 func (s *gemStreamWireScratch) flushTextDelta(w io.Writer, fl http.Flusher, delta string) error {
 	s.textParts[0].Text = delta
 	s.textParts[0].FunctionCall = nil
+	s.textParts[0].FileData = nil
 	s.cands[0].Content.Parts = s.textParts[:1]
 	return stream.FlushSSEDataJSON(w, fl, s.frame)
 }
@@ -43,7 +44,19 @@ func (s *gemStreamWireScratch) flushToolCall(w io.Writer, fl http.Flusher, name,
 	s.fc.Args = args
 	s.toolParts[0].Text = ""
 	s.toolParts[0].FunctionCall = &s.fc
+	s.toolParts[0].FileData = nil
 	s.cands[0].Content.Parts = s.toolParts[:1]
+	return stream.FlushSSEDataJSON(w, fl, s.frame)
+}
+
+func (s *gemStreamWireScratch) flushFileDataURI(w io.Writer, fl http.Flusher, uri, mime string) error {
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	s.textParts[0].Text = ""
+	s.textParts[0].FunctionCall = nil
+	s.textParts[0].FileData = &gemFileDataWire{MIMEType: mime, FileURI: uri}
+	s.cands[0].Content.Parts = s.textParts[:1]
 	return stream.FlushSSEDataJSON(w, fl, s.frame)
 }
 
@@ -64,9 +77,15 @@ type gemCandContent struct {
 	Parts []gemCandPart `json:"parts"`
 }
 
+type gemFileDataWire struct {
+	MIMEType string `json:"mimeType"`
+	FileURI  string `json:"fileUri"`
+}
+
 type gemCandPart struct {
 	Text         string           `json:"text,omitempty"`
 	FunctionCall *gemFuncCallWire `json:"functionCall,omitempty"`
+	FileData     *gemFileDataWire `json:"fileData,omitempty"`
 }
 
 type gemFuncCallWire struct {
@@ -99,8 +118,10 @@ func toolArgsToRawJSON(raw string) (json.RawMessage, error) {
 	return json.RawMessage(raw), nil
 }
 
-func buildGenerateContentWire(text string, tools []lipapi.ToolCallSummary) (gemCandStreamWire, error) {
-	parts := make([]gemCandPart, 0, len(tools)+1)
+func buildGenerateContentWire(col lipapi.Collected) (gemCandStreamWire, error) {
+	text := col.Text.String()
+	tools := col.OrderedToolCalls()
+	parts := make([]gemCandPart, 0, len(tools)+1+len(col.AssistantMedia))
 	if text != "" {
 		parts = append(parts, gemCandPart{Text: text})
 	}
@@ -112,6 +133,21 @@ func buildGenerateContentWire(text string, tools []lipapi.ToolCallSummary) (gemC
 		parts = append(parts, gemCandPart{
 			FunctionCall: &gemFuncCallWire{Name: tc.Name, Args: args},
 		})
+	}
+	for _, p := range col.AssistantMedia {
+		switch p.Kind {
+		case lipapi.PartImageRef, lipapi.PartFileRef:
+			ref := p.ImageRef
+			mime := p.ImageMIME
+			if p.Kind == lipapi.PartFileRef {
+				ref = p.FileRef
+				mime = p.FileMIME
+			}
+			if mime == "" {
+				mime = "application/octet-stream"
+			}
+			parts = append(parts, gemCandPart{FileData: &gemFileDataWire{MIMEType: mime, FileURI: ref}})
+		}
 	}
 	if len(parts) == 0 {
 		parts = append(parts, gemCandPart{Text: ""})
@@ -129,8 +165,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if err != nil {
 		return err
 	}
-	text := col.Text.String()
-	resp, err := buildGenerateContentWire(text, col.OrderedToolCalls())
+	resp, err := buildGenerateContentWire(col)
 	if err != nil {
 		return err
 	}
@@ -174,6 +209,14 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		switch ev.Kind {
 		case lipapi.EventTextDelta:
 			if err := scratch.flushTextDelta(w, fl, ev.Delta); err != nil {
+				return err
+			}
+		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
+			mime := ev.AssistantMIME
+			if mime == "" {
+				mime = "application/octet-stream"
+			}
+			if err := scratch.flushFileDataURI(w, fl, ev.AssistantRef, mime); err != nil {
 				return err
 			}
 		case lipapi.EventToolCallStarted:
