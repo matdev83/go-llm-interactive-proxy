@@ -3,6 +3,7 @@ package lipapi_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -138,6 +139,21 @@ func TestCallValidate_jsonPartMustBeValidJSON(t *testing.T) {
 	}
 	if err := call.Validate(); err == nil {
 		t.Fatal("expected invalid json error")
+	}
+}
+
+func TestCallValidate_routeSelectorMaxSize(t *testing.T) {
+	t.Parallel()
+	sel := strings.Repeat("a", lipapi.MaxRouteSelectorBytes+1)
+	call := lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: sel},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	if err := call.Validate(); err == nil {
+		t.Fatal("expected error for oversized selector")
 	}
 }
 

@@ -164,6 +164,12 @@ func TestExecutor_preOutputRecoverableSwallowsAndLineage(t *testing.T) {
 	if len(atts) != 2 {
 		t.Fatalf("attempts: want 2 got %d %#v", len(atts), atts)
 	}
+	if atts[0].BLegID == "" || atts[1].BLegID == "" || atts[0].BLegID == atts[1].BLegID {
+		t.Fatalf("expected distinct B-leg ids, got %#v and %#v", atts[0].BLegID, atts[1].BLegID)
+	}
+	if atts[0].Seq <= 0 || atts[1].Seq <= 0 || atts[0].Seq >= atts[1].Seq {
+		t.Fatalf("expected monotonic increasing B-leg seq, got seq %d then %d", atts[0].Seq, atts[1].Seq)
+	}
 	if atts[0].Outcome != lipapi.AttemptSwallowedFailure {
 		t.Fatalf("attempt1 outcome: %s", atts[0].Outcome)
 	}
@@ -459,8 +465,8 @@ func TestExecutor_backendOpen_contextCarriesTraceAndALeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if openTrace == "" {
-		t.Fatal("expected non-empty trace_id in backend Open context")
+	if openTrace != diag.StableCallID(call) {
+		t.Fatalf("trace = %q, want %q", openTrace, diag.StableCallID(call))
 	}
 	if openALeg == "" {
 		t.Fatal("expected non-empty a_leg_id in backend Open context")
@@ -563,5 +569,96 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no structured backend_stream_opened with trace: %s", string(dec))
+	}
+}
+
+func TestExecutor_routeQueryMergesIntoGenerationOptions(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	var captured lipapi.GenerationOptions
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  rand.New(rand.NewSource(1)),
+		Backends: map[string]runtime.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+					captured = call.Options
+					return lipapi.FixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-4?temperature=0.2&reasoning_effort=high"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.Temperature == nil || *captured.Temperature != 0.2 {
+		t.Fatalf("temperature from route: %#v", captured.Temperature)
+	}
+	if captured.ReasoningEffort != "high" {
+		t.Fatalf("reasoning_effort from route: %q", captured.ReasoningEffort)
+	}
+}
+
+func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	var captured lipapi.GenerationOptions
+	temp := 0.11
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  rand.New(rand.NewSource(1)),
+		Backends: map[string]runtime.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+					captured = call.Options
+					return lipapi.FixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-4?temperature=0.99"},
+		Options: lipapi.GenerationOptions{
+			Temperature: &temp,
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.Temperature == nil || *captured.Temperature != 0.11 {
+		t.Fatalf("explicit call temperature must win over route, got %#v", captured.Temperature)
 	}
 }

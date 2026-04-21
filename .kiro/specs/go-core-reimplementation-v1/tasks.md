@@ -141,6 +141,7 @@
   - **Emulator-first:** For each client-facing API flavor, deliver a **reference client emulator** (task 9.0.x) before the matching proxy `frontends/*` plugin (task 9.x). The emulator is the scriptable, spec-shaped client used in end-to-end integration tests; implementing agents must not treat the real proxy frontend as the first proof of wire compliance.
   - **Multimodal:** Every bundled frontend must correctly handle **multimodal** requests and responses on the v1 shared subset (e.g. images, PDFs); reference client emulators must support scripted multimodal scenarios for integration tests (see Requirement 15.7).
   - For each frontend plugin, write RED protocol contract tests before implementation, then implement decode/encode against the canonical model and event stream.
+  - **Subset documentation:** The v1 per-protocol decode/encode surface is summarized under **Requirement 3 → Implementation notes (2026-04-21)** in `requirements.md`, with normative links and deeper matrix text in `research.md` (*Frontend subset vs spec* bullets, 2026-04-21 refresh).
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 5.2, 14.2, 15.1, 15.3, 15.7_
   - _Boundary: frontends/*, internal/testkit (reference emulators)_
   - _Depends: 2, 3, 4, 7_
@@ -184,33 +185,33 @@
 
 - [x] 9.1 (P) Implement the OpenAI Responses frontend
   - Add streaming and non-streaming protocol goldens, including **multimodal** goldens for the v1 shared subset.
-  - **Gate:** 9.0.1 completed and spec cross-check recorded; then implement the proxy adapter. _(Cross-check: `research.md` OpenAI Responses API reference; wire verified via `internal/refclient/openairesponses` + `internal/plugins/frontends/openairesponses` integration tests.)_
-  - _Requirements: 3.1, 3.5, 3.6, 3.7, 3.8_
+  - **Gate:** 9.0.1 completed and spec cross-check recorded; then implement the proxy adapter. _(Cross-check: `research.md` → **OpenAI Responses API** *Frontend subset vs spec* (2026-04-21); normative URLs in the same section. Wire verified via `internal/refclient/openairesponses` + `internal/plugins/frontends/openairesponses` integration tests; decode/encode contract tests cover **`tool_choice`**, tool SSE/JSON mapping, reject paths for unsupported input/content/tool types, and reasoning-delta no-op on wire.)_
+  - _Requirements: 3.1, 3.5, 3.6, 3.7, 3.8; implementation detail: **Requirement 3** notes in `requirements.md` (2026-04-21)_
   - _Boundary: frontends/openairesponses_
   - _Depends: 9.0.1, 7_
 
 - [x] 9.2 (P) Implement the legacy OpenAI-compatible frontend
   - Add chat-style request/response goldens and error-shape tests, including **multimodal** cases where supported.
-  - **Gate:** 9.0.2 completed and spec cross-check recorded. _(Cross-check: `research.md` Chat Completions API reference; wire verified via `internal/refclient/openaichat` + `internal/plugins/frontends/openailegacy` integration tests.)_
-  - _Requirements: 3.2, 3.5, 3.6, 3.7, 3.8_
-  - _Boundary: frontends/openaicompat_
+  - **Gate:** 9.0.2 completed and spec cross-check recorded. _(Cross-check: `research.md` → **OpenAI Chat Completions** *Frontend subset vs spec* (2026-04-21). Wire verified via `internal/refclient/openaichat` + `internal/plugins/frontends/openailegacy` integration tests; contract tests cover **`tool_choice`** including **`required` → canonical `any`**, **`developer` → system**, tool encode on stream/non-stream, and unsupported tool types.)_
+  - _Requirements: 3.2, 3.5, 3.6, 3.7, 3.8; implementation detail: **Requirement 3** notes in `requirements.md` (2026-04-21)_
+  - _Boundary: frontends/openailegacy_
   - _Depends: 9.0.2, 7_
 
 - [x] 9.3 (P) Implement the Anthropic Messages frontend
-  - Add streaming mapping and protocol error-shape tests, including **multimodal** content blocks.
-  - **Gate:** 9.0.3 completed and spec cross-check recorded.
-  - _Requirements: 3.3, 3.5, 3.6, 3.7, 3.8_
+  - Add streaming mapping and protocol error-shape tests, including **multimodal** content blocks and **tool_use** streaming (`content_block_*` / `input_json_delta`).
+  - **Gate:** 9.0.3 completed and spec cross-check recorded. _(Cross-check: `research.md` → **Anthropic Messages API** *Frontend subset vs spec* (2026-04-21). Wire verified via `internal/refclient/anthropicmessages` + `internal/plugins/frontends/anthropic` integration tests; contract tests cover **`max_tokens`**, **`tool_choice`**, base64-only media, tool_result flattening, and tool SSE.)_
+  - _Requirements: 3.3, 3.5, 3.6, 3.7, 3.8; implementation detail: **Requirement 3** notes in `requirements.md` (2026-04-21)_
   - _Boundary: frontends/anthropic_
   - _Depends: 9.0.3, 7_
 
 - [x] 9.4 (P) Implement the Gemini generateContent frontend
-  - Add request/stream mapping tests for the supported shared subset, including **multimodal** inputs and outputs.
-  - **Gate:** 9.0.4 completed and spec cross-check recorded.
-  - _Requirements: 3.4, 3.5, 3.6, 3.7, 3.8_
+  - Add request/stream mapping tests for the supported shared subset, including **multimodal** inputs and outputs, **`functionCall` / `functionResponse`** turns, and stream **`usageMetadata`** behavior.
+  - **Gate:** 9.0.4 completed and spec cross-check recorded. _(Cross-check: `research.md` → **Google Gemini** *Frontend subset vs spec* (2026-04-21). Wire verified via `internal/refclient/gemini` + `internal/plugins/frontends/gemini` integration tests; contract tests cover **`toolConfig`**, empty parts / unsupported part rejection, and non-stream omission of **`usageMetadata`**.)_
+  - _Requirements: 3.4, 3.5, 3.6, 3.7, 3.8; implementation detail: **Requirement 3** notes in `requirements.md` (2026-04-21)_
   - _Boundary: frontends/gemini_
   - _Depends: 9.0.4, 7_
 
-- [ ] 10. Implement the backend protocol plugins
+- [x] 10. Implement the backend protocol plugins
   - **Emulator-first:** For each **remote backend connector** protocol the proxy speaks as a client to the remote inference backends, deliver a **reference remote backend emulator** (task 10.0.x) before the matching `backends/*` connector. The emulator is a spec-faithful fake provider (scriptable, deterministic) used in E2E tests; do not use the first implementation of `backends/*` as the only validation of wire behavior.
   - **Multimodal:** Every bundled backend connector must correctly map **multimodal** canonical parts to provider APIs and back; reference backend emulators must accept and emit multimodal content for tests (see Requirement 15.8).
   - For each backend, write RED adapter tests; implement provider calls through official SDKs or official protocol definitions where available.
@@ -218,7 +219,7 @@
   - _Boundary: backends/*, internal/testkit (reference emulators)_
   - _Depends: 2, 3, 7_
 
-- [ ] 10.0 Build reference **remote backend** emulators (official libraries, spec-faithful)
+- [x] 10.0 Build reference **remote backend** emulators (official libraries, spec-faithful)
   - For each supported **backend connector** protocol, add a **reference server or stub service** that speaks the provider API on the wire as defined in official docs. Prefer **official server-side or SDK-hosted test doubles** where the vendor documents them; otherwise implement minimal HTTP/gRPC handlers using official request/response types from the vendor SDK so payloads stay spec-aligned.
   - Support **multimodal** request and response fixtures: at least one **image** and one **document** path per protocol where the API allows, so the proxy’s outbound multimodal mapping is testable without a live provider.
   - Cross-check each emulator against the official specification (streaming event sequences, error models, auth expectations). Do not start the matching proxy backend connector until this review is complete.
@@ -278,7 +279,7 @@
   - Add adapter tests proving canonical mapping and typed error classification, including **multimodal** messages where supported.
   - **Gate:** 10.0.2 completed and spec cross-check recorded.
   - _Requirements: 4.2, 4.7, 4.8, 5.1_
-  - _Boundary: backends/openaicompat_
+  - _Boundary: backends/openailegacy_
   - _Depends: 10.0.2, 7_
 
 - [x] 10.3 (P) Implement the Anthropic backend
@@ -288,47 +289,47 @@
   - _Boundary: backends/anthropic_
   - _Depends: 10.0.3, 7_
 
-- [ ] 10.4 (P) Implement the Gemini backend
+- [x] 10.4 (P) Implement the Gemini backend
   - Add adapter tests for generateContent stream mapping on the shared subset, including **multimodal** parts.
   - **Gate:** 10.0.4 completed and spec cross-check recorded.
   - _Requirements: 4.4, 4.7, 4.8, 5.1_
   - _Boundary: backends/gemini_
   - _Depends: 10.0.4, 7_
 
-- [ ] 10.5 (P) Implement the Bedrock backend
+- [x] 10.5 (P) Implement the Bedrock backend
   - Add stub tests for Converse / ConverseStream event mapping and error handling, including **multimodal** Converse content where supported.
   - **Gate:** 10.0.5 completed and spec cross-check recorded.
   - _Requirements: 4.5, 4.7, 4.8, 5.1_
   - _Boundary: backends/bedrock_
   - _Depends: 10.0.5, 7_
 
-- [ ] 10.6 (P) Implement the ACP backend subset
+- [x] 10.6 (P) Implement the ACP backend subset
   - Add tests for initialization, session setup/reuse, prompt turn, progress notifications, and cancellation; add **multimodal**-adjacent tests if the v1 subset carries file or resource references per ACP schema.
   - **Gate:** 10.0.6 completed and spec cross-check recorded.
   - _Requirements: 4.6, 4.7, 4.8, 5.1, 8.5_
   - _Boundary: backends/acp_
   - _Depends: 10.0.6, 7_
 
-- [ ] 11. Bundle the standard distribution and reference no-op hook plugins
+- [x] 11. Bundle the standard distribution and reference no-op hook plugins
   - Compose all mandatory plugins in `cmd/lipstd` and prove startup correctness.
   - Add no-op submit, part, and tool-reactor plugins to demonstrate extension seams without feature coupling.
   - _Requirements: 3.1-3.4, 4.1-4.6, 9.5, 10.5, 11.4, 12.1, 12.5_
   - _Boundary: cmd/lipstd, features/*_
   - _Depends: 9, 10_
 
-- [ ] 11.1 (P) Add no-op submit and part hook reference plugins
+- [x] 11.1 (P) Add no-op submit and part hook reference plugins
   - Prove that the core works with hook plugins present but behaviorally inert.
   - _Requirements: 9.5, 10.5, 12.1_
   - _Boundary: features/submitnoop, features/partsnoop_
   - _Depends: 4.1, 4.2_
 
-- [ ] 11.2 (P) Add the no-op tool-reactor reference plugin
+- [x] 11.2 (P) Add the no-op tool-reactor reference plugin
   - Prove that the reserved tool-reactor path is active without policy logic.
   - _Requirements: 11.4, 11.5, 12.1_
   - _Boundary: features/toolreactornoop_
   - _Depends: 4.3_
 
-- [ ] 12. Build the conformance matrix, migration fixtures, and release gates
+- [x] 12. Build the conformance matrix, migration fixtures, and release gates
   - Validate every bundled frontend × backend combination through a parameterized conformance harness driven by **9.0.x reference clients** against the proxy and **10.0.x reference backends** behind the proxy (not ad-hoc mocks).
   - The full cross-product (4 frontends × 6 backends = 24 combinations) must be enumerated; cells where the shared subset is empty or degenerate shall be explicitly listed and justified rather than silently skipped.
   - Example rows (all 24 follow this shape):
@@ -343,7 +344,7 @@
   - _Boundary: internal/testkit/conformance, testdata/, all protocol plugins_
   - _Depends: 9, 10, 11_
 
-- [ ] 12.0 Build the conformance test harness and matrix definition
+- [x] 12.0 Build the conformance test harness and matrix definition
   - Create the parameterized test infrastructure in `internal/testkit/conformance/`.
   - Define the machine-readable matrix (4 frontends × 6 backends) with per-cell shared-subset metadata and skip/justify annotations.
   - Add a CI gate that fails if a new frontend or backend is registered without corresponding matrix stubs.
@@ -351,41 +352,56 @@
   - _Boundary: internal/testkit/conformance_
   - _Depends: 9, 10, 11_
 
-- [ ] 12.1 Implement text-only conformance matrix cells
+- [x] 12.1 Implement text-only conformance matrix cells
   - For every frontend × backend combination with a non-empty shared text subset, add: text prompt round-trip, streaming plus non-streaming collection, and error-shape test on recoverable failure.
   - _Requirements: 2.5, 3.1–3.4, 3.5–3.6, 4.1–4.6, 5.1, 5.2, 15.3, 15.10_
   - _Boundary: internal/testkit/conformance, all protocol plugins_
   - _Depends: 12.0_
 
-- [ ] 12.2 Implement tool-call and usage-propagation conformance rows
+- [x] 12.2 Implement tool-call and usage-propagation conformance rows
   - For every combination that supports tools in the shared subset: tool-definition round-trip, basic tool-call round-trip, and usage-propagation assertion. Document exclusions where the shared subset cannot express tool semantics.
   - _Requirements: 3.5, 4.7, 4.8, 5.1, 15.11_
   - _Boundary: internal/testkit/conformance, all protocol plugins_
   - _Depends: 12.1_
 
-- [ ] 12.3 Implement multimodal conformance matrix rows
+- [x] 12.3 Implement multimodal conformance matrix rows
   - For every multimodal-capable frontend × multimodal-capable backend pair: image input round-trip and document (PDF) input round-trip, verifying canonical part preservation (no content-type confusion, no silent truncation). Explicitly list pairs where multimodal is not viable with justification.
   - _Requirements: 2.6, 2.7, 3.7, 3.8, 4.8, 15.9_
   - _Boundary: internal/testkit/conformance, all protocol plugins_
   - _Depends: 12.1_
 
-- [ ] 12.4 Derive migration fixtures from the Python repository
+- [x] 12.4 Derive migration fixtures from the Python repository
   - Import or derive streaming and non-streaming captures from the Python repo for at minimum the OpenAI Responses protocol pair and at least one additional protocol pair where practical. Add golden files to `testdata/` with documented provenance (source repo commit, endpoint, streaming mode).
   - _Requirements: 15.5, 15.13_
   - _Boundary: testdata/, internal/testkit/conformance_
   - _Depends: 12.1_
 
-- [ ] 12.5 Define and enforce release gates
+- [x] 12.5 Define and enforce release gates
   - Document the quantitative release-readiness criteria: conformance matrix pass percentage, race-detector gate, critical fuzz target list (selector parser, protocol decoders, canonical mutation validators), and minimum migration fixture count.
   - Wire gates into CI so that merging to main requires them to be green.
   - _Requirements: 15.4, 15.6, 14.6_
   - _Boundary: CI, internal/testkit_
   - _Depends: 12.1, 12.2, 12.3, 12.4_
 
-- [ ] 13. Sanity checks
+- [x] 13. Sanity checks
 
-- [ ] 13.1. Each of the front-end connectors has integration tests made by using of the front-end API emulator/client.
+  - [x] 13.1. Each of the front-end connectors has integration tests made by using of the front-end API emulator/client.
 
-- [ ] 13.2. Each of the back-end connectors has integration tests made by using of the remote back-end emulator.
+  - [x] 13.2. Each of the back-end connectors has integration tests made by using of the remote back-end emulator.
 
-- [ ] 13.3. Each combination of front-end and back-end has integration tests made by using of the client emulator on the client side and remote backend emulator on the backend side.
+  - [x] 13.3. Each combination of front-end and back-end has integration tests made by using of the client emulator on the client side and remote backend emulator on the backend side.
+
+- [x] 14. Go reimplementation v1 stage checklist
+  - _Evidence: Tasks 9–13 + 12 conformance matrix; `internal/testkit/conformance/stage_checklist_14_evidence_test.go` (integration + refclient file guards); B2BUA lineage assertions in `internal/core/runtime/executor_test.go`; composite routing parity in `internal/core/routing/parser_test.go` (`TestParseParity_pythonLIPCompositeSelector`); route query → `lipapi.GenerationOptions` via `pkg/lipapi/route_params.go` merged in `internal/core/runtime/executor.go` before `Backend.Open`._
+
+  - [x] 14.1. Fully implemented proxy front-end API interfaces in most popular LLM API flavors: OpenAI Chat Completions, OpenAI Responses API, Anthropic Messages API, Gemini API. Each of those with full test coverages at level that we are able to **prove** API/protocol compliance/correnctness. This includes handling of multimodal inputs.
+
+  - [x] 14.2. Fully implemented proxy back-end connector API interfaces in most popular LLM API flavors: OpenAI Chat Completions, OpenAI Responses API, Anthropic Messages API, Gemini API plus ACP Agent Client Protocol. Each of those with full test coverages at level that we are able to **prove** API/protocol compliance/correnctness. This includes handling of multimodal inputs.
+
+  - [x] 14.3. Cross-API translations for any possible combination of (front-end API, back-end API), including extensive set of both unit and integration tests with full test coverages at level that we are able to **prove** each and every combination of APIs is properly translated at the proxy level.
+
+  - [x] 14.4. B2BUA Functionality in proxy core. Our app properly following B2BUA-like semantics. One A-leg can have multiple, properly mapped B-legs.
+
+  - [x] 14.5. Dynamic routing parity with `llm-interactive-proxy` Python counterparty, which includes: failover routing (separation of backends with pipe char), weighted routing (with "^" separator) and per-leg parameters support in square brackets, ie: "[first]openai-codex:gpt-5.3-codex?reasoning_effort=high^[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low|[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+
+  - [x] 14.6. Model routing strings (parser) properly allow for URI-like params passing into the concrete backend connector, ie "gemini:gpt-5.2?reasoning_effort=high&temperature=0.2" which should pass reasoning effort and temperature settings to the be used to complete requests if such model route is used.

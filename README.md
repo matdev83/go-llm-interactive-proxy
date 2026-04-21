@@ -2,19 +2,23 @@
 
 This repository is the greenfield Go re-implementation of LLM Interactive Proxy.
 
-The bootstrap in this repository intentionally sets up package boundaries, module metadata,
-tooling, and configuration scaffolding only. Runtime behavior, protocol adapters, routing,
-streaming, and B2BUA orchestration remain future implementation work driven by the Kiro specs
-under `.kiro/specs/`.
+The repository implements the **Go core v1** stack from `.kiro/specs/go-core-reimplementation-v1`: canonical `lipapi` contracts, core routing/B2BUA/executor, bundled frontend and backend plugins, conformance matrix, and a **runnable** standard distribution binary (`cmd/lipstd`) that serves the bundled HTTP APIs when configured.
 
 ## Current state
 
 - canonical Go module and repository layout
-- placeholder package boundaries aligned with `AGENTS.md` and Kiro steering
-- typed runtime configuration scaffold
-- standard distribution composition root scaffold in `cmd/lipstd`
+- package boundaries aligned with `AGENTS.md` and Kiro steering
+- typed runtime configuration (`config/config.yaml`)
+- **`cmd/lipstd`** — loads config, validates plugin registration, then runs [`internal/stdhttp.Run`](internal/stdhttp/server.go): HTTP server with all bundled frontends, optional diagnostics (`/healthz`, `/admin/attempts` per config), and backends wired from enabled `plugins.backends` rows (see [`internal/stdhttp/wire.go`](internal/stdhttp/wire.go))
 - test, vet, lint, and vuln-check entrypoints
 - QA scripts, optional git hooks, and a GitHub Actions workflow aligned with the sibling `go-live-market-data-aggregator` process (trimmed for this repo: no domain-specific custom vets)
+- deterministic fallback IDs/timestamps in the core runtime, frontend encoders, and ACP reference paths so tests no longer depend on wall-clock or random generators
+
+### Resource bounds (memory / DoS hardening)
+
+- **`lipapi.Call.Validate`** enforces maximum sizes on route selectors, IDs, messages/parts/tool counts, part payloads, extensions, and related option strings (see `pkg/lipapi/limits.go`). Oversized canonical requests fail validation before orchestration runs.
+- **`lipapi.Collect`** applies `DefaultCollectLimits` when aggregating streaming events into a single `Collected` struct. Use **`CollectWithLimits`** for custom caps or **`CollectUnbounded`** only for tests/harnesses that deliberately exceed defaults.
+- **`b2bua.MemoryStore`** with **TTL disabled** applies a **default maximum number of concurrent A-leg rows** (`DefaultMemoryStoreMaxLegsWithoutTTL`, currently 100k); set **`MemoryStoreOptions.MaxLegs`** explicitly (including **negative** for no cap if you truly need unbounded in-memory retention). With **TTL enabled**, max-leg count defaults to unlimited and expiry is TTL-driven.
 
 ## QA and local workflow
 
@@ -24,14 +28,14 @@ Fast checks (format, `go mod tidy` drift, build, vet) plus staged-package tests 
 make quality-checks   # gofmt -l, tidy+diff guard, go build, go vet
 make test             # quality-checks + go test -short -parallel=8 ./...
 make test-fast        # quality-checks + tests for staged packages (or all if none staged)
-make test-race        # best-effort race scan (skips if CGO/CC unavailable)
+make test-race        # no-op on Windows; use Linux CI or WSL for -race
 make test-fuzz        # short fuzz smoke on internal/testkit (override: FUZZTIME=30s make test-fuzz)
 make bench            # JSON normalize micro-benchmark in internal/testkit
 make qa               # quality-checks + unit tests + golangci-lint + govulncheck (tools must be installed)
 make hooks-install    # set core.hooksPath to .githooks (runs scripts/quality-gate on pre-commit when .go is staged)
 ```
 
-Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, race on staged paths, `golangci-lint` if present, `govulncheck` if present). On Windows, set `LIP_QA_RACE_STRICT=1` before committing if you want the race step to fail closed when the race runtime is unavailable.
+Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, `golangci-lint` if present, `govulncheck` if present). The race step is not run on Windows; use Linux CI or WSL for `go test -race`.
 
 CI (`.github/workflows/qa.yml`) runs `make quality-checks`, unit tests, strict race on Linux, `golangci-lint-action`, and `govulncheck`.
 
@@ -43,7 +47,8 @@ Linter config lives in `.golangci.yml` (staticcheck, govet, revive, small correc
 - `pkg/lipapi/` - canonical public contracts
 - `pkg/lipsdk/` - stable plugin SDK contracts
 - `internal/core/` - runtime, routing, stream, config, admin, capabilities
-- `internal/plugins/` - official frontend, backend, and feature plugin placeholders
+- `internal/plugins/` - bundled frontend, backend, and feature plugins
+- `internal/stdhttp/` - standard distribution HTTP wiring (mount + executor build from YAML)
 - `internal/infra/` - shared infrastructure seams
 - `internal/testkit/` - test support surface scaffold
 - `internal/qa/` - repo hygiene tests (root markdown noise, etc.)

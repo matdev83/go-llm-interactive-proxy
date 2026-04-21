@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -29,22 +31,43 @@ type Executor struct {
 	Store    b2bua.Store
 	Bus      *hooks.Bus
 	Backends map[string]Backend // key: routing.Primary.Backend (non-empty)
-	Rand     routing.Rng
-	Now      func() time.Time
+	// Rand supplies weighted routing rolls. Common implementations (*math/rand.Rand)
+	// are not safe for concurrent use; rng() wraps a non-nil Rand accordingly.
+	Rand routing.Rng
+	Now  func() time.Time
 	// Log, when non-nil, receives structured orchestration decisions (diag.LogDecision).
 	Log *slog.Logger
+
+	rngOnce    sync.Once
+	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
+}
+
+var deterministicNow = time.Unix(1715620000, 0).UTC()
+
+type lockedRng struct {
+	mu   sync.Mutex
+	base routing.Rng
+}
+
+func (l *lockedRng) Intn(n int) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.base.Intn(n)
 }
 
 func (e *Executor) now() time.Time {
 	if e.Now != nil {
 		return e.Now()
 	}
-	return time.Now()
+	return deterministicNow
 }
 
 func (e *Executor) rng() routing.Rng {
 	if e.Rand != nil {
-		return e.Rand
+		e.rngOnce.Do(func() {
+			e.lockedRand = &lockedRng{base: e.Rand}
+		})
+		return e.lockedRand
 	}
 	return rand.New(rand.NewSource(1))
 }
@@ -56,26 +79,29 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 	if e == nil || e.Store == nil || call == nil {
 		return nil, fmt.Errorf("executor: invalid arguments")
 	}
-	if e.Bus == nil {
-		e.Bus = hooks.New(hooks.Config{})
+	bus := e.Bus
+	if bus == nil {
+		bus = hooks.New(hooks.Config{})
 	}
 	if err := call.Validate(); err != nil {
 		return nil, err
 	}
-	traceID := strings.TrimSpace(call.ID)
+	work := *call
+	traceID := strings.TrimSpace(work.ID)
 	if traceID == "" {
-		traceID = diag.NewTraceID()
+		traceID = diag.StableCallID(&work)
 	}
-	ctx = diag.WithTraceID(ctx, traceID)
-	if err := e.Bus.RunSubmit(ctx, call, nil); err != nil {
+	work.ID = traceID
+	ctx = diag.WithCallDiag(ctx, traceID, "")
+	if err := bus.RunSubmit(ctx, &work, nil); err != nil {
 		return nil, err
 	}
-	aLeg, err := e.resolveALeg(ctx, call.Session)
+	aLeg, err := e.resolveALeg(ctx, work.Session)
 	if err != nil {
 		return nil, err
 	}
-	ctx = diag.WithALeg(ctx, aLeg.ALegID)
-	sel, err := routing.Parse(call.Route.Selector)
+	ctx = diag.WithCallDiag(ctx, traceID, aLeg.ALegID)
+	sel, err := routing.Parse(work.Route.Selector)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +128,6 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 			return nil, err
 		}
 		c := list[0]
-		work := *call
 		req := lipapi.RequiredCapabilities(work)
 		be, ok := e.Backends[c.Primary.Backend]
 		if !ok {
@@ -111,7 +136,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 		res := lipapi.Negotiate(req, be.Caps)
 		if res.Kind == lipapi.NegotiationReject {
 			lastReject = res
-			diag.LogDecision(ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: strings.TrimSpace(call.ID)},
+			diag.LogDecision(ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: traceID},
 				slog.String("decision", "exclude_candidate"),
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
@@ -121,13 +146,13 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 		}
 		lastReject = lipapi.NegotiationResult{}
 		if res.Kind == lipapi.NegotiationDowngrade {
-			diag.LogDecision(ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: strings.TrimSpace(call.ID)},
+			diag.LogDecision(ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: traceID},
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
 			lipapi.ApplyNegotiatedDowngrades(&work, res)
 		}
-		if err := e.Bus.RunRequestPartHooks(ctx, &work, sdk.PartMeta{}); err != nil {
+		if err := bus.RunRequestPartHooks(ctx, &work, sdk.PartMeta{}); err != nil {
 			return nil, err
 		}
 		if c.MarkedFirst {
@@ -140,11 +165,15 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 		if err != nil {
 			return nil, err
 		}
-		stream, err := be.Open(ctx, work, c)
+		openCall, err := backendCallWithRouteParams(work, c)
+		if err != nil {
+			return nil, fmt.Errorf("executor: %w", err)
+		}
+		stream, err := be.Open(ctx, openCall, c)
 		if err != nil {
 			if lipapi.IsRecoverablePreOutput(err) {
 				_ = e.recordAttempt(ctx, aLeg.ALegID, bleg, c, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)")
-				diag.LogDecision(ctx, e.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: strings.TrimSpace(call.ID), BLegID: bleg.BLegID},
+				diag.LogDecision(ctx, e.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: traceID, BLegID: bleg.BLegID},
 					slog.String("candidate_key", c.Key),
 					slog.String("phase", "open"),
 				)
@@ -154,14 +183,15 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 			_ = e.recordAttempt(ctx, aLeg.ALegID, bleg, c, lipapi.AttemptSurfacedFailure, err.Error())
 			return nil, err
 		}
-		diag.LogDecision(ctx, e.Log, "backend_stream_opened", diag.AttrOpts{CallID: strings.TrimSpace(call.ID), BLegID: bleg.BLegID},
+		diag.LogDecision(ctx, e.Log, "backend_stream_opened", diag.AttrOpts{CallID: traceID, BLegID: bleg.BLegID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 			slog.String("model", c.Primary.Model),
 		)
 		return &retryRecvStream{
 			executor: e,
-			call:     call,
+			bus:      bus,
+			call:     &work,
 			aLegID:   aLeg.ALegID,
 			traceID:  traceID,
 			sel:      sel,
@@ -173,6 +203,15 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 			cand:     c,
 		}, nil
 	}
+}
+
+func backendCallWithRouteParams(work lipapi.Call, cand routing.AttemptCandidate) (lipapi.Call, error) {
+	merged, err := lipapi.MergeRouteQueryIntoGenerationOptions(work.Options, cand.Primary.Params)
+	if err != nil {
+		return lipapi.Call{}, fmt.Errorf("route generation options: %w", err)
+	}
+	work.Options = merged
+	return work, nil
 }
 
 func (e *Executor) resolveALeg(ctx context.Context, sess lipapi.SessionRef) (b2bua.ALegRecord, error) {
@@ -217,6 +256,7 @@ func (e *Executor) recordAttempt(ctx context.Context, aLegID string, bleg b2bua.
 
 type retryRecvStream struct {
 	executor *Executor
+	bus      *hooks.Bus
 	call     *lipapi.Call
 	aLegID   string
 	traceID  string
@@ -238,25 +278,30 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.finished {
 		return lipapi.Event{}, io.EOF
 	}
-	ctx = diag.WithTraceID(ctx, s.traceID)
-	ctx = diag.WithALeg(ctx, s.aLegID)
+	ctx = diag.WithCallDiag(ctx, s.traceID, s.aLegID)
 	for {
-		if s.inner == nil {
-			if err := s.openReplacement(ctx); err != nil {
+		for s.inner == nil {
+			opened, err := s.tryReplacementIteration(ctx)
+			if err != nil {
 				return lipapi.Event{}, err
+			}
+			if !opened {
+				return stream.DefaultKeepaliveEvent(), nil
 			}
 		}
 		ev, err := s.inner.Recv(ctx)
 		if err == nil {
 			if te, ok := lipapi.ToolEventFromEvent(ev); ok {
-				res := s.executor.Bus.ApplyToolReactors(ctx, te, sdk.ToolMeta{})
+				res := s.bus.ApplyToolReactors(ctx, te, sdk.ToolMeta{})
 				if !res.Emit {
 					continue
 				}
-				// Pass-through: original stream event is unchanged for Pass; Rewrite would need mapping.
+				if res.Event.Kind != "" {
+					ev = lipapi.MergeToolEventInto(ev, res.Event)
+				}
 			}
 			evp := ev
-			if herr := s.executor.Bus.RunResponsePartHooks(ctx, &evp, sdk.PartMeta{}); herr != nil {
+			if herr := s.bus.RunResponsePartHooks(ctx, &evp, sdk.PartMeta{}); herr != nil {
 				return lipapi.Event{}, herr
 			}
 			ev = evp
@@ -300,7 +345,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			_ = s.executor.recordAttempt(ctx, s.aLegID, s.bleg, s.cand, lipapi.AttemptSurfacedFailure, surfErr.Error())
 			return lipapi.Event{}, surfErr
 		}
-		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: strings.TrimSpace(s.call.ID), BLegID: s.bleg.BLegID},
+		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 			slog.String("candidate_key", s.cand.Key),
 			slog.String("phase", "recv"),
 		)
@@ -311,87 +356,92 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 }
 
-func (s *retryRecvStream) openReplacement(ctx context.Context) error {
-	ctx = diag.WithTraceID(ctx, s.traceID)
-	ctx = diag.WithALeg(ctx, s.aLegID)
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
+// tryReplacementIteration performs one planning + open attempt for recv-phase failover.
+// It returns opened=true when s.inner is ready, opened=false when the caller should emit
+// a keepalive (Req 5.5) and invoke Recv again, or a non-nil error when the replacement path is exhausted.
+func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened bool, err error) {
+	ctx = diag.WithCallDiag(ctx, s.traceID, s.aLegID)
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	list, err := routing.ExpandFailover(s.sel, routing.PlanOptions{
+		Excluded:   s.excluded,
+		Session:    s.session,
+		Rand:       s.rng,
+		IsRetryPath: true,
+	})
+	if err != nil {
+		if errors.Is(err, routing.ErrNoEligibleCandidate) && s.lastHardReject.Kind == lipapi.NegotiationReject {
+			return false, s.lastHardReject.Err()
 		}
-		list, err := routing.ExpandFailover(s.sel, routing.PlanOptions{
-			Excluded: s.excluded,
-			Session:  s.session,
-			Rand:     s.rng,
-		})
-		if err != nil {
-			if errors.Is(err, routing.ErrNoEligibleCandidate) && s.lastHardReject.Kind == lipapi.NegotiationReject {
-				return s.lastHardReject.Err()
-			}
-			return err
-		}
-		c := list[0]
-		work := *s.call
-		req := lipapi.RequiredCapabilities(work)
-		be, ok := s.executor.Backends[c.Primary.Backend]
-		if !ok {
-			return fmt.Errorf("executor: unknown backend %q", c.Primary.Backend)
-		}
-		res := lipapi.Negotiate(req, be.Caps)
-		if res.Kind == lipapi.NegotiationReject {
-			s.lastHardReject = res
-			diag.LogDecision(ctx, s.executor.Log, "capability_reject", diag.AttrOpts{CallID: strings.TrimSpace(s.call.ID)},
-				slog.String("decision", "exclude_candidate"),
-				slog.String("candidate_key", c.Key),
-				slog.String("backend", c.Primary.Backend),
-			)
-			s.excluded[c.Key] = struct{}{}
-			continue
-		}
-		s.lastHardReject = lipapi.NegotiationResult{}
-		if res.Kind == lipapi.NegotiationDowngrade {
-			diag.LogDecision(ctx, s.executor.Log, "capability_downgrade", diag.AttrOpts{CallID: strings.TrimSpace(s.call.ID)},
-				slog.String("candidate_key", c.Key),
-				slog.String("backend", c.Primary.Backend),
-			)
-			lipapi.ApplyNegotiatedDowngrades(&work, res)
-		}
-		if err := s.executor.Bus.RunRequestPartHooks(ctx, &work, sdk.PartMeta{}); err != nil {
-			return err
-		}
-		if c.MarkedFirst {
-			if err := s.executor.Store.SetWeightedFirstConsumed(ctx, s.aLegID, true); err != nil {
-				return err
-			}
-			s.session.FirstRequestConsumed = true
-		}
-		bleg, err := s.executor.Store.NextBLeg(ctx, s.aLegID)
-		if err != nil {
-			return err
-		}
-		stream, err := be.Open(ctx, work, c)
-		if err != nil {
-			if lipapi.IsRecoverablePreOutput(err) {
-				_ = s.executor.recordAttempt(ctx, s.aLegID, bleg, c, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)")
-				diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: strings.TrimSpace(s.call.ID), BLegID: bleg.BLegID},
-					slog.String("candidate_key", c.Key),
-					slog.String("phase", "open"),
-				)
-				s.excluded[c.Key] = struct{}{}
-				continue
-			}
-			_ = s.executor.recordAttempt(ctx, s.aLegID, bleg, c, lipapi.AttemptSurfacedFailure, err.Error())
-			return err
-		}
-		diag.LogDecision(ctx, s.executor.Log, "backend_stream_opened", diag.AttrOpts{CallID: strings.TrimSpace(s.call.ID), BLegID: bleg.BLegID},
+		return false, err
+	}
+	c := list[0]
+	work := *s.call
+	req := lipapi.RequiredCapabilities(work)
+	be, ok := s.executor.Backends[c.Primary.Backend]
+	if !ok {
+		return false, fmt.Errorf("executor: unknown backend %q", c.Primary.Backend)
+	}
+	res := lipapi.Negotiate(req, be.Caps)
+	if res.Kind == lipapi.NegotiationReject {
+		s.lastHardReject = res
+		diag.LogDecision(ctx, s.executor.Log, "capability_reject", diag.AttrOpts{CallID: s.traceID},
+			slog.String("decision", "exclude_candidate"),
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
-			slog.String("model", c.Primary.Model),
 		)
-		s.inner = stream
-		s.bleg = bleg
-		s.cand = c
-		return nil
+		s.excluded[c.Key] = struct{}{}
+		return false, nil
 	}
+	s.lastHardReject = lipapi.NegotiationResult{}
+	if res.Kind == lipapi.NegotiationDowngrade {
+		diag.LogDecision(ctx, s.executor.Log, "capability_downgrade", diag.AttrOpts{CallID: s.traceID},
+			slog.String("candidate_key", c.Key),
+			slog.String("backend", c.Primary.Backend),
+		)
+		lipapi.ApplyNegotiatedDowngrades(&work, res)
+	}
+	if err := s.bus.RunRequestPartHooks(ctx, &work, sdk.PartMeta{}); err != nil {
+		return false, err
+	}
+	if c.MarkedFirst {
+		if err := s.executor.Store.SetWeightedFirstConsumed(ctx, s.aLegID, true); err != nil {
+			return false, err
+		}
+		s.session.FirstRequestConsumed = true
+	}
+	bleg, err := s.executor.Store.NextBLeg(ctx, s.aLegID)
+	if err != nil {
+		return false, err
+	}
+	openCall, err := backendCallWithRouteParams(work, c)
+	if err != nil {
+		return false, err
+	}
+	nextStream, err := be.Open(ctx, openCall, c)
+	if err != nil {
+		if lipapi.IsRecoverablePreOutput(err) {
+			_ = s.executor.recordAttempt(ctx, s.aLegID, bleg, c, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)")
+			diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: s.traceID, BLegID: bleg.BLegID},
+				slog.String("candidate_key", c.Key),
+				slog.String("phase", "open"),
+			)
+			s.excluded[c.Key] = struct{}{}
+			return false, nil
+		}
+		_ = s.executor.recordAttempt(ctx, s.aLegID, bleg, c, lipapi.AttemptSurfacedFailure, err.Error())
+		return false, err
+	}
+	diag.LogDecision(ctx, s.executor.Log, "backend_stream_opened", diag.AttrOpts{CallID: s.traceID, BLegID: bleg.BLegID},
+		slog.String("candidate_key", c.Key),
+		slog.String("backend", c.Primary.Backend),
+		slog.String("model", c.Primary.Model),
+	)
+	s.inner = nextStream
+	s.bleg = bleg
+	s.cand = c
+	return true, nil
 }
 
 func (s *retryRecvStream) Close() error {

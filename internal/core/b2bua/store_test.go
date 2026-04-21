@@ -43,8 +43,8 @@ func TestMemoryStore_Create_emptyContinuityKey_alwaysNewSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a1.ALegID == a2.ALegID {
-		t.Fatal("expected distinct A-legs for empty continuity key")
+	if a1.ALegID != "a_000001" || a2.ALegID != "a_000002" {
+		t.Fatalf("A-legs: got %q and %q", a1.ALegID, a2.ALegID)
 	}
 	_, err = s.ResolveALeg(ctx, "")
 	if !errors.Is(err, b2bua.ErrInvalidContinuityKey) {
@@ -72,6 +72,9 @@ func TestMemoryStore_Create_sameContinuityKeyReplacesOldALeg(t *testing.T) {
 	if resolved.ALegID != a2.ALegID {
 		t.Fatalf("Resolve: want %q got %q", a2.ALegID, resolved.ALegID)
 	}
+	if a1.ALegID != "a_000001" || a2.ALegID != "a_000002" {
+		t.Fatalf("A-leg ids: %q %q", a1.ALegID, a2.ALegID)
+	}
 	_, err = s.GetALeg(ctx, a1.ALegID)
 	if !errors.Is(err, b2bua.ErrALegNotFound) {
 		t.Fatalf("old A-leg should be removed, got %v", err)
@@ -92,6 +95,9 @@ func TestMemoryStore_ResolveCreate_roundTripContinuity(t *testing.T) {
 	}
 	if created.ContinuityKey != key {
 		t.Fatalf("ContinuityKey: got %q", created.ContinuityKey)
+	}
+	if created.ALegID != "a_000001" {
+		t.Fatalf("ALegID: got %q", created.ALegID)
 	}
 	resolved, err := s.ResolveALeg(ctx, key)
 	if err != nil {
@@ -149,8 +155,8 @@ func TestMemoryStore_NextBLeg_monotonicSeq(t *testing.T) {
 	if b1.Seq != 1 || b2.Seq != 2 {
 		t.Fatalf("seq want 1,2 got %d,%d", b1.Seq, b2.Seq)
 	}
-	if b1.BLegID == b2.BLegID {
-		t.Fatal("expected distinct B-leg ids")
+	if b1.BLegID != "b_000001" || b2.BLegID != "b_000002" {
+		t.Fatalf("B-leg ids: %q %q", b1.BLegID, b2.BLegID)
 	}
 	if b1.ALegID != a.ALegID || b2.ALegID != a.ALegID {
 		t.Fatal("ALegID mismatch on B-leg")

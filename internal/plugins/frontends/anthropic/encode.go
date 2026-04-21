@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -36,13 +38,117 @@ type wireMessage struct {
 }
 
 type wireContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type  string          `json:"type"`
+	Text  string          `json:"text,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
 }
 
 type wireUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+}
+
+// Streaming SSE wire shapes (typed JSON; avoids map[string]any in the hot loop).
+var (
+	anthropicJSONNull     = json.RawMessage("null")
+	anthropicJSONEmptyArr = json.RawMessage("[]")
+	anthropicJSONEmptyObj = json.RawMessage("{}")
+)
+
+type anthropicSSEMessageStart struct {
+	Type    string                       `json:"type"`
+	Message anthropicSSEMessageStartBody `json:"message"`
+}
+
+type anthropicSSEMessageStartBody struct {
+	ID           string          `json:"id"`
+	Type         string          `json:"type"`
+	Role         string          `json:"role"`
+	Content      json.RawMessage `json:"content"`
+	Model        string          `json:"model"`
+	StopReason   json.RawMessage `json:"stop_reason"`
+	StopSequence json.RawMessage `json:"stop_sequence"`
+	Usage        struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+type anthropicSSEContentBlockStartText struct {
+	Type         string                `json:"type"`
+	Index        int                   `json:"index"`
+	ContentBlock anthropicSSETextBlock `json:"content_block"`
+}
+
+type anthropicSSETextBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type anthropicSSEContentBlockStartTool struct {
+	Type         string                `json:"type"`
+	Index        int                   `json:"index"`
+	ContentBlock anthropicSSEToolBlock `json:"content_block"`
+}
+
+type anthropicSSEToolBlock struct {
+	Type  string          `json:"type"`
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+}
+
+type anthropicSSEDeltaJSON struct {
+	Type  string                       `json:"type"`
+	Index int                          `json:"index"`
+	Delta anthropicSSEPartialJSONDelta `json:"delta"`
+}
+
+type anthropicSSEPartialJSONDelta struct {
+	Type        string `json:"type"`
+	PartialJSON string `json:"partial_json"`
+}
+
+type anthropicSSEDeltaText struct {
+	Type  string                     `json:"type"`
+	Index int                        `json:"index"`
+	Delta anthropicSSETextDeltaInner `json:"delta"`
+}
+
+type anthropicSSETextDeltaInner struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type anthropicSSEContentBlockStop struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+}
+
+type anthropicSSEMessageDelta struct {
+	Type  string                        `json:"type"`
+	Delta anthropicSSEMessageDeltaInner `json:"delta"`
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+type anthropicSSEMessageDeltaInner struct {
+	StopReason   string          `json:"stop_reason"`
+	StopSequence json.RawMessage `json:"stop_sequence"`
+}
+
+type anthropicSSEMessageStop struct {
+	Type string `json:"type"`
+}
+
+func defaultEncodeOptions(call *lipapi.Call, opts EncodeOptions) EncodeOptions {
+	if opts.MessageID == "" {
+		opts.MessageID = "msg_" + diag.StableCallToken(call)
+	}
+	return opts
 }
 
 // WriteErrorJSON writes an Anthropic-shaped JSON error before any streamed bytes.
@@ -70,20 +176,47 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
 	}
+	opts = defaultEncodeOptions(call, opts)
 	mid := opts.MessageID
-	if mid == "" {
-		mid = "msg_" + time.Now().UTC().Format("20060102150405")
+	tools := col.OrderedToolCalls()
+	stop := "end_turn"
+	if len(tools) > 0 {
+		stop = "tool_use"
+	}
+	var blocks []wireContentBlock
+	if text != "" {
+		blocks = append(blocks, wireContentBlock{Type: "text", Text: text})
+	}
+	for _, tc := range tools {
+		raw := strings.TrimSpace(tc.Arguments)
+		if raw == "" {
+			raw = "{}"
+		}
+		var v any
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			return fmt.Errorf("anthropic: tool arguments json: %w", err)
+		}
+		input, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		blocks = append(blocks, wireContentBlock{
+			Type:  "tool_use",
+			ID:    tc.ID,
+			Name:  tc.Name,
+			Input: input,
+		})
+	}
+	if len(blocks) == 0 {
+		blocks = []wireContentBlock{{Type: "text", Text: ""}}
 	}
 	out := wireMessage{
 		ID:         mid,
 		Type:       "message",
 		Role:       "assistant",
 		Model:      model,
-		StopReason: "end_turn",
-		Content: []wireContentBlock{{
-			Type: "text",
-			Text: text,
-		}},
+		StopReason: stop,
+		Content:    blocks,
 		Usage: wireUsage{
 			InputTokens:  col.InputTokens,
 			OutputTokens: col.OutputTokens,
@@ -95,15 +228,18 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 }
 
 func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
+	ka, err := stream.WrapRecoveryKeepalive(es)
+	if err != nil {
+		return err
+	}
+	es = ka
 	defer func() { _ = es.Close() }()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
 	}
+	opts = defaultEncodeOptions(call, opts)
 	mid := opts.MessageID
-	if mid == "" {
-		mid = "msg_" + time.Now().UTC().Format("20060102150405")
-	}
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -114,41 +250,70 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	}
 
 	var inTok, outTok int
-	var started bool
+	var msgStarted bool
+	nextBlockIdx := 0
+	textBlockIdx := -1
+	toolBlockIdx := make(map[string]int)
+	sawTool := false
 
-	flushStart := func() error {
-		if started {
+	flushMessageStart := func() error {
+		if msgStarted {
 			return nil
 		}
-		started = true
-		startPayload := map[string]any{
-			"type": "message_start",
-			"message": map[string]any{
-				"id":            mid,
-				"type":          "message",
-				"role":          "assistant",
-				"content":       []any{},
-				"model":         model,
-				"stop_reason":   nil,
-				"stop_sequence": nil,
-				"usage": map[string]int{
-					"input_tokens":  inTok,
-					"output_tokens": 0,
-				},
-			},
+		msgStarted = true
+		var p anthropicSSEMessageStart
+		p.Type = "message_start"
+		p.Message.ID = mid
+		p.Message.Type = "message"
+		p.Message.Role = "assistant"
+		p.Message.Content = anthropicJSONEmptyArr
+		p.Message.Model = model
+		p.Message.StopReason = anthropicJSONNull
+		p.Message.StopSequence = anthropicJSONNull
+		p.Message.Usage.InputTokens = inTok
+		p.Message.Usage.OutputTokens = 0
+		return stream.FlushSSEEventJSON(w, fl, "message_start", &p)
+	}
+
+	openTextBlock := func() error {
+		if textBlockIdx >= 0 {
+			return nil
 		}
-		if err := writeSSEEvent(w, fl, "message_start", startPayload); err != nil {
+		if err := flushMessageStart(); err != nil {
 			return err
 		}
-		cbStart := map[string]any{
-			"type":  "content_block_start",
-			"index": 0,
-			"content_block": map[string]any{
-				"type": "text",
-				"text": "",
+		textBlockIdx = nextBlockIdx
+		nextBlockIdx++
+		cb := anthropicSSEContentBlockStartText{
+			Type:         "content_block_start",
+			Index:        textBlockIdx,
+			ContentBlock: anthropicSSETextBlock{Type: "text", Text: ""},
+		}
+		return stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb)
+	}
+
+	openToolBlock := func(callID, name string) error {
+		if _, ok := toolBlockIdx[callID]; ok {
+			return nil
+		}
+		if err := flushMessageStart(); err != nil {
+			return err
+		}
+		idx := nextBlockIdx
+		nextBlockIdx++
+		toolBlockIdx[callID] = idx
+		sawTool = true
+		cb := anthropicSSEContentBlockStartTool{
+			Type:  "content_block_start",
+			Index: idx,
+			ContentBlock: anthropicSSEToolBlock{
+				Type:  "tool_use",
+				ID:    callID,
+				Name:  name,
+				Input: anthropicJSONEmptyObj,
 			},
 		}
-		return writeSSEEvent(w, fl, "content_block_start", cbStart)
+		return stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb)
 	}
 
 	for {
@@ -165,70 +330,88 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		case lipapi.EventUsageDelta:
 			inTok += ev.InputTokens
 			outTok += ev.OutputTokens
-		case lipapi.EventTextDelta:
-			if !started {
-				if err := flushStart(); err != nil {
-					return err
-				}
+		case lipapi.EventToolCallStarted:
+			if err := openToolBlock(ev.ToolCallID, ev.ToolName); err != nil {
+				return err
 			}
-			delta := map[string]any{
-				"type":  "content_block_delta",
-				"index": 0,
-				"delta": map[string]any{
-					"type": "text_delta",
-					"text": ev.Delta,
+		case lipapi.EventToolCallArgsDelta:
+			if err := openToolBlock(ev.ToolCallID, ""); err != nil {
+				return err
+			}
+			idx := toolBlockIdx[ev.ToolCallID]
+			d := anthropicSSEDeltaJSON{
+				Type:  "content_block_delta",
+				Index: idx,
+				Delta: anthropicSSEPartialJSONDelta{
+					Type:        "input_json_delta",
+					PartialJSON: ev.Delta,
 				},
 			}
-			if err := writeSSEEvent(w, fl, "content_block_delta", delta); err != nil {
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
+				return err
+			}
+		case lipapi.EventToolCallFinished:
+			idx, ok := toolBlockIdx[ev.ToolCallID]
+			if !ok {
+				continue
+			}
+			cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
+				return err
+			}
+		case lipapi.EventTextDelta:
+			if err := openTextBlock(); err != nil {
+				return err
+			}
+			d := anthropicSSEDeltaText{
+				Type:  "content_block_delta",
+				Index: textBlockIdx,
+				Delta: anthropicSSETextDeltaInner{Type: "text_delta", Text: ev.Delta},
+			}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
 				return err
 			}
 		case lipapi.EventResponseFinished:
-			if !started {
-				if err := flushStart(); err != nil {
+			if !msgStarted {
+				if err := openTextBlock(); err != nil {
 					return err
 				}
 			}
-			cbStop := map[string]any{
-				"type":  "content_block_stop",
-				"index": 0,
+			if textBlockIdx >= 0 {
+				cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: textBlockIdx}
+				if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
+					return err
+				}
 			}
-			if err := writeSSEEvent(w, fl, "content_block_stop", cbStop); err != nil {
+			stop := "end_turn"
+			if sawTool {
+				stop = "tool_use"
+			}
+			var msgDelta anthropicSSEMessageDelta
+			msgDelta.Type = "message_delta"
+			msgDelta.Delta.StopReason = stop
+			msgDelta.Delta.StopSequence = anthropicJSONNull
+			msgDelta.Usage.OutputTokens = outTok
+			if err := stream.FlushSSEEventJSON(w, fl, "message_delta", &msgDelta); err != nil {
 				return err
 			}
-			msgDelta := map[string]any{
-				"type": "message_delta",
-				"delta": map[string]any{
-					"stop_reason":   "end_turn",
-					"stop_sequence": nil,
-				},
-				"usage": map[string]int{
-					"output_tokens": outTok,
-				},
-			}
-			if err := writeSSEEvent(w, fl, "message_delta", msgDelta); err != nil {
-				return err
-			}
-			stopPayload := map[string]any{"type": "message_stop"}
-			if err := writeSSEEvent(w, fl, "message_stop", stopPayload); err != nil {
+			stopPayload := anthropicSSEMessageStop{Type: "message_stop"}
+			if err := stream.FlushSSEEventJSON(w, fl, "message_stop", &stopPayload); err != nil {
 				return err
 			}
 			return nil
 		case lipapi.EventError:
 			return fmt.Errorf("anthropic stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
-		case lipapi.EventWarning, lipapi.EventReasoningDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+		case lipapi.EventWarning:
+			if ev.WarningCode == stream.KeepaliveEventCode {
+				if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
+					return err
+				}
+				fl.Flush()
+				continue
+			}
+		case lipapi.EventReasoningDelta:
 		default:
 		}
 	}
-}
-
-func writeSSEEvent(w io.Writer, fl http.Flusher, event string, payload map[string]any) error {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b); err != nil {
-		return err
-	}
-	fl.Flush()
-	return nil
 }

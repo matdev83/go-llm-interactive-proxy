@@ -219,3 +219,289 @@ func TestDecodeCreate_toolsSamplingAndParallelToolCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Flat tool objects (type + name at top level) appear in some OpenAI SDK unions; decode must accept them.
+func TestDecodeCreate_toolsFlatSDKShape(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "tools": [
+    {
+      "type": "function",
+      "name": "flat_fn",
+      "description": "d",
+      "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}
+    }
+  ],
+  "input": [{"type": "message", "role": "user", "content": "ping"}]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Tools) != 1 || d.Call.Tools[0].Name != "flat_fn" || d.Call.Tools[0].Description != "d" {
+		t.Fatalf("tools: %+v", d.Call.Tools)
+	}
+	if string(d.Call.Tools[0].Parameters) == "" {
+		t.Fatal("expected parameters JSON")
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeCreate_toolChoiceFunctionObject(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+  "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
+  "input": [{"type": "message", "role": "user", "content": "ping"}]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceRequired || d.Call.ToolChoice.Name != "get_weather" {
+		t.Fatalf("tool_choice got %+v", d.Call.ToolChoice)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeCreate_toolChoiceRequiredString(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "tool_choice": "required",
+  "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
+  "input": [{"type": "message", "role": "user", "content": "ping"}]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAny || d.Call.ToolChoice.Name != "" {
+		t.Fatalf("tool_choice got %+v (OpenAI required -> canonical any-tool)", d.Call.ToolChoice)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeCreate_developerRoleMapsToSystem(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "input": [{"type": "message", "role": "developer", "content": "You are helpful."}]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 1 || d.Call.Messages[0].Role != lipapi.RoleSystem {
+		t.Fatalf("messages: %+v", d.Call.Messages)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Responses API allows multiple input item types; v1 adapter only supports type "message" (see research.md).
+func TestDecodeCreate_functionCallOutputItemRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "input": [{"type":"function_call_output","call_id":"call_1","output":"{\"ok\":true}"}]
+}`)
+	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported input item type")
+	}
+	if !strings.Contains(err.Error(), "unsupported input item type") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeCreate_unsupportedRoleInMessage(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "input": [{"type":"message","role":"narrator","content":"x"}]
+}`)
+	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported role")
+	}
+	if !strings.Contains(err.Error(), "unsupported role") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeCreate_unsupportedContentBlockInMessage(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "input": [{"type":"message","role":"user","content":[{"type":"output_text","text":"x"}]}]
+}`)
+	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported content block type")
+	}
+	if !strings.Contains(err.Error(), "unsupported content block type") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeCreate_unsupportedToolType(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "tools": [{"type":"web_search_preview"}],
+  "input": [{"type":"message","role":"user","content":"q"}]
+}`)
+	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported type") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeCreate_instructionsPlusMessagesTurn(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "instructions": "You are concise.",
+  "input": [
+    {"type":"message","role":"user","content":"first"},
+    {"type":"message","role":"assistant","content":"ack"},
+    {"type":"message","role":"user","content":"second"}
+  ]
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Instructions) != 1 || d.Call.Instructions[0].Parts[0].Text != "You are concise." {
+		t.Fatalf("instructions: %+v", d.Call.Instructions)
+	}
+	if len(d.Call.Messages) != 3 {
+		t.Fatalf("messages count %d", len(d.Call.Messages))
+	}
+	if d.Call.Messages[0].Role != lipapi.RoleUser || d.Call.Messages[1].Role != lipapi.RoleAssistant {
+		t.Fatalf("roles: %+v / %+v", d.Call.Messages[0].Role, d.Call.Messages[1].Role)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeCreate_toolChoice_auto(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "input": "hi",
+  "tools": [{"type":"function","name":"fn","parameters":{}}],
+  "tool_choice": "auto"
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAuto {
+		t.Fatalf("mode: %q", d.Call.ToolChoice.Mode)
+	}
+}
+
+func TestDecodeCreate_toolChoice_none(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "input": "hi",
+  "tool_choice": "none"
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceNone {
+		t.Fatalf("mode: %q", d.Call.ToolChoice.Mode)
+	}
+}
+
+func TestDecodeCreate_toolChoice_required(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "input": "hi",
+  "tools": [{"type":"function","name":"fn","parameters":{}}],
+  "tool_choice": "required"
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAny {
+		t.Fatalf("mode: %q", d.Call.ToolChoice.Mode)
+	}
+}
+
+func TestDecodeCreate_toolChoice_functionObject(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "input": "hi",
+  "tools": [{"type":"function","name":"pick_me","parameters":{}}],
+  "tool_choice": {"type":"function","function":{"name":"pick_me"}}
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceRequired || d.Call.ToolChoice.Name != "pick_me" {
+		t.Fatalf("choice: %+v", d.Call.ToolChoice)
+	}
+}
+
+func TestDecodeCreate_toolChoice_functionObject_missingName(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "input": "hi",
+  "tool_choice": {"type":"function","function":{}}
+}`)
+	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err == nil {
+		t.Fatal("expected error for missing function name")
+	}
+}

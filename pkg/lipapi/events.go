@@ -8,6 +8,36 @@ import (
 	"strings"
 )
 
+// CollectLimits bounds memory growth while aggregating streaming events into Collected.
+// A zero value disables all limits (CollectUnbounded). Individual fields use zero to mean
+// “no limit” for that dimension only when using CollectWithLimits with a partially filled struct.
+type CollectLimits struct {
+	MaxTextBytes          int
+	MaxReasoningBytes     int
+	MaxToolArgsTotalBytes int
+	MaxWarnings           int
+}
+
+// DefaultCollectLimits returns conservative defaults for Collect (non-streaming aggregation).
+func DefaultCollectLimits() CollectLimits {
+	return CollectLimits{
+		MaxTextBytes:          64 << 20,
+		MaxReasoningBytes:     64 << 20,
+		MaxToolArgsTotalBytes: 128 << 20,
+		MaxWarnings:           100_000,
+	}
+}
+
+func toolArgsTotalBytes(m map[string]*strings.Builder) int {
+	n := 0
+	for _, b := range m {
+		if b != nil {
+			n += b.Len()
+		}
+	}
+	return n
+}
+
 // EventKind identifies canonical stream events.
 type EventKind string
 
@@ -44,13 +74,47 @@ type Event struct {
 	ErrorMessage string
 }
 
+// ValidateEventEnvelope applies maximum sizes to canonical event string fields (codec output,
+// backend mapping, or hook mutations) so one stream chunk cannot force unbounded allocations.
+func ValidateEventEnvelope(ev *Event) error {
+	if ev == nil {
+		return fmt.Errorf("nil event")
+	}
+	if len(ev.Delta) > MaxEventDeltaBytes {
+		return &ValidationError{Field: "Delta", Message: fmt.Sprintf("exceeds %d bytes", MaxEventDeltaBytes)}
+	}
+	if len(ev.ToolCallID) > MaxRefStringBytes {
+		return &ValidationError{Field: "ToolCallID", Message: fmt.Sprintf("exceeds %d bytes", MaxRefStringBytes)}
+	}
+	if len(ev.ToolName) > MaxRefStringBytes {
+		return &ValidationError{Field: "ToolName", Message: fmt.Sprintf("exceeds %d bytes", MaxRefStringBytes)}
+	}
+	if len(ev.WarningCode) > MaxEventCodeFieldBytes {
+		return &ValidationError{Field: "WarningCode", Message: fmt.Sprintf("exceeds %d bytes", MaxEventCodeFieldBytes)}
+	}
+	if len(ev.WarningMessage) > MaxEventDiagMessageBytes {
+		return &ValidationError{Field: "WarningMessage", Message: fmt.Sprintf("exceeds %d bytes", MaxEventDiagMessageBytes)}
+	}
+	if len(ev.ErrorCode) > MaxEventCodeFieldBytes {
+		return &ValidationError{Field: "ErrorCode", Message: fmt.Sprintf("exceeds %d bytes", MaxEventCodeFieldBytes)}
+	}
+	if len(ev.ErrorMessage) > MaxEventDiagMessageBytes {
+		return &ValidationError{Field: "ErrorMessage", Message: fmt.Sprintf("exceeds %d bytes", MaxEventDiagMessageBytes)}
+	}
+	return nil
+}
+
 // EventStream is the primary execution result from backends and the executor.
+// Implementations assume a single goroutine calls Recv until completion or error
+// (no concurrent Recv on the same stream). Close may run concurrently with a
+// blocked Recv only if the implementation documents that as safe.
 type EventStream interface {
 	Recv(ctx context.Context) (Event, error) // io.EOF means normal completion after terminal event
 	Close() error
 }
 
 // FixedEventStream returns a finite stream for tests and in-memory adapters.
+// It is not safe for concurrent Recv; use one consumer at a time.
 func FixedEventStream(events []Event) EventStream {
 	s := append([]Event(nil), events...)
 	return &fixedEventStream{events: s}
@@ -127,9 +191,23 @@ func (c Collected) OrderedToolCalls() []ToolCallSummary {
 	return out
 }
 
-// Collect drains a stream until a terminal event or an error.
+// Collect drains a stream until a terminal event or an error using DefaultCollectLimits.
 // Terminal success is EventResponseFinished. Terminal failure is EventError followed by optional EOF.
 func Collect(ctx context.Context, s EventStream) (Collected, error) {
+	return CollectWithLimits(ctx, s, DefaultCollectLimits())
+}
+
+// CollectUnbounded aggregates without CollectLimits checks (legacy / testing only).
+func CollectUnbounded(ctx context.Context, s EventStream) (Collected, error) {
+	return CollectWithLimits(ctx, s, CollectLimits{})
+}
+
+// CollectWithLimits drains a stream until a terminal event or an error.
+// Terminal success is EventResponseFinished. Terminal failure is EventError followed by optional EOF.
+func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits) (Collected, error) {
+	if s == nil {
+		return Collected{}, ErrNilEventStream
+	}
 	defer func() { _ = s.Close() }()
 
 	var out Collected
@@ -196,8 +274,14 @@ func Collect(ctx context.Context, s EventStream) (Collected, error) {
 
 		switch ev.Kind {
 		case EventTextDelta:
+			if limits.MaxTextBytes > 0 && out.Text.Len()+len(ev.Delta) > limits.MaxTextBytes {
+				return out, fmt.Errorf("%w: text aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxTextBytes)
+			}
 			out.Text.WriteString(ev.Delta)
 		case EventReasoningDelta:
+			if limits.MaxReasoningBytes > 0 && out.Reasoning.Len()+len(ev.Delta) > limits.MaxReasoningBytes {
+				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
+			}
 			out.Reasoning.WriteString(ev.Delta)
 		case EventToolCallStarted:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
@@ -224,6 +308,9 @@ func Collect(ctx context.Context, s EventStream) (Collected, error) {
 				out.ToolArgs[id] = nb
 				b = nb
 			}
+			if limits.MaxToolArgsTotalBytes > 0 && toolArgsTotalBytes(out.ToolArgs)+len(ev.Delta) > limits.MaxToolArgsTotalBytes {
+				return out, fmt.Errorf("%w: tool arguments aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxToolArgsTotalBytes)
+			}
 			b.WriteString(ev.Delta)
 		case EventToolCallFinished:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
@@ -234,6 +321,9 @@ func Collect(ctx context.Context, s EventStream) (Collected, error) {
 				out.ToolCallOrder = append(out.ToolCallOrder, id)
 			}
 		case EventWarning:
+			if limits.MaxWarnings > 0 && len(out.Warnings) >= limits.MaxWarnings {
+				return out, fmt.Errorf("%w: warning count would exceed %d", ErrCollectLimitExceeded, limits.MaxWarnings)
+			}
 			out.Warnings = append(out.Warnings, ev.WarningMessage)
 		case EventUsageDelta:
 			out.InputTokens += ev.InputTokens

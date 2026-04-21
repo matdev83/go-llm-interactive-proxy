@@ -52,6 +52,9 @@ func (c Call) Validate() error {
 	if len(c.Messages) == 0 {
 		return &ValidationError{Field: "Messages", Message: "at least one message is required"}
 	}
+	if err := c.validateEnvelopeSizes(); err != nil {
+		return err
+	}
 	for i, m := range c.Messages {
 		if m.Role == "" {
 			return &ValidationError{Field: fmt.Sprintf("Messages[%d].Role", i), Message: "role is required"}

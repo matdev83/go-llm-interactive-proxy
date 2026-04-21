@@ -36,5 +36,8 @@ func ValidateEventAfterResponseHook(hookID string, ev *lipapi.Event) error {
 			return &lipapi.HookMutationError{HookID: hookID, Details: fmt.Sprintf("%s requires ToolCallID", ev.Kind)}
 		}
 	}
+	if err := lipapi.ValidateEventEnvelope(ev); err != nil {
+		return &lipapi.HookMutationError{HookID: hookID, Details: err.Error(), Cause: err}
+	}
 	return nil
 }

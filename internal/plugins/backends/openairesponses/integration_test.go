@@ -2,6 +2,7 @@ package openairesponses_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -111,5 +112,53 @@ func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
 	}
 	if !strings.Contains(captured, "input_image") || !strings.Contains(captured, "input_file") {
 		t.Fatalf("expected multimodal request markers, got: %s", captured)
+	}
+}
+
+func TestIntegration_refbackendToolCallStream(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{"type":"object","properties":{"q":{"type":"integer"}}}`)
+	const toolStreamSSE = "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":0,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"call_id\":\"call_fc\",\"name\":\"get_weather\",\"status\":\"in_progress\"}}\n\n" +
+		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":1,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"{\\\"q\\\":\"}\n\n" +
+		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":2,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"1}\"}\n\n" +
+		"event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":3,\"item_id\":\"fc_int_t\",\"output_index\":0,\"name\":\"get_weather\",\"arguments\":\"{\\\"q\\\":1}\"}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"r_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"name\":\"get_weather\",\"arguments\":\"{\\\"q\\\":1}\"}]}}\n\n" +
+		"data: [DONE]\n\n"
+
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{StreamSSE: toolStreamSSE}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test"})
+	call := lipapi.Call{
+		ID: "tool-int",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("weather?")},
+		}},
+		Tools: []lipapi.ToolDef{{
+			Name:        "get_weather",
+			Description: "Get weather",
+			Parameters:  schema,
+		}},
+		ToolChoice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "get_weather"},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcs := col.OrderedToolCalls()
+	if len(tcs) != 1 {
+		t.Fatalf("tool calls: %+v", tcs)
+	}
+	if tcs[0].Name != "get_weather" || tcs[0].ID != "fc_int_t" {
+		t.Fatalf("tool summary: %+v", tcs[0])
+	}
+	if tcs[0].Arguments != `{"q":1}` {
+		t.Fatalf("arguments: %q", tcs[0].Arguments)
 	}
 }

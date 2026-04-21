@@ -7,8 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -53,6 +54,19 @@ type wireStreamEnvelope struct {
 	Response       wireResponse `json:"response"`
 }
 
+func defaultEncodeOptions(call *lipapi.Call, opts EncodeOptions) EncodeOptions {
+	if opts.ResponseID == "" {
+		opts.ResponseID = "resp_" + diag.StableCallToken(call)
+	}
+	if opts.MessageID == "" {
+		opts.MessageID = "msg_" + opts.ResponseID
+	}
+	if opts.CreatedAt == 0 {
+		opts.CreatedAt = diag.StableUnix(call)
+	}
+	return opts
+}
+
 // WriteErrorJSON writes an OpenAI-shaped JSON error before any streamed bytes.
 func WriteErrorJSON(w http.ResponseWriter, status int, message, errType, code string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -79,23 +93,20 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 }
 
 func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
+	ka, err := stream.WrapRecoveryKeepalive(es)
+	if err != nil {
+		return err
+	}
+	es = ka
 	defer func() { _ = es.Close() }()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
+	opts = defaultEncodeOptions(call, opts)
 	rid := opts.ResponseID
-	if rid == "" {
-		rid = "resp_" + time.Now().UTC().Format("20060102150405")
-	}
 	mid := opts.MessageID
-	if mid == "" {
-		mid = "msg_" + rid
-	}
 	ts := opts.CreatedAt
-	if ts == 0 {
-		ts = time.Now().Unix()
-	}
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -122,18 +133,6 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var toolOrder []*toolStream
 	nextOutIdx := int64(1)
 
-	writeStreamEvent := func(evName string, payload map[string]any) error {
-		b, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evName, b); err != nil {
-			return err
-		}
-		fl.Flush()
-		return nil
-	}
-
 	ensureToolStream := func(callID string) (*toolStream, error) {
 		if st := toolByCallID[callID]; st != nil {
 			return st, nil
@@ -147,17 +146,17 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		nextOutIdx++
 		toolByCallID[callID] = st
 		toolOrder = append(toolOrder, st)
-		if err := writeStreamEvent("response.output_item.added", map[string]any{
-			"type":            "response.output_item.added",
-			"sequence_number": nextSeq(),
-			"output_index":    st.OutputIndex,
-			"item": map[string]any{
-				"type":      "function_call",
-				"id":        st.ItemID,
-				"call_id":   st.CallID,
-				"name":      st.Name,
-				"arguments": "",
-				"status":    "in_progress",
+		if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedFunc{
+			Type:           "response.output_item.added",
+			SequenceNumber: nextSeq(),
+			OutputIndex:    st.OutputIndex,
+			Item: streamFuncCallInProgress{
+				Type:      "function_call",
+				ID:        st.ItemID,
+				CallID:    st.CallID,
+				Name:      st.Name,
+				Arguments: "",
+				Status:    "in_progress",
 			},
 		}); err != nil {
 			return nil, err
@@ -165,51 +164,50 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return st, nil
 	}
 
-	createdResponse := map[string]any{
-		"id":         rid,
-		"object":     "response",
-		"created_at": ts,
-		"status":     "in_progress",
-		"model":      model,
-		"output":     []any{},
+	createdResponse := wireResponse{
+		ID:        rid,
+		Object:    "response",
+		CreatedAt: ts,
+		Status:    "in_progress",
+		Model:     model,
+		Output:    []any{},
 	}
-	if err := writeStreamEvent("response.created", map[string]any{
-		"type":            "response.created",
-		"sequence_number": nextSeq(),
-		"response":        createdResponse,
+	if err := flushSSE(w, fl, "response.created", wireStreamEnvelope{
+		Type:           "response.created",
+		SequenceNumber: nextSeq(),
+		Response:       createdResponse,
 	}); err != nil {
 		return err
 	}
-	if err := writeStreamEvent("response.in_progress", map[string]any{
-		"type":            "response.in_progress",
-		"sequence_number": nextSeq(),
-		"response":        createdResponse,
+	if err := flushSSE(w, fl, "response.in_progress", wireStreamEnvelope{
+		Type:           "response.in_progress",
+		SequenceNumber: nextSeq(),
+		Response:       createdResponse,
 	}); err != nil {
 		return err
 	}
-	if err := writeStreamEvent("response.output_item.added", map[string]any{
-		"type":            "response.output_item.added",
-		"sequence_number": nextSeq(),
-		"output_index":    int64(0),
-		"item": map[string]any{
-			"type":    "message",
-			"id":      mid,
-			"status":  "in_progress",
-			"role":    "assistant",
-			"content": []any{},
-		},
+	msgItem := streamMessageItem{
+		Type:    "message",
+		ID:      mid,
+		Status:  "in_progress",
+		Role:    "assistant",
+		Content: []streamMsgContent{},
+	}
+	if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedMsg{
+		Type:           "response.output_item.added",
+		SequenceNumber: nextSeq(),
+		OutputIndex:    0,
+		Item:           msgItem,
 	}); err != nil {
 		return err
 	}
-	if err := writeStreamEvent("response.content_part.added", map[string]any{
-		"type":            "response.content_part.added",
-		"sequence_number": nextSeq(),
-		"output_index":    int64(0),
-		"part": map[string]any{
-			"type": "output_text",
-			"text": "",
-		},
-	}); err != nil {
+	var partAdded streamContentPartAdded
+	partAdded.Type = "response.content_part.added"
+	partAdded.SequenceNumber = nextSeq()
+	partAdded.OutputIndex = 0
+	partAdded.Part.Type = "output_text"
+	partAdded.Part.Text = ""
+	if err := flushSSE(w, fl, "response.content_part.added", partAdded); err != nil {
 		return err
 	}
 
@@ -228,10 +226,10 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			outTok += ev.OutputTokens
 		case lipapi.EventTextDelta:
 			fullText.WriteString(ev.Delta)
-			if err := writeStreamEvent("response.output_text.delta", map[string]any{
-				"type":            "response.output_text.delta",
-				"sequence_number": nextSeq(),
-				"delta":           ev.Delta,
+			if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{
+				Type:           "response.output_text.delta",
+				SequenceNumber: nextSeq(),
+				Delta:          ev.Delta,
 			}); err != nil {
 				return err
 			}
@@ -251,17 +249,17 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			nextOutIdx++
 			toolByCallID[ev.ToolCallID] = st
 			toolOrder = append(toolOrder, st)
-			if err := writeStreamEvent("response.output_item.added", map[string]any{
-				"type":            "response.output_item.added",
-				"sequence_number": nextSeq(),
-				"output_index":    st.OutputIndex,
-				"item": map[string]any{
-					"type":      "function_call",
-					"id":        st.ItemID,
-					"call_id":   st.CallID,
-					"name":      st.Name,
-					"arguments": "",
-					"status":    "in_progress",
+			if err := flushSSE(w, fl, "response.output_item.added", streamOutputItemAddedFunc{
+				Type:           "response.output_item.added",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    st.OutputIndex,
+				Item: streamFuncCallInProgress{
+					Type:      "function_call",
+					ID:        st.ItemID,
+					CallID:    st.CallID,
+					Name:      st.Name,
+					Arguments: "",
+					Status:    "in_progress",
 				},
 			}); err != nil {
 				return err
@@ -272,12 +270,12 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 			st.Args.WriteString(ev.Delta)
-			if err := writeStreamEvent("response.function_call_arguments.delta", map[string]any{
-				"type":            "response.function_call_arguments.delta",
-				"sequence_number": nextSeq(),
-				"item_id":         st.ItemID,
-				"output_index":    st.OutputIndex,
-				"delta":           ev.Delta,
+			if err := flushSSE(w, fl, "response.function_call_arguments.delta", streamFuncArgsDelta{
+				Type:           "response.function_call_arguments.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         st.ItemID,
+				OutputIndex:    st.OutputIndex,
+				Delta:          ev.Delta,
 			}); err != nil {
 				return err
 			}
@@ -287,95 +285,94 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				continue
 			}
 			args := st.Args.String()
-			if err := writeStreamEvent("response.function_call_arguments.done", map[string]any{
-				"type":            "response.function_call_arguments.done",
-				"sequence_number": nextSeq(),
-				"item_id":         st.ItemID,
-				"name":            st.Name,
-				"arguments":       args,
-				"output_index":    st.OutputIndex,
+			if err := flushSSE(w, fl, "response.function_call_arguments.done", streamFuncArgsDone{
+				Type:           "response.function_call_arguments.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         st.ItemID,
+				Name:           st.Name,
+				Arguments:      args,
+				OutputIndex:    st.OutputIndex,
 			}); err != nil {
 				return err
 			}
-			if err := writeStreamEvent("response.output_item.done", map[string]any{
-				"type":            "response.output_item.done",
-				"sequence_number": nextSeq(),
-				"output_index":    st.OutputIndex,
-				"item": map[string]any{
-					"type":      "function_call",
-					"id":        st.ItemID,
-					"call_id":   st.CallID,
-					"name":      st.Name,
-					"arguments": args,
-					"status":    "completed",
+			if err := flushSSE(w, fl, "response.output_item.done", streamOutputItemDone{
+				Type:           "response.output_item.done",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    st.OutputIndex,
+				Item: streamFuncItemDone{
+					Type:      "function_call",
+					ID:        st.ItemID,
+					CallID:    st.CallID,
+					Name:      st.Name,
+					Arguments: args,
+					Status:    "completed",
 				},
 			}); err != nil {
 				return err
 			}
 		case lipapi.EventResponseFinished:
 			text := fullText.String()
-			if err := writeStreamEvent("response.output_text.done", map[string]any{
-				"type":            "response.output_text.done",
-				"sequence_number": nextSeq(),
-				"text":            text,
+			if err := flushSSE(w, fl, "response.output_text.done", streamOutputTextDone{
+				Type:           "response.output_text.done",
+				SequenceNumber: nextSeq(),
+				Text:           text,
 			}); err != nil {
 				return err
 			}
 
-			out := []any{
-				map[string]any{
-					"type":   "message",
-					"id":     mid,
-					"status": "completed",
-					"role":   "assistant",
-					"content": []any{
-						map[string]any{
-							"type": "output_text",
-							"text": text,
-						},
-					},
-				},
-			}
+			out := make([]streamCompletedOut, 0, 1+len(toolOrder))
+			out = append(out, streamCompletedOut{
+				Type:    "message",
+				ID:      mid,
+				Status:  "completed",
+				Role:    "assistant",
+				Content: []streamMsgContent{{Type: "output_text", Text: text}},
+			})
 			for _, st := range toolOrder {
-				out = append(out, map[string]any{
-					"type":      "function_call",
-					"id":        st.ItemID,
-					"call_id":   st.CallID,
-					"name":      st.Name,
-					"arguments": st.Args.String(),
-					"status":    "completed",
+				out = append(out, streamCompletedOut{
+					Type:      "function_call",
+					ID:        st.ItemID,
+					CallID:    st.CallID,
+					Name:      st.Name,
+					Arguments: st.Args.String(),
+					Status:    "completed",
 				})
 			}
 
-			completedResp := map[string]any{
-				"id":         rid,
-				"object":     "response",
-				"created_at": ts,
-				"status":     "completed",
-				"model":      model,
-				"output":     out,
-			}
+			var completed streamCompletedEvent
+			completed.Type = "response.completed"
+			completed.SequenceNumber = nextSeq()
+			completed.Response.ID = rid
+			completed.Response.Object = "response"
+			completed.Response.CreatedAt = ts
+			completed.Response.Status = "completed"
+			completed.Response.Model = model
+			completed.Response.Output = out
 			if inTok > 0 || outTok > 0 {
-				completedResp["usage"] = map[string]any{
-					"input_tokens":  inTok,
-					"output_tokens": outTok,
+				completed.Response.Usage = &wireUsage{
+					InputTokens:  inTok,
+					OutputTokens: outTok,
 				}
 			}
-			if err := writeStreamEvent("response.completed", map[string]any{
-				"type":            "response.completed",
-				"sequence_number": nextSeq(),
-				"response":        completedResp,
-			}); err != nil {
+			if err := flushSSE(w, fl, "response.completed", completed); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(w, "data: [DONE]\n\n"); err != nil {
+			if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
 				return err
 			}
 			fl.Flush()
 			return nil
 		case lipapi.EventError:
 			return fmt.Errorf("openairesponses stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
-		case lipapi.EventWarning, lipapi.EventReasoningDelta:
+		case lipapi.EventWarning:
+			if ev.WarningCode == stream.KeepaliveEventCode {
+				if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+					return err
+				}
+				fl.Flush()
+				continue
+			}
+		case lipapi.EventReasoningDelta:
 		default:
 		}
 	}
@@ -390,18 +387,10 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
+	opts = defaultEncodeOptions(call, opts)
 	rid := opts.ResponseID
-	if rid == "" {
-		rid = "resp_" + time.Now().UTC().Format("20060102150405")
-	}
 	mid := opts.MessageID
-	if mid == "" {
-		mid = "msg_" + rid
-	}
 	ts := opts.CreatedAt
-	if ts == 0 {
-		ts = time.Now().Unix()
-	}
 	text := col.Text.String()
 	msgOut := map[string]any{
 		"type":    "message",

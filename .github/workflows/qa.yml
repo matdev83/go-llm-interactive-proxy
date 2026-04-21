@@ -24,6 +24,15 @@ jobs:
       - name: Unit tests
         run: go test -short -parallel=8 ./...
 
+      - name: Conformance package (explicit gate)
+        run: go test ./internal/testkit/conformance/...
+
+      - name: Release gates (fuzz smoke)
+        env:
+          # ~30 targets × FUZZTIME; keep within job timeout alongside race + lint.
+          FUZZTIME: 6s
+        run: make test-fuzz
+
       - name: Race detector
         run: bash scripts/race-check.sh --short --strict
 

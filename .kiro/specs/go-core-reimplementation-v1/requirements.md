@@ -126,6 +126,18 @@ Each acceptance criterion is labeled **`N.M`** (requirement **N**, criterion **M
 
 **3.8.** The frontend shall not silently drop, flatten, or mis-label multimodal parts that are within the declared supported subset; unsupported combinations shall fail with a protocol-valid error consistent with **2.7**.
 
+#### Implementation notes — v1 bundled frontend subset (2026-04-21)
+
+Normative API URLs and the authoritative wire-vs-canonical matrix live in **`research.md`** → *Official API specification references (normative docs)* and the per-protocol **Frontend subset vs spec** bullets there. The following aligns **Requirement 3** acceptance criteria with the **current** Go adapters under `internal/plugins/frontends/*` (contract tests in each package’s `*_test.go` and `integration_test.go`).
+
+- **OpenAI Responses (`frontends/openairesponses`):** Decode supports `POST /v1/responses` with `input` as a string or an array of **`message`-typed items** only; other input item types (e.g. `function_call_output`) are rejected. `instructions` is a **JSON string** only. **`tool_choice`** is decoded (`auto` / `none` / `required`, and `type: function` with a name); wire **`required`** maps to canonical **`ToolChoice` mode `any`** so `lipapi` validation matches OpenAI “must use a tool” semantics. Encode maps canonical **tool-call** events to Responses output / SSE; canonical **`EventReasoningDelta`** is not re-emitted on the Responses wire in v1.
+
+- **Legacy OpenAI Chat Completions (`frontends/openailegacy`):** Decode covers `messages`, `tools`, **`tool_choice`** (same **`required` → `any`** rule as Responses), `stream_options`, sampling, multimodal `image_url` / `file`, **`developer` → system**, and **`role: tool`**; assistant **`tool_calls` / `function_call`** on inbound messages are rejected. Encode maps canonical tools to **`delta.tool_calls` / `message.tool_calls`** and **`finish_reason: tool_calls`** when applicable.
+
+- **Anthropic Messages (`frontends/anthropic`):** Decode covers `system` (string or text block array), `messages`, tools, **`tool_choice`**, positive **`max_tokens`**, sampling, base64 **`image` / `document`** blocks, **`tool_use` / `tool_result`** in history; **`metadata` / `top_k`** are ignored for canonical options. The HTTP **`anthropic-version`** header is not validated or stored on the canonical call. Encode streaming emits **text** and **`tool_use`** SSE (`input_json_delta`); canonical reasoning deltas are not mapped to Messages SSE in v1.
+
+- **Gemini generateContent (`frontends/gemini`):** Decode covers `contents`, `systemInstruction`, `generationConfig`, `tools` / `toolConfig`, parts **`text`**, **`inlineData`**, **`functionCall`**, **`functionResponse`** (camelCase and snake_case keys where implemented). **`allowedFunctionNames`** does not narrow canonical `ToolChoice.Name` in v1. Encode streams **text** and **`functionCall`** chunks plus trailing **`usageMetadata`** when usage deltas exist; **non-stream** responses omit **`usageMetadata`** by subset contract even if usage appeared on the canonical stream.
+
 ### Requirement 4: Backend protocol compatibility
 
 **Objective:** As an operator, I want the Go distribution to speak the required backend API flavors, so that one frontend can target any supported backend family on the shared subset.

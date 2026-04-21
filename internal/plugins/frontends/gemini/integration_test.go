@@ -2,6 +2,7 @@ package gemini_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -180,6 +181,30 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 	}
 }
 
+func TestIntegration_methodNotAllowed(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "x", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := srv.URL + "/v1beta/models/gemini-2.0-flash:generateContent"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
 func TestIntegration_capabilityReject_returns400(t *testing.T) {
 	t.Parallel()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "nope", nil)
@@ -208,5 +233,145 @@ func TestIntegration_capabilityReject_returns400(t *testing.T) {
 	_, err = cli.GenerateContent(context.Background(), "gemini-2.0-flash", contents, nil)
 	if err == nil {
 		t.Fatal("expected error from capability reject")
+	}
+}
+
+func TestIntegration_toolStubRoundTrip_streaming(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools), "tail", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	cli, err := refcli.New(context.Background(), refcli.Config{
+		BaseURL:    srv.URL,
+		APIKey:     "fake-key",
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := []*genai.Tool{{
+		FunctionDeclarations: []*genai.FunctionDeclaration{{
+			Name: "todo_add",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+			},
+		}},
+	}}
+	cfg := &genai.GenerateContentConfig{Tools: tools}
+	var sawFunctionCall bool
+	var textParts []string
+	for res, serr := range cli.GenerateContentStream(context.Background(), "gemini-2.0-flash",
+		[]*genai.Content{genai.NewContentFromText("use the tool", genai.RoleUser)}, cfg) {
+		if serr != nil {
+			t.Fatal(serr)
+		}
+		for _, c := range res.Candidates {
+			if c.Content == nil {
+				continue
+			}
+			for _, p := range c.Content.Parts {
+				if p.FunctionCall != nil && p.FunctionCall.Name == "todo_add" {
+					sawFunctionCall = true
+				}
+				if p.Text != "" {
+					textParts = append(textParts, p.Text)
+				}
+			}
+		}
+	}
+	if !sawFunctionCall {
+		t.Fatal("expected functionCall in streaming response")
+	}
+	if len(textParts) == 0 {
+		t.Fatal("expected text in streaming response")
+	}
+}
+
+func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools), "tail", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	body := `{
+  "contents": [{"role":"user","parts":[{"text":"hi"}]}],
+  "tools": [{"functionDeclarations":[{"name":"todo_add","parameters":{"type":"object"}}]}]
+}`
+	url := srv.URL + "/v1beta/models/gemini-2.0-flash:generateContent"
+	res, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	var v map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	cands, _ := v["candidates"].([]any)
+	if len(cands) < 1 {
+		t.Fatalf("candidates: %v", v)
+	}
+	c0 := cands[0].(map[string]any)
+	content := c0["content"].(map[string]any)
+	parts := content["parts"].([]any)
+	var saw bool
+	for _, p := range parts {
+		pm := p.(map[string]any)
+		if fc, ok := pm["functionCall"].(map[string]any); ok {
+			if fc["name"] == "todo_add" {
+				saw = true
+			}
+		}
+	}
+	if !saw {
+		t.Fatalf("missing functionCall in parts %#v", parts)
+	}
+}
+
+func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
+	t.Parallel()
+	var capture sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &capture)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route"}
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := srv.URL + "/v1beta/models/gemini-2.0-flash:generateContent"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, u,
+		strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"x"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(front.HeaderRouteSelector, "stub:route-from-header")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	v, ok := capture.Load("last")
+	if !ok {
+		t.Fatal("expected captured call")
+	}
+	call := v.(lipapi.Call)
+	if call.Route.Selector != "stub:route-from-header" {
+		t.Fatalf("route selector %q", call.Route.Selector)
 	}
 }

@@ -9,6 +9,39 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestCollectWithLimits_nil_event_stream_returns_error(t *testing.T) {
+	t.Parallel()
+	_, err := lipapi.CollectWithLimits(context.Background(), nil, lipapi.CollectLimits{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, lipapi.ErrNilEventStream) {
+		t.Fatalf("expected ErrNilEventStream, got %v", err)
+	}
+}
+
+func TestCollect_nil_event_stream_returns_error(t *testing.T) {
+	t.Parallel()
+	_, err := lipapi.Collect(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, lipapi.ErrNilEventStream) {
+		t.Fatalf("expected ErrNilEventStream, got %v", err)
+	}
+}
+
+func TestCollectUnbounded_nil_event_stream_returns_error(t *testing.T) {
+	t.Parallel()
+	_, err := lipapi.CollectUnbounded(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, lipapi.ErrNilEventStream) {
+		t.Fatalf("expected ErrNilEventStream, got %v", err)
+	}
+}
+
 func TestCollect_happyPathOrderingAndAggregation(t *testing.T) {
 	t.Parallel()
 
@@ -112,6 +145,26 @@ func TestCollect_duplicateResponseStarted(t *testing.T) {
 	_, err := lipapi.Collect(context.Background(), stream)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestCollect_limitExceededOnText(t *testing.T) {
+	t.Parallel()
+
+	stream := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: strings.Repeat("z", 100)},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	_, err := lipapi.CollectWithLimits(context.Background(), stream, lipapi.CollectLimits{
+		MaxTextBytes: 50,
+	})
+	if err == nil {
+		t.Fatal("expected limit error")
+	}
+	if !errors.Is(err, lipapi.ErrCollectLimitExceeded) {
+		t.Fatalf("want ErrCollectLimitExceeded: %v", err)
 	}
 }
 

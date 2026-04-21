@@ -1,4 +1,8 @@
 # race-check.ps1 — Go race detector; best-effort unless -Strict.
+#
+# Race detection is disabled on Windows: the Go race runtime (ThreadSanitizer)
+# frequently fails with allocation errors on this platform. Run `bash scripts/race-check.sh`
+# under Linux/WSL or rely on CI for `-race`.
 
 param(
     [switch]$Short = $false,
@@ -7,6 +11,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($env:OS -eq "Windows_NT") {
+    Write-Host "Race detector skipped on Windows (disabled locally; use Linux CI or WSL for go test -race)." -ForegroundColor Yellow
+    exit 0
+}
 
 function Remove-FileIfExists([string]$Path) {
     if (-not (Test-Path $Path)) { return }

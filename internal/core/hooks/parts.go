@@ -13,7 +13,11 @@ func (b *Bus) RunRequestPartHooks(ctx context.Context, call *lipapi.Call, meta s
 	if call == nil {
 		return fmt.Errorf("nil call")
 	}
-	for _, h := range b.requestParts {
+	var reqParts []sdk.RequestPartHook
+	if b != nil {
+		reqParts = b.requestParts
+	}
+	for _, h := range reqParts {
 		if err := h.HandleRequestParts(ctx, call, meta); err != nil {
 			if h.FailureMode() == sdk.FailOpen {
 				continue
@@ -32,7 +36,11 @@ func (b *Bus) RunResponsePartHooks(ctx context.Context, ev *lipapi.Event, meta s
 	if ev == nil {
 		return fmt.Errorf("nil event")
 	}
-	for _, h := range b.responseParts {
+	var respParts []sdk.ResponsePartHook
+	if b != nil {
+		respParts = b.responseParts
+	}
+	for _, h := range respParts {
 		if err := h.HandleEvent(ctx, ev, meta); err != nil {
 			if h.FailureMode() == sdk.FailOpen {
 				continue

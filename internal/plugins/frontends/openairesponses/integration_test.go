@@ -248,3 +248,147 @@ func TestIntegration_capabilityReject_returns400(t *testing.T) {
 		t.Fatal("expected error from capability reject")
 	}
 }
+
+func TestIntegration_toolStubRoundTrip_streaming(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools), "tail", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/responses", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test"})
+	stream := cli.CreateResponseStream(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("gpt-4o-mini"),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage("use the tool", responses.EasyInputMessageRoleUser),
+			},
+		},
+		Tools: []responses.ToolUnionParam{
+			{OfFunction: &responses.FunctionToolParam{
+				Name:        "plan_fn",
+				Description: openai.String("d"),
+				Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+			}},
+		},
+	})
+	var sawFunctionCallDelta, sawFunctionCallDone, sawCompleted bool
+	var fcName, fcArgs string
+	for stream.Next() {
+		cur := stream.Current()
+		switch cur.Type {
+		case "response.function_call_arguments.delta":
+			sawFunctionCallDelta = true
+		case "response.function_call_arguments.done":
+			sawFunctionCallDone = true
+		case "response.completed":
+			sawCompleted = true
+			for _, item := range cur.Response.Output {
+				if fc := item.AsFunctionCall(); fc.ID != "" {
+					fcName = fc.Name
+					fcArgs = fc.Arguments
+				}
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !sawFunctionCallDelta {
+		t.Fatal("expected response.function_call_arguments.delta event")
+	}
+	if !sawFunctionCallDone {
+		t.Fatal("expected response.function_call_arguments.done event")
+	}
+	if !sawCompleted {
+		t.Fatal("expected response.completed event")
+	}
+	if fcName != "plan_fn" {
+		t.Fatalf("function_call name: %q", fcName)
+	}
+	if !strings.Contains(fcArgs, `"q"`) {
+		t.Fatalf("function_call arguments: %q", fcArgs)
+	}
+}
+
+func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
+	t.Parallel()
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools), "tail", nil)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:gpt-4o-mini"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/responses", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	body := `{
+  "model": "gpt-4o-mini",
+  "stream": false,
+  "tools": [{"type":"function","function":{"name":"plan_fn","description":"d","parameters":{"type":"object","properties":{}}}}],
+  "input": [{"type":"message","role":"user","content":"x"}]
+}`
+	res, err := http.Post(srv.URL+"/v1/responses", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	var v struct {
+		Output []map[string]any `json:"output"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Output) < 2 {
+		t.Fatalf("output len %d", len(v.Output))
+	}
+	if typ, _ := v.Output[1]["type"].(string); typ != "function_call" {
+		t.Fatalf("output[1] type %v", v.Output[1])
+	}
+	if v.Output[1]["name"] != "plan_fn" {
+		t.Fatalf("name: %v", v.Output[1]["name"])
+	}
+	args, _ := v.Output[1]["arguments"].(string)
+	if !strings.Contains(args, `"q"`) {
+		t.Fatalf("arguments %q", args)
+	}
+}
+
+func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
+	t.Parallel()
+	var capture sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &capture)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route"}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/responses", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-4o-mini","input":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(front.HeaderRouteSelector, "stub:route-from-header")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	v, ok := capture.Load("last")
+	if !ok {
+		t.Fatal("expected captured call")
+	}
+	call := v.(lipapi.Call)
+	if call.Route.Selector != "stub:route-from-header" {
+		t.Fatalf("route selector %q", call.Route.Selector)
+	}
+}

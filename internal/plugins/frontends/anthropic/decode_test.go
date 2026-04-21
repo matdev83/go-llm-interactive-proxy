@@ -1,6 +1,7 @@
 package anthropic_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -271,6 +272,125 @@ func TestDecodeMessage_systemBlockArray(t *testing.T) {
 	}
 }
 
+func TestDecodeMessage_metadataAndTopKIgnored(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "top_k": 40,
+  "metadata": {"session":"abc"},
+  "messages": [{"role":"user","content":"hi"}]
+}`)
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 1 || d.Call.Messages[0].Parts[0].Text != "hi" {
+		t.Fatalf("messages: %+v", d.Call.Messages)
+	}
+	if d.Call.Options.TopP != nil || d.Call.Options.Temperature != nil {
+		t.Fatalf("unexpected sampling from top_k passthrough: %+v", d.Call.Options)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeMessage_toolResultBlock_stringContent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [
+    {"role":"user","content":"hi"},
+    {"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"fn","input":{}}]},
+    {"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"42"}]}
+  ]
+}`)
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := d.Call.Messages
+	if len(msgs) != 3 {
+		t.Fatalf("messages: %d", len(msgs))
+	}
+	lastMsg := msgs[2]
+	if lastMsg.Role != lipapi.RoleUser {
+		t.Fatalf("role: %q", lastMsg.Role)
+	}
+	if len(lastMsg.Parts) != 1 {
+		t.Fatalf("parts: %+v", lastMsg.Parts)
+	}
+	p := lastMsg.Parts[0]
+	if p.Kind != lipapi.PartToolResult {
+		t.Fatalf("kind: %q", p.Kind)
+	}
+	if p.ToolCallID != "tu_1" {
+		t.Fatalf("tool_use_id: %q", p.ToolCallID)
+	}
+	if p.Text != "42" {
+		t.Fatalf("text: %q", p.Text)
+	}
+}
+
+func TestDecodeMessage_toolResultBlock_arrayContent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [
+    {"role":"user","content":"hi"},
+    {"role":"assistant","content":[{"type":"tool_use","id":"tu_2","name":"fn","input":{}}]},
+    {"role":"user","content":[{
+      "type":"tool_result",
+      "tool_use_id":"tu_2",
+      "content":[
+        {"type":"text","text":"first"},
+        {"type":"text","text":" second"}
+      ]
+    }]}
+  ]
+}`)
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.Call.Messages[2].Parts[0]
+	if p.Kind != lipapi.PartToolResult {
+		t.Fatalf("kind: %q", p.Kind)
+	}
+	if p.ToolCallID != "tu_2" {
+		t.Fatalf("tool_use_id: %q", p.ToolCallID)
+	}
+	if p.Text != "first second" {
+		t.Fatalf("text: %q", p.Text)
+	}
+}
+
+func TestDecodeMessage_toolResultBlock_missingToolUseID(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [
+    {"role":"user","content":[{"type":"tool_result","content":"x"}]}
+  ]
+}`)
+	_, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing tool_use_id")
+	}
+}
+
 func TestDecodeMessage_unsupportedRole(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{
@@ -285,6 +405,155 @@ func TestDecodeMessage_unsupportedRole(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "unsupported message role") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeMessage_temperatureAndTopP(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "temperature": 0.35,
+  "top_p": 0.88,
+  "messages": [{"role":"user","content":"hi"}]
+}`)
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Options.Temperature == nil || *d.Call.Options.Temperature != 0.35 {
+		t.Fatalf("temperature %+v", d.Call.Options.Temperature)
+	}
+	if d.Call.Options.TopP == nil || *d.Call.Options.TopP != 0.88 {
+		t.Fatalf("top_p %+v", d.Call.Options.TopP)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeMessage_maxTokensZeroRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 0,
+  "messages": [{"role":"user","content":"hi"}]
+}`)
+	_, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("expected error for max_tokens <= 0")
+	}
+	if !strings.Contains(err.Error(), "max_tokens") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeMessage_invalidToolChoiceString(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"hi"}],
+  "tool_choice": "invalid_choice_xyz"
+}`)
+	_, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported tool_choice string") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeMessage_toolChoiceObject(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		desc       string
+		toolChoice string
+		wantMode   lipapi.ToolChoiceMode
+		wantName   string
+		wantErr    bool
+	}{
+		{"auto", `{"type":"auto"}`, lipapi.ToolChoiceAuto, "", false},
+		{"any", `{"type":"any"}`, lipapi.ToolChoiceAny, "", false},
+		{"none", `{"type":"none"}`, lipapi.ToolChoiceNone, "", false},
+		{"tool_ok", `{"type":"tool","name":"my_tool"}`, lipapi.ToolChoiceRequired, "my_tool", false},
+		{"tool_missing_name", `{"type":"tool"}`, "", "", true},
+		{"invalid_type", `{"type":"unknown"}`, "", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{
+			  "model": "claude-3",
+			  "max_tokens": 64,
+			  "messages": [{"role":"user","content":"hi"}],
+			  "tool_choice": %s
+			}`, tc.toolChoice))
+			d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{RouteSelector: "stub:claude-3"})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if d.Call.ToolChoice.Mode != tc.wantMode {
+				t.Errorf("got mode %q, want %q", d.Call.ToolChoice.Mode, tc.wantMode)
+			}
+			if d.Call.ToolChoice.Name != tc.wantName {
+				t.Errorf("got name %q, want %q", d.Call.ToolChoice.Name, tc.wantName)
+			}
+		})
+	}
+}
+
+func TestDecodeMessage_imageNonBase64SourceRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{
+    "role": "user",
+    "content": [{"type":"image","source":{"type":"url","url":"https://example.com/x.png"}}]
+  }]
+}`)
+	_, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("expected error for non-base64 image source")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeMessage_documentNonBase64SourceRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{
+    "role": "user",
+    "content": [{"type":"document","source":{"type":"url","url":"https://example.com/doc.pdf"}}]
+  }]
+}`)
+	_, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+	})
+	if err == nil {
+		t.Fatal("expected error for non-base64 document source")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }

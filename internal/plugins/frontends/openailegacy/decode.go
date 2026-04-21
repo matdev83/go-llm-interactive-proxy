@@ -171,6 +171,9 @@ func parseToolMessageContent(raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return nil, err
 		}
+		if strings.TrimSpace(s) == "" {
+			return nil, errors.New("tool message content is required")
+		}
 		return s, nil
 	}
 	var v any
@@ -377,7 +380,9 @@ func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
 		case "none":
 			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone}, nil
 		case "required":
-			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired}, nil
+			// OpenAI: model must call one or more tools. Canonical ToolChoiceRequired
+			// always carries a specific tool name; use ToolChoiceAny for "any declared tool".
+			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, nil
 		default:
 			return lipapi.ToolChoice{}, fmt.Errorf("openailegacy: unsupported tool_choice string %q", s)
 		}

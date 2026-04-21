@@ -3,6 +3,7 @@ package hooks_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -16,6 +17,25 @@ func testCall() *lipapi.Call {
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
+	}
+}
+
+func TestRunSubmit_rejectsInvalidCallAfterHooks(t *testing.T) {
+	t.Parallel()
+	h := &stubSubmit{
+		id: "inflate", order: 0,
+		handle: func(_ context.Context, call *lipapi.Call, _ *sdk.SubmitMeta) (sdk.SubmitDecision, error) {
+			call.Messages[0].Parts[0].Text = strings.Repeat("x", lipapi.MaxPartTextBytes+1)
+			return sdk.SubmitDecision{}, nil
+		},
+	}
+	bus := corehooks.New(corehooks.Config{SubmitHooks: []sdk.SubmitHook{h}})
+	err := bus.RunSubmit(context.Background(), testCall(), &sdk.SubmitMeta{Annotations: map[string]string{}})
+	if err == nil {
+		t.Fatal("expected validation error after hook inflated message")
+	}
+	if !strings.Contains(err.Error(), "submit hooks") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

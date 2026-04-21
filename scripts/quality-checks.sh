@@ -41,7 +41,7 @@ echo ""
 echo "=== Quality Checks ==="
 echo ""
 
-echo "[1/4] Checking Go formatting..."
+echo "[1/6] Checking Go formatting..."
 unformatted=$(gofmt -l . 2>/dev/null || true)
 if [ -n "$unformatted" ]; then
 	echo "Unformatted files:"
@@ -52,7 +52,7 @@ fi
 echo "OK: Format check passed"
 echo ""
 
-echo "[2/4] Checking Go modules..."
+echo "[2/6] Checking Go modules..."
 go mod tidy
 tidy_changes=$(git diff --name-only go.mod go.sum 2>/dev/null || true)
 if [ -n "$tidy_changes" ]; then
@@ -65,7 +65,7 @@ fi
 echo "OK: Module check passed"
 echo ""
 
-echo "[3/4] Checking build..."
+echo "[3/6] Checking build..."
 if ! go build "${QUALITY_PACKAGES[@]}"; then
 	echo "ERROR: Build failed"
 	exit 1
@@ -73,12 +73,25 @@ fi
 echo "OK: Build check passed"
 echo ""
 
-echo "[4/4] Running go vet..."
+echo "[4/6] Running go vet..."
 if ! go vet "${QUALITY_PACKAGES[@]}"; then
 	echo "ERROR: go vet failed"
 	exit 1
 fi
 echo "OK: Vet check passed"
+echo ""
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+echo "[5/6] Ad-hoc goroutine allowlist (non-test)..."
+if ! bash "$script_dir/check-adhoc-goroutines.sh"; then
+	exit 1
+fi
+echo ""
+
+echo "[6/6] Regex hot-path check (regexp compile in frontends/runtime)..."
+if ! bash "$script_dir/regex-hotpath-check.sh"; then
+	exit 1
+fi
 echo ""
 
 echo "=== All Quality Checks Passed ==="

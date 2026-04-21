@@ -8,6 +8,7 @@ diagnostics:
 
 routing:
   max_attempts: 3
+  default_route: "openai-responses:gpt-4o-mini"
 
 continuity:
   in_memory: true

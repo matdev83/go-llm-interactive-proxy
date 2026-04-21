@@ -32,14 +32,25 @@ func TestTraceID_roundTrip(t *testing.T) {
 	}
 }
 
-func TestNewTraceID_nonEmptyAndDistinct(t *testing.T) {
+func TestWithCallDiag_roundTrip(t *testing.T) {
+	t.Parallel()
+	ctx := diag.WithCallDiag(context.Background(), "tid-2", "aleg-2")
+	if diag.TraceID(ctx) != "tid-2" {
+		t.Fatalf("TraceID = %q", diag.TraceID(ctx))
+	}
+	if diag.ALegID(ctx) != "aleg-2" {
+		t.Fatalf("ALegID = %q", diag.ALegID(ctx))
+	}
+}
+
+func TestNewTraceID_deterministicSequence(t *testing.T) {
 	t.Parallel()
 	a := diag.NewTraceID()
 	b := diag.NewTraceID()
-	if a == "" || b == "" {
-		t.Fatal("expected non-empty ids")
+	if a != "t_00000001" {
+		t.Fatalf("first trace id = %q, want t_00000001", a)
 	}
-	if a == b {
-		t.Fatal("expected distinct ids")
+	if b != "t_00000002" {
+		t.Fatalf("second trace id = %q, want t_00000002", b)
 	}
 }

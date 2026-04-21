@@ -33,6 +33,7 @@ type wireCreate struct {
 	Input         json.RawMessage `json:"input"`
 	Instructions  json.RawMessage `json:"instructions"`
 	Tools         json.RawMessage `json:"tools"`
+	ToolChoice    json.RawMessage `json:"tool_choice"`
 	ParallelTools *bool           `json:"parallel_tool_calls"`
 	Temperature   *float64        `json:"temperature"`
 	TopP          *float64        `json:"top_p"`
@@ -69,6 +70,10 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	if err != nil {
 		return nil, err
 	}
+	toolChoice, err := parseToolChoice(w.ToolChoice)
+	if err != nil {
+		return nil, err
+	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
@@ -81,7 +86,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		Instructions: instructions,
 		Messages:     msgs,
 		Tools:        tools,
-		ToolChoice:   lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto},
+		ToolChoice:   toolChoice,
 		Extensions:   ext,
 		Options: lipapi.GenerationOptions{
 			Temperature:       w.Temperature,
@@ -334,24 +339,80 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 				Description string          `json:"description"`
 				Parameters  json.RawMessage `json:"parameters"`
 			} `json:"function"`
+			// Flat shape used by some Responses clients / SDK unions (type + name at top level).
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
 		}
 		if err := json.Unmarshal(it, &w); err != nil {
 			return nil, fmt.Errorf("openairesponses: tools[%d]: %w", i, err)
 		}
-		if strings.TrimSpace(w.Function.Name) == "" {
+		name := strings.TrimSpace(w.Function.Name)
+		desc := w.Function.Description
+		params := w.Function.Parameters
+		if name == "" {
+			name = strings.TrimSpace(w.Name)
+			if desc == "" {
+				desc = w.Description
+			}
+			if len(params) == 0 {
+				params = w.Parameters
+			}
+		}
+		if name == "" {
 			return nil, fmt.Errorf("openairesponses: tools[%d]: function name is required", i)
 		}
-		params := w.Function.Parameters
 		if len(params) == 0 {
 			params = json.RawMessage(`{}`)
 		}
 		out = append(out, lipapi.ToolDef{
-			Name:        w.Function.Name,
-			Description: w.Function.Description,
+			Name:        name,
+			Description: desc,
 			Parameters:  params,
 		})
 	}
 	return out, nil
+}
+
+func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return lipapi.ToolChoice{}, err
+		}
+		switch strings.TrimSpace(strings.ToLower(s)) {
+		case "auto", "":
+			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
+		case "none":
+			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceNone}, nil
+		case "required":
+			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAny}, nil
+		default:
+			return lipapi.ToolChoice{}, fmt.Errorf("openairesponses: unsupported tool_choice string %q", s)
+		}
+	}
+	var obj struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return lipapi.ToolChoice{}, fmt.Errorf("openairesponses: tool_choice: %w", err)
+	}
+	switch strings.TrimSpace(obj.Type) {
+	case "function":
+		name := strings.TrimSpace(obj.Function.Name)
+		if name == "" {
+			return lipapi.ToolChoice{}, errors.New("openairesponses: tool_choice function name is required")
+		}
+		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: name}, nil
+	default:
+		return lipapi.ToolChoice{}, fmt.Errorf("openairesponses: unsupported tool_choice type %q", obj.Type)
+	}
 }
 
 // ModelFromCall returns the wire model string stored during decode.

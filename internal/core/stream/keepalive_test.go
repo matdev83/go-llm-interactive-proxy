@@ -19,17 +19,47 @@ type delayedStream struct {
 
 func (d *delayedStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if d.index >= len(d.events) {
+		t := time.NewTimer(d.delay)
+		defer func() {
+			if !t.Stop() {
+				select {
+				case <-t.C:
+				default:
+				}
+			}
+		}()
 		select {
 		case <-ctx.Done():
 			return lipapi.Event{}, ctx.Err()
-		case <-time.After(d.delay):
+		case <-t.C:
+			// If cancellation became ready in the same scheduling window as the timer,
+			// Go's select may pick the timer branch; prefer ctx for deterministic tests.
+			select {
+			case <-ctx.Done():
+				return lipapi.Event{}, ctx.Err()
+			default:
+			}
 			return lipapi.Event{}, io.EOF
 		}
 	}
+	tm := time.NewTimer(d.delay)
+	defer func() {
+		if !tm.Stop() {
+			select {
+			case <-tm.C:
+			default:
+			}
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		return lipapi.Event{}, ctx.Err()
-	case <-time.After(d.delay):
+	case <-tm.C:
+		select {
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		default:
+		}
 		ev := d.events[d.index]
 		d.index++
 		return ev, nil
@@ -37,6 +67,15 @@ func (d *delayedStream) Recv(ctx context.Context) (lipapi.Event, error) {
 }
 
 func (d *delayedStream) Close() error { return nil }
+
+func mustNewKeepalive(t *testing.T, inner lipapi.EventStream, cfg stream.KeepaliveConfig) *stream.Keepalive {
+	t.Helper()
+	ka, err := stream.NewKeepalive(inner, cfg)
+	if err != nil {
+		t.Fatalf("NewKeepalive: %v", err)
+	}
+	return ka
+}
 
 func TestKeepalive_emitsDuringIdle(t *testing.T) {
 	t.Parallel()
@@ -50,7 +89,7 @@ func TestKeepalive_emitsDuringIdle(t *testing.T) {
 		delay: 60 * time.Millisecond,
 	}
 
-	ka := stream.NewKeepalive(inner, stream.KeepaliveConfig{
+	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 20 * time.Millisecond,
 	})
 	defer ka.Close()
@@ -97,10 +136,13 @@ func TestKeepalive_customKeepaliveEvent(t *testing.T) {
 		events: []lipapi.Event{
 			{Kind: lipapi.EventResponseFinished},
 		},
-		delay: 50 * time.Millisecond,
+		// Long delay vs keepalive interval so the first outer Recv is not flaky under
+		// scheduler stalls: if both timer.C and k.result become ready together, select
+		// chooses arbitrarily between them.
+		delay: 300 * time.Millisecond,
 	}
 
-	ka := stream.NewKeepalive(inner, stream.KeepaliveConfig{
+	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 15 * time.Millisecond,
 		NewKeepalive: func() lipapi.Event {
 			return customEvent
@@ -128,7 +170,7 @@ func TestKeepalive_propagatesEOF(t *testing.T) {
 		delay:  5 * time.Millisecond,
 	}
 
-	ka := stream.NewKeepalive(inner, stream.KeepaliveConfig{
+	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 50 * time.Millisecond,
 	})
 	defer ka.Close()
@@ -148,7 +190,7 @@ func TestKeepalive_respectsCancellation(t *testing.T) {
 	blockCh := make(chan struct{})
 	blockingStream := &blockingRecvStream{unblock: blockCh}
 
-	ka := stream.NewKeepalive(blockingStream, stream.KeepaliveConfig{
+	ka := mustNewKeepalive(t, blockingStream, stream.KeepaliveConfig{
 		Interval: 200 * time.Millisecond,
 	})
 	defer ka.Close()
@@ -172,6 +214,12 @@ func (b *blockingRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	case <-ctx.Done():
 		return lipapi.Event{}, ctx.Err()
 	case <-b.unblock:
+		// If unblock and cancellation become ready together, prefer ctx (deterministic).
+		select {
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		default:
+		}
 		return lipapi.Event{}, io.EOF
 	}
 }
@@ -188,7 +236,7 @@ func TestKeepalive_closeStopsEmission(t *testing.T) {
 		delay: 10 * time.Second,
 	}
 
-	ka := stream.NewKeepalive(inner, stream.KeepaliveConfig{
+	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 20 * time.Millisecond,
 	})
 
@@ -217,7 +265,7 @@ func TestKeepalive_passesThroughRealEvents(t *testing.T) {
 		delay: 1 * time.Millisecond,
 	}
 
-	ka := stream.NewKeepalive(inner, stream.KeepaliveConfig{
+	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 100 * time.Millisecond,
 	})
 	defer ka.Close()
@@ -241,5 +289,50 @@ func TestKeepalive_passesThroughRealEvents(t *testing.T) {
 
 	if len(deltas) != 1 || deltas[0] != "hello" {
 		t.Fatalf("expected [hello], got %v", deltas)
+	}
+}
+
+// delayedStream must prefer ctx cancellation over a zero-delay timer when both are
+// simultaneously ready; otherwise Recv can return a non-deterministic mix of
+// context.Canceled vs the next event / io.EOF across runs (Go select fairness).
+func TestDelayedStream_prefersCanceledContextOverZeroDelayEvents(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	d := &delayedStream{
+		events: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
+		delay:  0,
+	}
+	for range 200 {
+		_, err := d.Recv(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("want context.Canceled, got %v", err)
+		}
+	}
+}
+
+func TestKeepalive_recvRejectsPreCanceledContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	inner := lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}})
+	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{Interval: time.Hour})
+	defer func() { _ = ka.Close() }()
+	_, err := ka.Recv(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+func TestDelayedStream_prefersCanceledContextOverZeroDelayEOF(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	d := &delayedStream{events: nil, delay: 0}
+	for range 200 {
+		_, err := d.Recv(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("want context.Canceled, got %v (expected not io.EOF when ctx canceled)", err)
+		}
 	}
 }

@@ -293,8 +293,8 @@ frontends/
     plugin.go                # Frontend registration
     decode.go                # OpenAI Responses -> canonical
     encode.go                # Canonical -> OpenAI Responses stream / final
-  openaicompat/
-    plugin.go
+  openailegacy/
+    plugin.go                # Legacy OpenAI Chat Completions -> canonical
     decode.go
     encode.go
   anthropic/
@@ -311,8 +311,8 @@ backends/
     plugin.go
     invoke.go
     map_events.go
-  openaicompat/
-    plugin.go
+  openailegacy/
+    plugin.go                # Canonical -> legacy OpenAI Chat Completions
     invoke.go
     map_events.go
   anthropic/

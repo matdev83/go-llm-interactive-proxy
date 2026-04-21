@@ -42,8 +42,8 @@ func TestRequestIDMiddleware_generatesWhenMissing(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	if rec.Header().Get("X-Trace-ID") == "" {
-		t.Fatal("expected X-Trace-ID response header")
+	if got := rec.Header().Get("X-Trace-ID"); got != "t_00000001" {
+		t.Fatalf("X-Trace-ID = %q, want t_00000001", got)
 	}
 }
 

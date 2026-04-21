@@ -13,6 +13,31 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestIntegration_refbackendMissingAPIKeyOpenFails(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL + "/v1", APIKey: ""})
+	call := lipapi.Call{
+		ID: "auth",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	_, err = lipapi.Collect(context.Background(), es)
+	if err == nil {
+		t.Fatal("expected error when API key is missing for Bearer auth")
+	}
+}
+
 func TestIntegration_refbackendStreamingText(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
@@ -110,5 +135,51 @@ func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
 	}
 	if !strings.Contains(captured, "image_url") || !strings.Contains(captured, `"type":"file"`) {
 		t.Fatalf("expected multimodal request markers, got: %s", captured)
+	}
+}
+
+// Chat Completions SSE with streaming tool_calls (SDK-parseable) and [DONE] terminator.
+const refbackendToolCallsStreamSSE = "data: " +
+	`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_ab","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}` +
+	"\n\n" + "data: " +
+	`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\""}}]},"finish_reason":null}]}` +
+	"\n\n" + "data: " +
+	`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}` +
+	"\n\n" + "data: " +
+	`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` +
+	"\n\n" + "data: [DONE]\n\n"
+
+func TestIntegration_refbackendToolCallsStream(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		StreamSSE: refbackendToolCallsStreamSSE,
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test"})
+	call := lipapi.Call{
+		ID: "tool-int",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("weather?")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gpt-4o-mini"},
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := col.OrderedToolCalls()
+	if len(tools) != 1 {
+		t.Fatalf("tool calls: %+v", tools)
+	}
+	if tools[0].ID != "call_ab" || tools[0].Name != "get_weather" || tools[0].Arguments != `{"city":"NYC"}` {
+		t.Fatalf("tool summary: %+v", tools[0])
 	}
 }

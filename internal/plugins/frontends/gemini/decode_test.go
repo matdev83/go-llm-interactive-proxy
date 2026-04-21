@@ -278,4 +278,253 @@ func TestDecodeGenerateContent_toolsAndToolConfig(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("tool_config_allowed_function_names_mode_auto", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{
+  "contents": [{"role":"user","parts":[{"text":"x"}]}],
+  "tools": [{"functionDeclarations": [{"name": "only_one", "parameters": {}}]}],
+  "toolConfig": {"functionCallingConfig": {"mode": "AUTO", "allowedFunctionNames": ["only_one"]}}
+}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAuto {
+			t.Fatalf("mode %+v (allowedFunctionNames are not mapped to canonical ToolChoice.Name in v1)", d.Call.ToolChoice)
+		}
+		if err := d.Call.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestDecodeGenerateContent_unsupportedContentRole(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"contents":[{"role":"system","parts":[{"text":"bad"}]}]}`)
+	_, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported role") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeGenerateContent_toolConfigUnsupportedMode(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "contents": [{"role":"user","parts":[{"text":"x"}]}],
+  "toolConfig": {"functionCallingConfig": {"mode": "UNKNOWN_MODE_X"}}
+}`)
+	_, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported toolConfig.functionCallingConfig.mode") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeGenerateContent_emptyPartsRejected(t *testing.T) {
+	t.Parallel()
+	_, err := gemini.DecodeGenerateContentRequest([]byte(`{"contents":[{"role":"user","parts":[]}]}`), gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "parts is required") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeGenerateContent_functionCallPart(t *testing.T) {
+	t.Parallel()
+	t.Run("valid", func(t *testing.T) {
+		body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"my_tool","args":{"a":1}}}]}]}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := d.Call.Messages[0].Parts[0]
+		if p.Kind != lipapi.PartJSON || p.ToolName != "my_tool" || string(p.Content) != `{"a":1}` {
+			t.Fatalf("unexpected part: %+v", p)
+		}
+	})
+	t.Run("missing_name", func(t *testing.T) {
+		body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"args":{"a":1}}}]}]}`)
+		_, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err == nil {
+			t.Fatal("expected error for missing name")
+		}
+	})
+	t.Run("empty_args", func(t *testing.T) {
+		body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"my_tool"}}]}]}`)
+		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+			RouteSelector: "stub:gemini-2.0-flash",
+			Model:         "gemini-2.0-flash",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := d.Call.Messages[0].Parts[0]
+		if string(p.Content) != `{}` {
+			t.Fatalf("unexpected args fallback: %s", p.Content)
+		}
+	})
+}
+
+func TestDecodeGenerateContent_unsupportedPartRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"contents":[{"role":"user","parts":[{"executableCode":{"language":"PYTHON","code":"1"}}]}]}`)
+	_, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported part shape")
+	}
+	if !strings.Contains(err.Error(), "unsupported part") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeGenerateContent_functionResponse(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "contents": [
+    {"role":"user","parts":[{"text":"call the tool"}]},
+    {"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"city":"NY"}}}]},
+    {"role":"user","parts":[{
+      "functionResponse":{
+        "name":"get_weather",
+        "response":{"temperature":22,"unit":"C"}
+      }
+    }]}
+  ]
+}`)
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := d.Call.Messages
+	if len(msgs) != 3 {
+		t.Fatalf("messages: %d", len(msgs))
+	}
+	lastMsg := msgs[2]
+	if lastMsg.Role != lipapi.RoleUser {
+		t.Fatalf("role: %q", lastMsg.Role)
+	}
+	if len(lastMsg.Parts) != 1 {
+		t.Fatalf("parts: %+v", lastMsg.Parts)
+	}
+	p := lastMsg.Parts[0]
+	if p.Kind != lipapi.PartToolResult {
+		t.Fatalf("kind: %q", p.Kind)
+	}
+	if p.ToolCallID != "get_weather" {
+		t.Fatalf("tool_call_id: %q", p.ToolCallID)
+	}
+	if !strings.Contains(p.Text, "temperature") {
+		t.Fatalf("response text: %q", p.Text)
+	}
+}
+
+func TestDecodeGenerateContent_functionResponse_snakeCase(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "contents": [
+    {"role":"user","parts":[{"text":"x"}]},
+    {"role":"user","parts":[{
+      "function_response":{
+        "name":"lookup",
+        "response":{"result":"ok"}
+      }
+    }]}
+  ]
+}`)
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.Call.Messages[1].Parts[0]
+	if p.Kind != lipapi.PartToolResult {
+		t.Fatalf("kind: %q", p.Kind)
+	}
+	if p.ToolCallID != "lookup" {
+		t.Fatalf("tool_call_id: %q", p.ToolCallID)
+	}
+}
+
+func TestDecodeGenerateContent_functionCall_snakeCase(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "contents": [
+    {"role":"model","parts":[{"function_call":{"name":"search","args":{"q":"go"}}}]}
+  ]
+}`)
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := d.Call.Messages[0].Parts
+	if len(parts) != 1 {
+		t.Fatalf("parts: %+v", parts)
+	}
+	p := parts[0]
+	if p.Kind != lipapi.PartJSON {
+		t.Fatalf("kind: %q", p.Kind)
+	}
+	if p.ToolName != "search" {
+		t.Fatalf("tool name: %q", p.ToolName)
+	}
+	if !strings.Contains(string(p.Content), `"q"`) {
+		t.Fatalf("content: %s", string(p.Content))
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeGenerateContent_functionResponse_missingName(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "contents": [
+    {"role":"user","parts":[{
+      "functionResponse":{"response":{"x":1}}
+    }]}
+  ]
+}`)
+	_, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
 }

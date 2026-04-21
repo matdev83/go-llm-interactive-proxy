@@ -1,17 +1,19 @@
-.PHONY: help test test-fast test-unit test-race test-fuzz bench quality-checks qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-race test-fuzz release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -short -parallel=8 -timeout=10m
 
 help:
 	@echo "Targets:"
-	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet"
+	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts"
+	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
 	@echo "  make test            - quality-checks then full unit tests (-short)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./..."
-	@echo "  make test-race       - race scan (best-effort on Windows without strict CGO)"
+	@echo "  make test-race       - race scan (skipped on Windows; Linux CI / WSL)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms by default)"
-	@echo "  make bench           - benchmarks for testkit JSON helpers"
+	@echo "  make release-gates   - conformance package + all critical fuzz targets (see docs/release-gates.md)"
+	@echo "  make bench           - benchmarks (testkit, stream SSE, frontend streaming encoders)"
 	@echo "  make qa              - quality-checks + unit tests + lint + vuln (local)"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks"
@@ -22,6 +24,13 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quality-checks.ps1
 else
 	@bash scripts/quality-checks.sh
+endif
+
+regex-hotpath-check:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/regex-hotpath-check.ps1
+else
+	@bash scripts/regex-hotpath-check.sh
 endif
 
 test: quality-checks test-unit
@@ -46,10 +55,46 @@ endif
 # Short fuzz smoke (extend FUZZTIME locally, e.g. FUZZTIME=30s make test-fuzz)
 FUZZTIME ?= 500ms
 test-fuzz:
-	$(GO) test -fuzz=FuzzJSONRoundTrip -fuzztime=$(FUZZTIME) ./internal/testkit/...
+	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
+	$(GO) test -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
+	$(GO) test -fuzz=FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
+	$(GO) test -fuzz=FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
+	$(GO) test -fuzz=FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
+	$(GO) test -fuzz=FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
+	$(GO) test -fuzz=FuzzDecodeGenerateContentRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
+	$(GO) test -fuzz=FuzzDecodeChatRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openailegacy
+	$(GO) test -fuzz=FuzzWriteNonStreamJSON_toolArguments$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
+	$(GO) test -fuzz=FuzzBuildGenerateContentResponse_toolJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
+	$(GO) test -fuzz=FuzzCallValidateJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(GO) test -fuzz=FuzzMergeRouteQueryGenerationOptions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(GO) test -fuzz=FuzzCollectWithLimitsProgram$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(GO) test -fuzz=FuzzStableCallIdentity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/diag
+	$(GO) test -fuzz=FuzzParamsForCall$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(GO) test -fuzz=FuzzHandleResponseStreamUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(GO) test -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(GO) test -fuzz=FuzzHandleMessageStreamEventUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/anthropic
+	$(GO) test -fuzz=FuzzToolInputSchemaParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/anthropic
+	$(GO) test -fuzz=FuzzHandleChatCompletionChunk$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
+	$(GO) test -fuzz=FuzzBuildChatToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
+	$(GO) test -fuzz=FuzzHandleGenerateContentResponse$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/gemini
+	$(GO) test -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/gemini
+	$(GO) test -fuzz=FuzzMessageToContentToolResultJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/gemini
+	$(GO) test -fuzz=FuzzAssistantPartsToContentBlocksJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/bedrock
+	$(GO) test -fuzz=FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(GO) test -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(GO) test -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(GO) test -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
+
+release-gates:
+	$(GO) test ./internal/testkit/conformance/...
+	@$(MAKE) test-fuzz
 
 bench:
-	$(GO) test -bench=. -benchmem -run=Benchmark ./internal/testkit/...
+	$(GO) test -bench=. -benchmem -run=Benchmark ./internal/testkit/... ./internal/core/stream/... \
+		./internal/plugins/frontends/openailegacy/... \
+		./internal/plugins/frontends/gemini/... \
+		./internal/plugins/frontends/openairesponses/... \
+		./internal/plugins/frontends/anthropic/...
 
 qa: quality-checks test-unit lint vuln
 

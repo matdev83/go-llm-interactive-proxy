@@ -24,6 +24,14 @@ func (e *ValidationError) Unwrap() error { return ErrInvalidCall }
 // ErrInvalidCall is the shared root for call validation failures.
 var ErrInvalidCall = errors.New("invalid canonical call")
 
+// ErrCollectLimitExceeded is returned when stream aggregation in Collect would
+// exceed the configured CollectLimits.
+var ErrCollectLimitExceeded = errors.New("lipapi: collect limit exceeded")
+
+// ErrNilEventStream is returned by Collect, CollectUnbounded, and CollectWithLimits
+// when the EventStream argument is nil.
+var ErrNilEventStream = errors.New("lipapi: nil EventStream")
+
 // RejectError is returned when capability negotiation deterministically rejects
 // a request before any upstream work begins.
 type RejectError struct {

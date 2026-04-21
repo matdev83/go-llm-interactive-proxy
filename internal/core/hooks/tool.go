@@ -19,7 +19,11 @@ type ToolApplyResult struct {
 // Swallow stops the chain and returns Emit=false.
 func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) ToolApplyResult {
 	cur := te
-	for _, r := range b.tools {
+	var tools []sdk.ToolReactor
+	if b != nil {
+		tools = b.tools
+	}
+	for _, r := range tools {
 		dec, next, err := r.HandleToolEvent(ctx, cur, meta)
 		if err != nil {
 			continue

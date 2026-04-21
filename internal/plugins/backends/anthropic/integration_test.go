@@ -12,6 +12,31 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestIntegration_refbackendMissingAPIKeyOpenFails(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: ""})
+	call := lipapi.Call{
+		ID: "auth",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "claude-3-5-haiku-20241022"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	_, err = lipapi.Collect(context.Background(), es)
+	if err == nil {
+		t.Fatal("expected error when x-api-key is missing")
+	}
+}
+
 // Minimal Anthropic SSE with one text block streaming "stream-ok" (SDK-parseable).
 const refbackendStreamTextSSE = "event: message_start\ndata: " +
 	`{"type":"message_start","message":{"id":"m_stream","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
@@ -177,5 +202,57 @@ func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
 	}
 	if !strings.Contains(captured, `"type":"image"`) || !strings.Contains(captured, `"type":"document"`) {
 		t.Fatalf("expected multimodal request markers, got: %s", captured)
+	}
+}
+
+// Wire-shaped SSE for tool_use + input_json_delta (SDK-parseable), ending with message_stop.
+const refbackendToolUseStreamSSE = "event: message_start\ndata: " +
+	`{"type":"message_start","message":{"id":"m_tool","type":"message","role":"assistant","model":"claude-3-5-haiku-20241022","content":[],"stop_reason":"","stop_sequence":"","usage":{"input_tokens":0,"output_tokens":0}}}` +
+	"\n\n" +
+	"event: content_block_start\ndata: " +
+	`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}}` +
+	"\n\n" +
+	"event: content_block_delta\ndata: " +
+	`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"NYC\"}"}}` +
+	"\n\n" +
+	"event: content_block_stop\ndata: " +
+	`{"type":"content_block_stop","index":0}` +
+	"\n\n" +
+	"event: message_stop\ndata: " +
+	`{"type":"message_stop"}` +
+	"\n\n"
+
+func TestIntegration_refbackendToolUseStream(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		StreamSSE: refbackendToolUseStreamSSE,
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	call := lipapi.Call{
+		ID: "tool-int",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("weather?")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "claude-3-5-haiku-20241022"},
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := col.OrderedToolCalls()
+	if len(tools) != 1 {
+		t.Fatalf("tool calls: %+v", tools)
+	}
+	if tools[0].ID != "toolu_01" || tools[0].Name != "get_weather" || tools[0].Arguments != `{"city":"NYC"}` {
+		t.Fatalf("tool summary: %+v", tools[0])
 	}
 }

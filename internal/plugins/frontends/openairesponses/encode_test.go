@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -42,6 +43,47 @@ func TestWriteNonStreamJSON_matchesGolden(t *testing.T) {
 	}
 	want := readGolden(t, "response_nonstream_expected.json")
 	assertJSONEqual(t, want, rec.Body.Bytes())
+}
+
+func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "stable"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openairesponses.WriteNonStreamJSON(context.Background(), rec, call, es, openairesponses.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		ID        string `json:"id"`
+		CreatedAt int64  `json:"created_at"`
+		Output    []struct {
+			ID string `json:"id"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	wantID := "resp_" + diag.StableCallToken(call)
+	if v.ID != wantID {
+		t.Fatalf("response id %q, want %q", v.ID, wantID)
+	}
+	if v.CreatedAt != diag.StableUnix(call) {
+		t.Fatalf("created_at %d, want %d", v.CreatedAt, diag.StableUnix(call))
+	}
+	if len(v.Output) == 0 || v.Output[0].ID != "msg_"+wantID {
+		t.Fatalf("message id = %+v", v.Output)
+	}
 }
 
 func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
@@ -219,6 +261,147 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	}
 	if completedUsage.In != 7 || completedUsage.Out != 3 {
 		t.Fatalf("usage %+v", completedUsage)
+	}
+}
+
+func TestWriteNonStreamJSON_functionCallOutput(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_1", ToolName: "fn1"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_1", Delta: `{"z":2}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_1"},
+		{Kind: lipapi.EventTextDelta, Delta: "t"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openairesponses.EncodeOptions{ResponseID: "resp_tool_ns", MessageID: "msg_tool_ns", CreatedAt: 1715620000}
+	if err := openairesponses.WriteNonStreamJSON(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Output []map[string]any `json:"output"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Output) < 2 {
+		t.Fatalf("output: %+v", v.Output)
+	}
+	if v.Output[1]["type"] != "function_call" || v.Output[1]["name"] != "fn1" {
+		t.Fatalf("fc: %+v", v.Output[1])
+	}
+}
+
+func TestWriteStreamSSE_reasoningDeltaDoesNotBreakCompletion(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "think-step"},
+		{Kind: lipapi.EventTextDelta, Delta: "answer"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openairesponses.WriteStreamSSE(context.Background(), rec, call, es, openairesponses.EncodeOptions{ResponseID: "resp_re", CreatedAt: 1715620000}); err != nil {
+		t.Fatal(err)
+	}
+	s := rec.Body.String()
+	if strings.Contains(s, "think-step") {
+		t.Fatalf("reasoning must not appear on Responses SSE wire in v1 subset; body=%q", s)
+	}
+	if !strings.Contains(s, "answer") || !strings.Contains(s, "response.completed") {
+		t.Fatalf("expected normal text completion; body=%q", s)
+	}
+}
+
+func TestWriteStreamSSE_toolCallEvents(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "pre"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_1", ToolName: "fn_a"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_1", Delta: `{"ci`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_1", Delta: `ty":"ny"}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_1"},
+		{Kind: lipapi.EventTextDelta, Delta: "post"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 5, OutputTokens: 8},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openairesponses.EncodeOptions{ResponseID: "resp_tc", MessageID: "msg_tc", CreatedAt: 1715620000}
+	if err := openairesponses.WriteStreamSSE(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	var argDeltas, addedTypes []string
+	var doneArgs string
+	var completedFC map[string]any
+	for _, fr := range frames {
+		if fr.Data == "[DONE]" {
+			continue
+		}
+		var v map[string]any
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		typ, _ := v["type"].(string)
+		switch typ {
+		case "response.output_item.added":
+			item, _ := v["item"].(map[string]any)
+			if item != nil && item["type"] == "function_call" {
+				addedTypes = append(addedTypes, "function_call")
+			}
+		case "response.function_call_arguments.delta":
+			d, _ := v["delta"].(string)
+			argDeltas = append(argDeltas, d)
+		case "response.function_call_arguments.done":
+			doneArgs, _ = v["arguments"].(string)
+		case "response.completed":
+			resp, _ := v["response"].(map[string]any)
+			out, _ := resp["output"].([]any)
+			for _, item := range out {
+				m, _ := item.(map[string]any)
+				if m != nil && m["type"] == "function_call" {
+					completedFC = m
+				}
+			}
+		}
+	}
+	if len(addedTypes) == 0 || addedTypes[0] != "function_call" {
+		t.Fatalf("expected function_call output_item.added, got %v", addedTypes)
+	}
+	if len(argDeltas) != 2 || argDeltas[0] != `{"ci` || argDeltas[1] != `ty":"ny"}` {
+		t.Fatalf("arg deltas: %#v", argDeltas)
+	}
+	if doneArgs != `{"city":"ny"}` {
+		t.Fatalf("done args: %q", doneArgs)
+	}
+	if completedFC == nil || completedFC["name"] != "fn_a" || completedFC["status"] != "completed" {
+		t.Fatalf("completed function_call: %+v", completedFC)
 	}
 }
 

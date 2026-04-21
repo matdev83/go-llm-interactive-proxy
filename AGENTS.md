@@ -117,11 +117,12 @@ Prefer repo-defined scripts or make targets:
 
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
 - `make test` — quality checks plus `go test -short -parallel=8 ./...`
-- `make test-race` — race scan (best-effort locally when CGO/CC is unavailable; strict in CI)
+- `make test-race` — no-op on Windows; on Linux/macOS/WSL runs `race-check.sh`-style scan. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make qa` — quality checks, unit tests, `golangci-lint` (or `staticcheck`), `govulncheck` (install tools locally)
+- `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Committed seeds live under each package’s `testdata/fuzz/FuzzName/`; regenerate packed/binary seeds with `scripts/init-fuzz-corpus.ps1` when those inputs change.
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
 - `go test -run TestName ./path/to/pkg`
-- `go test -fuzz=Fuzz -run=^$ ./path/to/pkg`
+- `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
 CI runs `.github/workflows/qa.yml` (quality checks, tests, race on Linux, golangci-lint, govulncheck).
@@ -151,6 +152,7 @@ CI runs `.github/workflows/qa.yml` (quality checks, tests, race on Linux, golang
 - Prefer simple push/pull stream abstractions over ad hoc channel webs.
 - Preserve ordering guarantees for canonical event streams.
 - Emit keepalive only through well-defined stream components.
+- Do not add `go` in request handlers, frontend encoders, or other per-call hot paths; prefer long-lived workers and stream-scoped pumps (see `stream.Keepalive` and quality gate `scripts/check-adhoc-goroutines.*`). If you must introduce a new root goroutine outside tests, extend the allowlist there with a short justification in the PR.
 
 ### Error handling
 

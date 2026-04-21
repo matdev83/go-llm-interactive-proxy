@@ -170,3 +170,105 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 		t.Fatalf("usageMetadata got in=%d out=%d", lastIn, lastOut)
 	}
 }
+
+func TestWriteStreamSSE_functionCallChunk(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "pre"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "fc_1", ToolName: "compute"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "fc_1", Delta: `{"n":`},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "fc_1", Delta: `42}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "fc_1"},
+		{Kind: lipapi.EventTextDelta, Delta: "post"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteStreamSSE(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	var fcSeen bool
+	for _, fr := range frames {
+		if fr.Data == "" || fr.Data == "[DONE]" {
+			continue
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(fr.Data), &body); err != nil {
+			t.Fatal(err)
+		}
+		cands, _ := body["candidates"].([]any)
+		if len(cands) == 0 {
+			continue
+		}
+		c0 := cands[0].(map[string]any)
+		content := c0["content"].(map[string]any)
+		parts := content["parts"].([]any)
+		for _, p := range parts {
+			pm := p.(map[string]any)
+			if fc, ok := pm["functionCall"].(map[string]any); ok {
+				fcSeen = true
+				if fc["name"] != "compute" {
+					t.Fatalf("functionCall name: %v", fc["name"])
+				}
+				args, _ := fc["args"].(map[string]any)
+				if args["n"] != float64(42) {
+					t.Fatalf("functionCall args: %v", args)
+				}
+			}
+		}
+	}
+	if !fcSeen {
+		t.Fatal("expected functionCall in stream chunks")
+	}
+}
+
+func TestWriteNonStreamJSON_functionCallOutput(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	call.Extensions = map[string]json.RawMessage{
+		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
+	}
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "fc_2", ToolName: "search"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "fc_2", Delta: `{"q":"test"}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "fc_2"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteNonStreamJSON(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	cands, _ := body["candidates"].([]any)
+	if len(cands) == 0 {
+		t.Fatal("no candidates")
+	}
+	content := cands[0].(map[string]any)["content"].(map[string]any)
+	parts := content["parts"].([]any)
+	var fcSeen bool
+	for _, p := range parts {
+		pm := p.(map[string]any)
+		if fc, ok := pm["functionCall"].(map[string]any); ok {
+			fcSeen = true
+			if fc["name"] != "search" {
+				t.Fatalf("name: %v", fc["name"])
+			}
+		}
+	}
+	if !fcSeen {
+		t.Fatalf("missing functionCall: %+v", parts)
+	}
+}

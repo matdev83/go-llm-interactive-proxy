@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/acp"
 )
@@ -138,8 +137,19 @@ func TestHandler_sessionPromptResourceEchoInChunk(t *testing.T) {
 
 func TestHandler_sessionCancelEndsPromptWithCancelled(t *testing.T) {
 	t.Parallel()
+	planReached := make(chan struct{}, 1)
+	continuePrompt := make(chan struct{})
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
-		PromptUpdateDelay: 120 * time.Millisecond,
+		OnPromptUpdate: func(stage, sessionID string) {
+			if stage != "plan" {
+				return
+			}
+			select {
+			case planReached <- struct{}{}:
+			default:
+			}
+			<-continuePrompt
+		},
 	}))
 	t.Cleanup(srv.Close)
 
@@ -168,13 +178,14 @@ func TestHandler_sessionCancelEndsPromptWithCancelled(t *testing.T) {
 		ch <- result{lines: lines, err: err}
 	}()
 
-	time.Sleep(15 * time.Millisecond)
+	<-planReached
 	cancel := `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":` + jsonQuote(sid) + `}}`
 	resp2 := postACP(t, srv.URL, cancel)
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNoContent {
 		t.Fatalf("cancel status %d", resp2.StatusCode)
 	}
+	close(continuePrompt)
 
 	r := <-ch
 	if r.err != nil {

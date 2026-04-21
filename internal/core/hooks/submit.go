@@ -19,7 +19,11 @@ func (b *Bus) RunSubmit(ctx context.Context, call *lipapi.Call, meta *sdk.Submit
 	if meta.Annotations == nil {
 		meta.Annotations = map[string]string{}
 	}
-	for _, h := range b.submit {
+	var submit []sdk.SubmitHook
+	if b != nil {
+		submit = b.submit
+	}
+	for _, h := range submit {
 		dec, err := h.Handle(ctx, call, meta)
 		if err != nil {
 			if h.FailureMode() == sdk.FailOpen {
@@ -30,6 +34,9 @@ func (b *Bus) RunSubmit(ctx context.Context, call *lipapi.Call, meta *sdk.Submit
 		if dec.Reject {
 			return &sdk.SubmitRejectError{HookID: h.ID(), Reason: dec.Reason}
 		}
+	}
+	if err := call.Validate(); err != nil {
+		return fmt.Errorf("submit hooks: invalid canonical call after submit chain: %w", err)
 	}
 	return nil
 }

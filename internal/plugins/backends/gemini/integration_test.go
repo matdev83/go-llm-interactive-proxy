@@ -1,0 +1,181 @@
+package gemini_test
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+func TestIntegration_refbackendMissingAPIKeyOpenFails(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "", HTTPClient: srv.Client()})
+	call := lipapi.Call{
+		ID: "auth",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected error when API key is missing for Google AI backend")
+	}
+}
+
+func TestIntegration_refbackendStreamingText(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "fake-key", HTTPClient: srv.Client()})
+	call := lipapi.Call{
+		ID: "int1",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gemini-2.0-flash"},
+		Key:     "gemini:gemini-2.0-flash",
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+}
+
+func TestIntegration_refbackendStreamUsage(t *testing.T) {
+	t.Parallel()
+	const sse = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"done\"}]}}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":7}}\n\n"
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		StreamSSE: sse,
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()})
+	call := lipapi.Call{
+		ID: "int2",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("ping")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gemini-2.0-flash"},
+	}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if col.InputTokens != 3 || col.OutputTokens != 7 {
+		t.Fatalf("usage: in=%d out=%d", col.InputTokens, col.OutputTokens)
+	}
+	if col.Text.String() != "done" {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+}
+
+func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
+	t.Parallel()
+	var captured string
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		OnRequestBody: func(b []byte) { captured = string(b) },
+	}))
+	t.Cleanup(srv.Close)
+
+	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
+	pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
+	pngB64 := base64.StdEncoding.EncodeToString(png)
+	pdfB64 := base64.StdEncoding.EncodeToString(pdf)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()})
+	call := lipapi.Call{
+		ID: "mm",
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser,
+			Parts: []lipapi.Part{
+				lipapi.TextPart("x"),
+				{Kind: lipapi.PartImageRef, ImageRef: "data:image/png;base64," + pngB64},
+				lipapi.FilePart("data:application/pdf;base64,"+pdfB64, "application/pdf", "f.pdf"),
+			},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), es); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(captured, "inlineData") && !strings.Contains(captured, "inline_data") {
+		t.Fatalf("expected inline multimodal payload, got: %s", captured)
+	}
+}
+
+func TestIntegration_refbackendToolCallStream(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`)
+	const sse = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"get_temp\",\"args\":{\"city\":\"NYC\"},\"id\":\"call_gem_1\"}}]}}]}\n\n"
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{StreamSSE: sse}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()})
+	call := lipapi.Call{
+		ID: "tool-int",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("weather?")},
+		}},
+		Tools: []lipapi.ToolDef{{
+			Name:        "get_temp",
+			Description: "Temperature",
+			Parameters:  schema,
+		}},
+		ToolChoice: lipapi.ToolChoice{Mode: lipapi.ToolChoiceRequired, Name: "get_temp"},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcs := col.OrderedToolCalls()
+	if len(tcs) != 1 {
+		t.Fatalf("tool calls: %+v", tcs)
+	}
+	if tcs[0].Name != "get_temp" || tcs[0].ID != "call_gem_1" {
+		t.Fatalf("tool: %+v", tcs[0])
+	}
+	if tcs[0].Arguments != `{"city":"NYC"}` {
+		t.Fatalf("args: %q", tcs[0].Arguments)
+	}
+}

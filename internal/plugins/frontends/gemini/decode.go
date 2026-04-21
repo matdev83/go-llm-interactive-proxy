@@ -187,6 +187,20 @@ func parsePart(raw json.RawMessage) (lipapi.Part, error) {
 		}
 		return lipapi.TextPart(s), nil
 	}
+	// functionResponse: tool result sent back by the client in a "user" turn.
+	if fr, ok := keys["functionResponse"]; ok {
+		return parseFunctionResponsePart(fr)
+	}
+	if fr, ok := keys["function_response"]; ok {
+		return parseFunctionResponsePart(fr)
+	}
+	// functionCall: model-generated tool call in an "model" turn (multi-turn history).
+	if fc, ok := keys["functionCall"]; ok {
+		return parseFunctionCallPart(fc)
+	}
+	if fc, ok := keys["function_call"]; ok {
+		return parseFunctionCallPart(fc)
+	}
 	var inlineRaw json.RawMessage
 	if v, ok := keys["inlineData"]; ok {
 		inlineRaw = v
@@ -197,6 +211,53 @@ func parsePart(raw json.RawMessage) (lipapi.Part, error) {
 		return parseInlineDataPart(inlineRaw)
 	}
 	return lipapi.Part{}, errors.New("unsupported part (need text or inlineData)")
+}
+
+func parseFunctionCallPart(raw json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		Name string          `json:"name"`
+		Args json.RawMessage `json:"args"`
+	}
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if strings.TrimSpace(w.Name) == "" {
+		return lipapi.Part{}, errors.New("functionCall requires name")
+	}
+	args := w.Args
+	if len(args) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+	return lipapi.Part{
+		Kind:     lipapi.PartJSON,
+		ToolName: w.Name,
+		Content:  args,
+	}, nil
+}
+
+func parseFunctionResponsePart(raw json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		Name     string          `json:"name"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if strings.TrimSpace(w.Name) == "" {
+		return lipapi.Part{}, errors.New("functionResponse requires name")
+	}
+	resp := w.Response
+	if len(resp) == 0 {
+		resp = json.RawMessage(`{}`)
+	}
+	// Flatten response to text for canonical PartToolResult.
+	// Store the raw JSON as text so downstream can use it.
+	return lipapi.Part{
+		Kind:       lipapi.PartToolResult,
+		ToolCallID: w.Name, // Gemini uses name as the correlation key
+		ToolName:   w.Name,
+		Text:       string(resp),
+	}, nil
 }
 
 func parseInlineDataPart(raw json.RawMessage) (lipapi.Part, error) {

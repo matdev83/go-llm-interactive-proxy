@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -73,7 +74,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := EncodeOptions{}
+	opts := EncodeOptions{MessageID: "msg_" + diag.StableCallToken(call)}
 	if decoded.Stream {
 		if err := WriteStreamSSE(ctx, w, call, es, opts); err != nil {
 			if h.Log != nil {

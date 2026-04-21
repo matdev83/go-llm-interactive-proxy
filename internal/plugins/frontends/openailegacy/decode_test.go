@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -214,6 +215,91 @@ func TestDecodeChat_assistantToolCallsRejected(t *testing.T) {
 	}
 }
 
+func TestDecodeChat_assistantFunctionCallRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{
+    "role": "assistant",
+    "content": "ok",
+    "function_call": {"name": "legacy_fn", "arguments": "{}"}
+  }]
+}`)
+	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "function_call") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeChat_toolRoleMessage(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role": "user", "content": "call the tool"},
+    {"role": "tool", "tool_call_id": "call_abc", "content": "{\"temp\":21}"}
+  ]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 2 {
+		t.Fatalf("messages: %+v", d.Call.Messages)
+	}
+	tm := d.Call.Messages[1]
+	if tm.Role != lipapi.RoleTool || len(tm.Parts) != 1 || tm.Parts[0].Kind != lipapi.PartToolResult {
+		t.Fatalf("tool message: %+v", tm)
+	}
+	if tm.Parts[0].ToolCallID != "call_abc" {
+		t.Fatalf("tool_call_id: %+v", tm.Parts[0])
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeChat_toolRoleMessageArrayContent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role": "user", "content": "call the tool"},
+    {"role": "tool", "tool_call_id": "call_abc", "content": [{"type":"text","text":"ok"}]}
+  ]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm := d.Call.Messages[1]
+	if len(tm.Parts) != 1 {
+		t.Fatalf("tool message parts: %+v", tm.Parts)
+	}
+	if tm.Parts[0].Kind != lipapi.PartToolResult {
+		t.Fatalf("want tool_result part, got %v", tm.Parts[0].Kind)
+	}
+	testkit.AssertJSONEqual(t, []byte(`[{"type":"text","text":"ok"}]`), []byte(tm.Parts[0].Content))
+}
+
+func TestDecodeChat_toolRoleMessageEmptyContent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role": "user", "content": "call the tool"},
+    {"role": "tool", "tool_call_id": "call_abc", "content": ""}
+  ]
+}`)
+	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err == nil {
+		t.Fatal("expected error for empty tool content")
+	}
+}
+
 func TestDecodeChat_streamOptionsExtension(t *testing.T) {
 	t.Parallel()
 	want := json.RawMessage(`{"include_usage":true}`)
@@ -232,5 +318,78 @@ func TestDecodeChat_streamOptionsExtension(t *testing.T) {
 	}
 	if string(raw) != string(want) {
 		t.Fatalf("extension got %s want %s", raw, want)
+	}
+}
+
+// Chat Completions API: tool_choice may be the string "required" (forces model to call a tool).
+func TestDecodeChat_toolChoiceRequiredString(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"user","content":"x"}],
+  "tool_choice": "required",
+  "tools": [{"type":"function","function":{"name":"t","parameters":{}}}]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.ToolChoice.Mode != lipapi.ToolChoiceAny || d.Call.ToolChoice.Name != "" {
+		t.Fatalf("tool_choice %+v (OpenAI required -> canonical any-tool)", d.Call.ToolChoice)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeChat_developerRoleMapsToSystem(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"developer","content":"You are helpful."}]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 1 || d.Call.Messages[0].Role != lipapi.RoleSystem {
+		t.Fatalf("messages: %+v", d.Call.Messages)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeChat_unsupportedToolType(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{"role":"user","content":"x"}],
+  "tools": [{"type":"web_search_preview"}]
+}`)
+	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported type") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeChat_unsupportedContentBlockRejected(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{
+    "role": "user",
+    "content": [{"type":"audio","audio":"AAAA"}]
+  }]
+}`)
+	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err == nil {
+		t.Fatal("expected error for unsupported content block")
+	}
+	if !strings.Contains(err.Error(), "unsupported content block type") {
+		t.Fatalf("unexpected err: %v", err)
 	}
 }

@@ -18,6 +18,8 @@ type Config struct {
 	// OnRequestBody is invoked with the raw HTTP body after a successful POST /v1/acp
 	// route match and before dispatch.
 	OnRequestBody func(body []byte)
+	// OnPromptUpdate is called after prompt-turn progress notifications are written.
+	OnPromptUpdate func(stage string, sessionID string)
 	// PromptUpdateDelay is slept between streaming session/update notifications during
 	// session/prompt so tests can interleave session/cancel. Zero means no delay.
 	PromptUpdateDelay time.Duration
@@ -45,8 +47,10 @@ type handler struct {
 }
 
 type emuSession struct {
-	mu        sync.Mutex
-	cancelled bool // set by session/cancel; cleared at start of each session/prompt
+	mu         sync.Mutex
+	cancelled   bool // set by session/cancel; cleared at start of each session/prompt
+	cancelCh    chan struct{}
+	cancelOnce  sync.Once
 }
 
 func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
@@ -229,6 +233,9 @@ func (h *handler) handleSessionPrompt(w http.ResponseWriter, r *http.Request, re
 	if !writeNDJSONLine(w, fl, plan) {
 		return
 	}
+	if h.cfg.OnPromptUpdate != nil {
+		h.cfg.OnPromptUpdate("plan", p.SessionID)
+	}
 
 	if d := h.cfg.PromptUpdateDelay; d > 0 {
 		if !sleepOrDone(r.Context(), d, sess) {
@@ -263,6 +270,9 @@ func (h *handler) handleSessionPrompt(w http.ResponseWriter, r *http.Request, re
 	if !writeNDJSONLine(w, fl, chunk) {
 		return
 	}
+	if h.cfg.OnPromptUpdate != nil {
+		h.cfg.OnPromptUpdate("chunk", p.SessionID)
+	}
 
 	if d := h.cfg.PromptUpdateDelay; d > 0 {
 		if !sleepOrDone(r.Context(), d, sess) {
@@ -284,6 +294,9 @@ func (h *handler) handleSessionPrompt(w http.ResponseWriter, r *http.Request, re
 		},
 	}
 	_ = writeNDJSONLine(w, fl, final)
+	if h.cfg.OnPromptUpdate != nil {
+		h.cfg.OnPromptUpdate("end_turn", p.SessionID)
+	}
 }
 
 func (h *handler) writePromptCancelled(w http.ResponseWriter, fl http.Flusher, id json.RawMessage, sessionID string) {
@@ -311,6 +324,9 @@ func (h *handler) writePromptCancelled(w http.ResponseWriter, fl http.Flusher, i
 		},
 	}
 	_ = writeNDJSONLine(w, fl, final)
+	if h.cfg.OnPromptUpdate != nil {
+		h.cfg.OnPromptUpdate("cancelled", sessionID)
+	}
 }
 
 func (h *handler) handleCancel(w http.ResponseWriter, params json.RawMessage) error {
@@ -343,13 +359,21 @@ func (h *handler) getSession(id string) *emuSession {
 func (s *emuSession) resetForPrompt() {
 	s.mu.Lock()
 	s.cancelled = false
+	s.cancelCh = make(chan struct{})
+	s.cancelOnce = sync.Once{}
 	s.mu.Unlock()
 }
 
 func (s *emuSession) setCancelled() {
 	s.mu.Lock()
 	s.cancelled = true
+	ch := s.cancelCh
 	s.mu.Unlock()
+	if ch != nil {
+		s.cancelOnce.Do(func() {
+			close(ch)
+		})
+	}
 }
 
 func (s *emuSession) isCancelled() bool {
@@ -388,17 +412,23 @@ func sleepOrDone(ctx context.Context, d time.Duration, sess *emuSession) bool {
 	if d <= 0 {
 		return ctx.Err() == nil && !sess.isCancelled()
 	}
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if ctx.Err() != nil {
-			return false
+	timer := time.NewTimer(d)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
 		}
-		if sess.isCancelled() {
-			return false
-		}
-		time.Sleep(5 * time.Millisecond)
+	}()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-sess.cancelCh:
+		return false
+	case <-timer.C:
+		return ctx.Err() == nil && !sess.isCancelled()
 	}
-	return ctx.Err() == nil && !sess.isCancelled()
 }
 
 func writeNDJSONLine(w io.Writer, fl http.Flusher, v any) bool {

@@ -35,19 +35,10 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-# Race on Windows is CGO-heavy; use LIP_QA_RACE_STRICT=1 to fail closed locally.
-$strictRace = $env:LIP_QA_RACE_STRICT -eq "1"
+# Race detector is not run on Windows (ThreadSanitizer is unreliable). CI runs
+# `bash scripts/race-check.sh` on Linux; for local -race use WSL or Linux.
 Write-Host ""
-Write-Host "Running race detector scan..." -ForegroundColor Yellow
-if ($strictRace) {
-    & "$ScriptDir\race-check.ps1" -Staged -Short -Strict
-} else {
-    & "$ScriptDir\race-check.ps1" -Staged -Short
-}
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Race detector scan failed!" -ForegroundColor Red
-    exit $LASTEXITCODE
-}
+Write-Host "Skipping race detector (Windows; use Linux CI or WSL for go test -race)." -ForegroundColor Yellow
 
 Write-Host ""
 Write-Host "Running linter..." -ForegroundColor Yellow

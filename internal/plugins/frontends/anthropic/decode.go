@@ -280,6 +280,70 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		}
 		ref := "data:" + mime + ";base64," + data
 		return lipapi.FilePart(ref, mime, name), nil
+	case "tool_use":
+		var w struct {
+			ID    string          `json:"id"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
+		}
+		if err := json.Unmarshal(blk, &w); err != nil {
+			return lipapi.Part{}, err
+		}
+		if strings.TrimSpace(w.ID) == "" {
+			return lipapi.Part{}, errors.New("anthropic: tool_use requires id")
+		}
+		if strings.TrimSpace(w.Name) == "" {
+			return lipapi.Part{}, errors.New("anthropic: tool_use requires name")
+		}
+		input := w.Input
+		if len(input) == 0 {
+			input = json.RawMessage(`{}`)
+		}
+		return lipapi.Part{
+			Kind:       lipapi.PartJSON,
+			ToolCallID: w.ID,
+			ToolName:   w.Name,
+			Content:    input,
+		}, nil
+	case "tool_result":
+		var w struct {
+			ToolUseID string          `json:"tool_use_id"`
+			Content   json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(blk, &w); err != nil {
+			return lipapi.Part{}, err
+		}
+		if strings.TrimSpace(w.ToolUseID) == "" {
+			return lipapi.Part{}, errors.New("anthropic: tool_result requires tool_use_id")
+		}
+		// Content may be a string or array of text blocks; flatten to plain text.
+		var resultText string
+		if len(w.Content) > 0 && string(w.Content) != "null" {
+			var s string
+			if err := json.Unmarshal(w.Content, &s); err == nil {
+				resultText = s
+			} else {
+				var blocks []json.RawMessage
+				if err := json.Unmarshal(w.Content, &blocks); err == nil {
+					var sb strings.Builder
+					for _, b := range blocks {
+						var tb struct {
+							Type string `json:"type"`
+							Text string `json:"text"`
+						}
+						if err := json.Unmarshal(b, &tb); err == nil && tb.Type == "text" {
+							sb.WriteString(tb.Text)
+						}
+					}
+					resultText = sb.String()
+				}
+			}
+		}
+		return lipapi.Part{
+			Kind:       lipapi.PartToolResult,
+			ToolCallID: w.ToolUseID,
+			Text:       resultText,
+		}, nil
 	default:
 		return lipapi.Part{}, fmt.Errorf("anthropic: unsupported content block type %q", probe.Type)
 	}

@@ -36,7 +36,7 @@ Write-Host ""
 Write-Host "Quality scope: $($qualityPackages -join ' ')" -ForegroundColor DarkGray
 Write-Host ""
 
-Write-Host "[1/4] Checking Go formatting..." -ForegroundColor Yellow
+Write-Host "[1/6] Checking Go formatting..." -ForegroundColor Yellow
 $unformatted = @(gofmt -l . 2>$null | Where-Object { $_ })
 if ($unformatted.Count -gt 0) {
     Write-Host "Unformatted files:" -ForegroundColor Red
@@ -47,7 +47,7 @@ if ($unformatted.Count -gt 0) {
 Write-Host "OK: Format check passed" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "[2/4] Checking Go modules..." -ForegroundColor Yellow
+Write-Host "[2/6] Checking Go modules..." -ForegroundColor Yellow
 go mod tidy
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -62,7 +62,7 @@ if ($modChanges) {
 Write-Host "OK: Module check passed" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "[3/4] Checking build..." -ForegroundColor Yellow
+Write-Host "[3/6] Checking build..." -ForegroundColor Yellow
 go build @qualityPackages
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Build failed" -ForegroundColor Red
@@ -71,13 +71,27 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "OK: Build check passed" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "[4/4] Running go vet..." -ForegroundColor Yellow
+Write-Host "[4/6] Running go vet..." -ForegroundColor Yellow
 go vet @qualityPackages
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: go vet failed" -ForegroundColor Red
     exit $LASTEXITCODE
 }
 Write-Host "OK: Vet check passed" -ForegroundColor Green
+Write-Host ""
+
+Write-Host "[5/6] Ad-hoc goroutine allowlist (non-test)..." -ForegroundColor Yellow
+& "$PSScriptRoot/check-adhoc-goroutines.ps1"
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+Write-Host ""
+
+Write-Host "[6/6] Regex hot-path check (regexp compile in frontends/runtime)..." -ForegroundColor Yellow
+& "$PSScriptRoot/regex-hotpath-check.ps1"
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
 Write-Host ""
 
 Write-Host "=== All Quality Checks Passed ===" -ForegroundColor Green

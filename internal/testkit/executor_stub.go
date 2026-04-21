@@ -31,15 +31,6 @@ func stubToolPrefixEvents(call lipapi.Call) []lipapi.Event {
 
 func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []string, capture *sync.Map) *runtime.Executor {
 	t.Helper()
-	events := []lipapi.Event{
-		{Kind: lipapi.EventResponseStarted},
-		{Kind: lipapi.EventMessageStarted},
-	}
-	// Note: WithDeltas does not auto-inject tool events; use NewStubExecutor when tools are present.
-	for _, d := range deltas {
-		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
-	}
-	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})
 	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	return &runtime.Executor{
 		Store: st,
@@ -54,7 +45,16 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 					}
 					_ = ctx
 					_ = cand
-					return lipapi.FixedEventStream(events), nil
+					evs := []lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+					}
+					evs = append(evs, stubToolPrefixEvents(call)...)
+					for _, d := range deltas {
+						evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
+					}
+					evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
+					return lipapi.FixedEventStream(evs), nil
 				},
 			},
 		},

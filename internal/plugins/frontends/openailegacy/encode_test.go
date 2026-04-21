@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -41,6 +42,49 @@ func TestWriteNonStreamJSON_matchesGolden(t *testing.T) {
 	}
 	want := readGolden(t, "chat_completion_nonstream_expected.json")
 	assertJSONEqual(t, want, rec.Body.Bytes())
+}
+
+func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "stable"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		ID      string `json:"id"`
+		Created int64  `json:"created"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	wantID := "chatcmpl_" + diag.StableCallToken(call)
+	if v.ID != wantID {
+		t.Fatalf("completion id %q, want %q", v.ID, wantID)
+	}
+	if v.Created != diag.StableUnix(call) {
+		t.Fatalf("created %d, want %d", v.Created, diag.StableUnix(call))
+	}
+	if len(v.Choices) != 1 || v.Choices[0].Message.Content != "stable" {
+		t.Fatalf("choices: %+v", v.Choices)
+	}
 }
 
 func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
@@ -209,6 +253,83 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	}
 	if lastUsage.Prompt != 7 || lastUsage.Completion != 3 {
 		t.Fatalf("usage got %+v", lastUsage)
+	}
+}
+
+func TestWriteNonStreamJSON_toolCalls(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_1", ToolName: "fn1"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_1", Delta: `{"a":1}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "call_1"},
+		{Kind: lipapi.EventTextDelta, Delta: "hi"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{CreatedAt: 1715620000}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Choices) != 1 || v.Choices[0].FinishReason != "tool_calls" {
+		t.Fatalf("choice: %+v", v.Choices)
+	}
+	tc := v.Choices[0].Message.ToolCalls
+	if len(tc) != 1 || tc[0].ID != "call_1" || tc[0].Function.Name != "fn1" || tc[0].Function.Arguments != `{"a":1}` {
+		t.Fatalf("tool_calls %+v", tc)
+	}
+	if v.Choices[0].Message.Content != "hi" {
+		t.Fatalf("content %q", v.Choices[0].Message.Content)
+	}
+}
+
+func TestWriteStreamSSE_toolCallDelta(t *testing.T) {
+	t.Parallel()
+	es := lipapi.FixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "w"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c1", Delta: `{"x":true}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "c1"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	if err := openailegacy.WriteStreamSSE(context.Background(), rec, call, es, openailegacy.EncodeOptions{CompletionID: "cc_tool", CreatedAt: 1715620000}); err != nil {
+		t.Fatal(err)
+	}
+	s := rec.Body.String()
+	if !strings.Contains(s, `"tool_calls"`) || !strings.Contains(s, `"w"`) || !strings.Contains(s, "tool_calls") {
+		t.Fatalf("body: %s", s)
 	}
 }
 

@@ -2,8 +2,6 @@ package b2bua
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -50,17 +48,30 @@ type Store interface {
 // MemoryStoreOptions configures the in-memory implementation.
 type MemoryStoreOptions struct {
 	// TTL after LastSeenAt after which an A-leg is lazily evicted. Zero disables expiry.
+	// Non-zero TTL also enables a sweep on CreateALeg so idle sessions that are never
+	// touched again (e.g. anonymous one-shot A-legs) are still reclaimed.
 	TTL time.Duration
-	// Now returns the current time; defaults to time.Now when nil.
+	// MaxLegs caps how many concurrent A-leg rows may be retained when TTL-based expiry
+	// is disabled (TTL <= 0). Zero selects DefaultMemoryStoreMaxLegsWithoutTTL; negative
+	// disables the cap (not recommended for production).
+	MaxLegs int
+	// Now returns the current time; defaults to a deterministic fixed clock when nil.
 	Now func() time.Time
 }
 
+// DefaultMemoryStoreMaxLegsWithoutTTL is applied when TTL is disabled and MaxLegs is zero,
+// preventing unbounded growth of anonymous sessions in long-lived processes.
+const DefaultMemoryStoreMaxLegsWithoutTTL = 100_000
+
 // MemoryStore is a mutex-protected in-memory Store with lazy TTL eviction.
 type MemoryStore struct {
-	ttl  time.Duration
-	now  func() time.Time
-	mu   sync.RWMutex
-	legs map[string]*legState // aLegID -> state
+	ttl     time.Duration
+	maxLegs int
+	now     func() time.Time
+	mu      sync.RWMutex
+	aSeq    uint64
+	bSeq    uint64
+	legs    map[string]*legState // aLegID -> state
 	// continuityKey (non-empty) -> current aLegID for Resolve
 	byKey map[string]string
 }
@@ -75,28 +86,48 @@ type legState struct {
 	continuityKeyInternal string // same as record.ContinuityKey; used on eviction
 }
 
+var deterministicNow = time.Unix(1715620000, 0).UTC()
+
 // NewMemoryStore returns an empty store. opts may be zero-valued defaults.
 func NewMemoryStore(opts MemoryStoreOptions) *MemoryStore {
 	now := opts.Now
 	if now == nil {
-		now = time.Now
+		now = func() time.Time { return deterministicNow }
+	}
+	maxLegs := 0
+	switch {
+	case opts.MaxLegs < 0:
+		maxLegs = 0
+	case opts.MaxLegs > 0:
+		maxLegs = opts.MaxLegs
+	case opts.TTL <= 0:
+		maxLegs = DefaultMemoryStoreMaxLegsWithoutTTL
+	default:
+		maxLegs = 0
 	}
 	return &MemoryStore{
-		ttl:   opts.TTL,
-		now:   now,
-		legs:  make(map[string]*legState),
-		byKey: make(map[string]string),
+		ttl:     opts.TTL,
+		maxLegs: maxLegs,
+		now:     now,
+		legs:    make(map[string]*legState),
+		byKey:   make(map[string]string),
 	}
 }
 
 func (s *MemoryStore) nowTime() time.Time { return s.now() }
 
-func newID(prefix string) string {
-	var b [10]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic("b2bua: crypto/rand: " + err.Error())
+func (s *MemoryStore) newID(prefix string) string {
+	switch prefix {
+	case "a":
+		s.aSeq++
+		return fmt.Sprintf("%s_%06d", prefix, s.aSeq)
+	case "b":
+		s.bSeq++
+		return fmt.Sprintf("%s_%06d", prefix, s.bSeq)
+	default:
+		s.aSeq++
+		return fmt.Sprintf("%s_%06d", prefix, s.aSeq)
 	}
-	return prefix + "_" + hex.EncodeToString(b[:])
 }
 
 // ResolveALeg returns the active A-leg for a non-empty continuity key, refreshing LastSeenAt.
@@ -134,7 +165,8 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.nowTime()
-	aID := newID("a")
+	s.sweepExpiredLegsLocked(now)
+	aID := s.newID("a")
 	rec := ALegRecord{
 		ALegID:        aID,
 		ContinuityKey: continuityKey,
@@ -154,6 +186,7 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 		}
 		s.byKey[continuityKey] = aID
 	}
+	s.enforceMaxLegsLocked()
 	return rec, nil
 }
 
@@ -214,7 +247,7 @@ func (s *MemoryStore) NextBLeg(ctx context.Context, aLegID string) (BLegRecord, 
 	}
 	st.nextSeq++
 	seq := st.nextSeq
-	bid := newID("b")
+	bid := s.newID("b")
 	st.seqToBLeg[seq] = bid
 	st.record.LastSeenAt = now
 	return BLegRecord{BLegID: bid, ALegID: aLegID, Seq: seq}, nil
@@ -292,6 +325,23 @@ func (s *MemoryStore) evictIfStaleLocked(st *legState, now time.Time) bool {
 	return true
 }
 
+// sweepExpiredLegsLocked removes every leg whose LastSeenAt is older than TTL.
+// Called from CreateALeg so idle sessions (never re-accessed) are still reclaimed.
+func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) {
+	if s.ttl <= 0 {
+		return
+	}
+	var stale []string
+	for id, st := range s.legs {
+		if now.Sub(st.record.LastSeenAt) >= s.ttl {
+			stale = append(stale, id)
+		}
+	}
+	for _, id := range stale {
+		s.removeLegLocked(id)
+	}
+}
+
 func (s *MemoryStore) removeLegLocked(aLegID string) {
 	st, ok := s.legs[aLegID]
 	if !ok {
@@ -302,5 +352,31 @@ func (s *MemoryStore) removeLegLocked(aLegID string) {
 		if cur, ok := s.byKey[st.continuityKeyInternal]; ok && cur == aLegID {
 			delete(s.byKey, st.continuityKeyInternal)
 		}
+	}
+}
+
+func (s *MemoryStore) enforceMaxLegsLocked() {
+	for s.maxLegs > 0 && len(s.legs) > s.maxLegs {
+		victim := ""
+		var oldest time.Time
+		first := true
+		for id, st := range s.legs {
+			if first {
+				victim = id
+				oldest = st.record.LastSeenAt
+				first = false
+				continue
+			}
+			if st.record.LastSeenAt.Before(oldest) {
+				victim = id
+				oldest = st.record.LastSeenAt
+			} else if st.record.LastSeenAt.Equal(oldest) && id < victim {
+				victim = id
+			}
+		}
+		if victim == "" {
+			break
+		}
+		s.removeLegLocked(victim)
 	}
 }

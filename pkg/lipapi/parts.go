@@ -115,6 +115,9 @@ func (tc ToolChoice) validate(toolCount int, tools []ToolDef) error {
 	if mode == ToolChoiceNone && toolCount > 0 {
 		return &ValidationError{Field: "ToolChoice", Message: "ToolChoiceNone is incompatible with declared tools"}
 	}
+	if tc.Name != "" && len(tc.Name) > MaxToolNameBytes {
+		return &ValidationError{Field: "ToolChoice.Name", Message: fmt.Sprintf("exceeds %d bytes", MaxToolNameBytes)}
+	}
 	if mode == ToolChoiceRequired {
 		if toolCount == 0 {
 			return &ValidationError{Field: "Tools", Message: "ToolChoiceRequired requires at least one tool definition"}
@@ -162,5 +165,5 @@ func (o GenerationOptions) validate() error {
 	if o.MaxOutputTokens != nil && *o.MaxOutputTokens < 0 {
 		return &ValidationError{Field: "Options.MaxOutputTokens", Message: "max_output_tokens must be non-negative"}
 	}
-	return nil
+	return validateOptionStrings(o)
 }

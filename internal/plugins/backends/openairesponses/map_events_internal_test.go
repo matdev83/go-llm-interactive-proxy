@@ -1,8 +1,10 @@
 package openairesponses
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -38,7 +40,7 @@ func TestHandleUnion_textDeltaThenCompleted_noDuplicateText(t *testing.T) {
 	})
 
 	var texts []string
-	for _, ev := range s.pending {
+	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventTextDelta {
 			texts = append(texts, ev.Delta)
 		}
@@ -74,7 +76,7 @@ func TestHandleUnion_completedOnly_emitsFullText(t *testing.T) {
 	})
 
 	var texts []string
-	for _, ev := range s.pending {
+	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventTextDelta {
 			texts = append(texts, ev.Delta)
 		}
@@ -84,5 +86,118 @@ func TestHandleUnion_completedOnly_emitsFullText(t *testing.T) {
 	}
 	if texts[0] != "done" {
 		t.Fatalf("text: %q", texts[0])
+	}
+}
+
+func TestHandleUnion_streamError_emitsEventError(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"error","code":"invalid_request_error","message":"bad request","param":"","sequence_number":2}`
+	var u responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &sdkStream{}
+	s.handleUnion(u)
+	var errs []lipapi.Event
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventError {
+			errs = append(errs, ev)
+		}
+	}
+	if len(errs) != 1 {
+		t.Fatalf("errors: %+v", errs)
+	}
+	if errs[0].ErrorCode != "invalid_request_error" || errs[0].ErrorMessage != "bad request" {
+		t.Fatalf("event: %+v", errs[0])
+	}
+}
+
+func TestHandleUnion_streamError_emptyMessage_defaults(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"error","code":"server_error","message":"","param":"","sequence_number":1}`
+	var u responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &sdkStream{}
+	s.handleUnion(u)
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventError && ev.ErrorMessage != "stream error" {
+			t.Fatalf("expected default message, got %q", ev.ErrorMessage)
+		}
+	}
+}
+
+// Status / queue events must not emit canonical text or tool deltas.
+func TestHandleUnion_nonMappedEventTypes_emitNoTextOrToolDeltas(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		`{"type":"response.in_progress","sequence_number":0}`,
+		`{"type":"response.queued","sequence_number":0}`,
+	}
+	for _, raw := range cases {
+		var u responses.ResponseStreamEventUnion
+		if err := json.Unmarshal([]byte(raw), &u); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+		s := &sdkStream{}
+		s.handleUnion(u)
+		for _, ev := range stream.DrainPending(&s.pending) {
+			switch ev.Kind {
+			case lipapi.EventTextDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+				t.Fatalf("unexpected %s for raw %s", ev.Kind, raw)
+			}
+		}
+	}
+}
+
+func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
+	t.Parallel()
+	s := &sdkStream{}
+
+	rawAdded := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_fc_1","status":"in_progress","name":"get_weather"}}`
+	var u1 responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(rawAdded), &u1); err != nil {
+		t.Fatal(err)
+	}
+	s.handleUnion(u1)
+
+	rawDelta := `{"type":"response.function_call_arguments.delta","sequence_number":1,"item_id":"fc_1","output_index":0,"delta":"{\"city\":"}`
+	var u2 responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(rawDelta), &u2); err != nil {
+		t.Fatal(err)
+	}
+	s.handleUnion(u2)
+
+	rawDelta2 := `{"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_1","output_index":0,"delta":"\"NYC\"}"}`
+	var u3 responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(rawDelta2), &u3); err != nil {
+		t.Fatal(err)
+	}
+	s.handleUnion(u3)
+
+	rawDone := `{"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_1","output_index":0,"name":"get_weather","arguments":"{\"city\":\"NYC\"}"}`
+	var u4 responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(rawDone), &u4); err != nil {
+		t.Fatal(err)
+	}
+	s.handleUnion(u4)
+
+	var kinds []lipapi.EventKind
+	var args string
+	for _, ev := range stream.DrainPending(&s.pending) {
+		kinds = append(kinds, ev.Kind)
+		if ev.Kind == lipapi.EventToolCallArgsDelta {
+			args += ev.Delta
+		}
+	}
+	if kinds[0] != lipapi.EventResponseStarted || kinds[1] != lipapi.EventMessageStarted || kinds[2] != lipapi.EventToolCallStarted {
+		t.Fatalf("opening events: %v", kinds)
+	}
+	if args != `{"city":"NYC"}` {
+		t.Fatalf("combined args: %q", args)
+	}
+	if kinds[len(kinds)-1] != lipapi.EventToolCallFinished {
+		t.Fatalf("last event: %v", kinds)
 	}
 }
