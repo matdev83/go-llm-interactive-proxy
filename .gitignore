@@ -11,6 +11,9 @@
 *.out
 coverage.out
 coverage.html
+# Accidental cover profile dumps at repo root (e.g. mistyped -coverprofile=c)
+/c
+/coverage
 
 # Local QA / race logs
 .tmp/
