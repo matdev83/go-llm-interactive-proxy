@@ -5,6 +5,8 @@
 *.dll
 *.so
 *.dylib
+# Common local name: go build -o lipstd ./cmd/lipstd
+/lipstd
 
 # Go build artifacts
 *.test
@@ -15,8 +17,33 @@ coverage.html
 /c
 /coverage
 
+# Go profiling & execution traces (see docs/alloc-profiling.md; pprof -http, go test -trace)
+# *.out above already ignores trace.out; keep suffix variants from tooling
+*.prof
+*.pprof
+trace.out.*
+
+# Local Go workspace (multi-module checkouts); remove these lines if the repo commits go.work
+go.work
+go.work.sum
+
+# Delve
+__debug_bin*
+
 # Local QA / race logs
 .tmp/
+
+# OS junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / backup files
+*~
+*.swp
+*.swo
+\#*\#
 
 # Workspace files
 .idea/
@@ -25,7 +52,14 @@ coverage.html
 # Local env/config overrides
 .env
 .env.*
+.envrc
 config/local.*
+
+# Python (optional local tooling / sibling scripts)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
 
 # Project specific files
 .kiro/
