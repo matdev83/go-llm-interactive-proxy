@@ -33,6 +33,10 @@ __debug_bin*
 # Local QA / race logs
 .tmp/
 
+# Ad-hoc logs and throwaway workspace at repo root (git add -f if a *.log fixture must be tracked)
+*.log
+/scratch/
+
 # OS junk
 .DS_Store
 Thumbs.db
