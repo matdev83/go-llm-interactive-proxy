@@ -152,35 +152,35 @@
   - Cross-check each emulator against the official specification (documented matrix: endpoints, auth headers, streaming modes, error shapes, idempotency where relevant). Do not start the matching proxy frontend plugin until this review is complete.
   - _Normative API URLs: `research.md` → **Official API specification references (normative docs)**._
   - _Requirements: 3.1–3.4, 15.2, 15.3, 15.7_
-  - _Boundary: internal/testkit (or `cmd/` / `scripts/` wrappers that import official SDKs only—must not import `lipcore`)_
+  - _Boundary: internal/testkit (or `cmd/` / `scripts/` wrappers that import official SDKs only—must not import `lipcore`; implementation: `internal/refclient/` per protocol; backend emulators: `internal/refbackend/` in task 10.0.x)_
   - _Depends: 2_
 
 - [x] 9.0.1 (P) Reference client emulator — OpenAI Responses API
   - Use the official OpenAI client library; cover streaming and non-streaming call patterns needed for integration tests.
   - Exercise **multimodal** message content (image + document paths per API capability).
   - _Requirements: 15.7_
-  - _Boundary: testkit / runnable emulator package_
+  - _Boundary: testkit / runnable emulator package (`internal/refclient/openairesponses`)_
   - _Depends: 2_
 
 - [x] 9.0.2 (P) Reference client emulator — legacy OpenAI-compatible (chat/completions) API
   - Use the official OpenAI client library (or the documented compatibility surface) for chat-style requests and responses used in tests.
   - Exercise **multimodal** inputs where the chat/completions surface supports them.
   - _Requirements: 15.7_
-  - _Boundary: testkit / runnable emulator package_
+  - _Boundary: testkit / runnable emulator package (`internal/refclient/openaichat`)_
   - _Depends: 2_
 
 - [x] 9.0.3 (P) Reference client emulator — Anthropic Messages API
   - Use the official Anthropic client library; cover streaming and errors used in integration tests.
   - Exercise **multimodal** content blocks (image + document) per Messages API capabilities.
   - _Requirements: 15.7_
-  - _Boundary: testkit / runnable emulator package_
+  - _Boundary: testkit / runnable emulator package (`internal/refclient/anthropicmessages`)_
   - _Depends: 2_
 
 - [x] 9.0.4 (P) Reference client emulator — Gemini `generateContent` API
   - Use the official Google GenAI / Gemini client library for the supported request/stream patterns used in tests.
   - Exercise **multimodal** `Part` / file inputs (image + PDF or equivalent) per Gemini API capabilities.
   - _Requirements: 15.7_
-  - _Boundary: testkit / runnable emulator package_
+  - _Boundary: testkit / runnable emulator package (`internal/refclient/gemini`)_
   - _Depends: 2_
 
 - [x] 9.1 (P) Implement the OpenAI Responses frontend

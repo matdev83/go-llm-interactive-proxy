@@ -13,6 +13,8 @@ type Config struct {
 	RequestPartHooks  []sdk.RequestPartHook
 	ResponsePartHooks []sdk.ResponsePartHook
 	ToolReactors      []sdk.ToolReactor
+	// ToolReactorErrorPolicy controls reactor error propagation (zero = fail-open).
+	ToolReactorErrorPolicy sdk.ToolReactorErrorPolicy
 }
 
 // Bus runs hook chains in stable order (Order ascending, then ID ascending, then
@@ -22,6 +24,7 @@ type Bus struct {
 	requestParts  []sdk.RequestPartHook
 	responseParts []sdk.ResponsePartHook
 	tools         []sdk.ToolReactor
+	toolErrPol    sdk.ToolReactorErrorPolicy
 }
 
 // New constructs a Bus with sorted hook chains.
@@ -31,6 +34,7 @@ func New(cfg Config) *Bus {
 		requestParts:  sortRequestParts(cfg.RequestPartHooks),
 		responseParts: sortResponseParts(cfg.ResponsePartHooks),
 		tools:         sortTools(cfg.ToolReactors),
+		toolErrPol:    cfg.ToolReactorErrorPolicy,
 	}
 }
 

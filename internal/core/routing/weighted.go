@@ -76,6 +76,6 @@ func pickWeighted(w *Weighted, opt PlanOptions) (AttemptCandidate, bool, error) 
 	return AttemptCandidate{
 		Primary:     chosen.Target,
 		Key:         chosen.Target.String(),
-		MarkedFirst: chosen.First,
+		MarkedFirst: chosen.First && !opt.IsRetryPath,
 	}, false, nil
 }

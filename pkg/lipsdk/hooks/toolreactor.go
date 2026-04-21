@@ -30,3 +30,15 @@ type ToolReactor interface {
 	Order() int
 	HandleToolEvent(ctx context.Context, te lipapi.ToolEvent, meta ToolMeta) (ToolDecision, lipapi.ToolEvent, error)
 }
+
+// ToolReactorErrorPolicy selects how the hook bus treats a non-nil error from HandleToolEvent.
+type ToolReactorErrorPolicy int
+
+const (
+	// ToolReactorErrorsFailOpen preserves the current event and continues the chain (default).
+	ToolReactorErrorsFailOpen ToolReactorErrorPolicy = iota
+	// ToolReactorErrorsFailClosed stops the chain and surfaces the error to the stream runner.
+	ToolReactorErrorsFailClosed
+	// ToolReactorErrorsSwallowEvent drops the current tool event (same effect as ToolSwallow).
+	ToolReactorErrorsSwallowEvent
+)

@@ -26,8 +26,8 @@ func TestNewSubmitHook_contract(t *testing.T) {
 	if h.ID() != ID {
 		t.Fatalf("ID: got %q want %q", h.ID(), ID)
 	}
-	if h.Order() != hookOrder {
-		t.Fatalf("Order: got %d want %d", h.Order(), hookOrder)
+	if h.Order() != DefaultHookOrder {
+		t.Fatalf("Order: got %d want %d", h.Order(), DefaultHookOrder)
 	}
 	if h.FailureMode() != sdk.FailOpen {
 		t.Fatalf("FailureMode: got %v want FailOpen", h.FailureMode())

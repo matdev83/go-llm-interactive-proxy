@@ -48,7 +48,7 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, io.EOF
 			}
 			s.terminalEmitted = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseFinished})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 			continue
 		}
 		cur := s.sdk.Current()
@@ -59,20 +59,20 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 	if !s.sawResp {
 		s.sawResp = true
-		s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 	}
 
 	for _, choice := range ch.Choices {
 		d := choice.Delta
 		if d.Role != "" && !s.sawMsg {
 			s.sawMsg = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
 
 		if len(d.ToolCalls) > 0 {
 			if !s.sawMsg {
 				s.sawMsg = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 			}
 			for _, tc := range d.ToolCalls {
 				if s.activeTools == nil {
@@ -83,7 +83,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 						s.activeToolOrder = append(s.activeToolOrder, tc.Index)
 					}
 					s.activeTools[tc.Index] = tc.ID
-					s.pending.Push( lipapi.Event{
+					s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallStarted,
 						ToolCallID: tc.ID,
 						ToolName:   tc.Function.Name,
@@ -91,7 +91,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 				}
 				if tc.Function.Arguments != "" {
 					id := s.activeTools[tc.Index]
-					s.pending.Push( lipapi.Event{
+					s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallArgsDelta,
 						ToolCallID: id,
 						Delta:      tc.Function.Arguments,
@@ -103,15 +103,15 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 		if d.Content != "" {
 			if !s.sawMsg {
 				s.sawMsg = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 			}
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content})
 		}
 
 		if choice.FinishReason == "tool_calls" {
 			for _, idx := range s.activeToolOrder {
 				if id := s.activeTools[idx]; id != "" {
-					s.pending.Push( lipapi.Event{
+					s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallFinished,
 						ToolCallID: id,
 					})
@@ -123,7 +123,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 	}
 
 	if ch.JSON.Usage.Valid() && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.TotalTokens > 0) {
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:         lipapi.EventUsageDelta,
 			InputTokens:  int(ch.Usage.PromptTokens),
 			OutputTokens: int(ch.Usage.CompletionTokens),

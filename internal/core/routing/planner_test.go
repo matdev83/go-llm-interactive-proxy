@@ -112,6 +112,33 @@ func TestFirstRequestIgnoredAfterConsumedUsesEligibleSet(t *testing.T) {
 	}
 }
 
+// Req 7.1 / 7.4 / 7.5: on retry path, RNG selection of the sole remaining [first] branch must not set MarkedFirst
+// (first-request steering was not consumed via the forced [first] path).
+func TestRetryPathRNGDoesNotMarkFirstWhenOnlyFirstBranchEligible(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[weight=1]a:a^[first][weight=1]b:b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &SessionRoutingState{FirstRequestConsumed: false}
+	ex := map[string]struct{}{"a:a": {}}
+	out, err := ExpandFailover(sel, PlanOptions{
+		Rand:        rng(0),
+		Session:     sess,
+		Excluded:    ex,
+		IsRetryPath: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Key != "b:b" {
+		t.Fatalf("got %#v", out)
+	}
+	if out[0].MarkedFirst {
+		t.Fatal("MarkedFirst must be false on retry path when only [first] branch remains after exclusions")
+	}
+}
+
 func TestReplanWeightedIgnoresFirst(t *testing.T) {
 	t.Parallel()
 	sel, err := Parse("[first]cheap:fast^[weight=1]expensive:slow")

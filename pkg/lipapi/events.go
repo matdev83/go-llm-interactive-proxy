@@ -12,19 +12,21 @@ import (
 // A zero value disables all limits (CollectUnbounded). Individual fields use zero to mean
 // “no limit” for that dimension only when using CollectWithLimits with a partially filled struct.
 type CollectLimits struct {
-	MaxTextBytes          int
-	MaxReasoningBytes     int
-	MaxToolArgsTotalBytes int
-	MaxWarnings           int
+	MaxTextBytes              int
+	MaxReasoningBytes         int
+	MaxToolArgsTotalBytes     int
+	MaxWarnings               int
+	MaxAssistantMediaParts    int // assistant_image_ref / assistant_file_ref events aggregated into Collected.AssistantMedia; 0 = unlimited
 }
 
 // DefaultCollectLimits returns conservative defaults for Collect (non-streaming aggregation).
 func DefaultCollectLimits() CollectLimits {
 	return CollectLimits{
-		MaxTextBytes:          64 << 20,
-		MaxReasoningBytes:     64 << 20,
-		MaxToolArgsTotalBytes: 128 << 20,
-		MaxWarnings:           100_000,
+		MaxTextBytes:             64 << 20,
+		MaxReasoningBytes:      64 << 20,
+		MaxToolArgsTotalBytes:  128 << 20,
+		MaxWarnings:            100_000,
+		MaxAssistantMediaParts: 1024,
 	}
 }
 
@@ -53,6 +55,11 @@ const (
 	EventWarning           EventKind = "warning"
 	EventError             EventKind = "error"
 	EventResponseFinished  EventKind = "response_finished"
+
+	// Assistant-side multimodal references (streaming). Adapters emit these instead of
+	// overloading text_delta when the vendor returns image/file output items.
+	EventAssistantImageRef EventKind = "assistant_image_ref"
+	EventAssistantFileRef  EventKind = "assistant_file_ref"
 )
 
 // Event is one canonical streaming item.
@@ -72,6 +79,15 @@ type Event struct {
 
 	ErrorCode    string
 	ErrorMessage string
+
+	// FinishReason is optional metadata on EventResponseFinished (vendor stop/finish taxonomy).
+	FinishReason string
+
+	// AssistantRef / AssistantMIME / AssistantName apply to EventAssistantImageRef and
+	// EventAssistantFileRef (same meaning as Part.ImageRef / Part.FileRef fields).
+	AssistantRef  string
+	AssistantMIME string
+	AssistantName string
 }
 
 // ValidateEventEnvelope applies maximum sizes to canonical event string fields (codec output,
@@ -100,6 +116,28 @@ func ValidateEventEnvelope(ev *Event) error {
 	}
 	if len(ev.ErrorMessage) > MaxEventDiagMessageBytes {
 		return &ValidationError{Field: "ErrorMessage", Message: fmt.Sprintf("exceeds %d bytes", MaxEventDiagMessageBytes)}
+	}
+	if err := validateStringField("FinishReason", ev.FinishReason, MaxRefStringBytes); err != nil {
+		return err
+	}
+	if err := validateStringField("AssistantRef", ev.AssistantRef, MaxRefStringBytes); err != nil {
+		return err
+	}
+	if err := validateStringField("AssistantMIME", ev.AssistantMIME, MaxRefStringBytes); err != nil {
+		return err
+	}
+	if err := validateStringField("AssistantName", ev.AssistantName, MaxRefStringBytes); err != nil {
+		return err
+	}
+	switch ev.Kind {
+	case EventAssistantImageRef, EventAssistantFileRef:
+		if strings.TrimSpace(ev.AssistantRef) == "" {
+			return &ValidationError{Field: "AssistantRef", Message: "required for assistant media ref events"}
+		}
+	case EventResponseFinished:
+		// FinishReason optional
+	default:
+		// Other kinds ignore assistant/finish fields at envelope validation time.
 	}
 	return nil
 }
@@ -153,6 +191,11 @@ type Collected struct {
 	OutputTokens   int
 	TerminalError  *Event
 	FinishReceived bool
+
+	// FinishReason is copied from the terminal EventResponseFinished when set.
+	FinishReason string
+	// AssistantMedia collects EventAssistantImageRef / EventAssistantFileRef in order.
+	AssistantMedia []Part
 }
 
 func toolCallSeenBefore(order []string, id string) bool {
@@ -243,7 +286,8 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished:
+		case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
+			EventAssistantImageRef, EventAssistantFileRef:
 			if !sawResponseStarted {
 				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
 			}
@@ -267,6 +311,7 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s before %s", EventResponseFinished, EventResponseStarted)
 			}
 			out.FinishReceived = true
+			out.FinishReason = ev.FinishReason
 			return out, nil
 		default:
 			return out, fmt.Errorf("unknown event kind %q", ev.Kind)
@@ -328,6 +373,24 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 		case EventUsageDelta:
 			out.InputTokens += ev.InputTokens
 			out.OutputTokens += ev.OutputTokens
+		case EventAssistantImageRef:
+			if limits.MaxAssistantMediaParts > 0 && len(out.AssistantMedia) >= limits.MaxAssistantMediaParts {
+				return out, fmt.Errorf("%w: assistant media parts would exceed %d", ErrCollectLimitExceeded, limits.MaxAssistantMediaParts)
+			}
+			p := Part{Kind: PartImageRef, ImageRef: ev.AssistantRef, ImageMIME: ev.AssistantMIME}
+			if err := p.validate(); err != nil {
+				return out, fmt.Errorf("assistant_image_ref: %w", err)
+			}
+			out.AssistantMedia = append(out.AssistantMedia, p)
+		case EventAssistantFileRef:
+			if limits.MaxAssistantMediaParts > 0 && len(out.AssistantMedia) >= limits.MaxAssistantMediaParts {
+				return out, fmt.Errorf("%w: assistant media parts would exceed %d", ErrCollectLimitExceeded, limits.MaxAssistantMediaParts)
+			}
+			p := Part{Kind: PartFileRef, FileRef: ev.AssistantRef, FileMIME: ev.AssistantMIME, FileName: ev.AssistantName}
+			if err := p.validate(); err != nil {
+				return out, fmt.Errorf("assistant_file_ref: %w", err)
+			}
+			out.AssistantMedia = append(out.AssistantMedia, p)
 		}
 	}
 }
@@ -354,7 +417,8 @@ func ValidateEventSequence(events []Event) error {
 				return fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished:
+		case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
+			EventAssistantImageRef, EventAssistantFileRef:
 			if !sawResponseStarted {
 				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
 			}

@@ -43,7 +43,7 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return lipapi.Event{}, io.EOF
 		}
 		if s.exhausted {
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseFinished})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 			s.afterFinish = true
 			continue
 		}
@@ -54,7 +54,7 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, err
 			}
 			if !s.sawResponse {
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 				s.sawResponse = true
 			}
 			s.exhausted = true
@@ -73,11 +73,11 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
 	}
 	if !s.sawResponse {
 		s.sawResponse = true
-		s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 	}
 
 	if u := usageEvent(resp); u != nil {
-		s.pending.Push( *u)
+		s.pending.Push(*u)
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
@@ -91,12 +91,12 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
 		if part.Text != "" {
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 			}
 			if part.Thought {
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: part.Text})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: part.Text})
 			} else {
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
 			}
 			continue
 		}
@@ -113,14 +113,14 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) {
 	}
 	if s.activeToolID != id {
 		if s.activeToolID != "" {
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
 			s.activeToolID = ""
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallStarted,
 			ToolCallID: id,
 			ToolName:   fc.Name,
@@ -130,7 +130,7 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) {
 	if len(fc.Args) > 0 {
 		b, err := json.Marshal(fc.Args)
 		if err == nil && len(b) > 0 {
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallArgsDelta,
 				ToolCallID: id,
 				Delta:      string(b),
@@ -139,7 +139,7 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) {
 	}
 	// Gemini often returns the full function call in one chunk; close immediately.
 	if s.activeToolID != "" {
-		s.pending.Push( lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
+		s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
 		s.activeToolID = ""
 	}
 }

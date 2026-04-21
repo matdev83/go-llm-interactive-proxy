@@ -6,6 +6,7 @@ The repository implements the **Go core v1** stack from `.kiro/specs/go-core-rei
 
 ## Current state
 
+- **API parity (spec + matrices)** — vendor-surface claims are tracked under [.kiro/specs/llm-api-parity/](.kiro/specs/llm-api-parity/) with row-level status; the README does not assert parity beyond what those matrices mark `implemented` (see also [.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md](.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md)).
 - canonical Go module and repository layout
 - package boundaries aligned with `AGENTS.md` and Kiro steering
 - typed runtime configuration (`config/config.yaml`)
@@ -19,6 +20,12 @@ The repository implements the **Go core v1** stack from `.kiro/specs/go-core-rei
 - **`lipapi.Call.Validate`** enforces maximum sizes on route selectors, IDs, messages/parts/tool counts, part payloads, extensions, and related option strings (see `pkg/lipapi/limits.go`). Oversized canonical requests fail validation before orchestration runs.
 - **`lipapi.Collect`** applies `DefaultCollectLimits` when aggregating streaming events into a single `Collected` struct. Use **`CollectWithLimits`** for custom caps or **`CollectUnbounded`** only for tests/harnesses that deliberately exceed defaults.
 - **`b2bua.MemoryStore`** with **TTL disabled** applies a **default maximum number of concurrent A-leg rows** (`DefaultMemoryStoreMaxLegsWithoutTTL`, currently 100k); set **`MemoryStoreOptions.MaxLegs`** explicitly (including **negative** for no cap if you truly need unbounded in-memory retention). With **TTL enabled**, max-leg count defaults to unlimited and expiry is TTL-driven.
+
+### Routing defaults and continuity
+
+- **Default route selector** when clients omit `X-LIP-Route` is resolved by `routing.EffectiveDefaultRouteSelector` from `routing.default_route` in YAML, then the first enabled backend plus registry default model ids (`pluginreg.DefaultWireModel`). See [`internal/core/routing/default_route.go`](internal/core/routing/default_route.go).
+- **SQLite continuity** (`continuity.store: sqlite` and `continuity.sqlite_path`) persists A-leg rows and attempt lineage across process restarts (`internal/core/continuity/sqlitestore`, pure-Go driver `modernc.org/sqlite`).
+- **Hook bus**: root `hooks.tool_reactor_error_policy` selects `fail_open` (default), `fail_closed`, or `swallow_event` for tool-reactor errors. Optional reference feature plugins are documented in [`internal/plugins/features/REFERENCE_PLUGINS.md`](internal/plugins/features/REFERENCE_PLUGINS.md).
 
 ## QA and local workflow
 

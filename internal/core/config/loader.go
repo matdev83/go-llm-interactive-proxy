@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,6 +34,10 @@ func LoadFile(path string) (*Config, error) {
 
 	if cfg.Routing.MaxAttempts == 0 {
 		cfg.Routing.MaxAttempts = 3
+	}
+
+	if cfg.Continuity.InMemory && strings.TrimSpace(cfg.Continuity.Store) == "" {
+		cfg.Continuity.Store = "memory"
 	}
 
 	return &cfg, nil

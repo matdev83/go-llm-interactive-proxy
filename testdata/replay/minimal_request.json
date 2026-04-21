@@ -1,0 +1,6 @@
+{
+  "source": "python_lip_fixture_mirror",
+  "description": "Minimal mirrored request shape for parity tests (not a full Python export).",
+  "route_selector": "stub:gpt-4o-mini",
+  "user_message": "parity smoke"
+}

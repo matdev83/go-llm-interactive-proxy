@@ -32,6 +32,13 @@ var ErrCollectLimitExceeded = errors.New("lipapi: collect limit exceeded")
 // when the EventStream argument is nil.
 var ErrNilEventStream = errors.New("lipapi: nil EventStream")
 
+// ErrMaxRouteAttempts is returned when routing.max_attempts would be exceeded by another B-leg.
+var ErrMaxRouteAttempts = errors.New("lipapi: routing max_attempts exhausted")
+
+// ErrUnresolvedModelOnlySelector is returned when a model-only route selector cannot be
+// resolved because no default backend was configured.
+var ErrUnresolvedModelOnlySelector = errors.New("lipapi: model-only route selector without default backend")
+
 // RejectError is returned when capability negotiation deterministically rejects
 // a request before any upstream work begins.
 type RejectError struct {

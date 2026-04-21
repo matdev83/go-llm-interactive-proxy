@@ -355,9 +355,13 @@ internal/testkit/
     protocol_assert.go
 ```
 
+**Implementation repository map (v1):** The shipped tree uses `pkg/lipapi` and `pkg/lipsdk` for public contracts, `internal/core/*` for the runtime (routing, B2BUA store, stream helpers, hooks, diagnostics, `continuity` for session resolution), `internal/plugins/{frontends,backends,features}` for bundled plugins, `internal/refclient` / `internal/refbackend` for reference emulators, and `cmd/lipstd` with `internal/stdhttp` for composition and HTTP mounting. See `.kiro/steering/structure.md`.
+
+**Canonical stream vs multimodal assistant output (v1):** Multimodal user input and tool-related payloads are explicit canonical parts; streamed assistant **text** and **tool** events carry the shared subset on the wire. First-class multimodal **assistant output delta** events in `lipapi` are not required for v1 where the product matrix treats model multimodal replies through the same event families adapters already map.
+
 ### Modified / future files of note
 
-- `cmd/lipstd/main.go` is the **only** place that should import the bundled frontend/backend/hook plugins.
+- Bundled plugins are imported from the composition root (`cmd/lipstd`) and from `internal/stdhttp` (mount/wire); keep this list small and explicit.
 - `lipcore/runtime/executor.go` is the single home of request execution semantics.
 - `lipcore/routing/*` owns route parsing and plan generation only; provider invocation must stay elsewhere.
 - `lipcore/b2bua/*` owns attempt lineage and continuity only; it must not learn provider SDKs or protocol shapes.

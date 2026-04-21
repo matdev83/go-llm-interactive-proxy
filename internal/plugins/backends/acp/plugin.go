@@ -46,6 +46,9 @@ func New(cfg Config) runtime.Backend {
 	if err != nil {
 		return runtime.Backend{
 			Caps: defaultBackendCaps(),
+			ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
+				return defaultBackendCaps()
+			},
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 				return nil, err
 			},
@@ -60,6 +63,9 @@ func New(cfg Config) runtime.Backend {
 	cancelProf := mergeCancelProfile(cfg)
 	return runtime.Backend{
 		Caps: defaultBackendCaps(),
+		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
+			return defaultBackendCaps()
+		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 			_ = cand
 			if err := validateACPCall(&call); err != nil {

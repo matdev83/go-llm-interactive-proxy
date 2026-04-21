@@ -53,13 +53,40 @@ func TestValidateRegistrationsAcceptsOpaqueConfigPayloads(t *testing.T) {
 	node := yaml.Node{Kind: yaml.MappingNode}
 	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{
 		{
-			ID:   "submit-noop",
-			Kind: lipsdk.PluginKindFeature,
+			ID:      "submit-noop",
+			Kind:    lipsdk.PluginKindFeature,
+			Enabled: true,
 			Config: lipsdk.ConfigPayload{
 				Node: node,
 			},
 		},
 	}, []lipsdk.Requirement{{Kind: lipsdk.PluginKindFeature, ID: "submit-noop"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRegistrationsRejectsDisabledMandatoryFrontend(t *testing.T) {
+	t.Parallel()
+
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{
+		{ID: "fe", Kind: lipsdk.PluginKindFrontend, Enabled: false},
+	}, []lipsdk.Requirement{{Kind: lipsdk.PluginKindFrontend, ID: "fe"}})
+	if err == nil {
+		t.Fatal("expected disabled mandatory error")
+	}
+	var disabled *lipsdk.DisabledMandatoryPluginError
+	if !errors.As(err, &disabled) {
+		t.Fatalf("expected DisabledMandatoryPluginError, got %T", err)
+	}
+}
+
+func TestValidateRegistrationsAllowsDisabledMandatoryBackend(t *testing.T) {
+	t.Parallel()
+
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{
+		{ID: "be", Kind: lipsdk.PluginKindBackend, Enabled: false},
+	}, []lipsdk.Requirement{{Kind: lipsdk.PluginKindBackend, ID: "be"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

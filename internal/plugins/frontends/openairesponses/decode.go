@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -160,13 +161,23 @@ func parseInput(raw json.RawMessage) ([]lipapi.Message, error) {
 func parseInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	var probe struct {
 		Type string `json:"type"`
-		Role string `json:"role"`
 	}
-	_ = json.Unmarshal(raw, &probe)
-	t := strings.TrimSpace(probe.Type)
-	if t != "" && t != "message" {
-		return lipapi.Message{}, fmt.Errorf("unsupported input item type %q", t)
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return lipapi.Message{}, err
 	}
+	switch strings.TrimSpace(probe.Type) {
+	case "function_call_output":
+		return parseFunctionCallOutputItem(raw)
+	case "function_call":
+		return parseFunctionCallInputItem(raw)
+	case "", "message":
+		return parseMessageInputItem(raw)
+	default:
+		return lipapi.Message{}, fmt.Errorf("unsupported input item type %q", probe.Type)
+	}
+}
+
+func parseMessageInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	var m struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
@@ -183,6 +194,99 @@ func parseInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		return lipapi.Message{}, err
 	}
 	return lipapi.Message{Role: role, Parts: parts}, nil
+}
+
+func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
+	var v struct {
+		ID        string          `json:"id"`
+		CallID    string          `json:"call_id"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return lipapi.Message{}, err
+	}
+	if strings.TrimSpace(v.CallID) == "" {
+		return lipapi.Message{}, errors.New("openairesponses: function_call requires call_id")
+	}
+	if strings.TrimSpace(v.Name) == "" {
+		return lipapi.Message{}, errors.New("openairesponses: function_call requires name")
+	}
+	argStr := "{}"
+	if len(v.Arguments) > 0 && string(v.Arguments) != "null" {
+		switch v.Arguments[0] {
+		case '"':
+			var s string
+			if err := json.Unmarshal(v.Arguments, &s); err != nil {
+				return lipapi.Message{}, fmt.Errorf("openairesponses: function_call arguments: %w", err)
+			}
+			argStr = s
+		default:
+			if !json.Valid(v.Arguments) {
+				return lipapi.Message{}, errors.New("openairesponses: function_call arguments must be JSON")
+			}
+			argStr = string(v.Arguments)
+		}
+	}
+	wire := map[string]any{
+		"type":      "function_call",
+		"call_id":   strings.TrimSpace(v.CallID),
+		"name":      strings.TrimSpace(v.Name),
+		"arguments": argStr,
+	}
+	if id := strings.TrimSpace(v.ID); id != "" {
+		wire["id"] = id
+	}
+	content, err := json.Marshal(wire)
+	if err != nil {
+		return lipapi.Message{}, err
+	}
+	return lipapi.Message{
+		Role: lipapi.RoleAssistant,
+		Parts: []lipapi.Part{{
+			Kind:    lipapi.PartJSON,
+			Content: content,
+		}},
+	}, nil
+}
+
+func parseFunctionCallOutputItem(raw json.RawMessage) (lipapi.Message, error) {
+	var v struct {
+		CallID string          `json:"call_id"`
+		Output json.RawMessage `json:"output"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return lipapi.Message{}, err
+	}
+	if strings.TrimSpace(v.CallID) == "" {
+		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires call_id")
+	}
+	out := v.Output
+	if len(out) == 0 || string(out) == "null" {
+		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires output")
+	}
+	if out[0] == '"' {
+		var s string
+		if err := json.Unmarshal(out, &s); err != nil {
+			return lipapi.Message{}, err
+		}
+		var err error
+		out, err = json.Marshal(s)
+		if err != nil {
+			return lipapi.Message{}, err
+		}
+	}
+	if !json.Valid(out) {
+		return lipapi.Message{}, errors.New("openairesponses: function_call_output output must be JSON")
+	}
+	return lipapi.Message{
+		Role: lipapi.RoleTool,
+		Parts: []lipapi.Part{{
+			Kind:       lipapi.PartToolResult,
+			ToolCallID: strings.TrimSpace(v.CallID),
+			Content:    append(json.RawMessage(nil), out...),
+		}},
+	}, nil
 }
 
 func mapRole(r string) (lipapi.Role, error) {
@@ -249,7 +353,7 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		var s struct {
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(mustJSON(blk), &s); err != nil {
+		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.Text) == "" {
@@ -260,58 +364,28 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		var s struct {
 			ImageURL string `json:"image_url"`
 		}
-		if err := json.Unmarshal(mustJSON(blk), &s); err != nil {
+		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.ImageURL) == "" {
 			return lipapi.Part{}, errors.New("input_image requires image_url")
 		}
-		return imagePartFromURL(s.ImageURL)
+		return openaiwire.ImagePartFromURL(s.ImageURL)
 	case "input_file":
 		var s struct {
 			FileData string `json:"file_data"`
 			Filename string `json:"filename"`
 		}
-		if err := json.Unmarshal(mustJSON(blk), &s); err != nil {
+		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.FileData) == "" {
 			return lipapi.Part{}, errors.New("input_file requires file_data")
 		}
-		return filePartFromInputFile(s.Filename, s.FileData), nil
+		return openaiwire.FilePartFromBase64(s.Filename, s.FileData), nil
 	default:
 		return lipapi.Part{}, fmt.Errorf("unsupported content block type %q", typ)
 	}
-}
-
-func mustJSON(blk map[string]json.RawMessage) []byte {
-	b, err := json.Marshal(blk)
-	if err != nil {
-		panic("mustJSON: " + err.Error())
-	}
-	return b
-}
-
-func imagePartFromURL(imageURL string) (lipapi.Part, error) {
-	p := lipapi.Part{Kind: lipapi.PartImageRef, ImageRef: imageURL}
-	if strings.HasPrefix(imageURL, "data:") {
-		rest := strings.TrimPrefix(imageURL, "data:")
-		semi := strings.Index(rest, ";")
-		if semi > 0 {
-			p.ImageMIME = rest[:semi]
-		}
-	}
-	return p, nil
-}
-
-func filePartFromInputFile(filename, fileData string) lipapi.Part {
-	mime := "application/octet-stream"
-	low := strings.ToLower(strings.TrimSpace(filename))
-	if strings.HasSuffix(low, ".pdf") {
-		mime = "application/pdf"
-	}
-	ref := "data:" + mime + ";base64," + fileData
-	return lipapi.FilePart(ref, mime, filename)
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {

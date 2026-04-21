@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -13,20 +14,31 @@ type ToolApplyResult struct {
 	Emit bool
 	// Event is the canonical tool event to surface when Emit is true.
 	Event lipapi.ToolEvent
+	// Err is set when ToolReactorErrorsFailClosed is configured and a reactor returned an error.
+	Err error
 }
 
-// ApplyToolReactors runs tool reactors in order. Reactor errors fail open (current event unchanged).
-// Swallow stops the chain and returns Emit=false.
+// ApplyToolReactors runs tool reactors in order. Reactor errors follow Config.ToolReactorErrorPolicy
+// (default fail-open). Swallow stops the chain and returns Emit=false.
 func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) ToolApplyResult {
 	cur := te
 	var tools []sdk.ToolReactor
+	var pol sdk.ToolReactorErrorPolicy
 	if b != nil {
 		tools = b.tools
+		pol = b.toolErrPol
 	}
 	for _, r := range tools {
 		dec, next, err := r.HandleToolEvent(ctx, cur, meta)
 		if err != nil {
-			continue
+			switch pol {
+			case sdk.ToolReactorErrorsFailClosed:
+				return ToolApplyResult{Err: fmt.Errorf("tool reactor %s: %w", r.ID(), err)}
+			case sdk.ToolReactorErrorsSwallowEvent:
+				return ToolApplyResult{Emit: false, Event: lipapi.ToolEvent{}}
+			default:
+				continue
+			}
 		}
 		switch dec {
 		case sdk.ToolPass:

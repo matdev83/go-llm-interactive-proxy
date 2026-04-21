@@ -149,7 +149,9 @@ func TestHandler_multimodalRequest_customJSON(t *testing.T) {
 func TestHandler_multimodalResponse_inlineImage(t *testing.T) {
 	t.Parallel()
 	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
-	b64 := base64.StdEncoding.EncodeToString(png)
+	pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
+	imgB64 := base64.StdEncoding.EncodeToString(png)
+	pdfB64 := base64.StdEncoding.EncodeToString(pdf)
 	mmJSON := `{
   "candidates": [
     {
@@ -157,7 +159,8 @@ func TestHandler_multimodalResponse_inlineImage(t *testing.T) {
         "role": "model",
         "parts": [
           {"text": "here-is-image"},
-          {"inlineData": {"mimeType": "image/png", "data": "` + b64 + `"}}
+          {"inlineData": {"mimeType": "image/png", "data": "` + imgB64 + `"}},
+          {"inlineData": {"mimeType": "application/pdf", "data": "` + pdfB64 + `"}}
         ]
       }
     }
@@ -184,7 +187,7 @@ func TestHandler_multimodalResponse_inlineImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	parts := out.Candidates[0].Content.Parts
-	if len(parts) < 2 || parts[0].Text != "here-is-image" {
+	if len(parts) != 3 || parts[0].Text != "here-is-image" {
 		t.Fatalf("parts: %+v", parts)
 	}
 	if parts[1].InlineData == nil || parts[1].InlineData.MIMEType != "image/png" {
@@ -192,6 +195,12 @@ func TestHandler_multimodalResponse_inlineImage(t *testing.T) {
 	}
 	if string(parts[1].InlineData.Data) != string(png) {
 		t.Fatalf("inline bytes len got %d want %d", len(parts[1].InlineData.Data), len(png))
+	}
+	if parts[2].InlineData == nil || parts[2].InlineData.MIMEType != "application/pdf" {
+		t.Fatalf("pdf inline part: %+v", parts[2])
+	}
+	if string(parts[2].InlineData.Data) != string(pdf) {
+		t.Fatalf("pdf bytes len got %d want %d", len(parts[2].InlineData.Data), len(pdf))
 	}
 }
 

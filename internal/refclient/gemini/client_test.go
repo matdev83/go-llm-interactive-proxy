@@ -2,6 +2,7 @@ package gemini_test
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -90,6 +91,56 @@ func TestGenerateContent_multimodal_inlineImageAndPDF(t *testing.T) {
 	_, err = cli.GenerateContent(context.Background(), "gemini-2.0-flash", contents, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGenerateContent_multimodalResponse_inlineImageAndPDF(t *testing.T) {
+	t.Parallel()
+	png := refclienttest.ReadRefclientFixture(t, "tiny.png")
+	pdf := refclienttest.ReadRefclientFixture(t, "minimal.pdf")
+	respJSON := `{"candidates":[{"content":{"role":"model","parts":[{"text":"here-are-files"},{"inlineData":{"mimeType":"image/png","data":"` +
+		base64.StdEncoding.EncodeToString(png) +
+		`"}},{"inlineData":{"mimeType":"application/pdf","data":"` +
+		base64.StdEncoding.EncodeToString(pdf) +
+		`"}}]}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(respJSON))
+	}))
+	t.Cleanup(srv.Close)
+
+	cli, err := gemini.New(context.Background(), gemini.Config{
+		APIKey:     "k",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cli.GenerateContent(context.Background(), "gemini-2.0-flash", []*genai.Content{
+		genai.NewContentFromText("show", genai.RoleUser),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := out.Candidates[0].Content.Parts
+	if len(parts) != 3 {
+		t.Fatalf("parts len: got %d want 3", len(parts))
+	}
+	if parts[0].Text != "here-are-files" {
+		t.Fatalf("text part: %+v", parts[0])
+	}
+	if parts[1].InlineData == nil || parts[1].InlineData.MIMEType != "image/png" {
+		t.Fatalf("image part: %+v", parts[1])
+	}
+	if string(parts[1].InlineData.Data) != string(png) {
+		t.Fatalf("image bytes len got %d want %d", len(parts[1].InlineData.Data), len(png))
+	}
+	if parts[2].InlineData == nil || parts[2].InlineData.MIMEType != "application/pdf" {
+		t.Fatalf("pdf part: %+v", parts[2])
+	}
+	if string(parts[2].InlineData.Data) != string(pdf) {
+		t.Fatalf("pdf bytes len got %d want %d", len(parts[2].InlineData.Data), len(pdf))
 	}
 }
 

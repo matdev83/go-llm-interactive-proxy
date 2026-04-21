@@ -55,10 +55,10 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to the **package under test** (same rule as `go test` `testdata/`). One file = one seed input: raw bytes for `[]byte` fuzz parameters, UTF-8 file body for `string` parameters.
 
-- Index and conventions: [testdata/fuzz/README.md](../testdata/fuzz/README.md)
-- After long local runs, you may copy interesting inputs from the fuzz cache into these trees (keep filenames stable or use new hex-style names); keep files small and non-secret.
+- Index and format rules: [testdata/fuzz/README.md](../testdata/fuzz/README.md) (files must use the `go test fuzz v1` encoding, not raw JSON-only blobs).
+- After long local runs, copy minimized or interesting inputs from the fuzz cache into the right `testdata/fuzz/FuzzName/` tree; keep files small and non-secret.
 
 ## Single entry point
 
-- `make release-gates` — conformance package tests, then `make test-fuzz` (all Tier 1 targets).
-- Full QA remains `make qa` (quality + unit `-short` + lint + vuln); race stays in CI via `race-check.sh` (not run locally on Windows).
+- `make release-gates` — conformance package tests, then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` on Linux/WSL (skipped on Windows) or rely on CI (`bash scripts/race-check.sh --short --strict`).
+- Full QA remains `make qa` (quality + unit `-short` + lint + vuln). CI also runs race, lint, and vuln as separate steps (see `.github/workflows/qa.yml`).

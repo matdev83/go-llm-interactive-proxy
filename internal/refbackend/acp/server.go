@@ -48,9 +48,9 @@ type handler struct {
 
 type emuSession struct {
 	mu         sync.Mutex
-	cancelled   bool // set by session/cancel; cleared at start of each session/prompt
-	cancelCh    chan struct{}
-	cancelOnce  sync.Once
+	cancelled  bool // set by session/cancel; cleared at start of each session/prompt
+	cancelCh   chan struct{}
+	cancelOnce sync.Once
 }
 
 func (h *handler) serve(w http.ResponseWriter, r *http.Request) {

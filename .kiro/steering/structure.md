@@ -31,7 +31,7 @@ The architecture has five primary zones:
 `internal/core/`
 - `runtime/` - request execution pipeline and lifecycle orchestration
 - `routing/` - selector parsing, weighted choice, ordered failover, eligibility filtering
-- `continuity/` - B2BUA-like session and attempt lineage services
+- `continuity/` - B2BUA-like session resolution (`Manager`, `ResolveALegRecord`); the executor resolves A-legs through this package over `b2bua.Store`
 - `stream/` - canonical event stream engine, collectors, keepalive, cancellation
 - `capabilities/` - capability negotiation and downgrade validation
 - `config/` - typed config loading and validation for the runtime only

@@ -1,3 +1,7 @@
+// Package conformance drives end-to-end matrix tests. Upstream error-shape checks use
+// NewUpstream400Server for minimal JSON bodies that match each provider family’s typical
+// 400 invalid_request patterns (aligned with internal/refbackend error shapes where those
+// emulators return structured errors). Success paths use internal/refbackend via NewSuccessRefBackend.
 package conformance
 
 import (

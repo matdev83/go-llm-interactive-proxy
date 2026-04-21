@@ -132,6 +132,13 @@ func buildInputItems(call *lipapi.Call) ([]responses.ResponseInputItemUnionParam
 			}
 			continue
 		}
+		if m.Role == lipapi.RoleAssistant && len(m.Parts) > 0 {
+			fcs, ok := assistantWireFunctionCalls(m.Parts)
+			if ok {
+				items = append(items, fcs...)
+				continue
+			}
+		}
 		it, err := messageToInputItem(m)
 		if err != nil {
 			return nil, err
@@ -139,6 +146,68 @@ func buildInputItems(call *lipapi.Call) ([]responses.ResponseInputItemUnionParam
 		items = append(items, it)
 	}
 	return items, nil
+}
+
+// assistantWireFunctionCalls maps assistant-only PartJSON items produced by the
+// Responses frontend decoder for wire type "function_call" into SDK input items.
+func assistantWireFunctionCalls(parts []lipapi.Part) ([]responses.ResponseInputItemUnionParam, bool) {
+	out := make([]responses.ResponseInputItemUnionParam, 0, len(parts))
+	for _, p := range parts {
+		it, ok := partToFunctionCallInputItem(p)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, it)
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+func partToFunctionCallInputItem(p lipapi.Part) (responses.ResponseInputItemUnionParam, bool) {
+	if p.Kind != lipapi.PartJSON || len(p.Content) == 0 {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(p.Content, &probe); err != nil {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+	if t := strings.TrimSpace(probe.Type); t != "" && t != "function_call" {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+	var v struct {
+		CallID    string          `json:"call_id"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(p.Content, &v); err != nil {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+	callID := strings.TrimSpace(v.CallID)
+	name := strings.TrimSpace(v.Name)
+	if callID == "" || name == "" {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+	argStr := "{}"
+	if len(v.Arguments) > 0 && string(v.Arguments) != "null" {
+		switch v.Arguments[0] {
+		case '"':
+			var s string
+			if err := json.Unmarshal(v.Arguments, &s); err != nil {
+				return responses.ResponseInputItemUnionParam{}, false
+			}
+			argStr = s
+		default:
+			if !json.Valid(v.Arguments) {
+				return responses.ResponseInputItemUnionParam{}, false
+			}
+			argStr = string(v.Arguments)
+		}
+	}
+	return responses.ResponseInputItemParamOfFunctionCall(argStr, callID, name), true
 }
 
 func toolResultString(p lipapi.Part) string {

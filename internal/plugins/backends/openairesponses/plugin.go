@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -18,22 +19,14 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
-func defaultBackendCaps() lipapi.BackendCaps {
-	return lipapi.NewBackendCaps(
-		lipapi.CapabilityStreaming,
-		lipapi.CapabilityTools,
-		lipapi.CapabilityVision,
-		lipapi.CapabilityDocuments,
-		lipapi.CapabilityReasoning,
-		lipapi.CapabilityParallelToolCalls,
-	)
-}
-
 // New returns a runtime backend that invokes the OpenAI Responses API using openai-go.
 func New(cfg Config) runtime.Backend {
 	cli := newSDKClient(cfg)
 	return runtime.Backend{
-		Caps: defaultBackendCaps(),
+		Caps: openaicaps.HostedFull,
+		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+			return openaicaps.ForHostedModel(resolveModel(cand, call))
+		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 			p, err := ParamsForCall(&call, cand)
 			if err != nil {

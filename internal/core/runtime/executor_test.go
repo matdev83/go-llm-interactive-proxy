@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"math/rand"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
 func TestExecutor_happyPath_collectNonStreaming(t *testing.T) {
@@ -661,4 +663,335 @@ func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
 	if captured.Temperature == nil || *captured.Temperature != 0.11 {
 		t.Fatalf("explicit call temperature must win over route, got %#v", captured.Temperature)
 	}
+}
+
+func TestExecutor_callID_matchesAssignedTrace(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  rand.New(rand.NewSource(2)),
+		Backends: map[string]runtime.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.FixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	wantTrace := diag.StableCallID(call)
+	stream, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.ID != wantTrace {
+		t.Fatalf("call.ID = %q, want %q", call.ID, wantTrace)
+	}
+	_, _ = lipapi.Collect(context.Background(), stream)
+}
+
+func TestExecutor_requestPartHook_metaIncludesBLeg(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	var got sdk.PartMeta
+	reqHook := &executorTestReqPart{
+		id: "req-meta", order: 0,
+		fn: func(_ context.Context, _ *lipapi.Call, meta sdk.PartMeta) error {
+			got = meta
+			return nil
+		},
+	}
+	ex := &runtime.Executor{
+		Store: st,
+		Bus: hooks.New(hooks.Config{
+			RequestPartHooks: []sdk.RequestPartHook{reqHook},
+		}),
+		Rand: rand.New(rand.NewSource(2)),
+		Backends: map[string]runtime.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.FixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	if _, err := ex.Execute(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+	if got.TraceID == "" || got.ALegID == "" {
+		t.Fatalf("expected non-empty TraceID and ALegID, got %+v", got)
+	}
+	if got.BLegID == "" || got.AttemptSeq <= 0 {
+		t.Fatalf("request hook after NextBLeg: want BLegID and positive AttemptSeq, got %+v", got)
+	}
+}
+
+func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	var respMeta sdk.PartMeta
+	var toolMeta sdk.ToolMeta
+	respHook := &executorTestRespPart{
+		id: "resp-meta", order: 0,
+		fn: func(_ context.Context, _ *lipapi.Event, meta sdk.PartMeta) error {
+			respMeta = meta
+			return nil
+		},
+	}
+	toolHook := &executorTestToolReactor{
+		id: "tool-meta", order: 0,
+		fn: func(_ context.Context, _ lipapi.ToolEvent, meta sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
+			toolMeta = meta
+			return sdk.ToolPass, lipapi.ToolEvent{}, nil
+		},
+	}
+	ex := &runtime.Executor{
+		Store: st,
+		Bus: hooks.New(hooks.Config{
+			ResponsePartHooks: []sdk.ResponsePartHook{respHook},
+			ToolReactors:      []sdk.ToolReactor{toolHook},
+		}),
+		Rand: rand.New(rand.NewSource(2)),
+		Backends: map[string]runtime.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.FixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "fn"},
+						{Kind: lipapi.EventTextDelta, Delta: "x"},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for {
+		_, err := stream.Recv(ctx)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatal(err)
+		}
+	}
+	if respMeta.TraceID == "" || respMeta.ALegID == "" {
+		t.Fatalf("response hook: want non-empty TraceID and ALegID, got %+v", respMeta)
+	}
+	if respMeta.BLegID == "" || respMeta.AttemptSeq <= 0 {
+		t.Fatalf("response hook: want non-empty BLegID and positive AttemptSeq on recv path, got %+v", respMeta)
+	}
+	if toolMeta.TraceID == "" || toolMeta.ALegID == "" {
+		t.Fatalf("tool reactor: want non-empty TraceID and ALegID, got %+v", toolMeta)
+	}
+	if toolMeta.BLegID == "" || toolMeta.AttemptSeq <= 0 {
+		t.Fatalf("tool reactor: want non-empty BLegID and positive AttemptSeq, got %+v", toolMeta)
+	}
+	_ = stream.Close()
+}
+
+func TestExecutor_downgradeNotStickyAcrossRetries(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	var captured string
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  rand.New(rand.NewSource(1)),
+		Backends: map[string]runtime.Backend{
+			"bad": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
+				},
+			},
+			"ok": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityReasoning),
+				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+					captured = call.Options.ReasoningEffort
+					return lipapi.FixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ContinuityKey: "sess-downgrade"},
+		Route:   lipapi.RouteIntent{Selector: "bad:m|ok:m"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Options: lipapi.GenerationOptions{ReasoningEffort: "high"},
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	if captured != "high" {
+		t.Fatalf("second backend must see baseline reasoning effort, got %q", captured)
+	}
+}
+
+func TestExecutor_maxAttemptsBlocksFurtherBLegs(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	ex := &runtime.Executor{
+		Store:       st,
+		Bus:         hooks.New(hooks.Config{}),
+		MaxAttempts: 2,
+		Rand:        rand.New(rand.NewSource(1)),
+		Backends: map[string]runtime.Backend{
+			"a": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
+				},
+			},
+			"b": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
+				},
+			},
+			"c": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ContinuityKey: "sess-max"},
+		Route:   lipapi.RouteIntent{Selector: "a:m|b:m|c:m"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, err := ex.Execute(context.Background(), call)
+	if err == nil {
+		t.Fatal("expected max attempts error")
+	}
+	if !errors.Is(err, lipapi.ErrMaxRouteAttempts) {
+		t.Fatalf("expected ErrMaxRouteAttempts, got %v", err)
+	}
+}
+
+func TestExecutor_modelOnlySelectorUsesDefaultBackend(t *testing.T) {
+	t.Parallel()
+	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	var opened string
+	ex := &runtime.Executor{
+		Store:          st,
+		Bus:            hooks.New(hooks.Config{}),
+		DefaultBackend: "openai",
+		Rand:           rand.New(rand.NewSource(2)),
+		Backends: map[string]runtime.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opened = cand.Primary.Backend + ":" + cand.Primary.Model
+					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "gpt-4o-mini"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != "openai:gpt-4o-mini" {
+		t.Fatalf("opened candidate: got %q", opened)
+	}
+	_, _ = lipapi.Collect(context.Background(), s)
+}
+
+type executorTestReqPart struct {
+	id    string
+	order int
+	fn    func(context.Context, *lipapi.Call, sdk.PartMeta) error
+}
+
+func (s *executorTestReqPart) ID() string                   { return s.id }
+func (s *executorTestReqPart) Order() int                   { return s.order }
+func (s *executorTestReqPart) FailureMode() sdk.FailureMode { return sdk.FailClosed }
+func (s *executorTestReqPart) HandleRequestParts(ctx context.Context, call *lipapi.Call, meta sdk.PartMeta) error {
+	return s.fn(ctx, call, meta)
+}
+
+type executorTestRespPart struct {
+	id    string
+	order int
+	fn    func(context.Context, *lipapi.Event, sdk.PartMeta) error
+}
+
+func (s *executorTestRespPart) ID() string                   { return s.id }
+func (s *executorTestRespPart) Order() int                   { return s.order }
+func (s *executorTestRespPart) FailureMode() sdk.FailureMode { return sdk.FailClosed }
+func (s *executorTestRespPart) HandleEvent(ctx context.Context, ev *lipapi.Event, meta sdk.PartMeta) error {
+	return s.fn(ctx, ev, meta)
+}
+
+type executorTestToolReactor struct {
+	id    string
+	order int
+	fn    func(context.Context, lipapi.ToolEvent, sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error)
+}
+
+func (s *executorTestToolReactor) ID() string                   { return s.id }
+func (s *executorTestToolReactor) Order() int                   { return s.order }
+func (s *executorTestToolReactor) FailureMode() sdk.FailureMode { return sdk.FailOpen }
+func (s *executorTestToolReactor) HandleToolEvent(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
+	return s.fn(ctx, te, meta)
 }

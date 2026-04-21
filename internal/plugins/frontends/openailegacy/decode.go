@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -147,12 +148,11 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 			}},
 		}, nil
 	case lipapi.RoleAssistant:
-		if len(probe.ToolCalls) > 0 && string(probe.ToolCalls) != "null" {
-			return lipapi.Message{}, errors.New("openailegacy: assistant tool_calls are not supported in this adapter")
+		parts, err := parseAssistantParts(probe.Content, probe.ToolCalls, probe.FunctionCall)
+		if err != nil {
+			return lipapi.Message{}, err
 		}
-		if len(probe.FunctionCall) > 0 && string(probe.FunctionCall) != "null" {
-			return lipapi.Message{}, errors.New("openailegacy: assistant function_call is not supported in this adapter")
-		}
+		return lipapi.Message{Role: lipapi.RoleAssistant, Parts: parts}, nil
 	}
 
 	parts, err := parseChatContent(probe.Content)
@@ -160,6 +160,39 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 		return lipapi.Message{}, err
 	}
 	return lipapi.Message{Role: role, Parts: parts}, nil
+}
+
+func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]lipapi.Part, error) {
+	var parts []lipapi.Part
+	if len(content) > 0 && string(content) != "null" {
+		cp, err := parseChatContent(content)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, cp...)
+	}
+	if len(toolCalls) > 0 && string(toolCalls) != "null" {
+		var rawCalls []json.RawMessage
+		if err := json.Unmarshal(toolCalls, &rawCalls); err != nil {
+			return nil, fmt.Errorf("openailegacy: tool_calls: %w", err)
+		}
+		for _, rc := range rawCalls {
+			if !json.Valid(rc) {
+				return nil, errors.New("openailegacy: invalid tool_calls entry")
+			}
+			parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: append(json.RawMessage(nil), rc...)})
+		}
+	}
+	if len(functionCall) > 0 && string(functionCall) != "null" {
+		if !json.Valid(functionCall) {
+			return nil, errors.New("openailegacy: invalid function_call")
+		}
+		parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: append(json.RawMessage(nil), functionCall...)})
+	}
+	if len(parts) == 0 {
+		return nil, errors.New("openailegacy: assistant message requires content, tool_calls, or function_call")
+	}
+	return parts, nil
 }
 
 func parseToolMessageContent(raw json.RawMessage) (any, error) {
@@ -249,7 +282,7 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		var s struct {
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(mustJSON(blk), &s); err != nil {
+		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.Text) == "" {
@@ -262,14 +295,14 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 				URL string `json:"url"`
 			} `json:"image_url"`
 		}
-		if err := json.Unmarshal(mustJSON(blk), &s); err != nil {
+		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		u := strings.TrimSpace(s.ImageURL.URL)
 		if u == "" {
 			return lipapi.Part{}, errors.New("image_url requires url")
 		}
-		return imagePartFromURL(u)
+		return openaiwire.ImagePartFromURL(u)
 	case "file":
 		var s struct {
 			File struct {
@@ -277,47 +310,17 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 				Filename string `json:"filename"`
 			} `json:"file"`
 		}
-		if err := json.Unmarshal(mustJSON(blk), &s); err != nil {
+		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		fd := strings.TrimSpace(s.File.FileData)
 		if fd == "" {
 			return lipapi.Part{}, errors.New("file part requires file_data")
 		}
-		return filePartFromChatFile(s.File.Filename, fd), nil
+		return openaiwire.FilePartFromBase64(s.File.Filename, fd), nil
 	default:
 		return lipapi.Part{}, fmt.Errorf("unsupported content block type %q", typ)
 	}
-}
-
-func mustJSON(blk map[string]json.RawMessage) []byte {
-	b, err := json.Marshal(blk)
-	if err != nil {
-		panic("mustJSON: " + err.Error())
-	}
-	return b
-}
-
-func imagePartFromURL(imageURL string) (lipapi.Part, error) {
-	p := lipapi.Part{Kind: lipapi.PartImageRef, ImageRef: imageURL}
-	if strings.HasPrefix(imageURL, "data:") {
-		rest := strings.TrimPrefix(imageURL, "data:")
-		semi := strings.Index(rest, ";")
-		if semi > 0 {
-			p.ImageMIME = rest[:semi]
-		}
-	}
-	return p, nil
-}
-
-func filePartFromChatFile(filename, fileData string) lipapi.Part {
-	mime := "application/octet-stream"
-	low := strings.ToLower(strings.TrimSpace(filename))
-	if strings.HasSuffix(low, ".pdf") {
-		mime = "application/pdf"
-	}
-	ref := "data:" + mime + ";base64," + fileData
-	return lipapi.FilePart(ref, mime, filename)
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {

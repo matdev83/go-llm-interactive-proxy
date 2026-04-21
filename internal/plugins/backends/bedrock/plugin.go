@@ -26,6 +26,9 @@ func New(cfg Config) runtime.Backend {
 		// Surface construction errors at Open time via a backend that always fails.
 		return runtime.Backend{
 			Caps: defaultBackendCaps(),
+			ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+				return ModelCapabilities(resolveModelID(cand, call))
+			},
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 				return nil, err
 			},
@@ -34,6 +37,9 @@ func New(cfg Config) runtime.Backend {
 	client := cli
 	return runtime.Backend{
 		Caps: defaultBackendCaps(),
+		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+			return ModelCapabilities(resolveModelID(cand, call))
+		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 			in, err := ConverseStreamInputForCall(&call, cand)
 			if err != nil {

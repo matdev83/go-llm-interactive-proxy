@@ -13,7 +13,7 @@
 // | POST …/chat/completions | Supported | integration_test.go, decode_test.go, encode_test.go |
 // | messages, tools, tool_choice | Supported (decode) | decode_test.go |
 // | stream_options    | Preserved in extensions | decode_test.go |
-// | Assistant tool_calls in request | Rejected | decode_test.go |
+// | Assistant tool_calls in request | Supported (decode) | decode_test.go |
 // | Tool response on wire (tool_calls / stream deltas) | Supported (encode) | encode_test.go, integration_test.go |
 // | logprobs, n, json_schema response_format, … | Out of scope | — |
 package openailegacy

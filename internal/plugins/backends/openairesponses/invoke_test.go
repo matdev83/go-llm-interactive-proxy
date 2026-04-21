@@ -301,6 +301,36 @@ func TestParamsForCall_toolResultMessage(t *testing.T) {
 	}
 }
 
+func TestParamsForCall_functionCallInputFromAssistantJSON(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		ID: "fc-in",
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+			{
+				Role: lipapi.RoleAssistant,
+				Parts: []lipapi.Part{{
+					Kind:    lipapi.PartJSON,
+					Content: []byte(`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}`),
+				}},
+			},
+		},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	p, err := backend.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `"type":"function_call"`) || !strings.Contains(s, "call_1") || !strings.Contains(s, "get_weather") {
+		t.Fatalf("expected function_call input item: %s", s)
+	}
+}
+
 func TestUpstreamError_returnsAPIError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

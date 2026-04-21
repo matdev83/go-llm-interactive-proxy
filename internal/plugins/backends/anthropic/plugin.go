@@ -34,6 +34,9 @@ func New(cfg Config) runtime.Backend {
 	cli := newSDKClient(cfg)
 	return runtime.Backend{
 		Caps: defaultBackendCaps(),
+		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+			return ModelCapabilities(resolveModel(cand, call))
+		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 			p, err := ParamsForCall(&call, cand)
 			if err != nil {

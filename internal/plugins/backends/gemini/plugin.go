@@ -34,6 +34,9 @@ func defaultBackendCaps() lipapi.BackendCaps {
 func New(cfg Config) runtime.Backend {
 	return runtime.Backend{
 		Caps: defaultBackendCaps(),
+		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
+			return ModelCapabilities(resolveModel(cand, call))
+		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 			cli, err := newGenaiClient(ctx, cfg)
 			if err != nil {

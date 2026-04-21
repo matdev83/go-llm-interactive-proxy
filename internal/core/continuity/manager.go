@@ -88,3 +88,14 @@ func (m *Manager) ResolveSession(ctx context.Context, ref lipapi.SessionRef) (Se
 func (m *Manager) Store() b2bua.Store {
 	return m.store
 }
+
+// ResolveALegRecord resolves ref to a stored A-leg row (ALegID, WeightedFirstConsumed, etc.).
+// Session resolution order matches Manager.ResolveSession: ALegID, then ContinuityKey, then new A-leg.
+func ResolveALegRecord(ctx context.Context, store b2bua.Store, ref lipapi.SessionRef) (b2bua.ALegRecord, error) {
+	m := NewManager(store)
+	sess, err := m.ResolveSession(ctx, ref)
+	if err != nil {
+		return b2bua.ALegRecord{}, err
+	}
+	return store.GetALeg(ctx, sess.ALegID)
+}

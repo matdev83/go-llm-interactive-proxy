@@ -66,53 +66,53 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) {
 	case "response.created":
 		if !s.sawResp {
 			s.sawResp = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 	case "response.output_text.delta":
 		if !s.sawResp {
 			s.sawResp = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		if !s.sawMsg {
 			s.sawMsg = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
 		if cur.Delta != "" {
 			s.sawTextDelta = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventTextDelta, Delta: cur.Delta})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: cur.Delta})
 		}
 	case "response.completed":
 		resp := cur.Response
 		if !s.sawResp {
 			s.sawResp = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		if !s.sawMsg {
 			s.sawMsg = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
 		if !s.sawTextDelta {
 			text := resp.OutputText()
 			if text != "" {
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text})
 			}
 		}
 		s.emitToolCallsFromCompletedResponse(resp)
 		if usage := usageFromResponse(resp); usage != nil {
-			s.pending.Push( *usage)
+			s.pending.Push(*usage)
 		}
-		s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseFinished})
+		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 	case "error":
 		ev := cur.AsError()
 		if !s.sawResp {
 			s.sawResp = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		msg := ev.Message
 		if msg == "" {
 			msg = "stream error"
 		}
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:         lipapi.EventError,
 			ErrorCode:    ev.Code,
 			ErrorMessage: msg,
@@ -134,7 +134,7 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) {
 		}
 		s.toolCallStarted[id] = true
 		s.ensureAssistantMessageStarted()
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallStarted,
 			ToolCallID: id,
 			ToolName:   fc.Name,
@@ -149,13 +149,13 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) {
 		if !s.toolCallStarted[id] {
 			s.toolCallStarted[id] = true
 			s.ensureAssistantMessageStarted()
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallStarted,
 				ToolCallID: id,
 			})
 		}
 		s.toolCallArgDeltas[id] = true
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallArgsDelta,
 			ToolCallID: id,
 			Delta:      d.Delta,
@@ -170,14 +170,14 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) {
 		if !s.toolCallStarted[id] {
 			s.toolCallStarted[id] = true
 			s.ensureAssistantMessageStarted()
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallStarted,
 				ToolCallID: id,
 				ToolName:   d.Name,
 			})
 		}
 		if !s.toolCallArgDeltas[id] && d.Arguments != "" {
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallArgsDelta,
 				ToolCallID: id,
 				Delta:      d.Arguments,
@@ -199,14 +199,14 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) {
 		if !s.toolCallStarted[id] {
 			s.toolCallStarted[id] = true
 			s.ensureAssistantMessageStarted()
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallStarted,
 				ToolCallID: id,
 				ToolName:   fc.Name,
 			})
 		}
 		if !s.toolCallArgDeltas[id] && fc.Arguments != "" {
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallArgsDelta,
 				ToolCallID: id,
 				Delta:      fc.Arguments,
@@ -230,7 +230,7 @@ func (s *sdkStream) ensureResponseStarted() {
 		return
 	}
 	s.sawResp = true
-	s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+	s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 }
 
 func (s *sdkStream) ensureAssistantMessageStarted() {
@@ -238,7 +238,7 @@ func (s *sdkStream) ensureAssistantMessageStarted() {
 		return
 	}
 	s.sawMsg = true
-	s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+	s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 }
 
 func (s *sdkStream) emitToolCallFinished(id string) {
@@ -246,7 +246,7 @@ func (s *sdkStream) emitToolCallFinished(id string) {
 		return
 	}
 	s.toolCallFinished[id] = true
-	s.pending.Push( lipapi.Event{
+	s.pending.Push(lipapi.Event{
 		Kind:       lipapi.EventToolCallFinished,
 		ToolCallID: id,
 	})
@@ -266,14 +266,14 @@ func (s *sdkStream) emitToolCallsFromCompletedResponse(resp responses.Response) 
 		if !s.toolCallStarted[id] {
 			s.toolCallStarted[id] = true
 			s.ensureAssistantMessageStarted()
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallStarted,
 				ToolCallID: id,
 				ToolName:   fc.Name,
 			})
 		}
 		if !s.toolCallArgDeltas[id] && fc.Arguments != "" {
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallArgsDelta,
 				ToolCallID: id,
 				Delta:      fc.Arguments,

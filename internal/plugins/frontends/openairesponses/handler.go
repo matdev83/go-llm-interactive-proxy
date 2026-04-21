@@ -1,28 +1,36 @@
 package openairesponses
 
 import (
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 const (
-	maxBodyBytes = 8 << 20
 	// HeaderRouteSelector carries the core routing selector (e.g. stub:gpt-4o-mini).
 	HeaderRouteSelector = "X-LIP-Route"
 )
 
 // Handler wires HTTP POST /v1/responses to decode → executor → encode.
 type Handler struct {
-	Exec *runtime.Executor
+	Exec lipsdk.ExecutorView
 	// DefaultRouteSelector is used when HeaderRouteSelector is absent.
 	DefaultRouteSelector string
-	Log                  *slog.Logger
+	// MaxRequestBodyBytes caps the request body; zero uses reqbody.DefaultMaxBytes.
+	MaxRequestBodyBytes int64
+	Log                 *slog.Logger
+}
+
+func (h *Handler) maxBodyLimit() int64 {
+	if h != nil && h.MaxRequestBodyBytes > 0 {
+		return h.MaxRequestBodyBytes
+	}
+	return reqbody.DefaultMaxBytes
 }
 
 // ServeHTTP implements OpenAI Responses create on POST …/responses.
@@ -36,14 +44,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if h.Exec == nil {
-		WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error", "")
+
+	body, err := reqbody.ReadAll(w, r, h.maxBodyLimit())
+	if err != nil {
+		if reqbody.TooLarge(err) {
+			WriteErrorJSON(w, http.StatusRequestEntityTooLarge, "request body too large", "invalid_request_error", "")
+			return
+		}
+		WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error", "")
 		return
 	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
-	if err != nil {
-		WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error", "")
+	if h.Exec == nil {
+		WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error", "")
 		return
 	}
 
@@ -75,8 +87,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:  diag.StableUnix(call),
 	}
 	opts.MessageID = "msg_" + opts.ResponseID
-	if h.Exec.Now != nil {
-		opts.CreatedAt = h.Exec.Now().Unix()
+	if clk := h.Exec.WallClock(); clk != nil {
+		opts.CreatedAt = clk().Unix()
 	}
 	if decoded.Stream {
 		if err := WriteStreamSSE(ctx, w, call, es, opts); err != nil {

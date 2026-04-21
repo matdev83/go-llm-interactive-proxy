@@ -1,0 +1,2 @@
+# Native fuzz corpora must use LF-only line endings (Go rejects CRLF in corpus files).
+testdata/**/fuzz/** text eol=lf

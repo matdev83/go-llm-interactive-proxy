@@ -85,6 +85,9 @@ func (c Call) Validate() error {
 		if t.Name == "" {
 			return &ValidationError{Field: fmt.Sprintf("Tools[%d].Name", i), Message: "tool name is required"}
 		}
+		if len(t.Parameters) > 0 && !json.Valid(t.Parameters) {
+			return &ValidationError{Field: fmt.Sprintf("Tools[%d].Parameters", i), Message: "parameters must be valid JSON when set"}
+		}
 	}
 	if err := c.ToolChoice.validate(len(c.Tools), c.Tools); err != nil {
 		return err

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
 var ErrNilConfig = errors.New("runtime config is required")
@@ -24,6 +26,9 @@ type Options struct {
 
 	// Hooks configures submit, part, and tool-reactor chains (zero value means empty chains).
 	Hooks hooks.Config
+
+	// Lifecycles are started after validation and stopped on shutdown (reverse order).
+	Lifecycles []lipplugin.Lifecycle
 }
 
 // App is the bootstrap composition root for the standard distribution.
@@ -32,6 +37,7 @@ type App struct {
 	logger        *slog.Logger
 	registrations []lipsdk.Registration
 	hookBus       *hooks.Bus
+	lifecycles    []lipplugin.Lifecycle
 }
 
 // New validates bootstrap wiring without starting the HTTP server (see cmd/lipstd and stdhttp.Run).
@@ -56,6 +62,7 @@ func New(opts Options) (*App, error) {
 		logger:        logger,
 		registrations: opts.Registrations,
 		hookBus:       hooks.New(opts.Hooks),
+		lifecycles:    opts.Lifecycles,
 	}, nil
 }
 
@@ -70,8 +77,8 @@ func (a *App) HookBus() *hooks.Bus {
 	return a.hookBus
 }
 
-// Start logs hook chain lengths for diagnostics. The bundled HTTP server is started by stdhttp.Run from cmd/lipstd.
-func (a *App) Start(context.Context) error {
+// Start logs hook chain lengths and starts plugin lifecycles. The bundled HTTP server is started by stdhttp.Run from cmd/lipstd.
+func (a *App) Start(ctx context.Context) error {
 	ns, nrq, nrs, nt := a.HookBus().HookChainLengths()
 	a.logger.Debug("runtime bootstrap",
 		"server_address", a.config.Server.Address,
@@ -80,5 +87,34 @@ func (a *App) Start(context.Context) error {
 		"hook_response_parts", nrs,
 		"hook_tool_reactors", nt,
 	)
+	var started []lipplugin.Lifecycle
+	for _, lc := range a.lifecycles {
+		if lc == nil {
+			continue
+		}
+		if err := lc.Start(ctx); err != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			for i := len(started) - 1; i >= 0; i-- {
+				_ = started[i].Stop(stopCtx)
+			}
+			cancel()
+			return err
+		}
+		started = append(started, lc)
+	}
 	return nil
+}
+
+// Shutdown stops plugin lifecycles in reverse registration order.
+func (a *App) Shutdown(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	for i := len(a.lifecycles) - 1; i >= 0; i-- {
+		lc := a.lifecycles[i]
+		if lc == nil {
+			continue
+		}
+		_ = lc.Stop(ctx)
+	}
 }

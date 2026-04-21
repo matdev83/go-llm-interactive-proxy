@@ -45,7 +45,7 @@ func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, io.EOF
 			}
 			s.terminal = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseFinished})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 			continue
 		}
 		cur := s.sdk.Current()
@@ -58,15 +58,15 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
 	case anthropic.MessageStartEvent:
 		if !s.sawResp {
 			s.sawResp = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		if !s.sawMsg {
 			s.sawMsg = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
 	case anthropic.MessageDeltaEvent:
 		if u := usageFromMessageDelta(v); u != nil {
-			s.pending.Push( *u)
+			s.pending.Push(*u)
 		}
 	case anthropic.ContentBlockStartEvent:
 		cb := v.ContentBlock
@@ -74,7 +74,7 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
 		case "tool_use":
 			tu := cb.AsToolUse()
 			s.activeToolID = tu.ID
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallStarted,
 				ToolCallID: tu.ID,
 				ToolName:   tu.Name,
@@ -87,17 +87,17 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
 			if t.Text != "" {
 				if !s.sawResp {
 					s.sawResp = true
-					s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+					s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 				}
 				if !s.sawMsg {
 					s.sawMsg = true
-					s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+					s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 				}
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventTextDelta, Delta: t.Text})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: t.Text})
 			}
 		case anthropic.InputJSONDelta:
 			if t.PartialJSON != "" {
-				s.pending.Push( lipapi.Event{
+				s.pending.Push(lipapi.Event{
 					Kind:       lipapi.EventToolCallArgsDelta,
 					ToolCallID: s.activeToolID,
 					Delta:      t.PartialJSON,
@@ -105,19 +105,19 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
 			}
 		case anthropic.ThinkingDelta:
 			if t.Thinking != "" {
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: t.Thinking})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: t.Thinking})
 			}
 		}
 	case anthropic.ContentBlockStopEvent:
 		if s.activeToolID != "" {
-			s.pending.Push( lipapi.Event{
+			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallFinished,
 				ToolCallID: s.activeToolID,
 			})
 			s.activeToolID = ""
 		}
 	case anthropic.MessageStopEvent:
-		s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseFinished})
+		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 		s.terminal = true
 	}
 }

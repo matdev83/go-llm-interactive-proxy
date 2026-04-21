@@ -59,7 +59,7 @@ func TestBus_nil_receiver_matches_empty_bus(t *testing.T) {
 	te := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolCallID: "c1", ToolName: "fn"}
 	gotNil := nilBus.ApplyToolReactors(ctx, te, sdk.ToolMeta{})
 	gotEmpty := empty.ApplyToolReactors(ctx, te, sdk.ToolMeta{})
-	if gotNil.Emit != gotEmpty.Emit || gotNil.Event != gotEmpty.Event {
+	if gotNil.Emit != gotEmpty.Emit || gotNil.Event != gotEmpty.Event || (gotNil.Err != nil) != (gotEmpty.Err != nil) {
 		t.Fatalf("ApplyToolReactors: nil %+v empty %+v", gotNil, gotEmpty)
 	}
 }

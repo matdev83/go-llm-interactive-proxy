@@ -68,9 +68,9 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				if !s.sawResponse {
 					s.sawResponse = true
-					s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+					s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 				}
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseFinished})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 				continue
 			}
 			s.handleOutput(out)
@@ -84,11 +84,11 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) {
 		if v.Value.Role == types.ConversationRoleAssistant {
 			if !s.sawResponse {
 				s.sawResponse = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 			}
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 			}
 		}
 	case *types.ConverseStreamOutputMemberContentBlockStart:
@@ -111,7 +111,7 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) {
 				outT = int(aws.ToInt32(u.OutputTokens))
 			}
 			if inT > 0 || outT > 0 {
-				s.pending.Push( lipapi.Event{
+				s.pending.Push(lipapi.Event{
 					Kind:         lipapi.EventUsageDelta,
 					InputTokens:  inT,
 					OutputTokens: outT,
@@ -135,13 +135,13 @@ func (s *converseStream) handleBlockStart(ev types.ContentBlockStartEvent) {
 		s.activeToolID = id
 		if !s.sawResponse {
 			s.sawResponse = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallStarted,
 			ToolCallID: id,
 			ToolName:   name,
@@ -159,13 +159,13 @@ func (s *converseStream) handleBlockDelta(ev types.ContentBlockDeltaEvent) {
 		}
 		if !s.sawResponse {
 			s.sawResponse = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
-		s.pending.Push( lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Value})
+		s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Value})
 	case *types.ContentBlockDeltaMemberToolUse:
 		if d.Value.Input == nil || *d.Value.Input == "" {
 			return
@@ -175,13 +175,13 @@ func (s *converseStream) handleBlockDelta(ev types.ContentBlockDeltaEvent) {
 		}
 		if !s.sawResponse {
 			s.sawResponse = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 		}
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallArgsDelta,
 			ToolCallID: s.activeToolID,
 			Delta:      *d.Value.Input,
@@ -190,13 +190,13 @@ func (s *converseStream) handleBlockDelta(ev types.ContentBlockDeltaEvent) {
 		if txt := reasoningDeltaTextFromUnion(d.Value); txt != "" {
 			if !s.sawResponse {
 				s.sawResponse = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventResponseStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 			}
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push( lipapi.Event{Kind: lipapi.EventMessageStarted})
+				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
 			}
-			s.pending.Push( lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: txt})
+			s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: txt})
 		}
 	default:
 		return
@@ -214,7 +214,7 @@ func reasoningDeltaTextFromUnion(delta types.ReasoningContentBlockDelta) string 
 
 func (s *converseStream) handleBlockStop(ev types.ContentBlockStopEvent) {
 	if s.activeToolID != "" {
-		s.pending.Push( lipapi.Event{
+		s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallFinished,
 			ToolCallID: s.activeToolID,
 		})

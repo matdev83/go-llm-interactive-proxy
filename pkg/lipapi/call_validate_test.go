@@ -157,6 +157,24 @@ func TestCallValidate_routeSelectorMaxSize(t *testing.T) {
 	}
 }
 
+func TestCallValidate_toolParametersMustBeValidJSONWhenSet(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{
+			Name:       "x",
+			Parameters: json.RawMessage(`not-json`),
+		}},
+	}
+	if err := call.Validate(); err == nil {
+		t.Fatal("expected invalid tool parameters JSON")
+	}
+}
+
 func TestCallValidate_validMinimalCall(t *testing.T) {
 	t.Parallel()
 

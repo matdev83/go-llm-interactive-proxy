@@ -2,6 +2,57 @@
 
 Language: English.
 
+## Project identity
+
+Go-based LLM Interactive Proxy.
+
+This repository is the greenfield Go re-implementation of the LIP (LLM Interactive Proxy Python app, GitHub: https://github.com/matdev83/llm-interactive-proxy) with **radically simpler** and cleanerarchitecture.
+
+Whenever needed or user refers to the LIP repo, you can access it directly as a sibling repo living in the following absolute dir: `C:\Users\Mateusz\source\repos\llm-interactive-proxy`.
+
+This project is meant as a universal translation, routing, and control plane for AI clients.
+
+Non-negotiable product traits:
+- small core,
+- plugin-first features,
+- frontend support for OpenAI Responses, legacy OpenAI-compatible, Anthropic, and Gemini APIs,
+- backend support for OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock, and ACP,
+- cross-API translation through a canonical request model and canonical event stream,
+- streaming-first execution,
+- core-owned routing, failover, and B2BUA-like continuity handling.
+
+## Architecture guardrails
+
+1. The core owns orchestration, not provider semantics.
+2. Core packages must not import official provider SDKs.
+3. Core packages must not import concrete plugins.
+4. No pairwise protocol translators. Only protocol <-> canonical adapters.
+5. Streaming is the primary path. Non-streaming is collected from the streaming path.
+6. No transparent retry or failover after the first downstream content event is emitted.
+7. Capability mismatches must fail explicitly. Never silently drop required semantics.
+8. B2BUA-like behavior applies only to pre-output recoverable failures and attempt lineage.
+9. Advanced request/response mutation belongs behind hook interfaces, not inside core business logic.
+10. Prefer explicit construction and registration over DI containers, reflection, or global registries.
+11. Do not use Go's native `plugin` package in v1.
+12. Keep the core boring: narrow interfaces, small files, simple control flow.
+
+## Repository layout
+
+Treat these paths as the default structure unless a spec says otherwise:
+
+- `cmd/lipstd/` - standard distribution binary that wires official plugins into the runtime.
+- `pkg/lipapi/` - stable canonical request, event, capability, and error contracts.
+- `pkg/lipsdk/` - stable plugin SDK and registration contracts for plugins outside the repo.
+- `internal/core/` - runtime, orchestration, routing, capability negotiation, stream engine, config, admin.
+- `internal/plugins/frontends/` - official frontend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`.
+- `internal/plugins/backends/` - official backend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`.
+- `internal/plugins/features/` - official feature plugins and hook implementations.
+- `internal/infra/` - persistence, clocks, ids, logging helpers, metrics, and environment adapters.
+- `internal/testkit/` - provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
+- `testdata/` - golden protocol payloads, event streams, selector fixtures, and migration captures.
+- `docs/` - architecture notes, operator docs, and migration notes.
+- `.kiro/` - steering and spec artifacts.
+
 ## Kiro Spec-Driven Development
 
 ### When to use Kiro specs
@@ -53,55 +104,6 @@ Short guide to `.kiro/steering/` (enduring project memory; not spec-specific):
 
 In `.kiro/specs/go-core-reimplementation-v1/`, **task IDs** in `tasks.md` (for example task **10.1** = OpenAI Responses **backend** plugin) are unrelated to **requirement IDs** in `requirements.md` (for example requirement **10.1** = request-part **hooks**). Always use the filename (`tasks.md` vs `requirements.md`) to disambiguate.
 
-## Project identity
-
-Go-based LLM Interactive Proxy.
-
-This repository is the greenfield Go re-implementation of the LIP (LLM Interactive Proxy Python app, GitHub: https://github.com/matdev83/llm-interactive-proxy) with **radically simpler** architecture.
-Whenever needed or user refers to the LIP repo, you can access it directly as a sibling repo living in the following absolute dir: `C:\Users\Mateusz\source\repos\llm-interactive-proxy`.
-It is a universal translation, routing, and control plane for AI clients.
-
-Non-negotiable product traits:
-- small core,
-- plugin-first features,
-- frontend support for OpenAI Responses, legacy OpenAI-compatible, Anthropic, and Gemini APIs,
-- backend support for OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock, and ACP,
-- cross-API translation through a canonical request model and canonical event stream,
-- streaming-first execution,
-- core-owned routing, failover, and B2BUA-like continuity handling.
-
-## Architecture guardrails
-
-1. The core owns orchestration, not provider semantics.
-2. Core packages must not import official provider SDKs.
-3. Core packages must not import concrete plugins.
-4. No pairwise protocol translators. Only protocol <-> canonical adapters.
-5. Streaming is the primary path. Non-streaming is collected from the streaming path.
-6. No transparent retry or failover after the first downstream content event is emitted.
-7. Capability mismatches must fail explicitly. Never silently drop required semantics.
-8. B2BUA-like behavior applies only to pre-output recoverable failures and attempt lineage.
-9. Advanced request/response mutation belongs behind hook interfaces, not inside core business logic.
-10. Prefer explicit construction and registration over DI containers, reflection, or global registries.
-11. Do not use Go's native `plugin` package in v1.
-12. Keep the core boring: narrow interfaces, small files, simple control flow.
-
-## Repository layout
-
-Treat these paths as the default structure unless a spec says otherwise:
-
-- `cmd/lipstd/` - standard distribution binary that wires official plugins into the runtime.
-- `pkg/lipapi/` - stable canonical request, event, capability, and error contracts.
-- `pkg/lipsdk/` - stable plugin SDK and registration contracts for plugins outside the repo.
-- `internal/core/` - runtime, orchestration, routing, capability negotiation, stream engine, config, admin.
-- `internal/plugins/frontends/` - official frontend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`.
-- `internal/plugins/backends/` - official backend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`.
-- `internal/plugins/features/` - official feature plugins and hook implementations.
-- `internal/infra/` - persistence, clocks, ids, logging helpers, metrics, and environment adapters.
-- `internal/testkit/` - provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
-- `testdata/` - golden protocol payloads, event streams, selector fixtures, and migration captures.
-- `docs/` - architecture notes, operator docs, and migration notes.
-- `.kiro/` - steering and spec artifacts.
-
 ### Backend protocol plugins (spec Task 10.x)
 
 When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend work:
@@ -119,7 +121,7 @@ Prefer repo-defined scripts or make targets:
 - `make test` — quality checks plus `go test -short -parallel=8 ./...`
 - `make test-race` — no-op on Windows; on Linux/macOS/WSL runs `race-check.sh`-style scan. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make qa` — quality checks, unit tests, `golangci-lint` (or `staticcheck`), `govulncheck` (install tools locally)
-- `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Committed seeds live under each package’s `testdata/fuzz/FuzzName/`; regenerate packed/binary seeds with `scripts/init-fuzz-corpus.ps1` when those inputs change.
+- `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
 - `go test -run TestName ./path/to/pkg`
 - `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets

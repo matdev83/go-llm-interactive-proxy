@@ -119,9 +119,30 @@ func TestDecodeCreate_invalidJSON(t *testing.T) {
 	}
 }
 
-func TestDecodeCreate_unsupportedInputItemType(t *testing.T) {
+func TestDecodeCreate_functionCallInputItem(t *testing.T) {
 	t.Parallel()
 	const body = `{"model":"gpt-4o-mini","input":[{"type":"function_call","id":"x","call_id":"c","name":"n","arguments":"{}"}]}`
+	d, err := openairesponses.DecodeCreateRequest([]byte(body), openairesponses.DecodeOptions{
+		RouteSelector: "stub:m",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Call.Messages) != 1 {
+		t.Fatalf("messages: %d", len(d.Call.Messages))
+	}
+	m := d.Call.Messages[0]
+	if m.Role != lipapi.RoleAssistant || len(m.Parts) != 1 || m.Parts[0].Kind != lipapi.PartJSON {
+		t.Fatalf("unexpected message: %+v", m)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeCreate_unsupportedInputItemType(t *testing.T) {
+	t.Parallel()
+	const body = `{"model":"gpt-4o-mini","input":[{"type":"reasoning","id":"r1"}]}`
 	_, err := openairesponses.DecodeCreateRequest([]byte(body), openairesponses.DecodeOptions{
 		RouteSelector: "stub:m",
 	})
@@ -320,22 +341,24 @@ func TestDecodeCreate_developerRoleMapsToSystem(t *testing.T) {
 	}
 }
 
-// Responses API allows multiple input item types; v1 adapter only supports type "message" (see research.md).
-func TestDecodeCreate_functionCallOutputItemRejected(t *testing.T) {
+func TestDecodeCreate_functionCallOutputItem(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{
   "model": "gpt-4o-mini",
   "stream": false,
   "input": [{"type":"function_call_output","call_id":"call_1","output":"{\"ok\":true}"}]
 }`)
-	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
 		RouteSelector: "stub:gpt-4o-mini",
 	})
-	if err == nil {
-		t.Fatal("expected error for unsupported input item type")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "unsupported input item type") {
-		t.Fatalf("unexpected err: %v", err)
+	if len(d.Call.Messages) != 1 || d.Call.Messages[0].Role != lipapi.RoleTool {
+		t.Fatalf("messages: %+v", d.Call.Messages)
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 

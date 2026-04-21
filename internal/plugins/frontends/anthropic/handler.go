@@ -1,18 +1,17 @@
 package anthropic
 
 import (
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 const (
-	maxBodyBytes = 8 << 20
 	// HeaderRouteSelector carries the core routing selector (e.g. stub:claude-3-5-haiku).
 	HeaderRouteSelector = "X-LIP-Route"
 	// HeaderAnthropicVersion is optional; when absent a default supported version is assumed for decode.
@@ -20,11 +19,20 @@ const (
 )
 
 // Handler wires HTTP POST /v1/messages to decode → executor → encode.
+// Tool-call history: only the subset documented alongside decode/encode is preserved on the canonical model.
 type Handler struct {
-	Exec *runtime.Executor
+	Exec lipsdk.ExecutorView
 	// DefaultRouteSelector is used when HeaderRouteSelector is absent.
 	DefaultRouteSelector string
+	MaxRequestBodyBytes  int64
 	Log                  *slog.Logger
+}
+
+func (h *Handler) maxBodyLimit() int64 {
+	if h != nil && h.MaxRequestBodyBytes > 0 {
+		return h.MaxRequestBodyBytes
+	}
+	return reqbody.DefaultMaxBytes
 }
 
 // ServeHTTP implements Messages create on POST …/messages.
@@ -38,14 +46,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if h.Exec == nil {
-		WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error")
+
+	body, err := reqbody.ReadAll(w, r, h.maxBodyLimit())
+	if err != nil {
+		if reqbody.TooLarge(err) {
+			WriteErrorJSON(w, http.StatusRequestEntityTooLarge, "request body too large", "invalid_request_error")
+			return
+		}
+		WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error")
 		return
 	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
-	if err != nil {
-		WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error")
+	if h.Exec == nil {
+		WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error")
 		return
 	}
 

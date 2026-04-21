@@ -196,7 +196,7 @@ func TestDecodeChat_toolsAndToolChoice(t *testing.T) {
 	})
 }
 
-func TestDecodeChat_assistantToolCallsRejected(t *testing.T) {
+func TestDecodeChat_assistantToolCalls(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{
   "model": "gpt-4o-mini",
@@ -206,16 +206,22 @@ func TestDecodeChat_assistantToolCallsRejected(t *testing.T) {
     "tool_calls": [{"id":"call_1","type":"function","function":{"name":"x","arguments":"{}"}}]
   }]
 }`)
-	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
-	if err == nil {
-		t.Fatal("expected error")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "tool_calls") {
-		t.Fatalf("unexpected err: %v", err)
+	if len(d.Call.Messages) != 1 || len(d.Call.Messages[0].Parts) != 1 {
+		t.Fatalf("parts: %#v", d.Call.Messages)
+	}
+	if d.Call.Messages[0].Parts[0].Kind != lipapi.PartJSON {
+		t.Fatalf("want PartJSON, got %#v", d.Call.Messages[0].Parts[0])
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestDecodeChat_assistantFunctionCallRejected(t *testing.T) {
+func TestDecodeChat_assistantFunctionCallLegacy(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{
   "model": "gpt-4o-mini",
@@ -225,12 +231,15 @@ func TestDecodeChat_assistantFunctionCallRejected(t *testing.T) {
     "function_call": {"name": "legacy_fn", "arguments": "{}"}
   }]
 }`)
-	_, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
-	if err == nil {
-		t.Fatal("expected error")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "function_call") {
-		t.Fatalf("unexpected err: %v", err)
+	if len(d.Call.Messages[0].Parts) != 2 {
+		t.Fatalf("parts: %d", len(d.Call.Messages[0].Parts))
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 

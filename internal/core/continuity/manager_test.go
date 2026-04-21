@@ -57,6 +57,22 @@ func TestManager_ResolveSession_resolvesByContinuityKey(t *testing.T) {
 	}
 }
 
+func TestResolveALegRecord_returnsStoreRow(t *testing.T) {
+	t.Parallel()
+
+	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	rec, err := continuity.ResolveALegRecord(context.Background(), store, lipapi.SessionRef{ContinuityKey: "k"})
+	if err != nil {
+		t.Fatalf("ResolveALegRecord: %v", err)
+	}
+	if rec.ALegID == "" {
+		t.Fatal("expected ALegID on record")
+	}
+	if rec.ContinuityKey != "k" {
+		t.Fatalf("ContinuityKey: got %q", rec.ContinuityKey)
+	}
+}
+
 func TestManager_ResolveSession_resolvesByALegID(t *testing.T) {
 	t.Parallel()
 

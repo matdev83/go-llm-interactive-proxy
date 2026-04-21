@@ -2,9 +2,7 @@
 
 This file is the **repo-level index**. Actual seed files live next to each package, e.g. `pkg/lipapi/testdata/fuzz/FuzzCallValidateJSON/…`.
 
-Packed HTTP+selector blobs (leading `0x00` byte) for frontend decoders and binary hook seeds are generated with:
-
-`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/init-fuzz-corpus.ps1`
+Each corpus file must use the **`go test fuzz v1`** encoding (see the [fuzzing tutorial](https://go.dev/doc/tutorial/fuzz)): first line is exactly `go test fuzz v1`, then one line per fuzz argument using Go literal syntax (`[]byte("…")`, `string("…")`, …). Hand-authoring is possible for small seeds; otherwise copy minimized outputs from a local fuzz cache into the matching `testdata/fuzz/FuzzName/` directory.
 
 Go native fuzzing loads the seed corpus from:
 
