@@ -15,6 +15,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// recvSelectEntryHook is set from bedrock package tests to observe Recv reaching the
+// blocking select on the SDK event channel (must be cleared via t.Cleanup).
+var (
+	recvSelectHookMu    sync.Mutex
+	recvSelectEntryHook func()
+)
+
+func callRecvSelectEntryHook() {
+	recvSelectHookMu.Lock()
+	h := recvSelectEntryHook
+	recvSelectHookMu.Unlock()
+	if h != nil {
+		h()
+	}
+}
+
 // converseStream adapts the Bedrock ConverseStream SDK channel to lipapi.EventStream.
 //
 // Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
@@ -36,13 +52,14 @@ type converseStream struct {
 	activeToolID string
 }
 
-func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream) lipapi.EventStream {
+func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream, maxPending int) lipapi.EventStream {
 	if sdk == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
 	return &converseStream{
-		sdk: sdk,
-		ch:  sdk.Events(),
+		sdk:     sdk,
+		ch:      sdk.Events(),
+		pending: stream.NewPendingEventQueue(maxPending),
 	}
 }
 
@@ -90,6 +107,7 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		s.mu.Unlock()
 
+		callRecvSelectEntryHook()
 		select {
 		case <-ctx.Done():
 			return lipapi.Event{}, ctx.Err()
@@ -106,9 +124,15 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				if !s.sawResponse {
 					s.sawResponse = true
-					s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+						s.mu.Unlock()
+						return lipapi.Event{}, err
+					}
 				}
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
+					s.mu.Unlock()
+					return lipapi.Event{}, err
+				}
 				s.mu.Unlock()
 				continue
 			}
@@ -117,31 +141,38 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				s.mu.Unlock()
 				continue
 			}
-			s.handleOutput(out)
+			if err := s.handleOutput(out); err != nil {
+				s.mu.Unlock()
+				return lipapi.Event{}, err
+			}
 			s.mu.Unlock()
 		}
 	}
 }
 
-func (s *converseStream) handleOutput(out types.ConverseStreamOutput) {
+func (s *converseStream) handleOutput(out types.ConverseStreamOutput) error {
 	switch v := out.(type) {
 	case *types.ConverseStreamOutputMemberMessageStart:
 		if v.Value.Role == types.ConversationRoleAssistant {
 			if !s.sawResponse {
 				s.sawResponse = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+					return err
+				}
 			}
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
 		}
 	case *types.ConverseStreamOutputMemberContentBlockStart:
-		s.handleBlockStart(v.Value)
+		return s.handleBlockStart(v.Value)
 	case *types.ConverseStreamOutputMemberContentBlockDelta:
-		s.handleBlockDelta(v.Value)
+		return s.handleBlockDelta(v.Value)
 	case *types.ConverseStreamOutputMemberContentBlockStop:
-		s.handleBlockStop(v.Value)
+		return s.handleBlockStop(v.Value)
 	case *types.ConverseStreamOutputMemberMessageStop:
 		// stopReason available on v.Value.StopReason
 		_ = v
@@ -157,77 +188,92 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) {
 				outT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.OutputTokens)))
 			}
 			if inT > 0 || outT > 0 {
-				s.pending.Push(lipapi.Event{
+				if err := s.pending.Push(lipapi.Event{
 					Kind:         lipapi.EventUsageDelta,
 					InputTokens:  inT,
 					OutputTokens: outT,
-				})
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	default:
 		// ignore unknown union members
 	}
+	return nil
 }
 
-func (s *converseStream) handleBlockStart(ev types.ContentBlockStartEvent) {
+func (s *converseStream) handleBlockStart(ev types.ContentBlockStartEvent) error {
 	switch st := ev.Start.(type) {
 	case *types.ContentBlockStartMemberToolUse:
 		tu := st.Value
 		id := aws.ToString(tu.ToolUseId)
 		name := aws.ToString(tu.Name)
 		if id == "" {
-			return
+			return nil
 		}
 		s.activeToolID = id
 		if !s.sawResponse {
 			s.sawResponse = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+				return err
+			}
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+				return err
+			}
 		}
-		s.pending.Push(lipapi.Event{
+		return s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallStarted,
 			ToolCallID: id,
 			ToolName:   name,
 		})
 	default:
-		return
+		return nil
 	}
 }
 
-func (s *converseStream) handleBlockDelta(ev types.ContentBlockDeltaEvent) {
+func (s *converseStream) handleBlockDelta(ev types.ContentBlockDeltaEvent) error {
 	switch d := ev.Delta.(type) {
 	case *types.ContentBlockDeltaMemberText:
 		if d.Value == "" {
-			return
+			return nil
 		}
 		if !s.sawResponse {
 			s.sawResponse = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+				return err
+			}
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+				return err
+			}
 		}
-		s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Value})
+		return s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Value})
 	case *types.ContentBlockDeltaMemberToolUse:
 		if d.Value.Input == nil || *d.Value.Input == "" {
-			return
+			return nil
 		}
 		if s.activeToolID == "" {
-			return
+			return nil
 		}
 		if !s.sawResponse {
 			s.sawResponse = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+				return err
+			}
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+				return err
+			}
 		}
-		s.pending.Push(lipapi.Event{
+		return s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallArgsDelta,
 			ToolCallID: s.activeToolID,
 			Delta:      *d.Value.Input,
@@ -236,16 +282,21 @@ func (s *converseStream) handleBlockDelta(ev types.ContentBlockDeltaEvent) {
 		if txt := reasoningDeltaTextFromUnion(d.Value); txt != "" {
 			if !s.sawResponse {
 				s.sawResponse = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+					return err
+				}
 			}
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: txt})
+			return s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: txt})
 		}
+		return nil
 	default:
-		return
+		return nil
 	}
 }
 
@@ -258,13 +309,16 @@ func reasoningDeltaTextFromUnion(delta types.ReasoningContentBlockDelta) string 
 	}
 }
 
-func (s *converseStream) handleBlockStop(ev types.ContentBlockStopEvent) {
+func (s *converseStream) handleBlockStop(ev types.ContentBlockStopEvent) error {
 	if s.activeToolID != "" {
-		s.pending.Push(lipapi.Event{
+		if err := s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallFinished,
 			ToolCallID: s.activeToolID,
-		})
+		}); err != nil {
+			return err
+		}
 		s.activeToolID = ""
 	}
 	_ = ev
+	return nil
 }
