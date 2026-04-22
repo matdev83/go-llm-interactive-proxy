@@ -32,7 +32,9 @@ func TestConformance_TextOnly_roundTrip(t *testing.T) {
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
-			MountFrontend(mux, cell.Frontend, exec, route)
+			if err := MountFrontend(mux, cell.Frontend, exec, route); err != nil {
+				t.Fatal(err)
+			}
 			feSrv := httptest.NewServer(mux)
 			t.Cleanup(feSrv.Close)
 
@@ -62,7 +64,9 @@ func TestConformance_TextOnly_streamAndNonStreamParity(t *testing.T) {
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
-			MountFrontend(mux, cell.Frontend, exec, route)
+			if err := MountFrontend(mux, cell.Frontend, exec, route); err != nil {
+				t.Fatal(err)
+			}
 			feSrv := httptest.NewServer(mux)
 			t.Cleanup(feSrv.Close)
 
@@ -93,7 +97,9 @@ func TestConformance_TextOnly_upstreamErrorShape(t *testing.T) {
 			exec := NewTestExecutor(t, cell.Backend, up.URL, up.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
-			MountFrontend(mux, cell.Frontend, exec, route)
+			if err := MountFrontend(mux, cell.Frontend, exec, route); err != nil {
+				t.Fatal(err)
+			}
 			feSrv := httptest.NewServer(mux)
 			t.Cleanup(feSrv.Close)
 

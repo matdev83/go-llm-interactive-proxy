@@ -1,6 +1,7 @@
 package pluginreg
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -107,7 +108,9 @@ func backendBedrock(n yaml.Node, upstream *http.Client) (runtime.Backend, error)
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
 	}
-	return bedrock.New(bedrock.Config{
+	ctx, cancel := context.WithTimeout(context.Background(), bedrock.DefaultLoadConfigTimeout)
+	defer cancel()
+	return bedrock.NewWithContext(ctx, bedrock.Config{
 		Region:          y.Region,
 		AccessKeyID:     y.AccessKeyID,
 		SecretAccessKey: y.SecretAccessKey,

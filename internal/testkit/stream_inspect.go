@@ -22,7 +22,8 @@ func ParseSSEBody(body string) []SSEFrame {
 		if block == "" {
 			continue
 		}
-		var ev, data string
+		var ev string
+		var dataB strings.Builder
 		for _, line := range strings.Split(block, "\n") {
 			line = strings.TrimRight(line, "\r")
 			switch {
@@ -30,14 +31,13 @@ func ParseSSEBody(body string) []SSEFrame {
 				ev = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			case strings.HasPrefix(line, "data:"):
 				d := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-				if data == "" {
-					data = d
-				} else {
-					data += "\n" + d
+				if dataB.Len() > 0 {
+					dataB.WriteByte('\n')
 				}
+				dataB.WriteString(d)
 			}
 		}
-		frames = append(frames, SSEFrame{Event: ev, Data: data})
+		frames = append(frames, SSEFrame{Event: ev, Data: dataB.String()})
 	}
 	return frames
 }

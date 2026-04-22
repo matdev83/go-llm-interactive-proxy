@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 )
 
 // JSON-RPC unary responses should be small; cap read size to avoid unbounded
@@ -18,10 +19,6 @@ const maxUnaryHTTPResponseBytes = 8 << 20
 
 // Error and non-OK response bodies only need a short snippet for diagnostics.
 const maxErrorSnippetBytes = 8192
-
-// DefaultHTTPClientTimeout is the Timeout applied to a dedicated [*http.Client]
-// allocated when [newHTTPTransport] receives a nil client.
-const DefaultHTTPClientTimeout = 120 * time.Second
 
 func readHTTPBodyLimited(r io.ReadCloser, max int) ([]byte, error) {
 	defer func() { _ = r.Close() }()
@@ -58,7 +55,7 @@ type httpTransport struct {
 }
 
 // newHTTPTransport builds an HTTP [Transport] for POST {origin}/v1/acp.
-// When hc is nil, a new [*http.Client] is allocated with Timeout [DefaultHTTPClientTimeout].
+// When hc is nil, [httpclient.Standard] is used so dial/TLS/idle policy matches other backends.
 // When hc is non-nil, it is used as-is.
 func newHTTPTransport(baseURL string, hc *http.Client) (*httpTransport, error) {
 	u := strings.TrimSpace(baseURL)
@@ -73,9 +70,7 @@ func newHTTPTransport(baseURL string, hc *http.Client) (*httpTransport, error) {
 		return nil, fmt.Errorf("acp: BaseURL must include scheme and host")
 	}
 	if hc == nil {
-		hc = &http.Client{
-			Timeout: DefaultHTTPClientTimeout,
-		}
+		hc = httpclient.Standard()
 	}
 	u2 := *parsed
 	u2.Path = strings.TrimSuffix(u2.Path, "/") + "/v1/acp"

@@ -39,7 +39,9 @@ func TestConformance_Multimodal_imageInUpstream(t *testing.T) {
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
-			MountFrontend(mux, cell.Frontend, exec, route)
+			if err := MountFrontend(mux, cell.Frontend, exec, route); err != nil {
+				t.Fatal(err)
+			}
 			feSrv := httptest.NewServer(mux)
 			t.Cleanup(feSrv.Close)
 
@@ -63,7 +65,9 @@ func TestConformance_Multimodal_pdfInUpstream(t *testing.T) {
 			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
 			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
 			mux := http.NewServeMux()
-			MountFrontend(mux, cell.Frontend, exec, route)
+			if err := MountFrontend(mux, cell.Frontend, exec, route); err != nil {
+				t.Fatal(err)
+			}
 			feSrv := httptest.NewServer(mux)
 			t.Cleanup(feSrv.Close)
 

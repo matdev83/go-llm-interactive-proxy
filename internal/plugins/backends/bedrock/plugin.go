@@ -3,6 +3,7 @@ package bedrock
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -19,15 +20,23 @@ func defaultBackendCaps() lipapi.BackendCaps {
 	)
 }
 
+// DefaultLoadConfigTimeout bounds AWS SDK default configuration loading during backend construction.
+// New applies it automatically; composition roots calling NewWithContext should wrap their
+// context with context.WithTimeout using this duration (or shorter) unless it already carries a deadline.
+const DefaultLoadConfigTimeout = 30 * time.Second
+
 // New returns a runtime backend that invokes Bedrock ConverseStream via the AWS SDK v2.
-// It loads AWS configuration with context.Background; use [NewWithContext] when a caller
-// context should bound credential/region resolution.
+//
+// Deprecated: prefer [NewWithContext] with a context whose deadline reflects your bootstrap
+// budget. New applies [DefaultLoadConfigTimeout] around AWS config load only.
 func New(cfg Config) runtime.Backend {
-	return NewWithContext(context.Background(), cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
+	defer cancel()
+	return NewWithContext(ctx, cfg)
 }
 
 // NewWithContext returns a runtime backend like [New], using ctx for awsconfig.LoadDefaultConfig.
-// If ctx is nil, context.Background is used.
+// If ctx is nil, [context.Background] is used (no deadline). Prefer passing a context with a deadline.
 func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
 	if ctx == nil {
 		ctx = context.Background()

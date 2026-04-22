@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -11,7 +12,7 @@ import (
 )
 
 // MountFrontend registers the bundled frontend handler on mux for conformance tests.
-func MountFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor, routeSelector string) {
+func MountFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor, routeSelector string) error {
 	switch frontendID {
 	case "openai-responses":
 		mux.Handle("/v1/responses", &frontopenairesponses.Handler{
@@ -34,6 +35,7 @@ func MountFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor
 			DefaultRouteSelector: routeSelector,
 		})
 	default:
-		panic("unknown frontend id " + frontendID)
+		return fmt.Errorf("unknown frontend id %q", frontendID)
 	}
+	return nil
 }

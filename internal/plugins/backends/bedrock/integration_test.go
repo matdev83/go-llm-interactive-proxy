@@ -13,18 +13,26 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func newTestBedrock(t *testing.T, cfg backend.Config) runtime.Backend {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), backend.DefaultLoadConfigTimeout)
+	defer cancel()
+	return backend.NewWithContext(ctx, cfg)
+}
+
 func TestIntegration_refbackendStreamingText(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{
+	be := newTestBedrock(t, backend.Config{
 		Region:          "us-east-1",
 		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",
@@ -63,7 +71,7 @@ func TestIntegration_refbackendStreamUsage(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{
+	be := newTestBedrock(t, backend.Config{
 		Region:          "us-east-1",
 		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",
@@ -168,7 +176,7 @@ func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
 	pngB64 := base64.StdEncoding.EncodeToString(png)
 	pdfB64 := base64.StdEncoding.EncodeToString(pdf)
 
-	be := backend.New(backend.Config{
+	be := newTestBedrock(t, backend.Config{
 		Region:          "us-east-1",
 		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",
@@ -238,7 +246,7 @@ func TestIntegration_refbackendToolUseStream(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{
+	be := newTestBedrock(t, backend.Config{
 		Region:          "us-east-1",
 		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",

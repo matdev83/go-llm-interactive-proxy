@@ -9,9 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 )
 
-func TestNewHTTPTransport_nilClient_allocatesDedicatedTimeoutClient(t *testing.T) {
+func TestNewHTTPTransport_nilClient_usesHTTPClientStandard(t *testing.T) {
 	t.Parallel()
 
 	tr, err := newHTTPTransport("http://example.com", nil)
@@ -21,8 +23,24 @@ func TestNewHTTPTransport_nilClient_allocatesDedicatedTimeoutClient(t *testing.T
 	if tr.hc == nil {
 		t.Fatal("expected non-nil http.Client")
 	}
-	if tr.hc.Timeout != DefaultHTTPClientTimeout {
-		t.Fatalf("timeout: got %v want %v", tr.hc.Timeout, DefaultHTTPClientTimeout)
+	want := httpclient.Standard()
+	if tr.hc.Timeout != want.Timeout {
+		t.Fatalf("timeout: got %v want %v", tr.hc.Timeout, want.Timeout)
+	}
+	gotT, ok := tr.hc.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport: got %T want *http.Transport", tr.hc.Transport)
+	}
+	wantT, ok := want.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("httpclient.Standard Transport is not *http.Transport")
+	}
+	if gotT.TLSHandshakeTimeout != wantT.TLSHandshakeTimeout ||
+		gotT.MaxIdleConns != wantT.MaxIdleConns ||
+		gotT.ForceAttemptHTTP2 != wantT.ForceAttemptHTTP2 {
+		t.Fatalf("transport policy mismatch: got TLS=%v idle=%v h2=%v want TLS=%v idle=%v h2=%v",
+			gotT.TLSHandshakeTimeout, gotT.MaxIdleConns, gotT.ForceAttemptHTTP2,
+			wantT.TLSHandshakeTimeout, wantT.MaxIdleConns, wantT.ForceAttemptHTTP2)
 	}
 }
 

@@ -78,7 +78,9 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			HTTPClient: httpClient,
 		})
 	case bedrock.ID:
-		return bedrock.New(bedrock.Config{
+		ctx, cancel := context.WithTimeout(context.Background(), bedrock.DefaultLoadConfigTimeout)
+		defer cancel()
+		return bedrock.NewWithContext(ctx, bedrock.Config{
 			Region:          "us-east-1",
 			AccessKeyID:     "AKID",
 			SecretAccessKey: "SECRET",
