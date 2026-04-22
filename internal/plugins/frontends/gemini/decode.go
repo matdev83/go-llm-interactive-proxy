@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -68,28 +69,28 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 
 	instructions, err := parseSystemInstruction(w.SystemInstruction)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini: system instruction: %w", err)
 	}
 	msgs, err := parseContents(w.Contents)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini: contents: %w", err)
 	}
 	genOpts, err := parseGenerationConfig(w.GenerationConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini: generation config: %w", err)
 	}
 	tools, err := parseTools(w.Tools)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini: tools: %w", err)
 	}
 	toolChoice, err := parseToolConfig(w.ToolConfig, len(tools))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini: tool config: %w", err)
 	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini: marshal model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
 
@@ -106,7 +107,7 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 }
 
 func parseSystemInstruction(raw json.RawMessage) ([]lipapi.Message, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var wc wireContent
@@ -289,7 +290,7 @@ func parseInlineDataPart(raw json.RawMessage) (lipapi.Part, error) {
 
 func parseGenerationConfig(raw json.RawMessage) (lipapi.GenerationOptions, error) {
 	var o lipapi.GenerationOptions
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return o, nil
 	}
 	var w struct {
@@ -307,7 +308,7 @@ func parseGenerationConfig(raw json.RawMessage) (lipapi.GenerationOptions, error
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -349,7 +350,7 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolConfig(raw json.RawMessage, toolCount int) (lipapi.ToolChoice, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		if toolCount == 0 {
 			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 		}

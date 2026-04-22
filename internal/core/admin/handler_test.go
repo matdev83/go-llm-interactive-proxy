@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/admin"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 )
 
 func TestDiagnosticsHandler_healthEndpoint(t *testing.T) {
@@ -42,5 +45,28 @@ func TestDiagnosticsHandler_attemptsEndpoint_notRegistered(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestDiagnosticsHandler_attemptsEndpoint_constructionFailed(t *testing.T) {
+	t.Parallel()
+
+	var store *b2bua.MemoryStore
+	var loader diag.AttemptLoader = store
+	h := admin.DiagnosticsHandler(loader)
+
+	req := httptest.NewRequest(http.MethodGet, "/attempts?a_leg_id=test", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "diag:") || strings.Contains(body, "nil store") {
+		t.Fatalf("internal error leaked to wire: %q", body)
+	}
+	if !strings.Contains(body, "attempts endpoint unavailable") {
+		t.Fatalf("unexpected body: %q", body)
 	}
 }

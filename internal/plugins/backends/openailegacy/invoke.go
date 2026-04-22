@@ -76,7 +76,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (openai.Cha
 
 	msgs, err := buildChatMessages(call)
 	if err != nil {
-		return openai.ChatCompletionNewParams{}, err
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openailegacy: build chat messages: %w", err)
 	}
 
 	p := openai.ChatCompletionNewParams{
@@ -93,7 +93,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (openai.Cha
 	if len(call.Tools) > 0 {
 		tools, err := buildChatTools(call.Tools)
 		if err != nil {
-			return openai.ChatCompletionNewParams{}, err
+			return openai.ChatCompletionNewParams{}, fmt.Errorf("openailegacy: build chat tools: %w", err)
 		}
 		p.Tools = tools
 		p.ToolChoice = chatToolChoiceUnion(call.ToolChoice, len(call.Tools))
@@ -148,7 +148,7 @@ func buildChatMessages(call *lipapi.Call) ([]openai.ChatCompletionMessageParamUn
 	for _, m := range call.Messages {
 		u, err := messageToChatParam(m)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("openailegacy: chat message: %w", err)
 		}
 		out = append(out, u)
 	}
@@ -258,21 +258,20 @@ func fileDataFromPart(p lipapi.Part) (dataB64, filename string, err error) {
 }
 
 func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	if !strings.HasPrefix(dataURL, "data:") {
+	rest, ok := strings.CutPrefix(dataURL, "data:")
+	if !ok {
 		return "", "", false
 	}
-	rest := strings.TrimPrefix(dataURL, "data:")
-	semi := strings.Index(rest, ";")
-	if semi < 0 {
+	mime, enc, found := strings.Cut(rest, ";")
+	if !found {
 		return "", "", false
 	}
-	mime = rest[:semi]
-	enc := rest[semi+1:]
 	const prefix = "base64,"
-	if !strings.HasPrefix(enc, prefix) {
+	encBody, ok := strings.CutPrefix(enc, prefix)
+	if !ok {
 		return "", "", false
 	}
-	return mime, enc[len(prefix):], true
+	return mime, encBody, true
 }
 
 func buildChatTools(tools []lipapi.ToolDef) ([]openai.ChatCompletionToolUnionParam, error) {

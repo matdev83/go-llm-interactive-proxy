@@ -36,7 +36,7 @@ func (q *PendingEventQueue) PopFront() (lipapi.Event, bool) {
 
 // DrainPending pops every queued event in order and returns them. The queue is empty afterward.
 func DrainPending(q *PendingEventQueue) []lipapi.Event {
-	out := []lipapi.Event{}
+	out := make([]lipapi.Event, 0, q.Len())
 	for {
 		ev, ok := q.PopFront()
 		if !ok {

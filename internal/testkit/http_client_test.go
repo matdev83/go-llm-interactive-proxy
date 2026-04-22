@@ -3,6 +3,8 @@ package testkit
 import (
 	"net/http"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 )
 
 func TestIntegrationHTTPClient_nonNilPassthrough(t *testing.T) {
@@ -13,9 +15,22 @@ func TestIntegrationHTTPClient_nonNilPassthrough(t *testing.T) {
 	}
 }
 
-func TestIntegrationHTTPClient_nilIsDefault(t *testing.T) {
+func TestIntegrationHTTPClient_nilUsesHTTPClientStandard(t *testing.T) {
 	t.Parallel()
-	if got := IntegrationHTTPClient(nil); got != http.DefaultClient {
-		t.Fatalf("nil arg should select http.DefaultClient")
+	got := IntegrationHTTPClient(nil)
+	want := httpclient.Standard()
+	if got.Timeout != want.Timeout {
+		t.Fatalf("timeout: got %v want %v", got.Timeout, want.Timeout)
+	}
+	gotT, ok := got.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport: got %T want *http.Transport", got.Transport)
+	}
+	wantT, ok := want.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("httpclient.Standard Transport is not *http.Transport")
+	}
+	if gotT.MaxIdleConnsPerHost != wantT.MaxIdleConnsPerHost {
+		t.Fatalf("MaxIdleConnsPerHost: got %d want %d", gotT.MaxIdleConnsPerHost, wantT.MaxIdleConnsPerHost)
 	}
 }

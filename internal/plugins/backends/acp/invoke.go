@@ -54,13 +54,13 @@ func promptBlocksForCall(call *lipapi.Call) ([]map[string]any, error) {
 		case lipapi.RoleUser:
 			bs, err := userPartsToPromptBlocks(m.Parts)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("acp: user prompt blocks: %w", err)
 			}
 			blocks = append(blocks, bs...)
 		case lipapi.RoleAssistant:
 			bs, err := assistantPartsToPromptBlocks(m.Parts)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("acp: assistant prompt blocks: %w", err)
 			}
 			blocks = append(blocks, bs...)
 		case lipapi.RoleTool:

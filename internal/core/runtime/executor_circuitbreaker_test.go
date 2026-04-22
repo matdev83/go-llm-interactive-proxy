@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -34,7 +33,7 @@ func TestExecutor_circuitBreakerSkipsAfterFailures(t *testing.T) {
 	ex := &runtime.Executor{
 		Store:           st,
 		Bus:             hooks.New(hooks.Config{}),
-		Rand:            rand.New(rand.NewSource(3)),
+		Rand:            routing.NewSeededRng(3),
 		Now:             cbTestNow,
 		CandidateHealth: cb,
 		Backends: map[string]runtime.Backend{

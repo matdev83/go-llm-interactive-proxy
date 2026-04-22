@@ -10,10 +10,10 @@ import (
 func TestPendingEventQueue_ordering(t *testing.T) {
 	t.Parallel()
 	var q stream.PendingEventQueue
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: string(rune('a' + i))})
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ev, ok := q.PopFront()
 		if !ok {
 			t.Fatalf("pop %d: ok=false", i)
@@ -35,11 +35,11 @@ func TestPendingEventQueue_ordering(t *testing.T) {
 func TestPendingEventQueue_manyPushPop(t *testing.T) {
 	t.Parallel()
 	var q stream.PendingEventQueue
-	for round := 0; round < 3; round++ {
-		for i := 0; i < 500; i++ {
+	for round := range 3 {
+		for range 500 {
 			q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 		}
-		for i := 0; i < 500; i++ {
+		for i := range 500 {
 			ev, ok := q.PopFront()
 			if !ok || ev.Kind != lipapi.EventTextDelta {
 				t.Fatalf("round %d pop %d", round, i)

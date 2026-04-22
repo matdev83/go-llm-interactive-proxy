@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"errors"
+	"net/url"
 	"testing"
 )
 
@@ -147,5 +149,20 @@ func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 	}
 	if w1.Branches[0].Target.Params.Get("reasoning_effort") != "medium" {
 		t.Fatalf("arm2 params: %v", w1.Branches[0].Target.Params)
+	}
+}
+
+func TestParseInvalidQueryWrapsParseQueryError(t *testing.T) {
+	t.Parallel()
+	_, err := Parse("openai:gpt-4?x=%zz")
+	if err == nil {
+		t.Fatal("expected error for invalid query escape")
+	}
+	if !errors.Is(err, ErrInvalidSelector) {
+		t.Fatalf("expected ErrInvalidSelector in chain: %v", err)
+	}
+	var escErr url.EscapeError
+	if !errors.As(err, &escErr) {
+		t.Fatalf("expected url.EscapeError in chain, got %T: %v", err, err)
 	}
 }

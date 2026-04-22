@@ -2,7 +2,8 @@ package routing
 
 import (
 	"errors"
-	"math/rand"
+	"math"
+	"strconv"
 	"testing"
 )
 
@@ -56,7 +57,7 @@ func TestExpandFailoverSkipsUnhealthyPrimary(t *testing.T) {
 	}
 }
 
-func rng(seed int64) *rand.Rand { return rand.New(rand.NewSource(seed)) }
+func rng(seed int64) Rng { return NewSeededRng(seed) }
 
 func TestWeightedDeterministic(t *testing.T) {
 	t.Parallel()
@@ -71,7 +72,7 @@ func TestWeightedDeterministic(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("len %d", len(out))
 	}
-	// math/rand source(0): first Intn(2)==0 — picks first weighted branch (a:x).
+	// PCG seed 0: first Intn(2)==0 — picks first weighted branch (a:x).
 	if out[0].Key != "a:x" {
 		t.Fatalf("got %q", out[0].Key)
 	}
@@ -187,5 +188,46 @@ func TestWeightedSkipsToNextFailoverWhenAllExcluded(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].Key != "fallback:model" {
 		t.Fatalf("got %#v", out)
+	}
+}
+
+func TestPickWeighted_int64SumOverflow(t *testing.T) {
+	t.Parallel()
+	if strconv.IntSize != 64 {
+		t.Skip("needs 64-bit int to hold math.MaxInt64-1 as branch weight")
+	}
+	w := &Weighted{Branches: []WeightedBranch{
+		{Weight: math.MaxInt64 - 1, Target: Primary{Backend: "a", Model: "x"}},
+		{Weight: 2, Target: Primary{Backend: "b", Model: "y"}},
+	}}
+	_, _, err := pickWeighted(w, PlanOptions{Rand: rng(0), Session: &SessionRoutingState{FirstRequestConsumed: true}})
+	if !errors.Is(err, ErrWeightedTotalTooLarge) {
+		t.Fatalf("got %v want ErrWeightedTotalTooLarge", err)
+	}
+}
+
+func TestExpandFailover_weightedSumVsMaxInt(t *testing.T) {
+	t.Parallel()
+	// int64(math.MaxInt32) + 2 exceeds [math.MaxInt] on 32-bit platforms; 64-bit int can represent it.
+	sel := &Selector{
+		Alternatives: []FailoverAlt{{
+			Weighted: &Weighted{Branches: []WeightedBranch{
+				{Weight: math.MaxInt32, Target: Primary{Backend: "a", Model: "x"}},
+				{Weight: 2, Target: Primary{Backend: "b", Model: "y"}},
+			}},
+		}},
+	}
+	out, err := ExpandFailover(sel, PlanOptions{Rand: rng(0), Session: &SessionRoutingState{FirstRequestConsumed: true}})
+	if strconv.IntSize == 32 {
+		if !errors.Is(err, ErrWeightedTotalTooLarge) {
+			t.Fatalf("got %v want ErrWeightedTotalTooLarge", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("len %d", len(out))
 	}
 }

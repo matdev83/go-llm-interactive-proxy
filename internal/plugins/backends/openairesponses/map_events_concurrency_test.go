@@ -68,26 +68,24 @@ func TestSDKStream_CloseConcurrentWhileRecvBlocked(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = s.Recv(context.Background())
-	}()
+	})
 
+	waitTimer := time.NewTimer(2 * time.Second)
+	defer waitTimer.Stop()
 	select {
 	case <-dec.enteredNext:
-	case <-time.After(2 * time.Second):
+	case <-waitTimer.C:
 		t.Fatal("Recv did not reach sdk.Next")
 	}
 
 	const n = 32
 	var closes sync.WaitGroup
-	closes.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer closes.Done()
+	for range n {
+		closes.Go(func() {
 			_ = s.Close()
-		}()
+		})
 	}
 	closes.Wait()
 	wg.Wait()
@@ -106,12 +104,10 @@ func TestSDKStream_CloseConcurrentAfterEOF(t *testing.T) {
 		t.Fatalf("recv: %v", err)
 	}
 	var wg sync.WaitGroup
-	wg.Add(8)
-	for i := 0; i < 8; i++ {
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			_ = s.Close()
-		}()
+		})
 	}
 	wg.Wait()
 }

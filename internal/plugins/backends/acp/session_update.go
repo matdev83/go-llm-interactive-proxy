@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -73,7 +74,11 @@ func mapSessionUpdateToEvents(ctx context.Context, o SessionUpdateMapperOptions,
 	if !ok || kind == "" {
 		return nil, nil
 	}
-	content, _ := upd["content"].(map[string]any)
+	var content map[string]any
+	if c, ok := upd["content"].(map[string]any); ok {
+		content = c
+	}
+	// When !ok (wrong JSON shape), textFromACPContent(nil) drops text — same as missing content.
 
 	switch kind {
 	case acpAgentMessageChunk:
@@ -153,10 +158,57 @@ func modeProgressLine(upd map[string]any) string {
 	return "[mode]\n"
 }
 
+// decodeProbeLine unmarshals one JSON value into a map. UseNumber is set so JSON numbers stay
+// [json.Number] and very large integer "id" values (beyond float53 precision) match [jsonRPCIDEqual]
+// against int64 prompt ids.
+func decodeProbeLine(line string) (map[string]any, error) {
+	dec := json.NewDecoder(strings.NewReader(line))
+	dec.UseNumber()
+	var probe map[string]any
+	if err := dec.Decode(&probe); err != nil {
+		return nil, err
+	}
+	return probe, nil
+}
+
+// jsonRPCIDEqual reports whether a JSON-RPC "id" (from encoding/json) matches want.
+// It supports [json.Number] (preferred), string, and exact float64 integers; arbitrary float64
+// fractional values are rejected.
+func jsonRPCIDEqual(id any, want int64) bool {
+	if id == nil {
+		return false
+	}
+	wantStr := strconv.FormatInt(want, 10)
+	switch v := id.(type) {
+	case json.Number:
+		if strings.TrimSpace(v.String()) == wantStr {
+			return true
+		}
+		n, err := v.Int64()
+		return err == nil && n == want
+	case string:
+		s := strings.TrimSpace(v)
+		if s == wantStr {
+			return true
+		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		return err == nil && n == want
+	case float64:
+		// Only exact integers; large values that rounded in float64 will not match wrong want.
+		n := int64(v)
+		if float64(n) != v {
+			return false
+		}
+		return n == want
+	default:
+		return false
+	}
+}
+
 // parseNDJSONLine maps one NDJSON line to lipapi events (session/update, terminal prompt result, errors).
 func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line string, promptRPCID int64) ([]lipapi.Event, error) {
-	var probe map[string]any
-	if err := json.Unmarshal([]byte(line), &probe); err != nil {
+	probe, err := decodeProbeLine(line)
+	if err != nil {
 		return nil, err
 	}
 
@@ -187,14 +239,7 @@ func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line str
 	if !hasID || idVal == nil {
 		return nil, nil
 	}
-	var idFloat float64
-	switch v := idVal.(type) {
-	case float64:
-		idFloat = v
-	default:
-		return nil, nil
-	}
-	if int64(idFloat) != promptRPCID {
+	if !jsonRPCIDEqual(idVal, promptRPCID) {
 		return nil, nil
 	}
 

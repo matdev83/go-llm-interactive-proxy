@@ -63,7 +63,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.
 
 	msgs, err := buildAnthropicMessages(call)
 	if err != nil {
-		return anthropic.MessageNewParams{}, err
+		return anthropic.MessageNewParams{}, fmt.Errorf("anthropic: build messages: %w", err)
 	}
 
 	p := anthropic.MessageNewParams{
@@ -79,7 +79,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.
 	if len(call.Tools) > 0 {
 		tools, err := buildTools(call.Tools)
 		if err != nil {
-			return anthropic.MessageNewParams{}, err
+			return anthropic.MessageNewParams{}, fmt.Errorf("anthropic: build tools: %w", err)
 		}
 		p.Tools = tools
 		p.ToolChoice = toolChoiceUnion(call, len(call.Tools))
@@ -142,7 +142,7 @@ func buildAnthropicMessages(call *lipapi.Call) ([]anthropic.MessageParam, error)
 		}
 		u, err := messageToParam(m)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("anthropic: message param: %w", err)
 		}
 		out = append(out, u)
 	}
@@ -174,7 +174,7 @@ func userMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
 	}
 	blocks, err := userPartsToBlocks(m.Parts)
 	if err != nil {
-		return anthropic.MessageParam{}, err
+		return anthropic.MessageParam{}, fmt.Errorf("anthropic: user parts: %w", err)
 	}
 	return anthropic.NewUserMessage(blocks...), nil
 }
@@ -272,21 +272,20 @@ func documentBlockFromPart(p lipapi.Part) (anthropic.ContentBlockParamUnion, err
 }
 
 func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	if !strings.HasPrefix(dataURL, "data:") {
+	rest, ok := strings.CutPrefix(dataURL, "data:")
+	if !ok {
 		return "", "", false
 	}
-	rest := strings.TrimPrefix(dataURL, "data:")
-	semi := strings.Index(rest, ";")
-	if semi < 0 {
+	mime, enc, found := strings.Cut(rest, ";")
+	if !found {
 		return "", "", false
 	}
-	mime = rest[:semi]
-	enc := rest[semi+1:]
 	const prefix = "base64,"
-	if !strings.HasPrefix(enc, prefix) {
+	encBody, ok := strings.CutPrefix(enc, prefix)
+	if !ok {
 		return "", "", false
 	}
-	return mime, enc[len(prefix):], true
+	return mime, encBody, true
 }
 
 func buildTools(tools []lipapi.ToolDef) ([]anthropic.ToolUnionParam, error) {

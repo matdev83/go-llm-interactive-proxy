@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -191,7 +192,9 @@ func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 func TestWriteErrorJSON_shape(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()
-	anthropic.WriteErrorJSON(rec, 400, "bad", "invalid_request_error")
+	if err := anthropic.WriteErrorJSON(rec, 400, "bad", "invalid_request_error"); err != nil {
+		t.Fatal(err)
+	}
 	if rec.Code != 400 {
 		t.Fatal(rec.Code)
 	}
@@ -420,14 +423,7 @@ func TestWriteStreamSSE_toolUseBlock(t *testing.T) {
 		t.Fatalf("content_block_stop count: %d indices=%v", len(blockStops), blockStops)
 	}
 	toolIdx := toolBlockStarts[0]
-	var sawToolStop bool
-	for _, idx := range blockStops {
-		if idx == toolIdx {
-			sawToolStop = true
-			break
-		}
-	}
-	if !sawToolStop {
+	if !slices.Contains(blockStops, toolIdx) {
 		t.Fatalf("expected content_block_stop for tool block index %d, got %v", toolIdx, blockStops)
 	}
 	if stopReason != "tool_use" {

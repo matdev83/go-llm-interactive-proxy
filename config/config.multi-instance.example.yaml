@@ -3,6 +3,11 @@
 server:
   address: ":8080"
 
+logging:
+  level: info
+  format: json
+  access_log: false
+
 diagnostics:
   enabled: true
 

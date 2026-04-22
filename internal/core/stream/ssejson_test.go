@@ -49,8 +49,9 @@ func TestFlushSSEDataJSON_decode(t *testing.T) {
 	lines := bytes.Split(rec.Body.Bytes(), []byte("\n"))
 	var dataJSON []byte
 	for _, ln := range lines {
-		if bytes.HasPrefix(ln, []byte("data: ")) {
-			dataJSON = bytes.TrimPrefix(ln, []byte("data: "))
+		rest, ok := bytes.CutPrefix(ln, []byte("data: "))
+		if ok {
+			dataJSON = rest
 			break
 		}
 	}
@@ -63,11 +64,11 @@ func TestFlushSSEDataJSON_decode(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,staticcheck // mutates package-level sseBufPool; Put uses a non-pointer probe intentionally
-func TestAcquireSSEBuffer_nonBufferPoolEntryAllocatesFresh(t *testing.T) {
-	// Mutates package-level sseBufPool; do not run parallel with other tests that rely on pool purity.
-	sseBufPool.Put("not-a-buffer")
-	buf := acquireSSEBuffer()
+//nolint:paralleltest,staticcheck // mutates package-level sseRawBufPool; Put uses a non-pointer probe intentionally
+func TestAcquireSSERawBuffer_nonBufferPoolEntryAllocatesFresh(t *testing.T) {
+	// Mutates package-level sseRawBufPool; do not run parallel with other tests that rely on pool purity.
+	sseRawBufPool.Put("not-a-buffer")
+	buf := acquireSSERawBuffer()
 	if buf == nil {
 		t.Fatal("expected non-nil buffer")
 	}
@@ -76,7 +77,22 @@ func TestAcquireSSEBuffer_nonBufferPoolEntryAllocatesFresh(t *testing.T) {
 	if buf.String() != "ok" {
 		t.Fatalf("buffer: %q", buf.String())
 	}
-	putSSEBuffer(buf)
+	putSSERawBuffer(buf)
+}
+
+//nolint:paralleltest,staticcheck // mutates sseJSONPool
+func TestAcquireSSEJSONBuf_nonJSONBufPoolEntryAllocatesFresh(t *testing.T) {
+	sseJSONPool.Put("not-json-buf")
+	s := acquireSSEJSONBuf()
+	if s == nil || s.buf == nil || s.enc == nil {
+		t.Fatal("expected non-nil sseJSONBuf")
+	}
+	s.buf.Reset()
+	s.buf.WriteString("ok")
+	if s.buf.String() != "ok" {
+		t.Fatalf("buffer: %q", s.buf.String())
+	}
+	putSSEJSONBuf(s)
 }
 
 func TestFlushSSEDataJoined_roundTrip(t *testing.T) {

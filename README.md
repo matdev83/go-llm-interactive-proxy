@@ -9,12 +9,25 @@ The repository implements the **Go core v1** stack from `.kiro/specs/go-core-rei
 - **API parity (spec + matrices)** — vendor-surface claims are tracked under [.kiro/specs/llm-api-parity/](.kiro/specs/llm-api-parity/) with row-level status; the README does not assert parity beyond what those matrices mark `implemented` (see also [.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md](.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md)).
 - canonical Go module and repository layout
 - package boundaries aligned with `AGENTS.md` and Kiro steering
-- typed runtime configuration ([`config/config.yaml`](config/config.yaml)); multi-instance routing example: [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml)
+- typed runtime configuration ([`config/config.yaml`](config/config.yaml)); multi-instance routing example: [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml). **Logging** (`logging` in YAML): `level` (`debug`|`info`|`warn`|`error`), `format` (`json`|`text`), optional `add_source`, optional **`access_log`** (one structured `http.access` line per request with `method`, `path`, `status`, `duration_ms`, and `trace_id` when present), and `access_log_skip_paths` (path prefixes starting with `/`, e.g. `/healthz`). The process logger is built in [`internal/infra/logging`](internal/infra/logging/logger.go) with `slog-multi` + `slog-formatter` error normalization over stdout.
 - **Architecture / drift** — [`docs/architecture-guardrails.md`](docs/architecture-guardrails.md), [`docs/adr/0005-architecture-guardrails-and-complexity-budgets.md`](docs/adr/0005-architecture-guardrails-and-complexity-budgets.md). Routing breaker semantics: [`docs/routing-health-circuit-breaker.md`](docs/routing-health-circuit-breaker.md). Execute-error taxonomy notes: [`docs/execerr-classification.md`](docs/execerr-classification.md). **HTTP 5xx** responses from bundled frontends use a stable generic message for internal executor/upstream failures (`internal error`); operators rely on structured server logs for detail (not backward compatible if you depended on error-body echo of raw upstream text).
 - **`cmd/lipstd`** — creates a [`pluginreg.Registry`](internal/pluginreg/reg.go) with [`pluginreg.NewRegistry`](internal/pluginreg/reg.go), resolves default upstream API keys once via [`pluginreg.ResolveUpstreamAPIKeysFromEnv`](internal/pluginreg/keys.go), installs the standard bundle via [`pluginreg.InstallStandardBundleOn`](internal/pluginreg/standard_table.go) (factory wiring in [`backends_install.go`](internal/pluginreg/backends_install.go), [`frontends_install.go`](internal/pluginreg/frontends_install.go), and [`features_install.go`](internal/pluginreg/features_install.go); mandatory ids in [`lipsdk.StandardDistributionRequirements`](pkg/lipsdk/standard_bundle.go)), loads config, validates mandatory plugins against that requirements list, assembles [`runtime.App`](internal/core/runtime/app.go) with a **non-nil** logger, builds [`runtimebundle.Built`](internal/infra/runtimebundle/built.go) via [`runtimebundle.Build`](internal/infra/runtimebundle/build.go) with an explicit registry in [`runtimebundle.BuildOptions`](internal/infra/runtimebundle/options.go) and a **non-nil** logger, a shared upstream [`httpclient.Standard`](internal/infra/httpclient/standard.go) client (overridable for tests), then serves HTTP with [`stdhttp.RunWithRuntime`](internal/stdhttp/server.go) (which also requires a non-nil logger). HTTP request IDs use a per-process [`diag.TraceIDGenerator`](internal/core/diag/trace.go) created in `stdhttp`, not package-level global state. Optional **`routing.health.circuit_breaker`** (`enabled`, `failure_threshold`, `open_for`) wires executor candidate health; the executor emits structured **`lip.route`** routing observations when logging is configured. Bundled HTTP frontends classify execute failures with [`internal/plugins/frontends/execerr`](internal/plugins/frontends/execerr/execerr.go) (reject vs internal). [`stdhttp.Run`](internal/stdhttp/server.go) is a convenience that calls `Build` (with the provided registry) then `RunWithRuntime`.
 - test, vet, lint, and vuln-check entrypoints
 - QA scripts, optional git hooks, and a GitHub Actions workflow aligned with the sibling `go-live-market-data-aggregator` process (trimmed for this repo: no domain-specific custom vets)
-- deterministic IDs/timestamps in frontend encoders and ACP reference paths where reproducibility matters; the **standard** server path injects a real wall clock and non-deterministic RNG for the executor (see `internal/infra/runtimebundle`)
+- deterministic IDs/timestamps in frontend encoders and ACP reference paths where reproducibility matters; **B2BUA A/B leg ids** are opaque random strings (`a_`/`b_` + 32 hex chars) to avoid trivial enumeration; the **standard** server path injects a real wall clock and non-deterministic RNG for the executor (see `internal/infra/runtimebundle`)
+
+### Security and trust boundaries
+
+- **Diagnostics** — With `diagnostics.enabled`, routes other than `health_path` (attempts, inventory, route trace, pprof) can reveal routing and lineage metadata. Bind the listener to loopback or an admin-only network, and/or set **`diagnostics.shared_secret`** (at least 12 characters when set). Clients must then send header **`X-LIP-Diagnostics-Secret`** with that exact value.
+- **Outbound HTTP proxy** — The shared upstream client defaults to honoring **`HTTP_PROXY` / `HTTPS_PROXY`**. In environments where process environment is not trusted, set **`http_client.trust_environment_proxy: false`** so those variables are ignored.
+- **Bedrock cleartext** — **`disable_https: true`** is only accepted when **`base_endpoint`** resolves to a **loopback** host, unless **`allow_insecure_non_loopback: true`** is set on the Bedrock backend row (explicit lab escape hatch).
+- **SQLite path** — **`continuity.sqlite_path`** must not contain NUL, `?`, `#`, or `&` (avoids ambiguous `file:` DSN parsing).
+
+### Operations: container runtime and profiling
+
+- **`GOMEMLIMIT`** — In Kubernetes or other memory-capped environments, set `GOMEMLIMIT` to roughly 80–90% of the cgroup limit so the Go runtime can trigger GC before the OOM killer terminates the process (see the [`runtime/debug.SetMemoryLimit`](https://pkg.go.dev/runtime/debug#SetMemoryLimit) / `GOMEMLIMIT` documentation).
+- **`GOMAXPROCS`** — From Go 1.19 onward, the runtime usually respects CPU cgroup quotas automatically; override only when you have a deliberate reason (for example pinning to socket count on bare metal).
+- **CPU and heap profiles** — For local investigation, run benchmarks or tests with `go test -cpuprofile=cpu.prof ./path/...` then `go tool pprof cpu.prof`, or heap profiles with `-memprofile`. When **`diagnostics.enabled`** is true, set **`diagnostics.pprof_path`** in YAML (for example `/debug/pprof`) to expose the standard library pprof index and endpoints under that prefix. **Do not** expose pprof on untrusted networks; put the listener behind localhost, a VPN, or an authenticated reverse proxy. Diagnostic paths (`health_path`, `attempts_path`, `inventory_path`, `route_trace_path`, `pprof_path`) must be unique after normalization and must not prefix-overlap (validated at config load).
 
 ### Resource bounds (memory / DoS hardening)
 
@@ -34,7 +47,8 @@ Fast checks (format, `go mod tidy` drift, build, vet, architecture guardrails in
 
 ```bash
 make quality-checks   # gofmt -l, tidy+diff guard, go build, go vet
-make test             # quality-checks + go test -short -parallel=8 ./...
+make test             # quality-checks + go test -short -parallel=8 ./... (excludes precommit-tagged tests)
+make test-precommit-extra  # hygiene + executor matrices (-tags=precommit; included in make qa + CI)
 make test-fast        # quality-checks + tests for staged packages (or all if none staged)
 make test-race        # no-op on Windows; use Linux CI or WSL for -race
 make test-fuzz        # short fuzz smoke on internal/testkit (override: FUZZTIME=30s make test-fuzz)
@@ -47,7 +61,7 @@ Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, `golangci-
 
 CI (`.github/workflows/qa.yml`) runs `make quality-checks`, unit tests, strict race on Linux, `golangci-lint-action`, and `go tool govulncheck`.
 
-Linter config lives in `.golangci.yml` (staticcheck, govet, revive, gofumpt, and small correctness linters). Prefer `make lint` over ad hoc `staticcheck` so local and CI stay aligned.
+Linter config lives in `.golangci.yml` (golangci-lint **v2** schema: staticcheck, govet, revive, the `modernize` pass, gofumpt as a formatter, and small correctness linters). Install a v2.x binary locally so `make lint` matches CI.
 
 ### SDK and HTTP mount API (breaking)
 
@@ -65,9 +79,10 @@ Linter config lives in `.golangci.yml` (staticcheck, govet, revive, gofumpt, and
 - `internal/plugins/` - bundled frontend, backend, and feature plugins
 - `internal/stdhttp/` - standard distribution HTTP wiring (mount + `RunWithRuntime`)
 - `internal/infra/runtimebundle/` - assembles executor, continuity, shared upstream HTTP, health/observer seams
+- `internal/infra/logging/` - YAML-driven `slog` root logger (samber `slog-multi` / `slog-formatter` pipeline)
 - `internal/infra/` - shared infrastructure seams
 - `internal/testkit/` - test support surface scaffold
-- `internal/qa/` - repo hygiene tests (root markdown noise, etc.)
+- `internal/qa/` - repo hygiene tests (`//go:build precommit`; run via `make test-precommit-extra` or pre-commit hook, not default `make test`)
 - `internal/archtest/` - architecture guardrail tests (budgets, forbidden patterns)
 - `internal/refbackend/` - spec-shaped HTTP emulator servers for tests (`*_test.go` imports only)
 - `internal/refclient/` - official-SDK reference clients for conformance/matrix tests

@@ -16,7 +16,7 @@ func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 		lipapi.Event{Kind: lipapi.EventResponseStarted},
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)
-	for i := 0; i < n; i++ {
+	for range n {
 		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 	}
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -31,7 +31,9 @@ func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	const maxAllocs = 250_000
+	// Baseline ~2k allocs/run for n=200 text deltas (see BenchmarkWriteStreamSSE_textDeltas -benchmem).
+	// Cap leaves headroom for CI / OS variance vs httptest and json pooling.
+	const maxAllocs = 25_000
 	if int(allocs) > maxAllocs {
 		t.Fatalf("allocs per run=%g (n=%d deltas), want <= %d", allocs, n, maxAllocs)
 	}

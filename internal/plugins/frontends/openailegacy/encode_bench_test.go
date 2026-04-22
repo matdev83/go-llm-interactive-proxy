@@ -38,7 +38,7 @@ func BenchmarkWriteStreamSSE_textDeltas(b *testing.B) {
 	call := &lipapi.Call{}
 	opts := EncodeOptions{CompletionID: "chatcmpl_bench", CreatedAt: 1}
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rec := httptest.NewRecorder()
 		es := &benchTokenStream{n: n}
 		if err := WriteStreamSSE(ctx, rec, call, es, opts); err != nil {

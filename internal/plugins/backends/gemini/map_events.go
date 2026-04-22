@@ -7,13 +7,22 @@ import (
 	"io"
 	"iter"
 	"strings"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"google.golang.org/genai"
 )
 
+// genaiStream adapts iter.Pull2 over GenAI stream responses to lipapi.EventStream.
+//
+// Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
+// Recv blocked on the iterator pull; Close invokes stop to unblock the iterator.
 type genaiStream struct {
+	mu        sync.Mutex
+	closeOnce sync.Once
+
 	next func() (*genai.GenerateContentResponse, error, bool)
 	stop func()
 
@@ -41,21 +50,37 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return lipapi.Event{}, err
 	}
 	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return lipapi.Event{}, io.EOF
+		}
 		if ev, ok := s.pending.PopFront(); ok {
+			s.mu.Unlock()
 			return ev, nil
 		}
 		if s.afterFinish {
+			s.mu.Unlock()
 			return lipapi.Event{}, io.EOF
 		}
 		if s.exhausted {
 			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
 			s.afterFinish = true
+			s.mu.Unlock()
 			continue
 		}
+		s.mu.Unlock()
 
 		resp, err, ok := s.next()
+
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			continue
+		}
 		if !ok {
 			if err != nil {
+				s.mu.Unlock()
 				return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
 			}
 			if !s.sawResponse {
@@ -63,14 +88,18 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				s.sawResponse = true
 			}
 			s.exhausted = true
+			s.mu.Unlock()
 			continue
 		}
 		if err != nil {
+			s.mu.Unlock()
 			return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
 		}
 		if err := s.handleResponse(resp); err != nil {
+			s.mu.Unlock()
 			return lipapi.Event{}, err
 		}
+		s.mu.Unlock()
 	}
 }
 
@@ -184,25 +213,38 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 	if u == nil {
 		return nil
 	}
-	in := int(u.PromptTokenCount)
-	out := int(u.CandidatesTokenCount)
+	// genai reports usage as integer counts; clamp to int for [lipapi.Event] (same as other backends).
+	in := safecast.IntFromInt64Clamp(int64(u.PromptTokenCount))
+	out := safecast.IntFromInt64Clamp(int64(u.CandidatesTokenCount))
 	if in == 0 && out == 0 && u.TotalTokenCount == 0 {
 		return nil
 	}
 	if in == 0 && out == 0 && u.TotalTokenCount > 0 {
-		out = int(u.TotalTokenCount) - in
-		if out < 0 {
+		diff := int64(u.TotalTokenCount) - int64(u.PromptTokenCount)
+		if diff < 0 {
 			out = 0
+		} else {
+			out = safecast.IntFromInt64Clamp(diff)
 		}
 	}
 	return &lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: in, OutputTokens: out}
 }
 
 func (s *genaiStream) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 	s.closed = true
-	s.stop()
+	s.mu.Unlock()
+	s.closeOnce.Do(func() {
+		if s.stop != nil {
+			s.stop()
+		}
+	})
 	return nil
 }

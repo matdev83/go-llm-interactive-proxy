@@ -1,9 +1,10 @@
+//go:build precommit
+
 package runtime_test
 
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"sync"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestExecutor_weightedFirstBranch_persistsConsumed(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(99)),
+		Rand:  routing.NewSeededRng(99),
 		Backends: map[string]runtime.Backend{
 			"cheap": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -97,7 +98,7 @@ func TestExecutor_recordAttempt_usesWithoutCancelOnCanceledRequestCtx(t *testing
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"slow": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -156,7 +157,7 @@ func TestExecutor_plan_candidate_observedAndTraced(t *testing.T) {
 	ex := &runtime.Executor{
 		Store:         st,
 		Bus:           hooks.New(hooks.Config{}),
-		Rand:          rand.New(rand.NewSource(2)),
+		Rand:          routing.NewSeededRng(2),
 		RouteObserver: obs,
 		RouteTrace:    rt,
 		Backends: map[string]runtime.Backend{

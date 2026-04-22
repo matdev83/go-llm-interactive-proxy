@@ -11,11 +11,43 @@ import (
 // before wiring into runtime.New or runtimebundle.Build.
 type Config struct {
 	Server      ServerConfig      `yaml:"server"`
+	Logging     LoggingConfig     `yaml:"logging"`
 	Diagnostics DiagnosticsConfig `yaml:"diagnostics"`
+	HTTPClient  HTTPClientConfig  `yaml:"http_client"`
 	Routing     RoutingConfig     `yaml:"routing"`
 	Continuity  ContinuityConfig  `yaml:"continuity"`
 	Hooks       HooksConfig       `yaml:"hooks"`
 	Plugins     PluginsConfig     `yaml:"plugins"`
+}
+
+// HTTPClientConfig tunes the shared outbound HTTP client used for upstream LLM calls.
+type HTTPClientConfig struct {
+	// TrustEnvironmentProxy when true (default) uses http.ProxyFromEnvironment for outbound requests.
+	// When false, the transport ignores HTTP_PROXY/HTTPS_PROXY/NO_PROXY (reduces deputy risk if env is untrusted).
+	// Omitted or null in YAML defaults to true in [LoadFile] / [EffectiveTrustEnvironmentProxy].
+	TrustEnvironmentProxy *bool `yaml:"trust_environment_proxy"`
+}
+
+// EffectiveTrustEnvironmentProxy returns whether outbound calls should honor process proxy environment variables.
+func (c *Config) EffectiveTrustEnvironmentProxy() bool {
+	if c == nil || c.HTTPClient.TrustEnvironmentProxy == nil {
+		return true
+	}
+	return *c.HTTPClient.TrustEnvironmentProxy
+}
+
+// LoggingConfig controls process-wide slog output and optional HTTP access logs.
+type LoggingConfig struct {
+	// Level is one of: debug, info, warn, error (case-insensitive). Empty defaults to info in LoadFile/Validate.
+	Level string `yaml:"level"`
+	// Format is json or text (case-insensitive). Empty defaults to json in LoadFile/Validate.
+	Format string `yaml:"format"`
+	// AddSource adds source file/line to each record when true.
+	AddSource bool `yaml:"add_source"`
+	// AccessLog emits one structured line per HTTP request when true.
+	AccessLog bool `yaml:"access_log"`
+	// AccessLogSkipPaths are URL path prefixes (must start with /) for which access logs are suppressed.
+	AccessLogSkipPaths []string `yaml:"access_log_skip_paths"`
 }
 
 // HooksConfig carries core hook-bus tuning (not plugin opaque payloads).
@@ -48,6 +80,12 @@ type DiagnosticsConfig struct {
 	InventoryPath string `yaml:"inventory_path"`
 	// RouteTracePath registers a JSON ring buffer of recent routing decisions when non-empty.
 	RouteTracePath string `yaml:"route_trace_path"`
+	// PprofPath registers net/http/pprof handlers under this prefix when diagnostics.enabled is true
+	// (e.g. "/debug/pprof"). Leave empty to disable. Do not expose publicly without access controls.
+	PprofPath string `yaml:"pprof_path"`
+	// SharedSecret when non-empty requires header X-LIP-Diagnostics-Secret on attempts, inventory,
+	// route trace, and pprof routes (not on health). Use a long random value in production.
+	SharedSecret string `yaml:"shared_secret"`
 }
 
 type RoutingConfig struct {

@@ -46,5 +46,6 @@ foreach ($pkg in $packages) {
 Write-Host ""
 
 $packageList = @($packages)
-go test -short -parallel=8 -count=1 @packageList
+# Omit -count=1 so Go's test result cache can skip unchanged packages on repeat runs (build cache is always on via GOCACHE).
+go test -short -parallel=8 @packageList
 exit $LASTEXITCODE

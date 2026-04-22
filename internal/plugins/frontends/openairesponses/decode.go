@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -62,24 +63,24 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 
 	instructions, err := parseInstructions(w.Instructions)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: instructions: %w", err)
 	}
 	msgs, err := parseInput(w.Input)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: input: %w", err)
 	}
 	tools, err := parseTools(w.Tools)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: tools: %w", err)
 	}
 	toolChoice, err := parseToolChoice(w.ToolChoice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: tool_choice: %w", err)
 	}
 
 	modelRaw, err := encodeJSONStringValue(model)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
 
@@ -101,7 +102,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 }
 
 func parseInstructions(raw json.RawMessage) ([]lipapi.Message, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	// String instructions -> single system message.
@@ -214,7 +215,7 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		return lipapi.Message{}, errors.New("openairesponses: function_call requires name")
 	}
 	argStr := "{}"
-	if len(v.Arguments) > 0 && string(v.Arguments) != "null" {
+	if jsonutil.IsPresentNonNullJSON(v.Arguments) {
 		switch v.Arguments[0] {
 		case '"':
 			var s string
@@ -263,7 +264,7 @@ func parseFunctionCallOutputItem(raw json.RawMessage) (lipapi.Message, error) {
 		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires call_id")
 	}
 	out := v.Output
-	if len(out) == 0 || string(out) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(out) {
 		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires output")
 	}
 	if out[0] == '"' {
@@ -308,7 +309,7 @@ func mapRole(r string) (lipapi.Role, error) {
 }
 
 func parseContent(raw json.RawMessage) ([]lipapi.Part, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("message content is required")
 	}
 	if raw[0] == '"' {
@@ -402,7 +403,7 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -462,7 +463,7 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 	}
 	if raw[0] == '"' {

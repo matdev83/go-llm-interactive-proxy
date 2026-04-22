@@ -51,9 +51,13 @@ func resolveModel(cand routing.AttemptCandidate, call lipapi.Call) string {
 }
 
 // StreamParamsForCall builds model, contents, and generate config from a canonical call.
+// It runs [lipapi.Call.Validate] so numeric bounds (e.g. max_output_tokens for int32 fields) hold even when callers bypass the executor.
 func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (StreamParams, error) {
 	if call == nil {
 		return StreamParams{}, fmt.Errorf("gemini: nil call")
+	}
+	if err := call.Validate(); err != nil {
+		return StreamParams{}, fmt.Errorf("gemini: validate call: %w", err)
 	}
 	model := resolveModel(cand, *call)
 	if model == "" {
@@ -62,7 +66,7 @@ func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (Stre
 
 	contents, err := buildContents(call)
 	if err != nil {
-		return StreamParams{}, err
+		return StreamParams{}, fmt.Errorf("gemini: build contents: %w", err)
 	}
 
 	cfg := &genai.GenerateContentConfig{}
@@ -86,7 +90,7 @@ func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (Stre
 	if len(call.Tools) > 0 {
 		tools, err := buildTools(call.Tools)
 		if err != nil {
-			return StreamParams{}, err
+			return StreamParams{}, fmt.Errorf("gemini: build tools: %w", err)
 		}
 		cfg.Tools = tools
 		cfg.ToolConfig = toolConfigFromChoice(call.ToolChoice, len(call.Tools))
@@ -144,7 +148,7 @@ func buildContents(call *lipapi.Call) ([]*genai.Content, error) {
 		}
 		c, err := messageToContent(m)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("gemini: message content: %w", err)
 		}
 		out = append(out, c)
 	}
@@ -159,13 +163,13 @@ func messageToContent(m lipapi.Message) (*genai.Content, error) {
 	case lipapi.RoleUser:
 		parts, err := userPartsToGenaiParts(m.Parts)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("gemini: user parts: %w", err)
 		}
 		return genai.NewContentFromParts(parts, genai.RoleUser), nil
 	case lipapi.RoleAssistant:
 		parts, err := assistantPartsToGenaiParts(m.Parts)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("gemini: assistant parts: %w", err)
 		}
 		return genai.NewContentFromParts(parts, genai.RoleModel), nil
 	case lipapi.RoleTool:
@@ -199,13 +203,13 @@ func userPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
 		case lipapi.PartImageRef:
 			pt, err := imagePartFromCanonical(p)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("gemini: image part: %w", err)
 			}
 			out = append(out, pt)
 		case lipapi.PartFileRef:
 			pt, err := filePartFromCanonical(p)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("gemini: file part: %w", err)
 			}
 			out = append(out, pt)
 		default:
@@ -289,21 +293,20 @@ func pickImageMediaType(fromDataURL, fromPart string) string {
 }
 
 func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	if !strings.HasPrefix(dataURL, "data:") {
+	rest, ok := strings.CutPrefix(dataURL, "data:")
+	if !ok {
 		return "", "", false
 	}
-	rest := strings.TrimPrefix(dataURL, "data:")
-	semi := strings.Index(rest, ";")
-	if semi < 0 {
+	mime, enc, found := strings.Cut(rest, ";")
+	if !found {
 		return "", "", false
 	}
-	mime = rest[:semi]
-	enc := rest[semi+1:]
 	const prefix = "base64,"
-	if !strings.HasPrefix(enc, prefix) {
+	encBody, ok := strings.CutPrefix(enc, prefix)
+	if !ok {
 		return "", "", false
 	}
-	return mime, enc[len(prefix):], true
+	return mime, encBody, true
 }
 
 func buildTools(tools []lipapi.ToolDef) ([]*genai.Tool, error) {

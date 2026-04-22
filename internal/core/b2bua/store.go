@@ -70,8 +70,6 @@ type MemoryStore struct {
 	maxLegs int
 	now     func() time.Time
 	mu      sync.RWMutex
-	aSeq    uint64
-	bSeq    uint64
 	legs    map[string]*legState // aLegID -> state
 	// continuityKey (non-empty) -> current aLegID for Resolve
 	byKey map[string]string
@@ -116,20 +114,6 @@ func NewMemoryStore(opts MemoryStoreOptions) (*MemoryStore, error) {
 
 func (s *MemoryStore) nowTime() time.Time { return s.now() }
 
-func (s *MemoryStore) newID(prefix string) string {
-	switch prefix {
-	case "a":
-		s.aSeq++
-		return fmt.Sprintf("%s_%06d", prefix, s.aSeq)
-	case "b":
-		s.bSeq++
-		return fmt.Sprintf("%s_%06d", prefix, s.bSeq)
-	default:
-		s.aSeq++
-		return fmt.Sprintf("%s_%06d", prefix, s.aSeq)
-	}
-}
-
 // ResolveALeg returns the active A-leg for a non-empty continuity key, refreshing LastSeenAt.
 func (s *MemoryStore) ResolveALeg(ctx context.Context, continuityKey string) (ALegRecord, error) {
 	if err := ctx.Err(); err != nil {
@@ -166,7 +150,10 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 	defer s.mu.Unlock()
 	now := s.nowTime()
 	s.sweepExpiredLegsLocked(now)
-	aID := s.newID("a")
+	aID, err := RandomALegID()
+	if err != nil {
+		return ALegRecord{}, fmt.Errorf("b2bua: allocate a-leg id: %w", err)
+	}
 	rec := ALegRecord{
 		ALegID:        aID,
 		ContinuityKey: continuityKey,
@@ -247,7 +234,10 @@ func (s *MemoryStore) NextBLeg(ctx context.Context, aLegID string) (BLegRecord, 
 	}
 	st.nextSeq++
 	seq := st.nextSeq
-	bid := s.newID("b")
+	bid, err := RandomBLegID()
+	if err != nil {
+		return BLegRecord{}, fmt.Errorf("b2bua: allocate b-leg id: %w", err)
+	}
 	st.seqToBLeg[seq] = bid
 	st.record.LastSeenAt = now
 	return BLegRecord{BLegID: bid, ALegID: aLegID, Seq: seq}, nil
@@ -331,7 +321,7 @@ func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) {
 	if s.ttl <= 0 {
 		return
 	}
-	stale := []string{}
+	stale := make([]string, 0, len(s.legs))
 	for id, st := range s.legs {
 		if now.Sub(st.record.LastSeenAt) >= s.ttl {
 			stale = append(stale, id)

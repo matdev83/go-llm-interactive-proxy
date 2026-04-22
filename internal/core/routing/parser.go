@@ -150,14 +150,12 @@ func parsePrimary(s string) (Primary, error) {
 	if raw == "" {
 		return Primary{}, fmt.Errorf("%w: empty primary", ErrInvalidSelector)
 	}
-	querySep := strings.IndexByte(raw, '?')
-	path := raw
+	path, queryStr, hasQuery := strings.Cut(raw, "?")
 	var vals url.Values
-	if querySep >= 0 {
-		path = raw[:querySep]
-		q, err := url.ParseQuery(raw[querySep+1:])
+	if hasQuery {
+		q, err := url.ParseQuery(queryStr)
 		if err != nil {
-			return Primary{}, fmt.Errorf("%w: %v", ErrInvalidSelector, err)
+			return Primary{}, fmt.Errorf("%w: parse query: %w", ErrInvalidSelector, err)
 		}
 		vals = q
 	}
@@ -165,12 +163,10 @@ func parsePrimary(s string) (Primary, error) {
 	if path == "" {
 		return Primary{}, fmt.Errorf("%w: missing model in primary", ErrInvalidSelector)
 	}
-	idx := strings.IndexByte(path, ':')
-	backend := ""
-	model := path
-	if idx >= 0 {
-		backend = path[:idx]
-		model = path[idx+1:]
+	backend, model, hasColon := strings.Cut(path, ":")
+	if !hasColon {
+		backend = ""
+		model = path
 	}
 	backend = strings.TrimSpace(backend)
 	model = strings.TrimSpace(model)

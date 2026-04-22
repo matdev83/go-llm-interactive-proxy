@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync"
 )
@@ -87,7 +88,9 @@ func RouteTraceHandler(buf *RouteTraceBuffer) (http.Handler, error) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(true)
-		_ = enc.Encode(buf.Snapshot())
+		if err := enc.Encode(buf.Snapshot()); err != nil {
+			slog.Default().Error("diag: route trace encode", "err", err)
+		}
 	}), nil
 }
 

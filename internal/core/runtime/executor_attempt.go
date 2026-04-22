@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -36,6 +38,20 @@ func (e *Executor) recordAttempt(ctx context.Context, p recordAttemptParams) err
 		sink.OnRoutingAttemptOutcome(p.Cand.Key, p.Outcome)
 	}
 	return e.Store.RecordAttempt(context.WithoutCancel(ctx), rec)
+}
+
+// recordAttemptLogged runs [Executor.recordAttempt]; persistence failure is logged at debug only.
+func (e *Executor) recordAttemptLogged(ctx context.Context, p recordAttemptParams, o diag.AttrOpts) {
+	if e == nil {
+		return
+	}
+	if err := e.recordAttempt(ctx, p); err != nil && e.Log != nil {
+		base := diag.Attrs(ctx, o)
+		attrs := make([]slog.Attr, 0, len(base)+1)
+		attrs = append(attrs, base...)
+		attrs = append(attrs, slog.Any("error", err))
+		e.Log.LogAttrs(ctx, slog.LevelDebug, "record_attempt_failed", attrs...)
+	}
 }
 
 func backendCallWithRouteParams(work lipapi.Call, cand routing.AttemptCandidate) (lipapi.Call, error) {

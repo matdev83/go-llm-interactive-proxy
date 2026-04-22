@@ -3,7 +3,6 @@ package acp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"sync/atomic"
@@ -11,7 +10,7 @@ import (
 
 type client struct {
 	t      Transport
-	nextID int64
+	nextID atomic.Int64
 }
 
 func newClient(baseURL string, hc *http.Client) (*client, error) {
@@ -23,7 +22,7 @@ func newClient(baseURL string, hc *http.Client) (*client, error) {
 }
 
 func (c *client) rpcID() int64 {
-	return atomic.AddInt64(&c.nextID, 1)
+	return c.nextID.Add(1)
 }
 
 func (c *client) sessionPrompt(ctx context.Context, params map[string]any, rpcID int64) (io.ReadCloser, error) {
@@ -33,7 +32,7 @@ func (c *client) sessionPrompt(ctx context.Context, params map[string]any, rpcID
 	}
 	reqBody := rpcRequest{
 		JSONRPC: "2.0",
-		ID:      json.RawMessage(fmt.Sprintf("%d", rpcID)),
+		ID:      jsonRPCNumericID(rpcID),
 		Method:  "session/prompt",
 		Params:  pb,
 	}

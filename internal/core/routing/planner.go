@@ -8,6 +8,10 @@ import (
 // ErrNoEligibleCandidate means every candidate in the relevant scope was excluded or unhealthy.
 var ErrNoEligibleCandidate = errors.New("routing: no eligible route candidate")
 
+// ErrWeightedTotalTooLarge means the sum of effective branch weights exceeds [math.MaxInt]
+// (cannot pass safely to the RNG) or overflowed int64 during accumulation.
+var ErrWeightedTotalTooLarge = errors.New("routing: weighted branch total too large")
+
 // SessionRoutingState holds session-scoped routing flags (mirrors B2BUA A-leg state; persisted by caller in v1).
 type SessionRoutingState struct {
 	FirstRequestConsumed bool
@@ -19,12 +23,12 @@ type PlanOptions struct {
 	Unhealthy map[string]struct{}
 	Session   *SessionRoutingState
 	// Rand supplies weighted-branch rolls. When nil, weighted selection uses a fixed-seeded
-	// math/rand source (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
+	// math/rand/v2 PCG stream (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
 	Rand        Rng
 	IsRetryPath bool
 }
 
-// Rng abstracts math/rand for testing.
+// Rng abstracts a uniform integer RNG for weighted picks (see [NewSeededRng], [WrapRandV2]).
 type Rng interface {
 	Intn(n int) int
 }

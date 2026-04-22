@@ -18,8 +18,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
-// Run assembles the standard runtime and serves HTTP until ctx is cancelled, then shuts down.
-// Prefer [RunWithRuntime] with a pre-built [runtimebundle.Built] from the composition root.
+// Run is a convenience wrapper: it calls [runtimebundle.Build] with cfg, app.HookBus(), log,
+// and [runtimebundle.BuildOptions.PluginRegistry] set to reg, then [RunWithRuntime].
+//
+// Composition roots (for example the lipstd command in directory cmd/lipstd) should normally call [runtimebundle.Build] once
+// themselves—so shared [runtimebundle.BuildOptions] (custom HTTP client, wire model, etc.) are
+// explicit—and pass the resulting [*runtimebundle.Built] to [RunWithRuntime]. That avoids an
+// extra assembly pass and matches how tests exercise the server.
 func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger, reg *pluginreg.Registry) error {
 	if reg == nil {
 		return errors.New("stdhttp: nil plugin registry")
@@ -58,7 +63,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	var closersOnce sync.Once
 	releaseClosers := func() {
 		closersOnce.Do(func() {
-			runClosers(closers)
+			runClosers(log, closers)
 		})
 	}
 	route := strings.TrimSpace(built.EffectiveDefaultRoute)
@@ -80,7 +85,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 				releaseClosers()
 				return fmt.Errorf("stdhttp: attempts handler: %w", err)
 			}
-			mux.Handle(ap, ah)
+			mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
 		}
 		ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath)
 		if ip != "" {
@@ -89,7 +94,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 				releaseClosers()
 				return fmt.Errorf("stdhttp: inventory handler: %w", err)
 			}
-			mux.Handle(ip, ih)
+			mux.Handle(ip, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ih))
 		}
 		rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath)
 		if rt != "" {
@@ -100,7 +105,15 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 				releaseClosers()
 				return fmt.Errorf("stdhttp: route trace handler: %w", err)
 			}
-			mux.Handle(rt, rh)
+			mux.Handle(rt, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, rh))
+		}
+		pp := strings.TrimSpace(cfg.Diagnostics.PprofPath)
+		if pp != "" {
+			if h := diag.PprofHandler(pp); h != nil {
+				prefix := strings.TrimSuffix(pp, "/") + "/"
+				mux.Handle(prefix, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+				log.Info("diagnostics pprof mounted", "path", prefix)
+			}
 		}
 	}
 	reg := built.PluginRegistry
@@ -122,7 +135,9 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	}
 
 	traceGen := diag.NewTraceIDGenerator()
-	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, mux))
+	inner := http.Handler(mux)
+	inner = accessLogMiddleware(cfg, log, inner)
+	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, inner))
 
 	srv := &http.Server{
 		Addr:              cfg.Server.Address,
@@ -141,7 +156,9 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil && log != nil {
+			log.Warn("stdhttp: http server shutdown", "error", err)
+		}
 		app.Shutdown(shutdownCtx)
 		releaseClosers()
 		return nil
@@ -151,17 +168,30 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 			return nil
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 		app.Shutdown(shutdownCtx)
-		cancel()
 		releaseClosers()
 		return fmt.Errorf("stdhttp: serve: %w", err)
 	}
 }
 
-func runClosers(closers []func() error) {
+// runClosers invokes closers in reverse registration order. Errors are joined and logged once at
+// warn (best-effort teardown; failures are not returned to the caller).
+func runClosers(log *slog.Logger, closers []func() error) {
+	var errs []error
 	for i := len(closers) - 1; i >= 0; i-- {
-		if closers[i] != nil {
-			_ = closers[i]()
+		if closers[i] == nil {
+			continue
 		}
+		if err := closers[i](); err != nil {
+			errs = append(errs, fmt.Errorf("closer %d: %w", i, err))
+		}
+	}
+	if len(errs) == 0 {
+		return
+	}
+	joined := errors.Join(errs...)
+	if log != nil {
+		log.Warn("stdhttp: resource closer errors", "error", joined)
 	}
 }

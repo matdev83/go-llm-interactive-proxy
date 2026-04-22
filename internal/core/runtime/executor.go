@@ -40,8 +40,8 @@ type Executor struct {
 	Store    b2bua.Store
 	Bus      *hooks.Bus
 	Backends map[string]Backend // key: routing.Primary.Backend (non-empty)
-	// Rand supplies weighted routing rolls. Common implementations (*math/rand.Rand)
-	// are not safe for concurrent use; rng() wraps a non-nil Rand accordingly.
+	// Rand supplies weighted routing rolls. Typical *rand/v2.Rand-backed values are not safe for
+	// concurrent use; rng() wraps a non-nil Rand accordingly.
 	Rand routing.Rng
 	Now  func() time.Time
 	// Log, when non-nil, receives structured orchestration decisions (diag.LogDecision).
@@ -86,18 +86,18 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 	}
 	bus := e.Bus
 	if err := call.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("executor: validate call: %w", err)
 	}
 	if ctx == nil {
 		return nil, lipapi.ErrNilContext
 	}
 	traceID, baseline, aLeg, ctx, err := e.prepareSubmitAndALeg(ctx, bus, call)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("executor: prepare submit: %w", err)
 	}
 	sel, err := routing.Parse(baseline.Route.Selector)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("executor: parse route selector: %w", err)
 	}
 	routing.ApplyModelOnlyBackends(sel, e.DefaultBackend)
 	if routing.SelectorHasEmptyBackend(sel) {
@@ -127,12 +127,12 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 			lastReject:  &lastReject,
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("executor: plan or open attempt: %w", err)
 		}
 		if !out.opened {
 			continue
 		}
-		return &retryRecvStream{
+		rs := &retryRecvStream{
 			executor: e,
 			bus:      bus,
 			baseline: baseline,
@@ -143,9 +143,10 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 			session:  session,
 			excluded: excluded,
 			rng:      rng,
-			inner:    out.stream,
 			bleg:     out.bleg,
 			cand:     out.cand,
-		}, nil
+		}
+		rs.storeInner(out.stream)
+		return rs, nil
 	}
 }

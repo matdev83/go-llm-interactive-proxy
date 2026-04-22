@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -24,7 +23,7 @@ func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(2)),
+		Rand:  routing.NewSeededRng(2),
 		CandidateHealth: policy.StaticUnhealthy{
 			"bad:m": {},
 		},
@@ -71,7 +70,7 @@ func TestExecutor_allCandidatesUnhealthy_returnsErrNoEligibleCandidate(t *testin
 	ex := &runtime.Executor{
 		Store:           st,
 		Bus:             hooks.New(hooks.Config{}),
-		Rand:            rand.New(rand.NewSource(11)),
+		Rand:            routing.NewSeededRng(11),
 		CandidateHealth: policy.StaticUnhealthy{"arm1:m": {}, "arm2:m": {}},
 		Backends:        map[string]runtime.Backend{},
 	}

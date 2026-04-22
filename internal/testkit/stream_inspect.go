@@ -17,14 +17,14 @@ func ParseRecorderSSE(rec *httptest.ResponseRecorder) []SSEFrame {
 func ParseSSEBody(body string) []SSEFrame {
 	body = strings.ReplaceAll(body, "\r\n", "\n")
 	var frames []SSEFrame
-	for _, block := range strings.Split(body, "\n\n") {
+	for block := range strings.SplitSeq(body, "\n\n") {
 		block = strings.TrimSpace(block)
 		if block == "" {
 			continue
 		}
 		var ev string
 		var dataB strings.Builder
-		for _, line := range strings.Split(block, "\n") {
+		for line := range strings.SplitSeq(block, "\n") {
 			line = strings.TrimRight(line, "\r")
 			switch {
 			case strings.HasPrefix(line, "event:"):

@@ -55,7 +55,7 @@ func TestHandler_streaming_refclientReadsChunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got string
+	var got strings.Builder
 	for res, serr := range cli.GenerateContentStream(context.Background(), "gemini-2.0-flash",
 		[]*genai.Content{genai.NewContentFromText("s", genai.RoleUser)}, nil) {
 		if serr != nil {
@@ -64,13 +64,13 @@ func TestHandler_streaming_refclientReadsChunk(t *testing.T) {
 		for _, c := range res.Candidates {
 			if c.Content != nil {
 				for _, p := range c.Content.Parts {
-					got += p.Text
+					got.WriteString(p.Text)
 				}
 			}
 		}
 	}
-	if got != "stream-ok" {
-		t.Fatalf("stream text: %q", got)
+	if got.String() != "stream-ok" {
+		t.Fatalf("stream text: %q", got.String())
 	}
 }
 

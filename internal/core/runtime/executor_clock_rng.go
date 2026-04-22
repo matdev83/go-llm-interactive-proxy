@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"math/rand"
 	"sync"
 	"time"
 
@@ -65,7 +64,7 @@ func (e *Executor) rng() routing.Rng {
 		})
 		return e.lockedRand
 	}
-	return rand.New(rand.NewSource(1))
+	return routing.NewSeededRng(1)
 }
 
 func (e *Executor) mergePlannerHealth() map[string]struct{} {

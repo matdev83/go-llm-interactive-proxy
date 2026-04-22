@@ -10,6 +10,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestOpen_rejectsPathWithInvalidChars(t *testing.T) {
+	t.Parallel()
+	_, err := Open("./data/x?bad=1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestNew_inMemory(t *testing.T) {
 	t.Parallel()
 	db, err := sql.Open("sqlite", ":memory:")

@@ -1,3 +1,5 @@
+//go:build precommit
+
 package qa
 
 import (
@@ -58,7 +60,6 @@ func TestLayout_CanonicalInternalDirsExist(t *testing.T) {
 		"internal/plugins/stores",
 	}
 	for _, rel := range dirs {
-		rel := rel
 		t.Run(rel, func(t *testing.T) {
 			t.Parallel()
 			st, err := os.Stat(filepath.Join(rootDir, rel))

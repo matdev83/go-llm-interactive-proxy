@@ -194,18 +194,18 @@ func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	s.handleUnion(u4)
 
 	var kinds []lipapi.EventKind
-	var args string
+	var args strings.Builder
 	for _, ev := range stream.DrainPending(&s.pending) {
 		kinds = append(kinds, ev.Kind)
 		if ev.Kind == lipapi.EventToolCallArgsDelta {
-			args += ev.Delta
+			args.WriteString(ev.Delta)
 		}
 	}
 	if kinds[0] != lipapi.EventResponseStarted || kinds[1] != lipapi.EventMessageStarted || kinds[2] != lipapi.EventToolCallStarted {
 		t.Fatalf("opening events: %v", kinds)
 	}
-	if args != `{"city":"NYC"}` {
-		t.Fatalf("combined args: %q", args)
+	if got := args.String(); got != `{"city":"NYC"}` {
+		t.Fatalf("combined args: %q", got)
 	}
 	if kinds[len(kinds)-1] != lipapi.EventToolCallFinished {
 		t.Fatalf("last event: %v", kinds)

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -55,7 +56,7 @@ func New(opts Options) (*App, error) {
 
 	if len(opts.Mandatory) > 0 || len(opts.Registrations) > 0 {
 		if err := lipsdk.ValidateRegistrations(opts.Registrations, opts.Mandatory); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("runtime: validate registrations: %w", err)
 		}
 	}
 
@@ -98,11 +99,11 @@ func (a *App) Start(ctx context.Context) error {
 		}
 		if err := lc.Start(ctx); err != nil {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
 			for i := len(started) - 1; i >= 0; i-- {
 				_ = started[i].Stop(stopCtx)
 			}
-			cancel()
-			return err
+			return fmt.Errorf("runtime: lifecycle start: %w", err)
 		}
 		started = append(started, lc)
 	}

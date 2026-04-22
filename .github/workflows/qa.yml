@@ -17,12 +17,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          # Finer cache key than go.mod alone; restores module + build cache (see setup-go README).
+          cache-dependency-path: go.sum
 
       - name: Quality checks
         run: make quality-checks
 
       - name: Unit tests
-        run: go test -short -parallel=8 ./...
+        run: go test -short -parallel=8 -tags=precommit ./...
 
       - name: Parity checks (conformance package)
         run: make parity-checks
@@ -37,9 +39,9 @@ jobs:
         run: bash scripts/race-check.sh --short --strict
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.64.5
+          version: v2.11.4
           args: --timeout=10m
 
       - name: govulncheck

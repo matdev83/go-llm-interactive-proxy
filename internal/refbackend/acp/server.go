@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 )
 
 const maxBodyBytes = 10 << 20
@@ -77,13 +80,15 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// JSON-RPC notifications omit "id" (or use null in broken clients). session/cancel is always notification-shaped.
-	isNotification := len(bytes.TrimSpace(req.ID)) == 0 || string(req.ID) == "null" || req.Method == "session/cancel"
+	isNotification := len(bytes.TrimSpace(req.ID)) == 0 || jsonutil.IsJSONNull(req.ID) || req.Method == "session/cancel"
 
 	if isNotification {
 		switch req.Method {
 		case "session/cancel":
 			if err := h.handleCancel(w, req.Params); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				slog.Default().LogAttrs(r.Context(), slog.LevelError, "acp session/cancel failed",
+					slog.Any("error", err))
+				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -167,7 +172,10 @@ func (h *handler) handleSessionNew(w http.ResponseWriter, req rpcRequest) {
 		Cwd        string `json:"cwd"`
 		McpServers []any  `json:"mcpServers"`
 	}
-	_ = json.Unmarshal(req.Params, &p)
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		writeRPCError(w, req.ID, -32602, "invalid params")
+		return
+	}
 
 	h.mu.Lock()
 	h.nextSessionID++
@@ -298,7 +306,9 @@ func (h *handler) handleSessionPrompt(w http.ResponseWriter, r *http.Request, re
 			"stopReason": "end_turn",
 		},
 	}
-	_ = writeNDJSONLine(w, fl, final)
+	if !writeNDJSONLine(w, fl, final) {
+		return
+	}
 	if h.cfg.OnPromptUpdate != nil {
 		h.cfg.OnPromptUpdate("end_turn", p.SessionID)
 	}
@@ -319,7 +329,9 @@ func (h *handler) writePromptCancelled(w http.ResponseWriter, fl http.Flusher, i
 			},
 		},
 	}
-	_ = writeNDJSONLine(w, fl, tail)
+	if !writeNDJSONLine(w, fl, tail) {
+		return
+	}
 
 	final := map[string]any{
 		"jsonrpc": "2.0",
@@ -328,7 +340,9 @@ func (h *handler) writePromptCancelled(w http.ResponseWriter, fl http.Flusher, i
 			"stopReason": "cancelled",
 		},
 	}
-	_ = writeNDJSONLine(w, fl, final)
+	if !writeNDJSONLine(w, fl, final) {
+		return
+	}
 	if h.cfg.OnPromptUpdate != nil {
 		h.cfg.OnPromptUpdate("cancelled", sessionID)
 	}
@@ -440,6 +454,7 @@ func sleepOrDone(ctx context.Context, d time.Duration, sess *emuSession) bool {
 func writeNDJSONLine(w io.Writer, fl http.Flusher, v any) bool {
 	buf, err := json.Marshal(v)
 	if err != nil {
+		slog.Default().Warn("refbackend/acp: marshal ndjson line", "error", err)
 		return false
 	}
 	if _, err := w.Write(buf); err != nil {
@@ -457,7 +472,9 @@ func writeNDJSONLine(w io.Writer, fl http.Flusher, v any) bool {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Default().Debug("refbackend/acp: encode json response", "error", err)
+	}
 }
 
 func writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, message string) {

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -14,8 +15,9 @@ func DiagnosticsHandler(attemptLoader diag.AttemptLoader) http.Handler {
 	if attemptLoader != nil {
 		h, err := diag.AttemptsHandler(attemptLoader)
 		if err != nil {
+			slog.Default().Error("attempts handler construction failed", "error", err)
 			h = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				http.Error(w, "attempts endpoint unavailable", http.StatusInternalServerError)
 			})
 		}
 		mux.Handle("/attempts", h)

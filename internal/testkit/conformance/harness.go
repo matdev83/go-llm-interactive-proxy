@@ -2,12 +2,12 @@ package conformance
 
 import (
 	"context"
-	"math/rand"
 	"net/http"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
@@ -44,7 +44,7 @@ func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClien
 	return &runtime.Executor{
 		Store:    st,
 		Bus:      hooks.New(hooks.Config{}),
-		Rand:     rand.New(rand.NewSource(42)),
+		Rand:     routing.NewSeededRng(42),
 		Backends: map[string]runtime.Backend{backendID: be},
 	}
 }

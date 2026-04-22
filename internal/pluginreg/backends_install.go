@@ -19,12 +19,13 @@ import (
 )
 
 type bedrockBackendYAML struct {
-	Region          string `yaml:"region"`
-	AccessKeyID     string `yaml:"access_key_id"`
-	SecretAccessKey string `yaml:"secret_access_key"`
-	SessionToken    string `yaml:"session_token"`
-	BaseEndpoint    string `yaml:"base_endpoint"`
-	DisableHTTPS    bool   `yaml:"disable_https"`
+	Region                   string `yaml:"region"`
+	AccessKeyID              string `yaml:"access_key_id"`
+	SecretAccessKey          string `yaml:"secret_access_key"`
+	SessionToken             string `yaml:"session_token"`
+	BaseEndpoint             string `yaml:"base_endpoint"`
+	DisableHTTPS             bool   `yaml:"disable_https"`
+	AllowInsecureNonLoopback bool   `yaml:"allow_insecure_non_loopback"`
 }
 
 type acpBackendYAML struct {
@@ -111,13 +112,14 @@ func backendBedrock(n yaml.Node, upstream *http.Client) (runtime.Backend, error)
 	ctx, cancel := context.WithTimeout(context.Background(), bedrock.DefaultLoadConfigTimeout)
 	defer cancel()
 	return bedrock.NewWithContext(ctx, bedrock.Config{
-		Region:          y.Region,
-		AccessKeyID:     y.AccessKeyID,
-		SecretAccessKey: y.SecretAccessKey,
-		SessionToken:    y.SessionToken,
-		BaseEndpoint:    y.BaseEndpoint,
-		DisableHTTPS:    y.DisableHTTPS,
-		HTTPClient:      resolveUpstreamHTTP(upstream),
+		Region:                   y.Region,
+		AccessKeyID:              y.AccessKeyID,
+		SecretAccessKey:          y.SecretAccessKey,
+		SessionToken:             y.SessionToken,
+		BaseEndpoint:             y.BaseEndpoint,
+		DisableHTTPS:             y.DisableHTTPS,
+		AllowInsecureNonLoopback: y.AllowInsecureNonLoopback,
+		HTTPClient:               resolveUpstreamHTTP(upstream),
 	}), nil
 }
 

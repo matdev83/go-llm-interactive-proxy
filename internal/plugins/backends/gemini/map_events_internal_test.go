@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -118,15 +120,15 @@ func TestHandleResponse_functionCall_emitsToolEvents(t *testing.T) {
 	}
 	evs := stream.DrainPending(&s.pending)
 	var kinds []lipapi.EventKind
-	var args string
+	var args strings.Builder
 	for _, ev := range evs {
 		kinds = append(kinds, ev.Kind)
 		if ev.Kind == lipapi.EventToolCallArgsDelta {
-			args += ev.Delta
+			args.WriteString(ev.Delta)
 		}
 	}
-	if args != `{"city":"NYC"}` {
-		t.Fatalf("args delta: %q", args)
+	if got := args.String(); got != `{"city":"NYC"}` {
+		t.Fatalf("args delta: %q", got)
 	}
 	var sawStart, sawFinish bool
 	for _, ev := range evs {
@@ -188,4 +190,34 @@ func TestGenaiStream_Recv_wrapsIteratorErr(t *testing.T) {
 	if !errors.Is(err, root) {
 		t.Fatalf("underlying: %v", err)
 	}
+}
+
+func TestGenaiStream_Recv_afterClose_returnsEOF(t *testing.T) {
+	t.Parallel()
+	seq := func(yield func(*genai.GenerateContentResponse, error) bool) {
+		_ = yield // empty iterator (no responses)
+	}
+	es := newGenaiStream(seq)
+	if err := es.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	_, err := es.Recv(context.Background())
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("after close: want EOF, got %v", err)
+	}
+}
+
+func TestGenaiStream_Close_idempotent_race(t *testing.T) {
+	t.Parallel()
+	seq := func(yield func(*genai.GenerateContentResponse, error) bool) {
+		_ = yield(&genai.GenerateContentResponse{}, nil)
+	}
+	es := newGenaiStream(seq)
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Go(func() {
+			_ = es.Close()
+		})
+	}
+	wg.Wait()
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,7 +25,7 @@ func TestReplayLineage_recvFailoverIncrementsBLegs(t *testing.T) {
 	ex := &lipruntime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]lipruntime.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),

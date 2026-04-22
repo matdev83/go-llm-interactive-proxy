@@ -57,6 +57,16 @@ func TestAttemptsHandler_notFound(t *testing.T) {
 	}
 }
 
+func TestAttemptsHandler_typedNilStoreRejected(t *testing.T) {
+	t.Parallel()
+	var st *b2bua.MemoryStore
+	var loader diag.AttemptLoader = st
+	_, err := diag.AttemptsHandler(loader)
+	if err == nil {
+		t.Fatal("expected error for typed-nil AttemptLoader")
+	}
+}
+
 func TestAttemptsHandler_ok(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -35,8 +36,16 @@ func (h *Handler) maxBodyLimit() int64 {
 	return reqbody.DefaultMaxBytes
 }
 
+func (h *Handler) logWriteJSONErr(ctx context.Context, msg string, werr error) {
+	if h.Log == nil || werr == nil {
+		return
+	}
+	diag.LogError(ctx, h.Log, msg, diag.AttrOpts{}, werr)
+}
+
 // ServeHTTP implements Messages create on POST …/messages.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -50,63 +59,66 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := reqbody.ReadAll(w, r, h.maxBodyLimit())
 	if err != nil {
 		if reqbody.TooLarge(err) {
-			WriteErrorJSON(w, http.StatusRequestEntityTooLarge, "request body too large", "invalid_request_error")
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusRequestEntityTooLarge, "request body too large", "invalid_request_error"))
 			return
 		}
-		WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error")
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error"))
 		return
 	}
 	if h.Exec == nil {
-		WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error")
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error"))
 		return
 	}
-
-	_ = r.Header.Get(HeaderAnthropicVersion)
 
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
 	if sel == "" {
 		sel = strings.TrimSpace(h.DefaultRouteSelector)
 	}
-	decoded, err := DecodeMessageRequest(body, DecodeOptions{RouteSelector: sel})
+	anthVer := strings.TrimSpace(r.Header.Get(HeaderAnthropicVersion))
+	decoded, err := DecodeMessageRequest(body, DecodeOptions{
+		RouteSelector:      sel,
+		AnthropicVersion:   anthVer,
+	})
 	if err != nil {
-		WriteErrorJSON(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
+		if h.Log != nil {
+			diag.LogError(ctx, h.Log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
+		}
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON", "invalid_request_error"))
 		return
 	}
 	call := decoded.Call
 	if err := call.Validate(); err != nil {
-		WriteErrorJSON(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
+		if h.Log != nil {
+			diag.LogError(ctx, h.Log, "validate call failed", diag.AttrOpts{CallID: call.ID}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
+		}
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request", "invalid_request_error"))
 		return
 	}
 
-	ctx := r.Context()
 	es, err := h.Exec.Execute(ctx, call)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
 		if out.Kind == execerr.InternalError && h.Log != nil && out.Err != nil {
-			h.Log.Error("execute failed", "error", out.Err)
+			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
 		errType := "api_error"
 		if out.Kind == execerr.ClientReject {
 			errType = "invalid_request_error"
 		}
-		WriteErrorJSON(w, out.Status, out.Message, errType)
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, errType))
 		return
 	}
 
 	opts := EncodeOptions{MessageID: "msg_" + diag.StableCallToken(call)}
 	if decoded.Stream {
 		if err := WriteStreamSSE(ctx, w, call, es, opts); err != nil {
-			if h.Log != nil {
-				h.Log.Error("stream encode failed", "error", err)
-			}
+			diag.LogError(ctx, h.Log, "stream encode failed", diag.AttrOpts{CallID: call.ID}, err)
 			return
 		}
 		return
 	}
 	if err := WriteNonStreamJSON(ctx, w, call, es, opts); err != nil {
-		if h.Log != nil {
-			h.Log.Error("non-stream encode failed", "error", err)
-		}
-		WriteErrorJSON(w, http.StatusInternalServerError, execerr.InternalWireMessage, "api_error")
+		diag.LogError(ctx, h.Log, "non-stream encode failed", diag.AttrOpts{CallID: call.ID}, err)
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusInternalServerError, execerr.InternalWireMessage, "api_error"))
 	}
 }

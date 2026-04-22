@@ -40,6 +40,13 @@ func LoadFile(path string) (*Config, error) {
 		cfg.Continuity.Store = "memory"
 	}
 
+	if strings.TrimSpace(cfg.Logging.Level) == "" {
+		cfg.Logging.Level = "info"
+	}
+	if strings.TrimSpace(cfg.Logging.Format) == "" {
+		cfg.Logging.Format = "json"
+	}
+
 	if err := Validate(&cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}

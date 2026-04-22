@@ -1,6 +1,7 @@
 package diag_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +41,10 @@ func TestHealthHandler_methodNotAllowed(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(diag.HealthHandler())
 	t.Cleanup(srv.Close)
-	req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	res, err := testkit.IntegrationHTTPClient(nil).Do(req)
 	if err != nil {
 		t.Fatal(err)

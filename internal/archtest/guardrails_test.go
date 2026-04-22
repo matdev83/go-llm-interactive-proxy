@@ -27,7 +27,6 @@ func TestLineComplexityBudgets(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	for _, b := range lineBudgets {
-		b := b
 		t.Run(b.dir, func(t *testing.T) {
 			t.Parallel()
 			n, err := countNonTestGoLines(filepath.Join(root, b.dir))
@@ -49,7 +48,6 @@ func TestStandardBundlePackagesHaveNoInitFunctions(t *testing.T) {
 		filepath.Join(root, "cmd", "lipstd"),
 	}
 	for _, dir := range dirs {
-		dir := dir
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			t.Parallel()
 			err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -152,7 +150,6 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 		filepath.Join(root, "internal", "stdhttp"),
 	}
 	for _, dir := range dirs {
-		dir := dir
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			t.Parallel()
 			var bad []string
@@ -194,7 +191,6 @@ func TestWiringRootsHaveNoPackageLevelPluginRegistryOrSyncOnce(t *testing.T) {
 		filepath.Join(root, "cmd", "lipstd"),
 	}
 	for _, dir := range dirs {
-		dir := dir
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			t.Parallel()
 			var badReg, badOnce []string
@@ -476,7 +472,7 @@ func repoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	dir := wd
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}

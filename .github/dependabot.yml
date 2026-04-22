@@ -6,12 +6,18 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     groups:
-      go-patch-and-minor:
+      # Patch-only PRs: safest routine bumps (semver patch promise).
+      go-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+      # Minor bumps reviewed separately; can include behavior/API changes.
+      go-minor:
         patterns:
           - "*"
         update-types:
           - "minor"
-          - "patch"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

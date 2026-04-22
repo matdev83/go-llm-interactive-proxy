@@ -3,6 +3,7 @@ package diag
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -40,7 +41,9 @@ func InventoryHandler(cfg *config.Config) (http.Handler, error) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(true)
-		_ = enc.Encode(snap)
+		if err := enc.Encode(snap); err != nil {
+			slog.Default().Error("diag: inventory encode", "err", err)
+		}
 	}), nil
 }
 

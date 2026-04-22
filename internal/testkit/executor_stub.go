@@ -2,7 +2,6 @@ package testkit
 
 import (
 	"context"
-	"math/rand"
 	"strings"
 	"sync"
 	"testing"
@@ -38,7 +37,7 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 	return &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(42)),
+		Rand:  routing.NewSeededRng(42),
 		Backends: map[string]runtime.Backend{
 			"stub": {
 				Caps: caps,
@@ -73,7 +72,7 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 	return &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(42)),
+		Rand:  routing.NewSeededRng(42),
 		Backends: map[string]runtime.Backend{
 			"stub": {
 				Caps: caps,

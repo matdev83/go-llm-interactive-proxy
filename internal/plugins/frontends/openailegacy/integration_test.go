@@ -60,20 +60,20 @@ func TestIntegration_refclientStreaming(t *testing.T) {
 			openai.UserMessage("hi"),
 		},
 	})
-	var got string
+	var got strings.Builder
 	for stream.Next() {
 		ch := stream.Current()
 		for _, c := range ch.Choices {
 			if c.Delta.Content != "" {
-				got += c.Delta.Content
+				got.WriteString(c.Delta.Content)
 			}
 		}
 	}
 	if err := stream.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if got != "stream-ok" {
-		t.Fatalf("delta content: got %q", got)
+	if got.String() != "stream-ok" {
+		t.Fatalf("delta content: got %q", got.String())
 	}
 }
 
@@ -267,12 +267,13 @@ func TestIntegration_toolStubRoundTrip_streaming(t *testing.T) {
 	if toolDeltas[0].Function.Name != "plan_fn" {
 		t.Fatalf("tool name: %q", toolDeltas[0].Function.Name)
 	}
-	var argsAcc string
+	var argsAcc strings.Builder
 	for _, td := range toolDeltas {
-		argsAcc += td.Function.Arguments
+		argsAcc.WriteString(td.Function.Arguments)
 	}
-	if !strings.Contains(argsAcc, `"q"`) {
-		t.Fatalf("accumulated tool args: %q", argsAcc)
+	acc := argsAcc.String()
+	if !strings.Contains(acc, `"q"`) {
+		t.Fatalf("accumulated tool args: %q", acc)
 	}
 }
 

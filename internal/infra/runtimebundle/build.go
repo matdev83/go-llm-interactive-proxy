@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
-	mathrand "math/rand"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -39,12 +38,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	reg := opts.PluginRegistry
 
-	upstream := httpclient.Standard()
+	upstream := httpclient.StandardWithTrustEnvironment(cfg.EffectiveTrustEnvironmentProxy())
 	if opts.HTTPClient != nil {
 		upstream = opts.HTTPClient
 	}
 
-	backends := make(map[string]runtime.Backend)
+	backends := make(map[string]runtime.Backend, len(cfg.Plugins.Backends))
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
 			continue
@@ -77,18 +76,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	capMap := make(capabilities.MapResolver, len(backends))
 	for id, be := range backends {
-		id, be := id, be
 		capMap[id] = func(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call) lipapi.BackendCaps {
 			return runtime.BackendEffectiveCaps(ctx, be, call, cand)
 		}
 	}
 
-	var rngSrc mathrand.Source
 	var seed int64
 	if err := binary.Read(crand.Reader, binary.LittleEndian, &seed); err != nil {
 		seed = time.Now().UnixNano()
 	}
-	rngSrc = mathrand.NewSource(seed)
 
 	nowFn := time.Now
 	if opts.Clock != nil {
@@ -102,7 +98,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		MaxAttempts:     cfg.Routing.MaxAttempts,
 		DefaultBackend:  defBE,
 		CapsResolver:    capMap,
-		Rand:            mathrand.New(rngSrc),
+		Rand:            routing.NewSeededRng(seed),
 		Now:             nowFn,
 		CandidateHealth: routingCandidateHealth(cfg, nowFn),
 		RouteObserver:   routeObserverFor(log),

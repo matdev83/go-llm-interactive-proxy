@@ -35,6 +35,16 @@ func TestStreamParamsForCall_textOnly(t *testing.T) {
 	}
 }
 
+func TestStreamParamsForCall_validateRejectsInvalidCall(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{ID: "bad", Messages: nil}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	_, err := backend.StreamParamsForCall(&call, cand)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
 func TestStreamParamsForCall_modelFromExtensions(t *testing.T) {
 	t.Parallel()
 	rawModel, _ := json.Marshal("gemini-2.0-flash")

@@ -16,7 +16,7 @@ func ModuleRoot(tb testing.TB) string {
 		tb.Fatal("runtime.Caller failed")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		mod := filepath.Join(dir, "go.mod")
 		if _, err := os.Stat(mod); err == nil {
 			return dir

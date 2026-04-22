@@ -10,10 +10,10 @@ func BenchmarkPendingEventQueue_pushPop(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
 		var q PendingEventQueue
-		for i := 0; i < 256; i++ {
+		for range 256 {
 			q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "d"})
 		}
-		for i := 0; i < 256; i++ {
+		for range 256 {
 			if _, ok := q.PopFront(); !ok {
 				b.Fatal("pop")
 			}

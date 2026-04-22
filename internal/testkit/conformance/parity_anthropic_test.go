@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -9,14 +10,7 @@ import (
 
 func TestParity_Anthropic_bundledFrontend(t *testing.T) {
 	t.Parallel()
-	var found bool
-	for _, id := range BundledFrontendIDs() {
-		if id == "anthropic" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(BundledFrontendIDs(), "anthropic") {
 		t.Fatal("expected anthropic in BundledFrontendIDs")
 	}
 }

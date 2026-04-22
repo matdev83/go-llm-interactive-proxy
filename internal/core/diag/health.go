@@ -17,7 +17,14 @@ func HealthHandler() http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		b, err := json.Marshal(HealthResponse{Status: "ok"})
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+		if _, err := w.Write(b); err != nil {
+			return
+		}
 	})
 }

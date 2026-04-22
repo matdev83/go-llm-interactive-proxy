@@ -2,7 +2,9 @@ package reqbody_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -37,5 +39,14 @@ func TestTooLarge_falseOnOtherErrors(t *testing.T) {
 	t.Parallel()
 	if reqbody.TooLarge(nil) || reqbody.TooLarge(io.EOF) {
 		t.Fatal("expected false")
+	}
+}
+
+func TestTooLarge_maxBytesErrorWrapped(t *testing.T) {
+	t.Parallel()
+	base := &http.MaxBytesError{Limit: 99}
+	wrapped := fmt.Errorf("upstream: %w", base)
+	if !reqbody.TooLarge(wrapped) {
+		t.Fatal("expected TooLarge for errors.As(*http.MaxBytesError)")
 	}
 }

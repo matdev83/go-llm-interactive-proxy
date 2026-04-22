@@ -491,12 +491,12 @@ func TestDecodeMessage_toolChoiceObject(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
-			body := []byte(fmt.Sprintf(`{
+			body := fmt.Appendf(nil, `{
 			  "model": "claude-3",
 			  "max_tokens": 64,
 			  "messages": [{"role":"user","content":"hi"}],
 			  "tool_choice": %s
-			}`, tc.toolChoice))
+			}`, tc.toolChoice)
 			d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{RouteSelector: "stub:claude-3"})
 			if tc.wantErr {
 				if err == nil {

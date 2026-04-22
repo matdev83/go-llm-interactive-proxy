@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -9,14 +10,7 @@ import (
 
 func TestParity_Bedrock_bundledBackend(t *testing.T) {
 	t.Parallel()
-	var found bool
-	for _, id := range BundledBackendIDs() {
-		if id == "bedrock" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(BundledBackendIDs(), "bedrock") {
 		t.Fatal("expected bedrock in BundledBackendIDs")
 	}
 }

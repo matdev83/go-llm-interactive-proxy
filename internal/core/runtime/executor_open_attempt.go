@@ -110,13 +110,13 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	stream, err := be.Open(p.ctx, openCall, c)
 	if err != nil {
 		if lipapi.IsRecoverablePreOutput(err) {
-			_ = e.recordAttempt(p.ctx, recordAttemptParams{
+			e.recordAttemptLogged(p.ctx, recordAttemptParams{
 				ALegID:  p.aLegID,
 				BLeg:    bleg,
 				Cand:    c,
 				Outcome: lipapi.AttemptSwallowedFailure,
 				Reason:  "recoverable pre-output (open)",
-			})
+			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 			diag.LogDecision(p.ctx, e.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
@@ -124,13 +124,13 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			p.excluded[c.Key] = struct{}{}
 			return zero, nil
 		}
-		_ = e.recordAttempt(p.ctx, recordAttemptParams{
+		e.recordAttemptLogged(p.ctx, recordAttemptParams{
 			ALegID:  p.aLegID,
 			BLeg:    bleg,
 			Cand:    c,
 			Outcome: lipapi.AttemptSurfacedFailure,
 			Reason:  err.Error(),
-		})
+		}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 		return zero, err
 	}
 	diag.LogDecision(p.ctx, e.Log, "backend_stream_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},

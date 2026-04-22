@@ -3,6 +3,7 @@ package b2bua_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+func assertOpaqueALegID(t *testing.T, id string) {
+	t.Helper()
+	if len(id) != 2+32 || !strings.HasPrefix(id, "a_") {
+		t.Fatalf("unexpected A-leg id shape: %q", id)
+	}
+}
+
+func assertOpaqueBLegID(t *testing.T, id string) {
+	t.Helper()
+	if len(id) != 2+32 || !strings.HasPrefix(id, "b_") {
+		t.Fatalf("unexpected B-leg id shape: %q", id)
+	}
+}
 
 func TestMemoryStore_Resolve_requiresNonEmptyKey(t *testing.T) {
 	t.Parallel()
@@ -52,9 +67,11 @@ func TestMemoryStore_Create_emptyContinuityKey_alwaysNewSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a1.ALegID != "a_000001" || a2.ALegID != "a_000002" {
-		t.Fatalf("A-legs: got %q and %q", a1.ALegID, a2.ALegID)
+	if a1.ALegID == a2.ALegID {
+		t.Fatalf("expected distinct A-leg ids, got %q", a1.ALegID)
 	}
+	assertOpaqueALegID(t, a1.ALegID)
+	assertOpaqueALegID(t, a2.ALegID)
 	_, err = s.ResolveALeg(ctx, "")
 	if !errors.Is(err, b2bua.ErrInvalidContinuityKey) {
 		t.Fatalf("Resolve: %v", err)
@@ -84,9 +101,11 @@ func TestMemoryStore_Create_sameContinuityKeyReplacesOldALeg(t *testing.T) {
 	if resolved.ALegID != a2.ALegID {
 		t.Fatalf("Resolve: want %q got %q", a2.ALegID, resolved.ALegID)
 	}
-	if a1.ALegID != "a_000001" || a2.ALegID != "a_000002" {
-		t.Fatalf("A-leg ids: %q %q", a1.ALegID, a2.ALegID)
+	if a1.ALegID == a2.ALegID {
+		t.Fatalf("expected distinct A-leg ids, got %q", a1.ALegID)
 	}
+	assertOpaqueALegID(t, a1.ALegID)
+	assertOpaqueALegID(t, a2.ALegID)
 	_, err = s.GetALeg(ctx, a1.ALegID)
 	if !errors.Is(err, b2bua.ErrALegNotFound) {
 		t.Fatalf("old A-leg should be removed, got %v", err)
@@ -111,9 +130,7 @@ func TestMemoryStore_ResolveCreate_roundTripContinuity(t *testing.T) {
 	if created.ContinuityKey != key {
 		t.Fatalf("ContinuityKey: got %q", created.ContinuityKey)
 	}
-	if created.ALegID != "a_000001" {
-		t.Fatalf("ALegID: got %q", created.ALegID)
-	}
+	assertOpaqueALegID(t, created.ALegID)
 	resolved, err := s.ResolveALeg(ctx, key)
 	if err != nil {
 		t.Fatal(err)
@@ -176,9 +193,11 @@ func TestMemoryStore_NextBLeg_monotonicSeq(t *testing.T) {
 	if b1.Seq != 1 || b2.Seq != 2 {
 		t.Fatalf("seq want 1,2 got %d,%d", b1.Seq, b2.Seq)
 	}
-	if b1.BLegID != "b_000001" || b2.BLegID != "b_000002" {
-		t.Fatalf("B-leg ids: %q %q", b1.BLegID, b2.BLegID)
+	if b1.BLegID == b2.BLegID {
+		t.Fatalf("expected distinct B-leg ids, got %q", b1.BLegID)
 	}
+	assertOpaqueBLegID(t, b1.BLegID)
+	assertOpaqueBLegID(t, b2.BLegID)
 	if b1.ALegID != a.ALegID || b2.ALegID != a.ALegID {
 		t.Fatal("ALegID mismatch on B-leg")
 	}
@@ -290,12 +309,10 @@ func TestMemoryStore_NextBLeg_concurrentUniqueSeq(t *testing.T) {
 	a, _ := s.CreateALeg(ctx, "race-key")
 	const n = 64
 	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			_, _ = s.NextBLeg(ctx, a.ALegID)
-		}()
+		})
 	}
 	wg.Wait()
 	b, err := s.NextBLeg(ctx, a.ALegID)

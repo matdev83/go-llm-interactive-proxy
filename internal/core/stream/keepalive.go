@@ -124,6 +124,8 @@ func (k *Keepalive) startReader() {
 					return
 				default:
 				}
+				// Detached cancel tree: the reader goroutine must not inherit the outer Recv
+				// deadline; the consumer's ctx only aborts the inner read via AfterFunc/Close.
 				innerCtx, cancelInner := context.WithCancel(context.Background())
 				k.setAbortRead(cancelInner)
 				ev, err := k.inner.Recv(innerCtx)

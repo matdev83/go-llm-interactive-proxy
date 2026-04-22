@@ -129,7 +129,9 @@ func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 func TestWriteErrorJSON_preOutputShape(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()
-	openairesponses.WriteErrorJSON(rec, 400, "bad", "invalid_request_error", "empty")
+	if err := openairesponses.WriteErrorJSON(rec, 400, "bad", "invalid_request_error", "empty"); err != nil {
+		t.Fatal(err)
+	}
 	if rec.Code != 400 {
 		t.Fatal(rec.Code)
 	}

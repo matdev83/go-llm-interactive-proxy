@@ -34,20 +34,20 @@ func TestHandleChunk_toolCallsStreamingFromJSON(t *testing.T) {
 			s.handleChunk(ch)
 		})
 	}
-	var args string
+	var args strings.Builder
 	var sawFinish bool
 	for _, ev := range stream.DrainPending(&s.pending) {
 		switch ev.Kind {
 		case lipapi.EventToolCallArgsDelta:
-			args += ev.Delta
+			args.WriteString(ev.Delta)
 		case lipapi.EventToolCallFinished:
 			if ev.ToolCallID == "call_ab" {
 				sawFinish = true
 			}
 		}
 	}
-	if args != `{"city":"NYC"}` {
-		t.Fatalf("concat args: %q", args)
+	if got := args.String(); got != `{"city":"NYC"}` {
+		t.Fatalf("concat args: %q", got)
 	}
 	if !sawFinish {
 		t.Fatal("expected ToolCallFinished for call_ab")

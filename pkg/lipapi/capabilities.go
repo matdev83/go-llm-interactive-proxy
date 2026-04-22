@@ -1,5 +1,7 @@
 package lipapi
 
+import "slices"
+
 // CapabilitySet is a declared capability bundle for a plugin registration surface.
 type CapabilitySet struct {
 	Provides []Capability
@@ -58,24 +60,26 @@ func (r NegotiationResult) Err() error {
 func RequiredCapabilities(c Call) []Capability {
 	out := []Capability{}
 	add := func(cap Capability) {
-		for _, existing := range out {
-			if existing == cap {
-				return
-			}
+		if slices.Contains(out, cap) {
+			return
 		}
 		out = append(out, cap)
 	}
 
-	for _, m := range append(append([]Message{}, c.Instructions...), c.Messages...) {
-		for _, p := range m.Parts {
-			if p.Kind == PartImageRef {
-				add(CapabilityVision)
-			}
-			if p.Kind == PartFileRef {
-				add(CapabilityDocuments)
+	scanMessageParts := func(msgs []Message) {
+		for _, m := range msgs {
+			for _, p := range m.Parts {
+				if p.Kind == PartImageRef {
+					add(CapabilityVision)
+				}
+				if p.Kind == PartFileRef {
+					add(CapabilityDocuments)
+				}
 			}
 		}
 	}
+	scanMessageParts(c.Instructions)
+	scanMessageParts(c.Messages)
 	if len(c.Tools) > 0 {
 		add(CapabilityTools)
 	}

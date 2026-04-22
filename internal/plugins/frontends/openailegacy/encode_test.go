@@ -131,7 +131,9 @@ func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 func TestWriteErrorJSON_shape(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()
-	openailegacy.WriteErrorJSON(rec, 400, "bad", "invalid_request_error", "empty")
+	if err := openailegacy.WriteErrorJSON(rec, 400, "bad", "invalid_request_error", "empty"); err != nil {
+		t.Fatal(err)
+	}
 	if rec.Code != 400 {
 		t.Fatal(rec.Code)
 	}

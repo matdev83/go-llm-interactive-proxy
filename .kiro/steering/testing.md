@@ -28,6 +28,8 @@ Use package-local tests for:
 
 **Build tags:** This repo does **not** use `//go:build integration` on `integration_test.go` files. Those files are **fast, deterministic** composed tests (`httptest` + stub executor/backends, no real provider network). They belong in the default `go test ./...` / `make test` suite so every PR exercises decode/handler/refclient wiring. If we add tests that hit real networks, long-lived containers, or shared external state, gate them with `//go:build integration` **or** `testing.Short()` skips and run them in a separate CI job.
 
+**`precommit` tag:** A small set of non-blocking checks (repo root hygiene under `internal/qa/`, and large executor regression matrices under `internal/core/runtime/`) use `//go:build precommit`. Default `make test` / `go test ./...` omits them; `make test-precommit-extra`, the git pre-commit quality gate, `make qa`, and CI unit tests run `go test -tags=precommit` so pushes still exercise them.
+
 Use composed tests with `httptest` and stub plugins/providers for:
 - frontend decode -> core -> backend -> frontend encode flows,
 - cancellation and timeout behavior,

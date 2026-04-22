@@ -95,13 +95,13 @@ func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 		})
 	}
 	var names []string
-	var args string
+	var args strings.Builder
 	for _, ev := range stream.DrainPending(&s.pending) {
 		switch ev.Kind {
 		case lipapi.EventToolCallStarted:
 			names = append(names, ev.ToolName)
 		case lipapi.EventToolCallArgsDelta:
-			args += ev.Delta
+			args.WriteString(ev.Delta)
 		case lipapi.EventToolCallFinished:
 			if ev.ToolCallID != "toolu_01" {
 				t.Fatalf("finish id: %q", ev.ToolCallID)
@@ -111,8 +111,8 @@ func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 	if len(names) != 1 || names[0] != "get_weather" {
 		t.Fatalf("tool names: %v", names)
 	}
-	if args != `{"city":"NYC"}` {
-		t.Fatalf("args concatenated: %q", args)
+	if got := args.String(); got != `{"city":"NYC"}` {
+		t.Fatalf("args concatenated: %q", got)
 	}
 }
 

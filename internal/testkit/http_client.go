@@ -1,12 +1,16 @@
 package testkit
 
-import "net/http"
+import (
+	"net/http"
 
-// IntegrationHTTPClient returns c when non-nil; otherwise it returns the shared client used for
-// black-box HTTP integration tests (same behavior as http.DefaultClient).
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
+)
+
+// IntegrationHTTPClient returns c when non-nil; otherwise it returns [httpclient.Standard]
+// so integration tests match production outbound pooling and timeouts (not [http.DefaultClient]).
 func IntegrationHTTPClient(c *http.Client) *http.Client {
 	if c != nil {
 		return c
 	}
-	return http.DefaultClient
+	return httpclient.Standard()
 }

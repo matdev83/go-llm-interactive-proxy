@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
@@ -65,7 +66,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (responses.
 
 	items, err := buildInputItems(call)
 	if err != nil {
-		return responses.ResponseNewParams{}, err
+		return responses.ResponseNewParams{}, fmt.Errorf("openairesponses: build input items: %w", err)
 	}
 	p.Input = responses.ResponseNewParamsInputUnion{
 		OfInputItemList: items,
@@ -74,7 +75,7 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (responses.
 	if len(call.Tools) > 0 {
 		tools, err := buildTools(call.Tools)
 		if err != nil {
-			return responses.ResponseNewParams{}, err
+			return responses.ResponseNewParams{}, fmt.Errorf("openairesponses: build tools: %w", err)
 		}
 		p.Tools = tools
 		p.ToolChoice = toolChoiceUnion(call.ToolChoice, len(call.Tools))
@@ -141,7 +142,7 @@ func buildInputItems(call *lipapi.Call) ([]responses.ResponseInputItemUnionParam
 		}
 		it, err := messageToInputItem(m)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("openairesponses: input item: %w", err)
 		}
 		items = append(items, it)
 	}
@@ -192,7 +193,7 @@ func partToFunctionCallInputItem(p lipapi.Part) (responses.ResponseInputItemUnio
 		return responses.ResponseInputItemUnionParam{}, false
 	}
 	argStr := "{}"
-	if len(v.Arguments) > 0 && string(v.Arguments) != "null" {
+	if jsonutil.IsPresentNonNullJSON(v.Arguments) {
 		switch v.Arguments[0] {
 		case '"':
 			var s string
@@ -305,21 +306,20 @@ func fileDataFromPart(p lipapi.Part) (dataB64, filename string, err error) {
 }
 
 func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	if !strings.HasPrefix(dataURL, "data:") {
+	rest, ok := strings.CutPrefix(dataURL, "data:")
+	if !ok {
 		return "", "", false
 	}
-	rest := strings.TrimPrefix(dataURL, "data:")
-	semi := strings.Index(rest, ";")
-	if semi < 0 {
+	mime, enc, found := strings.Cut(rest, ";")
+	if !found {
 		return "", "", false
 	}
-	mime = rest[:semi]
-	enc := rest[semi+1:]
 	const prefix = "base64,"
-	if !strings.HasPrefix(enc, prefix) {
+	encBody, ok := strings.CutPrefix(enc, prefix)
+	if !ok {
 		return "", "", false
 	}
-	return mime, enc[len(prefix):], true
+	return mime, encBody, true
 }
 
 func buildTools(tools []lipapi.ToolDef) ([]responses.ToolUnionParam, error) {

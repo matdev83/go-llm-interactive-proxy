@@ -27,7 +27,10 @@ func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("sqlitestore: empty path")
 	}
-	dsn := "file:" + strings.ReplaceAll(path, `\`, `/`) + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)"
+	dsn, err := sqliteFileDSN(path)
+	if err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlitestore: open: %w", err)
@@ -39,6 +42,16 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// sqliteFileDSN builds a modernc.org/sqlite driver URI with pragma query parameters.
+// path must not contain NUL, '?', '#', or '&' (validated at config load); backslashes become slashes.
+func sqliteFileDSN(path string) (string, error) {
+	p := strings.ReplaceAll(strings.TrimSpace(path), `\`, `/`)
+	if strings.ContainsAny(p, "\x00?#&") {
+		return "", fmt.Errorf("sqlitestore: sqlite path contains invalid character")
+	}
+	return "file:" + p + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", nil
 }
 
 // New returns a Store backed by db after applying schema migration. Closing the store closes db.
@@ -158,11 +171,10 @@ func (s *Store) CreateALeg(ctx context.Context, continuityKey string) (b2bua.ALe
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var next int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(substr(a_leg_id, 3) AS INTEGER)), 0) + 1 FROM a_legs WHERE a_leg_id LIKE 'a_%'`).Scan(&next); err != nil {
+	aID, err := b2bua.RandomALegID()
+	if err != nil {
 		return b2bua.ALegRecord{}, err
 	}
-	aID := fmt.Sprintf("a_%06d", next)
 
 	if continuityKey != "" {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM a_legs WHERE continuity_key = ?`, continuityKey); err != nil {
@@ -255,11 +267,10 @@ func (s *Store) NextBLeg(ctx context.Context, aLegID string) (b2bua.BLegRecord, 
 		return b2bua.BLegRecord{}, err
 	}
 	nextSeq++
-	var bNext int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(substr(b_leg_id, 3) AS INTEGER)), 0) + 1 FROM b_legs WHERE b_leg_id LIKE 'b_%'`).Scan(&bNext); err != nil {
+	bID, err := b2bua.RandomBLegID()
+	if err != nil {
 		return b2bua.BLegRecord{}, err
 	}
-	bID := fmt.Sprintf("b_%06d", bNext)
 	if _, err := tx.ExecContext(ctx, `UPDATE a_legs SET next_b_seq = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
 		nextSeq, time.Now().UnixNano(), aLegID); err != nil {
 		return b2bua.BLegRecord{}, err
@@ -320,7 +331,7 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	out := []lipapi.AttemptRecord{}
+	out := make([]lipapi.AttemptRecord, 0, 8)
 	for rows.Next() {
 		var r lipapi.AttemptRecord
 		var st, ft int64

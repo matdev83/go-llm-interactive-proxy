@@ -2,7 +2,7 @@ package runtime_test
 
 import (
 	"context"
-	"math/rand"
+	randv2 "math/rand/v2"
 	"sync"
 	"testing"
 
@@ -38,15 +38,13 @@ func TestExecutor_concurrentExecute_sharedEmptyHooksBus(t *testing.T) {
 				},
 			},
 		},
-		Rand: rand.New(rand.NewSource(99)),
+		Rand: routing.WrapRandV2(randv2.New(randv2.NewPCG(99, 0))),
 	}
 
 	const n = 64
 	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			call := &lipapi.Call{
 				Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 				Messages: []lipapi.Message{{
@@ -59,18 +57,18 @@ func TestExecutor_concurrentExecute_sharedEmptyHooksBus(t *testing.T) {
 				t.Errorf("Execute: %v", err)
 				return
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
 
-// TestExecutor_concurrentExecute_sharedRand_weighted exercises a single *math/rand.Rand
+// TestExecutor_concurrentExecute_sharedRand_weighted exercises a single *rand/v2.Rand
 // across concurrent Execute calls while weighted routing calls Intn. Without
-// serialization this is a data race (see math/rand.Rand docs). Verified under
+// serialization this is a data race (see math/rand/v2.Rand docs). Verified under
 // go test -race on platforms where the race runtime can be initialized.
 func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 	t.Parallel()
-	r := rand.New(rand.NewSource(17))
+	r := randv2.New(randv2.NewPCG(17, 0))
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +86,7 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  r,
+		Rand:  routing.WrapRandV2(r),
 		Backends: map[string]runtime.Backend{
 			"a": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
 			"b": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
@@ -96,11 +94,9 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 	}
 	const n = 64
 	var wg sync.WaitGroup
-	wg.Add(n)
 	sel := "[weight=1]a:m1^[weight=1]b:m2"
 	for range n {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			call := &lipapi.Call{
 				Route: lipapi.RouteIntent{Selector: sel},
 				Messages: []lipapi.Message{{
@@ -112,7 +108,7 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 			if err != nil {
 				t.Errorf("Execute: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

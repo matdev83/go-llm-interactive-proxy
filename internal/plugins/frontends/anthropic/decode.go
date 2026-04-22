@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -18,6 +19,8 @@ const (
 type DecodeOptions struct {
 	// RouteSelector is required (e.g. "stub:claude-3-5-haiku"); usually from X-LIP-Route header.
 	RouteSelector string
+	// AnthropicVersion is the optional anthropic-version header; empty means default for decode.
+	AnthropicVersion string
 }
 
 // DecodedMessage is the result of decoding POST /v1/messages JSON.
@@ -43,6 +46,7 @@ type wireCreate struct {
 
 // DecodeMessageRequest maps Anthropic Messages JSON into a canonical call.
 func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, error) {
+	_ = opts.AnthropicVersion // optional header; wire compatibility (see package doc).
 	sel := strings.TrimSpace(opts.RouteSelector)
 	if sel == "" {
 		return nil, errors.New("anthropic: route selector is required")
@@ -64,24 +68,24 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 
 	instructions, err := parseSystem(w.System)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("anthropic: system: %w", err)
 	}
 	msgs, err := parseAnthropicMessages(w.Messages)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("anthropic: messages: %w", err)
 	}
 	tools, err := parseTools(w.Tools)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("anthropic: tools: %w", err)
 	}
 	toolChoice, err := parseToolChoice(w.ToolChoice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("anthropic: tool_choice: %w", err)
 	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("anthropic: marshal model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
 
@@ -105,7 +109,7 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 }
 
 func parseSystem(raw json.RawMessage) ([]lipapi.Message, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	// Plain string system prompt.
@@ -178,7 +182,7 @@ func mapAnthropicRole(r string) (lipapi.Role, error) {
 }
 
 func parseMessageContent(raw json.RawMessage) ([]lipapi.Part, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("anthropic: message content is required")
 	}
 	// Shorthand string content.
@@ -318,7 +322,7 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		}
 		// Content may be a string or array of text blocks; flatten to plain text.
 		var resultText string
-		if len(w.Content) > 0 && string(w.Content) != "null" {
+		if jsonutil.IsPresentNonNullJSON(w.Content) {
 			var s string
 			if err := json.Unmarshal(w.Content, &s); err == nil {
 				resultText = s
@@ -350,7 +354,7 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -384,7 +388,7 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 	}
 	var s string

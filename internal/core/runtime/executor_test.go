@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"math/rand"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -49,7 +48,7 @@ func TestExecutor_happyPath_collectNonStreaming(t *testing.T) {
 				},
 			},
 		},
-		Rand: rand.New(rand.NewSource(3)),
+		Rand: routing.NewSeededRng(3),
 	}
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
@@ -93,7 +92,7 @@ func TestExecutor_capabilityRejectBeforeBackendOpen(t *testing.T) {
 				},
 			},
 		},
-		Rand: rand.New(rand.NewSource(1)),
+		Rand: routing.NewSeededRng(1),
 	}
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "nope:g"},
@@ -129,7 +128,7 @@ func TestExecutor_preOutputRecoverableSwallowsAndLineage(t *testing.T) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Now:   func() time.Time { return clock },
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -200,7 +199,7 @@ func TestExecutor_preOutputMultiOpenFailuresThenSuccess(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -260,7 +259,7 @@ func TestExecutor_postOutputNoSecondBackendOpen(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"one": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -348,7 +347,7 @@ func TestExecutor_cancellationRecordsAttempt(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"slow": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -421,7 +420,7 @@ func TestExecutor_applyNegotiatedDowngradesReasoning(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -467,7 +466,7 @@ func TestExecutor_backendOpen_contextCarriesTraceAndALeg(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(2)),
+		Rand:  routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -514,7 +513,7 @@ func TestExecutor_traceUsesCallIDWhenPresent(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(2)),
+		Rand:  routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -559,7 +558,7 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Log:   log,
-		Rand:  rand.New(rand.NewSource(2)),
+		Rand:  routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -590,7 +589,7 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 		t.Fatalf("log missing backend_stream_opened: %s", string(dec))
 	}
 	var found bool
-	for _, line := range bytes.Split(dec, []byte{'\n'}) {
+	for line := range bytes.SplitSeq(dec, []byte("\n")) {
 		if len(line) == 0 {
 			continue
 		}
@@ -618,7 +617,7 @@ func TestExecutor_routeQueryMergesIntoGenerationOptions(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -667,7 +666,7 @@ func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -714,7 +713,7 @@ func TestExecutor_callID_matchesAssignedTrace(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(2)),
+		Rand:  routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -765,7 +764,7 @@ func TestExecutor_requestPartHook_metaIncludesBLeg(t *testing.T) {
 		Bus: hooks.New(hooks.Config{
 			RequestPartHooks: []sdk.RequestPartHook{reqHook},
 		}),
-		Rand: rand.New(rand.NewSource(2)),
+		Rand: routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -824,7 +823,7 @@ func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
 			ResponsePartHooks: []sdk.ResponsePartHook{respHook},
 			ToolReactors:      []sdk.ToolReactor{toolHook},
 		}),
-		Rand: rand.New(rand.NewSource(2)),
+		Rand: routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -886,7 +885,7 @@ func TestExecutor_downgradeNotStickyAcrossRetries(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -937,7 +936,7 @@ func TestExecutor_maxAttemptsBlocksFurtherBLegs(t *testing.T) {
 		Store:       st,
 		Bus:         hooks.New(hooks.Config{}),
 		MaxAttempts: 2,
-		Rand:        rand.New(rand.NewSource(1)),
+		Rand:        routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"a": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -987,7 +986,7 @@ func TestExecutor_modelOnlySelectorUsesDefaultBackend(t *testing.T) {
 		Store:          st,
 		Bus:            hooks.New(hooks.Config{}),
 		DefaultBackend: "openai",
-		Rand:           rand.New(rand.NewSource(2)),
+		Rand:           routing.NewSeededRng(2),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -1024,7 +1023,7 @@ func TestExecutor_execute_nilContext(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"x": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -1056,7 +1055,7 @@ func TestExecutor_Execute_nilHookBus(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   nil,
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"x": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),

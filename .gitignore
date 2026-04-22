@@ -1,6 +1,8 @@
 # Binaries
 /bin/
 /dist/
+# Literal "%TEMP%" folder if env var was not expanded when building (Windows)
+/%TEMP%/
 *.exe
 *.dll
 *.so

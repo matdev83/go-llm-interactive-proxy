@@ -13,7 +13,7 @@ type AttrOpts struct {
 
 // Attrs builds stable slog attributes for orchestration and lineage logs (Req 13.2, 13.3).
 func Attrs(ctx context.Context, o AttrOpts) []slog.Attr {
-	out := []slog.Attr{}
+	out := make([]slog.Attr, 0, 4)
 	if tid := TraceID(ctx); tid != "" {
 		out = append(out, slog.String("trace_id", tid))
 	}
@@ -39,4 +39,29 @@ func LogDecision(ctx context.Context, log *slog.Logger, msg string, o AttrOpts, 
 	attrs = append(attrs, base...)
 	attrs = append(attrs, extra...)
 	log.LogAttrs(ctx, slog.LevelInfo, msg, attrs...)
+}
+
+// LogError emits a structured error log with lineage attrs from ctx when log and err are non-nil.
+func LogError(ctx context.Context, log *slog.Logger, msg string, o AttrOpts, err error, extra ...slog.Attr) {
+	if log == nil || err == nil {
+		return
+	}
+	base := Attrs(ctx, o)
+	attrs := make([]slog.Attr, 0, len(base)+1+len(extra))
+	attrs = append(attrs, base...)
+	attrs = append(attrs, slog.Any("error", err))
+	attrs = append(attrs, extra...)
+	log.LogAttrs(ctx, slog.LevelError, msg, attrs...)
+}
+
+// TruncErrDetail returns err.Error() truncated to max runes for log attributes (never for client-visible text).
+func TruncErrDetail(err error, max int) string {
+	if err == nil || max <= 0 {
+		return ""
+	}
+	r := []rune(err.Error())
+	if len(r) <= max {
+		return string(r)
+	}
+	return string(r[:max])
 }

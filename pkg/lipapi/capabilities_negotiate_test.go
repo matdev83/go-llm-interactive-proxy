@@ -2,6 +2,7 @@ package lipapi_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -156,6 +157,33 @@ func TestApplyNegotiatedDowngrades_stripsSoftCapabilities(t *testing.T) {
 	}
 }
 
+func TestRequiredCapabilities_scansInstructionsAndMessages(t *testing.T) {
+	t.Parallel()
+
+	call := lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role: lipapi.RoleUser,
+			Parts: []lipapi.Part{{
+				Kind:     lipapi.PartImageRef,
+				ImageRef: "https://example.com/x.png",
+			}},
+		}},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser,
+			Parts: []lipapi.Part{
+				lipapi.FilePart("file-123", "application/pdf", "doc.pdf"),
+			},
+		}},
+	}
+	got := lipapi.RequiredCapabilities(call)
+	if !slices.Contains(got, lipapi.CapabilityVision) {
+		t.Fatalf("expected vision from instructions: %v", got)
+	}
+	if !slices.Contains(got, lipapi.CapabilityDocuments) {
+		t.Fatalf("expected documents from messages: %v", got)
+	}
+}
+
 func TestRequiredCapabilities_fileRefRequiresDocuments(t *testing.T) {
 	t.Parallel()
 
@@ -168,14 +196,7 @@ func TestRequiredCapabilities_fileRefRequiresDocuments(t *testing.T) {
 		}},
 	}
 	got := lipapi.RequiredCapabilities(call)
-	found := false
-	for _, c := range got {
-		if c == lipapi.CapabilityDocuments {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(got, lipapi.CapabilityDocuments) {
 		t.Fatalf("expected CapabilityDocuments in %v", got)
 	}
 }

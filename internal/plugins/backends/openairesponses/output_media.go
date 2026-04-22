@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -61,7 +62,7 @@ func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) {
 }
 
 func extractImageURL(raw json.RawMessage) string {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return ""
 	}
 	var s string

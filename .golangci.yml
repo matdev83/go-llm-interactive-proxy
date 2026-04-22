@@ -1,10 +1,11 @@
+version: "2"
+
 run:
   timeout: 10m
-  # Test files are included so paralleltest/thelper can enforce subtest hygiene.
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - staticcheck
     - govet
@@ -15,25 +16,24 @@ linters:
     - errcheck
     - paralleltest
     - thelper
-    - gofumpt
-    # lll, gocritic, wsl (see AGENTS.md): enable incrementally; current tree has
-    # intentional long lines (wire fixtures, refclient method signatures) and
-    # widespread wsl false positives in pkg/lipapi/.
+    - modernize
+  settings:
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: indent-error-flow
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
 
-linters-settings:
-  revive:
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: indent-error-flow
-      # Bootstrap scaffold: many packages are placeholders; re-enable when APIs stabilize.
-      - name: exported
-        disabled: true
-      - name: package-comments
-        disabled: true
+formatters:
+  enable:
+    - gofumpt
 
 issues:
   exclude-use-default: false

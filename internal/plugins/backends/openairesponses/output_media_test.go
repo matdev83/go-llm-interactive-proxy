@@ -2,6 +2,7 @@ package openairesponses
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -82,18 +83,18 @@ func TestHandleUnion_completed_emitsAssistantMediaAfterText(t *testing.T) {
 	s := &sdkStream{}
 	s.handleUnion(u)
 	evs := stream.DrainPending(&s.pending)
-	var gotText string
+	var gotText strings.Builder
 	var img string
 	for _, ev := range evs {
 		switch ev.Kind {
 		case lipapi.EventTextDelta:
-			gotText += ev.Delta
+			gotText.WriteString(ev.Delta)
 		case lipapi.EventAssistantImageRef:
 			img = ev.AssistantRef
 		}
 	}
-	if gotText != "see" {
-		t.Fatalf("text %q", gotText)
+	if got := gotText.String(); got != "see" {
+		t.Fatalf("text %q", got)
 	}
 	if img != "https://img.example/x.png" {
 		t.Fatalf("image ref %q", img)

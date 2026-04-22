@@ -24,6 +24,16 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestConverseStreamInputForCall_validateRejectsInvalidCall(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{ID: "bad", Messages: nil}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "m"}}
+	_, err := backend.ConverseStreamInputForCall(&call, cand)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
 func TestConverseStreamInputForCall_textOnly(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{

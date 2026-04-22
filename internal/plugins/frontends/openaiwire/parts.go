@@ -14,11 +14,9 @@ func MarshalBlock(blk map[string]json.RawMessage) ([]byte, error) {
 // ImagePartFromURL maps a URL or data-URL string to a canonical image part.
 func ImagePartFromURL(imageURL string) (lipapi.Part, error) {
 	p := lipapi.Part{Kind: lipapi.PartImageRef, ImageRef: imageURL}
-	if strings.HasPrefix(imageURL, "data:") {
-		rest := strings.TrimPrefix(imageURL, "data:")
-		semi := strings.Index(rest, ";")
-		if semi > 0 {
-			p.ImageMIME = rest[:semi]
+	if rest, ok := strings.CutPrefix(imageURL, "data:"); ok {
+		if mimePart, _, found := strings.Cut(rest, ";"); found && mimePart != "" {
+			p.ImageMIME = mimePart
 		}
 	}
 	return p, nil

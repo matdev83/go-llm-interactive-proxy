@@ -399,7 +399,10 @@ func TestIntegration_anthropicVersionHeader_accepted(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	body := `{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/messages", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/v1/messages", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(front.HeaderAnthropicVersion, "2023-06-01")
 	res, err := testkit.IntegrationHTTPClient(nil).Do(req)

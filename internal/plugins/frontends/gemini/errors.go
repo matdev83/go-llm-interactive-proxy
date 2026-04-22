@@ -14,7 +14,7 @@ type wireAPIError struct {
 }
 
 // WriteErrorJSON writes a Google-style JSON error for generateContent failures.
-func WriteErrorJSON(w http.ResponseWriter, status int, message string) {
+func WriteErrorJSON(w http.ResponseWriter, status int, message string) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	var we wireAPIError
@@ -28,5 +28,5 @@ func WriteErrorJSON(w http.ResponseWriter, status int, message string) {
 	default:
 		we.Error.Status = "UNKNOWN"
 	}
-	_ = json.NewEncoder(w).Encode(we)
+	return json.NewEncoder(w).Encode(we)
 }

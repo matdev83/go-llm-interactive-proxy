@@ -7,7 +7,7 @@ import (
 )
 
 type TraceIDGenerator struct {
-	seq uint64
+	seq atomic.Uint64
 }
 
 func NewTraceIDGenerator() *TraceIDGenerator {
@@ -15,7 +15,7 @@ func NewTraceIDGenerator() *TraceIDGenerator {
 }
 
 func (g *TraceIDGenerator) Next() string {
-	return fmt.Sprintf("t_%08d", atomic.AddUint64(&g.seq, 1))
+	return fmt.Sprintf("t_%08d", g.seq.Add(1))
 }
 
 type ctxKey int

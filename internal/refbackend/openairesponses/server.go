@@ -4,7 +4,9 @@
 package openairesponses
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -48,7 +50,7 @@ func NewHandler(cfg Config) http.Handler {
 			cfg.OnRequestBody(body)
 		}
 
-		stream := strings.Contains(string(body), `"stream":true`)
+		stream := bytes.Contains(body, []byte(`"stream":true`))
 		if stream {
 			writeStream(w, cfg)
 			return
@@ -64,7 +66,9 @@ func writeJSON(w http.ResponseWriter, cfg Config) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(body))
+	if _, err := w.Write([]byte(body)); err != nil {
+		slog.Default().Error("refbackend openairesponses: write json body", "error", err)
+	}
 }
 
 func writeStream(w http.ResponseWriter, cfg Config) {
@@ -74,7 +78,9 @@ func writeStream(w http.ResponseWriter, cfg Config) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(body))
+	if _, err := w.Write([]byte(body)); err != nil {
+		slog.Default().Error("refbackend openairesponses: write sse body", "error", err)
+	}
 }
 
 const defaultNonStreamJSON = `{

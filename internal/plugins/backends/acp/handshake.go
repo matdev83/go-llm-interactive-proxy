@@ -125,7 +125,7 @@ func (c *client) initialize(ctx context.Context, hp HandshakeProfile) error {
 	if err != nil {
 		return err
 	}
-	req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: "initialize", Params: pb}
+	req := rpcRequest{JSONRPC: "2.0", ID: jsonRPCNumericID(id), Method: "initialize", Params: pb}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func (c *client) authenticate(ctx context.Context, hp HandshakeProfile) error {
 	if len(hp.AuthenticateParams) > 0 {
 		params = hp.AuthenticateParams
 	}
-	req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: "authenticate", Params: params}
+	req := rpcRequest{JSONRPC: "2.0", ID: jsonRPCNumericID(id), Method: "authenticate", Params: params}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -190,7 +190,7 @@ func (c *client) sessionNew(ctx context.Context, hp HandshakeProfile) (string, e
 	if err != nil {
 		return "", err
 	}
-	req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: "session/new", Params: pb}
+	req := rpcRequest{JSONRPC: "2.0", ID: jsonRPCNumericID(id), Method: "session/new", Params: pb}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return "", err

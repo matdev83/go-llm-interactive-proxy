@@ -40,7 +40,7 @@ func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]
 		return srv
 	}
 	inner := parityRefHandler(tb, backendID)
-	var h http.Handler = inner
+	h := inner
 	if onRequestBody != nil {
 		h = captureRequestBodyHandler(inner, onRequestBody)
 	}

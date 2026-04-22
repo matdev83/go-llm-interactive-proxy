@@ -37,10 +37,12 @@ func TestNewHTTPTransport_nilClient_usesHTTPClientStandard(t *testing.T) {
 	}
 	if gotT.TLSHandshakeTimeout != wantT.TLSHandshakeTimeout ||
 		gotT.MaxIdleConns != wantT.MaxIdleConns ||
+		gotT.MaxIdleConnsPerHost != wantT.MaxIdleConnsPerHost ||
+		gotT.ResponseHeaderTimeout != wantT.ResponseHeaderTimeout ||
 		gotT.ForceAttemptHTTP2 != wantT.ForceAttemptHTTP2 {
-		t.Fatalf("transport policy mismatch: got TLS=%v idle=%v h2=%v want TLS=%v idle=%v h2=%v",
-			gotT.TLSHandshakeTimeout, gotT.MaxIdleConns, gotT.ForceAttemptHTTP2,
-			wantT.TLSHandshakeTimeout, wantT.MaxIdleConns, wantT.ForceAttemptHTTP2)
+		t.Fatalf("transport policy mismatch: got TLS=%v idle=%v idlePerHost=%v hdr=%v h2=%v want TLS=%v idle=%v idlePerHost=%v hdr=%v h2=%v",
+			gotT.TLSHandshakeTimeout, gotT.MaxIdleConns, gotT.MaxIdleConnsPerHost, gotT.ResponseHeaderTimeout, gotT.ForceAttemptHTTP2,
+			wantT.TLSHandshakeTimeout, wantT.MaxIdleConns, wantT.MaxIdleConnsPerHost, wantT.ResponseHeaderTimeout, wantT.ForceAttemptHTTP2)
 	}
 }
 

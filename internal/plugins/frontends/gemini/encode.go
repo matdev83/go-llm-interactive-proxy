@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -200,7 +201,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 
 	for {
 		ev, err := es.Recv(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("gemini: stream ended without response_finished")
 		}
 		if err != nil {

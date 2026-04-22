@@ -118,9 +118,10 @@ When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend wo
 Prefer repo-defined scripts or make targets:
 
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
-- `make test` — quality checks plus `go test -short -parallel=8 ./...`
+- `make test` — quality checks plus `go test -short -parallel=8 ./...` (skips `//go:build precommit` tests for speed)
+- `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); also run by `make qa`, the git pre-commit quality gate, and CI unit tests
 - `make test-race` — no-op on Windows; on Linux/macOS/WSL runs `race-check.sh`-style scan. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
-- `make qa` — quality checks, unit tests, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
+- `make qa` — quality checks, unit tests, precommit-tagged tests, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
 - `go test -run TestName ./path/to/pkg`
@@ -128,6 +129,10 @@ Prefer repo-defined scripts or make targets:
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
 CI runs `.github/workflows/qa.yml` (quality checks, tests, race on Linux, golangci-lint, govulncheck).
+
+### Go build and test caching
+
+Go keeps compiled packages and test binaries in the **build cache** (`GOCACHE`, see `go env GOCACHE`); the **module download cache** is `GOMODCACHE` (`go env GOMODCACHE`). Nothing in this repo disables those defaults. GitHub Actions uses `actions/setup-go` with `cache: true` and `cache-dependency-path: go.sum` so CI restores module and build cache between runs. Race builds (`go test -race`) use separate cache entries from non-race builds. `scripts/race-check.*` still passes `-count=1` so race runs always execute tests; `make test-fast` / `test-staged.*` do not, so unchanged packages can report `(cached)` on repeat runs.
 
 ## Go engineering standards
 

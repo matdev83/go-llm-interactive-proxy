@@ -2,8 +2,35 @@ package routing
 
 import (
 	"fmt"
-	"math/rand"
+	"math"
 )
+
+func effectiveWeight(w int) int64 {
+	if w <= 0 {
+		return 1
+	}
+	return int64(w)
+}
+
+// sumEligibleWeights returns the sum of effective weights or an error if the sum overflows int64
+// or exceeds [math.MaxInt] (so it cannot be passed to [Rng.Intn]).
+func sumEligibleWeights(eligible []WeightedBranch) (int64, error) {
+	var total int64
+	for _, b := range eligible {
+		wt := effectiveWeight(b.Weight)
+		if wt > 0 && total > math.MaxInt64-wt {
+			return 0, ErrWeightedTotalTooLarge
+		}
+		total += wt
+	}
+	if total < 1 {
+		return 0, ErrNoEligibleCandidate
+	}
+	if total > int64(math.MaxInt) {
+		return 0, ErrWeightedTotalTooLarge
+	}
+	return total, nil
+}
 
 // pickWeighted selects one branch from w using opt (exclusions, session, RNG, retry path).
 // The second return is true when the [first] branch was taken and the session should record consumption.
@@ -46,29 +73,19 @@ func pickWeighted(w *Weighted, opt PlanOptions) (AttemptCandidate, bool, error) 
 
 	rng := opt.Rand
 	if rng == nil {
-		rng = rand.New(rand.NewSource(0))
+		rng = NewSeededRng(0)
 	}
-	total := 0
-	for _, b := range eligible {
-		wt := b.Weight
-		if wt <= 0 {
-			wt = 1
-		}
-		total += wt
+	total, err := sumEligibleWeights(eligible)
+	if err != nil {
+		return AttemptCandidate{}, false, err
 	}
-	if total <= 0 {
-		return AttemptCandidate{}, false, ErrNoEligibleCandidate
-	}
-	roll := rng.Intn(total)
-	sum := 0
+	n := int(total)
+	roll := rng.Intn(n)
+	var sum int64
 	var chosen WeightedBranch
 	for _, b := range eligible {
-		wt := b.Weight
-		if wt <= 0 {
-			wt = 1
-		}
-		sum += wt
-		if roll < sum {
+		sum += effectiveWeight(b.Weight)
+		if int64(roll) < sum {
 			chosen = b
 			break
 		}

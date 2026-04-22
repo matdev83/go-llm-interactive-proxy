@@ -9,7 +9,8 @@ import (
 )
 
 // BenchmarkWriteStreamSSE_textDeltas measures allocations on the streaming encode
-// hot path (many text deltas + terminal events).
+// hot path (many text deltas + terminal events). Use -benchmem to inspect allocs/op
+// when tuning [TestWriteStreamSSE_AllocBudget_textOnly].
 func BenchmarkWriteStreamSSE_textDeltas(b *testing.B) {
 	const nDelta = 200
 	events := make([]lipapi.Event, 0, nDelta+3)
@@ -17,7 +18,7 @@ func BenchmarkWriteStreamSSE_textDeltas(b *testing.B) {
 		lipapi.Event{Kind: lipapi.EventResponseStarted},
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)
-	for i := 0; i < nDelta; i++ {
+	for range nDelta {
 		events = append(events, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "xy"})
 	}
 	events = append(events, lipapi.Event{Kind: lipapi.EventResponseFinished})

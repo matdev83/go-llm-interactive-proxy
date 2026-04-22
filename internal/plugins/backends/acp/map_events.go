@@ -19,6 +19,11 @@ import (
 // Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
 // Recv blocked on scanner.Scan or network I/O; Close cancels the stream context and
 // closes the response body so Scan unblocks.
+//
+// Context: ctx/cancel are derived from the Open parent via WithCancel and live for the
+// stream lifetime (cancel on Close). Recv passes its per-call ctx to inbound server requests
+// and JSON-RPC; line parsing uses the stored ctx so trace values from the parent propagate
+// and cancellation aligns with Close/parent rather than an arbitrary Recv deadline.
 type promptStream struct {
 	mu sync.Mutex
 

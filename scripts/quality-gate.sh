@@ -21,6 +21,10 @@ echo "Running test suite..."
 bash "$SCRIPT_DIR/test-staged.sh"
 
 echo ""
+echo "Running precommit-tagged tests (repo hygiene + executor regression matrices)..."
+bash "$SCRIPT_DIR/precommit-extra-tests.sh"
+
+echo ""
 echo "Running race detector scan..."
 bash "$SCRIPT_DIR/race-check.sh" --staged --short
 

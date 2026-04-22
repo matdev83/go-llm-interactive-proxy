@@ -3,6 +3,7 @@ package continuity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -45,7 +46,7 @@ func (m *Manager) ResolveSession(ctx context.Context, ref lipapi.SessionRef) (Se
 			}, nil
 		}
 		if !errors.Is(err, b2bua.ErrALegNotFound) {
-			return Session{}, err
+			return Session{}, fmt.Errorf("continuity: get a-leg: %w", err)
 		}
 	}
 	if ref.ContinuityKey != "" {
@@ -59,11 +60,11 @@ func (m *Manager) ResolveSession(ctx context.Context, ref lipapi.SessionRef) (Se
 			}, nil
 		}
 		if !errors.Is(err, b2bua.ErrALegNotFound) {
-			return Session{}, err
+			return Session{}, fmt.Errorf("continuity: resolve a-leg by continuity key: %w", err)
 		}
 		created, err := m.store.CreateALeg(ctx, ref.ContinuityKey)
 		if err != nil {
-			return Session{}, err
+			return Session{}, fmt.Errorf("continuity: create a-leg for continuity key: %w", err)
 		}
 		return Session{
 			ALegID:        created.ALegID,
@@ -74,7 +75,7 @@ func (m *Manager) ResolveSession(ctx context.Context, ref lipapi.SessionRef) (Se
 	}
 	created, err := m.store.CreateALeg(ctx, "")
 	if err != nil {
-		return Session{}, err
+		return Session{}, fmt.Errorf("continuity: create new a-leg: %w", err)
 	}
 	return Session{
 		ALegID:        created.ALegID,
@@ -94,11 +95,15 @@ func (m *Manager) Store() b2bua.Store {
 func ResolveALegRecord(ctx context.Context, store b2bua.Store, ref lipapi.SessionRef) (b2bua.ALegRecord, error) {
 	m, err := NewManager(store)
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, fmt.Errorf("continuity: resolve a-leg record: %w", err)
 	}
 	sess, err := m.ResolveSession(ctx, ref)
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, fmt.Errorf("continuity: resolve a-leg record: %w", err)
 	}
-	return store.GetALeg(ctx, sess.ALegID)
+	rec, err := store.GetALeg(ctx, sess.ALegID)
+	if err != nil {
+		return b2bua.ALegRecord{}, fmt.Errorf("continuity: resolve a-leg record: %w", err)
+	}
+	return rec, nil
 }

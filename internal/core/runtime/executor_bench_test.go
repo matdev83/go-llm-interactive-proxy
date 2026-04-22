@@ -2,7 +2,6 @@ package runtime_test
 
 import (
 	"context"
-	"math/rand"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -19,7 +18,7 @@ func benchEvents(nDeltas int) []lipapi.Event {
 		lipapi.Event{Kind: lipapi.EventResponseStarted},
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)
-	for i := 0; i < nDeltas; i++ {
+	for range nDeltas {
 		ev = append(ev, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
 	}
 	ev = append(ev, lipapi.Event{Kind: lipapi.EventResponseFinished})
@@ -35,7 +34,7 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Rand:  rand.New(rand.NewSource(42)),
+		Rand:  routing.NewSeededRng(42),
 		Backends: map[string]runtime.Backend{
 			"stub": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -55,7 +54,7 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 	ctx := context.Background()
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		s, err := ex.Execute(ctx, call)
 		if err != nil {
 			b.Fatal(err)

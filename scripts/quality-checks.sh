@@ -62,6 +62,8 @@ if [ -n "$tidy_changes" ]; then
 	echo "Run: go mod tidy && git add go.mod go.sum"
 	exit 1
 fi
+echo "Verifying module checksums..."
+go mod verify
 echo "OK: Module check passed"
 echo ""
 

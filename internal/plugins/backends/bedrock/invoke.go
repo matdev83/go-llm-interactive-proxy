@@ -5,7 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,6 +26,9 @@ import (
 const extModelJSONKey = "bedrock.modelId"
 
 func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, error) {
+	if err := validateBedrockEndpointSecurity(cfg); err != nil {
+		return nil, fmt.Errorf("bedrock: validate endpoint: %w", err)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -48,6 +54,7 @@ func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, 
 			o.BaseEndpoint = aws.String(u)
 			if cfg.DisableHTTPS {
 				o.EndpointOptions.DisableHTTPS = true
+				slog.Default().Warn("bedrock: TLS verification disabled for custom base endpoint", "base_endpoint", u)
 			}
 		})
 	}
@@ -57,6 +64,44 @@ func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, 
 		})
 	}
 	return bedrockruntime.NewFromConfig(awsCfg, opts...), nil
+}
+
+func validateBedrockEndpointSecurity(cfg Config) error {
+	if !cfg.DisableHTTPS {
+		return nil
+	}
+	base := strings.TrimSpace(cfg.BaseEndpoint)
+	if base == "" {
+		return fmt.Errorf("bedrock: disable_https requires a non-empty base_endpoint")
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return fmt.Errorf("bedrock: disable_https: parse base_endpoint: %w", err)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("bedrock: disable_https: base_endpoint must include a host")
+	}
+	host := u.Hostname()
+	if isLoopbackHost(host) {
+		return nil
+	}
+	if cfg.AllowInsecureNonLoopback {
+		return nil
+	}
+	return fmt.Errorf("bedrock: disable_https is only allowed for loopback base_endpoint (got host %q); set allow_insecure_non_loopback for lab use", host)
+}
+
+func isLoopbackHost(host string) bool {
+	h := strings.TrimSpace(host)
+	if h == "" {
+		return false
+	}
+	h = strings.TrimSuffix(h, ".")
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 func resolveModelID(cand routing.AttemptCandidate, call lipapi.Call) string {
@@ -77,9 +122,13 @@ func resolveModelID(cand routing.AttemptCandidate, call lipapi.Call) string {
 }
 
 // ConverseStreamInputForCall maps a canonical call to Bedrock ConverseStream input.
+// It runs [lipapi.Call.Validate] so numeric bounds (e.g. max_output_tokens for int32 fields) hold even when callers bypass the executor.
 func ConverseStreamInputForCall(call *lipapi.Call, cand routing.AttemptCandidate) (*bedrockruntime.ConverseStreamInput, error) {
 	if call == nil {
 		return nil, fmt.Errorf("bedrock: nil call")
+	}
+	if err := call.Validate(); err != nil {
+		return nil, fmt.Errorf("bedrock: validate call: %w", err)
 	}
 	modelID := resolveModelID(cand, *call)
 	if modelID == "" {
@@ -88,11 +137,11 @@ func ConverseStreamInputForCall(call *lipapi.Call, cand routing.AttemptCandidate
 
 	sys, err := buildSystemBlocks(call)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bedrock: build system: %w", err)
 	}
 	msgs, err := buildMessages(call)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bedrock: build messages: %w", err)
 	}
 
 	in := &bedrockruntime.ConverseStreamInput{
@@ -120,7 +169,7 @@ func ConverseStreamInputForCall(call *lipapi.Call, cand routing.AttemptCandidate
 	if len(call.Tools) > 0 {
 		tc, err := buildToolConfig(call)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("bedrock: build tool config: %w", err)
 		}
 		in.ToolConfig = tc
 	}
@@ -371,21 +420,20 @@ func imageFormatFromMIME(mime string) types.ImageFormat {
 }
 
 func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	if !strings.HasPrefix(dataURL, "data:") {
+	rest, ok := strings.CutPrefix(dataURL, "data:")
+	if !ok {
 		return "", "", false
 	}
-	rest := strings.TrimPrefix(dataURL, "data:")
-	semi := strings.Index(rest, ";")
-	if semi < 0 {
+	mime, enc, found := strings.Cut(rest, ";")
+	if !found {
 		return "", "", false
 	}
-	mime = rest[:semi]
-	enc := rest[semi+1:]
 	const prefix = "base64,"
-	if !strings.HasPrefix(enc, prefix) {
+	encBody, ok := strings.CutPrefix(enc, prefix)
+	if !ok {
 		return "", "", false
 	}
-	return mime, enc[len(prefix):], true
+	return mime, encBody, true
 }
 
 func buildToolConfig(call *lipapi.Call) (*types.ToolConfiguration, error) {
@@ -446,5 +494,7 @@ type Config struct {
 	BaseEndpoint string
 	// DisableHTTPS must be true when BaseEndpoint is http:// (emulator).
 	DisableHTTPS bool
-	HTTPClient   *http.Client
+	// AllowInsecureNonLoopback permits DisableHTTPS with a non-loopback base_endpoint (lab only).
+	AllowInsecureNonLoopback bool
+	HTTPClient               *http.Client
 }

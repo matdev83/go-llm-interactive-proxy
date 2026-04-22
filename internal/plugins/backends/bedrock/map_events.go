@@ -4,16 +4,25 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// converseStream adapts the Bedrock ConverseStream SDK channel to lipapi.EventStream.
+//
+// Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
+// Recv blocked on the SDK event channel; Close closes the SDK stream to unblock Recv.
 type converseStream struct {
+	mu        sync.Mutex
+	closeOnce sync.Once
+
 	sdk *bedrockruntime.ConverseStreamEventStream
 	ch  <-chan types.ConverseStreamOutput
 
@@ -38,11 +47,21 @@ func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream) lipapi.Eve
 }
 
 func (s *converseStream) Close() error {
-	if s == nil || s.sdk == nil || s.closed {
+	if s == nil || s.sdk == nil {
+		return nil
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 	s.closed = true
-	return s.sdk.Close()
+	s.mu.Unlock()
+	var err error
+	s.closeOnce.Do(func() {
+		err = s.sdk.Close()
+	})
+	return err
 }
 
 func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -53,21 +72,36 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return lipapi.Event{}, err
 	}
 	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return lipapi.Event{}, io.EOF
+		}
 		if ev, ok := s.pending.PopFront(); ok {
 			if ev.Kind == lipapi.EventResponseFinished {
 				s.afterFinish = true
 			}
+			s.mu.Unlock()
 			return ev, nil
 		}
 		if s.afterFinish {
+			s.mu.Unlock()
 			return lipapi.Event{}, io.EOF
 		}
+		s.mu.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return lipapi.Event{}, ctx.Err()
 		case out, ok := <-s.ch:
 			if !ok {
+				s.mu.Lock()
+				if s.closed {
+					s.mu.Unlock()
+					return lipapi.Event{}, io.EOF
+				}
 				if err := s.sdk.Err(); err != nil {
+					s.mu.Unlock()
 					return lipapi.Event{}, fmt.Errorf("bedrock: recv stream: %w", err)
 				}
 				if !s.sawResponse {
@@ -75,9 +109,16 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
 				}
 				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+				s.mu.Unlock()
+				continue
+			}
+			s.mu.Lock()
+			if s.closed {
+				s.mu.Unlock()
 				continue
 			}
 			s.handleOutput(out)
+			s.mu.Unlock()
 		}
 	}
 }
@@ -106,13 +147,14 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) {
 		_ = v
 	case *types.ConverseStreamOutputMemberMetadata:
 		if u := v.Value.Usage; u != nil {
+			// AWS ConverseStream usage uses *int32 token fields; ToInt32 returns int32, then [safecast] for int.
 			inT := 0
 			outT := 0
 			if u.InputTokens != nil {
-				inT = int(aws.ToInt32(u.InputTokens))
+				inT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.InputTokens)))
 			}
 			if u.OutputTokens != nil {
-				outT = int(aws.ToInt32(u.OutputTokens))
+				outT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.OutputTokens)))
 			}
 			if inT > 0 || outT > 0 {
 				s.pending.Push(lipapi.Event{

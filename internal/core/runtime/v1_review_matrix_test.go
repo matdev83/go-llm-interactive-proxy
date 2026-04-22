@@ -1,10 +1,11 @@
+//go:build precommit
+
 package runtime_test
 
 import (
 	"context"
 	"errors"
 	"io"
-	"math/rand"
 	"sync"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{SubmitHooks: []sdk.SubmitHook{sub}}),
-		Rand:  rand.New(rand.NewSource(4)),
+		Rand:  routing.NewSeededRng(4),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -91,7 +92,7 @@ func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -199,7 +200,7 @@ func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}}),
-		Rand:  rand.New(rand.NewSource(1)),
+		Rand:  routing.NewSeededRng(1),
 		Backends: map[string]runtime.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),

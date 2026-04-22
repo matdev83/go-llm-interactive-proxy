@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -168,7 +169,7 @@ func defaultEncodeOptions(call *lipapi.Call, opts EncodeOptions) EncodeOptions {
 }
 
 // WriteErrorJSON writes an Anthropic-shaped JSON error before any streamed bytes.
-func WriteErrorJSON(w http.ResponseWriter, status int, message, errType string) {
+func WriteErrorJSON(w http.ResponseWriter, status int, message, errType string) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	var we wireAPIError
@@ -178,7 +179,7 @@ func WriteErrorJSON(w http.ResponseWriter, status int, message, errType string) 
 		we.Error.Type = "invalid_request_error"
 	}
 	we.Error.Message = message
-	_ = json.NewEncoder(w).Encode(we)
+	return json.NewEncoder(w).Encode(we)
 }
 
 // WriteNonStreamJSON encodes a completed canonical stream as a Messages API JSON body.
@@ -351,7 +352,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 
 	for {
 		ev, err := es.Recv(ctx)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("anthropic: stream ended without response_finished")
 		}
 		if err != nil {

@@ -46,5 +46,6 @@ for pkg in "${!PACKAGES[@]}"; do
 	PKG_LIST="$PKG_LIST $pkg"
 done
 
-go test -short -parallel=8 -count=1 $PKG_LIST
+# Omit -count=1 so Go's test result cache can skip unchanged packages on repeat runs (build cache is always on via GOCACHE).
+go test -short -parallel=8 $PKG_LIST
 exit $?

@@ -2,6 +2,7 @@
 package reqbody
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -26,6 +27,10 @@ func TooLarge(err error) bool {
 	if err == nil {
 		return false
 	}
-	// net/http returns this stable string from MaxBytesReader (see net/http request.go).
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return true
+	}
+	// Fallback for unusual wrappers that still surface the documented message.
 	return strings.Contains(err.Error(), "request body too large")
 }

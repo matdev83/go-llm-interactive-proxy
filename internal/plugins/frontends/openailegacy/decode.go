@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -62,23 +63,23 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 
 	msgs, err := parseMessages(w.Messages)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openailegacy: messages: %w", err)
 	}
 	tools, err := parseTools(w.Tools)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openailegacy: tools: %w", err)
 	}
 	toolChoice, err := parseToolChoice(w.ToolChoice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openailegacy: tool_choice: %w", err)
 	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openailegacy: marshal model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
-	if len(w.StreamOptions) > 0 && string(w.StreamOptions) != "null" {
+	if jsonutil.IsPresentNonNullJSON(w.StreamOptions) {
 		ext[extStreamOptsJSONKey] = w.StreamOptions
 	}
 
@@ -164,14 +165,14 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 
 func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]lipapi.Part, error) {
 	var parts []lipapi.Part
-	if len(content) > 0 && string(content) != "null" {
+	if jsonutil.IsPresentNonNullJSON(content) {
 		cp, err := parseChatContent(content)
 		if err != nil {
 			return nil, err
 		}
 		parts = append(parts, cp...)
 	}
-	if len(toolCalls) > 0 && string(toolCalls) != "null" {
+	if jsonutil.IsPresentNonNullJSON(toolCalls) {
 		var rawCalls []json.RawMessage
 		if err := json.Unmarshal(toolCalls, &rawCalls); err != nil {
 			return nil, fmt.Errorf("openailegacy: tool_calls: %w", err)
@@ -183,7 +184,7 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 			parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: append(json.RawMessage(nil), rc...)})
 		}
 	}
-	if len(functionCall) > 0 && string(functionCall) != "null" {
+	if jsonutil.IsPresentNonNullJSON(functionCall) {
 		if !json.Valid(functionCall) {
 			return nil, errors.New("openailegacy: invalid function_call")
 		}
@@ -196,7 +197,7 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 }
 
 func parseToolMessageContent(raw json.RawMessage) (any, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("tool message content is required")
 	}
 	if raw[0] == '"' {
@@ -236,7 +237,7 @@ func mapRole(r string) (lipapi.Role, error) {
 }
 
 func parseChatContent(raw json.RawMessage) ([]lipapi.Part, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("message content is required")
 	}
 	if raw[0] == '"' {
@@ -336,7 +337,7 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -381,7 +382,7 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if jsonutil.IsAbsentOrJSONNull(raw) {
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 	}
 	if raw[0] == '"' {

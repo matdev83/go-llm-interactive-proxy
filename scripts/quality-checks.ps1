@@ -59,6 +59,12 @@ if ($modChanges) {
     Write-Host "Run: go mod tidy; git add go.mod go.sum" -ForegroundColor Yellow
     exit 1
 }
+Write-Host "Verifying module checksums..." -ForegroundColor DarkGray
+go mod verify
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: go mod verify failed (checksum mismatch or corrupt module cache)" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 Write-Host "OK: Module check passed" -ForegroundColor Green
 Write-Host ""
 

@@ -40,7 +40,7 @@ func BenchmarkWriteStreamSSE_textDeltas(b *testing.B) {
 	ctx := context.Background()
 	call := &lipapi.Call{}
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rec := httptest.NewRecorder()
 		es := &benchGeminiTokenStream{n: n}
 		if err := WriteStreamSSE(ctx, rec, call, es, EncodeOptions{}); err != nil {
@@ -56,7 +56,7 @@ func BenchmarkGemini_flushTextDelta_only(b *testing.B) {
 	var scratch gemStreamWireScratch
 	scratch.initFrame()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := scratch.flushTextDelta(rec, rec, "x"); err != nil {
 			b.Fatal(err)
 		}

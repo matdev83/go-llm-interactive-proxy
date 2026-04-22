@@ -283,7 +283,7 @@ func TestPromptStream_scanStreamError(t *testing.T) {
 	cli := &client{t: &unarySpyTransport{}}
 	s := newPromptNDJSONStream(context.Background(), body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}))
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := s.Recv(ctx); err != nil {
 			t.Fatalf("recv %d: %v", i, err)
 		}

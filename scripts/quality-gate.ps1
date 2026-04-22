@@ -35,6 +35,14 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+Write-Host ""
+Write-Host "Running precommit-tagged tests (repo hygiene + executor regression matrices)..." -ForegroundColor Yellow
+& "$ScriptDir\precommit-extra-tests.ps1"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Precommit-tagged tests failed!" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
 # Race detector is not run on Windows (ThreadSanitizer is unreliable). CI runs
 # `bash scripts/race-check.sh` on Linux; for local -race use WSL or Linux.
 Write-Host ""

@@ -4,6 +4,7 @@
 package openaichat
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"strings"
@@ -75,7 +76,7 @@ func writeStream(w http.ResponseWriter, cfg Config, requestBody []byte) {
 		return
 	}
 	body := defaultStreamSSE
-	if strings.Contains(string(requestBody), `"include_usage":true`) {
+	if bytes.Contains(requestBody, []byte(`"include_usage":true`)) {
 		body = streamWithUsageSSE
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")

@@ -25,10 +25,13 @@ type MountBundledFrontendsInput struct {
 // MountBundledFrontends registers enabled frontend protocol handlers from config on mux.
 // Gemini is mounted under /v1beta/ and /v1beta1/ only (after other prefixes when present).
 // MaxRequestBodyBytes is forwarded to handlers; zero means each handler's default body cap.
-// Reg selects which frontend factories to use; nil returns an error.
+// Mux, Exec, and Reg must be non-nil.
 func MountBundledFrontends(in MountBundledFrontendsInput) error {
-	if in.Mux == nil || in.Exec == nil {
-		return nil
+	if in.Mux == nil {
+		return fmt.Errorf("stdhttp: nil mux")
+	}
+	if in.Exec == nil {
+		return fmt.Errorf("stdhttp: nil exec")
 	}
 	if in.Reg == nil {
 		return fmt.Errorf("stdhttp: nil plugin registry")

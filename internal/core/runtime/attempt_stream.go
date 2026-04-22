@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -16,6 +17,10 @@ import (
 )
 
 // retryRecvStream wraps a backend stream and performs recv-phase failover within attempt budget.
+//
+// Concurrency: one goroutine calls Recv until completion (lipapi.EventStream). Close may run
+// concurrently with Recv blocked on the active inner stream; Close forwards to that inner stream
+// and does not clear s.inner. Recv clears inner on cancellation and recoverable-recv teardown paths.
 type retryRecvStream struct {
 	executor *Executor
 	bus      *hooks.Bus
@@ -32,9 +37,10 @@ type retryRecvStream struct {
 
 	lastHardReject lipapi.NegotiationResult
 
-	inner     lipapi.EventStream
-	bleg      b2bua.BLegRecord
-	cand      routing.AttemptCandidate
+	innerMu sync.Mutex
+	inner   lipapi.EventStream
+	bleg    b2bua.BLegRecord
+	cand    routing.AttemptCandidate
 	committed bool
 	finished  bool
 }
@@ -42,6 +48,27 @@ type retryRecvStream struct {
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
 
 var errNilRetryRecvStream = errors.New("runtime: nil retryRecvStream")
+
+func (s *retryRecvStream) loadInner() lipapi.EventStream {
+	s.innerMu.Lock()
+	defer s.innerMu.Unlock()
+	return s.inner
+}
+
+func (s *retryRecvStream) storeInner(stream lipapi.EventStream) {
+	s.innerMu.Lock()
+	s.inner = stream
+	s.innerMu.Unlock()
+}
+
+// takeAndNilInner clears s.inner and returns the previous value; the caller should Close it when non-nil.
+func (s *retryRecvStream) takeAndNilInner() lipapi.EventStream {
+	s.innerMu.Lock()
+	c := s.inner
+	s.inner = nil
+	s.innerMu.Unlock()
+	return c
+}
 
 // recvHookMeta returns identifiers for response-path hooks after B-leg allocation.
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
@@ -72,7 +99,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 	ctx = diag.WithCallDiag(ctx, s.traceID, s.aLegID)
 	for {
-		for s.inner == nil {
+		var inner lipapi.EventStream
+		for {
+			inner = s.loadInner()
+			if inner != nil {
+				break
+			}
 			opened, err := s.tryReplacementIteration(ctx)
 			if err != nil {
 				return lipapi.Event{}, err
@@ -81,7 +113,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return stream.DefaultKeepaliveEvent(), nil
 			}
 		}
-		ev, err := s.inner.Recv(ctx)
+		ev, err := inner.Recv(ctx)
 		if err == nil {
 			pm, tm := s.recvHookMeta()
 			if te, ok := lipapi.ToolEventFromEvent(ev); ok {
@@ -105,25 +137,25 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				s.committed = true
 			}
 			if ev.Kind == lipapi.EventResponseFinished {
-				_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:  s.aLegID,
 					BLeg:    s.bleg,
 					Cand:    s.cand,
 					Outcome: lipapi.AttemptSuccess,
-				})
+				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				s.finished = true
 			}
 			return ev, nil
 		}
 		if errors.Is(err, io.EOF) {
 			if !s.finished {
-				_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:  s.aLegID,
 					BLeg:    s.bleg,
 					Cand:    s.cand,
 					Outcome: lipapi.AttemptSurfacedFailure,
 					Reason:  "stream ended without response_finished",
-				})
+				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			}
 			s.finished = true
 			return lipapi.Event{}, io.EOF
@@ -133,15 +165,21 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if reason == "" {
 				reason = "cancelled"
 			}
-			_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:  s.aLegID,
 				BLeg:    s.bleg,
 				Cand:    s.cand,
 				Outcome: lipapi.AttemptCancelled,
 				Reason:  reason,
-			})
-			_ = s.inner.Close()
-			s.inner = nil
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			if c := s.takeAndNilInner(); c != nil {
+				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+					s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+						"reason", "context_done",
+						"error", cerr,
+					)
+				}
+			}
 			s.finished = true
 			return lipapi.Event{}, err
 		}
@@ -155,28 +193,34 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					CandidateKey: s.cand.Key,
 				}
 			}
-			_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:  s.aLegID,
 				BLeg:    s.bleg,
 				Cand:    s.cand,
 				Outcome: lipapi.AttemptSurfacedFailure,
 				Reason:  surfErr.Error(),
-			})
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			return lipapi.Event{}, surfErr
 		}
 		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 			slog.String("candidate_key", s.cand.Key),
 			slog.String("phase", "recv"),
 		)
-		_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:  s.aLegID,
 			BLeg:    s.bleg,
 			Cand:    s.cand,
 			Outcome: lipapi.AttemptSwallowedFailure,
 			Reason:  "recoverable pre-output (recv)",
-		})
-		_ = s.inner.Close()
-		s.inner = nil
+		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		if c := s.takeAndNilInner(); c != nil {
+			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+				s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+					"reason", "recoverable_pre_output",
+					"error", cerr,
+				)
+			}
+		}
 		s.excluded[s.cand.Key] = struct{}{}
 	}
 }
@@ -209,7 +253,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if !out.opened {
 		return false, nil
 	}
-	s.inner = out.stream
+	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
 	return true, nil
@@ -219,8 +263,9 @@ func (s *retryRecvStream) Close() error {
 	if s == nil {
 		return nil
 	}
-	if s.inner != nil {
-		return s.inner.Close()
+	c := s.takeAndNilInner()
+	if c != nil {
+		return c.Close()
 	}
 	return nil
 }

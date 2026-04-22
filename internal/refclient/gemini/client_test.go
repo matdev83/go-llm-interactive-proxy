@@ -165,7 +165,7 @@ func TestGenerateContentStream_readsChunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got string
+	var got strings.Builder
 	for res, serr := range cli.GenerateContentStream(context.Background(), "gemini-2.0-flash",
 		[]*genai.Content{genai.NewContentFromText("s", genai.RoleUser)}, nil) {
 		if serr != nil {
@@ -174,12 +174,12 @@ func TestGenerateContentStream_readsChunk(t *testing.T) {
 		for _, c := range res.Candidates {
 			if c.Content != nil {
 				for _, p := range c.Content.Parts {
-					got += p.Text
+					got.WriteString(p.Text)
 				}
 			}
 		}
 	}
-	if got != "Z" {
-		t.Fatalf("stream text: %q", got)
+	if got.String() != "Z" {
+		t.Fatalf("stream text: %q", got.String())
 	}
 }

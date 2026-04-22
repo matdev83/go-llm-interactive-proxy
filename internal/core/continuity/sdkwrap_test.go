@@ -6,7 +6,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity"
-	lipsdkc "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/continuity"
 )
 
 func TestSDKStore_roundTripALeg(t *testing.T) {
@@ -15,7 +14,6 @@ func TestSDKStore_roundTripALeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var _ lipsdkc.Store = continuity.SDKStore(inner)
 	s := continuity.SDKStore(inner)
 	ctx := context.Background()
 	r, err := s.CreateALeg(ctx, "k-sdk")

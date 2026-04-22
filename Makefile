@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -short -parallel=8 -timeout=10m
@@ -9,7 +9,8 @@ help:
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
 	@echo "  make test            - quality-checks then full unit tests (-short)"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
-	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./..."
+	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
+	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; Linux CI / WSL)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
 	@echo "  make parity-checks   - conformance package tests only (API parity suites + matrix; see .kiro/specs/llm-api-parity/)"
@@ -45,6 +46,9 @@ endif
 
 test-unit:
 	$(GO) test $(GO_TEST_FLAGS) ./...
+
+test-precommit-extra:
+	$(GO) test $(GO_TEST_FLAGS) -tags=precommit ./internal/qa/... ./internal/core/runtime/...
 
 test-race:
 ifeq ($(OS),Windows_NT)
@@ -100,7 +104,7 @@ bench:
 		./internal/plugins/frontends/openairesponses/... \
 		./internal/plugins/frontends/anthropic/...
 
-qa: quality-checks test-unit lint vuln
+qa: quality-checks test-unit test-precommit-extra lint vuln
 
 vet:
 	$(GO) vet ./...

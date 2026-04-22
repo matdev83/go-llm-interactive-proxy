@@ -61,10 +61,7 @@ func collectFuzzEvents(b []byte) []lipapi.Event {
 	}
 	const chunk = 48
 	for i := 0; i < len(b); i += chunk {
-		j := i + chunk
-		if j > len(b) {
-			j = len(b)
-		}
+		j := min(i+chunk, len(b))
 		if i >= j {
 			break
 		}

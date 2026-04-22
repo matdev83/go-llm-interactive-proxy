@@ -6,10 +6,9 @@ package bedrock
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
@@ -90,7 +89,9 @@ func writeConverse(w http.ResponseWriter, cfg Config) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(body))
+	if _, err := w.Write([]byte(body)); err != nil {
+		slog.Default().Warn("refbackend/bedrock: write converse response", "error", err)
+	}
 }
 
 func writeConverseStream(w http.ResponseWriter, cfg Config) {
@@ -100,7 +101,9 @@ func writeConverseStream(w http.ResponseWriter, cfg Config) {
 	}
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	if _, err := w.Write(body); err != nil {
+		slog.Default().Warn("refbackend/bedrock: write converse stream response", "error", err)
+	}
 }
 
 const defaultConverseJSON = `{
@@ -133,7 +136,7 @@ func defaultConverseStreamEvents() []byte {
 	for _, ev := range events {
 		payload, err := json.Marshal(ev.payload)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "refbackend/bedrock: marshal stream fixture payload: %v\n", err)
+			slog.Default().Warn("refbackend/bedrock: marshal stream fixture payload", "error", err)
 			continue
 		}
 		msg := eventstream.Message{
@@ -145,7 +148,7 @@ func defaultConverseStreamEvents() []byte {
 			Payload: payload,
 		}
 		if err := enc.Encode(&buf, msg); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "refbackend/bedrock: encode stream fixture: %v\n", err)
+			slog.Default().Warn("refbackend/bedrock: encode stream fixture", "error", err)
 			return buf.Bytes()
 		}
 	}

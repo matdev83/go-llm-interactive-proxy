@@ -42,10 +42,7 @@ func isInboundServerRequest(probe map[string]any) bool {
 		return false
 	}
 	id := probe["id"]
-	if id == nil {
-		return false
-	}
-	return true
+	return id != nil
 }
 
 func replyServerRequestJSON(id json.RawMessage, result any) ([]byte, error) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"testing"
 
@@ -47,5 +48,41 @@ func TestLogDecision_includesDecisionField(t *testing.T) {
 	}
 	if m["trace_id"] != "t-1" {
 		t.Fatalf("trace_id: %#v", m)
+	}
+}
+
+func TestLogError_includesTraceAndError(t *testing.T) {
+	t.Parallel()
+	ctx := diag.WithTraceID(context.Background(), "t-err")
+	buf := &bytes.Buffer{}
+	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelError}))
+	errSample := errors.New("boom")
+	diag.LogError(ctx, log, "execute failed", diag.AttrOpts{CallID: "c1"}, errSample)
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["trace_id"] != "t-err" {
+		t.Fatalf("trace_id: %#v", m)
+	}
+	if m["call_id"] != "c1" {
+		t.Fatalf("call_id: %#v", m)
+	}
+	if m["msg"] != "execute failed" {
+		t.Fatalf("msg: %#v", m["msg"])
+	}
+}
+
+func TestTruncErrDetail(t *testing.T) {
+	t.Parallel()
+	if got := diag.TruncErrDetail(errors.New("hi"), 10); got != "hi" {
+		t.Fatalf("short: %q", got)
+	}
+	long := errors.New("abcdefghijklmnopqrstuvwxyz")
+	if got := diag.TruncErrDetail(long, 5); got != "abcde" {
+		t.Fatalf("trunc: %q", got)
+	}
+	if diag.TruncErrDetail(nil, 5) != "" {
+		t.Fatal("nil")
 	}
 }

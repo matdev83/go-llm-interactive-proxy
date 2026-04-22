@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -17,9 +18,22 @@ type AttemptLoader interface {
 
 var _ AttemptLoader = (*b2bua.MemoryStore)(nil)
 
+func attemptLoaderIsNil(store AttemptLoader) bool {
+	if store == nil {
+		return true
+	}
+	v := reflect.ValueOf(store)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 // AttemptsHandler returns an http.Handler that GETs ?a_leg_id= and returns JSON attempt rows.
 func AttemptsHandler(store AttemptLoader) (http.Handler, error) {
-	if store == nil {
+	if attemptLoaderIsNil(store) {
 		return nil, errors.New("diag: AttemptsHandler: nil store")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

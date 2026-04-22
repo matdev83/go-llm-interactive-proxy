@@ -3,7 +3,6 @@ package stdhttp
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -144,7 +143,7 @@ func TestRun_wrapsBuildNilConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Run(ctx, nil, app, slog.Default(), pluginreg.NewRegistry())
+	err = Run(ctx, nil, app, testkit.DiscardLogger(), pluginreg.NewRegistry())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -237,7 +236,7 @@ func TestRunWithRuntime_wrapsServeAddrInUse(t *testing.T) {
 	}
 }
 
-func TestRun_appStartReceivesRunContext(t *testing.T) {
+func TestRunWithRuntime_appStartReceivesRunContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -250,9 +249,10 @@ func TestRun_appStartReceivesRunContext(t *testing.T) {
 		},
 		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
 	}
+	log := testkit.DiscardLogger()
 	app, err := runtime.New(runtime.Options{
 		Config:     cfg,
-		Logger:     testkit.DiscardLogger(),
+		Logger:     log,
 		Lifecycles: []lipplugin.Lifecycle{cancelSensitiveLifecycle{}},
 	})
 	if err != nil {
@@ -263,9 +263,15 @@ func TestRun_appStartReceivesRunContext(t *testing.T) {
 	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	err = Run(ctx, cfg, app, slog.Default(), reg)
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RunWithRuntime(ctx, cfg, app, log, built)
 	if err == nil {
-		t.Fatal("expected error when ctx is cancelled before startup (app.Start must observe Run's ctx)")
+		t.Fatal("expected error when ctx is cancelled before startup (app.Start must observe RunWithRuntime ctx)")
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
