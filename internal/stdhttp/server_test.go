@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
@@ -50,12 +51,13 @@ func TestRunWithRuntime_invokesClosersOnMountFailure(t *testing.T) {
 			},
 		},
 	}
-	app, err := runtime.New(runtime.Options{Config: cfg})
+	log := testkit.DiscardLogger()
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {
@@ -66,7 +68,7 @@ func TestRunWithRuntime_invokesClosersOnMountFailure(t *testing.T) {
 		atomic.AddInt32(&closerRuns, 1)
 		return nil
 	})
-	err = RunWithRuntime(ctx, cfg, app, nil, built)
+	err = RunWithRuntime(ctx, cfg, app, log, built)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -94,15 +96,17 @@ func TestRunWithRuntime_invokesClosersOnAppStartFailure(t *testing.T) {
 			Frontends: []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: false}},
 		},
 	}
+	log := testkit.DiscardLogger()
 	app, err := runtime.New(runtime.Options{
 		Config:     cfg,
+		Logger:     log,
 		Lifecycles: []lipplugin.Lifecycle{failStartLifecycle{}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, &runtimebundle.BuildOptions{
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {
@@ -113,7 +117,7 @@ func TestRunWithRuntime_invokesClosersOnAppStartFailure(t *testing.T) {
 		atomic.AddInt32(&closerRuns, 1)
 		return nil
 	})
-	err = RunWithRuntime(ctx, cfg, app, nil, built)
+	err = RunWithRuntime(ctx, cfg, app, log, built)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -136,7 +140,7 @@ func TestRun_wrapsBuildNilConfig(t *testing.T) {
 		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3},
 		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
 	}
-	app, err := runtime.New(runtime.Options{Config: cfg})
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: testkit.DiscardLogger()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,19 +169,20 @@ func TestRunWithRuntime_wrapsAttemptsNilStore(t *testing.T) {
 			AttemptsPath: "/attempts",
 		},
 	}
-	app, err := runtime.New(runtime.Options{Config: cfg})
+	log := testkit.DiscardLogger()
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, &runtimebundle.BuildOptions{
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	built.Store = nil
-	err = RunWithRuntime(ctx, cfg, app, nil, built)
+	err = RunWithRuntime(ctx, cfg, app, log, built)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -196,7 +201,7 @@ func TestRunWithRuntime_wrapsServeAddrInUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	addr := ln.Addr().String()
 	ctx := context.Background()
 	cfg := &coreconfig.Config{
@@ -207,18 +212,19 @@ func TestRunWithRuntime_wrapsServeAddrInUse(t *testing.T) {
 			Frontends: []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: false}},
 		},
 	}
-	app, err := runtime.New(runtime.Options{Config: cfg})
+	log := testkit.DiscardLogger()
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, &runtimebundle.BuildOptions{
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RunWithRuntime(ctx, cfg, app, nil, built)
+	err = RunWithRuntime(ctx, cfg, app, log, built)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -246,6 +252,7 @@ func TestRun_appStartReceivesRunContext(t *testing.T) {
 	}
 	app, err := runtime.New(runtime.Options{
 		Config:     cfg,
+		Logger:     testkit.DiscardLogger(),
 		Lifecycles: []lipplugin.Lifecycle{cancelSensitiveLifecycle{}},
 	})
 	if err != nil {
@@ -253,7 +260,7 @@ func TestRun_appStartReceivesRunContext(t *testing.T) {
 	}
 
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	err = Run(ctx, cfg, app, slog.Default(), reg)

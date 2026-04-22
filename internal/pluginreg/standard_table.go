@@ -3,6 +3,7 @@ package pluginreg
 import (
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
@@ -22,33 +23,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// standardBackendFactories is the explicit compile-time table of bundled backend factories (factory id → constructor).
-var standardBackendFactories = []struct {
-	ID      string
-	Factory backendFactory
-}{
-	{openairesponses.ID, func(n yaml.Node, upstream *http.Client) (any, error) {
-		return backendOpenAIResponses(n, upstream)
-	}},
-	{openailegacy.ID, func(n yaml.Node, upstream *http.Client) (any, error) {
-		return backendOpenAILegacy(n, upstream)
-	}},
-	{anthropic.ID, func(n yaml.Node, upstream *http.Client) (any, error) {
-		return backendAnthropic(n, upstream)
-	}},
-	{gemini.ID, func(n yaml.Node, upstream *http.Client) (any, error) {
-		return backendGemini(n, upstream)
-	}},
-	{bedrock.ID, func(n yaml.Node, upstream *http.Client) (any, error) {
-		return backendBedrock(n, upstream)
-	}},
-	{acp.ID, func(n yaml.Node, upstream *http.Client) (any, error) {
-		return backendACP(n, upstream)
-	}},
-}
-
-func installBackends(reg *Registry) error {
-	for _, e := range standardBackendFactories {
+func installBackends(reg *Registry, keys UpstreamAPIKeys) error {
+	entries := []struct {
+		ID      string
+		Factory backendFactory
+	}{
+		{openairesponses.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+			return backendOpenAIResponses(n, upstream, keys)
+		}},
+		{openailegacy.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+			return backendOpenAILegacy(n, upstream, keys)
+		}},
+		{anthropic.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+			return backendAnthropic(n, upstream, keys)
+		}},
+		{gemini.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+			return backendGemini(n, upstream, keys)
+		}},
+		{bedrock.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+			return backendBedrock(n, upstream)
+		}},
+		{acp.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+			return backendACP(n, upstream)
+		}},
+	}
+	for _, e := range entries {
 		if err := reg.RegisterBackend(e.ID, e.Factory); err != nil {
 			return err
 		}
@@ -97,8 +96,10 @@ func installFeatures(reg *Registry) error {
 }
 
 // InstallStandardBundleOn registers all standard bundled factories on reg (tests, alternate bundles).
-func InstallStandardBundleOn(reg *Registry) error {
-	if err := installBackends(reg); err != nil {
+// keys supplies default API key material when plugin YAML omits api_key (typically from
+// [ResolveUpstreamAPIKeysFromEnv] at process startup); tests may pass a zero value.
+func InstallStandardBundleOn(reg *Registry, keys UpstreamAPIKeys) error {
+	if err := installBackends(reg, keys); err != nil {
 		return err
 	}
 	if err := installFrontends(reg); err != nil {
@@ -108,6 +109,6 @@ func InstallStandardBundleOn(reg *Registry) error {
 }
 
 // InstallStandardBackendsOn registers only bundled backend factories on reg (minimal partial bundles).
-func InstallStandardBackendsOn(reg *Registry) error {
-	return installBackends(reg)
+func InstallStandardBackendsOn(reg *Registry, keys UpstreamAPIKeys) error {
+	return installBackends(reg, keys)
 }

@@ -15,6 +15,7 @@ linters:
     - errcheck
     - paralleltest
     - thelper
+    - gofumpt
 
 linters-settings:
   revive:

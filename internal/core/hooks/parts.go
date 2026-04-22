@@ -13,7 +13,7 @@ func (b *Bus) RunRequestPartHooks(ctx context.Context, call *lipapi.Call, meta s
 	if call == nil {
 		return fmt.Errorf("hooks: nil call: %w", lipapi.ErrInvalidCall)
 	}
-	var reqParts []sdk.RequestPartHook
+	reqParts := []sdk.RequestPartHook{}
 	if b != nil {
 		reqParts = b.requestParts
 	}
@@ -36,7 +36,7 @@ func (b *Bus) RunResponsePartHooks(ctx context.Context, ev *lipapi.Event, meta s
 	if ev == nil {
 		return fmt.Errorf("hooks: nil event: %w", lipapi.ErrInvalidCall)
 	}
-	var respParts []sdk.ResponsePartHook
+	respParts := []sdk.ResponsePartHook{}
 	if b != nil {
 		respParts = b.responseParts
 	}

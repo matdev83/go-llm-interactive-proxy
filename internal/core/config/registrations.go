@@ -11,7 +11,7 @@ func RegistrationsFromConfig(cfg *Config) []lipsdk.Registration {
 		return nil
 	}
 
-	var out []lipsdk.Registration
+	out := []lipsdk.Registration{}
 
 	for _, p := range cfg.Plugins.Frontends {
 		out = append(out, lipsdk.Registration{

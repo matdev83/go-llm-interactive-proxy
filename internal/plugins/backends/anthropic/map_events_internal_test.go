@@ -152,7 +152,7 @@ func TestMsgStream_Recv_wrapsSDKErr(t *testing.T) {
 func TestMsgStream_Recv_nilContext(t *testing.T) {
 	t.Parallel()
 	s := &msgStream{}
-	_, err := s.Recv(nil)
+	_, err := s.Recv(nil) //nolint:staticcheck // deliberate nil ctx; expect lipapi.ErrNilContext
 	if !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("got %v", err)
 	}

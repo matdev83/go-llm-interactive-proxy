@@ -331,7 +331,7 @@ func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) {
 	if s.ttl <= 0 {
 		return
 	}
-	var stale []string
+	stale := []string{}
 	for id, st := range s.legs {
 		if now.Sub(st.record.LastSeenAt) >= s.ttl {
 			stale = append(stale, id)

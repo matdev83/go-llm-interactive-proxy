@@ -11,7 +11,7 @@ import (
 func TestRetryRecvStream_Recv_nilContext(t *testing.T) {
 	t.Parallel()
 	s := &retryRecvStream{}
-	_, err := s.Recv(nil)
+	_, err := s.Recv(nil) //nolint:staticcheck // deliberate nil ctx; expect lipapi.ErrNilContext
 	if !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("got %v", err)
 	}

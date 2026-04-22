@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -22,7 +23,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 
 	factoryID := "custom-registry-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (any, error) {
+	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
 		_ = n
 		_ = upstream
 		return runtime.Backend{
@@ -57,7 +58,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {

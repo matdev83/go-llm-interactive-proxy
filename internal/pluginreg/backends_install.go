@@ -42,7 +42,7 @@ func resolveUpstreamHTTP(upstream *http.Client) *http.Client {
 	return httpclient.Standard()
 }
 
-func backendOpenAIResponses(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
+func backendOpenAIResponses(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -53,11 +53,11 @@ func backendOpenAIResponses(n yaml.Node, _ *http.Client) (runtime.Backend, error
 	}
 	return openairesponses.New(openairesponses.Config{
 		BaseURL: base,
-		APIKey:  resolveOpenAIKey(y.APIKey),
+		APIKey:  effectiveAPIKey(y.APIKey, keys.OpenAI),
 	}), nil
 }
 
-func backendOpenAILegacy(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
+func backendOpenAILegacy(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -68,11 +68,11 @@ func backendOpenAILegacy(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	}
 	return openailegacy.New(openailegacy.Config{
 		BaseURL: base,
-		APIKey:  resolveOpenAIKey(y.APIKey),
+		APIKey:  effectiveAPIKey(y.APIKey, keys.OpenAI),
 	}), nil
 }
 
-func backendAnthropic(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
+func backendAnthropic(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -83,11 +83,11 @@ func backendAnthropic(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	}
 	return anthropic.New(anthropic.Config{
 		BaseURL: base,
-		APIKey:  resolveAnthropicKey(y.APIKey),
+		APIKey:  effectiveAPIKey(y.APIKey, keys.Anthropic),
 	}), nil
 }
 
-func backendGemini(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
+func backendGemini(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (runtime.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return runtime.Backend{}, err
@@ -98,7 +98,7 @@ func backendGemini(n yaml.Node, _ *http.Client) (runtime.Backend, error) {
 	}
 	return gemini.New(gemini.Config{
 		BaseURL: base,
-		APIKey:  resolveGeminiKey(y.APIKey),
+		APIKey:  effectiveAPIKey(y.APIKey, keys.Gemini),
 	}), nil
 }
 

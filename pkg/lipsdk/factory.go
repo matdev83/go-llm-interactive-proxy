@@ -16,5 +16,14 @@ type BackendBuild = any
 // BackendFactory builds a backend adapter from opaque per-plugin YAML.
 type BackendFactory func(n yaml.Node) (BackendBuild, error)
 
+// FrontendMountOptions carries runtime wiring for [FrontendMount] beyond the [http.ServeMux].
+// Use composite literals with named fields at call sites.
+type FrontendMountOptions struct {
+	PluginCfg           yaml.Node
+	Exec                ExecutorView
+	DefaultRoute        string
+	MaxRequestBodyBytes int64
+}
+
 // FrontendMount registers HTTP routes for one frontend plugin instance.
-type FrontendMount func(mux *http.ServeMux, pluginCfg yaml.Node, exec ExecutorView, defaultRoute string, maxRequestBodyBytes int64) error
+type FrontendMount func(mux *http.ServeMux, opts FrontendMountOptions) error

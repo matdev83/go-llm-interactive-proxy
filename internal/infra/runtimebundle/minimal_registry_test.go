@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -16,7 +17,7 @@ func TestBuild_injectedRegistryOnly(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg); err != nil {
+	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -37,7 +38,7 @@ func TestBuild_injectedRegistryOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {

@@ -166,10 +166,9 @@ func parsePrimary(s string) (Primary, error) {
 		return Primary{}, fmt.Errorf("%w: missing model in primary", ErrInvalidSelector)
 	}
 	idx := strings.IndexByte(path, ':')
-	var backend, model string
-	if idx < 0 {
-		model = path
-	} else {
+	backend := ""
+	model := path
+	if idx >= 0 {
 		backend = path[:idx]
 		model = path[idx+1:]
 	}
@@ -185,7 +184,7 @@ func parsePrimary(s string) (Primary, error) {
 }
 
 func splitOutsideBrackets(s string, sep byte) []string {
-	var out []string
+	out := []string{}
 	depth := 0
 	start := 0
 	for i := 0; i < len(s); i++ {

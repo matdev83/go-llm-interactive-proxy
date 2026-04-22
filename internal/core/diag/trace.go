@@ -18,8 +18,6 @@ func (g *TraceIDGenerator) Next() string {
 	return fmt.Sprintf("t_%08d", atomic.AddUint64(&g.seq, 1))
 }
 
-var defaultTraceIDGen = NewTraceIDGenerator()
-
 type ctxKey int
 
 const (
@@ -76,9 +74,4 @@ func ALegID(ctx context.Context) string {
 		return v
 	}
 	return ""
-}
-
-// NewTraceID generates a deterministic opaque trace identifier.
-func NewTraceID() string {
-	return defaultTraceIDGen.Next()
 }

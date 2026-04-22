@@ -24,6 +24,9 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 	if reg == nil {
 		return errors.New("stdhttp: nil plugin registry")
 	}
+	if log == nil {
+		return errors.New("stdhttp: nil logger")
+	}
 	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if err != nil {
 		return fmt.Errorf("stdhttp: build runtime: %w", err)
@@ -41,7 +44,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		return errors.New("stdhttp: nil app")
 	}
 	if log == nil {
-		log = slog.Default()
+		return errors.New("stdhttp: nil logger")
 	}
 	if built == nil || built.Executor == nil {
 		return errors.New("stdhttp: nil built runtime")
@@ -99,7 +102,14 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	}
 	reg := built.PluginRegistry
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
-	if err := MountBundledFrontends(mux, exec, route, cfg.Plugins.Frontends, maxBody, reg); err != nil {
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux:                  mux,
+		Exec:                 exec,
+		DefaultRouteSelector: route,
+		Plugins:              cfg.Plugins.Frontends,
+		MaxRequestBodyBytes:  maxBody,
+		Reg:                  reg,
+	}); err != nil {
 		releaseClosers()
 		return fmt.Errorf("stdhttp: mount frontends: %w", err)
 	}
@@ -108,7 +118,8 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		return fmt.Errorf("stdhttp: start app: %w", err)
 	}
 
-	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(mux))
+	traceGen := diag.NewTraceIDGenerator()
+	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, mux))
 
 	srv := &http.Server{
 		Addr:              cfg.Server.Address,

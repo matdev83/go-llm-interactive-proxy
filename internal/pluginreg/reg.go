@@ -18,7 +18,7 @@ import (
 type FrontendMount = lipsdk.FrontendMount
 
 // backendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
-type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (lipsdk.BackendBuild, error)
+type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error)
 
 // FeatureFactory builds hook chains (and optional lifecycles) from opaque plugin YAML.
 type FeatureFactory func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error)
@@ -113,32 +113,27 @@ func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *htt
 	if !ok {
 		return runtime.Backend{}, fmt.Errorf("pluginreg: unknown backend plugin %q", factoryID)
 	}
-	v, err := fn(n, upstreamHTTP)
-	if err != nil {
-		return runtime.Backend{}, err
-	}
-	be, ok := v.(runtime.Backend)
-	if !ok {
-		return runtime.Backend{}, fmt.Errorf("pluginreg: backend %q factory returned %T, want runtime.Backend", factoryID, v)
-	}
-	return be, nil
+	return fn(n, upstreamHTTP)
 }
 
 // MountFrontend registers routes for one enabled frontend plugin on r.
-func (r *Registry) MountFrontend(id string, mux *http.ServeMux, n yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxRequestBodyBytes int64) error {
+func (r *Registry) MountFrontend(id string, mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	r.mu.RLock()
 	fn, ok := r.frontends[id]
 	r.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("pluginreg: unknown frontend plugin %q", id)
 	}
-	return fn(mux, n, exec, defaultRoute, maxRequestBodyBytes)
+	return fn(
+		mux,
+		opts,
+	)
 }
 
 // BuildFeatureHooks merges enabled feature plugins into a hook bus configuration using r.
 func (r *Registry) BuildFeatureHooks(registrations []lipsdk.Registration) (hooks.Config, []lipplugin.Lifecycle, error) {
 	var out hooks.Config
-	var lifes []lipplugin.Lifecycle
+	lifes := []lipplugin.Lifecycle{}
 	for _, reg := range registrations {
 		if reg.Kind != lipsdk.PluginKindFeature || !reg.Enabled {
 			continue

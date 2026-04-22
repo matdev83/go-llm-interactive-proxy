@@ -12,7 +12,7 @@ import (
 func testRegistryWithStdBundle(t *testing.T) *Registry {
 	t.Helper()
 	r := NewRegistry()
-	if err := InstallStandardBundleOn(r); err != nil {
+	if err := InstallStandardBundleOn(r, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	return r

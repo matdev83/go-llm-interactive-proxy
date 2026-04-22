@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestBuild_circuitBreakerDisabledUsesEmptyHealth(t *testing.T) {
@@ -20,7 +21,7 @@ func TestBuild_circuitBreakerDisabledUsesEmptyHealth(t *testing.T) {
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestBuild_circuitBreakerEnabledWiresPolicy(t *testing.T) {
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	_ "modernc.org/sqlite" // register "sqlite" driver
+	// Blank import registers the "sqlite" driver for database/sql. It lives in this package
+	// (not only in cmd/main) so any binary that links sqlitestore.Open gets a working driver
+	// without an extra import at the composition root; documented exception to the usual
+	// rule of keeping side-effect imports in main or tests only.
+	_ "modernc.org/sqlite" // register "sqlite" driver name
 )
 
 // Open opens (creating if needed) a SQLite-backed store at path.
@@ -26,9 +30,21 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("sqlitestore: open: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	s, err := New(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// New returns a Store backed by db after applying schema migration. Closing the store closes db.
+func New(db *sql.DB) (*Store, error) {
+	if db == nil {
+		return nil, fmt.Errorf("sqlitestore: nil db")
+	}
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -301,7 +317,7 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var out []lipapi.AttemptRecord
+	out := []lipapi.AttemptRecord{}
 	for rows.Next() {
 		var r lipapi.AttemptRecord
 		var st, ft int64

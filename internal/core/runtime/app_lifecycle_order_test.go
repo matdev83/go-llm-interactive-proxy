@@ -7,6 +7,7 @@ import (
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
@@ -33,6 +34,7 @@ func TestApp_lifecycleStartOrderAndReverseStop(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger: testkit.DiscardLogger(),
 		Lifecycles: []lipplugin.Lifecycle{
 			seqLifecycle{id: "a", starts: &starts, stops: &stops},
 			seqLifecycle{id: "b", starts: &starts, stops: &stops},
@@ -66,6 +68,7 @@ func TestApp_startPropagatesLifecycleErrorBeforeTraffic(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger:     testkit.DiscardLogger(),
 		Lifecycles: []lipplugin.Lifecycle{failStartLifecycle{}},
 	})
 	if err != nil {
@@ -104,6 +107,7 @@ func TestApp_Start_stopsEarlierLifecyclesWhenLaterStartFails(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger: testkit.DiscardLogger(),
 		Lifecycles: []lipplugin.Lifecycle{
 			snapLifecycle{id: "a", starts: &starts, stops: &stops},
 			snapLifecycle{id: "b", fail: true, starts: &starts, stops: &stops},

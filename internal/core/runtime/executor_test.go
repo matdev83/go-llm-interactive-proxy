@@ -1040,7 +1040,7 @@ func TestExecutor_execute_nilContext(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, err = ex.Execute(nil, call)
+	_, err = ex.Execute(nil, call) //nolint:staticcheck // deliberate nil ctx; expect lipapi.ErrNilContext
 	if !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("expected ErrNilContext, got %v", err)
 	}

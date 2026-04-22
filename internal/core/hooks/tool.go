@@ -22,7 +22,7 @@ type ToolApplyResult struct {
 // (default fail-open). Swallow stops the chain and returns Emit=false.
 func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) ToolApplyResult {
 	cur := te
-	var tools []sdk.ToolReactor
+	tools := []sdk.ToolReactor{}
 	var pol sdk.ToolReactorErrorPolicy
 	if b != nil {
 		tools = b.tools

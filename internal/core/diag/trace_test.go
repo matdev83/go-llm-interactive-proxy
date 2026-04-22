@@ -43,10 +43,11 @@ func TestWithCallDiag_roundTrip(t *testing.T) {
 	}
 }
 
-func TestNewTraceID_deterministicSequence(t *testing.T) {
+func TestTraceIDGenerator_deterministicSequence(t *testing.T) {
 	t.Parallel()
-	a := diag.NewTraceID()
-	b := diag.NewTraceID()
+	g := diag.NewTraceIDGenerator()
+	a := g.Next()
+	b := g.Next()
 	if a != "t_00000001" {
 		t.Fatalf("first trace id = %q, want t_00000001", a)
 	}

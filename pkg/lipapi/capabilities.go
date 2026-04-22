@@ -51,12 +51,12 @@ func (r NegotiationResult) Err() error {
 	if r.Kind != NegotiationReject {
 		return nil
 	}
-	return &RejectError{Missing: append([]Capability(nil), r.Missing...)}
+	return &RejectError{Missing: append([]Capability{}, r.Missing...)}
 }
 
 // RequiredCapabilities derives required capabilities from call shape.
 func RequiredCapabilities(c Call) []Capability {
-	var out []Capability
+	out := []Capability{}
 	add := func(cap Capability) {
 		for _, existing := range out {
 			if existing == cap {
@@ -97,7 +97,7 @@ func RequiredCapabilities(c Call) []Capability {
 // reasoning and parallel tool calls may be stripped by the executor before upstream calls.
 // Any other missing capability is a hard reject before upstream work begins.
 func Negotiate(required []Capability, backend BackendCaps) NegotiationResult {
-	var missing []Capability
+	missing := []Capability{}
 	for _, r := range required {
 		if backend == nil {
 			missing = append(missing, r)
@@ -116,8 +116,8 @@ func Negotiate(required []Capability, backend BackendCaps) NegotiationResult {
 		CapabilityParallelToolCalls: {},
 	}
 
-	var soft []Capability
-	var hard []Capability
+	soft := []Capability{}
+	hard := []Capability{}
 	for _, m := range missing {
 		if _, ok := downgradable[m]; ok {
 			soft = append(soft, m)

@@ -19,7 +19,14 @@ func TestMountBundledFrontends_nilRegistry(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
-	err := MountBundledFrontends(mux, ex, "stub:x", []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}}, 0, nil)
+	err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux:                  mux,
+		Exec:                 ex,
+		DefaultRouteSelector: "stub:x",
+		Plugins:              []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: true}},
+		MaxRequestBodyBytes:  0,
+		Reg:                  nil,
+	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -36,11 +43,11 @@ func TestRun_nilPluginRegistry(t *testing.T) {
 		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3},
 		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
 	}
-	app, err := runtime.New(runtime.Options{Config: cfg})
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: testkit.DiscardLogger()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Run(ctx, cfg, app, nil, nil)
+	err = Run(ctx, cfg, app, testkit.DiscardLogger(), nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -57,19 +64,20 @@ func TestRunWithRuntime_nilPluginRegistryInBuilt(t *testing.T) {
 		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3},
 		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
 	}
-	app, err := runtime.New(runtime.Options{Config: cfg})
+	log := testkit.DiscardLogger()
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	built.PluginRegistry = nil
-	err = RunWithRuntime(ctx, cfg, app, nil, built)
+	err = RunWithRuntime(ctx, cfg, app, log, built)
 	if err == nil {
 		t.Fatal("expected error")
 	}

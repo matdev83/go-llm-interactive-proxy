@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	mathrand "math/rand"
-	"net/http"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -23,7 +22,7 @@ import (
 
 // Build assembles continuity store, executor, and closers for the standard distribution.
 //
-// cfg must be non-nil. bus may be nil (replaced with an empty hooks.Bus). log may be nil.
+// cfg must be non-nil. bus may be nil (replaced with an empty hooks.Bus). log must be non-nil.
 // opts must be non-nil and opts.PluginRegistry must be non-nil; other BuildOptions fields are optional.
 func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOptions) (*Built, error) {
 	if cfg == nil {
@@ -35,13 +34,14 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts == nil || opts.PluginRegistry == nil {
 		return nil, fmt.Errorf("runtimebundle: nil PluginRegistry")
 	}
+	if log == nil {
+		return nil, fmt.Errorf("runtimebundle: nil logger")
+	}
 	reg := opts.PluginRegistry
 
-	upstream := (*http.Client)(nil)
+	upstream := httpclient.Standard()
 	if opts.HTTPClient != nil {
 		upstream = opts.HTTPClient
-	} else {
-		upstream = httpclient.Standard()
 	}
 
 	backends := make(map[string]runtime.Backend)

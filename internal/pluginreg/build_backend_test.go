@@ -14,7 +14,7 @@ func TestBuildBackend_propagatesUpstreamHTTP(t *testing.T) {
 	reg := NewRegistry()
 	var got *http.Client
 	id := "probe-upstream-http-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := reg.RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (any, error) {
+	if err := reg.RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error) {
 		got = upstreamHTTP
 		return runtime.Backend{}, nil
 	}); err != nil {

@@ -18,7 +18,7 @@ func featureSubmitNoop(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error)
 	if err != nil {
 		return hooks.Config{}, nil, err
 	}
-	var lifes []lipplugin.Lifecycle
+	lifes := []lipplugin.Lifecycle{}
 	if cfg.LifecycleProbe {
 		lifes = append(lifes, &submitnoop.LifecycleProbe{})
 	}

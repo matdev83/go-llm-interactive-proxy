@@ -21,11 +21,17 @@ func TraceMiddleware(next http.Handler) http.Handler {
 }
 
 // RequestIDMiddleware generates and injects a new trace ID when one is not
-// already present in the request context.
-func RequestIDMiddleware(next http.Handler) http.Handler {
+// already present in the request context. gen must be non-nil (typically
+// [diag.NewTraceIDGenerator] from the composition root).
+func RequestIDMiddleware(gen *diag.TraceIDGenerator, next http.Handler) http.Handler {
+	if gen == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "trace id generator not configured", http.StatusInternalServerError)
+		})
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if diag.TraceID(r.Context()) == "" {
-			ctx := diag.WithTraceID(r.Context(), diag.NewTraceID())
+			ctx := diag.WithTraceID(r.Context(), gen.Next())
 			r = r.WithContext(ctx)
 			w.Header().Set("X-Trace-ID", diag.TraceID(ctx))
 		}

@@ -22,13 +22,20 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 	})
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	plugins := []config.PluginConfig{
 		{ID: gemini.ID, Enabled: true},
 	}
-	if err := MountBundledFrontends(mux, ex, "stub:gemini-2.0-flash", plugins, 0, reg); err != nil {
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux:                  mux,
+		Exec:                 ex,
+		DefaultRouteSelector: "stub:gemini-2.0-flash",
+		Plugins:              plugins,
+		MaxRequestBodyBytes:  0,
+		Reg:                  reg,
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,12 +50,19 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg); err != nil {
+	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
-	err := MountBundledFrontends(mux, ex, "stub:x", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}, 0, reg)
+	err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux:                  mux,
+		Exec:                 ex,
+		DefaultRouteSelector: "stub:x",
+		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+		MaxRequestBodyBytes:  0,
+		Reg:                  reg,
+	})
 	if err == nil {
 		t.Fatal("expected error when registry lacks frontend factories")
 	}

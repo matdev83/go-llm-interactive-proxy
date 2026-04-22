@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"gopkg.in/yaml.v3"
@@ -15,13 +16,13 @@ func TestRegistry_zeroValueRegisterBackend(t *testing.T) {
 	t.Parallel()
 	var r Registry
 	id := "zero-value-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (lipsdk.BackendBuild, error) {
-		return nil, nil
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (runtime.Backend, error) {
+		return runtime.Backend{}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (lipsdk.BackendBuild, error) {
-		return nil, nil
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (runtime.Backend, error) {
+		return runtime.Backend{}, nil
 	}); err == nil {
 		t.Fatal("expected duplicate registration error")
 	}
@@ -31,7 +32,7 @@ func TestRegistry_zeroValueRegisterFrontend(t *testing.T) {
 	t.Parallel()
 	var r Registry
 	id := "zero-value-frontend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterFrontend(id, func(*http.ServeMux, yaml.Node, lipsdk.ExecutorView, string, int64) error {
+	if err := r.RegisterFrontend(id, func(*http.ServeMux, lipsdk.FrontendMountOptions) error {
 		return nil
 	}); err != nil {
 		t.Fatal(err)

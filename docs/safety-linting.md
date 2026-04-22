@@ -15,6 +15,7 @@ The default `golangci-lint` configuration (also run in `.github/workflows/qa.yml
 | `revive` | Style and a subset of correctness rules (see `.golangci.yml` for disabled revive rules) |
 | `forcetypeassert` | Disallows bare `x.(T)` assertions that can panic |
 | `errcheck` | Flags unchecked errors from a conservative set of calls (e.g. `Close`) |
+| `gofumpt` | Stricter formatting than `gofmt` (drop-in for style consistency) |
 
 Run locally (same as CI):
 
@@ -59,5 +60,6 @@ Treat reports as advisory until the team agrees on suppression conventions.
 
 ## Tier 3 — follow-ups
 
+- `gocritic` and `wsl` were evaluated for Tier 1 but produce broad churn on this codebase; run them locally or promote selected checks after triage.
 - If a rule proves stable after manual triage, consider promoting it into Tier 1 via `.golangci.yml` (possibly scoped with `issues.exclude-rules`).
 - Optional scheduled workflows (e.g. monthly `workflow_dispatch` + `gosec`) can be added without gating merges; keep them `continue-on-error` until signal-to-noise is acceptable.

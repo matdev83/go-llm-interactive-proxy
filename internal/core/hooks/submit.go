@@ -19,7 +19,7 @@ func (b *Bus) RunSubmit(ctx context.Context, call *lipapi.Call, meta *sdk.Submit
 	if meta.Annotations == nil {
 		meta.Annotations = map[string]string{}
 	}
-	var submit []sdk.SubmitHook
+	submit := []sdk.SubmitHook{}
 	if b != nil {
 		submit = b.submit
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestBuild_nilPluginRegistry(t *testing.T) {
@@ -40,6 +41,23 @@ func TestBuild_nilPluginRegistryInOptions(t *testing.T) {
 	}
 }
 
+func TestBuild_nilLogger(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "nil logger") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuild_usesProvidedRegistryOnly(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
@@ -47,7 +65,7 @@ func TestBuild_usesProvidedRegistryOnly(t *testing.T) {
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err != nil {

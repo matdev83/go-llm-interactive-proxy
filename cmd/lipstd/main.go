@@ -29,7 +29,8 @@ func main() {
 	}
 
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+	apiKeys := pluginreg.ResolveUpstreamAPIKeysFromEnv()
+	if err := pluginreg.InstallStandardBundleOn(reg, apiKeys); err != nil {
 		logger.Error("plugin registration failed", "error", err)
 		os.Exit(1)
 	}

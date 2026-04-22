@@ -8,41 +8,40 @@ import (
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"gopkg.in/yaml.v3"
 )
 
-func mountOpenAIResponses(mux *http.ServeMux, _ yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxBody int64) error {
+func mountOpenAIResponses(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	mux.Handle("/v1/responses", &frontopenairesponses.Handler{
-		Exec:                 exec,
-		DefaultRouteSelector: defaultRoute,
-		MaxRequestBodyBytes:  maxBody,
+		Exec:                 opts.Exec,
+		DefaultRouteSelector: opts.DefaultRoute,
+		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 	})
 	return nil
 }
 
-func mountOpenAILegacy(mux *http.ServeMux, _ yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxBody int64) error {
+func mountOpenAILegacy(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	mux.Handle("/v1/chat/completions", &frontopenailegacy.Handler{
-		Exec:                 exec,
-		DefaultRouteSelector: defaultRoute,
-		MaxRequestBodyBytes:  maxBody,
+		Exec:                 opts.Exec,
+		DefaultRouteSelector: opts.DefaultRoute,
+		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 	})
 	return nil
 }
 
-func mountAnthropic(mux *http.ServeMux, _ yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxBody int64) error {
+func mountAnthropic(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	mux.Handle("/v1/messages", &frontanthropic.Handler{
-		Exec:                 exec,
-		DefaultRouteSelector: defaultRoute,
-		MaxRequestBodyBytes:  maxBody,
+		Exec:                 opts.Exec,
+		DefaultRouteSelector: opts.DefaultRoute,
+		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 	})
 	return nil
 }
 
-func mountGemini(mux *http.ServeMux, _ yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxBody int64) error {
+func mountGemini(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	h := &frontgemini.Handler{
-		Exec:                 exec,
-		DefaultRouteSelector: defaultRoute,
-		MaxRequestBodyBytes:  maxBody,
+		Exec:                 opts.Exec,
+		DefaultRouteSelector: opts.DefaultRoute,
+		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 	}
 	// Register API-prefix routes only (avoid catch-all "/" shadowing unrelated paths).
 	mux.Handle("/v1beta/", h)

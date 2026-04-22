@@ -2,12 +2,36 @@ package sqlitestore
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+func TestNew_inMemory(t *testing.T) {
+	t.Parallel()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(db)
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx := context.Background()
+	leg, err := s.CreateALeg(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leg.ALegID == "" {
+		t.Fatal("expected a-leg id")
+	}
+}
 
 func TestStore_restartSurvival(t *testing.T) {
 	t.Parallel()

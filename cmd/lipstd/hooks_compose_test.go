@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -17,7 +18,7 @@ import (
 func testRegistryWithStdBundle(t *testing.T) *pluginreg.Registry {
 	t.Helper()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	return reg
@@ -101,6 +102,7 @@ func TestRuntimeNew_withComposedHooks(t *testing.T) {
 
 	app, err := runtime.New(runtime.Options{
 		Config:        cfg,
+		Logger:        testkit.DiscardLogger(),
 		Registrations: regs,
 		Mandatory:     mandatoryStandardPlugins(),
 		Hooks:         hookCfg,

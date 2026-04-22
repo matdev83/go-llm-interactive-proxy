@@ -11,7 +11,7 @@ import (
 func TestInstallOn_validatesStandardRequirements(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := standardbundle.InstallOn(reg); err != nil {
+	if err := standardbundle.InstallOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
@@ -21,7 +21,7 @@ func TestInstallOn_validatesStandardRequirements(t *testing.T) {
 
 func TestInstallOn_nilRegistry(t *testing.T) {
 	t.Parallel()
-	if err := standardbundle.InstallOn(nil); err == nil {
+	if err := standardbundle.InstallOn(nil, pluginreg.UpstreamAPIKeys{}); err == nil {
 		t.Fatal("expected error")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestBuildExecutor_productionClockAndRNG(t *testing.T) {
@@ -20,7 +21,7 @@ func TestBuildExecutor_productionClockAndRNG(t *testing.T) {
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
 	if err != nil {
@@ -57,7 +58,7 @@ func TestBuild_respectsHTTPClientInBuildOptions(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
 	custom := &http.Client{}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		HTTPClient:     custom,
 		PluginRegistry: pluginreg.NewRegistry(),
 	})

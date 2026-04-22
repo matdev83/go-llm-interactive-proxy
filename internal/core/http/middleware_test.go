@@ -37,7 +37,8 @@ func TestRequestIDMiddleware_generatesWhenMissing(t *testing.T) {
 		}
 	})
 
-	h := corehttp.RequestIDMiddleware(inner)
+	gen := diag.NewTraceIDGenerator()
+	h := corehttp.RequestIDMiddleware(gen, inner)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -58,7 +59,7 @@ func TestRequestIDMiddleware_preservesExisting(t *testing.T) {
 	})
 
 	ctx := diag.WithTraceID(context.Background(), "existing-id")
-	h := corehttp.RequestIDMiddleware(inner)
+	h := corehttp.RequestIDMiddleware(diag.NewTraceIDGenerator(), inner)
 	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

@@ -10,9 +10,10 @@ import (
 )
 
 // InstallOn registers all standard distribution factories on reg.
-func InstallOn(reg *pluginreg.Registry) error {
+// keys supplies default upstream API keys when plugin YAML omits api_key (see [pluginreg.InstallStandardBundleOn]).
+func InstallOn(reg *pluginreg.Registry, keys pluginreg.UpstreamAPIKeys) error {
 	if reg == nil {
 		return fmt.Errorf("standardbundle: nil registry")
 	}
-	return pluginreg.InstallStandardBundleOn(reg)
+	return pluginreg.InstallStandardBundleOn(reg, keys)
 }

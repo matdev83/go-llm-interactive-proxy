@@ -13,7 +13,7 @@ type AttrOpts struct {
 
 // Attrs builds stable slog attributes for orchestration and lineage logs (Req 13.2, 13.3).
 func Attrs(ctx context.Context, o AttrOpts) []slog.Attr {
-	var out []slog.Attr
+	out := []slog.Attr{}
 	if tid := TraceID(ctx); tid != "" {
 		out = append(out, slog.String("trace_id", tid))
 	}

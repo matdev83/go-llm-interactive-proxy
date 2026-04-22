@@ -14,9 +14,12 @@ import (
 
 var ErrNilConfig = errors.New("runtime config is required")
 
+// ErrNilLogger is returned by [New] when Options.Logger is nil.
+var ErrNilLogger = errors.New("runtime: logger is required")
+
 // Options carries bootstrap-only runtime dependencies for New.
 //
-// Config must be non-nil (otherwise ErrNilConfig). Logger nil selects slog.Default.
+// Config must be non-nil (otherwise ErrNilConfig). Logger must be non-nil (otherwise ErrNilLogger).
 // Nil entries in Lifecycles are ignored by App.Start and App.Shutdown.
 type Options struct {
 	Config *coreconfig.Config
@@ -56,10 +59,10 @@ func New(opts Options) (*App, error) {
 		}
 	}
 
-	logger := opts.Logger
-	if logger == nil {
-		logger = slog.Default()
+	if opts.Logger == nil {
+		return nil, ErrNilLogger
 	}
+	logger := opts.Logger
 
 	return &App{
 		config:        opts.Config,
@@ -91,7 +94,7 @@ func (a *App) Start(ctx context.Context) error {
 		"hook_response_parts", nrs,
 		"hook_tool_reactors", nt,
 	)
-	var started []lipplugin.Lifecycle
+	started := []lipplugin.Lifecycle{}
 	for _, lc := range a.lifecycles {
 		if lc == nil {
 			continue

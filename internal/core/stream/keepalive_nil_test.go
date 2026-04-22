@@ -49,7 +49,7 @@ func TestKeepalive_Recv_nilContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = k.Close() })
-	_, err = k.Recv(nil)
+	_, err = k.Recv(nil) //nolint:staticcheck // deliberate nil ctx; expect lipapi.ErrNilContext
 	if !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("got %v", err)
 	}

@@ -13,8 +13,10 @@ type requestPartHook struct{}
 
 type responsePartHook struct{}
 
-var _ sdk.RequestPartHook = requestPartHook{}
-var _ sdk.ResponsePartHook = responsePartHook{}
+var (
+	_ sdk.RequestPartHook  = requestPartHook{}
+	_ sdk.ResponsePartHook = responsePartHook{}
+)
 
 // NewRequestPartHook returns the registered request-part hook entrypoint for parts-noop.
 func NewRequestPartHook() sdk.RequestPartHook { return requestPartHook{} }

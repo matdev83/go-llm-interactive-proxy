@@ -7,6 +7,7 @@ import (
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
@@ -35,20 +36,20 @@ func TestNewRequiresConfig(t *testing.T) {
 	}
 }
 
-func TestNewAcceptsNilLogger(t *testing.T) {
+func TestNewRejectsNilLogger(t *testing.T) {
 	t.Parallel()
 
-	app, err := runtime.New(runtime.Options{
+	_, err := runtime.New(runtime.Options{
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
 		Logger: nil,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for nil logger")
 	}
-	if app == nil {
-		t.Fatal("expected app instance")
+	if !errors.Is(err, runtime.ErrNilLogger) {
+		t.Fatalf("expected ErrNilLogger, got %v", err)
 	}
 }
 
@@ -59,6 +60,7 @@ func TestNewAcceptsMinimalConfig(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger: testkit.DiscardLogger(),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -75,6 +77,7 @@ func TestNewRejectsDuplicatePluginRegistrations(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger: testkit.DiscardLogger(),
 		Registrations: []lipsdk.Registration{
 			{ID: "dup", Kind: lipsdk.PluginKindFrontend},
 			{ID: "dup", Kind: lipsdk.PluginKindFrontend},
@@ -96,6 +99,7 @@ func TestNewRejectsMissingMandatoryPlugin(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger: testkit.DiscardLogger(),
 		Registrations: []lipsdk.Registration{
 			{ID: "only-one", Kind: lipsdk.PluginKindFrontend},
 		},
@@ -124,6 +128,7 @@ func TestShutdownHandlesNilAppAndNilLifecycles(t *testing.T) {
 		Config: &coreconfig.Config{
 			Server: coreconfig.ServerConfig{Address: ":8080"},
 		},
+		Logger: testkit.DiscardLogger(),
 		Lifecycles: []lipplugin.Lifecycle{
 			nil,
 			stopOnlyLifecycle{id: "a", stops: &stops},
