@@ -61,7 +61,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
-	var closers []func() error
+	closers := []func() error{}
 	if c, ok := store.(interface{ Close() error }); ok {
 		closers = append(closers, c.Close)
 	}

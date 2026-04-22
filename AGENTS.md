@@ -198,6 +198,19 @@ High-value areas that always deserve tests:
 - Add package docs where the boundary is non-obvious.
 - Keep tests near the package they validate unless a cross-package integration test is required.
 
+## Go style (project conventions)
+
+- **Line length ~120+**: break at semantic boundaries where practical. When splitting embedded JSON/SSE
+  in tests or emulators, re-check brace matching; a single long line is better than a broken stream.
+  Prefer [testdata/](./testdata/) for very large wire dumps when a fixture is easier to read than a megastring.
+  (CI does not yet run `golangci-lint` `lll` repo-wide; enable and tune path excludes incrementally when ready.)
+- **Slices in JSON and returned values**: prefer explicit empty initialization (`s := []T{}` or `make`) when
+  a slice is stored, returned, or serialized, so `null` never appears in JSON for “empty list”. Short-lived
+  **append-only** local buffers may use `var s []T` and `append` (idiomatic Go) when the value never escapes.
+- **SQL driver import**: the SQLite driver is side-effect-registered in
+  [internal/core/continuity/sqlitestore/](./internal/core/continuity/sqlitestore/) (not only in `main`);
+  see the package and import comments there.
+
 ## Git and editing rules
 
 - Never use destructive git commands to wipe broad unreviewed changes.

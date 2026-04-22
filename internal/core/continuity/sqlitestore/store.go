@@ -1,4 +1,7 @@
 // Package sqlitestore implements b2bua.Store on SQLite for durable continuity and attempt lineage.
+// The blank import of modernc.org/sqlite in this file is intentional: it registers the "sqlite" driver
+// for database/sql; see the import group comment. Linking this package (not only cmd/…)
+// is enough to load the driver.
 package sqlitestore
 
 import (
@@ -91,7 +94,7 @@ func (s *Store) migrate() error {
 		)`,
 	}
 	for _, q := range stmts {
-		if _, err := s.db.Exec(q); err != nil {
+		if _, err := s.db.ExecContext(context.Background(), q); err != nil {
 			return fmt.Errorf("sqlitestore migrate: %w", err)
 		}
 	}

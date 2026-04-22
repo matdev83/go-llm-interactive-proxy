@@ -16,6 +16,9 @@ linters:
     - paralleltest
     - thelper
     - gofumpt
+    # lll, gocritic, wsl (see AGENTS.md): enable incrementally; current tree has
+    # intentional long lines (wire fixtures, refclient method signatures) and
+    # widespread wsl false positives in pkg/lipapi/.
 
 linters-settings:
   revive:

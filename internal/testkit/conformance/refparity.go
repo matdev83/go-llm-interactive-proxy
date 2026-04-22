@@ -39,7 +39,7 @@ func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]
 		tb.Cleanup(srv.Close)
 		return srv
 	}
-	inner := parityRefHandler(backendID)
+	inner := parityRefHandler(tb, backendID)
 	var h http.Handler = inner
 	if onRequestBody != nil {
 		h = captureRequestBodyHandler(inner, onRequestBody)
@@ -67,7 +67,8 @@ func captureRequestBodyHandler(inner http.Handler, onBody func([]byte)) http.Han
 	})
 }
 
-func parityRefHandler(backendID string) http.Handler {
+func parityRefHandler(tb testing.TB, backendID string) http.Handler {
+	tb.Helper()
 	switch backendID {
 	case openairesponses.ID:
 		ns := strings.Replace(openAIResponsesNonStreamDefault, `"text": "ok"`, `"text": "`+parityText+`"`, 1)
@@ -100,7 +101,7 @@ func parityRefHandler(backendID string) http.Handler {
 		ns := strings.Replace(bedrockConverseDefault, `"text": "ok"`, `"text": "`+parityText+`"`, 1)
 		return refbedrock.NewHandler(refbedrock.Config{
 			ConverseJSON: ns,
-			StreamEvents: bedrockParityStreamEvents(parityText),
+			StreamEvents: bedrockParityStreamEvents(tb, parityText),
 		})
 	default:
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,12 +130,7 @@ const openAIResponsesNonStreamDefault = `{
 }`
 
 const openAIResponsesStreamDefault = "event: response.completed\n" +
-	"data: {\"type\":\"response.completed\",\"sequence_number\":1," +
-	"\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\"," +
-	"\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\"," +
-	"\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\"," +
-	"\"role\":\"assistant\",\"content\":[" +
-	"{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}}\n\n" +
+	"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}\n\n" +
 	"data: [DONE]\n\n"
 
 const openAILegacyNonStreamDefault = `{
@@ -208,7 +204,8 @@ func anthropicParityStreamSSE(text string) string {
 		"\n\n"
 }
 
-func bedrockParityStreamEvents(text string) []byte {
+func bedrockParityStreamEvents(tb testing.TB, text string) []byte {
+	tb.Helper()
 	var buf bytes.Buffer
 	enc := eventstream.NewEncoder()
 	events := []struct {
@@ -226,7 +223,7 @@ func bedrockParityStreamEvents(text string) []byte {
 	for _, ev := range events {
 		payload, err := json.Marshal(ev.payload)
 		if err != nil {
-			panic(err)
+			tb.Fatalf("bedrock parity stream: marshal %s: %v", ev.eventType, err)
 		}
 		msg := eventstream.Message{
 			Headers: []eventstream.Header{
@@ -237,7 +234,7 @@ func bedrockParityStreamEvents(text string) []byte {
 			Payload: payload,
 		}
 		if err := enc.Encode(&buf, msg); err != nil {
-			panic(err)
+			tb.Fatalf("bedrock parity stream: encode %s: %v", ev.eventType, err)
 		}
 	}
 	return buf.Bytes()
