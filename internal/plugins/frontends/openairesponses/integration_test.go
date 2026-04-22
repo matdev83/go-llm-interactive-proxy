@@ -166,7 +166,7 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -189,7 +189,7 @@ func TestIntegration_methodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -207,7 +207,7 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusBadRequest {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))
@@ -332,7 +332,7 @@ func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))
@@ -378,7 +378,7 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))

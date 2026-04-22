@@ -416,6 +416,20 @@ func TestWriteStreamSSE_toolUseBlock(t *testing.T) {
 	if len(inputDeltas) != 2 {
 		t.Fatalf("input_json_delta count: %d", len(inputDeltas))
 	}
+	if len(blockStops) != 2 {
+		t.Fatalf("content_block_stop count: %d indices=%v", len(blockStops), blockStops)
+	}
+	toolIdx := toolBlockStarts[0]
+	var sawToolStop bool
+	for _, idx := range blockStops {
+		if idx == toolIdx {
+			sawToolStop = true
+			break
+		}
+	}
+	if !sawToolStop {
+		t.Fatalf("expected content_block_stop for tool block index %d, got %v", toolIdx, blockStops)
+	}
 	if stopReason != "tool_use" {
 		t.Fatalf("stop_reason: %q", stopReason)
 	}

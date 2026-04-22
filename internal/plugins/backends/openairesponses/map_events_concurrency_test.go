@@ -62,7 +62,10 @@ func TestSDKStream_CloseConcurrentWhileRecvBlocked(t *testing.T) {
 	dec := &stallDecoder{enteredNext: make(chan struct{}, 1), release: release}
 	sdk := ssestream.NewStream[responses.ResponseStreamEventUnion](dec, nil)
 	es := newSDKStream(sdk)
-	s := es.(*sdkStream)
+	s, ok := es.(*sdkStream)
+	if !ok {
+		t.Fatalf("newSDKStream returned %T", es)
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -95,7 +98,10 @@ func TestSDKStream_CloseConcurrentAfterEOF(t *testing.T) {
 	dec := &instantDecoder{}
 	sdk := ssestream.NewStream[responses.ResponseStreamEventUnion](dec, nil)
 	es := newSDKStream(sdk)
-	s := es.(*sdkStream)
+	s, ok := es.(*sdkStream)
+	if !ok {
+		t.Fatalf("newSDKStream returned %T", es)
+	}
 	if _, err := s.Recv(context.Background()); err != io.EOF {
 		t.Fatalf("recv: %v", err)
 	}

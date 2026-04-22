@@ -151,7 +151,7 @@ func TestHandler_wrongPath_404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}

@@ -2,6 +2,7 @@ package openailegacy
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -10,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+//nolint:paralleltest // chunks share chatStream; inner t.Run is for failure attribution only
 func TestHandleChunk_toolCallsStreamingFromJSON(t *testing.T) {
 	t.Parallel()
 	chunks := []string{
@@ -19,12 +21,14 @@ func TestHandleChunk_toolCallsStreamingFromJSON(t *testing.T) {
 		`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
 	}
 	s := &chatStream{}
-	for _, raw := range chunks {
-		var ch openai.ChatCompletionChunk
-		if err := json.Unmarshal([]byte(raw), &ch); err != nil {
-			t.Fatal(err)
-		}
-		s.handleChunk(ch)
+	for i, raw := range chunks {
+		t.Run(fmt.Sprintf("chunk_%d", i), func(t *testing.T) {
+			var ch openai.ChatCompletionChunk
+			if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+				t.Fatal(err)
+			}
+			s.handleChunk(ch)
+		})
 	}
 	var args string
 	var sawFinish bool

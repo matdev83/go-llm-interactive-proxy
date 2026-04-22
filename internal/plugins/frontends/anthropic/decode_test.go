@@ -490,6 +490,7 @@ func TestDecodeMessage_toolChoiceObject(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
 			body := []byte(fmt.Sprintf(`{
 			  "model": "claude-3",
 			  "max_tokens": 64,

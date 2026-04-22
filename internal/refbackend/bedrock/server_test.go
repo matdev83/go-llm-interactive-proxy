@@ -84,7 +84,7 @@ func TestHandler_ConverseStream_smoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	stream := streamOut.GetStream()
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var sawText bool
 	for ev := range stream.Events() {

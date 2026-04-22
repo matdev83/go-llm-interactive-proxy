@@ -43,7 +43,7 @@ func TestNewRuntimeClient_nilContextUsesBackground(t *testing.T) {
 		BaseEndpoint:    srv.URL,
 		DisableHTTPS:    true,
 	}
-	cli, err := newRuntimeClient(nil, cfg)
+	cli, err := newRuntimeClient(nil, cfg) //nolint:staticcheck // nil ctx exercises documented fallback to context.Background
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestNewRuntimeClient_nilContextUsesBackground(t *testing.T) {
 
 func TestNewWithContext_nilUsesBackground(t *testing.T) {
 	t.Parallel()
-	b := NewWithContext(nil, Config{
+	b := NewWithContext(nil, Config{ //nolint:staticcheck // nil ctx exercises documented fallback to context.Background
 		Region:          "us-east-1",
 		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",

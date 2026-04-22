@@ -1,6 +1,7 @@
 run:
   timeout: 10m
-  tests: false
+  # Test files are included so paralleltest/thelper can enforce subtest hygiene.
+  tests: true
 
 linters:
   disable-all: true
@@ -12,6 +13,8 @@ linters:
     - revive
     - forcetypeassert
     - errcheck
+    - paralleltest
+    - thelper
 
 linters-settings:
   revive:

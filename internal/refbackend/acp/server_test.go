@@ -21,7 +21,7 @@ func TestHandler_initializeAdvertisesSubset(t *testing.T) {
 
 	body := `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"t","version":"1"}}}`
 	resp := postACP(t, srv.URL, body)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -60,7 +60,7 @@ func TestHandler_sessionNewRequiresInitialize(t *testing.T) {
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`
 	resp := postACP(t, srv.URL, body)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var m map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestHandler_sessionPromptStreamsUpdatesThenEndTurn(t *testing.T) {
 
 	prompt := `{"jsonrpc":"2.0","id":10,"method":"session/prompt","params":{"sessionId":` + jsonQuote(sid) + `,"prompt":[{"type":"text","text":"hi"}]}}`
 	resp := postACP(t, srv.URL, prompt)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -126,7 +126,7 @@ func TestHandler_sessionPromptResourceEchoInChunk(t *testing.T) {
 
 	prompt := `{"jsonrpc":"2.0","id":11,"method":"session/prompt","params":{"sessionId":` + jsonQuote(sid) + `,"prompt":[{"type":"text","text":"x"},{"type":"resource","resource":{"uri":"file:///tmp/a.py","mimeType":"text/x-python","text":"print(1)"}}]}}`
 	resp := postACP(t, srv.URL, prompt)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestHandler_sessionCancelEndsPromptWithCancelled(t *testing.T) {
 			ch <- result{err: err}
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			ch <- result{err: fmt.Errorf("prompt status %d", resp.StatusCode)}
 			return
@@ -182,7 +182,7 @@ func TestHandler_sessionCancelEndsPromptWithCancelled(t *testing.T) {
 	<-planReached
 	cancel := `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":` + jsonQuote(sid) + `}}`
 	resp2 := postACP(t, srv.URL, cancel)
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNoContent {
 		t.Fatalf("cancel status %d", resp2.StatusCode)
 	}
@@ -209,7 +209,7 @@ func TestHandler_sessionLoadRejected(t *testing.T) {
 
 	body := `{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"sess_ref_1","cwd":"/tmp","mcpServers":[]}}`
 	resp := postACP(t, srv.URL, body)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var m map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func mustInit(t *testing.T, baseURL string) {
 	t.Helper()
 	body := `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"t","version":"1"}}}`
 	resp := postACP(t, baseURL, body)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("init status %d", resp.StatusCode)
 	}
@@ -242,7 +242,7 @@ func mustSessionNew(t *testing.T, baseURL string) string {
 	t.Helper()
 	body := `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}`
 	resp := postACP(t, baseURL, body)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var m map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
 		t.Fatal(err)

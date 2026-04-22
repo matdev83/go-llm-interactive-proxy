@@ -26,7 +26,7 @@ func TestAttemptsHandler_missingParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -45,7 +45,7 @@ func TestAttemptsHandler_notFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -88,7 +88,7 @@ func TestAttemptsHandler_ok(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}

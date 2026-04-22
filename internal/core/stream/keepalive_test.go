@@ -92,7 +92,7 @@ func TestKeepalive_emitsDuringIdle(t *testing.T) {
 	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 20 * time.Millisecond,
 	})
-	defer ka.Close()
+	defer func() { _ = ka.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -148,7 +148,7 @@ func TestKeepalive_customKeepaliveEvent(t *testing.T) {
 			return customEvent
 		},
 	})
-	defer ka.Close()
+	defer func() { _ = ka.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -173,7 +173,7 @@ func TestKeepalive_propagatesEOF(t *testing.T) {
 	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 50 * time.Millisecond,
 	})
-	defer ka.Close()
+	defer func() { _ = ka.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -193,7 +193,7 @@ func TestKeepalive_respectsCancellation(t *testing.T) {
 	ka := mustNewKeepalive(t, blockingStream, stream.KeepaliveConfig{
 		Interval: 200 * time.Millisecond,
 	})
-	defer ka.Close()
+	defer func() { _ = ka.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -268,7 +268,7 @@ func TestKeepalive_passesThroughRealEvents(t *testing.T) {
 	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{
 		Interval: 100 * time.Millisecond,
 	})
-	defer ka.Close()
+	defer func() { _ = ka.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

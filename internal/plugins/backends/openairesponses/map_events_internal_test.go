@@ -131,23 +131,29 @@ func TestHandleUnion_streamError_emptyMessage_defaults(t *testing.T) {
 // Status / queue events must not emit canonical text or tool deltas.
 func TestHandleUnion_nonMappedEventTypes_emitNoTextOrToolDeltas(t *testing.T) {
 	t.Parallel()
-	cases := []string{
-		`{"type":"response.in_progress","sequence_number":0}`,
-		`{"type":"response.queued","sequence_number":0}`,
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{name: "response_in_progress", raw: `{"type":"response.in_progress","sequence_number":0}`},
+		{name: "response_queued", raw: `{"type":"response.queued","sequence_number":0}`},
 	}
-	for _, raw := range cases {
-		var u responses.ResponseStreamEventUnion
-		if err := json.Unmarshal([]byte(raw), &u); err != nil {
-			t.Fatalf("unmarshal %s: %v", raw, err)
-		}
-		s := &sdkStream{}
-		s.handleUnion(u)
-		for _, ev := range stream.DrainPending(&s.pending) {
-			switch ev.Kind {
-			case lipapi.EventTextDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
-				t.Fatalf("unexpected %s for raw %s", ev.Kind, raw)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var u responses.ResponseStreamEventUnion
+			if err := json.Unmarshal([]byte(tc.raw), &u); err != nil {
+				t.Fatalf("unmarshal %s: %v", tc.raw, err)
 			}
-		}
+			s := &sdkStream{}
+			s.handleUnion(u)
+			for _, ev := range stream.DrainPending(&s.pending) {
+				switch ev.Kind {
+				case lipapi.EventTextDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
+					t.Fatalf("unexpected %s for raw %s", ev.Kind, tc.raw)
+				}
+			}
+		})
 	}
 }
 

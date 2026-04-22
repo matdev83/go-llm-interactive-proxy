@@ -9,13 +9,13 @@ import (
 
 func TestTraceID_emptyContext(t *testing.T) {
 	t.Parallel()
-	if got := diag.TraceID(nil); got != "" {
+	if got := diag.TraceID(nil); got != "" { //nolint:staticcheck // nil ctx is an explicit contract surface
 		t.Fatalf("TraceID(nil) = %q, want empty", got)
 	}
 	if got := diag.TraceID(context.Background()); got != "" {
 		t.Fatalf("TraceID(Background) = %q, want empty", got)
 	}
-	if got := diag.ALegID(nil); got != "" {
+	if got := diag.ALegID(nil); got != "" { //nolint:staticcheck // nil ctx is an explicit contract surface
 		t.Fatalf("ALegID(nil) = %q, want empty", got)
 	}
 }

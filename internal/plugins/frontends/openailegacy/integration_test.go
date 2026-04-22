@@ -146,7 +146,7 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -169,7 +169,7 @@ func TestIntegration_methodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -187,7 +187,7 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusBadRequest {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))
@@ -249,8 +249,6 @@ func TestIntegration_toolStubRoundTrip_streaming(t *testing.T) {
 	for stream.Next() {
 		ch := stream.Current()
 		for _, c := range ch.Choices {
-			if c.Delta.Content != "" {
-			}
 			toolDeltas = append(toolDeltas, c.Delta.ToolCalls...)
 			if c.FinishReason != "" {
 				finishReason = string(c.FinishReason)
@@ -292,7 +290,7 @@ func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))
@@ -352,7 +350,7 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, string(b))

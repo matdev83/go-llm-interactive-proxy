@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -70,6 +71,7 @@ func TestHandleEvent_assistantDocumentURLContentBlockStart(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // wire steps share msgStream; inner t.Run is for failure attribution only
 func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 	t.Parallel()
 	events := []string{
@@ -79,12 +81,14 @@ func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 		`{"type":"content_block_stop","index":0}`,
 	}
 	s := &msgStream{}
-	for _, raw := range events {
-		var u anthropic.MessageStreamEventUnion
-		if err := json.Unmarshal([]byte(raw), &u); err != nil {
-			t.Fatalf("unmarshal %q: %v", raw, err)
-		}
-		s.handleEvent(u)
+	for i, raw := range events {
+		t.Run(fmt.Sprintf("wire_step_%d", i), func(t *testing.T) {
+			var u anthropic.MessageStreamEventUnion
+			if err := json.Unmarshal([]byte(raw), &u); err != nil {
+				t.Fatalf("unmarshal %q: %v", raw, err)
+			}
+			s.handleEvent(u)
+		})
 	}
 	var names []string
 	var args string

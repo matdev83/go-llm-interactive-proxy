@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+//nolint:paralleltest // allocation budget is sensitive to cross-test scheduling vs httptest/pool state
 func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 	const n = 200
 	ctx := context.Background()

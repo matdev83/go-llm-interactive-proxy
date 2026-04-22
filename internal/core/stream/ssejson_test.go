@@ -63,6 +63,7 @@ func TestFlushSSEDataJSON_decode(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest,staticcheck // mutates package-level sseBufPool; Put uses a non-pointer probe intentionally
 func TestAcquireSSEBuffer_nonBufferPoolEntryAllocatesFresh(t *testing.T) {
 	// Mutates package-level sseBufPool; do not run parallel with other tests that rely on pool purity.
 	sseBufPool.Put("not-a-buffer")

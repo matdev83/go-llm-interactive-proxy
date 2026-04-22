@@ -10,6 +10,7 @@ import (
 )
 
 func TestBuildBackend_propagatesUpstreamHTTP(t *testing.T) {
+	t.Parallel()
 	var got *http.Client
 	id := "probe-upstream-http-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (any, error) {

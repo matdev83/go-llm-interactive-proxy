@@ -21,6 +21,7 @@ func TestMigration_pythonLIPGoldensParseAndShape(t *testing.T) {
 		{
 			name: "python_lip_openai_responses_http_streaming.json",
 			want: func(tb testing.TB, raw []byte) {
+				tb.Helper()
 				var v struct {
 					Events []struct {
 						Type string `json:"type"`
@@ -50,6 +51,7 @@ func TestMigration_pythonLIPGoldensParseAndShape(t *testing.T) {
 		{
 			name: "python_lip_openai_responses_http_nonstream.json",
 			want: func(tb testing.TB, raw []byte) {
+				tb.Helper()
 				var v struct {
 					Object string `json:"object"`
 					Status string `json:"status"`
@@ -69,6 +71,7 @@ func TestMigration_pythonLIPGoldensParseAndShape(t *testing.T) {
 		{
 			name: "python_lip_anthropic_messages_nonstream.json",
 			want: func(tb testing.TB, raw []byte) {
+				tb.Helper()
 				var v struct {
 					ID      string `json:"id"`
 					Type    string `json:"type"`

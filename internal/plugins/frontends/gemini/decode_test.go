@@ -351,6 +351,7 @@ func TestDecodeGenerateContent_emptyPartsRejected(t *testing.T) {
 func TestDecodeGenerateContent_functionCallPart(t *testing.T) {
 	t.Parallel()
 	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
 		body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"my_tool","args":{"a":1}}}]}]}`)
 		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
 			RouteSelector: "stub:gemini-2.0-flash",
@@ -365,6 +366,7 @@ func TestDecodeGenerateContent_functionCallPart(t *testing.T) {
 		}
 	})
 	t.Run("missing_name", func(t *testing.T) {
+		t.Parallel()
 		body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"args":{"a":1}}}]}]}`)
 		_, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
 			RouteSelector: "stub:gemini-2.0-flash",
@@ -375,6 +377,7 @@ func TestDecodeGenerateContent_functionCallPart(t *testing.T) {
 		}
 	})
 	t.Run("empty_args", func(t *testing.T) {
+		t.Parallel()
 		body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"my_tool"}}]}]}`)
 		d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
 			RouteSelector: "stub:gemini-2.0-flash",

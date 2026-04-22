@@ -84,7 +84,7 @@ func TestHandler_requiresAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status without x-goog-api-key: %d", resp.StatusCode)
 	}
@@ -213,7 +213,7 @@ func TestHandler_wrongPath_404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
