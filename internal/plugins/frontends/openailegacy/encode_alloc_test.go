@@ -9,6 +9,7 @@ import (
 )
 
 // Guardrail: streaming encode should not regress to per-chunk map+json.Marshal on the hot path.
+//
 //nolint:paralleltest // allocation budget is sensitive to cross-test scheduling vs httptest/pool state
 func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 	const n = 200

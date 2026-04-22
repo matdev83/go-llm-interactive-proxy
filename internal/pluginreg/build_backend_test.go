@@ -11,9 +11,10 @@ import (
 
 func TestBuildBackend_propagatesUpstreamHTTP(t *testing.T) {
 	t.Parallel()
+	reg := NewRegistry()
 	var got *http.Client
 	id := "probe-upstream-http-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (any, error) {
+	if err := reg.RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (any, error) {
 		got = upstreamHTTP
 		return runtime.Backend{}, nil
 	}); err != nil {
@@ -21,14 +22,14 @@ func TestBuildBackend_propagatesUpstreamHTTP(t *testing.T) {
 	}
 
 	want := &http.Client{}
-	if _, err := BuildBackend(id, yaml.Node{}, want); err != nil {
+	if _, err := reg.BuildBackend(id, yaml.Node{}, want); err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
 		t.Fatalf("upstream HTTP: got %p want %p", got, want)
 	}
 
-	if _, err := BuildBackend(id, yaml.Node{}, nil); err != nil {
+	if _, err := reg.BuildBackend(id, yaml.Node{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got != nil {

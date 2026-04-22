@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	corehooks "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -15,6 +16,24 @@ func TestRunRequestPartHooks_zeroHooks(t *testing.T) {
 	call := testCall()
 	if err := b.RunRequestPartHooks(context.Background(), call, sdk.PartMeta{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunRequestPartHooks_nilCall_isErrInvalidCall(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	err := b.RunRequestPartHooks(context.Background(), nil, sdk.PartMeta{})
+	if !errors.Is(err, lipapi.ErrInvalidCall) {
+		t.Fatalf("expected ErrInvalidCall, got %v", err)
+	}
+}
+
+func TestRunResponsePartHooks_nilEvent_isErrInvalidCall(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	err := b.RunResponsePartHooks(context.Background(), nil, sdk.PartMeta{})
+	if !errors.Is(err, lipapi.ErrInvalidCall) {
+		t.Fatalf("expected ErrInvalidCall, got %v", err)
 	}
 }
 

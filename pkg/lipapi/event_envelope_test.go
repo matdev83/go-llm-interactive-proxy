@@ -1,6 +1,7 @@
 package lipapi_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -43,5 +44,20 @@ func TestValidateEventEnvelope_errorMessageTooLarge(t *testing.T) {
 	}
 	if err := lipapi.ValidateEventEnvelope(ev); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestValidateEventEnvelope_nilEventIsValidationError(t *testing.T) {
+	t.Parallel()
+	err := lipapi.ValidateEventEnvelope(nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var ve *lipapi.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T", err)
+	}
+	if !errors.Is(err, lipapi.ErrInvalidCall) {
+		t.Fatal("expected error to unwrap to ErrInvalidCall")
 	}
 }

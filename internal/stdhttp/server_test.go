@@ -3,6 +3,7 @@ package stdhttp
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
@@ -52,7 +54,10 @@ func TestRunWithRuntime_invokesClosersOnMountFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, nil)
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +101,10 @@ func TestRunWithRuntime_invokesClosersOnAppStartFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, nil)
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +140,7 @@ func TestRun_wrapsBuildNilConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = Run(ctx, nil, app, nil)
+	err = Run(ctx, nil, app, slog.Default(), pluginreg.NewRegistry())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -161,7 +169,10 @@ func TestRunWithRuntime_wrapsAttemptsNilStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, nil)
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +211,10 @@ func TestRunWithRuntime_wrapsServeAddrInUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, nil)
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +252,11 @@ func TestRun_appStartReceivesRunContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Run(ctx, cfg, app, nil)
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+		t.Fatal(err)
+	}
+	err = Run(ctx, cfg, app, slog.Default(), reg)
 	if err == nil {
 		t.Fatal("expected error when ctx is cancelled before startup (app.Start must observe Run's ctx)")
 	}

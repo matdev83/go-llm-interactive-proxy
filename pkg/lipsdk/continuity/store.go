@@ -1,5 +1,9 @@
 // Package continuity defines the stable persistence contract for A-leg / B-leg continuity
 // and attempt lineage used by documentation and optional external tooling.
+//
+// Store, ALegRecord, and BLegRecord must stay aligned with the core implementation in
+// internal/core/b2bua (same field names, types, and Store method set). Drift is caught by
+// TestContinuityContract_* in internal/core/b2bua/store_contract_test.go.
 package continuity
 
 import (

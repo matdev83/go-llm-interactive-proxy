@@ -148,3 +148,12 @@ func TestMsgStream_Recv_wrapsSDKErr(t *testing.T) {
 		t.Fatalf("underlying: %v", err)
 	}
 }
+
+func TestMsgStream_Recv_nilContext(t *testing.T) {
+	t.Parallel()
+	s := &msgStream{}
+	_, err := s.Recv(nil)
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("got %v", err)
+	}
+}

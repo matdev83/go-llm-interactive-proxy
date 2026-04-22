@@ -52,10 +52,13 @@ func newMemoryStoreFromContinuity(cfg config.ContinuityConfig) (b2bua.Store, err
 		}
 		opts.TTL = d
 	}
+	if cfg.MaxLegs < 0 {
+		return nil, fmt.Errorf("continuity: max_legs must be >= 0")
+	}
 	if cfg.MaxLegs != 0 {
 		opts.MaxLegs = cfg.MaxLegs
 	}
-	return b2bua.NewMemoryStore(opts), nil
+	return b2bua.NewMemoryStore(opts)
 }
 
 // NewMemoryStore is equivalent to OpenStore for the supported in-memory configuration.

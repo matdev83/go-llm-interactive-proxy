@@ -58,6 +58,20 @@ func TestNewMemoryStore_negativeTTL(t *testing.T) {
 	}
 }
 
+func TestOpenStore_memory_rejectsNegativeMaxLegs(t *testing.T) {
+	t.Parallel()
+	_, err := continuity.OpenStore(config.ContinuityConfig{
+		InMemory: true,
+		MaxLegs:  -1,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "max_legs") {
+		t.Fatalf("error: %v", err)
+	}
+}
+
 func TestNewMemoryStore_happyPath(t *testing.T) {
 	t.Parallel()
 	cfg := config.ContinuityConfig{

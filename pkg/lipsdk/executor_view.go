@@ -10,6 +10,7 @@ import (
 // ExecutorView is the minimal HTTP-facing surface bundled frontends use from the runtime.
 // The standard *runtime.Executor implements this interface.
 type ExecutorView interface {
+	// Execute requires a non-nil ctx (same as [context.Context] contract for all request paths).
 	Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error)
 	// WallClock returns the optional wall clock callback used for response metadata; nil means unset.
 	WallClock() func() time.Time

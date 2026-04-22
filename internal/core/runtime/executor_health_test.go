@@ -16,7 +16,10 @@ import (
 
 func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opened string
 	ex := &runtime.Executor{
 		Store: st,
@@ -61,7 +64,10 @@ func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 
 func TestExecutor_allCandidatesUnhealthy_returnsErrNoEligibleCandidate(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &runtime.Executor{
 		Store:           st,
 		Bus:             hooks.New(hooks.Config{}),
@@ -77,7 +83,7 @@ func TestExecutor_allCandidatesUnhealthy_returnsErrNoEligibleCandidate(t *testin
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, err := ex.Execute(context.Background(), call)
+	_, err = ex.Execute(context.Background(), call)
 	if err == nil {
 		t.Fatal("expected error")
 	}

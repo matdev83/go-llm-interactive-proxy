@@ -14,13 +14,16 @@ import (
 
 var ErrNilConfig = errors.New("runtime config is required")
 
-// Options carries bootstrap-only runtime dependencies.
+// Options carries bootstrap-only runtime dependencies for New.
+//
+// Config must be non-nil (otherwise ErrNilConfig). Logger nil selects slog.Default.
+// Nil entries in Lifecycles are ignored by App.Start and App.Shutdown.
 type Options struct {
 	Config *coreconfig.Config
 	Logger *slog.Logger
 
 	// Registrations enumerates configured plugins at bootstrap. When non-empty or Mandatory
-	// is set, duplicates and mandatory coverage are validated before Start.
+	// is set, duplicates and mandatory coverage are validated in New.
 	Registrations []lipsdk.Registration
 	Mandatory     []lipsdk.Requirement
 
@@ -41,6 +44,7 @@ type App struct {
 }
 
 // New validates bootstrap wiring without starting the HTTP server (see cmd/lipstd and stdhttp.Run).
+// It does not validate coreconfig.Config field semantics; load YAML and run config.Validate upstream.
 func New(opts Options) (*App, error) {
 	if opts.Config == nil {
 		return nil, ErrNilConfig

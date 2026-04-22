@@ -11,7 +11,7 @@ import (
 // RunSubmit executes submit hooks in order. meta may be nil; a working meta map is allocated.
 func (b *Bus) RunSubmit(ctx context.Context, call *lipapi.Call, meta *sdk.SubmitMeta) error {
 	if call == nil {
-		return fmt.Errorf("nil call")
+		return fmt.Errorf("hooks: nil call: %w", lipapi.ErrInvalidCall)
 	}
 	if meta == nil {
 		meta = &sdk.SubmitMeta{}

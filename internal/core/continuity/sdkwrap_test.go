@@ -11,7 +11,10 @@ import (
 
 func TestSDKStore_roundTripALeg(t *testing.T) {
 	t.Parallel()
-	inner := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	inner, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var _ lipsdkc.Store = continuity.SDKStore(inner)
 	s := continuity.SDKStore(inner)
 	ctx := context.Background()

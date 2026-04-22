@@ -13,9 +13,12 @@ import (
 
 func TestMemoryStore_Resolve_requiresNonEmptyKey(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
-	_, err := s.ResolveALeg(ctx, "")
+	_, err = s.ResolveALeg(ctx, "")
 	if !errors.Is(err, b2bua.ErrInvalidContinuityKey) {
 		t.Fatalf("Resolve empty key: got %v want %v", err, b2bua.ErrInvalidContinuityKey)
 	}
@@ -23,9 +26,12 @@ func TestMemoryStore_Resolve_requiresNonEmptyKey(t *testing.T) {
 
 func TestMemoryStore_Resolve_notFound(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
-	_, err := s.ResolveALeg(ctx, "unknown-session")
+	_, err = s.ResolveALeg(ctx, "unknown-session")
 	if !errors.Is(err, b2bua.ErrALegNotFound) {
 		t.Fatalf("got %v want %v", err, b2bua.ErrALegNotFound)
 	}
@@ -33,7 +39,10 @@ func TestMemoryStore_Resolve_notFound(t *testing.T) {
 
 func TestMemoryStore_Create_emptyContinuityKey_alwaysNewSession(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	a1, err := s.CreateALeg(ctx, "")
 	if err != nil {
@@ -54,7 +63,10 @@ func TestMemoryStore_Create_emptyContinuityKey_alwaysNewSession(t *testing.T) {
 
 func TestMemoryStore_Create_sameContinuityKeyReplacesOldALeg(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	key := "reuse-key"
 	a1, err := s.CreateALeg(ctx, key)
@@ -84,9 +96,12 @@ func TestMemoryStore_Create_sameContinuityKeyReplacesOldALeg(t *testing.T) {
 func TestMemoryStore_ResolveCreate_roundTripContinuity(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
 		Now: func() time.Time { return clock },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	key := "client-sess-xyz"
 	created, err := s.CreateALeg(ctx, key)
@@ -112,9 +127,12 @@ func TestMemoryStore_WeightedFirstConsumed_persists(t *testing.T) {
 	t.Parallel()
 	clock := time.Unix(1700000000, 0).UTC()
 	tick := clock
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
 		Now: func() time.Time { return tick },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	a, err := s.CreateALeg(ctx, "k1")
 	if err != nil {
@@ -141,7 +159,10 @@ func TestMemoryStore_WeightedFirstConsumed_persists(t *testing.T) {
 
 func TestMemoryStore_NextBLeg_monotonicSeq(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	a, _ := s.CreateALeg(ctx, "k")
 	b1, err := s.NextBLeg(ctx, a.ALegID)
@@ -166,7 +187,10 @@ func TestMemoryStore_NextBLeg_monotonicSeq(t *testing.T) {
 func TestMemoryStore_RecordAttempt_and_LoadAttempts_order(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 4, 20, 11, 0, 0, 0, time.UTC)
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	a, _ := s.CreateALeg(ctx, "k")
 	b1, _ := s.NextBLeg(ctx, a.ALegID)
@@ -206,11 +230,14 @@ func TestMemoryStore_RecordAttempt_and_LoadAttempts_order(t *testing.T) {
 
 func TestMemoryStore_RecordAttempt_rejectsWrongBLegID(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	a, _ := s.CreateALeg(ctx, "k")
 	b1, _ := s.NextBLeg(ctx, a.ALegID)
-	err := s.RecordAttempt(ctx, lipapi.AttemptRecord{
+	err = s.RecordAttempt(ctx, lipapi.AttemptRecord{
 		BLegID: "wrong", ALegID: a.ALegID, Seq: b1.Seq,
 		Outcome: lipapi.AttemptSuccess,
 	})
@@ -224,17 +251,20 @@ func TestMemoryStore_TTL_lazyEvictOnResolve(t *testing.T) {
 	t.Parallel()
 	t0 := time.Unix(1800, 0).UTC()
 	tick := t0
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{
 		TTL: time.Hour,
 		Now: func() time.Time { return tick },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	key := "sess-ttl"
 	if _, err := s.CreateALeg(ctx, key); err != nil {
 		t.Fatal(err)
 	}
 	tick = t0.Add(2 * time.Hour)
-	_, err := s.ResolveALeg(ctx, key)
+	_, err = s.ResolveALeg(ctx, key)
 	if !errors.Is(err, b2bua.ErrALegNotFound) {
 		t.Fatalf("Resolve after TTL: got %v", err)
 	}
@@ -252,7 +282,10 @@ func TestMemoryStore_TTL_lazyEvictOnResolve(t *testing.T) {
 
 func TestMemoryStore_NextBLeg_concurrentUniqueSeq(t *testing.T) {
 	t.Parallel()
-	s := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	a, _ := s.CreateALeg(ctx, "race-key")
 	const n = 64

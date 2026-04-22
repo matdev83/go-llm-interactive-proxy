@@ -9,7 +9,7 @@ import (
 )
 
 // ErrSubmitRejected is returned when a submit hook rejects the call.
-var ErrSubmitRejected = errors.New("submit hook rejected request")
+var ErrSubmitRejected = errors.New("lipsdk/hooks: submit hook rejected request")
 
 // SubmitRejectError carries a deterministic rejection reason from a submit hook.
 type SubmitRejectError struct {

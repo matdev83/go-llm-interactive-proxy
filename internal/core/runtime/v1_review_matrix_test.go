@@ -22,7 +22,10 @@ import (
 func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {
 	t.Parallel()
 	var got *sdk.SubmitMeta
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	sub := &submitMetaCapture{fn: func(_ context.Context, _ *lipapi.Call, meta *sdk.SubmitMeta) (sdk.SubmitDecision, error) {
 		cp := *meta
 		got = &cp
@@ -70,7 +73,10 @@ func (s submitMetaCapture) Handle(ctx context.Context, call *lipapi.Call, meta *
 
 func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var mu sync.Mutex
 	var metas []sdk.PartMeta
 	reqHook := &executorTestReqPart{
@@ -157,7 +163,9 @@ type flakyThenEOFStream struct {
 }
 
 func (f *flakyThenEOFStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	_ = ctx
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if f.i < len(f.first) {
 		ev := f.first[f.i]
 		f.i++
@@ -173,7 +181,10 @@ func (f *flakyThenEOFStream) Close() error { return nil }
 
 func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	reqHook := &executorTestReqPart{
 		id: "append-once", order: 0,
 		fn: func(_ context.Context, call *lipapi.Call, _ sdk.PartMeta) error {

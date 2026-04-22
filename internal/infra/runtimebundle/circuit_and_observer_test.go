@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
 func TestBuild_circuitBreakerDisabledUsesEmptyHealth(t *testing.T) {
@@ -19,7 +20,7 @@ func TestBuild_circuitBreakerDisabledUsesEmptyHealth(t *testing.T) {
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, nil)
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestBuild_circuitBreakerEnabledWiresPolicy(t *testing.T) {
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, nil)
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestBuild_routeObserverUsesSlogWhenLoggerSet(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
 	log := slog.New(slog.DiscardHandler)
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, nil)
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)
 	}

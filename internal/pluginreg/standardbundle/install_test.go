@@ -8,13 +8,20 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
-func TestInstall_matchesRegisterStandardBundle(t *testing.T) {
+func TestInstallOn_validatesStandardRequirements(t *testing.T) {
 	t.Parallel()
-	// Standard bundle entrypoint used by cmd is RegisterStandardBundle; standardbundle.Install delegates.
-	if err := standardbundle.Install(); err != nil {
+	reg := pluginreg.NewRegistry()
+	if err := standardbundle.InstallOn(reg); err != nil {
 		t.Fatal(err)
 	}
-	if err := pluginreg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
+	if err := reg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInstallOn_nilRegistry(t *testing.T) {
+	t.Parallel()
+	if err := standardbundle.InstallOn(nil); err == nil {
+		t.Fatal("expected error")
 	}
 }

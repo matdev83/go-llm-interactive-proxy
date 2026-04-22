@@ -23,8 +23,10 @@ type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (lipsdk.Backend
 // FeatureFactory builds hook chains (and optional lifecycles) from opaque plugin YAML.
 type FeatureFactory func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error)
 
-// Registry holds bundled plugin factories for one composition root. Tests may use [NewRegistry]
-// and [InstallStandardBundleOn] to assemble isolated bundles without relying on [Default].
+// Registry holds bundled plugin factories for one composition root. The zero value is an
+// empty registry: lookups behave like an empty bundle, and the first Register* call lazily
+// allocates internal maps (same observable behavior as [NewRegistry]). Use [NewRegistry] and
+// [InstallStandardBundleOn] to assemble isolated bundles for each composition root.
 type Registry struct {
 	mu        sync.RWMutex
 	backends  map[string]backendFactory
@@ -41,20 +43,24 @@ func NewRegistry() *Registry {
 	}
 }
 
-// Default is the registry populated by [RegisterStandardBundle] for the standard binary and
-// used by package-level helpers when no explicit [Registry] is supplied.
-var Default = NewRegistry()
-
-// RegisterBackend records a backend factory for the given plugin id (e.g. openai-responses).
-// Duplicate ids return an error: the standard bundle must register each id exactly once.
-func RegisterBackend(id string, fn backendFactory) error {
-	return Default.RegisterBackend(id, fn)
+func (r *Registry) ensureMaps() {
+	if r.backends == nil {
+		r.backends = map[string]backendFactory{}
+	}
+	if r.frontends == nil {
+		r.frontends = map[string]FrontendMount{}
+	}
+	if r.features == nil {
+		r.features = map[string]FeatureFactory{}
+	}
 }
 
 // RegisterBackend records a backend factory on r.
+// Duplicate ids return an error: the standard bundle must register each id exactly once.
 func (r *Registry) RegisterBackend(id string, fn backendFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ensureMaps()
 	if id == "" {
 		return fmt.Errorf("pluginreg: RegisterBackend: empty id")
 	}
@@ -65,15 +71,11 @@ func (r *Registry) RegisterBackend(id string, fn backendFactory) error {
 	return nil
 }
 
-// RegisterFrontend records a frontend mount for the given plugin id.
-func RegisterFrontend(id string, fn FrontendMount) error {
-	return Default.RegisterFrontend(id, fn)
-}
-
 // RegisterFrontend records a frontend mount on r.
 func (r *Registry) RegisterFrontend(id string, fn FrontendMount) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ensureMaps()
 	if id == "" {
 		return fmt.Errorf("pluginreg: RegisterFrontend: empty id")
 	}
@@ -84,15 +86,11 @@ func (r *Registry) RegisterFrontend(id string, fn FrontendMount) error {
 	return nil
 }
 
-// RegisterFeature records a feature factory for the given plugin id.
-func RegisterFeature(id string, fn FeatureFactory) error {
-	return Default.RegisterFeature(id, fn)
-}
-
 // RegisterFeature records a feature factory on r.
 func (r *Registry) RegisterFeature(id string, fn FeatureFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.ensureMaps()
 	if id == "" {
 		return fmt.Errorf("pluginreg: RegisterFeature: empty id")
 	}
@@ -103,14 +101,9 @@ func (r *Registry) RegisterFeature(id string, fn FeatureFactory) error {
 	return nil
 }
 
-// BuildBackend constructs a backend from registry using the factory id (plugin kind).
+// BuildBackend constructs a backend from r using the factory id (plugin kind).
 // upstreamHTTP is the shared outbound client from the composition root; nil is passed through
 // to factories, which apply defaults where HTTP is required (e.g. Bedrock, ACP).
-func BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error) {
-	return Default.BuildBackend(factoryID, n, upstreamHTTP)
-}
-
-// BuildBackend constructs a backend from r.
 func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error) {
 	factoryID = strings.TrimSpace(factoryID)
 
@@ -131,11 +124,6 @@ func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *htt
 	return be, nil
 }
 
-// MountFrontend registers routes for one enabled frontend plugin.
-func MountFrontend(id string, mux *http.ServeMux, n yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxRequestBodyBytes int64) error {
-	return Default.MountFrontend(id, mux, n, exec, defaultRoute, maxRequestBodyBytes)
-}
-
 // MountFrontend registers routes for one enabled frontend plugin on r.
 func (r *Registry) MountFrontend(id string, mux *http.ServeMux, n yaml.Node, exec lipsdk.ExecutorView, defaultRoute string, maxRequestBodyBytes int64) error {
 	r.mu.RLock()
@@ -145,11 +133,6 @@ func (r *Registry) MountFrontend(id string, mux *http.ServeMux, n yaml.Node, exe
 		return fmt.Errorf("pluginreg: unknown frontend plugin %q", id)
 	}
 	return fn(mux, n, exec, defaultRoute, maxRequestBodyBytes)
-}
-
-// BuildFeatureHooks merges enabled feature plugins into a hook bus configuration.
-func BuildFeatureHooks(registrations []lipsdk.Registration) (hooks.Config, []lipplugin.Lifecycle, error) {
-	return Default.BuildFeatureHooks(registrations)
 }
 
 // BuildFeatureHooks merges enabled feature plugins into a hook bus configuration using r.

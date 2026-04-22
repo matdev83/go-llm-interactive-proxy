@@ -19,6 +19,10 @@ const maxUnaryHTTPResponseBytes = 8 << 20
 // Error and non-OK response bodies only need a short snippet for diagnostics.
 const maxErrorSnippetBytes = 8192
 
+// DefaultHTTPClientTimeout is the Timeout applied to a dedicated [*http.Client]
+// allocated when [newHTTPTransport] receives a nil client.
+const DefaultHTTPClientTimeout = 120 * time.Second
+
 func readHTTPBodyLimited(r io.ReadCloser, max int) ([]byte, error) {
 	defer func() { _ = r.Close() }()
 	lr := io.LimitReader(r, int64(max)+1)
@@ -53,6 +57,9 @@ type httpTransport struct {
 	hc       *http.Client
 }
 
+// newHTTPTransport builds an HTTP [Transport] for POST {origin}/v1/acp.
+// When hc is nil, a new [*http.Client] is allocated with Timeout [DefaultHTTPClientTimeout].
+// When hc is non-nil, it is used as-is.
 func newHTTPTransport(baseURL string, hc *http.Client) (*httpTransport, error) {
 	u := strings.TrimSpace(baseURL)
 	if u == "" {
@@ -67,7 +74,7 @@ func newHTTPTransport(baseURL string, hc *http.Client) (*httpTransport, error) {
 	}
 	if hc == nil {
 		hc = &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: DefaultHTTPClientTimeout,
 		}
 	}
 	u2 := *parsed

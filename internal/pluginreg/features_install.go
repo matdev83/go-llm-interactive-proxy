@@ -47,7 +47,7 @@ func featureRefSubmit(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) 
 	if err != nil {
 		return hooks.Config{}, nil, err
 	}
-	return hooks.Config{SubmitHooks: []sdk.SubmitHook{refsubmit.NewHook(cfg)}}, nil, nil
+	return hooks.Config{SubmitHooks: []sdk.SubmitHook{refsubmit.NewSubmitHook(cfg)}}, nil, nil
 }
 
 func featureRefParts(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
@@ -56,8 +56,8 @@ func featureRefParts(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
 		return hooks.Config{}, nil, err
 	}
 	return hooks.Config{
-		RequestPartHooks:  []sdk.RequestPartHook{refparts.NewRequestHook(cfg)},
-		ResponsePartHooks: []sdk.ResponsePartHook{refparts.NewResponseHook(cfg)},
+		RequestPartHooks:  []sdk.RequestPartHook{refparts.NewRequestPartHook(cfg)},
+		ResponsePartHooks: []sdk.ResponsePartHook{refparts.NewResponsePartHook(cfg)},
 	}, nil, nil
 }
 
@@ -66,5 +66,5 @@ func featureRefTool(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
 	if err != nil {
 		return hooks.Config{}, nil, err
 	}
-	return hooks.Config{ToolReactors: []sdk.ToolReactor{reftool.NewReactor(cfg)}}, nil, nil
+	return hooks.Config{ToolReactors: []sdk.ToolReactor{reftool.NewToolReactor(cfg)}}, nil, nil
 }

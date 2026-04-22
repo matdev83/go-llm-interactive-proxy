@@ -18,8 +18,8 @@ type hook struct {
 	suffix string
 }
 
-// NewRequestHook mutates the first user text part by appending a suffix (observable in backends).
-func NewRequestHook(cfg Config) sdk.RequestPartHook {
+// NewRequestPartHook mutates the first user text part by appending a suffix (observable in backends).
+func NewRequestPartHook(cfg Config) sdk.RequestPartHook {
 	o := defaultOrder
 	if cfg.Order != nil {
 		o = *cfg.Order
@@ -53,8 +53,8 @@ func (h hook) HandleRequestParts(_ context.Context, call *lipapi.Call, _ sdk.Par
 	return nil
 }
 
-// NewResponseHook prepends a marker to assistant text deltas (non-streaming-safe for tests).
-func NewResponseHook(cfg Config) sdk.ResponsePartHook {
+// NewResponsePartHook prepends a marker to assistant text deltas (non-streaming-safe for tests).
+func NewResponsePartHook(cfg Config) sdk.ResponsePartHook {
 	o := defaultOrder
 	if cfg.Order != nil {
 		o = *cfg.Order

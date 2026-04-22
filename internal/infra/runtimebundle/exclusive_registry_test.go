@@ -35,19 +35,20 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := pluginreg.BuildBackend(factoryID, yaml.Node{}, nil); err == nil {
-		t.Fatal("expected default registry to omit custom factory id")
+	empty := pluginreg.NewRegistry()
+	if _, err := empty.BuildBackend(factoryID, yaml.Node{}, nil); err == nil {
+		t.Fatal("expected empty registry to omit custom factory id")
 	}
 
-	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	var cfgNode yaml.Node
+	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Routing: config.RoutingConfig{MaxAttempts: 3},
 		Plugins: config.PluginsConfig{
 			Backends: []config.PluginConfig{
-				{Kind: factoryID, ID: "only-instance", Enabled: true, Config: empty},
+				{Kind: factoryID, ID: "only-instance", Enabled: true, Config: cfgNode},
 			},
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},

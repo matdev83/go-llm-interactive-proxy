@@ -12,7 +12,8 @@ import (
 
 func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 	t.Parallel()
-	if err := pluginreg.RegisterStandardBundle(); err != nil {
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
 		t.Fatal(err)
 	}
 	tmp := t.TempDir()
@@ -28,7 +29,9 @@ func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 			SQLitePath: dbpath,
 		},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, nil)
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

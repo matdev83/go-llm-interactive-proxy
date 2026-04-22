@@ -22,7 +22,7 @@ func (e *ValidationError) Error() string {
 func (e *ValidationError) Unwrap() error { return ErrInvalidCall }
 
 // ErrInvalidCall is the shared root for call validation failures.
-var ErrInvalidCall = errors.New("invalid canonical call")
+var ErrInvalidCall = errors.New("lipapi: invalid canonical call")
 
 // ErrCollectLimitExceeded is returned when stream aggregation in Collect would
 // exceed the configured CollectLimits.
@@ -31,6 +31,14 @@ var ErrCollectLimitExceeded = errors.New("lipapi: collect limit exceeded")
 // ErrNilEventStream is returned by Collect, CollectUnbounded, and CollectWithLimits
 // when the EventStream argument is nil.
 var ErrNilEventStream = errors.New("lipapi: nil EventStream")
+
+// ErrNilContext is returned when a nil context.Context is passed to Recv, Collect, or
+// other APIs that require a non-nil Context (same rule as context package: never pass nil;
+// use context.Background if no cancellation/deadline is needed).
+var ErrNilContext = errors.New("lipapi: nil Context")
+
+// ErrNilFixedEventStream is returned by (*FixedEventStream).Recv when the receiver is nil.
+var ErrNilFixedEventStream = errors.New("lipapi: nil FixedEventStream")
 
 // ErrMaxRouteAttempts is returned when routing.max_attempts would be exceeded by another B-leg.
 var ErrMaxRouteAttempts = errors.New("lipapi: routing max_attempts exhausted")
@@ -63,7 +71,7 @@ func (e *RejectError) Error() string {
 func (e *RejectError) Unwrap() error { return ErrCapabilityReject }
 
 // ErrCapabilityReject is the stable root error for hard capability rejects.
-var ErrCapabilityReject = errors.New("capability reject")
+var ErrCapabilityReject = errors.New("lipapi: capability reject")
 
 // IsReject reports whether err is or wraps a RejectError.
 func IsReject(err error) bool {
@@ -72,7 +80,7 @@ func IsReject(err error) bool {
 }
 
 // ErrHookMutation is the stable root for hook-produced canonical mutations that fail validation.
-var ErrHookMutation = errors.New("hook mutation invalid")
+var ErrHookMutation = errors.New("lipapi: hook mutation invalid")
 
 // HookMutationError reports a part or event rewrite that violated canonical invariants.
 type HookMutationError struct {

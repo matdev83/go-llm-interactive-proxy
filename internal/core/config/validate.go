@@ -75,6 +75,9 @@ func validateContinuityStores(cfg *Config) error {
 		store = "memory"
 	}
 	if store != "sqlite" {
+		if cfg.Continuity.MaxLegs < 0 {
+			return fmt.Errorf("continuity: max_legs must be >= 0 for memory store")
+		}
 		return nil
 	}
 	if strings.TrimSpace(cfg.Continuity.TTL) != "" {

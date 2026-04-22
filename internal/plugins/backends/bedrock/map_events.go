@@ -46,6 +46,9 @@ func (s *converseStream) Close() error {
 }
 
 func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		return lipapi.Event{}, err
 	}

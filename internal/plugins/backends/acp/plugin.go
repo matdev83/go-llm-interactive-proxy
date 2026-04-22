@@ -12,7 +12,8 @@ import (
 // Config configures the ACP HTTP backend connector (JSON-RPC over POST /v1/acp).
 type Config struct {
 	BaseURL string
-	// HTTPClient is optional; when nil http.DefaultClient is used.
+	// HTTPClient is optional. When nil, the connector allocates a dedicated
+	// [*http.Client] with Timeout [DefaultHTTPClientTimeout] (not [http.DefaultClient]).
 	HTTPClient *http.Client
 
 	// Handshake defaults merged with Call.Extensions (see package doc).

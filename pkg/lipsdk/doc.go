@@ -4,4 +4,6 @@
 // Backend, frontend, and feature factories for the reference distribution are registered in
 // internal/pluginreg (RegisterBackend, RegisterFrontend, RegisterFeature) using opaque YAML nodes;
 // StandardDistributionRequirements lists ids validated at startup.
+//
+// [BackendBuild] is intentionally opaque (see factory.go) so this package never depends on core runtime types.
 package lipsdk

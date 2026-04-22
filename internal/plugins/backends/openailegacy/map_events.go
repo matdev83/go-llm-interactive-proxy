@@ -40,6 +40,9 @@ func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk]) lipapi.Event
 }
 
 func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		return lipapi.Event{}, err
 	}

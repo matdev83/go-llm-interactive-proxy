@@ -38,8 +38,12 @@ func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClien
 		httpClient = http.DefaultClient
 	}
 	be := BackendFor(tb, backendID, upstreamBaseURL, httpClient)
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		tb.Fatal(err)
+	}
 	return &runtime.Executor{
-		Store:    b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{}),
+		Store:    st,
 		Bus:      hooks.New(hooks.Config{}),
 		Rand:     rand.New(rand.NewSource(42)),
 		Backends: map[string]runtime.Backend{backendID: be},

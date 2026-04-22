@@ -16,6 +16,7 @@ var (
 	ErrALegNotFound         = errors.New("b2bua: a-leg not found")
 	ErrInvalidContinuityKey = errors.New("b2bua: continuity key required for resolve")
 	ErrInvalidAttempt       = errors.New("b2bua: invalid attempt record")
+	ErrInvalidMaxLegs       = errors.New("b2bua: max_legs must be non-negative")
 )
 
 // ALegRecord is the core-owned logical session row for routing and lineage.
@@ -52,10 +53,10 @@ type MemoryStoreOptions struct {
 	// touched again (e.g. anonymous one-shot A-legs) are still reclaimed.
 	TTL time.Duration
 	// MaxLegs caps how many concurrent A-leg rows may be retained when TTL-based expiry
-	// is disabled (TTL <= 0). Zero selects DefaultMemoryStoreMaxLegsWithoutTTL; negative
-	// disables the cap (not recommended for production).
+	// is disabled (TTL <= 0). Zero selects DefaultMemoryStoreMaxLegsWithoutTTL. Negative
+	// values are rejected by NewMemoryStore.
 	MaxLegs int
-	// Now returns the current time; defaults to a deterministic fixed clock when nil.
+	// Now returns the current time; when nil, NewMemoryStore uses time.Now.
 	Now func() time.Time
 }
 
@@ -86,18 +87,17 @@ type legState struct {
 	continuityKeyInternal string // same as record.ContinuityKey; used on eviction
 }
 
-var deterministicNow = time.Unix(1715620000, 0).UTC()
-
 // NewMemoryStore returns an empty store. opts may be zero-valued defaults.
-func NewMemoryStore(opts MemoryStoreOptions) *MemoryStore {
+func NewMemoryStore(opts MemoryStoreOptions) (*MemoryStore, error) {
+	if opts.MaxLegs < 0 {
+		return nil, ErrInvalidMaxLegs
+	}
 	now := opts.Now
 	if now == nil {
-		now = func() time.Time { return deterministicNow }
+		now = time.Now
 	}
 	maxLegs := 0
 	switch {
-	case opts.MaxLegs < 0:
-		maxLegs = 0
 	case opts.MaxLegs > 0:
 		maxLegs = opts.MaxLegs
 	case opts.TTL <= 0:
@@ -111,7 +111,7 @@ func NewMemoryStore(opts MemoryStoreOptions) *MemoryStore {
 		now:     now,
 		legs:    make(map[string]*legState),
 		byKey:   make(map[string]string),
-	}
+	}, nil
 }
 
 func (s *MemoryStore) nowTime() time.Time { return s.now() }

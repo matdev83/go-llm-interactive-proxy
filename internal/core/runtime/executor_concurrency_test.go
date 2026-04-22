@@ -18,7 +18,10 @@ import (
 // field must not be mutated — default hook chains are per-execution only.
 func TestExecutor_concurrentExecute_nilBus(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   nil,
@@ -72,7 +75,10 @@ func TestExecutor_concurrentExecute_nilBus(t *testing.T) {
 func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 	t.Parallel()
 	r := rand.New(rand.NewSource(17))
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	open := func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 		_ = ctx
 		_ = call

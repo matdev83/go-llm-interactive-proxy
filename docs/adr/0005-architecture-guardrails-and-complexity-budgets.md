@@ -6,7 +6,7 @@ Accepted (stage three runtime hardening).
 
 ## Context
 
-Stage two review ([`stage2_code_review.md`](../../.kiro/specs/go-core-reimplementation-stage-two/stage2_code_review.md)) warned that registry-driven composition is healthier than `switch` wiring, but **global mutable registries** and **hidden `init()`** registration still create long-term drift risk. Stage three adds explicit assembly (`RegisterStandardBundle`, `runtimebundle.Build`) but still needs **measurable** guardrails so the core and composition roots do not grow without review.
+Stage two review ([`stage2_code_review.md`](../../.kiro/specs/go-core-reimplementation-stage-two/stage2_code_review.md)) warned that registry-driven composition is healthier than `switch` wiring, but **global mutable registries** and **hidden `init()`** registration still create long-term drift risk. Stage three adds explicit assembly (`NewRegistry` + `InstallStandardBundleOn(reg)` + `runtimebundle.Build` with `PluginRegistry`) but still needs **measurable** guardrails so the core and composition roots do not grow without review.
 
 ## Decision
 
@@ -16,7 +16,7 @@ Stage two review ([`stage2_code_review.md`](../../.kiro/specs/go-core-reimplemen
    - `internal/stdhttp`
    - `internal/infra/runtimebundle`
 
-2. **No `init()` in the standard bundle registration path** — Production registration code under `internal/pluginreg` and `cmd/lipstd` must not use `func init()`. Use explicit `RegisterStandardBundle()` (or equivalent) from the binary entrypoint. Test-only `init()` in `*_test.go` remains allowed.
+2. **No `init()` in the standard bundle registration path** — Production registration code under `internal/pluginreg` and `cmd/lipstd` must not use `func init()`. The standard binary should own an explicit `*pluginreg.Registry` (`NewRegistry` + `InstallStandardBundleOn(reg)` + validation) and thread that registry into `runtimebundle.Build` / HTTP wiring. Composition roots and wiring layers must not depend on package-level default registry state (see ADR 0001 and `internal/archtest`). Test-only `init()` in `*_test.go` remains allowed.
 
 3. **Core import boundary** — `internal/core` must not depend on `internal/plugins/...` (enforced by `go list` dependency tests in `internal/core/runtime`).
 

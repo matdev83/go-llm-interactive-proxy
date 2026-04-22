@@ -15,7 +15,10 @@ import (
 
 func TestAttemptsHandler_missingParam(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ah, err := diag.AttemptsHandler(st)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +37,10 @@ func TestAttemptsHandler_missingParam(t *testing.T) {
 
 func TestAttemptsHandler_notFound(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ah, err := diag.AttemptsHandler(st)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +60,10 @@ func TestAttemptsHandler_notFound(t *testing.T) {
 func TestAttemptsHandler_ok(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	a, err := st.CreateALeg(ctx, "")
 	if err != nil {
 		t.Fatal(err)

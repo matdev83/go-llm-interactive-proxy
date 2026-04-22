@@ -10,7 +10,7 @@ import (
 
 func TestRequestHook_appendsSuffixToFirstUserText(t *testing.T) {
 	t.Parallel()
-	h := NewRequestHook(Config{Suffix: " [x]"})
+	h := NewRequestPartHook(Config{Suffix: " [x]"})
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}}}}}
 	if err := h.HandleRequestParts(context.Background(), call, sdk.PartMeta{}); err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestRequestHook_appendsSuffixToFirstUserText(t *testing.T) {
 
 func TestResponseHook_prefixesTextDelta(t *testing.T) {
 	t.Parallel()
-	h := NewResponseHook(Config{ResponsePrefix: "P:"})
+	h := NewResponsePartHook(Config{ResponsePrefix: "P:"})
 	ev := &lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "out"}
 	if err := h.HandleEvent(context.Background(), ev, sdk.PartMeta{}); err != nil {
 		t.Fatal(err)

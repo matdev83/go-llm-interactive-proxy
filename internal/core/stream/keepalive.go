@@ -10,11 +10,19 @@ import (
 )
 
 // ErrNilEventStream is returned by NewKeepalive when the inner stream is nil.
-var ErrNilEventStream = errors.New("stream: NewKeepalive: nil EventStream")
+// It is identical to lipapi.ErrNilEventStream so callers can use errors.Is against either package.
+var ErrNilEventStream = lipapi.ErrNilEventStream
+
+// ErrNilKeepalive is returned by Recv when the receiver is a nil *Keepalive.
+var ErrNilKeepalive = errors.New("stream: nil Keepalive")
 
 // KeepaliveConfig controls keepalive event injection during idle stream waits.
 type KeepaliveConfig struct {
-	Interval     time.Duration
+	// Interval is the idle window before a synthetic keepalive may be returned from Keepalive.Recv.
+	// Zero schedules the first keepalive as soon as the inner stream blocks (high churn); use a
+	// positive duration in production paths.
+	Interval time.Duration
+	// NewKeepalive builds the synthetic event. Nil selects DefaultKeepaliveEvent.
 	NewKeepalive func() lipapi.Event
 }
 
@@ -159,6 +167,12 @@ func (k *Keepalive) abortCurrentRead() {
 // Recv returns the next event from the inner stream, or a keepalive event if the
 // inner stream is idle beyond the configured interval.
 func (k *Keepalive) Recv(ctx context.Context) (lipapi.Event, error) {
+	if k == nil {
+		return lipapi.Event{}, ErrNilKeepalive
+	}
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		return lipapi.Event{}, err
 	}
@@ -205,6 +219,9 @@ func (k *Keepalive) Recv(ctx context.Context) (lipapi.Event, error) {
 // Close stops the reader goroutine and closes the inner stream.
 // Close is idempotent and safe for concurrent callers.
 func (k *Keepalive) Close() error {
+	if k == nil {
+		return nil
+	}
 	k.shutdownOnce.Do(func() {
 		k.mu.Lock()
 		k.closed = true

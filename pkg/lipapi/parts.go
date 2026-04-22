@@ -18,7 +18,7 @@ const (
 	PartJSON       PartKind = "json"
 )
 
-// TextPart constructs a validated text part for tests and adapters.
+// TextPart constructs a canonical text part for tests and adapters.
 func TextPart(s string) Part {
 	return Part{Kind: PartText, Text: s}
 }
@@ -141,6 +141,8 @@ func (tc ToolChoice) validate(toolCount int, tools []ToolDef) error {
 }
 
 // GenerationOptions captures cross-protocol generation controls.
+// Pointer fields mean "unset" (no override). Non-pointer strings use "" as unset;
+// validation applies only when a field participates in an invariant (see validateOptionStrings).
 type GenerationOptions struct {
 	Temperature       *float64
 	MaxOutputTokens   *int

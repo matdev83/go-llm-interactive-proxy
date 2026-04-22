@@ -38,7 +38,8 @@ func TestBuildFeatureHooks_usesExplicitRegistryNotDefault(t *testing.T) {
 	if _, _, err := reg.BuildFeatureHooks(regs); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := pluginreg.BuildFeatureHooks(regs); err == nil {
-		t.Fatal("expected default registry to miss custom-only feature factory")
+	empty := pluginreg.NewRegistry()
+	if _, _, err := empty.BuildFeatureHooks(regs); err == nil {
+		t.Fatal("expected empty registry to miss custom-only feature factory")
 	}
 }

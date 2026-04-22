@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var ErrDuplicateRegistration = errors.New("duplicate plugin registration")
+var ErrDuplicateRegistration = errors.New("lipsdk: duplicate plugin registration")
 
 // Requirement defines a mandatory plugin that must exist in a bundle.
 type Requirement struct {
@@ -68,10 +68,10 @@ func ValidateRegistrations(registrations []Registration, required []Requirement)
 
 	for _, registration := range registrations {
 		if registration.ID == "" {
-			return fmt.Errorf("plugin registration id is required")
+			return fmt.Errorf("lipsdk: plugin registration id is required")
 		}
 		if registration.Kind == "" {
-			return fmt.Errorf("plugin registration kind is required for %q", registration.ID)
+			return fmt.Errorf("lipsdk: plugin registration kind is required for %q", registration.ID)
 		}
 
 		ids := byKindID[registration.Kind]

@@ -11,7 +11,7 @@ import (
 
 func TestSubmitHook_setsExtension(t *testing.T) {
 	t.Parallel()
-	h := NewHook(Config{Marker: "probe"})
+	h := NewSubmitHook(Config{Marker: "probe"})
 	call := &lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}}}}}
 	_, err := h.Handle(context.Background(), call, &sdk.SubmitMeta{TraceID: "t"})
 	if err != nil {

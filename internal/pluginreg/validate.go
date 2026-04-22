@@ -14,12 +14,6 @@ func registryFactoryKey(r lipsdk.Requirement) string {
 	return r.ID
 }
 
-// ValidateBundledFactories ensures every mandatory plugin has a registered factory for its kind.
-// Call after RegisterStandardBundle (or equivalent registration on [Default]).
-func ValidateBundledFactories(required []lipsdk.Requirement) error {
-	return Default.ValidateBundledFactories(required)
-}
-
 // ValidateBundledFactories ensures every mandatory plugin has a registered factory for its kind on r.
 func (r *Registry) ValidateBundledFactories(required []lipsdk.Requirement) error {
 	for _, req := range required {

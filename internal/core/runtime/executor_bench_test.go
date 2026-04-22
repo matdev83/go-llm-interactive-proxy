@@ -27,7 +27,10 @@ func benchEvents(nDeltas int) []lipapi.Event {
 }
 
 func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		b.Fatal(err)
+	}
 	events := benchEvents(32)
 	ex := &runtime.Executor{
 		Store: st,

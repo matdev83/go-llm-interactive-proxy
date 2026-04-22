@@ -40,6 +40,9 @@ func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion]) li
 }
 
 func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		return lipapi.Event{}, err
 	}

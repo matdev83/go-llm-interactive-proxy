@@ -10,8 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestBuild_injectedRegistryOnly builds a runtime using a non-default [pluginreg.Registry] so tests
-// can assemble partial bundles without depending on [pluginreg.Default] contents.
+// TestBuild_injectedRegistryOnly builds a runtime using an isolated [pluginreg.Registry] so tests
+// can assemble partial bundles without sharing factories across registries.
 func TestBuild_injectedRegistryOnly(t *testing.T) {
 	t.Parallel()
 

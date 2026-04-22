@@ -23,7 +23,10 @@ import (
 
 func TestExecutor_happyPath_collectNonStreaming(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opens int32
 	ex := &runtime.Executor{
 		Store: st,
@@ -72,7 +75,10 @@ func TestExecutor_happyPath_collectNonStreaming(t *testing.T) {
 
 func TestExecutor_capabilityRejectBeforeBackendOpen(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opens int32
 	ex := &runtime.Executor{
 		Store: st,
@@ -99,7 +105,7 @@ func TestExecutor_capabilityRejectBeforeBackendOpen(t *testing.T) {
 			}},
 		}},
 	}
-	_, err := ex.Execute(context.Background(), call)
+	_, err = ex.Execute(context.Background(), call)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -114,7 +120,10 @@ func TestExecutor_capabilityRejectBeforeBackendOpen(t *testing.T) {
 func TestExecutor_preOutputRecoverableSwallowsAndLineage(t *testing.T) {
 	t.Parallel()
 	clock := time.Unix(1700, 0).UTC()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{Now: func() time.Time { return clock }})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
@@ -182,7 +191,10 @@ func TestExecutor_preOutputRecoverableSwallowsAndLineage(t *testing.T) {
 
 func TestExecutor_preOutputMultiOpenFailuresThenSuccess(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opens int32
 	ex := &runtime.Executor{
 		Store: st,
@@ -239,7 +251,10 @@ func TestExecutor_preOutputMultiOpenFailuresThenSuccess(t *testing.T) {
 
 func TestExecutor_postOutputNoSecondBackendOpen(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opens int32
 	ex := &runtime.Executor{
 		Store: st,
@@ -323,7 +338,10 @@ func (d *deltaThenErrStream) Close() error { return nil }
 
 func TestExecutor_cancellationRecordsAttempt(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var opens int32
 	ex := &runtime.Executor{
@@ -379,6 +397,9 @@ type cancelWaitStream struct {
 }
 
 func (c *cancelWaitStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	select {
 	case <-ctx.Done():
 		return lipapi.Event{}, ctx.Err()
@@ -391,7 +412,10 @@ func (c *cancelWaitStream) Close() error { return nil }
 
 func TestExecutor_applyNegotiatedDowngradesReasoning(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var seenReasoning string
 	ex := &runtime.Executor{
 		Store: st,
@@ -434,7 +458,10 @@ func TestExecutor_applyNegotiatedDowngradesReasoning(t *testing.T) {
 
 func TestExecutor_backendOpen_contextCarriesTraceAndALeg(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var openTrace, openALeg string
 	ex := &runtime.Executor{
 		Store: st,
@@ -478,7 +505,10 @@ func TestExecutor_backendOpen_contextCarriesTraceAndALeg(t *testing.T) {
 
 func TestExecutor_traceUsesCallIDWhenPresent(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var openTrace string
 	ex := &runtime.Executor{
 		Store: st,
@@ -520,7 +550,10 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 	t.Parallel()
 	buf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
@@ -576,7 +609,10 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 
 func TestExecutor_routeQueryMergesIntoGenerationOptions(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var captured lipapi.GenerationOptions
 	ex := &runtime.Executor{
 		Store: st,
@@ -621,7 +657,10 @@ func TestExecutor_routeQueryMergesIntoGenerationOptions(t *testing.T) {
 
 func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var captured lipapi.GenerationOptions
 	temp := 0.11
 	ex := &runtime.Executor{
@@ -667,7 +706,10 @@ func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
 
 func TestExecutor_callID_matchesAssignedTrace(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
@@ -705,7 +747,10 @@ func TestExecutor_callID_matchesAssignedTrace(t *testing.T) {
 
 func TestExecutor_requestPartHook_metaIncludesBLeg(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var got sdk.PartMeta
 	reqHook := &executorTestReqPart{
 		id: "req-meta", order: 0,
@@ -752,7 +797,10 @@ func TestExecutor_requestPartHook_metaIncludesBLeg(t *testing.T) {
 
 func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var respMeta sdk.PartMeta
 	var toolMeta sdk.ToolMeta
 	respHook := &executorTestRespPart{
@@ -829,7 +877,10 @@ func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
 
 func TestExecutor_downgradeNotStickyAcrossRetries(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var captured string
 	ex := &runtime.Executor{
 		Store: st,
@@ -877,7 +928,10 @@ func TestExecutor_downgradeNotStickyAcrossRetries(t *testing.T) {
 
 func TestExecutor_maxAttemptsBlocksFurtherBLegs(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &runtime.Executor{
 		Store:       st,
 		Bus:         hooks.New(hooks.Config{}),
@@ -912,7 +966,7 @@ func TestExecutor_maxAttemptsBlocksFurtherBLegs(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, err := ex.Execute(context.Background(), call)
+	_, err = ex.Execute(context.Background(), call)
 	if err == nil {
 		t.Fatal("expected max attempts error")
 	}
@@ -923,7 +977,10 @@ func TestExecutor_maxAttemptsBlocksFurtherBLegs(t *testing.T) {
 
 func TestExecutor_modelOnlySelectorUsesDefaultBackend(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opened string
 	ex := &runtime.Executor{
 		Store:          st,
@@ -955,6 +1012,38 @@ func TestExecutor_modelOnlySelectorUsesDefaultBackend(t *testing.T) {
 		t.Fatalf("opened candidate: got %q", opened)
 	}
 	_, _ = lipapi.Collect(context.Background(), s)
+}
+
+func TestExecutor_execute_nilContext(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  rand.New(rand.NewSource(1)),
+		Backends: map[string]runtime.Backend{
+			"x": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.NewFixedEventStream(nil), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:m"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, err = ex.Execute(nil, call)
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got %v", err)
+	}
 }
 
 type executorTestReqPart struct {

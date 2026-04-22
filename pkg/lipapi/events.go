@@ -84,7 +84,7 @@ type Event struct {
 // backend mapping, or hook mutations) so one stream chunk cannot force unbounded allocations.
 func ValidateEventEnvelope(ev *Event) error {
 	if ev == nil {
-		return fmt.Errorf("nil event")
+		return &ValidationError{Field: "Event", Message: "nil event"}
 	}
 	if len(ev.Delta) > MaxEventDeltaBytes {
 		return &ValidationError{Field: "Delta", Message: fmt.Sprintf("exceeds %d bytes", MaxEventDeltaBytes)}
@@ -137,6 +137,10 @@ func ValidateEventEnvelope(ev *Event) error {
 // (no concurrent Recv on the same stream). Close may run concurrently with a
 // blocked Recv only when the implementation documents that guarantee locally.
 // See each concrete stream type for its Close/Recv concurrency contract.
+//
+// Recv requires a non-nil ctx (Go context contract). Passing nil returns [ErrNilContext]
+// from core and reference implementations in this module; other implementations should
+// follow the same rule or document divergent behavior.
 type EventStream interface {
 	Recv(ctx context.Context) (Event, error) // io.EOF means normal completion after terminal event
 	Close() error
@@ -144,6 +148,7 @@ type EventStream interface {
 
 // FixedEventStream is a finite stream for tests and in-memory adapters.
 // It is not safe for concurrent Recv; use one consumer at a time.
+// Recv on a nil *FixedEventStream returns [ErrNilFixedEventStream]. Close on nil returns nil.
 type FixedEventStream struct {
 	events []Event
 	pos    int
@@ -156,6 +161,12 @@ func NewFixedEventStream(events []Event) *FixedEventStream {
 }
 
 func (f *FixedEventStream) Recv(ctx context.Context) (Event, error) {
+	if f == nil {
+		return Event{}, ErrNilFixedEventStream
+	}
+	if ctx == nil {
+		return Event{}, ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		return Event{}, err
 	}
@@ -219,18 +230,24 @@ func (c Collected) OrderedToolCalls() []ToolCallSummary {
 
 // Collect drains a stream until a terminal event or an error using DefaultCollectLimits.
 // Terminal success is EventResponseFinished. Terminal failure is EventError followed by optional EOF.
+// ctx must be non-nil; nil returns [ErrNilContext].
 func Collect(ctx context.Context, s EventStream) (Collected, error) {
 	return CollectWithLimits(ctx, s, DefaultCollectLimits())
 }
 
 // CollectUnbounded aggregates without CollectLimits checks (legacy / testing only).
+// ctx must be non-nil; nil returns [ErrNilContext].
 func CollectUnbounded(ctx context.Context, s EventStream) (Collected, error) {
 	return CollectWithLimits(ctx, s, CollectLimits{})
 }
 
 // CollectWithLimits drains a stream until a terminal event or an error.
 // Terminal success is EventResponseFinished. Terminal failure is EventError followed by optional EOF.
+// ctx must be non-nil; nil returns [ErrNilContext].
 func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits) (Collected, error) {
+	if ctx == nil {
+		return Collected{}, ErrNilContext
+	}
 	if s == nil {
 		return Collected{}, ErrNilEventStream
 	}

@@ -34,6 +34,9 @@ func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error]) lipapi
 }
 
 func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		return lipapi.Event{}, err
 	}

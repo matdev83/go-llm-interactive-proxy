@@ -12,7 +12,8 @@ import (
 
 func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	t.Parallel()
-	if err := pluginreg.RegisterStandardBundle(); err != nil {
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -33,7 +34,9 @@ func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, nil)
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

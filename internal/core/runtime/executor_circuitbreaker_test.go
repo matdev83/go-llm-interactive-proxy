@@ -21,7 +21,10 @@ func cbTestNow() time.Time {
 
 func TestExecutor_circuitBreakerSkipsAfterFailures(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cb := policy.NewCircuitBreaker(policy.CircuitBreakerOptions{
 		FailureThreshold: 1,
 		OpenDuration:     time.Hour,

@@ -20,8 +20,8 @@ type hook struct {
 
 var _ sdk.SubmitHook = hook{}
 
-// NewHook returns a submit hook that records a JSON marker extension on the canonical call.
-func NewHook(cfg Config) sdk.SubmitHook {
+// NewSubmitHook returns a submit hook that records a JSON marker extension on the canonical call.
+func NewSubmitHook(cfg Config) sdk.SubmitHook {
 	o := defaultOrder
 	if cfg.Order != nil {
 		o = *cfg.Order

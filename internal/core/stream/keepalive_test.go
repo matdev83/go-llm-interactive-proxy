@@ -18,6 +18,9 @@ type delayedStream struct {
 }
 
 func (d *delayedStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if d.index >= len(d.events) {
 		t := time.NewTimer(d.delay)
 		defer func() {
@@ -210,6 +213,9 @@ type blockingRecvStream struct {
 }
 
 func (b *blockingRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	select {
 	case <-ctx.Done():
 		return lipapi.Event{}, ctx.Err()

@@ -7,6 +7,8 @@ import (
 )
 
 // Config contains only core-owned runtime settings and opaque plugin config payloads.
+// A decoded Config is not self-validating: use LoadFile (which calls Validate) or call Validate
+// before wiring into runtime.New or runtimebundle.Build.
 type Config struct {
 	Server      ServerConfig      `yaml:"server"`
 	Diagnostics DiagnosticsConfig `yaml:"diagnostics"`
@@ -74,7 +76,7 @@ type ContinuityConfig struct {
 	SQLitePath string `yaml:"sqlite_path"`
 	// TTL is in-memory store only (A-leg eviction). Ignored by SQLite until pruning is implemented.
 	TTL string `yaml:"ttl"`
-	// MaxLegs is in-memory store only when TTL is empty. Ignored by SQLite until pruning exists.
+	// MaxLegs is in-memory store only when TTL is empty. Must be >= 0. Ignored by SQLite until pruning exists.
 	MaxLegs int `yaml:"max_legs"`
 }
 

@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 
@@ -42,6 +41,8 @@ type retryRecvStream struct {
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
 
+var errNilRetryRecvStream = errors.New("runtime: nil retryRecvStream")
+
 // recvHookMeta returns identifiers for response-path hooks after B-leg allocation.
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 	pm := sdk.PartMeta{
@@ -60,6 +61,12 @@ func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 }
 
 func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s == nil {
+		return lipapi.Event{}, errNilRetryRecvStream
+	}
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if s.finished {
 		return lipapi.Event{}, io.EOF
 	}
@@ -153,98 +160,36 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	list, err := routing.ExpandFailover(s.sel, routing.PlanOptions{
-		Excluded:    s.excluded,
-		Unhealthy:   s.executor.mergePlannerHealth(),
-		Session:     s.session,
-		Rand:        s.rng,
-		IsRetryPath: true,
+	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
+		ctx:         ctx,
+		bus:         s.bus,
+		traceID:     s.traceID,
+		aLegID:      s.aLegID,
+		baseline:    s.baseline,
+		sel:         s.sel,
+		session:     s.session,
+		excluded:    s.excluded,
+		rng:         s.rng,
+		budget:      s.budget,
+		isRetryPath: true,
+		lastReject:  &s.lastHardReject,
 	})
 	if err != nil {
-		if errors.Is(err, routing.ErrNoEligibleCandidate) && s.lastHardReject.Kind == lipapi.NegotiationReject {
-			return false, s.lastHardReject.Err()
-		}
 		return false, err
 	}
-	c := list[0]
-	s.executor.traceRoute(s.traceID, "plan_candidate", c.Key)
-	s.executor.observeRoute(ctx, s.traceID, "plan_candidate", c.Key)
-	attempt := lipapi.CloneCall(s.baseline)
-	req := lipapi.RequiredCapabilities(attempt)
-	be, ok := s.executor.Backends[c.Primary.Backend]
-	if !ok {
-		return false, fmt.Errorf("executor: unknown backend %q", c.Primary.Backend)
-	}
-	res := lipapi.Negotiate(req, s.executor.capsForAttempt(ctx, be, attempt, c))
-	if res.Kind == lipapi.NegotiationReject {
-		s.lastHardReject = res
-		diag.LogDecision(ctx, s.executor.Log, "capability_reject", diag.AttrOpts{CallID: s.traceID},
-			slog.String("decision", "exclude_candidate"),
-			slog.String("candidate_key", c.Key),
-			slog.String("backend", c.Primary.Backend),
-		)
-		s.excluded[c.Key] = struct{}{}
+	if !out.opened {
 		return false, nil
 	}
-	s.lastHardReject = lipapi.NegotiationResult{}
-	if res.Kind == lipapi.NegotiationDowngrade {
-		diag.LogDecision(ctx, s.executor.Log, "capability_downgrade", diag.AttrOpts{CallID: s.traceID},
-			slog.String("candidate_key", c.Key),
-			slog.String("backend", c.Primary.Backend),
-		)
-		lipapi.ApplyNegotiatedDowngrades(&attempt, res)
-	}
-	if c.MarkedFirst {
-		if err := s.executor.Store.SetWeightedFirstConsumed(ctx, s.aLegID, true); err != nil {
-			return false, err
-		}
-		s.session.FirstRequestConsumed = true
-	}
-	if !s.budget.tryAcquire() {
-		return false, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
-	}
-	bleg, err := s.executor.Store.NextBLeg(ctx, s.aLegID)
-	if err != nil {
-		return false, err
-	}
-	if err := s.bus.RunRequestPartHooks(ctx, &attempt, sdk.PartMeta{
-		TraceID:    s.traceID,
-		ALegID:     s.aLegID,
-		BLegID:     bleg.BLegID,
-		AttemptSeq: bleg.Seq,
-	}); err != nil {
-		return false, err
-	}
-	openCall, err := backendCallWithRouteParams(attempt, c)
-	if err != nil {
-		return false, err
-	}
-	nextStream, err := be.Open(ctx, openCall, c)
-	if err != nil {
-		if lipapi.IsRecoverablePreOutput(err) {
-			_ = s.executor.recordAttempt(ctx, s.aLegID, bleg, c, lipapi.AttemptSwallowedFailure, "recoverable pre-output (open)")
-			diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: s.traceID, BLegID: bleg.BLegID},
-				slog.String("candidate_key", c.Key),
-				slog.String("phase", "open"),
-			)
-			s.excluded[c.Key] = struct{}{}
-			return false, nil
-		}
-		_ = s.executor.recordAttempt(ctx, s.aLegID, bleg, c, lipapi.AttemptSurfacedFailure, err.Error())
-		return false, err
-	}
-	diag.LogDecision(ctx, s.executor.Log, "backend_stream_opened", diag.AttrOpts{CallID: s.traceID, BLegID: bleg.BLegID},
-		slog.String("candidate_key", c.Key),
-		slog.String("backend", c.Primary.Backend),
-		slog.String("model", c.Primary.Model),
-	)
-	s.inner = nextStream
-	s.bleg = bleg
-	s.cand = c
+	s.inner = out.stream
+	s.bleg = out.bleg
+	s.cand = out.cand
 	return true, nil
 }
 
 func (s *retryRecvStream) Close() error {
+	if s == nil {
+		return nil
+	}
 	if s.inner != nil {
 		return s.inner.Close()
 	}

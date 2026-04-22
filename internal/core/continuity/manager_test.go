@@ -12,7 +12,10 @@ import (
 func TestManager_ResolveSession_createsNewWhenEmpty(t *testing.T) {
 	t.Parallel()
 
-	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, err := continuity.NewManager(store)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +36,10 @@ func TestManager_ResolveSession_createsNewWhenEmpty(t *testing.T) {
 func TestManager_ResolveSession_resolvesByContinuityKey(t *testing.T) {
 	t.Parallel()
 
-	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, err := continuity.NewManager(store)
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +72,10 @@ func TestManager_ResolveSession_resolvesByContinuityKey(t *testing.T) {
 func TestResolveALegRecord_returnsStoreRow(t *testing.T) {
 	t.Parallel()
 
-	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	rec, err := continuity.ResolveALegRecord(context.Background(), store, lipapi.SessionRef{ContinuityKey: "k"})
 	if err != nil {
 		t.Fatalf("ResolveALegRecord: %v", err)
@@ -82,7 +91,10 @@ func TestResolveALegRecord_returnsStoreRow(t *testing.T) {
 func TestManager_ResolveSession_resolvesByALegID(t *testing.T) {
 	t.Parallel()
 
-	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, err := continuity.NewManager(store)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +124,10 @@ func TestManager_ResolveSession_resolvesByALegID(t *testing.T) {
 func TestManager_Store_returnsUnderlyingStore(t *testing.T) {
 	t.Parallel()
 
-	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	store, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, err := continuity.NewManager(store)
 	if err != nil {
 		t.Fatal(err)

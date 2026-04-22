@@ -11,7 +11,7 @@ import (
 // RunRequestPartHooks runs request-part hooks in order and re-validates the call.
 func (b *Bus) RunRequestPartHooks(ctx context.Context, call *lipapi.Call, meta sdk.PartMeta) error {
 	if call == nil {
-		return fmt.Errorf("nil call")
+		return fmt.Errorf("hooks: nil call: %w", lipapi.ErrInvalidCall)
 	}
 	var reqParts []sdk.RequestPartHook
 	if b != nil {
@@ -34,7 +34,7 @@ func (b *Bus) RunRequestPartHooks(ctx context.Context, call *lipapi.Call, meta s
 // RunResponsePartHooks runs response-part hooks in order and validates each mutation.
 func (b *Bus) RunResponsePartHooks(ctx context.Context, ev *lipapi.Event, meta sdk.PartMeta) error {
 	if ev == nil {
-		return fmt.Errorf("nil event")
+		return fmt.Errorf("hooks: nil event: %w", lipapi.ErrInvalidCall)
 	}
 	var respParts []sdk.ResponsePartHook
 	if b != nil {

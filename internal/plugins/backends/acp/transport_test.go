@@ -8,7 +8,39 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestNewHTTPTransport_nilClient_allocatesDedicatedTimeoutClient(t *testing.T) {
+	t.Parallel()
+
+	tr, err := newHTTPTransport("http://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.hc == nil {
+		t.Fatal("expected non-nil http.Client")
+	}
+	if tr.hc.Timeout != DefaultHTTPClientTimeout {
+		t.Fatalf("timeout: got %v want %v", tr.hc.Timeout, DefaultHTTPClientTimeout)
+	}
+}
+
+func TestNewHTTPTransport_preservesProvidedClient(t *testing.T) {
+	t.Parallel()
+
+	custom := &http.Client{Timeout: 7 * time.Second}
+	tr, err := newHTTPTransport("http://example.com", custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.hc != custom {
+		t.Fatal("expected provided *http.Client instance to be preserved")
+	}
+	if tr.hc.Timeout != 7*time.Second {
+		t.Fatalf("timeout mutated: got %v want %v", tr.hc.Timeout, 7*time.Second)
+	}
+}
 
 func TestHTTPTransport_CallUnary_rejectsOversizedBody(t *testing.T) {
 	t.Parallel()

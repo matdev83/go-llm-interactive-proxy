@@ -13,10 +13,13 @@ func TestMemoryStore_TTL_sweepsStaleAnonymousLegsOnCreate(t *testing.T) {
 	t.Parallel()
 	t0 := time.Unix(1700000000, 0).UTC()
 	tick := t0
-	s := NewMemoryStore(MemoryStoreOptions{
+	s, err := NewMemoryStore(MemoryStoreOptions{
 		TTL: time.Hour,
 		Now: func() time.Time { return tick },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	const n = 10
 	for range n {
@@ -40,10 +43,13 @@ func TestMemoryStore_TTL_sweepsStaleUniqueContinuityKeysOnCreate(t *testing.T) {
 	t.Parallel()
 	t0 := time.Unix(1700000100, 0).UTC()
 	tick := t0
-	s := NewMemoryStore(MemoryStoreOptions{
+	s, err := NewMemoryStore(MemoryStoreOptions{
 		TTL: time.Hour,
 		Now: func() time.Time { return tick },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	const n = 8
 	for i := range n {
@@ -68,10 +74,13 @@ func TestMemoryStore_defaultMaxLegs_evictsOldestWhenTTLDisabled(t *testing.T) {
 	t.Parallel()
 	t0 := time.Unix(1711000000, 0).UTC()
 	tick := t0
-	s := NewMemoryStore(MemoryStoreOptions{
+	s, err := NewMemoryStore(MemoryStoreOptions{
 		TTL: 0,
 		Now: func() time.Time { return tick },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 
 	const cap = 5
@@ -92,10 +101,13 @@ func TestMemoryStore_zeroTTL_doesNotSweepOnCreate(t *testing.T) {
 	t.Parallel()
 	t0 := time.Unix(1700000200, 0).UTC()
 	tick := t0
-	s := NewMemoryStore(MemoryStoreOptions{
+	s, err := NewMemoryStore(MemoryStoreOptions{
 		TTL: 0,
 		Now: func() time.Time { return tick },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	if _, err := s.CreateALeg(ctx, ""); err != nil {
 		t.Fatal(err)

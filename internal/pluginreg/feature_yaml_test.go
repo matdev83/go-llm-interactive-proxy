@@ -9,6 +9,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func testRegistryWithStdBundle(t *testing.T) *Registry {
+	t.Helper()
+	r := NewRegistry()
+	if err := InstallStandardBundleOn(r); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 func TestRequireEmptyFeatureYAML_acceptsEmptyMapping(t *testing.T) {
 	t.Parallel()
 	var n yaml.Node
@@ -37,7 +46,8 @@ func TestBuildFeatureHooks_rejectsUnknownNoopConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("foo: bar"), &n); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := BuildFeatureHooks([]lipsdk.Registration{
+	reg := testRegistryWithStdBundle(t)
+	_, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err == nil {
@@ -51,7 +61,8 @@ func TestBuildFeatureHooks_acceptsEmptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &n); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := BuildFeatureHooks([]lipsdk.Registration{
+	reg := testRegistryWithStdBundle(t)
+	_, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err != nil {
@@ -65,7 +76,8 @@ func TestBuildFeatureHooks_submitNoopLifecycleProbe(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("lifecycle_probe: true"), &n); err != nil {
 		t.Fatal(err)
 	}
-	hookCfg, lifes, err := BuildFeatureHooks([]lipsdk.Registration{
+	reg := testRegistryWithStdBundle(t)
+	hookCfg, lifes, err := reg.BuildFeatureHooks([]lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err != nil {
@@ -102,7 +114,8 @@ func TestBuildFeatureHooks_submitNoopOrderFromConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("order: 3"), &n); err != nil {
 		t.Fatal(err)
 	}
-	hookCfg, lifes, err := BuildFeatureHooks([]lipsdk.Registration{
+	reg := testRegistryWithStdBundle(t)
+	hookCfg, lifes, err := reg.BuildFeatureHooks([]lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err != nil {

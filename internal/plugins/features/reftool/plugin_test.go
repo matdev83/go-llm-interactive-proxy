@@ -10,7 +10,7 @@ import (
 
 func TestReactor_prefixesArgsDelta(t *testing.T) {
 	t.Parallel()
-	r := NewReactor(Config{Prefix: ">>"})
+	r := NewToolReactor(Config{Prefix: ">>"})
 	dec, out, err := r.HandleToolEvent(context.Background(), lipapi.ToolEvent{
 		Kind:       lipapi.ToolEventArgsDelta,
 		ToolCallID: "c1",
@@ -29,7 +29,7 @@ func TestReactor_prefixesArgsDelta(t *testing.T) {
 
 func TestReactor_passThroughNonDeltaKinds(t *testing.T) {
 	t.Parallel()
-	r := NewReactor(Config{Prefix: ">>"})
+	r := NewToolReactor(Config{Prefix: ">>"})
 	dec, out, err := r.HandleToolEvent(context.Background(), lipapi.ToolEvent{
 		Kind: lipapi.ToolEventStarted,
 	}, sdk.ToolMeta{})

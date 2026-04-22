@@ -49,7 +49,7 @@ Core rules:
 ### 2a. Standard distribution assembly (not “another core”)
 
 `internal/pluginreg/`
-- explicit registration for the standard distribution (`RegisterStandardBundle`, per-family `*_install.go` tables)
+- explicit registration for the standard distribution (`InstallStandardBundleOn(reg)` from `cmd/lipstd` / tests; per-family `*_install.go` tables)
 - registry validation helpers and default wire metadata used by routing defaults
 
 `internal/infra/runtimebundle/`

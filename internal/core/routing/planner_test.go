@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"math/rand"
 	"testing"
 )
@@ -159,6 +160,17 @@ func TestReplanWeightedIgnoresFirst(t *testing.T) {
 	}
 	if c.Key != "expensive:slow" {
 		t.Fatalf("got %q", c.Key)
+	}
+}
+
+func TestExpandFailover_nil_selector_wrapsErrInvalidSelector(t *testing.T) {
+	t.Parallel()
+	_, err := ExpandFailover(nil, PlanOptions{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrInvalidSelector) {
+		t.Fatalf("errors.Is ErrInvalidSelector: got %v", err)
 	}
 }
 

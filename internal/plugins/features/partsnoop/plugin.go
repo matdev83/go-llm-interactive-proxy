@@ -16,10 +16,10 @@ type responsePartHook struct{}
 var _ sdk.RequestPartHook = requestPartHook{}
 var _ sdk.ResponsePartHook = responsePartHook{}
 
-// NewRequestPartHook returns an inert request-part hook for parts-noop.
+// NewRequestPartHook returns the registered request-part hook entrypoint for parts-noop.
 func NewRequestPartHook() sdk.RequestPartHook { return requestPartHook{} }
 
-// NewResponsePartHook returns an inert response-part hook for parts-noop.
+// NewResponsePartHook returns the registered response-part hook entrypoint for parts-noop.
 func NewResponsePartHook() sdk.ResponsePartHook { return responsePartHook{} }
 
 func (requestPartHook) ID() string                   { return ID }

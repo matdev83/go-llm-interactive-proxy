@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -33,6 +34,44 @@ func TestValidate_rejectsSQLiteWithMaxLegs(t *testing.T) {
 	}
 	if err := config.Validate(cfg); err == nil {
 		t.Fatal("expected error for max_legs with sqlite store")
+	}
+}
+
+func TestValidate_rejectsMemoryWithNegativeMaxLegs(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Continuity: config.ContinuityConfig{
+			InMemory: true,
+			MaxLegs:  -1,
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	err := config.Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for negative max_legs with memory store")
+	}
+	if !strings.Contains(err.Error(), "max_legs") {
+		t.Fatalf("error: %v", err)
+	}
+}
+
+func TestValidate_allowsMemoryZeroAndPositiveMaxLegs(t *testing.T) {
+	t.Parallel()
+	for _, max := range []int{0, 42} {
+		cfg := &config.Config{
+			Continuity: config.ContinuityConfig{
+				InMemory: true,
+				MaxLegs:  max,
+			},
+			Plugins: config.PluginsConfig{
+				Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+			},
+		}
+		if err := config.Validate(cfg); err != nil {
+			t.Fatalf("max_legs=%d: %v", max, err)
+		}
 	}
 }
 

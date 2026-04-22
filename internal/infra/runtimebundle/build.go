@@ -22,6 +22,9 @@ import (
 )
 
 // Build assembles continuity store, executor, and closers for the standard distribution.
+//
+// cfg must be non-nil. bus may be nil (replaced with an empty hooks.Bus). log may be nil.
+// opts must be non-nil and opts.PluginRegistry must be non-nil; other BuildOptions fields are optional.
 func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOptions) (*Built, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("runtimebundle: nil config")
@@ -29,16 +32,16 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
 	}
+	if opts == nil || opts.PluginRegistry == nil {
+		return nil, fmt.Errorf("runtimebundle: nil PluginRegistry")
+	}
+	reg := opts.PluginRegistry
+
 	upstream := (*http.Client)(nil)
-	if opts != nil && opts.HTTPClient != nil {
+	if opts.HTTPClient != nil {
 		upstream = opts.HTTPClient
 	} else {
 		upstream = httpclient.Standard()
-	}
-
-	reg := pluginreg.Default
-	if opts != nil && opts.PluginRegistry != nil {
-		reg = opts.PluginRegistry
 	}
 
 	backends := make(map[string]runtime.Backend)
@@ -84,7 +87,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	rngSrc = mathrand.NewSource(seed)
 
 	nowFn := time.Now
-	if opts != nil && opts.Clock != nil {
+	if opts.Clock != nil {
 		nowFn = opts.Clock
 	}
 
@@ -112,8 +115,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 
 // BuildExecutor wires enabled backends from configuration into a core executor with production
 // defaults. Prefer Build for a structured composition result.
-func BuildExecutor(cfg *config.Config, bus *hooks.Bus, log *slog.Logger) (*runtime.Executor, b2bua.Store, []func() error, error) {
-	b, err := Build(cfg, bus, log, nil)
+func BuildExecutor(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, reg *pluginreg.Registry) (*runtime.Executor, b2bua.Store, []func() error, error) {
+	b, err := Build(cfg, bus, log, &BuildOptions{PluginRegistry: reg})
 	if err != nil {
 		return nil, nil, nil, err
 	}

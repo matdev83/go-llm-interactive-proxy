@@ -53,7 +53,10 @@ func executorSubmitHooksBus(submit ...sdkhooks.SubmitHook) *hooks.Bus {
 
 func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var backendOpened atomic.Value
 	ex := &runtime.Executor{
 		Store: st,
@@ -108,7 +111,10 @@ func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 
 func TestExecutor_submitHook_oversizedCall_rejectedBeforeBackendOpen(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var opens int32
 	ex := &runtime.Executor{
 		Store: st,
@@ -134,7 +140,7 @@ func TestExecutor_submitHook_oversizedCall_rejectedBeforeBackendOpen(t *testing.
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	_, err := ex.Execute(context.Background(), call)
+	_, err = ex.Execute(context.Background(), call)
 	if err == nil {
 		t.Fatal("expected validation error after submit hook inflated message text")
 	}

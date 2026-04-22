@@ -20,8 +20,11 @@ import (
 
 // Run assembles the standard runtime and serves HTTP until ctx is cancelled, then shuts down.
 // Prefer [RunWithRuntime] with a pre-built [runtimebundle.Built] from the composition root.
-func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger) error {
-	built, err := runtimebundle.Build(cfg, app.HookBus(), log, nil)
+func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger, reg *pluginreg.Registry) error {
+	if reg == nil {
+		return errors.New("stdhttp: nil plugin registry")
+	}
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if err != nil {
 		return fmt.Errorf("stdhttp: build runtime: %w", err)
 	}
@@ -42,6 +45,9 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	}
 	if built == nil || built.Executor == nil {
 		return errors.New("stdhttp: nil built runtime")
+	}
+	if built.PluginRegistry == nil {
+		return errors.New("stdhttp: nil plugin registry in built runtime")
 	}
 	exec := built.Executor
 	store := built.Store
@@ -92,9 +98,6 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		}
 	}
 	reg := built.PluginRegistry
-	if reg == nil {
-		reg = pluginreg.Default
-	}
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
 	if err := MountBundledFrontends(mux, exec, route, cfg.Plugins.Frontends, maxBody, reg); err != nil {
 		releaseClosers()

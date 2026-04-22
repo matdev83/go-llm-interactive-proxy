@@ -15,6 +15,9 @@ type benchAnthropicTokenStream struct {
 }
 
 func (s *benchAnthropicTokenStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if s.i < s.n {
 		s.i++
 		return lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"}, nil

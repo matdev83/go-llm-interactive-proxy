@@ -21,10 +21,14 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 		healthCalled = true
 	})
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+		t.Fatal(err)
+	}
 	plugins := []config.PluginConfig{
 		{ID: gemini.ID, Enabled: true},
 	}
-	if err := MountBundledFrontends(mux, ex, "stub:gemini-2.0-flash", plugins, 0, nil); err != nil {
+	if err := MountBundledFrontends(mux, ex, "stub:gemini-2.0-flash", plugins, 0, reg); err != nil {
 		t.Fatal(err)
 	}
 

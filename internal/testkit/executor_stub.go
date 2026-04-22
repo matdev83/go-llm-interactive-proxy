@@ -31,7 +31,10 @@ func stubToolPrefixEvents(call lipapi.Call) []lipapi.Event {
 
 func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []string, capture *sync.Map) *runtime.Executor {
 	t.Helper()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
@@ -63,7 +66,10 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 
 func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture *sync.Map) *runtime.Executor {
 	t.Helper()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),

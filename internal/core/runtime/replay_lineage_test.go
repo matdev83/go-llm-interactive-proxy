@@ -19,7 +19,10 @@ import (
 
 func TestReplayLineage_recvFailoverIncrementsBLegs(t *testing.T) {
 	t.Parallel()
-	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex := &lipruntime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),

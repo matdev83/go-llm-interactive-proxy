@@ -17,12 +17,12 @@ type submitHook struct {
 
 var _ sdk.SubmitHook = submitHook{}
 
-// NewSubmitHook returns an inert submit hook with default ordering (HookConfig zero value).
+// NewSubmitHook returns the registered submit hook entrypoint with default ordering.
 func NewSubmitHook() sdk.SubmitHook {
 	return NewSubmitHookWithConfig(HookConfig{})
 }
 
-// NewSubmitHookWithConfig returns a submit hook using decoded feature config.
+// NewSubmitHookWithConfig returns the registered submit hook entrypoint using decoded feature config.
 func NewSubmitHookWithConfig(cfg HookConfig) sdk.SubmitHook {
 	o := DefaultHookOrder
 	if cfg.Order != nil {

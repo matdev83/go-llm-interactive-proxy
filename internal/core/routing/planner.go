@@ -6,7 +6,7 @@ import (
 )
 
 // ErrNoEligibleCandidate means every candidate in the relevant scope was excluded or unhealthy.
-var ErrNoEligibleCandidate = errors.New("no eligible route candidate")
+var ErrNoEligibleCandidate = errors.New("routing: no eligible route candidate")
 
 // SessionRoutingState holds session-scoped routing flags (mirrors B2BUA A-leg state; persisted by caller in v1).
 type SessionRoutingState struct {
@@ -15,10 +15,12 @@ type SessionRoutingState struct {
 
 // PlanOptions configures planning: exclusions, health, session first-request consumption, RNG, retry path.
 type PlanOptions struct {
-	Excluded    map[string]struct{}
-	Unhealthy   map[string]struct{}
-	Session     *SessionRoutingState
-	Rand        Rng // inject for deterministic tests; required for weighted picks
+	Excluded  map[string]struct{}
+	Unhealthy map[string]struct{}
+	Session   *SessionRoutingState
+	// Rand supplies weighted-branch rolls. When nil, weighted selection uses a fixed-seeded
+	// math/rand source (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
+	Rand        Rng
 	IsRetryPath bool
 }
 
@@ -42,7 +44,7 @@ type AttemptCandidate struct {
 // When a [first] branch is chosen, Session.FirstRequestConsumed is set (if Session is non-nil).
 func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) {
 	if sel == nil {
-		return nil, fmt.Errorf("nil selector")
+		return nil, fmt.Errorf("%w: nil selector", ErrInvalidSelector)
 	}
 	out := make([]AttemptCandidate, 0, len(sel.Alternatives))
 	for _, alt := range sel.Alternatives {
@@ -66,7 +68,7 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 			}
 			out = append(out, c)
 		default:
-			return nil, fmt.Errorf("invalid failover alternative")
+			return nil, fmt.Errorf("%w: invalid failover alternative", ErrInvalidSelector)
 		}
 	}
 	if len(out) == 0 {

@@ -14,16 +14,18 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
-func registerStandardBundleForTest(t *testing.T) {
+func testRegistryWithStdBundle(t *testing.T) *pluginreg.Registry {
 	t.Helper()
-	if err := pluginreg.RegisterStandardBundle(); err != nil {
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
 		t.Fatal(err)
 	}
+	return reg
 }
 
 func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 
 	cfgPath := filepath.Join("..", "..", "config", "config.yaml")
 	cfg, err := config.LoadFile(cfgPath)
@@ -32,7 +34,7 @@ func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
-	hookCfg, _, err := pluginreg.BuildFeatureHooks(regs)
+	hookCfg, _, err := reg.BuildFeatureHooks(regs)
 	if err != nil {
 		t.Fatalf("feature hooks: %v", err)
 	}
@@ -72,9 +74,9 @@ func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 
 func TestFeatureHooksFromRegistrations_unknownEnabledFeature(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 
-	_, _, err := pluginreg.BuildFeatureHooks([]lipsdk.Registration{
+	_, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "unknown-feature", Enabled: true},
 	})
 	if err == nil {
@@ -84,7 +86,7 @@ func TestFeatureHooksFromRegistrations_unknownEnabledFeature(t *testing.T) {
 
 func TestRuntimeNew_withComposedHooks(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 
 	cfgPath := filepath.Join("..", "..", "config", "config.yaml")
 	cfg, err := config.LoadFile(cfgPath)
@@ -92,7 +94,7 @@ func TestRuntimeNew_withComposedHooks(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 	regs := config.RegistrationsFromConfig(cfg)
-	hookCfg, _, err := pluginreg.BuildFeatureHooks(regs)
+	hookCfg, _, err := reg.BuildFeatureHooks(regs)
 	if err != nil {
 		t.Fatalf("feature hooks: %v", err)
 	}

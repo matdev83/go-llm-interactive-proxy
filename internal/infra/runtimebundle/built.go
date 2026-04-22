@@ -17,7 +17,6 @@ type Built struct {
 	// Successful [Build] always sets this (explicit [BuildOptions.HTTPClient] or the default from httpclient).
 	UpstreamHTTP *http.Client
 	// PluginRegistry is the registry used to construct backends and must be used when mounting frontends
-	// or composing features so custom bundles do not implicitly use [pluginreg.Default]. [Build] sets this
-	// to the effective registry ([BuildOptions.PluginRegistry] or [pluginreg.Default]).
+	// or composing features. [Build] sets this from [BuildOptions.PluginRegistry].
 	PluginRegistry *pluginreg.Registry
 }

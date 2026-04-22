@@ -127,6 +127,9 @@ func (s *promptStream) enqueueEventsLocked(evs []lipapi.Event) {
 }
 
 func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if ctx == nil {
+		return lipapi.Event{}, lipapi.ErrNilContext
+	}
 	if err := ctx.Err(); err != nil {
 		s.signalCancel()
 		_ = s.Close()

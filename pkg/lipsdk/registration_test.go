@@ -28,6 +28,31 @@ func TestValidateRegistrationsRejectsDuplicatePluginIDs(t *testing.T) {
 	if !errors.Is(err, lipsdk.ErrDuplicateRegistration) {
 		t.Fatal("expected error to unwrap to ErrDuplicateRegistration")
 	}
+	if got := lipsdk.ErrDuplicateRegistration.Error(); got != "lipsdk: duplicate plugin registration" {
+		t.Fatalf("ErrDuplicateRegistration = %q", got)
+	}
+}
+
+func TestValidateRegistrationsRejectsMissingID(t *testing.T) {
+	t.Parallel()
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{{Kind: lipsdk.PluginKindFrontend}}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); got != "lipsdk: plugin registration id is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestValidateRegistrationsRejectsMissingKind(t *testing.T) {
+	t.Parallel()
+	err := lipsdk.ValidateRegistrations([]lipsdk.Registration{{ID: "frontend-1"}}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); got != "lipsdk: plugin registration kind is required for \"frontend-1\"" {
+		t.Fatalf("error = %q", got)
+	}
 }
 
 func TestValidateRegistrationsRejectsMissingMandatoryPlugin(t *testing.T) {

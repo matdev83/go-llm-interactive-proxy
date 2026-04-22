@@ -13,7 +13,7 @@ type reactor struct{}
 
 var _ sdk.ToolReactor = reactor{}
 
-// NewToolReactor returns an inert tool reactor for tool-reactor-noop.
+// NewToolReactor returns the registered tool reactor entrypoint for tool-reactor-noop.
 func NewToolReactor() sdk.ToolReactor { return reactor{} }
 
 func (reactor) ID() string { return ID }

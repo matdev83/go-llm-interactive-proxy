@@ -9,7 +9,7 @@ import (
 )
 
 // ErrInvalidSelector reports a syntactically invalid route selector.
-var ErrInvalidSelector = errors.New("invalid route selector")
+var ErrInvalidSelector = errors.New("routing: invalid route selector")
 
 // Parse parses a route selector string into an AST.
 func Parse(s string) (*Selector, error) {

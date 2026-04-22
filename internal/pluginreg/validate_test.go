@@ -11,17 +11,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func registerStandardBundleForTest(t *testing.T) {
-	t.Helper()
-	if err := pluginreg.RegisterStandardBundle(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestValidateBundledFactories_succeedsForStandardRequirements(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
-	if err := pluginreg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
 		t.Fatal(err)
 	}
 }

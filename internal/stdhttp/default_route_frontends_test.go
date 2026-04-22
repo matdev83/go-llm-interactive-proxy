@@ -18,11 +18,13 @@ import (
 // frontends consume the same policy value when the client omits X-LIP-Route (task 10.4).
 const unifiedPolicyRoute = "stub:unified-policy-model"
 
-func registerStandardBundleForTest(t *testing.T) {
+func testRegistryWithStdBundle(t *testing.T) *pluginreg.Registry {
 	t.Helper()
-	if err := pluginreg.RegisterStandardBundle(); err != nil {
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBundleOn(reg); err != nil {
 		t.Fatal(err)
 	}
+	return reg
 }
 
 func policyConfig() *config.Config {
@@ -35,7 +37,7 @@ func policyConfig() *config.Config {
 
 func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	route := routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
 	if route != unifiedPolicyRoute {
@@ -44,7 +46,7 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(mux, ex, route, []config.PluginConfig{{ID: "openai-responses", Enabled: true}}, 0, nil); err != nil {
+	if err := MountBundledFrontends(mux, ex, route, []config.PluginConfig{{ID: "openai-responses", Enabled: true}}, 0, reg); err != nil {
 		t.Fatal(err)
 	}
 	body := []byte(`{"model":"gpt-4o-mini","stream":false,"input":[{"role":"user","content":"ping"}]}`)
@@ -67,13 +69,13 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 
 func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	route := routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(mux, ex, route, []config.PluginConfig{{ID: "openai-legacy", Enabled: true}}, 0, nil); err != nil {
+	if err := MountBundledFrontends(mux, ex, route, []config.PluginConfig{{ID: "openai-legacy", Enabled: true}}, 0, reg); err != nil {
 		t.Fatal(err)
 	}
 	body := []byte(`{"model":"gpt-4o-mini","stream":false,"messages":[{"role":"user","content":"ping"}]}`)
@@ -96,13 +98,13 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 
 func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	route := routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
-	if err := MountBundledFrontends(mux, ex, route, []config.PluginConfig{{ID: "anthropic", Enabled: true}}, 0, nil); err != nil {
+	if err := MountBundledFrontends(mux, ex, route, []config.PluginConfig{{ID: "anthropic", Enabled: true}}, 0, reg); err != nil {
 		t.Fatal(err)
 	}
 	body := []byte(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"ping"}]}`)
@@ -125,10 +127,10 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 
 func TestBuildExecutor_defaultBackendFromEffectiveRoute(t *testing.T) {
 	t.Parallel()
-	registerStandardBundleForTest(t)
+	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	cfg.Continuity = config.ContinuityConfig{InMemory: true}
-	exec, _, _, err := BuildExecutor(cfg, nil, nil)
+	exec, _, _, err := BuildExecutor(cfg, nil, nil, reg)
 	if err != nil {
 		t.Fatal(err)
 	}

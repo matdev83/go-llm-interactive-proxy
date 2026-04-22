@@ -20,6 +20,15 @@ func testCall() *lipapi.Call {
 	}
 }
 
+func TestRunSubmit_nilCall_isErrInvalidCall(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	err := b.RunSubmit(context.Background(), nil, nil)
+	if !errors.Is(err, lipapi.ErrInvalidCall) {
+		t.Fatalf("expected ErrInvalidCall, got %v", err)
+	}
+}
+
 func TestRunSubmit_rejectsInvalidCallAfterHooks(t *testing.T) {
 	t.Parallel()
 	h := &stubSubmit{
