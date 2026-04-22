@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -15,6 +16,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -38,10 +41,17 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	reg := opts.PluginRegistry
 
-	upstream := httpclient.StandardWithTrustEnvironment(cfg.EffectiveTrustEnvironmentProxy())
+	var bundle *metrics.Bundle
+	if cfg.Observability.Metrics.Enabled {
+		bundle = metrics.NewBundle(cfg)
+	}
+
+	tune := httpclient.TransportTuneFromConfig(cfg)
+	upstream := httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)
 	if opts.HTTPClient != nil {
 		upstream = opts.HTTPClient
 	}
+	upstream = wrapUpstreamClient(upstream, bundle, opts.OutboundTracing)
 
 	backends := make(map[string]runtime.Backend, len(cfg.Plugins.Backends))
 	for _, p := range cfg.Plugins.Backends {
@@ -92,17 +102,21 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 
 	exec := &runtime.Executor{
-		Store:           store,
-		Bus:             bus,
-		Backends:        backends,
-		MaxAttempts:     cfg.Routing.MaxAttempts,
-		DefaultBackend:  defBE,
-		CapsResolver:    capMap,
-		Rand:            routing.NewSeededRng(seed),
-		Now:             nowFn,
-		CandidateHealth: routingCandidateHealth(cfg, nowFn),
-		RouteObserver:   routeObserverFor(log),
-		Log:             log,
+		Store:                store,
+		Bus:                  bus,
+		Backends:             backends,
+		MaxAttempts:          cfg.Routing.MaxAttempts,
+		DefaultBackend:       defBE,
+		CapsResolver:         capMap,
+		Rand:                 routing.NewSeededRng(seed),
+		Now:                  nowFn,
+		CandidateHealth:      routingCandidateHealth(cfg, nowFn),
+		RouteObserver:        routeObserverFor(log),
+		Log:                  log,
+		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
+	}
+	if bundle != nil {
+		exec.Metrics = bundle.ExecutorSink()
 	}
 	return &Built{
 		Executor:              exec,
@@ -111,7 +125,31 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		UpstreamHTTP:          upstream,
 		PluginRegistry:        reg,
 		EffectiveDefaultRoute: effectiveRoute,
+		Metrics:               bundle,
 	}, nil
+}
+
+func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTracing bool) *http.Client {
+	if client == nil {
+		return nil
+	}
+	rt := client.Transport
+	if rt == nil {
+		rt = httpclient.DefaultTransport()
+	}
+	wrapped := rt
+	if bundle != nil && bundle.Upstream != nil {
+		wrapped = bundle.Upstream.WrapUpstreamRoundTripper(wrapped)
+	}
+	if outboundTracing {
+		wrapped = tracing.WrapTransport(true, wrapped)
+	}
+	if wrapped == rt {
+		return client
+	}
+	c := *client
+	c.Transport = wrapped
+	return &c
 }
 
 // BuildExecutor wires enabled backends from configuration into a core executor with production

@@ -14,7 +14,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
@@ -32,7 +34,21 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 	if log == nil {
 		return errors.New("stdhttp: nil logger")
 	}
-	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	traceRes, err := tracing.Init(context.Background(), cfg)
+	if err != nil {
+		return fmt.Errorf("stdhttp: tracing init: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		if err := traceRes.Shutdown(shutdownCtx); err != nil {
+			log.Warn("stdhttp: tracing shutdown", "error", err)
+		}
+	}()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
+		PluginRegistry:  reg,
+		OutboundTracing: traceRes.Active,
+	})
 	if err != nil {
 		return fmt.Errorf("stdhttp: build runtime: %w", err)
 	}
@@ -72,6 +88,24 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	}
 
 	mux := http.NewServeMux()
+
+	var httpProm *metrics.HTTPMetrics
+	if cfg.Observability.Metrics.Enabled {
+		if built.Metrics == nil || built.Metrics.Registry == nil {
+			releaseClosers()
+			return fmt.Errorf("stdhttp: observability.metrics.enabled requires built.Metrics from runtimebundle.Build")
+		}
+		promReg := built.Metrics.Registry
+		httpProm = built.Metrics.HTTP
+		mp := strings.TrimSpace(cfg.Observability.Metrics.Path)
+		if mp == "" {
+			mp = "/metrics"
+		}
+		om := cfg.Observability.Metrics.ExemplarsEnabled
+		mux.Handle(mp, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, metrics.MetricsHandler(promReg, om)))
+		log.Info("prometheus metrics mounted", "path", mp, "open_metrics", om)
+	}
+
 	if cfg.Diagnostics.Enabled {
 		hp := cfg.Diagnostics.HealthPath
 		if hp == "" {
@@ -137,15 +171,22 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	traceGen := diag.NewTraceIDGenerator()
 	inner := http.Handler(mux)
 	inner = accessLogMiddleware(cfg, log, inner)
-	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, inner))
+	inner = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, inner))
+	if httpProm != nil {
+		inner = httpProm.Middleware(inner)
+	}
+	if cfg.Observability.Tracing.Enabled {
+		inner = tracing.HTTPMiddleware(true, inner)
+	}
+	handler := inner
 
 	srv := &http.Server{
 		Addr:              cfg.Server.Address,
 		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      120 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: cfg.Server.EffectiveReadHeaderTimeout(),
+		ReadTimeout:       cfg.Server.EffectiveReadTimeout(),
+		WriteTimeout:      cfg.Server.EffectiveWriteTimeout(),
+		IdleTimeout:       cfg.Server.EffectiveIdleTimeout(),
 	}
 	log.Info("listening", "addr", cfg.Server.Address)
 
