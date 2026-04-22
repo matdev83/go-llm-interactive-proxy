@@ -28,12 +28,31 @@ func TestRunRequestPartHooks_nilCall_isErrInvalidCall(t *testing.T) {
 	}
 }
 
+func TestRunRequestPartHooks_nilContext(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	err := b.RunRequestPartHooks(nil, testCall(), sdk.PartMeta{}) //nolint:staticcheck // deliberate nil ctx
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got %v", err)
+	}
+}
+
 func TestRunResponsePartHooks_nilEvent_isErrInvalidCall(t *testing.T) {
 	t.Parallel()
 	b := corehooks.New(corehooks.Config{})
 	err := b.RunResponsePartHooks(context.Background(), nil, sdk.PartMeta{})
 	if !errors.Is(err, lipapi.ErrInvalidCall) {
 		t.Fatalf("expected ErrInvalidCall, got %v", err)
+	}
+}
+
+func TestRunResponsePartHooks_nilContext(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	ev := &lipapi.Event{Kind: lipapi.EventTextDelta, MessageIndex: 0, Delta: "x"}
+	err := b.RunResponsePartHooks(nil, ev, sdk.PartMeta{}) //nolint:staticcheck // deliberate nil ctx
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got %v", err)
 	}
 }
 

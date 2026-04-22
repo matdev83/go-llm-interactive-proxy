@@ -10,6 +10,16 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
 
+func TestApplyToolReactors_nilContext(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	te := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "c1", ArgsDelta: "x"}
+	out := b.ApplyToolReactors(nil, te, sdk.ToolMeta{}) //nolint:staticcheck // deliberate nil ctx
+	if out.Emit || out.Err == nil || !errors.Is(out.Err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got emit=%v err=%v", out.Emit, out.Err)
+	}
+}
+
 func TestApplyToolReactors_passThroughChain(t *testing.T) {
 	t.Parallel()
 	te := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "c1", ArgsDelta: "a"}

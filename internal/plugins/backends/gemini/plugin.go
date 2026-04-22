@@ -38,6 +38,9 @@ func New(cfg Config) runtime.Backend {
 			return ModelCapabilities(resolveModel(cand, call))
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+			if ctx == nil {
+				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
+			}
 			cli, err := newGenaiClient(ctx, cfg)
 			if err != nil {
 				return nil, fmt.Errorf("gemini: client: %w", err)

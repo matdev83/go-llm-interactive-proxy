@@ -21,6 +21,9 @@ type ToolApplyResult struct {
 // ApplyToolReactors runs tool reactors in order. Reactor errors follow Config.ToolReactorErrorPolicy
 // (default fail-open). Swallow stops the chain and returns Emit=false.
 func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) ToolApplyResult {
+	if ctx == nil {
+		return ToolApplyResult{Err: fmt.Errorf("hooks: %w", lipapi.ErrNilContext)}
+	}
 	cur := te
 	tools := []sdk.ToolReactor{}
 	var pol sdk.ToolReactorErrorPolicy

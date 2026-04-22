@@ -74,6 +74,9 @@ func New(cfg Config) runtime.Backend {
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 			_ = cand
+			if ctx == nil {
+				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
+			}
 			if err := validateACPCall(&call); err != nil {
 				return nil, err
 			}

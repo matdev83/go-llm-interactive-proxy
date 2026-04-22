@@ -74,6 +74,9 @@ func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
 			return ModelCapabilities(resolveModelID(cand, call))
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+			if ctx == nil {
+				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
+			}
 			in, err := ConverseStreamInputForCall(&call, cand)
 			if err != nil {
 				return nil, err

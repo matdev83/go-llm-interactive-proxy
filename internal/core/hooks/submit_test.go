@@ -29,6 +29,15 @@ func TestRunSubmit_nilCall_isErrInvalidCall(t *testing.T) {
 	}
 }
 
+func TestRunSubmit_nilContext(t *testing.T) {
+	t.Parallel()
+	b := corehooks.New(corehooks.Config{})
+	err := b.RunSubmit(nil, testCall(), &sdk.SubmitMeta{Annotations: map[string]string{}}) //nolint:staticcheck // deliberate nil ctx
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got %v", err)
+	}
+}
+
 func TestRunSubmit_rejectsInvalidCallAfterHooks(t *testing.T) {
 	t.Parallel()
 	h := &stubSubmit{

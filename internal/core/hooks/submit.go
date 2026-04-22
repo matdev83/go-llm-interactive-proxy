@@ -13,6 +13,9 @@ func (b *Bus) RunSubmit(ctx context.Context, call *lipapi.Call, meta *sdk.Submit
 	if call == nil {
 		return fmt.Errorf("hooks: nil call: %w", lipapi.ErrInvalidCall)
 	}
+	if ctx == nil {
+		return fmt.Errorf("hooks: %w", lipapi.ErrNilContext)
+	}
 	if meta == nil {
 		meta = &sdk.SubmitMeta{}
 	}

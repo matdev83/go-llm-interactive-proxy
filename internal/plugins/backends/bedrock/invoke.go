@@ -30,7 +30,7 @@ func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, 
 		return nil, fmt.Errorf("bedrock: validate endpoint: %w", err)
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, fmt.Errorf("bedrock: %w", lipapi.ErrNilContext)
 	}
 	region := strings.TrimSpace(cfg.Region)
 	if region == "" {

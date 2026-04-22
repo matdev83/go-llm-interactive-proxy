@@ -2,10 +2,14 @@ package bedrock
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func TestNewRuntimeClient_staticCredsAndEndpoint(t *testing.T) {
@@ -31,7 +35,7 @@ func TestNewRuntimeClient_staticCredsAndEndpoint(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeClient_nilContextUsesBackground(t *testing.T) {
+func TestNewRuntimeClient_nilContext(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -44,12 +48,39 @@ func TestNewRuntimeClient_nilContextUsesBackground(t *testing.T) {
 		BaseEndpoint:    srv.URL,
 		DisableHTTPS:    true,
 	}
-	cli, err := newRuntimeClient(nil, cfg) //nolint:staticcheck // nil ctx exercises documented fallback to context.Background
-	if err != nil {
-		t.Fatal(err)
+	_, err := newRuntimeClient(nil, cfg) //nolint:staticcheck // deliberate nil ctx
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got %v", err)
 	}
-	if cli == nil {
-		t.Fatal("expected non-nil client")
+}
+
+func TestBackend_Open_nilContext(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
+	defer cancel()
+	b := NewWithContext(ctx, Config{
+		Region:          "us-east-1",
+		AccessKeyID:     "AKID",
+		SecretAccessKey: "SECRET",
+		BaseEndpoint:    srv.URL,
+		DisableHTTPS:    true,
+	})
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: ID, Model: "m"},
+	}
+	_, err := b.Open(nil, call, cand) //nolint:staticcheck // deliberate nil ctx
+	if !errors.Is(err, lipapi.ErrNilContext) {
+		t.Fatalf("expected ErrNilContext, got %v", err)
 	}
 }
 

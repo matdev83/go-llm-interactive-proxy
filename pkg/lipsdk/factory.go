@@ -19,9 +19,15 @@ type BackendFactory func(n yaml.Node) (BackendBuild, error)
 // FrontendMountOptions carries runtime wiring for [FrontendMount] beyond the [http.ServeMux].
 // Use composite literals with named fields at call sites.
 type FrontendMountOptions struct {
-	PluginCfg           yaml.Node
-	Exec                ExecutorView
-	DefaultRoute        string
+	// PluginCfg is the opaque plugin-local YAML subtree for this frontend instance.
+	PluginCfg yaml.Node
+	// Exec is the runtime execution surface the mounted handler uses to submit canonical calls.
+	// Real frontend mounts require a non-nil Exec.
+	Exec ExecutorView
+	// DefaultRoute is the selector used when the frontend protocol omits a route/header override.
+	DefaultRoute string
+	// MaxRequestBodyBytes caps inbound HTTP request size. Zero means the frontend should use its
+	// own default limit.
 	MaxRequestBodyBytes int64
 }
 
