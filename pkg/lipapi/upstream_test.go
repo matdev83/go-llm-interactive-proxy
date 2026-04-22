@@ -7,6 +7,25 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestRecoverablePreOutputError_nil(t *testing.T) {
+	t.Parallel()
+	if lipapi.RecoverablePreOutputError(nil) != nil {
+		t.Fatal("expected nil")
+	}
+}
+
+func TestRecoverablePreOutputError_preservesCauseChain(t *testing.T) {
+	t.Parallel()
+	original := errors.New("upstream reset")
+	err := lipapi.RecoverablePreOutputError(original)
+	if !errors.Is(err, lipapi.ErrRecoverablePreOutput) {
+		t.Fatal("expected errors.Is ErrRecoverablePreOutput")
+	}
+	if !errors.Is(err, original) {
+		t.Fatal("expected errors.Is original cause")
+	}
+}
+
 func TestIsRecoverablePreOutput_sentinelWrapped(t *testing.T) {
 	t.Parallel()
 	err := lipapi.RecoverablePreOutputError(errors.New("timeout"))

@@ -3,6 +3,7 @@ package stdhttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -22,7 +23,7 @@ import (
 func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger) error {
 	built, err := runtimebundle.Build(cfg, app.HookBus(), log, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("stdhttp: build runtime: %w", err)
 	}
 	return RunWithRuntime(ctx, cfg, app, log, built)
 }
@@ -65,7 +66,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 			ah, err := diag.AttemptsHandler(store)
 			if err != nil {
 				releaseClosers()
-				return err
+				return fmt.Errorf("stdhttp: attempts handler: %w", err)
 			}
 			mux.Handle(ap, ah)
 		}
@@ -74,7 +75,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 			ih, err := diag.InventoryHandler(cfg)
 			if err != nil {
 				releaseClosers()
-				return err
+				return fmt.Errorf("stdhttp: inventory handler: %w", err)
 			}
 			mux.Handle(ip, ih)
 		}
@@ -85,7 +86,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 			rh, err := diag.RouteTraceHandler(traceBuf)
 			if err != nil {
 				releaseClosers()
-				return err
+				return fmt.Errorf("stdhttp: route trace handler: %w", err)
 			}
 			mux.Handle(rt, rh)
 		}
@@ -97,11 +98,11 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
 	if err := MountBundledFrontends(mux, exec, route, cfg.Plugins.Frontends, maxBody, reg); err != nil {
 		releaseClosers()
-		return err
+		return fmt.Errorf("stdhttp: mount frontends: %w", err)
 	}
 	if err := app.Start(ctx); err != nil {
 		releaseClosers()
-		return err
+		return fmt.Errorf("stdhttp: start app: %w", err)
 	}
 
 	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(mux))
@@ -136,7 +137,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		app.Shutdown(shutdownCtx)
 		cancel()
 		releaseClosers()
-		return err
+		return fmt.Errorf("stdhttp: serve: %w", err)
 	}
 }
 

@@ -1,6 +1,10 @@
 package gemini
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -21,7 +25,9 @@ func TestHandleResponse_thoughtPart_emitsReasoningDelta(t *testing.T) {
 			},
 		}},
 	}
-	s.handleResponse(resp)
+	if err := s.handleResponse(resp); err != nil {
+		t.Fatal(err)
+	}
 	var deltas []string
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventReasoningDelta {
@@ -48,7 +54,9 @@ func TestHandleResponse_fileDataURI_emitsAssistantImageRef(t *testing.T) {
 			},
 		}},
 	}
-	s.handleResponse(resp)
+	if err := s.handleResponse(resp); err != nil {
+		t.Fatal(err)
+	}
 	var refs []lipapi.Event
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventAssistantImageRef {
@@ -75,7 +83,9 @@ func TestHandleResponse_fileDataURI_nonImage_emitsAssistantFileRef(t *testing.T)
 			},
 		}},
 	}
-	s.handleResponse(resp)
+	if err := s.handleResponse(resp); err != nil {
+		t.Fatal(err)
+	}
 	var refs []lipapi.Event
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventAssistantFileRef {
@@ -103,7 +113,9 @@ func TestHandleResponse_functionCall_emitsToolEvents(t *testing.T) {
 			},
 		}},
 	}
-	s.handleResponse(resp)
+	if err := s.handleResponse(resp); err != nil {
+		t.Fatal(err)
+	}
 	evs := stream.DrainPending(&s.pending)
 	var kinds []lipapi.EventKind
 	var args string
@@ -127,5 +139,53 @@ func TestHandleResponse_functionCall_emitsToolEvents(t *testing.T) {
 	}
 	if !sawStart || !sawFinish {
 		t.Fatalf("tool lifecycle: start=%v finish=%v events=%v", sawStart, sawFinish, kinds)
+	}
+}
+
+func TestHandleResponse_functionCall_marshalArgsError_wrapsAndPreservesCause(t *testing.T) {
+	t.Parallel()
+	s := &genaiStream{}
+	resp := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{
+				Parts: []*genai.Part{{
+					FunctionCall: &genai.FunctionCall{
+						ID:   "call-g1",
+						Name: "f",
+						Args: map[string]any{"bad": make(chan int)},
+					},
+				}},
+			},
+		}},
+	}
+	err := s.handleResponse(resp)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "gemini: marshal tool arguments") {
+		t.Fatalf("got %q", err.Error())
+	}
+	var unsupported *json.UnsupportedTypeError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("expected json.UnsupportedTypeError in chain, got %T", err)
+	}
+}
+
+func TestGenaiStream_Recv_wrapsIteratorErr(t *testing.T) {
+	t.Parallel()
+	root := errors.New("root")
+	seq := func(yield func(*genai.GenerateContentResponse, error) bool) {
+		yield(nil, root)
+	}
+	es := newGenaiStream(seq)
+	_, err := es.Recv(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "gemini: recv stream") {
+		t.Fatalf("got %q", err.Error())
+	}
+	if !errors.Is(err, root) {
+		t.Fatalf("underlying: %v", err)
 	}
 }

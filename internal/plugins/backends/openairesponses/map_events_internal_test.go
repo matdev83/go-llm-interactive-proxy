@@ -1,11 +1,15 @@
 package openairesponses
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -205,5 +209,38 @@ func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	}
 	if kinds[len(kinds)-1] != lipapi.EventToolCallFinished {
 		t.Fatalf("last event: %v", kinds)
+	}
+}
+
+type errDecoderResponses struct{ err error }
+
+func (d *errDecoderResponses) Event() ssestream.Event {
+	return ssestream.Event{Data: []byte(`{"type":"response.in_progress","sequence_number":0}`)}
+}
+
+func (d *errDecoderResponses) Next() bool { return false }
+
+func (d *errDecoderResponses) Close() error { return nil }
+
+func (d *errDecoderResponses) Err() error { return d.err }
+
+func TestSDKStream_Recv_wrapsSDKErr(t *testing.T) {
+	t.Parallel()
+	root := errors.New("root")
+	sdk := ssestream.NewStream[responses.ResponseStreamEventUnion](&errDecoderResponses{err: root}, nil)
+	es := newSDKStream(sdk)
+	s, ok := es.(*sdkStream)
+	if !ok {
+		t.Fatalf("newSDKStream returned %T", es)
+	}
+	_, err := s.Recv(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "openai-responses: recv stream") {
+		t.Fatalf("got %q", err.Error())
+	}
+	if !errors.Is(err, root) {
+		t.Fatalf("underlying: %v", err)
 	}
 }

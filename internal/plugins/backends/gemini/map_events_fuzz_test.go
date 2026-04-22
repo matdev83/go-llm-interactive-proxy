@@ -17,6 +17,6 @@ func FuzzHandleGenerateContentResponse(f *testing.F) {
 			return
 		}
 		s := &genaiStream{}
-		s.handleResponse(&resp)
+		_ = s.handleResponse(&resp)
 	})
 }

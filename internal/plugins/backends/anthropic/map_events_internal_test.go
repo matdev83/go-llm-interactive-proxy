@@ -1,11 +1,15 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -109,5 +113,38 @@ func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 	}
 	if args != `{"city":"NYC"}` {
 		t.Fatalf("args concatenated: %q", args)
+	}
+}
+
+type errDecoderAnthropic struct{ err error }
+
+func (d *errDecoderAnthropic) Event() ssestream.Event {
+	return ssestream.Event{Data: []byte(`{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}`)}
+}
+
+func (d *errDecoderAnthropic) Next() bool { return false }
+
+func (d *errDecoderAnthropic) Close() error { return nil }
+
+func (d *errDecoderAnthropic) Err() error { return d.err }
+
+func TestMsgStream_Recv_wrapsSDKErr(t *testing.T) {
+	t.Parallel()
+	root := errors.New("root")
+	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](&errDecoderAnthropic{err: root}, nil)
+	es := newMessageStream(sdk)
+	s, ok := es.(*msgStream)
+	if !ok {
+		t.Fatalf("newMessageStream returned %T", es)
+	}
+	_, err := s.Recv(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "anthropic: recv stream") {
+		t.Fatalf("got %q", err.Error())
+	}
+	if !errors.Is(err, root) {
+		t.Fatalf("underlying: %v", err)
 	}
 }

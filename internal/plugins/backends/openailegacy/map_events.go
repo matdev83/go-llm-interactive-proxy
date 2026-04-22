@@ -2,6 +2,7 @@ package openailegacy
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -62,7 +63,7 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			if err := s.sdk.Err(); err != nil {
 				s.mu.Unlock()
-				return lipapi.Event{}, err
+				return lipapi.Event{}, fmt.Errorf("openai-legacy: recv stream: %w", err)
 			}
 			if s.terminalEmitted {
 				s.mu.Unlock()

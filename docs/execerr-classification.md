@@ -1,5 +1,7 @@
 # Execute error classification (shared frontends)
 
+Repository-wide error conventions: [`error-handling.md`](error-handling.md).
+
 Bundled HTTP frontends map executor failures through [`internal/plugins/frontends/execerr`](../internal/plugins/frontends/execerr/execerr.go) to a small set: **reject** (4xx-class) vs **internal** (5xx-class). Protocol-specific status text and bodies stay inside each frontend adapter.
 
 For **internal** (5xx) outcomes, the wire `Message` is a fixed, non-revealing string (`internal error`); the original error is retained on the `Outcome` for structured **server-side** logging. Frontends must log `out.Err` at error severity when present and must not echo arbitrary executor/upstream strings in JSON error bodies.

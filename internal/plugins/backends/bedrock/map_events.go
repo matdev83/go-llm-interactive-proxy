@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,7 +65,7 @@ func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		case out, ok := <-s.ch:
 			if !ok {
 				if err := s.sdk.Err(); err != nil {
-					return lipapi.Event{}, err
+					return lipapi.Event{}, fmt.Errorf("bedrock: recv stream: %w", err)
 				}
 				if !s.sawResponse {
 					s.sawResponse = true

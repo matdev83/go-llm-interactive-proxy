@@ -146,7 +146,7 @@ func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
 
 		if !s.scanner.Scan() {
 			if err := s.scanner.Err(); err != nil {
-				return lipapi.Event{}, err
+				return lipapi.Event{}, fmt.Errorf("acp: scan stream: %w", err)
 			}
 			s.mu.Lock()
 			if !s.responseStarted {
@@ -170,19 +170,19 @@ func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
 
 		var probe map[string]any
 		if err := json.Unmarshal([]byte(line), &probe); err != nil {
-			return lipapi.Event{}, err
+			return lipapi.Event{}, fmt.Errorf("acp: decode inbound line: %w", err)
 		}
 
 		if isInboundServerRequest(probe) {
 			if err := s.handleInboundServerRequest(ctx, probe); err != nil {
-				return lipapi.Event{}, err
+				return lipapi.Event{}, fmt.Errorf("acp: handle inbound server request: %w", err)
 			}
 			continue
 		}
 
 		evs, err := parseNDJSONLine(s.ctx, s.mapper, line, s.promptRPCID)
 		if err != nil {
-			return lipapi.Event{}, err
+			return lipapi.Event{}, fmt.Errorf("acp: parse NDJSON line: %w", err)
 		}
 		if len(evs) == 0 {
 			continue
@@ -204,25 +204,28 @@ func (s *promptStream) handleInboundServerRequest(ctx context.Context, probe map
 	}
 	idBytes, err := json.Marshal(idRaw)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: marshal inbound request id: %w", err)
 	}
 	paramsRaw := json.RawMessage(nil)
 	if p, ok := probe["params"]; ok {
 		b, err := json.Marshal(p)
 		if err != nil {
-			return err
+			return fmt.Errorf("acp: marshal inbound request params: %w", err)
 		}
 		paramsRaw = b
 	}
 	res, err := s.srv.HandleServerRequest(ctx, method, json.RawMessage(idBytes), paramsRaw)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: handle inbound server request method: %w", err)
 	}
 	body, err := replyServerRequestJSON(json.RawMessage(idBytes), res)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: encode inbound server response: %w", err)
 	}
-	return s.cli.t.SendJSONRPC(ctx, body)
+	if err := s.cli.t.SendJSONRPC(ctx, body); err != nil {
+		return fmt.Errorf("acp: send inbound server response: %w", err)
+	}
+	return nil
 }
 
 func (s *promptStream) signalCancel() {

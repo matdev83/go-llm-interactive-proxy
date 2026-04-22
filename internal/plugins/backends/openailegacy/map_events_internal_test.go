@@ -1,11 +1,15 @@
 package openailegacy
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -109,5 +113,38 @@ func TestHandleChunk_multipleToolCallsFinishFollowsWireOrderWhenIndicesOutOfNume
 	}
 	if len(finishIDs) != 2 || finishIDs[0] != "call_second" || finishIDs[1] != "call_first" {
 		t.Fatalf("finish order: %v", finishIDs)
+	}
+}
+
+type errDecoderLegacy struct{ err error }
+
+func (d *errDecoderLegacy) Event() ssestream.Event {
+	return ssestream.Event{Data: []byte(`{"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[]}`)}
+}
+
+func (d *errDecoderLegacy) Next() bool { return false }
+
+func (d *errDecoderLegacy) Close() error { return nil }
+
+func (d *errDecoderLegacy) Err() error { return d.err }
+
+func TestChatStream_Recv_wrapsSDKErr(t *testing.T) {
+	t.Parallel()
+	root := errors.New("root")
+	sdk := ssestream.NewStream[openai.ChatCompletionChunk](&errDecoderLegacy{err: root}, nil)
+	es := newChatStream(sdk)
+	s, ok := es.(*chatStream)
+	if !ok {
+		t.Fatalf("newChatStream returned %T", es)
+	}
+	_, err := s.Recv(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "openai-legacy: recv stream") {
+		t.Fatalf("got %q", err.Error())
+	}
+	if !errors.Is(err, root) {
+		t.Fatalf("underlying: %v", err)
 	}
 }

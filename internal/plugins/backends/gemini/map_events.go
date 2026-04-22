@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"iter"
 	"strings"
@@ -52,7 +53,7 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		resp, err, ok := s.next()
 		if !ok {
 			if err != nil {
-				return lipapi.Event{}, err
+				return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
 			}
 			if !s.sawResponse {
 				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
@@ -62,15 +63,17 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			continue
 		}
 		if err != nil {
+			return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
+		}
+		if err := s.handleResponse(resp); err != nil {
 			return lipapi.Event{}, err
 		}
-		s.handleResponse(resp)
 	}
 }
 
-func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
+func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) error {
 	if resp == nil {
-		return
+		return nil
 	}
 	if !s.sawResponse {
 		s.sawResponse = true
@@ -82,7 +85,7 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return
+		return nil
 	}
 	parts := resp.Candidates[0].Content.Parts
 	for _, part := range parts {
@@ -102,7 +105,9 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
 			continue
 		}
 		if fc := part.FunctionCall; fc != nil {
-			s.handleFunctionCall(fc)
+			if err := s.handleFunctionCall(fc); err != nil {
+				return err
+			}
 			continue
 		}
 		if fd := part.FileData; fd != nil && strings.TrimSpace(fd.FileURI) != "" {
@@ -127,9 +132,10 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) {
 			}
 		}
 	}
+	return nil
 }
 
-func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) {
+func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) error {
 	id := fc.ID
 	if id == "" {
 		id = "gemini-fn-" + fc.Name
@@ -152,7 +158,10 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) {
 	}
 	if len(fc.Args) > 0 {
 		b, err := json.Marshal(fc.Args)
-		if err == nil && len(b) > 0 {
+		if err != nil {
+			return fmt.Errorf("gemini: marshal tool arguments: %w", err)
+		}
+		if len(b) > 0 {
 			s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallArgsDelta,
 				ToolCallID: id,
@@ -160,11 +169,11 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) {
 			})
 		}
 	}
-	// Gemini often returns the full function call in one chunk; close immediately.
 	if s.activeToolID != "" {
 		s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
 		s.activeToolID = ""
 	}
+	return nil
 }
 
 func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {

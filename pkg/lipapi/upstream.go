@@ -46,12 +46,23 @@ func (e *UpstreamFailure) Unwrap() error {
 	return nil
 }
 
-// RecoverablePreOutputError wraps err as a recoverable pre-output failure for errors.Is/As.
+type recoverablePreOutputWrapper struct {
+	cause error
+}
+
+func (e *recoverablePreOutputWrapper) Error() string {
+	return fmt.Sprintf("%v: %v", ErrRecoverablePreOutput, e.cause)
+}
+
+func (e *recoverablePreOutputWrapper) Unwrap() []error {
+	return []error{ErrRecoverablePreOutput, e.cause}
+}
+
 func RecoverablePreOutputError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %v", ErrRecoverablePreOutput, err)
+	return &recoverablePreOutputWrapper{cause: err}
 }
 
 // IsRecoverablePreOutput reports whether err should allow another backend attempt
