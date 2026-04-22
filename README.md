@@ -39,13 +39,13 @@ make test-fast        # quality-checks + tests for staged packages (or all if no
 make test-race        # no-op on Windows; use Linux CI or WSL for -race
 make test-fuzz        # short fuzz smoke on internal/testkit (override: FUZZTIME=30s make test-fuzz)
 make bench            # JSON normalize micro-benchmark in internal/testkit
-make qa               # quality-checks + unit tests + golangci-lint + govulncheck (tools must be installed)
+make qa               # quality-checks + unit tests + golangci-lint + govulncheck (via `go tool`, see go.mod)
 make hooks-install    # set core.hooksPath to .githooks (runs scripts/quality-gate on pre-commit when .go is staged)
 ```
 
-Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, `golangci-lint` if present, `govulncheck` if present). The race step is not run on Windows; use Linux CI or WSL for `go test -race`.
+Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, `golangci-lint` if present, `go tool govulncheck`). The race step is not run on Windows; use Linux CI or WSL for `go test -race`.
 
-CI (`.github/workflows/qa.yml`) runs `make quality-checks`, unit tests, strict race on Linux, `golangci-lint-action`, and `govulncheck`.
+CI (`.github/workflows/qa.yml`) runs `make quality-checks`, unit tests, strict race on Linux, `golangci-lint-action`, and `go tool govulncheck`.
 
 Linter config lives in `.golangci.yml` (staticcheck, govet, revive, small correctness linters). Prefer `make lint` over ad hoc `staticcheck` so local and CI stay aligned.
 
@@ -62,6 +62,10 @@ Linter config lives in `.golangci.yml` (staticcheck, govet, revive, small correc
 - `internal/infra/` - shared infrastructure seams
 - `internal/testkit/` - test support surface scaffold
 - `internal/qa/` - repo hygiene tests (root markdown noise, etc.)
+- `internal/archtest/` - architecture guardrail tests (budgets, forbidden patterns)
+- `internal/refbackend/` - spec-shaped HTTP emulator servers for tests (`*_test.go` imports only)
+- `internal/refclient/` - official-SDK reference clients for conformance/matrix tests
+- `internal/plugins/stores/` - bundled persistence / continuity store plugins (intentional seam alongside backends)
 - `scripts/` - quality gate scripts (bash + PowerShell)
 - `.githooks/` - optional git hooks
 - `.github/workflows/` - CI QA pipeline
@@ -76,4 +80,4 @@ make vet
 go run ./cmd/lipstd --config ./config/config.yaml
 ```
 
-Install [golangci-lint](https://golangci-lint.run/) and `govulncheck` (`go install golang.org/x/vuln/cmd/govulncheck@latest`) for the full `make qa` profile.
+Install [golangci-lint](https://golangci-lint.run/) for the full `make qa` profile; `govulncheck` is invoked as `go tool govulncheck` (version pinned via the `tool` line and `golang.org/x/vuln` in `go.mod`).

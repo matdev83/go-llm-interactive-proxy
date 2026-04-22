@@ -54,15 +54,10 @@ if ($linterPath) {
 }
 
 Write-Host ""
-$gov = Get-Command govulncheck -ErrorAction SilentlyContinue
-if ($gov) {
-    Write-Host "Running govulncheck..." -ForegroundColor Yellow
-    govulncheck ./...
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
-    }
-} else {
-    Write-Host "Note: govulncheck not in PATH; skipping" -ForegroundColor DarkGray
+Write-Host "Running govulncheck..." -ForegroundColor Yellow
+go tool govulncheck ./...
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
 }
 
 Write-Host ""

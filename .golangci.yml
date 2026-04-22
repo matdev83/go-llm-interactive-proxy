@@ -10,6 +10,8 @@ linters:
     - ineffassign
     - misspell
     - revive
+    - forcetypeassert
+    - errcheck
 
 linters-settings:
   revive:

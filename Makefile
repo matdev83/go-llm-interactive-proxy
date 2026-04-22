@@ -116,12 +116,7 @@ lint:
 	fi
 
 vuln:
-	@if command -v govulncheck >/dev/null 2>&1; then \
-		govulncheck ./...; \
-	else \
-		echo "govulncheck not found; install: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
-		exit 1; \
-	fi
+	$(GO) tool govulncheck ./...
 
 run:
 	$(GO) run ./cmd/lipstd --config ./config/config.yaml

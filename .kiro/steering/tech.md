@@ -104,7 +104,7 @@ Default verification stack:
 - `go test -race ./...`
 - `go vet ./...`
 - `staticcheck ./...`
-- `govulncheck ./...`
+- `go tool govulncheck ./...` (pinned in `go.mod`)
 
 Optional repo tooling may add:
 - `golangci-lint`

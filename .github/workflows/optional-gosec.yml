@@ -1,0 +1,48 @@
+# Non-blocking security-oriented scan. Does not gate merges; see docs/safety-linting.md.
+name: Optional gosec
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 7 * *"
+
+permissions:
+  contents: read
+
+jobs:
+  gosec:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install and run gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          "$(go env GOPATH)/bin/gosec" -tests -severity medium ./...
+
+  # Integer overflow / unsafe conversions (G115); optional until noise is triaged.
+  gosec-g115:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install and run gosec (G115 only)
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          "$(go env GOPATH)/bin/gosec" -include=G115 -tests ./...

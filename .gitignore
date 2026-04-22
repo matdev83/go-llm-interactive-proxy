@@ -10,6 +10,8 @@
 
 # Go build artifacts
 *.test
+# Windows: `go test -c` / package test binaries are named *.test.exe (not matched by *.test)
+*.test.exe
 *.out
 coverage.out
 coverage.html

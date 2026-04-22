@@ -11,6 +11,8 @@ The architecture has five primary zones:
 4. official backend and feature plugins,
 5. test and operational support surfaces.
 
+Around the core and plugins sit explicit **standard distribution** packages (`internal/pluginreg`, `internal/infra/runtimebundle`, `internal/stdhttp`) and **test-only harness** trees (`internal/refbackend`, `internal/refclient`) that must not blur ownership boundaries above.
+
 ## Proposed repository layout
 
 ### 1. Public contracts
@@ -44,6 +46,18 @@ Core rules:
 - core does not import official provider SDKs,
 - core owns orchestration but not provider-specific protocol logic.
 
+### 2a. Standard distribution assembly (not “another core”)
+
+`internal/pluginreg/`
+- explicit registration for the standard distribution (`RegisterStandardBundle`, per-family `*_install.go` tables)
+- registry validation helpers and default wire metadata used by routing defaults
+
+`internal/infra/runtimebundle/`
+- composes a runnable `Built` from config + registrations: executor, continuity store, shared upstream HTTP client, health/observer seams
+
+`internal/stdhttp/`
+- standard HTTP surface: route mounting, `Run` / `RunWithRuntime` entrypoints consumed by `cmd/lipstd`
+
 ### 3. Official frontend plugins
 
 `internal/plugins/frontends/`
@@ -67,6 +81,9 @@ back into protocol-specific responses.
 
 These packages turn canonical requests into upstream calls and map upstream responses into canonical events.
 
+`internal/plugins/stores/`
+- bundled persistence / continuity store implementations that belong with official plugins rather than `internal/core` (may be sparse early on; still an intentional seam)
+
 ### 5. Official feature plugins and hook implementations
 
 `internal/plugins/features/`
@@ -80,7 +97,19 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 ### 6. Support surfaces
 
 `internal/infra/`
-- stores, clocks, id generation, entropy, persistence adapters, logging helpers
+- cross-cutting infrastructure seams shared by runtime and plugins: HTTP client helpers, clocks, ids, logging helpers, and other adapters not specific to one protocol codec
+
+`internal/refbackend/`
+- spec-shaped HTTP **emulator** servers for integration tests; import only from `*_test.go` (must not appear on production dependency paths)
+
+`internal/refclient/`
+- official-SDK-based **reference clients** for conformance and matrix tests; not for production runtime wiring
+
+`internal/qa/`
+- repository hygiene and other non-domain quality tests (for example root-level file policy)
+
+`internal/archtest/`
+- architecture guardrail tests (complexity budgets, forbidden `init` patterns in the standard bundle path, etc.)
 
 `internal/testkit/`
 - stub providers, fixture loaders, fake streams, fake stores, fake clocks, builders
@@ -101,12 +130,19 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 
 - Frontend/API behavior: `internal/plugins/frontends/`
 - Backend provider behavior: `internal/plugins/backends/`
+- Bundled store / persistence plugins: `internal/plugins/stores/`
+- Standard distribution registration tables: `internal/pluginreg/`
+- Lipstd HTTP wiring: `internal/stdhttp/`
+- Wiring executor + continuity + shared clients from config: `internal/infra/runtimebundle/`
 - Canonical model changes: `pkg/lipapi/`
 - Plugin contract changes: `pkg/lipsdk/`
 - Routing, failover, B2BUA continuity: `internal/core/routing/` and `internal/core/continuity/`
 - Stream semantics and collectors: `internal/core/stream/`
 - Config semantics for the runtime: `internal/core/config/`
 - Observability and supporting infra: `internal/infra/` or feature plugins
+- Reference emulators/clients for tests: `internal/refbackend/`, `internal/refclient/`
+- Repo-wide hygiene checks: `internal/qa/`
+- Architecture budgets and import-pattern tests: `internal/archtest/`
 
 ## Structural guardrails
 

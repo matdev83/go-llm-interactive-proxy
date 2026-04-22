@@ -33,12 +33,8 @@ else
 fi
 
 echo ""
-if command -v govulncheck >/dev/null 2>&1; then
-	echo "Running govulncheck..."
-	govulncheck ./...
-else
-	echo "Note: govulncheck not in PATH; skipping (install: go install golang.org/x/vuln/cmd/govulncheck@latest)"
-fi
+echo "Running govulncheck..."
+go tool govulncheck ./...
 
 echo ""
 echo "=== Quality Gate Passed ==="
