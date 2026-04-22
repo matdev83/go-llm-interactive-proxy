@@ -128,3 +128,20 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	closes.Wait()
 	wg.Wait()
 }
+
+func TestCancellationAttemptReason(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := cancellationAttemptReason(ctx, context.Canceled); got != "context canceled" {
+		t.Fatalf("canceled recv: got %q", got)
+	}
+	ctx2, cancel2 := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
+	defer cancel2()
+	if got := cancellationAttemptReason(ctx2, errors.New("wrapped transport error")); got != "context deadline exceeded" {
+		t.Fatalf("deadline ctx: got %q want context deadline exceeded", got)
+	}
+	if got := cancellationAttemptReason(context.Background(), nil); got != "cancelled" {
+		t.Fatalf("no ctx err: got %q", got)
+	}
+}

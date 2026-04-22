@@ -54,7 +54,7 @@ func pickWeighted(w *Weighted, opt PlanOptions) (AttemptCandidate, bool, error) 
 	if !opt.IsRetryPath && opt.Session != nil && !opt.Session.FirstRequestConsumed {
 		var first *WeightedBranch
 		for i := range eligible {
-			if eligible[i].First {
+			if eligible[i].IsFirst {
 				if first != nil {
 					return AttemptCandidate{}, false, fmt.Errorf("internal: multiple [first] in eligible set")
 				}
@@ -93,6 +93,6 @@ func pickWeighted(w *Weighted, opt PlanOptions) (AttemptCandidate, bool, error) 
 	return AttemptCandidate{
 		Primary:     chosen.Target,
 		Key:         chosen.Target.String(),
-		MarkedFirst: chosen.First && !opt.IsRetryPath,
+		MarkedFirst: chosen.IsFirst && !opt.IsRetryPath,
 	}, false, nil
 }

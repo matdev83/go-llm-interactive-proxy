@@ -33,7 +33,7 @@ type BLegRecord struct {
 type Store interface {
 	ResolveALeg(ctx context.Context, continuityKey string) (ALegRecord, error)
 	CreateALeg(ctx context.Context, continuityKey string) (ALegRecord, error)
-	GetALeg(ctx context.Context, aLegID string) (ALegRecord, error)
+	FetchALeg(ctx context.Context, aLegID string) (ALegRecord, error)
 	SetWeightedFirstConsumed(ctx context.Context, aLegID string, consumed bool) error
 	NextBLeg(ctx context.Context, aLegID string) (BLegRecord, error)
 	RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) error

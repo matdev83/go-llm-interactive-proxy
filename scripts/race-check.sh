@@ -3,18 +3,16 @@
 
 set -euo pipefail
 
-SHORT=false
 STAGED=false
 STRICT=false
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	--short) SHORT=true; shift ;;
 	--staged) STAGED=true; shift ;;
 	--strict) STRICT=true; shift ;;
 	*)
 		echo "Unknown argument: $1"
-		echo "Usage: $0 [--short] [--staged] [--strict]"
+		echo "Usage: $0 [--staged] [--strict]"
 		exit 2
 		;;
 	esac
@@ -82,7 +80,6 @@ fi
 
 declare -a GO_ARGS
 GO_ARGS=("test" "-race" "-count=1")
-[[ "$SHORT" == true ]] && GO_ARGS+=("-short")
 GO_ARGS+=("${PACKAGES[@]}")
 
 echo "Running race detector scan: go ${GO_ARGS[*]}"

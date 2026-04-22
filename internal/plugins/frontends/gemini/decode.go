@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -107,7 +107,7 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 }
 
 func parseSystemInstruction(raw json.RawMessage) ([]lipapi.Message, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var wc wireContent
@@ -290,7 +290,7 @@ func parseInlineDataPart(raw json.RawMessage) (lipapi.Part, error) {
 
 func parseGenerationConfig(raw json.RawMessage) (lipapi.GenerationOptions, error) {
 	var o lipapi.GenerationOptions
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return o, nil
 	}
 	var w struct {
@@ -308,7 +308,7 @@ func parseGenerationConfig(raw json.RawMessage) (lipapi.GenerationOptions, error
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -350,7 +350,7 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolConfig(raw json.RawMessage, toolCount int) (lipapi.ToolChoice, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		if toolCount == 0 {
 			return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 		}

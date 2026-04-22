@@ -29,10 +29,101 @@ func Validate(cfg *Config) error {
 	if err := validateDiagnosticsPaths(cfg); err != nil {
 		return err
 	}
+	if err := validateObservability(cfg); err != nil {
+		return err
+	}
 	if err := validateDiagnosticsSecret(cfg); err != nil {
 		return err
 	}
+	if err := validateHTTPClient(cfg); err != nil {
+		return err
+	}
+	if err := validateServer(cfg); err != nil {
+		return err
+	}
 	return validateRoutingHealth(cfg)
+}
+
+func validateServer(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	s := cfg.Server
+	if s.MaxPendingWireEvents < 0 {
+		return fmt.Errorf("server.max_pending_wire_events: must be >= 0")
+	}
+	parse := func(name, val string) error {
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return nil
+		}
+		d, err := time.ParseDuration(val)
+		if err != nil {
+			return fmt.Errorf("server.%s: invalid duration %q", name, val)
+		}
+		if d <= 0 {
+			return fmt.Errorf("server.%s: duration must be positive", name)
+		}
+		return nil
+	}
+	for _, chk := range []struct {
+		name string
+		val  string
+	}{
+		{"read_header_timeout", s.ReadHeaderTimeout},
+		{"read_timeout", s.ReadTimeout},
+		{"write_timeout", s.WriteTimeout},
+		{"idle_timeout", s.IdleTimeout},
+	} {
+		if err := parse(chk.name, chk.val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateHTTPClient(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	hc := cfg.HTTPClient
+	if hc.MaxIdleConns != nil && *hc.MaxIdleConns < 1 {
+		return fmt.Errorf("http_client.max_idle_conns: must be >= 1 when set")
+	}
+	if hc.MaxIdleConnsPerHost != nil && *hc.MaxIdleConnsPerHost < 1 {
+		return fmt.Errorf("http_client.max_idle_conns_per_host: must be >= 1 when set")
+	}
+	parseDur := func(name, s string) error {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return fmt.Errorf("http_client.%s: invalid duration %q", name, s)
+		}
+		if d <= 0 {
+			return fmt.Errorf("http_client.%s: duration must be positive", name)
+		}
+		return nil
+	}
+	for _, chk := range []struct {
+		name string
+		val  string
+	}{
+		{"idle_conn_timeout", hc.IdleConnTimeout},
+		{"response_header_timeout", hc.ResponseHeaderTimeout},
+		{"dial_timeout", hc.DialTimeout},
+		{"keep_alive", hc.KeepAlive},
+		{"tls_handshake_timeout", hc.TLSHandshakeTimeout},
+		{"expect_continue_timeout", hc.ExpectContinueTimeout},
+		{"client_timeout", hc.ClientTimeout},
+	} {
+		if err := parseDur(chk.name, chk.val); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateDiagnosticsSecret(cfg *Config) error {
@@ -110,6 +201,51 @@ func validateDiagnosticsPaths(cfg *Config) error {
 	}
 	if err := add(pp); err != nil {
 		return err
+	}
+	mp, err := checkObservabilityMetricsPath(cfg)
+	if err != nil {
+		return err
+	}
+	if err := add(mp); err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkObservabilityMetricsPath(cfg *Config) (string, error) {
+	if cfg == nil || !cfg.Observability.Metrics.Enabled {
+		return "", nil
+	}
+	p := strings.TrimSpace(cfg.Observability.Metrics.Path)
+	if p == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", fmt.Errorf("observability.metrics.path: must start with /")
+	}
+	return strings.TrimSuffix(p, "/"), nil
+}
+
+func validateObservability(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	if cfg.Observability.Metrics.Enabled {
+		p := strings.TrimSpace(cfg.Observability.Metrics.Path)
+		if p == "" {
+			return fmt.Errorf("observability.metrics.path: required when observability.metrics.enabled is true")
+		}
+		if !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("observability.metrics.path: must start with /")
+		}
+	}
+	if cfg.Observability.Tracing.Enabled {
+		if sr := cfg.Observability.Tracing.SampleRatio; sr != nil {
+			r := *sr
+			if r <= 0 || r > 1 {
+				return fmt.Errorf("observability.tracing.sample_ratio: must be > 0 and <= 1 when set (got %v)", r)
+			}
+		}
 	}
 	return nil
 }

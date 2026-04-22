@@ -103,6 +103,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx = diag.EnsureCallDiag(ctx, call.ID, call.Session.ALegID)
+
 	opts := EncodeOptions{
 		ResponseID: "resp_" + diag.StableCallToken(call),
 		CreatedAt:  diag.StableUnix(call),

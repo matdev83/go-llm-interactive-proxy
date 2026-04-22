@@ -62,7 +62,7 @@ func TestMsgStream_CloseConcurrentWhileRecvBlocked(t *testing.T) {
 	release := make(chan struct{})
 	dec := &stallDecoderAnthropic{enteredNext: make(chan struct{}, 1), release: release}
 	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](dec, nil)
-	es := newMessageStream(sdk)
+	es := newMessageStream(sdk, 0)
 	s, ok := es.(*msgStream)
 	if !ok {
 		t.Fatalf("newMessageStream returned %T", es)
@@ -96,7 +96,7 @@ func TestMsgStream_CloseConcurrentAfterEOF(t *testing.T) {
 	t.Parallel()
 	dec := &instantDecoderAnthropic{}
 	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](dec, nil)
-	es := newMessageStream(sdk)
+	es := newMessageStream(sdk, 0)
 	s, ok := es.(*msgStream)
 	if !ok {
 		t.Fatalf("newMessageStream returned %T", es)

@@ -111,13 +111,22 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	return json.NewEncoder(w).Encode(resp)
 }
 
-func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
+func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (err error) {
 	ka, err := stream.WrapRecoveryKeepalive(es)
 	if err != nil {
 		return err
 	}
 	es = ka
-	defer func() { _ = es.Close() }()
+	defer func() {
+		if cerr := es.Close(); cerr != nil {
+			closeErr := fmt.Errorf("openairesponses: close event stream: %w", cerr)
+			if err != nil {
+				err = errors.Join(err, closeErr)
+			} else {
+				err = closeErr
+			}
+		}
+	}()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "gpt-4o-mini"
@@ -231,8 +240,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return err
 	}
 
+	var ev lipapi.Event
 	for {
-		ev, err := es.Recv(ctx)
+		ev, err = es.Recv(ctx)
 		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("openairesponses: stream ended without response_finished")
 		}
@@ -400,7 +410,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			fl.Flush()
 			return nil
 		case lipapi.EventError:
-			return fmt.Errorf("openairesponses stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
+			return lipapi.NewStreamError(ev.ErrorCode, ev.ErrorMessage)
 		case lipapi.EventWarning:
 			if ev.WarningCode == stream.KeepaliveEventCode {
 				if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {

@@ -76,8 +76,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	anthVer := strings.TrimSpace(r.Header.Get(HeaderAnthropicVersion))
 	decoded, err := DecodeMessageRequest(body, DecodeOptions{
-		RouteSelector:      sel,
-		AnthropicVersion:   anthVer,
+		RouteSelector:    sel,
+		AnthropicVersion: anthVer,
 	})
 	if err != nil {
 		if h.Log != nil {
@@ -108,6 +108,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, errType))
 		return
 	}
+
+	ctx = diag.EnsureCallDiag(ctx, call.ID, call.Session.ALegID)
 
 	opts := EncodeOptions{MessageID: "msg_" + diag.StableCallToken(call)}
 	if decoded.Stream {

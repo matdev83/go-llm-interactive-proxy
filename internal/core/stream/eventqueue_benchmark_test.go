@@ -9,9 +9,11 @@ import (
 func BenchmarkPendingEventQueue_pushPop(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
-		var q PendingEventQueue
+		q := NewPendingEventQueue(0)
 		for range 256 {
-			q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "d"})
+			if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "d"}); err != nil {
+				b.Fatal(err)
+			}
 		}
 		for range 256 {
 			if _, ok := q.PopFront(); !ok {

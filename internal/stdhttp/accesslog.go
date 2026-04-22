@@ -8,19 +8,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
 )
-
-type responseRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (rr *responseRecorder) WriteHeader(code int) {
-	if rr.status == 0 {
-		rr.status = code
-	}
-	rr.ResponseWriter.WriteHeader(code)
-}
 
 // accessLogMiddleware logs one structured line per request after Trace + RequestID
 // middleware have run, so trace_id is available on r.Context().
@@ -38,18 +27,22 @@ func accessLogMiddleware(cfg *config.Config, log *slog.Logger, next http.Handler
 			}
 		}
 		start := time.Now()
-		rr := &responseRecorder{ResponseWriter: w}
+		rr := &corehttp.ResponseStatusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rr, r)
 		dur := time.Since(start)
-		status := rr.status
+		status := rr.Status
 		if status == 0 {
 			status = http.StatusOK
 		}
+		rg := corehttp.CoarsePathGroup(path)
 		attrs := []slog.Attr{
 			slog.String("method", r.Method),
-			slog.String("path", path),
+			slog.String("route_group", rg),
 			slog.Int("status", status),
 			slog.Int64("duration_ms", dur.Milliseconds()),
+		}
+		if cfg.Logging.AccessLogIncludeRawPath {
+			attrs = append(attrs, slog.String("path", path))
 		}
 		if tid := diag.TraceID(r.Context()); tid != "" {
 			attrs = append(attrs, slog.String("trace_id", tid))

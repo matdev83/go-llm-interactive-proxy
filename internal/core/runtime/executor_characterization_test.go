@@ -66,7 +66,7 @@ func TestExecutor_weightedFirstBranch_persistsConsumed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.GetALeg(context.Background(), leg.ALegID)
+	got, err := st.FetchALeg(context.Background(), leg.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}

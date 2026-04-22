@@ -2,6 +2,7 @@ package config
 
 import (
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -10,14 +11,43 @@ import (
 // A decoded Config is not self-validating: use LoadFile (which calls Validate) or call Validate
 // before wiring into runtime.New or runtimebundle.Build.
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Logging     LoggingConfig     `yaml:"logging"`
-	Diagnostics DiagnosticsConfig `yaml:"diagnostics"`
-	HTTPClient  HTTPClientConfig  `yaml:"http_client"`
-	Routing     RoutingConfig     `yaml:"routing"`
-	Continuity  ContinuityConfig  `yaml:"continuity"`
-	Hooks       HooksConfig       `yaml:"hooks"`
-	Plugins     PluginsConfig     `yaml:"plugins"`
+	Server        ServerConfig        `yaml:"server"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Diagnostics   DiagnosticsConfig   `yaml:"diagnostics"`
+	Observability ObservabilityConfig `yaml:"observability"`
+	HTTPClient    HTTPClientConfig    `yaml:"http_client"`
+	Routing       RoutingConfig       `yaml:"routing"`
+	Continuity    ContinuityConfig    `yaml:"continuity"`
+	Hooks         HooksConfig         `yaml:"hooks"`
+	Plugins       PluginsConfig       `yaml:"plugins"`
+}
+
+// ObservabilityConfig toggles Prometheus metrics and OpenTelemetry tracing.
+type ObservabilityConfig struct {
+	Metrics MetricsConfig `yaml:"metrics"`
+	Tracing TracingConfig `yaml:"tracing"`
+}
+
+// MetricsConfig controls the Prometheus /metrics endpoint.
+type MetricsConfig struct {
+	// Enabled exposes lip_http_* metrics and process/go collectors when true.
+	// When false (zero value), no /metrics handler is registered (legacy behavior).
+	Enabled bool `yaml:"enabled"`
+	// Path is the HTTP path for Prometheus scraping (e.g. "/metrics"). Empty defaults to /metrics in LoadFile.
+	Path string `yaml:"path"`
+	// ExemplarsEnabled attaches trace_id exemplars to selected histograms and enables OpenMetrics on /metrics.
+	ExemplarsEnabled bool `yaml:"exemplars_enabled"`
+}
+
+// TracingConfig enables OpenTelemetry traces (incoming otelhttp + OTLP export via standard OTEL_* env vars).
+type TracingConfig struct {
+	// Enabled turns on SDK wiring, W3C propagation, and outbound HTTP tracing on the shared upstream client.
+	Enabled bool `yaml:"enabled"`
+	// ServiceName sets otel resource service.name when non-empty; otherwise OTEL_SERVICE_NAME or "lipstd".
+	ServiceName string `yaml:"service_name"`
+	// SampleRatio when set and strictly between 0 and 1 applies ParentBased(TraceIDRatioBased) for root spans.
+	// When nil or 1, the SDK default sampler applies (typically full sampling for new roots).
+	SampleRatio *float64 `yaml:"sample_ratio"`
 }
 
 // HTTPClientConfig tunes the shared outbound HTTP client used for upstream LLM calls.
@@ -26,6 +56,24 @@ type HTTPClientConfig struct {
 	// When false, the transport ignores HTTP_PROXY/HTTPS_PROXY/NO_PROXY (reduces deputy risk if env is untrusted).
 	// Omitted or null in YAML defaults to true in [LoadFile] / [EffectiveTrustEnvironmentProxy].
 	TrustEnvironmentProxy *bool `yaml:"trust_environment_proxy"`
+	// MaxIdleConns is the Transport MaxIdleConns pool cap. Omit to use the bundled default (~100).
+	MaxIdleConns *int `yaml:"max_idle_conns,omitempty"`
+	// MaxIdleConnsPerHost defaults to 64 when omitted (Go's default of 2 is usually too low for LLM APIs).
+	MaxIdleConnsPerHost *int `yaml:"max_idle_conns_per_host,omitempty"`
+	// IdleConnTimeout is a Go duration string (e.g. "90s"). Empty uses the httpclient default.
+	IdleConnTimeout string `yaml:"idle_conn_timeout"`
+	// ResponseHeaderTimeout bounds waiting for response headers (e.g. "60s"). Empty uses default.
+	ResponseHeaderTimeout string `yaml:"response_header_timeout"`
+	// DialTimeout is the net.Dialer Timeout for establishing connections (e.g. "30s").
+	DialTimeout string `yaml:"dial_timeout"`
+	// KeepAlive is the net.Dialer KeepAlive interval (e.g. "30s").
+	KeepAlive string `yaml:"keep_alive"`
+	// TLSHandshakeTimeout caps TLS handshakes (e.g. "10s").
+	TLSHandshakeTimeout string `yaml:"tls_handshake_timeout"`
+	// ExpectContinueTimeout is the Transport expect-continue timeout (e.g. "1s").
+	ExpectContinueTimeout string `yaml:"expect_continue_timeout"`
+	// ClientTimeout is [http.Client.Timeout] for the full request including body (e.g. "120s").
+	ClientTimeout string `yaml:"client_timeout"`
 }
 
 // EffectiveTrustEnvironmentProxy returns whether outbound calls should honor process proxy environment variables.
@@ -48,6 +96,8 @@ type LoggingConfig struct {
 	AccessLog bool `yaml:"access_log"`
 	// AccessLogSkipPaths are URL path prefixes (must start with /) for which access logs are suppressed.
 	AccessLogSkipPaths []string `yaml:"access_log_skip_paths"`
+	// AccessLogIncludeRawPath when true adds the full URL path to access logs (higher cardinality). Default false: only route_group.
+	AccessLogIncludeRawPath bool `yaml:"access_log_include_raw_path"`
 }
 
 // HooksConfig carries core hook-bus tuning (not plugin opaque payloads).
@@ -61,6 +111,57 @@ type ServerConfig struct {
 	// MaxRequestBodyBytes caps HTTP request bodies for bundled frontends. Zero selects
 	// each handler's default limit (see internal/plugins/frontends/reqbody).
 	MaxRequestBodyBytes int64 `yaml:"max_request_body_bytes"`
+	// ReadHeaderTimeout is a Go duration string (e.g. "10s") for [http.Server.ReadHeaderTimeout].
+	// Empty defaults to 10s (historical stdhttp behavior).
+	ReadHeaderTimeout string `yaml:"read_header_timeout"`
+	// ReadTimeout is [http.Server.ReadTimeout] (full request body read + per-connection read deadlines).
+	// Empty defaults to 30s.
+	ReadTimeout string `yaml:"read_timeout"`
+	// WriteTimeout is [http.Server.WriteTimeout]. Empty defaults to 120s.
+	WriteTimeout string `yaml:"write_timeout"`
+	// IdleTimeout is [http.Server.IdleTimeout]. Empty defaults to 120s.
+	IdleTimeout string `yaml:"idle_timeout"`
+	// MaxPendingWireEvents caps backend adapter-internal pending-event queues per stream (0 = unlimited).
+	MaxPendingWireEvents int `yaml:"max_pending_wire_events"`
+}
+
+const (
+	defaultServerReadHeaderTimeout = 10 * time.Second
+	defaultServerReadTimeout       = 30 * time.Second
+	defaultServerWriteTimeout      = 120 * time.Second
+	defaultServerIdleTimeout       = 120 * time.Second
+)
+
+func parseServerDurationOrDefault(s string, def time.Duration) time.Duration {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return def
+	}
+	return d
+}
+
+// EffectiveReadHeaderTimeout returns ReadHeaderTimeout or the default (10s).
+func (s ServerConfig) EffectiveReadHeaderTimeout() time.Duration {
+	return parseServerDurationOrDefault(s.ReadHeaderTimeout, defaultServerReadHeaderTimeout)
+}
+
+// EffectiveReadTimeout returns ReadTimeout or the default (30s).
+func (s ServerConfig) EffectiveReadTimeout() time.Duration {
+	return parseServerDurationOrDefault(s.ReadTimeout, defaultServerReadTimeout)
+}
+
+// EffectiveWriteTimeout returns WriteTimeout or the default (120s).
+func (s ServerConfig) EffectiveWriteTimeout() time.Duration {
+	return parseServerDurationOrDefault(s.WriteTimeout, defaultServerWriteTimeout)
+}
+
+// EffectiveIdleTimeout returns IdleTimeout or the default (120s).
+func (s ServerConfig) EffectiveIdleTimeout() time.Duration {
+	return parseServerDurationOrDefault(s.IdleTimeout, defaultServerIdleTimeout)
 }
 
 // EffectiveMaxRequestBodyBytes returns MaxRequestBodyBytes when positive, otherwise zero

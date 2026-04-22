@@ -2,6 +2,8 @@ package acp
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -30,6 +32,9 @@ type Config struct {
 
 	// History is reserved for transcript-style prompts coordinated with core/B2BUA.
 	History HistoryCoordinator
+
+	// Log is optional; when set, the connector may emit debug logs (e.g. best-effort cancel RPC failures).
+	Log *slog.Logger
 }
 
 func defaultBackendCaps() lipapi.BackendCaps {
@@ -43,7 +48,7 @@ func defaultBackendCaps() lipapi.BackendCaps {
 
 // New returns a runtime backend that invokes an ACP agent via the prompt-turn subset.
 func New(cfg Config) runtime.Backend {
-	cli, err := newClient(cfg.BaseURL, cfg.HTTPClient)
+	cli, err := newClient(cfg.BaseURL, cfg.HTTPClient, cfg.Log)
 	if err != nil {
 		return runtime.Backend{
 			Caps: defaultBackendCaps(),
@@ -76,7 +81,7 @@ func New(cfg Config) runtime.Backend {
 			var err error
 			callPtr, err = hist.PreparePrompt(ctx, callPtr)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("acp: prepare prompt: %w", err)
 			}
 			hp := mergeHandshakeProfile(cfg, callPtr)
 			if err := runHandshake(ctx, c, hp); err != nil {
@@ -97,7 +102,7 @@ func New(cfg Config) runtime.Backend {
 			if err != nil {
 				return nil, err
 			}
-			return newPromptNDJSONStream(ctx, body, c, sid, rpcID, msgID, mapper, cfg.ServerRequest, cancelProf), nil
+			return newPromptNDJSONStream(ctx, body, c, sid, rpcID, msgID, mapper, cfg.ServerRequest, cancelProf, call.MaxPendingWireEvents), nil
 		},
 	}
 }

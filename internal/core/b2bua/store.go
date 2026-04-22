@@ -39,7 +39,7 @@ type BLegRecord struct {
 type Store interface {
 	ResolveALeg(ctx context.Context, continuityKey string) (ALegRecord, error)
 	CreateALeg(ctx context.Context, continuityKey string) (ALegRecord, error)
-	GetALeg(ctx context.Context, aLegID string) (ALegRecord, error)
+	FetchALeg(ctx context.Context, aLegID string) (ALegRecord, error)
 	SetWeightedFirstConsumed(ctx context.Context, aLegID string, consumed bool) error
 	NextBLeg(ctx context.Context, aLegID string) (BLegRecord, error)
 	RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) error
@@ -52,9 +52,9 @@ type MemoryStoreOptions struct {
 	// Non-zero TTL also enables a sweep on CreateALeg so idle sessions that are never
 	// touched again (e.g. anonymous one-shot A-legs) are still reclaimed.
 	TTL time.Duration
-	// MaxLegs caps how many concurrent A-leg rows may be retained when TTL-based expiry
-	// is disabled (TTL <= 0). Zero selects DefaultMemoryStoreMaxLegsWithoutTTL. Negative
-	// values are rejected by NewMemoryStore.
+	// MaxLegs caps how many concurrent A-leg rows may be retained. Zero selects
+	// DefaultMemoryStoreMaxLegsWithoutTTL (including when TTL-based expiry is enabled).
+	// Negative values are rejected by NewMemoryStore.
 	MaxLegs int
 	// Now returns the current time; when nil, NewMemoryStore uses time.Now.
 	Now func() time.Time
@@ -94,14 +94,11 @@ func NewMemoryStore(opts MemoryStoreOptions) (*MemoryStore, error) {
 	if now == nil {
 		now = time.Now
 	}
-	maxLegs := 0
-	switch {
-	case opts.MaxLegs > 0:
-		maxLegs = opts.MaxLegs
-	case opts.TTL <= 0:
+	maxLegs := opts.MaxLegs
+	if maxLegs <= 0 {
+		// Cap concurrent A-legs when MaxLegs is unset, including TTL mode (lazy eviction alone
+		// can allow unbounded growth under bursty unique continuity keys).
 		maxLegs = DefaultMemoryStoreMaxLegsWithoutTTL
-	default:
-		maxLegs = 0
 	}
 	return &MemoryStore{
 		ttl:     opts.TTL,
@@ -177,8 +174,8 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 	return rec, nil
 }
 
-// GetALeg loads an A-leg by id (for clients that already hold ALegID).
-func (s *MemoryStore) GetALeg(ctx context.Context, aLegID string) (ALegRecord, error) {
+// FetchALeg loads an A-leg by id (for clients that already hold ALegID).
+func (s *MemoryStore) FetchALeg(ctx context.Context, aLegID string) (ALegRecord, error) {
 	if err := ctx.Err(); err != nil {
 		return ALegRecord{}, err
 	}

@@ -18,6 +18,8 @@ import (
 //
 // Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
 // Recv blocked on sdk.Next; Close closes the SDK stream to unblock Next.
+// Context: sdk.Next does not observe ctx; cancel the request context alone may not
+// return from Recv until Close runs (see [lipapi.EventStream] cancellation notes).
 type msgStream struct {
 	mu        sync.Mutex
 	closeOnce sync.Once
@@ -32,11 +34,14 @@ type msgStream struct {
 	closed       bool
 }
 
-func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion]) lipapi.EventStream {
+func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], maxPending int) lipapi.EventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
-	return &msgStream{sdk: s}
+	return &msgStream{
+		sdk:     s,
+		pending: stream.NewPendingEventQueue(maxPending),
+	}
 }
 
 func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -73,7 +78,10 @@ func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, io.EOF
 			}
 			s.terminal = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
+				s.mu.Unlock()
+				return lipapi.Event{}, err
+			}
 			s.mu.Unlock()
 			continue
 		}
@@ -83,50 +91,67 @@ func (s *msgStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			s.mu.Unlock()
 			continue
 		}
-		s.handleEvent(cur)
+		if err := s.handleEvent(cur); err != nil {
+			s.mu.Unlock()
+			return lipapi.Event{}, err
+		}
 		s.mu.Unlock()
 	}
 }
 
-func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
+func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 	switch v := cur.AsAny().(type) {
 	case anthropic.MessageStartEvent:
 		if !s.sawResp {
 			s.sawResp = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+				return err
+			}
 		}
 		if !s.sawMsg {
 			s.sawMsg = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+				return err
+			}
 		}
 	case anthropic.MessageDeltaEvent:
 		if u := usageFromMessageDelta(v); u != nil {
-			s.pending.Push(*u)
+			if err := s.pending.Push(*u); err != nil {
+				return err
+			}
 		}
 	case anthropic.ContentBlockStartEvent:
 		cb := v.ContentBlock
 		if media := assistantMediaEventsFromContentBlockStart(cb); len(media) > 0 {
 			if !s.sawResp {
 				s.sawResp = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+					return err
+				}
 			}
 			if !s.sawMsg {
 				s.sawMsg = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
 			for _, e := range media {
-				s.pending.Push(e)
+				if err := s.pending.Push(e); err != nil {
+					return err
+				}
 			}
 		} else {
 			switch cb.Type {
 			case "tool_use":
 				tu := cb.AsToolUse()
 				s.activeToolID = tu.ID
-				s.pending.Push(lipapi.Event{
+				if err := s.pending.Push(lipapi.Event{
 					Kind:       lipapi.EventToolCallStarted,
 					ToolCallID: tu.ID,
 					ToolName:   tu.Name,
-				})
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	case anthropic.ContentBlockDeltaEvent:
@@ -136,39 +161,54 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) {
 			if t.Text != "" {
 				if !s.sawResp {
 					s.sawResp = true
-					s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+						return err
+					}
 				}
 				if !s.sawMsg {
 					s.sawMsg = true
-					s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+						return err
+					}
 				}
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: t.Text})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: t.Text}); err != nil {
+					return err
+				}
 			}
 		case anthropic.InputJSONDelta:
 			if t.PartialJSON != "" {
-				s.pending.Push(lipapi.Event{
+				if err := s.pending.Push(lipapi.Event{
 					Kind:       lipapi.EventToolCallArgsDelta,
 					ToolCallID: s.activeToolID,
 					Delta:      t.PartialJSON,
-				})
+				}); err != nil {
+					return err
+				}
 			}
 		case anthropic.ThinkingDelta:
 			if t.Thinking != "" {
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: t.Thinking})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: t.Thinking}); err != nil {
+					return err
+				}
 			}
 		}
 	case anthropic.ContentBlockStopEvent:
 		if s.activeToolID != "" {
-			s.pending.Push(lipapi.Event{
+			if err := s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallFinished,
 				ToolCallID: s.activeToolID,
-			})
+			}); err != nil {
+				return err
+			}
 			s.activeToolID = ""
 		}
 	case anthropic.MessageStopEvent:
-		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
+			return err
+		}
 		s.terminal = true
 	}
+	return nil
 }
 
 func usageFromMessageDelta(v anthropic.MessageDeltaEvent) *lipapi.Event {

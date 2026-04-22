@@ -106,7 +106,7 @@ func TestMemoryStore_Create_sameContinuityKeyReplacesOldALeg(t *testing.T) {
 	}
 	assertOpaqueALegID(t, a1.ALegID)
 	assertOpaqueALegID(t, a2.ALegID)
-	_, err = s.GetALeg(ctx, a1.ALegID)
+	_, err = s.FetchALeg(ctx, a1.ALegID)
 	if !errors.Is(err, b2bua.ErrALegNotFound) {
 		t.Fatalf("old A-leg should be removed, got %v", err)
 	}

@@ -1,6 +1,7 @@
 package diag
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"strings"
@@ -27,8 +28,7 @@ func WrapDiagnosticsProtect(secret string, next http.Handler) http.Handler {
 }
 
 func constantTimeEqualString(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }

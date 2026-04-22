@@ -21,6 +21,14 @@ import (
 	_ "modernc.org/sqlite" // register "sqlite" driver name
 )
 
+// opErr wraps a database or I/O error with stable sqlitestore operation context.
+func opErr(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("sqlitestore: %s: %w", op, err)
+}
+
 // Open opens (creating if needed) a SQLite-backed store at path.
 func Open(path string) (*Store, error) {
 	path = strings.TrimSpace(path)
@@ -29,7 +37,7 @@ func Open(path string) (*Store, error) {
 	}
 	dsn, err := sqliteFileDSN(path)
 	if err != nil {
-		return nil, err
+		return nil, opErr("open dsn", err)
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -38,8 +46,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s, err := New(db)
 	if err != nil {
-		_ = db.Close()
-		return nil, err
+		return nil, errors.Join(err, db.Close())
 	}
 	return s, nil
 }
@@ -61,7 +68,7 @@ func New(db *sql.DB) (*Store, error) {
 	}
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		return nil, err
+		return nil, opErr("new", err)
 	}
 	return s, nil
 }
@@ -133,7 +140,7 @@ func (s *Store) ResolveALeg(ctx context.Context, continuityKey string) (b2bua.AL
 	now := time.Now().UnixNano()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("resolve_a_leg begin tx", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	var rec b2bua.ALegRecord
@@ -145,13 +152,13 @@ func (s *Store) ResolveALeg(ctx context.Context, continuityKey string) (b2bua.AL
 		return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 	}
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("resolve_a_leg select", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, now, rec.ALegID); err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("resolve_a_leg update last_seen", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("resolve_a_leg commit", err)
 	}
 	rec.CreatedAt = time.Unix(0, created)
 	rec.LastSeenAt = time.Unix(0, now)
@@ -167,7 +174,7 @@ func (s *Store) CreateALeg(ctx context.Context, continuityKey string) (b2bua.ALe
 	now := time.Now().UnixNano()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("create_a_leg begin tx", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -178,16 +185,16 @@ func (s *Store) CreateALeg(ctx context.Context, continuityKey string) (b2bua.ALe
 
 	if continuityKey != "" {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM a_legs WHERE continuity_key = ?`, continuityKey); err != nil {
-			return b2bua.ALegRecord{}, err
+			return b2bua.ALegRecord{}, opErr("create_a_leg delete prior continuity", err)
 		}
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO a_legs(a_leg_id, continuity_key, created_at_unix, last_seen_at_unix, weighted_first_consumed, next_b_seq)
 		VALUES(?,?,?,?,0,0)`, aID, continuityKey, now, now)
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("create_a_leg insert", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("create_a_leg commit", err)
 	}
 	return b2bua.ALegRecord{
 		ALegID:        aID,
@@ -197,7 +204,7 @@ func (s *Store) CreateALeg(ctx context.Context, continuityKey string) (b2bua.ALe
 	}, nil
 }
 
-func (s *Store) GetALeg(ctx context.Context, aLegID string) (b2bua.ALegRecord, error) {
+func (s *Store) FetchALeg(ctx context.Context, aLegID string) (b2bua.ALegRecord, error) {
 	if err := ctx.Err(); err != nil {
 		return b2bua.ALegRecord{}, err
 	}
@@ -214,10 +221,10 @@ func (s *Store) GetALeg(ctx context.Context, aLegID string) (b2bua.ALegRecord, e
 		return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 	}
 	if err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("fetch_a_leg select", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, now, aLegID); err != nil {
-		return b2bua.ALegRecord{}, err
+		return b2bua.ALegRecord{}, opErr("fetch_a_leg update last_seen", err)
 	}
 	rec.CreatedAt = time.Unix(0, created)
 	rec.LastSeenAt = time.Unix(0, now)
@@ -236,11 +243,11 @@ func (s *Store) SetWeightedFirstConsumed(ctx context.Context, aLegID string, con
 	res, err := s.db.ExecContext(ctx, `UPDATE a_legs SET weighted_first_consumed = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
 		v, time.Now().UnixNano(), aLegID)
 	if err != nil {
-		return err
+		return opErr("set_weighted_first_consumed update", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return opErr("set_weighted_first_consumed rows_affected", err)
 	}
 	if n == 0 {
 		return b2bua.ErrALegNotFound
@@ -254,7 +261,7 @@ func (s *Store) NextBLeg(ctx context.Context, aLegID string) (b2bua.BLegRecord, 
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return b2bua.BLegRecord{}, err
+		return b2bua.BLegRecord{}, opErr("next_b_leg begin tx", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -264,7 +271,7 @@ func (s *Store) NextBLeg(ctx context.Context, aLegID string) (b2bua.BLegRecord, 
 		return b2bua.BLegRecord{}, b2bua.ErrALegNotFound
 	}
 	if err != nil {
-		return b2bua.BLegRecord{}, err
+		return b2bua.BLegRecord{}, opErr("next_b_leg select seq", err)
 	}
 	nextSeq++
 	bID, err := b2bua.RandomBLegID()
@@ -273,13 +280,13 @@ func (s *Store) NextBLeg(ctx context.Context, aLegID string) (b2bua.BLegRecord, 
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE a_legs SET next_b_seq = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
 		nextSeq, time.Now().UnixNano(), aLegID); err != nil {
-		return b2bua.BLegRecord{}, err
+		return b2bua.BLegRecord{}, opErr("next_b_leg update a_leg", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO b_legs(a_leg_id, seq, b_leg_id) VALUES(?,?,?)`, aLegID, nextSeq, bID); err != nil {
-		return b2bua.BLegRecord{}, err
+		return b2bua.BLegRecord{}, opErr("next_b_leg insert b_leg", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return b2bua.BLegRecord{}, err
+		return b2bua.BLegRecord{}, opErr("next_b_leg commit", err)
 	}
 	return b2bua.BLegRecord{BLegID: bID, ALegID: aLegID, Seq: nextSeq}, nil
 }
@@ -297,7 +304,7 @@ func (s *Store) RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) err
 		return fmt.Errorf("%w: no b-leg for seq %d", b2bua.ErrInvalidAttempt, rec.Seq)
 	}
 	if err != nil {
-		return err
+		return opErr("record_attempt select b_leg", err)
 	}
 	if want != rec.BLegID {
 		return fmt.Errorf("%w: b-leg mismatch for seq %d", b2bua.ErrInvalidAttempt, rec.Seq)
@@ -315,10 +322,10 @@ func (s *Store) RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) err
 		rec.ALegID, rec.Seq, rec.BLegID, rec.BackendID, rec.EffectiveModel,
 		rec.StartedAt.UnixNano(), rec.FinishedAt.UnixNano(), string(rec.Outcome), rec.Reason)
 	if err != nil {
-		return err
+		return opErr("record_attempt upsert", err)
 	}
 	_, err = s.db.ExecContext(ctx, `UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, time.Now().UnixNano(), rec.ALegID)
-	return err
+	return opErr("record_attempt touch a_leg", err)
 }
 
 func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.AttemptRecord, error) {
@@ -328,7 +335,7 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 	rows, err := s.db.QueryContext(ctx, `SELECT b_leg_id, a_leg_id, seq, backend_id, effective_model, started_at_unix, finished_at_unix, outcome, reason
 		FROM attempts WHERE a_leg_id = ? ORDER BY seq ASC`, aLegID)
 	if err != nil {
-		return nil, err
+		return nil, opErr("load_attempts query", err)
 	}
 	defer func() { _ = rows.Close() }()
 	out := make([]lipapi.AttemptRecord, 0, 8)
@@ -337,7 +344,7 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 		var st, ft int64
 		var oc string
 		if err := rows.Scan(&r.BLegID, &r.ALegID, &r.Seq, &r.BackendID, &r.EffectiveModel, &st, &ft, &oc, &r.Reason); err != nil {
-			return nil, err
+			return nil, opErr("load_attempts scan", err)
 		}
 		r.StartedAt = time.Unix(0, st)
 		r.FinishedAt = time.Unix(0, ft)
@@ -345,19 +352,19 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, opErr("load_attempts rows", err)
 	}
 	if len(out) == 0 {
 		var one string
 		if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM a_legs WHERE a_leg_id = ?`, aLegID).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 			return nil, b2bua.ErrALegNotFound
 		} else if err != nil {
-			return nil, err
+			return nil, opErr("load_attempts verify a_leg", err)
 		}
 	}
 	_, err = s.db.ExecContext(ctx, `UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, time.Now().UnixNano(), aLegID)
 	if err != nil {
-		return nil, err
+		return nil, opErr("load_attempts touch a_leg", err)
 	}
 	return out, nil
 }

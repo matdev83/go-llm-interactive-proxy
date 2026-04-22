@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -60,18 +61,21 @@ func TestValidate_rejectsMemoryWithNegativeMaxLegs(t *testing.T) {
 func TestValidate_allowsMemoryZeroAndPositiveMaxLegs(t *testing.T) {
 	t.Parallel()
 	for _, max := range []int{0, 42} {
-		cfg := &config.Config{
-			Continuity: config.ContinuityConfig{
-				InMemory: true,
-				MaxLegs:  max,
-			},
-			Plugins: config.PluginsConfig{
-				Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
-			},
-		}
-		if err := config.Validate(cfg); err != nil {
-			t.Fatalf("max_legs=%d: %v", max, err)
-		}
+		t.Run(fmt.Sprintf("max_legs_%d", max), func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Continuity: config.ContinuityConfig{
+					InMemory: true,
+					MaxLegs:  max,
+				},
+				Plugins: config.PluginsConfig{
+					Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+				},
+			}
+			if err := config.Validate(cfg); err != nil {
+				t.Fatalf("max_legs=%d: %v", max, err)
+			}
+		})
 	}
 }
 
@@ -319,6 +323,130 @@ func TestValidate_rejectsShortDiagnosticsSharedSecret(t *testing.T) {
 	}
 	if err := config.Validate(cfg); err == nil {
 		t.Fatal("expected shared_secret length error")
+	}
+}
+
+func TestValidate_observabilityMetricsVsHealthPathOverlap(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Observability: config.ObservabilityConfig{
+			Metrics: config.MetricsConfig{Enabled: true, Path: "/healthz"},
+		},
+		Diagnostics: config.DiagnosticsConfig{HealthPath: "/healthz"},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected overlap between metrics path and health path")
+	}
+}
+
+func TestValidate_observabilityMetricsPathSlash(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Observability: config.ObservabilityConfig{
+			Metrics: config.MetricsConfig{Enabled: true, Path: "metrics"},
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected metrics path must start with /")
+	}
+}
+
+func TestValidate_observabilityTracingSampleRatioOutOfRange(t *testing.T) {
+	t.Parallel()
+	bad := 1.5
+	cfg := &config.Config{
+		Observability: config.ObservabilityConfig{
+			Tracing: config.TracingConfig{Enabled: true, SampleRatio: &bad},
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected sample_ratio out of range error")
+	}
+}
+
+func TestValidate_observabilityTracingSampleRatioZero(t *testing.T) {
+	t.Parallel()
+	bad := 0.0
+	cfg := &config.Config{
+		Observability: config.ObservabilityConfig{
+			Tracing: config.TracingConfig{Enabled: true, SampleRatio: &bad},
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected sample_ratio > 0 error")
+	}
+}
+
+func TestValidate_observabilityTracingSampleRatioHalfOK(t *testing.T) {
+	t.Parallel()
+	half := 0.5
+	cfg := &config.Config{
+		Observability: config.ObservabilityConfig{
+			Tracing: config.TracingConfig{Enabled: true, SampleRatio: &half},
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidate_serverBadDuration(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			ReadTimeout: "not-a-duration",
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected error for bad server.read_timeout")
+	}
+}
+
+func TestValidate_serverNegativeMaxPendingWireEvents(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			MaxPendingWireEvents: -1,
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected error for negative max_pending_wire_events")
+	}
+}
+
+func TestValidate_httpClientBadDuration(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		HTTPClient: config.HTTPClientConfig{
+			ClientTimeout: "not-a-duration",
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected invalid client_timeout")
 	}
 }
 

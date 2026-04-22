@@ -13,12 +13,16 @@ import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
-var ErrNilConfig = errors.New("runtime config is required")
+var ErrNilConfig = errors.New("runtime: config is required")
 
 // ErrNilLogger is returned by [New] when Options.Logger is nil.
 var ErrNilLogger = errors.New("runtime: logger is required")
 
 // Options carries bootstrap-only runtime dependencies for New.
+//
+// We use an explicit struct rather than functional options: the surface is small, fields are
+// easy to read at call sites, and the project prefers explicit construction over indirection
+// (see repository AGENTS.md). Add fields here as needed instead of a generic options closure chain.
 //
 // Config must be non-nil (otherwise ErrNilConfig). Logger must be non-nil (otherwise ErrNilLogger).
 // Nil entries in Lifecycles are ignored by App.Start and App.Shutdown.
@@ -101,7 +105,9 @@ func (a *App) Start(ctx context.Context) error {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			for i := len(started) - 1; i >= 0; i-- {
-				_ = started[i].Stop(stopCtx)
+				if stopErr := started[i].Stop(stopCtx); stopErr != nil {
+					a.logger.Warn("runtime: lifecycle stop after start failure", "index", i, "error", stopErr)
+				}
 			}
 			return fmt.Errorf("runtime: lifecycle start: %w", err)
 		}
@@ -120,6 +126,8 @@ func (a *App) Shutdown(ctx context.Context) {
 		if lc == nil {
 			continue
 		}
-		_ = lc.Stop(ctx)
+		if err := lc.Stop(ctx); err != nil {
+			a.logger.Warn("runtime: lifecycle stop failed", "index", i, "error", err)
+		}
 	}
 }

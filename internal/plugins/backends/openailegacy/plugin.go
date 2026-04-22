@@ -33,7 +33,7 @@ func New(cfg Config) runtime.Backend {
 				return nil, err
 			}
 			stream := cli.Chat.Completions.NewStreaming(ctx, p)
-			return newChatStream(stream), nil
+			return newChatStream(stream, call.MaxPendingWireEvents), nil
 		},
 	}
 }

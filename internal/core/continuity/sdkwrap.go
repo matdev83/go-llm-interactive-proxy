@@ -50,8 +50,8 @@ func (s sdkStore) CreateALeg(ctx context.Context, continuityKey string) (lipsdkc
 	return toALeg(r), nil
 }
 
-func (s sdkStore) GetALeg(ctx context.Context, aLegID string) (lipsdkc.ALegRecord, error) {
-	r, err := s.inner.GetALeg(ctx, aLegID)
+func (s sdkStore) FetchALeg(ctx context.Context, aLegID string) (lipsdkc.ALegRecord, error) {
+	r, err := s.inner.FetchALeg(ctx, aLegID)
 	if err != nil {
 		return lipsdkc.ALegRecord{}, err
 	}

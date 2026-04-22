@@ -27,13 +27,24 @@ func TestValidateBedrockEndpointSecurity_allowsNonLoopbackWithFlag(t *testing.T)
 
 func TestValidateBedrockEndpointSecurity_allowsLoopbackHTTP(t *testing.T) {
 	t.Parallel()
-	for _, base := range []string{"http://127.0.0.1:9", "http://localhost:8080", "http://[::1]:1234"} {
-		err := validateBedrockEndpointSecurity(Config{
-			DisableHTTPS: true,
-			BaseEndpoint: base,
+	tests := []struct {
+		name string
+		base string
+	}{
+		{"ipv4_loopback", "http://127.0.0.1:9"},
+		{"localhost", "http://localhost:8080"},
+		{"ipv6_loopback", "http://[::1]:1234"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateBedrockEndpointSecurity(Config{
+				DisableHTTPS: true,
+				BaseEndpoint: tc.base,
+			})
+			if err != nil {
+				t.Fatalf("base %q: %v", tc.base, err)
+			}
 		})
-		if err != nil {
-			t.Fatalf("base %q: %v", base, err)
-		}
 	}
 }

@@ -33,7 +33,9 @@ func RequestIDMiddleware(gen *diag.TraceIDGenerator, next http.Handler) http.Han
 		if diag.TraceID(r.Context()) == "" {
 			ctx := diag.WithTraceID(r.Context(), gen.Next())
 			r = r.WithContext(ctx)
-			w.Header().Set("X-Trace-ID", diag.TraceID(ctx))
+		}
+		if tid := diag.TraceID(r.Context()); tid != "" {
+			w.Header().Set("X-Trace-ID", tid)
 		}
 		next.ServeHTTP(w, r)
 	})

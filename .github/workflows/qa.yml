@@ -24,7 +24,7 @@ jobs:
         run: make quality-checks
 
       - name: Unit tests
-        run: go test -short -parallel=8 -tags=precommit ./...
+        run: go test -parallel=8 -tags=precommit ./...
 
       - name: Parity checks (conformance package)
         run: make parity-checks
@@ -36,7 +36,7 @@ jobs:
         run: make test-fuzz
 
       - name: Race detector
-        run: bash scripts/race-check.sh --short --strict
+        run: bash scripts/race-check.sh --strict
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8

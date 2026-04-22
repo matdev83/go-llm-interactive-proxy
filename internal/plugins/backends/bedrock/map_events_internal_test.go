@@ -40,17 +40,32 @@ func (m *closingChannelReader) Err() error { return nil }
 
 func TestConverseStream_Close_unblocksRecv(t *testing.T) {
 	t.Parallel()
+	recvAtSelect := make(chan struct{}, 1)
+	recvSelectHookMu.Lock()
+	recvSelectEntryHook = func() {
+		select {
+		case recvAtSelect <- struct{}{}:
+		default:
+		}
+	}
+	recvSelectHookMu.Unlock()
+	t.Cleanup(func() {
+		recvSelectHookMu.Lock()
+		recvSelectEntryHook = nil
+		recvSelectHookMu.Unlock()
+	})
+
 	ch := make(chan types.ConverseStreamOutput)
 	sdk := bedrockruntime.NewConverseStreamEventStream(func(es *bedrockruntime.ConverseStreamEventStream) {
 		es.Reader = &closingChannelReader{ch: ch}
 	})
-	es := newConverseStream(sdk)
+	es := newConverseStream(sdk, 0)
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
 		_, _ = es.Recv(context.Background())
 	}()
-	time.Sleep(50 * time.Millisecond)
+	<-recvAtSelect
 	if err := es.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
@@ -69,7 +84,7 @@ func TestConverseStream_Close_idempotent_race(t *testing.T) {
 	sdk := bedrockruntime.NewConverseStreamEventStream(func(es *bedrockruntime.ConverseStreamEventStream) {
 		es.Reader = &closingChannelReader{ch: ch}
 	})
-	es := newConverseStream(sdk)
+	es := newConverseStream(sdk, 0)
 	var wg sync.WaitGroup
 	for range 32 {
 		wg.Go(func() {
@@ -87,7 +102,7 @@ func TestConverseStream_Recv_wrapsSDKErr(t *testing.T) {
 	sdk := bedrockruntime.NewConverseStreamEventStream(func(es *bedrockruntime.ConverseStreamEventStream) {
 		es.Reader = &mockConverseReader{ch: ch, err: root}
 	})
-	es := newConverseStream(sdk)
+	es := newConverseStream(sdk, 0)
 	_, err := es.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected error")

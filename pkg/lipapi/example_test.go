@@ -29,3 +29,27 @@ func ExampleNewFixedEventStream() {
 	fmt.Println(out.Text.String())
 	// Output: hi
 }
+
+func ExampleCall_Validate() {
+	c := lipapi.Call{
+		ID: "call-1",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("ping")},
+		}},
+	}
+	if err := c.Validate(); err != nil {
+		fmt.Println("invalid:", err)
+		return
+	}
+	fmt.Println("valid")
+	// Output: valid
+}
+
+func ExampleNewBackendCaps() {
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
+	_, hasStream := caps[lipapi.CapabilityStreaming]
+	_, hasVision := caps[lipapi.CapabilityVision]
+	fmt.Println(hasStream, hasVision)
+	// Output: true false
+}

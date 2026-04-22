@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -59,8 +60,10 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+		// Match production frontends: attach call diag once so retryRecvStream.Recv can use EnsureCallDiag fast path.
+		recvCtx := diag.EnsureCallDiag(ctx, call.ID, call.Session.ALegID)
 		for {
-			_, err := s.Recv(ctx)
+			_, err := s.Recv(recvCtx)
 			if err != nil {
 				break
 			}

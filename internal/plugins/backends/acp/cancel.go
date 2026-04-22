@@ -49,12 +49,12 @@ func (c *client) cancelSession(ctx context.Context, cp CancelProfile, sessionID 
 		}
 		pb, err := json.Marshal(params)
 		if err != nil {
-			return err
+			return fmt.Errorf("acp: cancel marshal params: %w", err)
 		}
 		req := rpcRequest{JSONRPC: "2.0", Method: method, Params: pb}
 		body, err := json.Marshal(req)
 		if err != nil {
-			return err
+			return fmt.Errorf("acp: cancel marshal request: %w", err)
 		}
 		_, errNC := c.t.CallUnary(ctx, body, http.StatusNoContent)
 		if errNC == nil {

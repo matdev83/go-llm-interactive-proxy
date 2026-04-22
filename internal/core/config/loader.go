@@ -47,6 +47,12 @@ func LoadFile(path string) (*Config, error) {
 		cfg.Logging.Format = "json"
 	}
 
+	if mp := strings.TrimSpace(cfg.Observability.Metrics.Path); mp == "" {
+		cfg.Observability.Metrics.Path = "/metrics"
+	} else {
+		cfg.Observability.Metrics.Path = mp
+	}
+
 	if err := Validate(&cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}

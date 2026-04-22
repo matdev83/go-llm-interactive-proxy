@@ -76,7 +76,7 @@ func validateWeightedFirst(w *Weighted) error {
 	}
 	n := 0
 	for _, b := range w.Branches {
-		if b.First {
+		if b.IsFirst {
 			n++
 		}
 	}
@@ -142,7 +142,7 @@ func parseWeightedBranch(s string) (WeightedBranch, error) {
 	if err != nil {
 		return WeightedBranch{}, err
 	}
-	return WeightedBranch{Weight: weight, First: first, Target: p}, nil
+	return WeightedBranch{Weight: weight, IsFirst: first, Target: p}, nil
 }
 
 func parsePrimary(s string) (Primary, error) {

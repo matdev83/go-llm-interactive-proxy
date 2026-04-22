@@ -142,7 +142,8 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := http.Post(srv.URL+"/v1/chat/other", "application/json", strings.NewReader(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"x"}]}`))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1/chat/other", "application/json", strings.NewReader(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"x"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,8 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	mux.Handle("/v1/chat/completions", h)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	res, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{`))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +289,8 @@ func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"x"}],"tools":[{"type":"function","function":{"name":"plan_fn","description":"d","parameters":{"type":"object","properties":{}}}}]}`
-	res, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

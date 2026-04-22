@@ -34,3 +34,14 @@ func TestIntegrationHTTPClient_nilUsesHTTPClientStandard(t *testing.T) {
 		t.Fatalf("MaxIdleConnsPerHost: got %d want %d", gotT.MaxIdleConnsPerHost, wantT.MaxIdleConnsPerHost)
 	}
 }
+
+func TestLocalTestServerHTTPClient_hasTimeout(t *testing.T) {
+	t.Parallel()
+	c := LocalTestServerHTTPClient()
+	if c == nil {
+		t.Fatal("nil client")
+	}
+	if c.Timeout != localTestServerHTTPTimeout {
+		t.Fatalf("timeout: got %v want %v", c.Timeout, localTestServerHTTPTimeout)
+	}
+}

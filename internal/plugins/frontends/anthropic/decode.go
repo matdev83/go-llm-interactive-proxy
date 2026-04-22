@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -109,7 +109,7 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 }
 
 func parseSystem(raw json.RawMessage) ([]lipapi.Message, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	// Plain string system prompt.
@@ -182,7 +182,7 @@ func mapAnthropicRole(r string) (lipapi.Role, error) {
 }
 
 func parseMessageContent(raw json.RawMessage) ([]lipapi.Part, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("anthropic: message content is required")
 	}
 	// Shorthand string content.
@@ -322,7 +322,7 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		}
 		// Content may be a string or array of text blocks; flatten to plain text.
 		var resultText string
-		if jsonutil.IsPresentNonNullJSON(w.Content) {
+		if jsonpresence.IsPresentNonNullJSON(w.Content) {
 			var s string
 			if err := json.Unmarshal(w.Content, &s); err == nil {
 				resultText = s
@@ -354,7 +354,7 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -388,7 +388,7 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 	}
 	var s string

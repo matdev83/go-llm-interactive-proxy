@@ -3,7 +3,8 @@
 // and resource shutdown hooks.
 //
 // Upstream HTTP: backends that call providers over HTTP receive the client from [Build] (see
-// [BuildOptions.HTTPClient]; default [github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient.Standard]).
+// [BuildOptions.HTTPClient]; default tuned client from httpclient.TransportTuneFromConfig plus
+// httpclient.StandardWithTrustEnvironment / StandardWithTune).
 //
 // Routing health: when config sets routing.health.circuit_breaker.enabled, the executor's
 // CandidateHealth is a core policy circuit breaker (failure_threshold, open_for duration string).

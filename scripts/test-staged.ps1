@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 $stagedFilesRaw = git diff --cached --name-only --diff-filter=ACMR 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error getting staged files. Running all tests..." -ForegroundColor Yellow
-    go test -short -parallel=8 ./...
+    go test -parallel=8 ./...
     exit $LASTEXITCODE
 }
 
@@ -20,7 +20,7 @@ $testFiles = @($stagedFiles | Where-Object { $_ -match '_test\.go$' })
 
 if (-not $goFiles -and -not $testFiles) {
     Write-Host "No Go files staged. Running all tests..." -ForegroundColor Cyan
-    go test -short -parallel=8 ./...
+    go test -parallel=8 ./...
     exit $LASTEXITCODE
 }
 
@@ -35,7 +35,7 @@ foreach ($file in ($goFiles + $testFiles)) {
 
 if ($packages.Count -eq 0) {
     Write-Host "No packages identified. Running all tests..." -ForegroundColor Cyan
-    go test -short -parallel=8 ./...
+    go test -parallel=8 ./...
     exit $LASTEXITCODE
 }
 
@@ -47,5 +47,5 @@ Write-Host ""
 
 $packageList = @($packages)
 # Omit -count=1 so Go's test result cache can skip unchanged packages on repeat runs (build cache is always on via GOCACHE).
-go test -short -parallel=8 @packageList
+go test -parallel=8 @packageList
 exit $LASTEXITCODE

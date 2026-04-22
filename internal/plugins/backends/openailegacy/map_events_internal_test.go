@@ -132,7 +132,7 @@ func TestChatStream_Recv_wrapsSDKErr(t *testing.T) {
 	t.Parallel()
 	root := errors.New("root")
 	sdk := ssestream.NewStream[openai.ChatCompletionChunk](&errDecoderLegacy{err: root}, nil)
-	es := newChatStream(sdk)
+	es := newChatStream(sdk, 0)
 	s, ok := es.(*chatStream)
 	if !ok {
 		t.Fatalf("newChatStream returned %T", es)

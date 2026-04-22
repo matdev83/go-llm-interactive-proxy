@@ -138,6 +138,13 @@ func ValidateEventEnvelope(ev *Event) error {
 // blocked Recv only when the implementation documents that guarantee locally.
 // See each concrete stream type for its Close/Recv concurrency contract.
 //
+// Cancellation: Recv should respect ctx when the underlying source supports it
+// (for example blocking on a channel that also selects on ctx.Done). Some vendor
+// SDKs block without consulting ctx; in those cases Recv may remain blocked until
+// Close unblocks the SDK. Callers that cancel ctx must still call Close (typically
+// via defer right after obtaining the stream) so blocked reads and background work
+// tear down promptly.
+//
 // Recv requires a non-nil ctx (Go context contract). Passing nil returns [ErrNilContext]
 // from core and reference implementations in this module; other implementations should
 // follow the same rule or document divergent behavior.
@@ -244,16 +251,25 @@ func CollectUnbounded(ctx context.Context, s EventStream) (Collected, error) {
 // CollectWithLimits drains a stream until a terminal event or an error.
 // Terminal success is EventResponseFinished. Terminal failure is EventError followed by optional EOF.
 // ctx must be non-nil; nil returns [ErrNilContext].
-func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits) (Collected, error) {
+func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits) (out Collected, err error) {
 	if ctx == nil {
 		return Collected{}, ErrNilContext
 	}
 	if s == nil {
 		return Collected{}, ErrNilEventStream
 	}
-	defer func() { _ = s.Close() }()
+	defer func() {
+		if cerr := s.Close(); cerr != nil {
+			closeErr := fmt.Errorf("lipapi: close event stream: %w", cerr)
+			if err != nil {
+				err = errors.Join(err, closeErr)
+			} else {
+				err = closeErr
+			}
+		}
+	}()
 
-	var out Collected
+	out = Collected{}
 	out.ToolArgs = make(map[string]*strings.Builder)
 	out.ToolNames = make(map[string]string)
 	seenTool := make(map[string]struct{})
@@ -262,8 +278,9 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 	var sawResponseStarted bool
 	var sawMessage bool
 
+	var ev Event
 	for {
-		ev, err := s.Recv(ctx)
+		ev, err = s.Recv(ctx)
 		if errors.Is(err, io.EOF) {
 			if out.FinishReceived {
 				return out, nil
@@ -402,7 +419,7 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 }
 
 func terminalError(ev Event) error {
-	return fmt.Errorf("stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
+	return NewStreamError(ev.ErrorCode, ev.ErrorMessage)
 }
 
 // ValidateEventSequence checks ordering rules for a replayed event slice.

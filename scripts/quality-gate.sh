@@ -26,7 +26,7 @@ bash "$SCRIPT_DIR/precommit-extra-tests.sh"
 
 echo ""
 echo "Running race detector scan..."
-bash "$SCRIPT_DIR/race-check.sh" --staged --short
+bash "$SCRIPT_DIR/race-check.sh" --staged
 
 echo ""
 echo "Running linter..."

@@ -43,7 +43,7 @@ func New(cfg Config) runtime.Backend {
 				return nil, err
 			}
 			stream := cli.Messages.NewStreaming(ctx, p)
-			return newMessageStream(stream), nil
+			return newMessageStream(stream, call.MaxPendingWireEvents), nil
 		},
 	}
 }

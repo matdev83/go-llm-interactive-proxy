@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 )
 
 const maxBodyBytes = 10 << 20
@@ -80,7 +80,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// JSON-RPC notifications omit "id" (or use null in broken clients). session/cancel is always notification-shaped.
-	isNotification := len(bytes.TrimSpace(req.ID)) == 0 || jsonutil.IsJSONNull(req.ID) || req.Method == "session/cancel"
+	isNotification := len(bytes.TrimSpace(req.ID)) == 0 || jsonpresence.IsJSONNull(req.ID) || req.Method == "session/cancel"
 
 	if isNotification {
 		switch req.Method {

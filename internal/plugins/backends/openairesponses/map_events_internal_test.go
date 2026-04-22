@@ -228,7 +228,7 @@ func TestSDKStream_Recv_wrapsSDKErr(t *testing.T) {
 	t.Parallel()
 	root := errors.New("root")
 	sdk := ssestream.NewStream[responses.ResponseStreamEventUnion](&errDecoderResponses{err: root}, nil)
-	es := newSDKStream(sdk)
+	es := newSDKStream(sdk, 0)
 	s, ok := es.(*sdkStream)
 	if !ok {
 		t.Fatalf("newSDKStream returned %T", es)

@@ -33,8 +33,8 @@ type Weighted struct {
 // WeightedBranch is one weighted arm after splitting on '^'.
 type WeightedBranch struct {
 	Weight int
-	// First marks a [first] annotation (only meaningful when not on retry path and session allows).
-	First bool
+	// IsFirst marks a [first] annotation (only meaningful when not on retry path and session allows).
+	IsFirst bool
 	// Target is the resolved primary for this branch.
 	Target Primary
 }

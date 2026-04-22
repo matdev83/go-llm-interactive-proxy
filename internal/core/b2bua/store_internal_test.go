@@ -8,7 +8,7 @@ import (
 )
 
 // Orphan A-legs (e.g. anonymous CreateALeg) must be reclaimable via TTL without a
-// later GetALeg/Resolve touch; sweep on CreateALeg provides that path.
+// later FetchALeg/Resolve touch; sweep on CreateALeg provides that path.
 func TestMemoryStore_TTL_sweepsStaleAnonymousLegsOnCreate(t *testing.T) {
 	t.Parallel()
 	t0 := time.Unix(1700000000, 0).UTC()

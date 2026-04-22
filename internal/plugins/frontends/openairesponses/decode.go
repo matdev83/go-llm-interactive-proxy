@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -102,7 +102,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 }
 
 func parseInstructions(raw json.RawMessage) ([]lipapi.Message, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	// String instructions -> single system message.
@@ -165,7 +165,7 @@ func parseInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: input item json: %w", err)
 	}
 	switch strings.TrimSpace(probe.Type) {
 	case "function_call_output":
@@ -175,7 +175,7 @@ func parseInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	case "", "message":
 		return parseMessageInputItem(raw)
 	default:
-		return lipapi.Message{}, fmt.Errorf("unsupported input item type %q", probe.Type)
+		return lipapi.Message{}, fmt.Errorf("openairesponses: unsupported input item type %q", probe.Type)
 	}
 }
 
@@ -185,15 +185,15 @@ func parseMessageInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		Content json.RawMessage `json:"content"`
 	}
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: message input json: %w", err)
 	}
 	role, err := mapRole(m.Role)
 	if err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: message input role: %w", err)
 	}
 	parts, err := parseContent(m.Content)
 	if err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: message input content: %w", err)
 	}
 	return lipapi.Message{Role: role, Parts: parts}, nil
 }
@@ -206,7 +206,7 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: function_call json: %w", err)
 	}
 	if strings.TrimSpace(v.CallID) == "" {
 		return lipapi.Message{}, errors.New("openairesponses: function_call requires call_id")
@@ -215,7 +215,7 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		return lipapi.Message{}, errors.New("openairesponses: function_call requires name")
 	}
 	argStr := "{}"
-	if jsonutil.IsPresentNonNullJSON(v.Arguments) {
+	if jsonpresence.IsPresentNonNullJSON(v.Arguments) {
 		switch v.Arguments[0] {
 		case '"':
 			var s string
@@ -241,7 +241,7 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	}
 	content, err := json.Marshal(wire)
 	if err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: function_call marshal: %w", err)
 	}
 	return lipapi.Message{
 		Role: lipapi.RoleAssistant,
@@ -258,24 +258,24 @@ func parseFunctionCallOutputItem(raw json.RawMessage) (lipapi.Message, error) {
 		Output json.RawMessage `json:"output"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openairesponses: function_call_output json: %w", err)
 	}
 	if strings.TrimSpace(v.CallID) == "" {
 		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires call_id")
 	}
 	out := v.Output
-	if jsonutil.IsAbsentOrJSONNull(out) {
+	if jsonpresence.IsAbsentOrJSONNull(out) {
 		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires output")
 	}
 	if out[0] == '"' {
 		var s string
 		if err := json.Unmarshal(out, &s); err != nil {
-			return lipapi.Message{}, err
+			return lipapi.Message{}, fmt.Errorf("openairesponses: function_call_output string: %w", err)
 		}
 		var err error
 		out, err = json.Marshal(s)
 		if err != nil {
-			return lipapi.Message{}, err
+			return lipapi.Message{}, fmt.Errorf("openairesponses: function_call_output re-marshal: %w", err)
 		}
 	}
 	if !json.Valid(out) {
@@ -304,18 +304,18 @@ func mapRole(r string) (lipapi.Role, error) {
 	case "":
 		return lipapi.RoleUser, nil
 	default:
-		return "", fmt.Errorf("unsupported role %q", r)
+		return "", fmt.Errorf("openairesponses: unsupported role %q", r)
 	}
 }
 
 func parseContent(raw json.RawMessage) ([]lipapi.Part, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("message content is required")
 	}
 	if raw[0] == '"' {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("openairesponses: message content string: %w", err)
 		}
 		s = strings.TrimSpace(s)
 		if s == "" {
@@ -328,13 +328,13 @@ func parseContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	}
 	var blocks []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: message content array: %w", err)
 	}
 	var parts []lipapi.Part
 	for i, blk := range blocks {
 		p, err := parseContentBlock(blk)
 		if err != nil {
-			return nil, fmt.Errorf("content[%d]: %w", i, err)
+			return nil, fmt.Errorf("openairesponses: content[%d]: %w", i, err)
 		}
 		parts = append(parts, p)
 	}
@@ -348,7 +348,7 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 	}
 	var typ string
 	if err := json.Unmarshal(tRaw, &typ); err != nil {
-		return lipapi.Part{}, err
+		return lipapi.Part{}, fmt.Errorf("openairesponses: content block type: %w", err)
 	}
 	switch strings.TrimSpace(typ) {
 	case "input_text":
@@ -357,10 +357,10 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		}
 		raw, err := openaiwire.MarshalBlock(blk)
 		if err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openairesponses: input_text wire: %w", err)
 		}
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openairesponses: input_text json: %w", err)
 		}
 		if strings.TrimSpace(s.Text) == "" {
 			return lipapi.Part{}, errors.New("input_text requires text")
@@ -372,10 +372,10 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		}
 		raw, err := openaiwire.MarshalBlock(blk)
 		if err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openairesponses: input_image wire: %w", err)
 		}
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openairesponses: input_image json: %w", err)
 		}
 		if strings.TrimSpace(s.ImageURL) == "" {
 			return lipapi.Part{}, errors.New("input_image requires image_url")
@@ -388,22 +388,22 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		}
 		raw, err := openaiwire.MarshalBlock(blk)
 		if err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openairesponses: input_file wire: %w", err)
 		}
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openairesponses: input_file json: %w", err)
 		}
 		if strings.TrimSpace(s.FileData) == "" {
 			return lipapi.Part{}, errors.New("input_file requires file_data")
 		}
 		return openaiwire.FilePartFromBase64(s.Filename, s.FileData), nil
 	default:
-		return lipapi.Part{}, fmt.Errorf("unsupported content block type %q", typ)
+		return lipapi.Part{}, fmt.Errorf("openairesponses: unsupported content block type %q", typ)
 	}
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -463,13 +463,13 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 	}
 	if raw[0] == '"' {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.ToolChoice{}, err
+			return lipapi.ToolChoice{}, fmt.Errorf("openairesponses: tool_choice string json: %w", err)
 		}
 		switch strings.TrimSpace(strings.ToLower(s)) {
 		case "auto", "":
@@ -508,7 +508,7 @@ func encodeJSONStringValue(s string) ([]byte, error) {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(true)
 	if err := enc.Encode(s); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openairesponses: encode json string: %w", err)
 	}
 	b := buf.Bytes()
 	if n := len(b); n > 0 && b[n-1] == '\n' {

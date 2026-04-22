@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -19,6 +21,9 @@ import (
 // Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
 // Recv blocked on scanner.Scan or network I/O; Close cancels the stream context and
 // closes the response body so Scan unblocks.
+// Context: Scan does not observe the per-Recv ctx; cancellation of that ctx alone does
+// not unblock a blocked Scan—use Close (or parent cancellation that closes the body).
+// See [lipapi.EventStream] cancellation notes.
 //
 // Context: ctx/cancel are derived from the Open parent via WithCancel and live for the
 // stream lifetime (cancel on Close). Recv passes its per-call ctx to inbound server requests
@@ -59,6 +64,7 @@ func newPromptNDJSONStream(
 	mapper SessionUpdateMapperOptions,
 	srv ServerRequestHandler,
 	cancelProfile CancelProfile,
+	maxPending int,
 ) *promptStream {
 	ctx, cancel := context.WithCancel(parent)
 	s := &promptStream{
@@ -72,6 +78,7 @@ func newPromptNDJSONStream(
 		cancelProfile: cancelProfile,
 		ctx:           ctx,
 		cancel:        cancel,
+		pending:       stream.NewPendingEventQueue(maxPending),
 	}
 	s.scanner = bufio.NewScanner(body)
 	buf := make([]byte, 0, 64*1024)
@@ -93,42 +100,63 @@ func (s *promptStream) Close() error {
 	return nil
 }
 
-func (s *promptStream) ensureResponseStartedLocked() {
+func (s *promptStream) ensureResponseStartedLocked() error {
 	if s.responseStarted {
-		return
+		return nil
 	}
-	s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+	if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+		return err
+	}
 	s.responseStarted = true
+	return nil
 }
 
-func (s *promptStream) ensureMessageStartedLocked() {
+func (s *promptStream) ensureMessageStartedLocked() error {
 	if s.messageStarted {
-		return
+		return nil
 	}
-	s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+	if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+		return err
+	}
 	s.messageStarted = true
+	return nil
 }
 
-func (s *promptStream) enqueueEventsLocked(evs []lipapi.Event) {
+func (s *promptStream) enqueueEventsLocked(evs []lipapi.Event) error {
 	for _, e := range evs {
 		switch e.Kind {
 		case lipapi.EventTextDelta:
-			s.ensureResponseStartedLocked()
-			s.ensureMessageStartedLocked()
+			if err := s.ensureResponseStartedLocked(); err != nil {
+				return err
+			}
+			if err := s.ensureMessageStartedLocked(); err != nil {
+				return err
+			}
 		case lipapi.EventReasoningDelta:
-			s.ensureResponseStartedLocked()
-			s.ensureMessageStartedLocked()
+			if err := s.ensureResponseStartedLocked(); err != nil {
+				return err
+			}
+			if err := s.ensureMessageStartedLocked(); err != nil {
+				return err
+			}
 		case lipapi.EventError, lipapi.EventResponseFinished:
-			s.ensureResponseStartedLocked()
+			if err := s.ensureResponseStartedLocked(); err != nil {
+				return err
+			}
 		case lipapi.EventWarning:
-			s.ensureResponseStartedLocked()
+			if err := s.ensureResponseStartedLocked(); err != nil {
+				return err
+			}
 		default:
 		}
-		s.pending.Push(e)
+		if err := s.pending.Push(e); err != nil {
+			return err
+		}
 		if e.Kind == lipapi.EventResponseFinished {
 			s.after = true
 		}
 	}
+	return nil
 }
 
 func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -162,8 +190,14 @@ func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, io.ErrUnexpectedEOF
 			}
 			if !s.after {
-				s.ensureResponseStartedLocked()
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+				if err := s.ensureResponseStartedLocked(); err != nil {
+					s.mu.Unlock()
+					return lipapi.Event{}, err
+				}
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
+					s.mu.Unlock()
+					return lipapi.Event{}, err
+				}
 				s.after = true
 				s.mu.Unlock()
 				continue
@@ -196,7 +230,10 @@ func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			continue
 		}
 		s.mu.Lock()
-		s.enqueueEventsLocked(evs)
+		if err := s.enqueueEventsLocked(evs); err != nil {
+			s.mu.Unlock()
+			return lipapi.Event{}, err
+		}
 		s.mu.Unlock()
 	}
 }
@@ -242,5 +279,9 @@ func (s *promptStream) signalCancel() {
 	// Values from s.ctx (e.g. trace IDs) are preserved for the outbound request.
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 2*time.Second)
 	defer cancel()
-	_ = s.cli.cancelSession(cctx, s.cancelProfile, s.sessionID, s.promptRPCID, s.messageID)
+	if err := s.cli.cancelSession(cctx, s.cancelProfile, s.sessionID, s.promptRPCID, s.messageID); err != nil {
+		if log := s.cli.log; log != nil {
+			log.Debug("acp: cancel session rpc failed", slog.String("error", diag.TruncErrDetail(err, 512)))
+		}
+	}
 }

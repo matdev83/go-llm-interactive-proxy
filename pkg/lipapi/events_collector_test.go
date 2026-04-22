@@ -87,8 +87,15 @@ func TestCollect_errorTerminationReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("unexpected error: %v", err)
+	var se *lipapi.StreamError
+	if !errors.As(err, &se) {
+		t.Fatalf("want *lipapi.StreamError, got %T: %v", err, err)
+	}
+	if se.Code != "upstream" || se.Message != "boom" {
+		t.Fatalf("unexpected stream error: %+v", se)
+	}
+	if !errors.Is(err, lipapi.ErrStreamTerminal) {
+		t.Fatalf("expected ErrStreamTerminal in chain, got %v", err)
 	}
 	if out.Text.String() != "partial" {
 		t.Fatalf("expected partial text aggregation, got %q", out.Text.String())

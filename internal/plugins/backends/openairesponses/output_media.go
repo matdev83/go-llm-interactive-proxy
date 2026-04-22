@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -13,7 +13,7 @@ import (
 // input_file) from a completed Responses payload into canonical assistant ref events.
 // The OpenAI wire uses the same content types as request items; the Go SDK union may
 // not type every variant, so we parse RawJSON per content element.
-func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) {
+func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) error {
 	for _, item := range resp.Output {
 		if item.Type != "message" {
 			continue
@@ -38,31 +38,44 @@ func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) {
 				if url == "" {
 					continue
 				}
-				s.ensureResponseStarted()
-				s.ensureAssistantMessageStarted()
-				s.pending.Push(lipapi.Event{
+				if err := s.ensureResponseStarted(); err != nil {
+					return err
+				}
+				if err := s.ensureAssistantMessageStarted(); err != nil {
+					return err
+				}
+				if err := s.pending.Push(lipapi.Event{
 					Kind:          lipapi.EventAssistantImageRef,
 					AssistantRef:  url,
 					AssistantMIME: sniffImageMIME(url),
-				})
+				}); err != nil {
+					return err
+				}
 			case "input_file":
 				if strings.TrimSpace(probe.FileID) == "" {
 					continue
 				}
-				s.ensureResponseStarted()
-				s.ensureAssistantMessageStarted()
-				s.pending.Push(lipapi.Event{
+				if err := s.ensureResponseStarted(); err != nil {
+					return err
+				}
+				if err := s.ensureAssistantMessageStarted(); err != nil {
+					return err
+				}
+				if err := s.pending.Push(lipapi.Event{
 					Kind:          lipapi.EventAssistantFileRef,
 					AssistantRef:  probe.FileID,
 					AssistantMIME: "application/octet-stream",
-				})
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	}
+	return nil
 }
 
 func extractImageURL(raw json.RawMessage) string {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return ""
 	}
 	var s string

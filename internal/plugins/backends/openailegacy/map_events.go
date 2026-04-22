@@ -17,6 +17,8 @@ import (
 //
 // Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
 // Recv blocked on sdk.Next; Close closes the SDK stream to unblock Next.
+// Context: sdk.Next does not observe ctx; cancel the request context alone may not
+// return from Recv until Close runs (see [lipapi.EventStream] cancellation notes).
 type chatStream struct {
 	mu        sync.Mutex
 	closeOnce sync.Once
@@ -32,11 +34,14 @@ type chatStream struct {
 	activeToolOrder []int64
 }
 
-func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk]) lipapi.EventStream {
+func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.EventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
-	return &chatStream{sdk: s}
+	return &chatStream{
+		sdk:     s,
+		pending: stream.NewPendingEventQueue(maxPending),
+	}
 }
 
 func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -77,7 +82,10 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, io.EOF
 			}
 			s.terminalEmitted = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
+				s.mu.Unlock()
+				return lipapi.Event{}, err
+			}
 			s.mu.Unlock()
 			continue
 		}
@@ -87,28 +95,37 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			s.mu.Unlock()
 			continue
 		}
-		s.handleChunk(cur)
+		if err := s.handleChunk(cur); err != nil {
+			s.mu.Unlock()
+			return lipapi.Event{}, err
+		}
 		s.mu.Unlock()
 	}
 }
 
-func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
+func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 	if !s.sawResp {
 		s.sawResp = true
-		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+			return err
+		}
 	}
 
 	for _, choice := range ch.Choices {
 		d := choice.Delta
 		if d.Role != "" && !s.sawMsg {
 			s.sawMsg = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+				return err
+			}
 		}
 
 		if len(d.ToolCalls) > 0 {
 			if !s.sawMsg {
 				s.sawMsg = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
 			for _, tc := range d.ToolCalls {
 				if s.activeTools == nil {
@@ -119,19 +136,23 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 						s.activeToolOrder = append(s.activeToolOrder, tc.Index)
 					}
 					s.activeTools[tc.Index] = tc.ID
-					s.pending.Push(lipapi.Event{
+					if err := s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallStarted,
 						ToolCallID: tc.ID,
 						ToolName:   tc.Function.Name,
-					})
+					}); err != nil {
+						return err
+					}
 				}
 				if tc.Function.Arguments != "" {
 					id := s.activeTools[tc.Index]
-					s.pending.Push(lipapi.Event{
+					if err := s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallArgsDelta,
 						ToolCallID: id,
 						Delta:      tc.Function.Arguments,
-					})
+					}); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -139,18 +160,24 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 		if d.Content != "" {
 			if !s.sawMsg {
 				s.sawMsg = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content}); err != nil {
+				return err
+			}
 		}
 
 		if choice.FinishReason == "tool_calls" {
 			for _, idx := range s.activeToolOrder {
 				if id := s.activeTools[idx]; id != "" {
-					s.pending.Push(lipapi.Event{
+					if err := s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallFinished,
 						ToolCallID: id,
-					})
+					}); err != nil {
+						return err
+					}
 				}
 			}
 			s.activeTools = nil
@@ -159,12 +186,15 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) {
 	}
 
 	if ch.JSON.Usage.Valid() && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.TotalTokens > 0) {
-		s.pending.Push(lipapi.Event{
+		if err := s.pending.Push(lipapi.Event{
 			Kind:         lipapi.EventUsageDelta,
 			InputTokens:  safecast.IntFromInt64Clamp(ch.Usage.PromptTokens),
 			OutputTokens: safecast.IntFromInt64Clamp(ch.Usage.CompletionTokens),
-		})
+		}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (s *chatStream) Close() error {

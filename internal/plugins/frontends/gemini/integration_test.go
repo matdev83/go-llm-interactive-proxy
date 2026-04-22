@@ -151,7 +151,8 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	u := srv.URL + "/v1beta/models/gemini-2.0-flash:generateContent"
-	res, err := http.Post(u, "application/json", strings.NewReader(`{`))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(u, "application/json", strings.NewReader(`{`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +172,8 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := http.Post(srv.URL+"/v1beta/foo", "application/json", strings.NewReader(`{}`))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1beta/foo", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +307,8 @@ func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
   "tools": [{"functionDeclarations":[{"name":"todo_add","parameters":{"type":"object"}}]}]
 }`
 	url := srv.URL + "/v1beta/models/gemini-2.0-flash:generateContent"
-	res, err := http.Post(url, "application/json", strings.NewReader(body))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

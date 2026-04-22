@@ -35,13 +35,26 @@ func New(cfg Config) runtime.Backend {
 	return NewWithContext(ctx, cfg)
 }
 
-// NewWithContext returns a runtime backend like [New], using ctx for awsconfig.LoadDefaultConfig.
-// If ctx is nil, [context.Background] is used (no deadline). Prefer passing a context with a deadline.
-func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
+// ensureLoadConfigDeadline returns a context for awsconfig.LoadDefaultConfig. If ctx is nil, or
+// has no deadline, it wraps with [DefaultLoadConfigTimeout] so config load cannot hang
+// indefinitely. The caller must invoke the returned CancelFunc.
+func ensureLoadConfigDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
-		ctx = context.Background()
+		return context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
 	}
-	cli, err := newRuntimeClient(ctx, cfg)
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, DefaultLoadConfigTimeout)
+}
+
+// NewWithContext returns a runtime backend like [New], using ctx for awsconfig.LoadDefaultConfig.
+// A deadline is always applied for the load step: either ctx's own deadline, or
+// [DefaultLoadConfigTimeout] when ctx is nil or uncancelled without a deadline.
+func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
+	loadCtx, cancel := ensureLoadConfigDeadline(ctx)
+	defer cancel()
+	cli, err := newRuntimeClient(loadCtx, cfg)
 	if err != nil {
 		// Surface construction errors at Open time via a backend that always fails.
 		return runtime.Backend{
@@ -69,7 +82,7 @@ func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
 			if err != nil {
 				return nil, fmt.Errorf("bedrock: ConverseStream: %w", err)
 			}
-			return newConverseStream(out.GetStream()), nil
+			return newConverseStream(out.GetStream(), call.MaxPendingWireEvents), nil
 		},
 	}
 }

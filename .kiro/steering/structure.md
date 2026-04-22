@@ -33,11 +33,13 @@ Around the core and plugins sit explicit **standard distribution** packages (`in
 `internal/core/`
 - `runtime/` - request execution pipeline and lifecycle orchestration
 - `routing/` - selector parsing, weighted choice, ordered failover, eligibility filtering
-- `continuity/` - B2BUA-like session resolution (`Manager`, `ResolveALegRecord`); the executor resolves A-legs through this package over `b2bua.Store`
+- `continuity/` - B2BUA-like session resolution (`Manager`, `ResolveALegRecord`); the executor resolves A-legs through this package over `b2bua.Store` (memory or SQLite store implementations)
 - `stream/` - canonical event stream engine, collectors, keepalive, cancellation
+- `hooks/` - core hook bus, submit/tool policies, and request/response part validation (invoked by the executor; feature plugins implement hook kinds)
 - `capabilities/` - capability negotiation and downgrade validation
 - `config/` - typed config loading and validation for the runtime only
-- `http/` - shared server wiring, middleware, health/admin surfaces
+- `http/` - shared server wiring, middleware (including optional coarse request timing), health/admin surfaces
+- `diag/` - call/trace correlation helpers used on hot streaming paths (e.g. context decoration for recv/diagnostics)
 - `admin/` - diagnostics, backend reactivation, and operator-facing endpoints
 
 Core rules:
@@ -97,7 +99,7 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 ### 6. Support surfaces
 
 `internal/infra/`
-- cross-cutting infrastructure seams shared by runtime and plugins: HTTP client helpers, clocks, ids, logging helpers, and other adapters not specific to one protocol codec
+- cross-cutting infrastructure seams shared by runtime and plugins: HTTP client tuning (`httpclient`), structured logging helpers, Prometheus metrics wiring (`metrics`), OpenTelemetry tracing bootstrap (`tracing`), clocks, ids, and other adapters not specific to one protocol codec
 
 `internal/refbackend/`
 - spec-shaped HTTP **emulator** servers for integration tests; import only from `*_test.go` (must not appear on production dependency paths)
@@ -164,4 +166,5 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 
 ---
 _Initial Go steering version: 2026-04-20_
+_Updated 2026-04-22: `diag/`, `hooks/`, infra metrics/tracing/httpclient, continuity store note._
 _Reason: establish the default repository map for the greenfield rewrite and make ownership boundaries explicit._

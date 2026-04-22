@@ -7,7 +7,7 @@ import (
 
 // ErrRecoverablePreOutput is a stable sentinel for upstream failures that the core
 // may swallow and retry on another route candidate before client-visible output begins.
-var ErrRecoverablePreOutput = errors.New("recoverable pre-output upstream failure")
+var ErrRecoverablePreOutput = errors.New("lipapi: recoverable pre-output upstream failure")
 
 // OutputPhase classifies whether visible output had started when the failure occurred.
 type OutputPhase string

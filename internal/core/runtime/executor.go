@@ -15,6 +15,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 var _ lipsdk.ExecutorView = (*Executor)(nil)
@@ -60,6 +62,10 @@ type Executor struct {
 	RouteObserver lipsdk.RouteObserver
 	// RouteTrace, when set, records recent routing decisions for diagnostics HTTP handlers.
 	RouteTrace *diag.RouteTraceBuffer
+	// MaxPendingWireEvents caps backend pending event queues per stream (0 = unlimited).
+	MaxPendingWireEvents int
+	// Metrics receives coarse executor observations when non-nil.
+	Metrics MetricsSink
 
 	rngOnce    sync.Once
 	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
@@ -77,7 +83,9 @@ func (e *Executor) capsForAttempt(ctx context.Context, be Backend, attempt lipap
 // before the returned stream yields events.
 //
 // ctx must be non-nil (same contract as [lipapi.EventStream.Recv]); nil returns [lipapi.ErrNilContext].
-func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
+const otelScopeExecutor = "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+
+func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.EventStream, err error) {
 	if e == nil || e.Store == nil || call == nil {
 		return nil, fmt.Errorf("executor: invalid arguments")
 	}
@@ -91,6 +99,14 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 	if ctx == nil {
 		return nil, lipapi.ErrNilContext
 	}
+	ctx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
+	defer func() {
+		if err != nil {
+			execSpan.RecordError(err)
+			execSpan.SetStatus(codes.Error, err.Error())
+		}
+		execSpan.End()
+	}()
 	traceID, baseline, aLeg, ctx, err := e.prepareSubmitAndALeg(ctx, bus, call)
 	if err != nil {
 		return nil, fmt.Errorf("executor: prepare submit: %w", err)

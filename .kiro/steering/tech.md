@@ -2,11 +2,12 @@
 
 ## Stack summary
 
-- Language/runtime: Go 1.26.x toolchain pinned in `go.mod`
+- Language/runtime: Go 1.26.x toolchain pinned in `go.mod` (patch version is authoritative)
 - HTTP server: standard library `net/http`
-- Logging: standard library `log/slog`
-- Serialization: standard library `encoding/json` by default
+- Logging: standard library `log/slog` (often composed with small `samber/slog-*` helpers where useful)
+- Serialization: standard library `encoding/json` by default; JSON null-vs-empty conventions live in `internal/core/jsonpresence` for encoded shapes that must round-trip cleanly
 - YAML config: `gopkg.in/yaml.v3`
+- Observability (optional, config-gated): Prometheus metrics (`prometheus/client_golang`), OpenTelemetry tracing (`go.opentelemetry.io/otel` + OTLP HTTP exporter)
 - Provider SDKs: official vendor Go SDKs inside backend plugins only
 - Testing: standard library `testing`, `httptest`, fuzzing, and race detector
 
@@ -95,7 +96,7 @@ Stable routing concepts:
 - Use wrapped Go errors with classification metadata.
 - Map internal errors to protocol-specific responses at the frontend edge.
 - Emit structured logs for routing decisions, attempts, failovers, and cancellations.
-- Keep diagnostics and observability as orthogonal concerns.
+- Keep diagnostics and observability as orthogonal concerns: HTTP diagnostics routes are core-owned; optional `/metrics` and OTLP tracing are wired through `internal/infra/` when enabled in config.
 
 ## Tooling expectations
 
@@ -103,11 +104,12 @@ Default verification stack:
 - `go test ./...`
 - `go test -race ./...`
 - `go vet ./...`
-- `staticcheck ./...`
+- `staticcheck ./...` or `golangci-lint` (local `make qa` prefers golangci-lint when installed)
 - `go tool govulncheck ./...` (pinned in `go.mod`)
 
 Optional repo tooling may add:
-- `golangci-lint`
+- `make bench` for benchmark smoke across hot packages (see `docs/performance-checks.md`)
+- weekly CI benchmark artifact upload (`.github/workflows/benchmarks.yml`, manual `benchstat` workflow)
 - reproducible conformance runners
 - fixture update helpers
 
@@ -121,4 +123,5 @@ Default preference order:
 
 ---
 _Initial Go steering version: 2026-04-20_
+_Updated 2026-04-22: observability stack, jsonpresence, bench/benchmark CI notes._
 _Reason: capture the technical defaults for the Go rewrite and prevent a repeat of the Python-era coupling patterns._

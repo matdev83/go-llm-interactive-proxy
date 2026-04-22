@@ -41,3 +41,14 @@ func TestNewMemoryStore_acceptsPositiveMaxLegs(t *testing.T) {
 		t.Fatalf("maxLegs: got %d want 7", s.maxLegs)
 	}
 }
+
+func TestNewMemoryStore_TTL_modeGetsDefaultMaxLegsCap(t *testing.T) {
+	t.Parallel()
+	s, err := NewMemoryStore(MemoryStoreOptions{TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.maxLegs != DefaultMemoryStoreMaxLegsWithoutTTL {
+		t.Fatalf("maxLegs: got %d want default %d", s.maxLegs, DefaultMemoryStoreMaxLegsWithoutTTL)
+	}
+}

@@ -20,13 +20,22 @@ type unarySpyTransport struct {
 	mu          sync.Mutex
 	lastCtx     context.Context
 	errAtInvoke error
+	// invokeCh receives one value after each successful CallUnary state update; optional.
+	invokeCh chan struct{}
 }
 
 func (u *unarySpyTransport) CallUnary(ctx context.Context, body []byte, expectStatus int) ([]byte, error) {
 	u.mu.Lock()
 	u.errAtInvoke = ctx.Err()
 	u.lastCtx = ctx
+	ch := u.invokeCh
 	u.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -167,11 +176,11 @@ func TestParseNDJSONLine_terminal(t *testing.T) {
 
 func TestPromptStream_signalCancelContextNotCanceledWithConsumer(t *testing.T) {
 	t.Parallel()
-	spy := &unarySpyTransport{}
+	spy := &unarySpyTransport{invokeCh: make(chan struct{}, 4)}
 	cli := &client{t: spy}
 	parent := context.WithValue(context.Background(), ctxKey{}, "trace")
 	body := io.NopCloser(strings.NewReader(""))
-	s := newPromptNDJSONStream(parent, body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}))
+	s := newPromptNDJSONStream(parent, body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}), 0)
 
 	cctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -179,12 +188,10 @@ func TestPromptStream_signalCancelContextNotCanceledWithConsumer(t *testing.T) {
 		t.Fatalf("recv err: %v", err)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for spy.last() == nil {
-		if time.Now().After(deadline) {
-			t.Fatal("cancelSession was not invoked")
-		}
-		time.Sleep(1 * time.Millisecond)
+	select {
+	case <-spy.invokeCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelSession was not invoked")
 	}
 	last := spy.last()
 	if spy.invokeErr() != nil {
@@ -202,7 +209,7 @@ func TestPromptStream_decodeInboundLineMalformedJSON(t *testing.T) {
 	t.Parallel()
 	body := io.NopCloser(strings.NewReader("{not json"))
 	cli := &client{t: &unarySpyTransport{}}
-	s := newPromptNDJSONStream(context.Background(), body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}))
+	s := newPromptNDJSONStream(context.Background(), body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}), 0)
 	_, err := s.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
@@ -220,7 +227,7 @@ func TestPromptStream_handleInboundServerRequestHandlerFail(t *testing.T) {
 	t.Parallel()
 	line := `{"jsonrpc":"2.0","id":5,"method":"vendor/extra","params":{}}` + "\n"
 	cli := &client{t: &unarySpyTransport{}}
-	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mergeMapperOptions(Config{}), errServerRequestHandler{}, mergeCancelProfile(Config{}))
+	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mergeMapperOptions(Config{}), errServerRequestHandler{}, mergeCancelProfile(Config{}), 0)
 	_, err := s.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
@@ -240,7 +247,7 @@ func TestPromptStream_sendInboundServerResponseFail(t *testing.T) {
 	t.Parallel()
 	line := `{"jsonrpc":"2.0","id":5,"method":"vendor/extra","params":{}}` + "\n"
 	cli := &client{t: sendErrTransport{}}
-	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mergeMapperOptions(Config{}), okServerRequestHandler{}, mergeCancelProfile(Config{}))
+	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mergeMapperOptions(Config{}), okServerRequestHandler{}, mergeCancelProfile(Config{}), 0)
 	_, err := s.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
@@ -261,7 +268,7 @@ func TestPromptStream_parseNDJSONLineWrapped(t *testing.T) {
 	line := `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t"}}}` + "\n"
 	mapper := mergeMapperOptions(Config{SessionUpdate: SessionUpdateMapperOptions{ToolSink: failToolUpdateSink{}}})
 	cli := &client{t: &unarySpyTransport{}}
-	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mapper, nil, mergeCancelProfile(Config{}))
+	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mapper, nil, mergeCancelProfile(Config{}), 0)
 	_, err := s.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
@@ -281,7 +288,7 @@ func TestPromptStream_scanStreamError(t *testing.T) {
 	r := &readOnceThenErr{data: []byte(chunk), err: errRead}
 	body := io.NopCloser(r)
 	cli := &client{t: &unarySpyTransport{}}
-	s := newPromptNDJSONStream(context.Background(), body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}))
+	s := newPromptNDJSONStream(context.Background(), body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}), 0)
 	ctx := context.Background()
 	for i := range 3 {
 		if _, err := s.Recv(ctx); err != nil {

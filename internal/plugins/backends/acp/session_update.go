@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -166,7 +167,7 @@ func decodeProbeLine(line string) (map[string]any, error) {
 	dec.UseNumber()
 	var probe map[string]any
 	if err := dec.Decode(&probe); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("acp: decode probe line: %w", err)
 	}
 	return probe, nil
 }

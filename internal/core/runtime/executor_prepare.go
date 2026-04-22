@@ -30,6 +30,9 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 	if err != nil {
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, ctx, err
 	}
-	outCtx = diag.WithCallDiag(outCtx, traceID, aLeg.ALegID)
+	// Expose resolved A-leg on the live call so frontends can attach [diag.EnsureCallDiag] once
+	// to the request context and avoid per-Recv context.Value allocation on the streaming path.
+	call.Session.ALegID = aLeg.ALegID
+	outCtx = diag.EnsureCallDiag(outCtx, traceID, aLeg.ALegID)
 	return traceID, baseline, aLeg, outCtx, nil
 }

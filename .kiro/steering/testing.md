@@ -26,9 +26,13 @@ Use package-local tests for:
 
 ### Integration tests
 
+**Alignment with generic golang-testing guidance:** Community materials often require `//go:build integration` on any file named `integration_test.go`. This repository **intentionally diverges** for the current `**/integration_test.go` set: they are in-process wiring tests only (see below). Prefer named `t.Run` subtests and `t.Parallel()` where safe; use `goleak.VerifyTestMain` in packages that spin goroutines in tests (see `internal/core/runtime`, `internal/core/stream`, `internal/pluginreg`, `internal/pluginreg/standardbundle`, `internal/plugins/backends/acp`, `internal/plugins/backends/bedrock`, `internal/stdhttp` (HTTP server and client wiring in tests); `pluginreg` and `standardbundle` ignore the OpenCensus stats worker started from a dependency `init`).
+
 **Build tags:** This repo does **not** use `//go:build integration` on `integration_test.go` files. Those files are **fast, deterministic** composed tests (`httptest` + stub executor/backends, no real provider network). They belong in the default `go test ./...` / `make test` suite so every PR exercises decode/handler/refclient wiring. If we add tests that hit real networks, long-lived containers, or shared external state, gate them with `//go:build integration` **or** `testing.Short()` skips and run them in a separate CI job.
 
 **`precommit` tag:** A small set of non-blocking checks (repo root hygiene under `internal/qa/`, and large executor regression matrices under `internal/core/runtime/`) use `//go:build precommit`. Default `make test` / `go test ./...` omits them; `make test-precommit-extra`, the git pre-commit quality gate, `make qa`, and CI unit tests run `go test -tags=precommit` so pushes still exercise them.
+
+**`testing.Short` and `-short`:** The default `GO_TEST_FLAGS` in the Makefile and the CI unit-test step do **not** pass `go test -short`, and no test uses `if testing.Short() { t.Skip(...) }` today. The full default suite is fast enough for every PR. If you add tests that are intentionally slow or need external services, gate them with `testing.Short()` and document a second command (or restore `-short` on the relevant `go test` line) so `go test -short` skips the expensive work while the full suite still runs the rest.
 
 Use composed tests with `httptest` and stub plugins/providers for:
 - frontend decode -> core -> backend -> frontend encode flows,
@@ -97,6 +101,8 @@ Default commands:
 - `go vet ./...`
 - `staticcheck ./...`
 
+Performance smoke (not part of default PR gates unless you opt in): `make bench` runs benchmarks across core, stream, routing, diag, testkit, and frontend encoder packages; see `docs/performance-checks.md`. CI may upload weekly `make bench` output via `.github/workflows/benchmarks.yml` for manual `benchstat` comparison.
+
 ## What to avoid
 
 - brittle assertions tied to logging text or call counts only,
@@ -106,4 +112,5 @@ Default commands:
 
 ---
 _Initial Go steering version: 2026-04-20_
+_Updated 2026-04-22: goleak package list (`standardbundle`), benchmark/doc references._
 _Reason: define the executable-spec culture for the Go rewrite and protect the streaming/routing boundaries that matter most._

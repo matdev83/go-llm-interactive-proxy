@@ -54,7 +54,7 @@ func TestClassifyExecute_nil(t *testing.T) {
 	if out.Status != http.StatusInternalServerError {
 		t.Fatalf("status: %d", out.Status)
 	}
-	if out.Message != "unknown error" {
+	if out.Message != execerr.UnknownExecuteErrorMessage {
 		t.Fatalf("message: %q", out.Message)
 	}
 	if out.Err != nil {

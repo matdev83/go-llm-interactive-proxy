@@ -37,10 +37,10 @@ type retryRecvStream struct {
 
 	lastHardReject lipapi.NegotiationResult
 
-	innerMu sync.Mutex
-	inner   lipapi.EventStream
-	bleg    b2bua.BLegRecord
-	cand    routing.AttemptCandidate
+	innerMu   sync.Mutex
+	inner     lipapi.EventStream
+	bleg      b2bua.BLegRecord
+	cand      routing.AttemptCandidate
 	committed bool
 	finished  bool
 }
@@ -97,7 +97,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.finished {
 		return lipapi.Event{}, io.EOF
 	}
-	ctx = diag.WithCallDiag(ctx, s.traceID, s.aLegID)
+	ctx = diag.EnsureCallDiag(ctx, s.traceID, s.aLegID)
 	for {
 		var inner lipapi.EventStream
 		for {
@@ -161,9 +161,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return lipapi.Event{}, io.EOF
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
-			reason := err.Error()
-			if reason == "" {
-				reason = "cancelled"
+			reason := cancellationAttemptReason(ctx, err)
+			if s.executor != nil && s.executor.Log != nil && err != nil {
+				s.executor.Log.DebugContext(ctx, "retry_recv context cancellation",
+					"reason", reason,
+					"recv_error_detail", diag.TruncErrDetail(err, attemptReasonMaxRunes),
+				)
 			}
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 				ALegID:  s.aLegID,
@@ -189,7 +192,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				surfErr = &lipapi.UpstreamFailure{
 					Phase:        lipapi.PhasePostOutput,
 					Recoverable:  false,
-					Reason:       err.Error(),
+					Reason:       attemptReasonDetail(err),
 					CandidateKey: s.cand.Key,
 				}
 			}
@@ -198,7 +201,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				BLeg:    s.bleg,
 				Cand:    s.cand,
 				Outcome: lipapi.AttemptSurfacedFailure,
-				Reason:  surfErr.Error(),
+				Reason:  attemptReasonDetail(surfErr),
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			return lipapi.Event{}, surfErr
 		}
@@ -225,11 +228,34 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 }
 
+// cancellationAttemptReason returns a low-cardinality bucket for attempt records when
+// recv ends due to context cancellation or deadline.
+func cancellationAttemptReason(ctx context.Context, recvErr error) string {
+	if recvErr != nil {
+		if errors.Is(recvErr, context.Canceled) {
+			return "context canceled"
+		}
+		if errors.Is(recvErr, context.DeadlineExceeded) {
+			return "context deadline exceeded"
+		}
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.Canceled) {
+			return "context canceled"
+		}
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return "context deadline exceeded"
+		}
+		return "context done"
+	}
+	return "cancelled"
+}
+
 // tryReplacementIteration performs one planning + open attempt for recv-phase failover.
 // It returns opened=true when s.inner is ready, opened=false when the caller should emit
 // a keepalive (Req 5.5) and invoke Recv again, or a non-nil error when the replacement path is exhausted.
 func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened bool, err error) {
-	ctx = diag.WithCallDiag(ctx, s.traceID, s.aLegID)
+	ctx = diag.EnsureCallDiag(ctx, s.traceID, s.aLegID)
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}

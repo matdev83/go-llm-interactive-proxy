@@ -97,7 +97,7 @@ Additional items remain **documented v1 subsets** (aligned with `requirements.md
 
 ## Verification commands (post-review)
 
-- `go test -short -timeout=10m ./...` — **pass** (2026-04-21, post-fix).
+- `go test -timeout=10m ./...` — **pass** (2026-04-21, post-fix).
 - `go run ./cmd/lipstd -config ./config/config.yaml` — blocks serving HTTP until SIGINT/SIGTERM; use Ctrl+C locally. At least one **enabled** backend in `config.yaml` is required for successful upstream calls (API keys via env or YAML as documented in [`internal/stdhttp/wire.go`](../../../internal/stdhttp/wire.go)).
 
 ---

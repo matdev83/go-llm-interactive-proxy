@@ -261,13 +261,22 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	return json.NewEncoder(w).Encode(out)
 }
 
-func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
+func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (err error) {
 	ka, err := stream.WrapRecoveryKeepalive(es)
 	if err != nil {
 		return err
 	}
 	es = ka
-	defer func() { _ = es.Close() }()
+	defer func() {
+		if cerr := es.Close(); cerr != nil {
+			closeErr := fmt.Errorf("anthropic: close event stream: %w", cerr)
+			if err != nil {
+				err = errors.Join(err, closeErr)
+			} else {
+				err = closeErr
+			}
+		}
+	}()
 	model := ModelFromCall(call)
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
@@ -350,8 +359,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb)
 	}
 
+	var ev lipapi.Event
 	for {
-		ev, err := es.Recv(ctx)
+		ev, err = es.Recv(ctx)
 		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("anthropic: stream ended without response_finished")
 		}
@@ -458,7 +468,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}
 			return nil
 		case lipapi.EventError:
-			return fmt.Errorf("anthropic stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
+			return lipapi.NewStreamError(ev.ErrorCode, ev.ErrorMessage)
 		case lipapi.EventWarning:
 			if ev.WarningCode == stream.KeepaliveEventCode {
 				if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {

@@ -1,13 +1,13 @@
 .PHONY: help test test-fast test-unit test-precommit-extra test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
 
 GO ?= go
-GO_TEST_FLAGS ?= -short -parallel=8 -timeout=10m
+GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
 
 help:
 	@echo "Targets:"
-	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest"
+	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go mod verify, go build, go vet, guard scripts, archtest"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
-	@echo "  make test            - quality-checks then full unit tests (-short)"
+	@echo "  make test            - quality-checks then full unit tests"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
@@ -15,7 +15,7 @@ help:
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
 	@echo "  make parity-checks   - conformance package tests only (API parity suites + matrix; see .kiro/specs/llm-api-parity/)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
-	@echo "  make bench           - benchmarks (testkit, stream SSE, frontend streaming encoders)"
+	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag, frontend encoders)"
 	@echo "  make qa              - quality-checks + unit tests + lint + vuln (local)"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks"
@@ -52,9 +52,9 @@ test-precommit-extra:
 
 test-race:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/race-check.ps1 -Short
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/race-check.ps1
 else
-	@bash scripts/race-check.sh --short
+	@bash scripts/race-check.sh
 endif
 
 # Short fuzz smoke (extend FUZZTIME locally, e.g. FUZZTIME=30s make test-fuzz)
@@ -99,6 +99,7 @@ release-gates:
 
 bench:
 	$(GO) test -bench=. -benchmem -run=Benchmark ./internal/testkit/... ./internal/core/stream/... \
+		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
 		./internal/plugins/frontends/openailegacy/... \
 		./internal/plugins/frontends/gemini/... \
 		./internal/plugins/frontends/openairesponses/... \

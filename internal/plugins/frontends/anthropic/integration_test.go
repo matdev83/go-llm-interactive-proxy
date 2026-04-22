@@ -148,7 +148,8 @@ func TestIntegration_invalidPath_returns404(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := http.Post(srv.URL+"/v1/other", "application/json", strings.NewReader(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"x"}]}`))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1/other", "application/json", strings.NewReader(`{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"x"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +190,8 @@ func TestIntegration_malformedJSON_returns400(t *testing.T) {
 	mux.Handle("/v1/messages", h)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	res, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{`))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +313,8 @@ func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
   "messages": [{"role":"user","content":"hi"}],
   "tools": [{"name": "stub_fn", "input_schema": {"type": "object", "properties": {}}}]
 }`
-	res, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(body))
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +429,8 @@ func TestIntegration_methodNotAllowed_returns405(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := http.Get(srv.URL + "/v1/messages")
+	hc := testkit.LocalTestServerHTTPClient()
+	res, err := hc.Get(srv.URL + "/v1/messages")
 	if err != nil {
 		t.Fatal(err)
 	}

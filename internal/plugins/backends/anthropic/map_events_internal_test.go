@@ -132,7 +132,7 @@ func TestMsgStream_Recv_wrapsSDKErr(t *testing.T) {
 	t.Parallel()
 	root := errors.New("root")
 	sdk := ssestream.NewStream[anthropic.MessageStreamEventUnion](&errDecoderAnthropic{err: root}, nil)
-	es := newMessageStream(sdk)
+	es := newMessageStream(sdk, 0)
 	s, ok := es.(*msgStream)
 	if !ok {
 		t.Fatalf("newMessageStream returned %T", es)

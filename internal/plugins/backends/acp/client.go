@@ -3,22 +3,25 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 )
 
 type client struct {
 	t      Transport
+	log    *slog.Logger
 	nextID atomic.Int64
 }
 
-func newClient(baseURL string, hc *http.Client) (*client, error) {
+func newClient(baseURL string, hc *http.Client, log *slog.Logger) (*client, error) {
 	t, err := newHTTPTransport(baseURL, hc)
 	if err != nil {
 		return nil, err
 	}
-	return &client{t: t}, nil
+	return &client{t: t, log: log}, nil
 }
 
 func (c *client) rpcID() int64 {
@@ -28,7 +31,7 @@ func (c *client) rpcID() int64 {
 func (c *client) sessionPrompt(ctx context.Context, params map[string]any, rpcID int64) (io.ReadCloser, error) {
 	pb, err := json.Marshal(params)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("acp: session/prompt marshal params: %w", err)
 	}
 	reqBody := rpcRequest{
 		JSONRPC: "2.0",
@@ -38,7 +41,11 @@ func (c *client) sessionPrompt(ctx context.Context, params map[string]any, rpcID
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("acp: session/prompt marshal request: %w", err)
 	}
-	return c.t.CallPromptStream(ctx, body)
+	rc, err := c.t.CallPromptStream(ctx, body)
+	if err != nil {
+		return nil, fmt.Errorf("acp: session/prompt call: %w", err)
+	}
+	return rc, nil
 }

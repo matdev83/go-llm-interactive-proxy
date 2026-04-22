@@ -44,15 +44,22 @@ func TestToolEventFromEvent_finished(t *testing.T) {
 
 func TestToolEventFromEvent_rejectsMissingToolCallID(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []lipapi.EventKind{
-		lipapi.EventToolCallStarted,
-		lipapi.EventToolCallArgsDelta,
-		lipapi.EventToolCallFinished,
-	} {
-		_, ok := lipapi.ToolEventFromEvent(lipapi.Event{Kind: kind})
-		if ok {
-			t.Fatalf("expected false for kind %q without tool call id", kind)
-		}
+	tests := []struct {
+		name string
+		kind lipapi.EventKind
+	}{
+		{"started", lipapi.EventToolCallStarted},
+		{"args_delta", lipapi.EventToolCallArgsDelta},
+		{"finished", lipapi.EventToolCallFinished},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, ok := lipapi.ToolEventFromEvent(lipapi.Event{Kind: tc.kind})
+			if ok {
+				t.Fatalf("expected false for kind %q without tool call id", tc.kind)
+			}
+		})
 	}
 }
 

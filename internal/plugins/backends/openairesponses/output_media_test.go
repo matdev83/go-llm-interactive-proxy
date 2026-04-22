@@ -34,7 +34,9 @@ func TestEmitOutputMediaFromResponse_inputImageAndFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &sdkStream{}
-	emitOutputMediaFromResponse(s, resp)
+	if err := emitOutputMediaFromResponse(s, resp); err != nil {
+		t.Fatal(err)
+	}
 	evs := stream.DrainPending(&s.pending)
 	var media []lipapi.Event
 	for _, ev := range evs {
@@ -81,7 +83,9 @@ func TestHandleUnion_completed_emitsAssistantMediaAfterText(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &sdkStream{}
-	s.handleUnion(u)
+	if err := s.handleUnion(u); err != nil {
+		t.Fatal(err)
+	}
 	evs := stream.DrainPending(&s.pending)
 	var gotText strings.Builder
 	var img string

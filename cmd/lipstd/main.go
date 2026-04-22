@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
@@ -26,7 +28,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "bootstrap failed: %v\n", err)
 		os.Exit(1)
 	}
-	logger, err := logging.NewLogger(cfg.Logging, os.Stdout)
+
+	traceRes, err := tracing.Init(context.Background(), cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tracing init failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		if err := traceRes.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "tracing shutdown: %v\n", err)
+		}
+	}()
+
+	logger, err := logging.NewLogger(cfg.Logging, os.Stdout,
+		logging.WithOTELTraceAttrs(cfg.Observability.Tracing.Enabled))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logger init failed: %v\n", err)
 		os.Exit(1)
@@ -64,7 +81,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	built, err := runtimebundle.Build(cfg, app.HookBus(), logger, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	built, err := runtimebundle.Build(cfg, app.HookBus(), logger, &runtimebundle.BuildOptions{
+		PluginRegistry:  reg,
+		OutboundTracing: traceRes.Active,
+	})
 	if err != nil {
 		logger.Error("runtime assembly failed", "error", err)
 		os.Exit(1)

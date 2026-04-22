@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -12,6 +13,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type attemptOpenParams struct {
@@ -49,11 +54,14 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		if errors.Is(err, routing.ErrNoEligibleCandidate) && p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject {
 			return zero, p.lastReject.Err()
 		}
-		return zero, err
+		return zero, fmt.Errorf("executor: expand failover: %w", err)
 	}
 	c := list[0]
 	e.notePlanCandidate(p.ctx, p.traceID, c.Key)
 	attempt := lipapi.CloneCall(p.baseline)
+	if e != nil && e.MaxPendingWireEvents > 0 {
+		attempt.MaxPendingWireEvents = e.MaxPendingWireEvents
+	}
 	req := lipapi.RequiredCapabilities(attempt)
 	be, ok := e.Backends[c.Primary.Backend]
 	if !ok {
@@ -84,7 +92,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	}
 	if c.MarkedFirst {
 		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
-			return zero, err
+			return zero, fmt.Errorf("executor: set weighted first consumed: %w", err)
 		}
 		p.session.FirstRequestConsumed = true
 	}
@@ -93,7 +101,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	}
 	bleg, err := e.Store.NextBLeg(p.ctx, p.aLegID)
 	if err != nil {
-		return zero, err
+		return zero, fmt.Errorf("executor: next b-leg: %w", err)
 	}
 	if err := p.bus.RunRequestPartHooks(p.ctx, &attempt, sdk.PartMeta{
 		TraceID:    p.traceID,
@@ -101,14 +109,28 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		BLegID:     bleg.BLegID,
 		AttemptSeq: bleg.Seq,
 	}); err != nil {
-		return zero, err
+		return zero, fmt.Errorf("executor: request hooks: %w", err)
 	}
 	openCall, err := backendCallWithRouteParams(attempt, c)
 	if err != nil {
 		return zero, fmt.Errorf("executor: %w", err)
 	}
-	stream, err := be.Open(p.ctx, openCall, c)
+	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(p.ctx, "lip.executor.backend_open",
+		trace.WithAttributes(
+			attribute.String("lip.backend", c.Primary.Backend),
+			attribute.Int("lip.b_leg_seq", int(bleg.Seq)),
+		),
+	)
+	defer openSpan.End()
+	openStart := time.Now()
+	stream, err := be.Open(openCtx, openCall, c)
+	openDur := time.Since(openStart).Seconds()
+	if e != nil && e.Metrics != nil {
+		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)
+	}
 	if err != nil {
+		openSpan.RecordError(err)
+		openSpan.SetStatus(codes.Error, err.Error())
 		if lipapi.IsRecoverablePreOutput(err) {
 			e.recordAttemptLogged(p.ctx, recordAttemptParams{
 				ALegID:  p.aLegID,
@@ -129,9 +151,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			BLeg:    bleg,
 			Cand:    c,
 			Outcome: lipapi.AttemptSurfacedFailure,
-			Reason:  err.Error(),
+			Reason:  attemptReasonDetail(err),
 		}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
-		return zero, err
+		return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
 	}
 	diag.LogDecision(p.ctx, e.Log, "backend_stream_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 		slog.String("candidate_key", c.Key),

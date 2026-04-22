@@ -40,6 +40,29 @@ var ErrNilContext = errors.New("lipapi: nil Context")
 // ErrNilFixedEventStream is returned by (*FixedEventStream).Recv when the receiver is nil.
 var ErrNilFixedEventStream = errors.New("lipapi: nil FixedEventStream")
 
+// ErrStreamTerminal is the stable root for terminal upstream stream error events (EventError).
+var ErrStreamTerminal = errors.New("lipapi: stream error")
+
+// StreamError carries provider-specific codes/messages for a terminal stream failure without
+// putting variable text in Error() (use Code and Message in structured logs).
+type StreamError struct {
+	Code    string
+	Message string
+}
+
+func (e *StreamError) Error() string {
+	return ErrStreamTerminal.Error()
+}
+
+func (e *StreamError) Unwrap() error {
+	return ErrStreamTerminal
+}
+
+// NewStreamError returns a *StreamError for propagation from adapters and encoders.
+func NewStreamError(code, message string) error {
+	return &StreamError{Code: code, Message: message}
+}
+
 // ErrMaxRouteAttempts is returned when routing.max_attempts would be exceeded by another B-leg.
 var ErrMaxRouteAttempts = errors.New("lipapi: routing max_attempts exhausted")
 

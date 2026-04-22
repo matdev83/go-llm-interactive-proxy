@@ -20,7 +20,7 @@ func TestSDKStore_roundTripALeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.GetALeg(ctx, r.ALegID)
+	got, err := s.FetchALeg(ctx, r.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -176,13 +176,22 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 }
 
 // WriteStreamSSE emits Gemini stream chunks incrementally from the canonical stream.
-func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, _ EncodeOptions) error {
+func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, _ EncodeOptions) (err error) {
 	ka, err := stream.WrapRecoveryKeepalive(es)
 	if err != nil {
 		return err
 	}
 	es = ka
-	defer func() { _ = es.Close() }()
+	defer func() {
+		if cerr := es.Close(); cerr != nil {
+			closeErr := fmt.Errorf("gemini: close event stream: %w", cerr)
+			if err != nil {
+				err = errors.Join(err, closeErr)
+			} else {
+				err = closeErr
+			}
+		}
+	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -199,8 +208,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var scratch gemStreamWireScratch
 	scratch.initFrame()
 
+	var ev lipapi.Event
 	for {
-		ev, err := es.Recv(ctx)
+		ev, err = es.Recv(ctx)
 		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("gemini: stream ended without response_finished")
 		}
@@ -261,7 +271,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}
 			return nil
 		case lipapi.EventError:
-			return fmt.Errorf("gemini stream error: %s: %s", ev.ErrorCode, ev.ErrorMessage)
+			return lipapi.NewStreamError(ev.ErrorCode, ev.ErrorMessage)
 		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventWarning:
 			if ev.WarningCode == stream.KeepaliveEventCode {

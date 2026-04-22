@@ -91,11 +91,14 @@ Reserve stable seams for:
 
 These seams may influence runtime decisions through typed contracts, but the core must not know plugin-private semantics.
 
-## V1 Storage Assumption
+## Continuity and lineage storage
 
-V1 uses in-memory state for route exclusions, session-first-request markers, and B2BUA lineage.
+B2BUA A-leg continuity and attempt lineage flow through `b2bua.Store`.
 
-Persistence or distributed coordination may come later behind explicit store interfaces.
+- **Default configuration** uses an in-memory store (`continuity.store: memory`), which matches single-process operation and the sample `config/config.yaml`.
+- **Optional SQLite** (`continuity.store: sqlite`) provides durable continuity metadata via `internal/core/continuity/sqlitestore/`; some tuning fields apply only to the in-memory backend (see config validation and `internal/infra/runtimebundle` package docs).
+
+Routing health, exclusions, and related orchestration state remain core-owned; distributed coordination beyond explicit store implementations is still not a v1 product guarantee.
 
 ## Orchestration Memory Rules
 
@@ -105,3 +108,6 @@ When updating this file:
 - keep policy rules explicit,
 - avoid baking temporary implementation details into steering,
 - update whenever the core orchestration contract changes materially.
+
+---
+_Updated 2026-04-22: configurable continuity store (memory default, optional SQLite); removed stale "in-memory only v1" claim._

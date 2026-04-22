@@ -33,7 +33,7 @@ func New(cfg Config) runtime.Backend {
 				return nil, err
 			}
 			stream := cli.Responses.NewStreaming(ctx, p)
-			return newSDKStream(stream), nil
+			return newSDKStream(stream, call.MaxPendingWireEvents), nil
 		},
 	}
 }

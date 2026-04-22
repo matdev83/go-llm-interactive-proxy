@@ -1,0 +1,36 @@
+package bedrock
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+func TestEnsureLoadConfigDeadline_nilYieldsDeadline(t *testing.T) {
+	t.Parallel()
+	c, cancel := ensureLoadConfigDeadline(nil)
+	defer cancel()
+	if _, ok := c.Deadline(); !ok {
+		t.Fatal("expected deadline for nil context")
+	}
+}
+
+func TestEnsureLoadConfigDeadline_backgroundYieldsDeadline(t *testing.T) {
+	t.Parallel()
+	c, cancel := ensureLoadConfigDeadline(context.Background())
+	defer cancel()
+	if _, ok := c.Deadline(); !ok {
+		t.Fatal("expected child deadline when parent has none")
+	}
+}
+
+func TestEnsureLoadConfigDeadline_preservesExistingDeadline(t *testing.T) {
+	t.Parallel()
+	parent, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	c, childCancel := ensureLoadConfigDeadline(parent)
+	defer childCancel()
+	if c != parent {
+		t.Fatal("expected same context when parent already has a deadline")
+	}
+}

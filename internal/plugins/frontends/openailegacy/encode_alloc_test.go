@@ -23,8 +23,9 @@ func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	// Loose cap: CI/OS variance; fails on large accidental regressions.
-	const maxAllocs = 80_000
+	// Baseline (Linux/macOS/WSL typical): ~1.9k–2.5k allocs/run for n=200 (scaled from BenchmarkWriteStreamSSE_textDeltas @ n=256 ~2345 allocs/op).
+	// Cap stays above that with room for recorder variance across OS and parallel load.
+	const maxAllocs = 5500
 	if int(allocs) > maxAllocs {
 		t.Fatalf("allocs per run=%g (n=%d deltas), want <= %d", allocs, n, maxAllocs)
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type TraceIDGenerator struct {
@@ -39,20 +41,45 @@ func WithTraceID(ctx context.Context, traceID string) context.Context {
 
 // WithCallDiag attaches traceID and aLegID in one context layer (one allocation).
 // Use on streaming hot paths instead of chaining WithTraceID and WithALeg.
+// ctx must be non-nil for production call paths; use [context.TODO] only in tests.
 func WithCallDiag(ctx context.Context, traceID, aLegID string) context.Context {
 	return context.WithValue(ctx, keyCallDiag, callDiag{Trace: traceID, ALeg: aLegID})
 }
 
+// EnsureCallDiag behaves like [WithCallDiag], but returns ctx unchanged when [TraceID]
+// and [ALegID] already match traceID and aLegID (including legacy WithTraceID/WithALeg pairs).
+// Use on streaming hot paths to avoid an extra context layer allocation per Recv/event.
+//
+// If ctx is nil, the result is based on [context.TODO] (not [context.Background]) so call
+// sites without cancellation are obvious in code review. APIs that require a request-scoped
+// context should still validate non-nil [context.Context] at their boundary; do not rely on
+// nil here for production traffic.
+func EnsureCallDiag(ctx context.Context, traceID, aLegID string) context.Context {
+	if ctx == nil {
+		return WithCallDiag(context.TODO(), traceID, aLegID)
+	}
+	if TraceID(ctx) == traceID && ALegID(ctx) == aLegID {
+		return ctx
+	}
+	return WithCallDiag(ctx, traceID, aLegID)
+}
+
 // TraceID returns the trace identifier from ctx, or empty string if unset.
+// Precedence: explicit LIP context ([WithCallDiag], [WithTraceID]) over the OpenTelemetry
+// W3C trace id so client X-Trace-ID and in-process correlation win in logs while OTLP export
+// still uses the active span.
 func TraceID(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	if v, ok := ctx.Value(keyCallDiag).(callDiag); ok {
+	if v, ok := ctx.Value(keyCallDiag).(callDiag); ok && v.Trace != "" {
 		return v.Trace
 	}
-	if v, ok := ctx.Value(keyTraceID).(string); ok {
+	if v, ok := ctx.Value(keyTraceID).(string); ok && v != "" {
 		return v
+	}
+	if span := oteltrace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		return span.SpanContext().TraceID().String()
 	}
 	return ""
 }

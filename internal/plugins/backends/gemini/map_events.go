@@ -19,6 +19,8 @@ import (
 //
 // Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
 // Recv blocked on the iterator pull; Close invokes stop to unblock the iterator.
+// Context: the pull does not observe ctx; cancel the request context alone may not
+// return from Recv until Close runs (see [lipapi.EventStream] cancellation notes).
 type genaiStream struct {
 	mu        sync.Mutex
 	closeOnce sync.Once
@@ -37,9 +39,13 @@ type genaiStream struct {
 	activeToolID string
 }
 
-func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error]) lipapi.EventStream {
+func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error], maxPending int) lipapi.EventStream {
 	next, stop := iter.Pull2(seq)
-	return &genaiStream{next: next, stop: stop}
+	return &genaiStream{
+		next:    next,
+		stop:    stop,
+		pending: stream.NewPendingEventQueue(maxPending),
+	}
 }
 
 func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -64,7 +70,10 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return lipapi.Event{}, io.EOF
 		}
 		if s.exhausted {
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
+				s.mu.Unlock()
+				return lipapi.Event{}, err
+			}
 			s.afterFinish = true
 			s.mu.Unlock()
 			continue
@@ -84,7 +93,10 @@ func (s *genaiStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, fmt.Errorf("gemini: recv stream: %w", err)
 			}
 			if !s.sawResponse {
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+					s.mu.Unlock()
+					return lipapi.Event{}, err
+				}
 				s.sawResponse = true
 			}
 			s.exhausted = true
@@ -109,11 +121,15 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) error 
 	}
 	if !s.sawResponse {
 		s.sawResponse = true
-		s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+			return err
+		}
 	}
 
 	if u := usageEvent(resp); u != nil {
-		s.pending.Push(*u)
+		if err := s.pending.Push(*u); err != nil {
+			return err
+		}
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
@@ -127,12 +143,18 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) error 
 		if part.Text != "" {
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
 			if part.Thought {
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: part.Text})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: part.Text}); err != nil {
+					return err
+				}
 			} else {
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: part.Text}); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -145,22 +167,28 @@ func (s *genaiStream) handleResponse(resp *genai.GenerateContentResponse) error 
 		if fd := part.FileData; fd != nil && strings.TrimSpace(fd.FileURI) != "" {
 			if !s.sawMessage {
 				s.sawMessage = true
-				s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
 			}
 			uri := strings.TrimSpace(fd.FileURI)
 			mime := strings.TrimSpace(fd.MIMEType)
 			if strings.HasPrefix(strings.ToLower(mime), "image/") {
-				s.pending.Push(lipapi.Event{
+				if err := s.pending.Push(lipapi.Event{
 					Kind:          lipapi.EventAssistantImageRef,
 					AssistantRef:  uri,
 					AssistantMIME: mime,
-				})
+				}); err != nil {
+					return err
+				}
 			} else {
-				s.pending.Push(lipapi.Event{
+				if err := s.pending.Push(lipapi.Event{
 					Kind:          lipapi.EventAssistantFileRef,
 					AssistantRef:  uri,
 					AssistantMIME: mime,
-				})
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -174,18 +202,24 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) error {
 	}
 	if s.activeToolID != id {
 		if s.activeToolID != "" {
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID}); err != nil {
+				return err
+			}
 			s.activeToolID = ""
 		}
 		if !s.sawMessage {
 			s.sawMessage = true
-			s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+				return err
+			}
 		}
-		s.pending.Push(lipapi.Event{
+		if err := s.pending.Push(lipapi.Event{
 			Kind:       lipapi.EventToolCallStarted,
 			ToolCallID: id,
 			ToolName:   fc.Name,
-		})
+		}); err != nil {
+			return err
+		}
 		s.activeToolID = id
 	}
 	if len(fc.Args) > 0 {
@@ -194,15 +228,19 @@ func (s *genaiStream) handleFunctionCall(fc *genai.FunctionCall) error {
 			return fmt.Errorf("gemini: marshal tool arguments: %w", err)
 		}
 		if len(b) > 0 {
-			s.pending.Push(lipapi.Event{
+			if err := s.pending.Push(lipapi.Event{
 				Kind:       lipapi.EventToolCallArgsDelta,
 				ToolCallID: id,
 				Delta:      string(b),
-			})
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if s.activeToolID != "" {
-		s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID})
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventToolCallFinished, ToolCallID: s.activeToolID}); err != nil {
+			return err
+		}
 		s.activeToolID = ""
 	}
 	return nil

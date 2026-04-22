@@ -101,8 +101,8 @@ func TestParseFirstSingleArm(t *testing.T) {
 	if sel.Alternatives[0].Weighted == nil || len(sel.Alternatives[0].Weighted.Branches) != 1 {
 		t.Fatalf("expected one weighted branch")
 	}
-	if !sel.Alternatives[0].Weighted.Branches[0].First {
-		t.Fatalf("expected First")
+	if !sel.Alternatives[0].Weighted.Branches[0].IsFirst {
+		t.Fatalf("expected IsFirst")
 	}
 }
 
@@ -123,8 +123,8 @@ func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 		t.Fatalf("arm1 weighted branches: %#v", w0)
 	}
 	b0 := w0.Branches[0]
-	if !b0.First || b0.Weight != 1 {
-		t.Fatalf("branch0: First=%v Weight=%d", b0.First, b0.Weight)
+	if !b0.IsFirst || b0.Weight != 1 {
+		t.Fatalf("branch0: IsFirst=%v Weight=%d", b0.IsFirst, b0.Weight)
 	}
 	if b0.Target.Backend != "openai-codex" || b0.Target.Model != "gpt-5.3-codex" {
 		t.Fatalf("branch0 target: %#v", b0.Target)
@@ -133,8 +133,8 @@ func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 		t.Fatalf("branch0 params: %v", b0.Target.Params)
 	}
 	b1 := w0.Branches[1]
-	if b1.First || b1.Weight != 4 {
-		t.Fatalf("branch1: First=%v Weight=%d", b1.First, b1.Weight)
+	if b1.IsFirst || b1.Weight != 4 {
+		t.Fatalf("branch1: IsFirst=%v Weight=%d", b1.IsFirst, b1.Weight)
 	}
 	if b1.Target.Params.Get("reasoning_effort") != "low" {
 		t.Fatalf("branch1 params: %v", b1.Target.Params)
@@ -144,7 +144,7 @@ func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 	if w1 == nil || len(w1.Branches) != 1 {
 		t.Fatalf("arm2 weighted: %#v", w1)
 	}
-	if w1.Branches[0].Weight != 2 || w1.Branches[0].First {
+	if w1.Branches[0].Weight != 2 || w1.Branches[0].IsFirst {
 		t.Fatalf("arm2 branch0: %#v", w1.Branches[0])
 	}
 	if w1.Branches[0].Target.Params.Get("reasoning_effort") != "medium" {

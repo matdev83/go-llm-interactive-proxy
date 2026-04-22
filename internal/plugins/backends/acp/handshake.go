@@ -110,11 +110,15 @@ func (c *client) initialize(ctx context.Context, hp HandshakeProfile) error {
 	id := c.rpcID()
 	capObj := map[string]any{}
 	if len(hp.ClientCapabilities) > 0 {
-		_ = json.Unmarshal(hp.ClientCapabilities, &capObj)
+		if err := json.Unmarshal(hp.ClientCapabilities, &capObj); err != nil {
+			return fmt.Errorf("acp: initialize clientCapabilities: %w", err)
+		}
 	}
 	infoObj := map[string]any{"name": "go-lip", "version": "1"}
 	if len(hp.ClientInfo) > 0 {
-		_ = json.Unmarshal(hp.ClientInfo, &infoObj)
+		if err := json.Unmarshal(hp.ClientInfo, &infoObj); err != nil {
+			return fmt.Errorf("acp: initialize clientInfo: %w", err)
+		}
 	}
 	params := map[string]any{
 		"protocolVersion":    hp.ProtocolVersion,
@@ -123,23 +127,23 @@ func (c *client) initialize(ctx context.Context, hp HandshakeProfile) error {
 	}
 	pb, err := json.Marshal(params)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: initialize marshal params: %w", err)
 	}
 	req := rpcRequest{JSONRPC: "2.0", ID: jsonRPCNumericID(id), Method: "initialize", Params: pb}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: initialize marshal request: %w", err)
 	}
 	raw, err := c.t.CallUnary(ctx, body, http.StatusOK)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: initialize call: %w", err)
 	}
 	var res rpcResponse
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return fmt.Errorf("acp: initialize decode: %w", err)
 	}
-	if res.Error != nil {
-		return fmt.Errorf("acp: initialize: %s (%d)", res.Error.Message, res.Error.Code)
+	if err := rpcErrFromBody("initialize", res.Error); err != nil {
+		return err
 	}
 	return nil
 }
@@ -156,18 +160,18 @@ func (c *client) authenticate(ctx context.Context, hp HandshakeProfile) error {
 	req := rpcRequest{JSONRPC: "2.0", ID: jsonRPCNumericID(id), Method: "authenticate", Params: params}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: authenticate marshal request: %w", err)
 	}
 	raw, err := c.t.CallUnary(ctx, body, http.StatusOK)
 	if err != nil {
-		return err
+		return fmt.Errorf("acp: authenticate call: %w", err)
 	}
 	var res rpcResponse
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return fmt.Errorf("acp: authenticate decode: %w", err)
 	}
-	if res.Error != nil {
-		return fmt.Errorf("acp: authenticate: %s (%d)", res.Error.Message, res.Error.Code)
+	if err := rpcErrFromBody("authenticate", res.Error); err != nil {
+		return err
 	}
 	return nil
 }
@@ -188,23 +192,23 @@ func (c *client) sessionNew(ctx context.Context, hp HandshakeProfile) (string, e
 	}
 	pb, err := json.Marshal(params)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("acp: session/new marshal params: %w", err)
 	}
 	req := rpcRequest{JSONRPC: "2.0", ID: jsonRPCNumericID(id), Method: "session/new", Params: pb}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("acp: session/new marshal request: %w", err)
 	}
 	raw, err := c.t.CallUnary(ctx, body, http.StatusOK)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("acp: session/new call: %w", err)
 	}
 	var res rpcResponse
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", fmt.Errorf("acp: session/new decode: %w", err)
 	}
-	if res.Error != nil {
-		return "", fmt.Errorf("acp: session/new: %s (%d)", res.Error.Message, res.Error.Code)
+	if err := rpcErrFromBody("session/new", res.Error); err != nil {
+		return "", err
 	}
 	var out struct {
 		SessionID string `json:"sessionId"`

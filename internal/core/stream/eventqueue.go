@@ -1,13 +1,30 @@
 package stream
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+import (
+	"errors"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+// ErrPendingQueueFull is returned when [PendingEventQueue.Push] would exceed a configured max length.
+var ErrPendingQueueFull = errors.New("stream: pending event queue capacity exceeded")
 
 // PendingEventQueue buffers canonical events for adapters that translate one wire
 // chunk into zero or more lipapi.Event values. It avoids slice-prefix dequeue
 // (pending = pending[1:]) which retains a large backing array over long streams.
+//
+// When constructed with a positive max length (see [NewPendingEventQueue]), Push returns
+// [ErrPendingQueueFull] once the queue would exceed that cap. When max length is zero
+// (default), the queue is unbounded until other request limits apply.
 type PendingEventQueue struct {
-	buf  []lipapi.Event
-	head int
+	buf    []lipapi.Event
+	head   int
+	maxLen int
+}
+
+// NewPendingEventQueue returns a queue with the given max pending events (0 = unlimited).
+func NewPendingEventQueue(maxLen int) PendingEventQueue {
+	return PendingEventQueue{maxLen: maxLen}
 }
 
 // Len returns the number of queued events.
@@ -16,9 +33,13 @@ func (q *PendingEventQueue) Len() int {
 }
 
 // Push appends an event to the tail.
-func (q *PendingEventQueue) Push(ev lipapi.Event) {
+func (q *PendingEventQueue) Push(ev lipapi.Event) error {
+	if q.maxLen > 0 && q.Len() >= q.maxLen {
+		return ErrPendingQueueFull
+	}
 	q.compactIfNeeded()
 	q.buf = append(q.buf, ev)
+	return nil
 }
 
 // PopFront removes and returns the oldest event. The second result is false when empty.

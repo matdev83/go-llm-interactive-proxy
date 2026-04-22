@@ -9,9 +9,11 @@ import (
 
 func TestPendingEventQueue_ordering(t *testing.T) {
 	t.Parallel()
-	var q stream.PendingEventQueue
+	q := stream.NewPendingEventQueue(0)
 	for i := range 5 {
-		q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: string(rune('a' + i))})
+		if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: string(rune('a' + i))}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for i := range 5 {
 		ev, ok := q.PopFront()
@@ -34,10 +36,12 @@ func TestPendingEventQueue_ordering(t *testing.T) {
 
 func TestPendingEventQueue_manyPushPop(t *testing.T) {
 	t.Parallel()
-	var q stream.PendingEventQueue
+	q := stream.NewPendingEventQueue(0)
 	for round := range 3 {
 		for range 500 {
-			q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
+			if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"}); err != nil {
+				t.Fatal(err)
+			}
 		}
 		for i := range 500 {
 			ev, ok := q.PopFront()
@@ -53,9 +57,13 @@ func TestPendingEventQueue_manyPushPop(t *testing.T) {
 
 func TestDrainPending(t *testing.T) {
 	t.Parallel()
-	var q stream.PendingEventQueue
-	q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "a"})
-	q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "b"})
+	q := stream.NewPendingEventQueue(0)
+	if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "b"}); err != nil {
+		t.Fatal(err)
+	}
 	got := stream.DrainPending(&q)
 	if len(got) != 2 || got[0].Delta != "a" || got[1].Delta != "b" {
 		t.Fatalf("got %+v", got)
@@ -65,5 +73,26 @@ func TestDrainPending(t *testing.T) {
 	}
 	if again := stream.DrainPending(&q); len(again) != 0 {
 		t.Fatalf("second drain: %+v", again)
+	}
+}
+
+func TestPendingEventQueue_cap(t *testing.T) {
+	t.Parallel()
+	q := stream.NewPendingEventQueue(2)
+	if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "c"}); err != stream.ErrPendingQueueFull {
+		t.Fatalf("want ErrPendingQueueFull, got %v", err)
+	}
+	ev, ok := q.PopFront()
+	if !ok || ev.Delta != "a" {
+		t.Fatalf("pop: %+v ok=%v", ev, ok)
+	}
+	if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "c"}); err != nil {
+		t.Fatal(err)
 	}
 }

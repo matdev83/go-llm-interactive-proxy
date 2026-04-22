@@ -36,7 +36,7 @@ func NewManager(store b2bua.Store) (*Manager, error) {
 // It follows the same resolution order as the executor: ALegID > ContinuityKey > new.
 func (m *Manager) ResolveSession(ctx context.Context, ref lipapi.SessionRef) (Session, error) {
 	if ref.ALegID != "" {
-		rec, err := m.store.GetALeg(ctx, ref.ALegID)
+		rec, err := m.store.FetchALeg(ctx, ref.ALegID)
 		if err == nil {
 			return Session{
 				ALegID:        rec.ALegID,
@@ -101,7 +101,7 @@ func ResolveALegRecord(ctx context.Context, store b2bua.Store, ref lipapi.Sessio
 	if err != nil {
 		return b2bua.ALegRecord{}, fmt.Errorf("continuity: resolve a-leg record: %w", err)
 	}
-	rec, err := store.GetALeg(ctx, sess.ALegID)
+	rec, err := store.FetchALeg(ctx, sess.ALegID)
 	if err != nil {
 		return b2bua.ALegRecord{}, fmt.Errorf("continuity: resolve a-leg record: %w", err)
 	}

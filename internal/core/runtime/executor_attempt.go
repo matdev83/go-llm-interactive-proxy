@@ -12,6 +12,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// attemptReasonMaxRunes caps persisted attempt lineage text (bounded diagnostic detail).
+const attemptReasonMaxRunes = 512
+
+// attemptReasonDetail returns truncated error text suitable for AttemptRecord.Reason persistence.
+func attemptReasonDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	return diag.TruncErrDetail(err, attemptReasonMaxRunes)
+}
+
 // recordAttemptParams is the argument bundle for [Executor.recordAttempt].
 type recordAttemptParams struct {
 	ALegID  string
@@ -44,6 +55,9 @@ func (e *Executor) recordAttempt(ctx context.Context, p recordAttemptParams) err
 func (e *Executor) recordAttemptLogged(ctx context.Context, p recordAttemptParams, o diag.AttrOpts) {
 	if e == nil {
 		return
+	}
+	if e.Metrics != nil {
+		e.Metrics.OnAttemptRecorded(p.Outcome, p.Cand.Primary.Backend)
 	}
 	if err := e.recordAttempt(ctx, p); err != nil && e.Log != nil {
 		base := diag.Attrs(ctx, o)

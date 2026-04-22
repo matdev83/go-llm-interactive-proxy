@@ -47,7 +47,7 @@ func New(cfg Config) runtime.Backend {
 				return nil, err
 			}
 			seq := cli.Models.GenerateContentStream(ctx, sp.Model, sp.Contents, sp.Config)
-			return newGenaiStream(seq), nil
+			return newGenaiStream(seq, call.MaxPendingWireEvents), nil
 		},
 	}
 }

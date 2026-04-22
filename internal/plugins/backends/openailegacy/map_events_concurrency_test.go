@@ -61,7 +61,7 @@ func TestChatStream_CloseConcurrentWhileRecvBlocked(t *testing.T) {
 	release := make(chan struct{})
 	dec := &stallDecoderLegacy{enteredNext: make(chan struct{}, 1), release: release}
 	sdk := ssestream.NewStream[openai.ChatCompletionChunk](dec, nil)
-	es := newChatStream(sdk)
+	es := newChatStream(sdk, 0)
 	s, ok := es.(*chatStream)
 	if !ok {
 		t.Fatalf("newChatStream returned %T", es)
@@ -95,7 +95,7 @@ func TestChatStream_CloseConcurrentAfterEOF(t *testing.T) {
 	t.Parallel()
 	dec := &instantDecoderLegacy{}
 	sdk := ssestream.NewStream[openai.ChatCompletionChunk](dec, nil)
-	es := newChatStream(sdk)
+	es := newChatStream(sdk, 0)
 	s, ok := es.(*chatStream)
 	if !ok {
 		t.Fatalf("newChatStream returned %T", es)

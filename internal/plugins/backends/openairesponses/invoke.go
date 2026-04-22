@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
@@ -193,7 +193,7 @@ func partToFunctionCallInputItem(p lipapi.Part) (responses.ResponseInputItemUnio
 		return responses.ResponseInputItemUnionParam{}, false
 	}
 	argStr := "{}"
-	if jsonutil.IsPresentNonNullJSON(v.Arguments) {
+	if jsonpresence.IsPresentNonNullJSON(v.Arguments) {
 		switch v.Arguments[0] {
 		case '"':
 			var s string

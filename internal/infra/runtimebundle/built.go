@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
@@ -22,4 +23,6 @@ type Built struct {
 	// PluginRegistry is the registry used to construct backends and must be used when mounting frontends
 	// or composing features. [Build] sets this from [BuildOptions.PluginRegistry].
 	PluginRegistry *pluginreg.Registry
+	// Metrics is non-nil when observability.metrics.enabled; [stdhttp.RunWithRuntime] uses it for /metrics and HTTP middleware.
+	Metrics *metrics.Bundle
 }

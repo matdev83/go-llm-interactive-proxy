@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonutil"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -79,7 +79,7 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 		return nil, fmt.Errorf("openailegacy: marshal model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
-	if jsonutil.IsPresentNonNullJSON(w.StreamOptions) {
+	if jsonpresence.IsPresentNonNullJSON(w.StreamOptions) {
 		ext[extStreamOptsJSONKey] = w.StreamOptions
 	}
 
@@ -120,11 +120,11 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 		FunctionCall json.RawMessage `json:"function_call"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openailegacy: message json: %w", err)
 	}
 	role, err := mapRole(probe.Role)
 	if err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openailegacy: role: %w", err)
 	}
 
 	switch role {
@@ -134,11 +134,11 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 		}
 		content, err := parseToolMessageContent(probe.Content)
 		if err != nil {
-			return lipapi.Message{}, err
+			return lipapi.Message{}, fmt.Errorf("openailegacy: tool message content: %w", err)
 		}
 		rawJSON, err := json.Marshal(content)
 		if err != nil {
-			return lipapi.Message{}, err
+			return lipapi.Message{}, fmt.Errorf("openailegacy: tool message marshal: %w", err)
 		}
 		return lipapi.Message{
 			Role: lipapi.RoleTool,
@@ -151,28 +151,28 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 	case lipapi.RoleAssistant:
 		parts, err := parseAssistantParts(probe.Content, probe.ToolCalls, probe.FunctionCall)
 		if err != nil {
-			return lipapi.Message{}, err
+			return lipapi.Message{}, fmt.Errorf("openailegacy: assistant message: %w", err)
 		}
 		return lipapi.Message{Role: lipapi.RoleAssistant, Parts: parts}, nil
 	}
 
 	parts, err := parseChatContent(probe.Content)
 	if err != nil {
-		return lipapi.Message{}, err
+		return lipapi.Message{}, fmt.Errorf("openailegacy: message content: %w", err)
 	}
 	return lipapi.Message{Role: role, Parts: parts}, nil
 }
 
 func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]lipapi.Part, error) {
 	var parts []lipapi.Part
-	if jsonutil.IsPresentNonNullJSON(content) {
+	if jsonpresence.IsPresentNonNullJSON(content) {
 		cp, err := parseChatContent(content)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("openailegacy: assistant content: %w", err)
 		}
 		parts = append(parts, cp...)
 	}
-	if jsonutil.IsPresentNonNullJSON(toolCalls) {
+	if jsonpresence.IsPresentNonNullJSON(toolCalls) {
 		var rawCalls []json.RawMessage
 		if err := json.Unmarshal(toolCalls, &rawCalls); err != nil {
 			return nil, fmt.Errorf("openailegacy: tool_calls: %w", err)
@@ -184,7 +184,7 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 			parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: append(json.RawMessage(nil), rc...)})
 		}
 	}
-	if jsonutil.IsPresentNonNullJSON(functionCall) {
+	if jsonpresence.IsPresentNonNullJSON(functionCall) {
 		if !json.Valid(functionCall) {
 			return nil, errors.New("openailegacy: invalid function_call")
 		}
@@ -197,13 +197,13 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 }
 
 func parseToolMessageContent(raw json.RawMessage) (any, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("tool message content is required")
 	}
 	if raw[0] == '"' {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("openailegacy: tool message content string: %w", err)
 		}
 		if strings.TrimSpace(s) == "" {
 			return nil, errors.New("tool message content is required")
@@ -212,7 +212,7 @@ func parseToolMessageContent(raw json.RawMessage) (any, error) {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openailegacy: tool message content json: %w", err)
 	}
 	return v, nil
 }
@@ -232,18 +232,18 @@ func mapRole(r string) (lipapi.Role, error) {
 	case "":
 		return "", errors.New("message role is required")
 	default:
-		return "", fmt.Errorf("unsupported role %q", r)
+		return "", fmt.Errorf("openailegacy: unsupported role %q", r)
 	}
 }
 
 func parseChatContent(raw json.RawMessage) ([]lipapi.Part, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, errors.New("message content is required")
 	}
 	if raw[0] == '"' {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("openailegacy: message content string: %w", err)
 		}
 		s = strings.TrimSpace(s)
 		if s == "" {
@@ -256,7 +256,7 @@ func parseChatContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	}
 	var blocks []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openailegacy: message content array: %w", err)
 	}
 	var parts []lipapi.Part
 	for i, blk := range blocks {
@@ -276,7 +276,7 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 	}
 	var typ string
 	if err := json.Unmarshal(tRaw, &typ); err != nil {
-		return lipapi.Part{}, err
+		return lipapi.Part{}, fmt.Errorf("openailegacy: content block type: %w", err)
 	}
 	switch strings.TrimSpace(typ) {
 	case "text":
@@ -285,10 +285,10 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		}
 		raw, err := openaiwire.MarshalBlock(blk)
 		if err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openailegacy: text block wire: %w", err)
 		}
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openailegacy: text block json: %w", err)
 		}
 		if strings.TrimSpace(s.Text) == "" {
 			return lipapi.Part{}, errors.New("text part requires text")
@@ -302,10 +302,10 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		}
 		raw, err := openaiwire.MarshalBlock(blk)
 		if err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openailegacy: image_url block wire: %w", err)
 		}
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openailegacy: image_url block json: %w", err)
 		}
 		u := strings.TrimSpace(s.ImageURL.URL)
 		if u == "" {
@@ -321,10 +321,10 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		}
 		raw, err := openaiwire.MarshalBlock(blk)
 		if err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openailegacy: file block wire: %w", err)
 		}
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.Part{}, err
+			return lipapi.Part{}, fmt.Errorf("openailegacy: file block json: %w", err)
 		}
 		fd := strings.TrimSpace(s.File.FileData)
 		if fd == "" {
@@ -332,12 +332,12 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		}
 		return openaiwire.FilePartFromBase64(s.File.Filename, fd), nil
 	default:
-		return lipapi.Part{}, fmt.Errorf("unsupported content block type %q", typ)
+		return lipapi.Part{}, fmt.Errorf("openailegacy: unsupported content block type %q", typ)
 	}
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return nil, nil
 	}
 	var items []json.RawMessage
@@ -382,13 +382,13 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 }
 
 func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
-	if jsonutil.IsAbsentOrJSONNull(raw) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
 		return lipapi.ToolChoice{Mode: lipapi.ToolChoiceAuto}, nil
 	}
 	if raw[0] == '"' {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
-			return lipapi.ToolChoice{}, err
+			return lipapi.ToolChoice{}, fmt.Errorf("openailegacy: tool_choice string json: %w", err)
 		}
 		switch strings.TrimSpace(strings.ToLower(s)) {
 		case "auto", "":

@@ -5,7 +5,6 @@
 # under Linux/WSL or rely on CI for `-race`.
 
 param(
-    [switch]$Short = $false,
     [switch]$Staged = $false,
     [switch]$Strict = $false
 )
@@ -97,7 +96,6 @@ if ($Staged) {
 }
 
 $args = @("test", "-race", "-count=1")
-if ($Short) { $args += "-short" }
 $args += $packages
 
 Write-Host "Running race detector scan: go $($args -join ' ')" -ForegroundColor Cyan

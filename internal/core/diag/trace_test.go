@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestTraceID_emptyContext(t *testing.T) {
@@ -17,6 +18,30 @@ func TestTraceID_emptyContext(t *testing.T) {
 	}
 	if got := diag.ALegID(nil); got != "" { //nolint:staticcheck // nil ctx is an explicit contract surface
 		t.Fatalf("ALegID(nil) = %q, want empty", got)
+	}
+}
+
+func TestTraceID_prefersOpenTelemetrySpan(t *testing.T) {
+	t.Parallel()
+	tp := sdktrace.NewTracerProvider()
+	tr := tp.Tracer("test")
+	ctx, span := tr.Start(context.Background(), "op")
+	defer span.End()
+	want := span.SpanContext().TraceID().String()
+	if got := diag.TraceID(ctx); got != want {
+		t.Fatalf("TraceID=%q want %q", got, want)
+	}
+}
+
+func TestTraceID_explicitWithTraceIDBeatsOpenTelemetrySpan(t *testing.T) {
+	t.Parallel()
+	tp := sdktrace.NewTracerProvider()
+	tr := tp.Tracer("test")
+	ctx, span := tr.Start(context.Background(), "op")
+	defer span.End()
+	ctx = diag.WithTraceID(ctx, "client-correlation")
+	if got := diag.TraceID(ctx); got != "client-correlation" {
+		t.Fatalf("TraceID=%q want client-correlation (span was %q)", got, span.SpanContext().TraceID().String())
 	}
 }
 
@@ -40,6 +65,35 @@ func TestWithCallDiag_roundTrip(t *testing.T) {
 	}
 	if diag.ALegID(ctx) != "aleg-2" {
 		t.Fatalf("ALegID = %q", diag.ALegID(ctx))
+	}
+}
+
+func TestEnsureCallDiag_sameAsWithCallDiag(t *testing.T) {
+	t.Parallel()
+	base := context.Background()
+	wantT, wantA := "tid-eq", "aleg-eq"
+	c1 := diag.WithCallDiag(base, wantT, wantA)
+	c2 := diag.EnsureCallDiag(base, wantT, wantA)
+	if diag.TraceID(c1) != diag.TraceID(c2) || diag.ALegID(c1) != diag.ALegID(c2) {
+		t.Fatalf("WithCallDiag vs EnsureCallDiag mismatch: (%q,%q) vs (%q,%q)",
+			diag.TraceID(c1), diag.ALegID(c1), diag.TraceID(c2), diag.ALegID(c2))
+	}
+}
+
+func TestEnsureCallDiag_identityWhenAlreadySet(t *testing.T) {
+	t.Parallel()
+	ctx := diag.WithCallDiag(context.Background(), "tid-id", "aleg-id")
+	out := diag.EnsureCallDiag(ctx, "tid-id", "aleg-id")
+	if out != ctx {
+		t.Fatalf("EnsureCallDiag should return same ctx when values match")
+	}
+}
+
+func TestEnsureCallDiag_nilContext(t *testing.T) {
+	t.Parallel()
+	ctx := diag.EnsureCallDiag(nil, "tid-nil", "aleg-nil")
+	if diag.TraceID(ctx) != "tid-nil" || diag.ALegID(ctx) != "aleg-nil" {
+		t.Fatalf("EnsureCallDiag(nil,...) = (%q,%q)", diag.TraceID(ctx), diag.ALegID(ctx))
 	}
 }
 

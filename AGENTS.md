@@ -6,7 +6,7 @@ Language: English.
 
 Go-based LLM Interactive Proxy.
 
-This repository is the greenfield Go re-implementation of the LIP (LLM Interactive Proxy Python app, GitHub: https://github.com/matdev83/llm-interactive-proxy) with **radically simpler** and cleanerarchitecture.
+This repository is the greenfield Go re-implementation of the LIP (LLM Interactive Proxy Python app, GitHub: https://github.com/matdev83/llm-interactive-proxy) with **radically simpler** and cleaner architecture.
 
 Whenever needed or user refers to the LIP repo, you can access it directly as a sibling repo living in the following absolute dir: `C:\Users\Mateusz\source\repos\llm-interactive-proxy`.
 
@@ -40,18 +40,23 @@ Non-negotiable product traits:
 
 Treat these paths as the default structure unless a spec says otherwise:
 
-- `cmd/lipstd/` - standard distribution binary that wires official plugins into the runtime.
-- `pkg/lipapi/` - stable canonical request, event, capability, and error contracts.
-- `pkg/lipsdk/` - stable plugin SDK and registration contracts for plugins outside the repo.
-- `internal/core/` - runtime, orchestration, routing, capability negotiation, stream engine, config, admin.
-- `internal/plugins/frontends/` - official frontend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`.
-- `internal/plugins/backends/` - official backend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`.
-- `internal/plugins/features/` - official feature plugins and hook implementations.
-- `internal/infra/` - persistence, clocks, ids, logging helpers, metrics, and environment adapters.
-- `internal/testkit/` - provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
-- `testdata/` - golden protocol payloads, event streams, selector fixtures, and migration captures.
-- `docs/` - architecture notes, operator docs, and migration notes.
-- `.kiro/` - steering and spec artifacts.
+- `cmd/lipstd/` — standard distribution binary that wires official plugins into the runtime.
+- `pkg/lipapi/` — stable canonical request, event, capability, and error contracts.
+- `pkg/lipsdk/` — stable plugin SDK and registration contracts for plugins outside the repo.
+- `internal/core/` — orchestration (`runtime/`), routing, continuity + B2BUA store seams, stream engine, hook bus (`hooks/`), capabilities, config, HTTP/admin wiring, diagnostics helpers (`diag/`).
+- `internal/plugins/frontends/` — official frontend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`.
+- `internal/plugins/backends/` — official backend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`.
+- `internal/plugins/features/` — official feature plugins and hook implementations.
+- `internal/pluginreg/`, `internal/infra/runtimebundle/`, `internal/stdhttp/` — registration tables and composition (`cmd/lipstd` → runnable HTTP server).
+- `internal/infra/` — HTTP client tuning, structured logging helpers, Prometheus/OpenTelemetry wiring, clocks, ids, and other non-codec adapters.
+- `internal/testkit/` — provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
+- `internal/refbackend/`, `internal/refclient/` — spec emulators and reference SDK clients for tests only (must not appear on production wiring paths).
+- `internal/qa/`, `internal/archtest/` — repo hygiene tests and architecture import/budget guardrails.
+- `testdata/` — golden protocol payloads, event streams, selector fixtures, and migration captures.
+- `docs/` — architecture notes, operator docs, migration notes, release gates, performance checks.
+- `.kiro/` — steering and spec artifacts.
+
+For a fuller package-by-package map (including where to edit for a given change), use [`.kiro/steering/structure.md`](.kiro/steering/structure.md).
 
 ## Kiro Spec-Driven Development
 
@@ -98,7 +103,7 @@ Short guide to `.kiro/steering/` (enduring project memory; not spec-specific):
 - [`routing-and-orchestration.md`](.kiro/steering/routing-and-orchestration.md) — core-owned routing, failover, B2BUA pre-output recovery, attempt lineage, hook seams.
 - [`structure.md`](.kiro/steering/structure.md) — repository zones, package map, where to change code by intent.
 - [`tech.md`](.kiro/steering/tech.md) — stack, composition roots, provider SDK policy (SDKs only in backend plugins), concurrency.
-- [`testing.md`](.kiro/steering/testing.md) — TDD philosophy, suite topology, high-value test targets, canonical commands.
+- [`testing.md`](.kiro/steering/testing.md) — TDD philosophy, suite topology, build tags (`precommit`), `goleak`-enabled packages, high-value test targets, canonical commands, benchmark smoke references.
 
 ### Spec numbering vs requirement numbering
 
@@ -118,17 +123,18 @@ When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend wo
 Prefer repo-defined scripts or make targets:
 
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
-- `make test` — quality checks plus `go test -short -parallel=8 ./...` (skips `//go:build precommit` tests for speed)
+- `make test` — quality checks plus `go test -parallel=8 ./...` (omits `//go:build precommit` files unless you pass `-tags=precommit` as in `make test-precommit-extra` / `make qa`)
 - `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); also run by `make qa`, the git pre-commit quality gate, and CI unit tests
 - `make test-race` — no-op on Windows; on Linux/macOS/WSL runs `race-check.sh`-style scan. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make qa` — quality checks, unit tests, precommit-tagged tests, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
+- `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
 - `go test -run TestName ./path/to/pkg`
 - `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
-CI runs `.github/workflows/qa.yml` (quality checks, tests, race on Linux, golangci-lint, govulncheck).
+CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit ./...`, `make parity-checks`, release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint`, and `go tool govulncheck`.
 
 ### Go build and test caching
 
@@ -173,6 +179,8 @@ Go keeps compiled packages and test binaries in the **build cache** (`GOCACHE`, 
 - Keep config structs typed and explicit.
 - Do not allow plugin config to leak into core config structs.
 - Core passes plugin-specific raw config blobs into plugin factories.
+- Continuity/B2BUA persistence is core-configured: sample [`config/config.yaml`](config/config.yaml) defaults to in-memory `continuity.store`; optional SQLite uses `internal/core/continuity/sqlitestore/` (driver registration lives there, not only in `main`).
+- Optional observability: Prometheus metrics and OpenTelemetry tracing are gated under config (see commented `observability:` block in the sample config); wiring lives under `internal/infra/metrics` and `internal/infra/tracing`.
 
 ## Testing standards
 
@@ -212,6 +220,7 @@ High-value areas that always deserve tests:
 - **Slices in JSON and returned values**: prefer explicit empty initialization (`s := []T{}` or `make`) when
   a slice is stored, returned, or serialized, so `null` never appears in JSON for “empty list”. Short-lived
   **append-only** local buffers may use `var s []T` and `append` (idiomatic Go) when the value never escapes.
+- **JSON presence vs null**: when a wire shape must preserve “field absent” vs explicit `null` vs empty containers, reuse `internal/core/jsonpresence` patterns instead of one-off nullable types at every call site.
 - **SQL driver import**: the SQLite driver is side-effect-registered in
   [internal/core/continuity/sqlitestore/](./internal/core/continuity/sqlitestore/) (not only in `main`);
   see the package and import comments there.

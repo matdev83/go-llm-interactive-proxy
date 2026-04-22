@@ -250,23 +250,27 @@ func TestParamsForCall_toolChoiceModes(t *testing.T) {
 	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
 
 	for _, tc := range []struct {
+		name   string
 		mode   lipapi.ToolChoiceMode
 		want   string
 		substr string
 	}{
-		{lipapi.ToolChoiceNone, "none", `"tool_choice":"none"`},
-		{lipapi.ToolChoiceAny, "required", `"tool_choice":"required"`},
+		{"none", lipapi.ToolChoiceNone, "none", `"tool_choice":"none"`},
+		{"any", lipapi.ToolChoiceAny, "required", `"tool_choice":"required"`},
 	} {
-		c := base
-		c.ToolChoice = lipapi.ToolChoice{Mode: tc.mode}
-		p, err := backend.ParamsForCall(&c, cand)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.want, err)
-		}
-		raw, _ := json.Marshal(p)
-		if !strings.Contains(string(raw), tc.substr) {
-			t.Fatalf("%s: want %q in %s", tc.want, tc.substr, raw)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := base
+			c.ToolChoice = lipapi.ToolChoice{Mode: tc.mode}
+			p, err := backend.ParamsForCall(&c, cand)
+			if err != nil {
+				t.Fatalf("%s: %v", tc.want, err)
+			}
+			raw, _ := json.Marshal(p)
+			if !strings.Contains(string(raw), tc.substr) {
+				t.Fatalf("%s: want %q in %s", tc.want, tc.substr, raw)
+			}
+		})
 	}
 }
 
