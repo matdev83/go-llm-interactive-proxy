@@ -16,10 +16,12 @@ func TestBuildFeatureHooks_usesExplicitRegistryNotDefault(t *testing.T) {
 
 	factoryID := "custom-registry-feature-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
-	reg.RegisterFeature(factoryID, func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+	if err := reg.RegisterFeature(factoryID, func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
 		_ = n
 		return hooks.Config{}, nil, nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	var cfgNode yaml.Node
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {

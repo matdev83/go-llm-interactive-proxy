@@ -17,7 +17,7 @@ func ReadAll(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, er
 		maxBytes = DefaultMaxBytes
 	}
 	lr := http.MaxBytesReader(w, r.Body, maxBytes)
-	defer lr.Close()
+	defer func() { _ = lr.Close() }()
 	return io.ReadAll(lr)
 }
 

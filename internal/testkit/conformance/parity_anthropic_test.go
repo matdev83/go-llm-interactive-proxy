@@ -24,7 +24,7 @@ func TestParity_Anthropic_bundledFrontend(t *testing.T) {
 // Anthropic parity anchor (design.md ANT-MM-OUT): canonical assistant ref events collect.
 func TestParity_Anthropic_canonicalAssistantMediaCollects(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "ok"},

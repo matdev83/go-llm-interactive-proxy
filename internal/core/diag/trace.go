@@ -6,6 +6,20 @@ import (
 	"sync/atomic"
 )
 
+type TraceIDGenerator struct {
+	seq uint64
+}
+
+func NewTraceIDGenerator() *TraceIDGenerator {
+	return &TraceIDGenerator{}
+}
+
+func (g *TraceIDGenerator) Next() string {
+	return fmt.Sprintf("t_%08d", atomic.AddUint64(&g.seq, 1))
+}
+
+var defaultTraceIDGen = NewTraceIDGenerator()
+
 type ctxKey int
 
 const (
@@ -19,8 +33,6 @@ type callDiag struct {
 	Trace string
 	ALeg  string
 }
-
-var traceSeq uint64
 
 // WithTraceID returns a child context that carries traceID for diagnostics propagation.
 func WithTraceID(ctx context.Context, traceID string) context.Context {
@@ -41,8 +53,10 @@ func TraceID(ctx context.Context) string {
 	if v, ok := ctx.Value(keyCallDiag).(callDiag); ok {
 		return v.Trace
 	}
-	v, _ := ctx.Value(keyTraceID).(string)
-	return v
+	if v, ok := ctx.Value(keyTraceID).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // WithALeg returns a child context that carries the A-leg identifier for lineage diagnostics.
@@ -58,11 +72,13 @@ func ALegID(ctx context.Context) string {
 	if v, ok := ctx.Value(keyCallDiag).(callDiag); ok {
 		return v.ALeg
 	}
-	v, _ := ctx.Value(keyALegID).(string)
-	return v
+	if v, ok := ctx.Value(keyALegID).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // NewTraceID generates a deterministic opaque trace identifier.
 func NewTraceID() string {
-	return fmt.Sprintf("t_%08d", atomic.AddUint64(&traceSeq, 1))
+	return defaultTraceIDGen.Next()
 }

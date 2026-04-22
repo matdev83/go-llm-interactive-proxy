@@ -300,7 +300,7 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []lipapi.AttemptRecord
 	for rows.Next() {
 		var r lipapi.AttemptRecord

@@ -33,6 +33,6 @@ func FuzzWriteNonStreamJSON_toolArguments(f *testing.F) {
 			{Kind: lipapi.EventResponseFinished},
 		}
 		rec := httptest.NewRecorder()
-		_ = anthropic.WriteNonStreamJSON(context.Background(), rec, call, lipapi.FixedEventStream(evs), anthropic.EncodeOptions{})
+		_ = anthropic.WriteNonStreamJSON(context.Background(), rec, call, lipapi.NewFixedEventStream(evs), anthropic.EncodeOptions{})
 	})
 }

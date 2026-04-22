@@ -2,10 +2,58 @@ package acp
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+type ctxKey struct{}
+
+type unarySpyTransport struct {
+	mu          sync.Mutex
+	lastCtx     context.Context
+	errAtInvoke error
+}
+
+func (u *unarySpyTransport) CallUnary(ctx context.Context, body []byte, expectStatus int) ([]byte, error) {
+	u.mu.Lock()
+	u.errAtInvoke = ctx.Err()
+	u.lastCtx = ctx
+	u.mu.Unlock()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if expectStatus == http.StatusNoContent || expectStatus == http.StatusOK {
+		return nil, nil
+	}
+	return nil, nil
+}
+
+func (u *unarySpyTransport) CallPromptStream(ctx context.Context, body []byte) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (u *unarySpyTransport) SendJSONRPC(ctx context.Context, body []byte) error {
+	return nil
+}
+
+func (u *unarySpyTransport) last() context.Context {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.lastCtx
+}
+
+func (u *unarySpyTransport) invokeErr() error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.errAtInvoke
+}
 
 func TestParseNDJSONLine_planEmitsReasoning(t *testing.T) {
 	t.Parallel()
@@ -65,5 +113,38 @@ func TestParseNDJSONLine_terminal(t *testing.T) {
 	}
 	if len(evs) != 1 || evs[0].Kind != lipapi.EventResponseFinished {
 		t.Fatalf("got %#v", evs)
+	}
+}
+
+func TestPromptStream_signalCancelContextNotCanceledWithConsumer(t *testing.T) {
+	t.Parallel()
+	spy := &unarySpyTransport{}
+	cli := &client{t: spy}
+	parent := context.WithValue(context.Background(), ctxKey{}, "trace")
+	body := io.NopCloser(strings.NewReader(""))
+	s := newPromptNDJSONStream(parent, body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}))
+
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.Recv(cctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("recv err: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for spy.last() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("cancelSession was not invoked")
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	last := spy.last()
+	if spy.invokeErr() != nil {
+		t.Fatalf("cancel ctx should not inherit consumer cancellation at RPC start: %v", spy.invokeErr())
+	}
+	if _, ok := last.Deadline(); !ok {
+		t.Fatal("expected bounded deadline on cancel RPC context")
+	}
+	if got, _ := last.Value(ctxKey{}).(string); got != "trace" {
+		t.Fatalf("expected stream context value propagated, got %q", got)
 	}
 }

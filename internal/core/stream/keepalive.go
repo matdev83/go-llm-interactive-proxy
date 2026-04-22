@@ -39,6 +39,10 @@ func DefaultKeepaliveEvent() lipapi.Event {
 // a keepalive when the inner stream hasn't produced a result within the interval.
 // Close cancels any in-flight inner Recv (see abortRead) and closes k.done so the
 // reader loop exits without a second goroutine.
+//
+// EventStream concurrency: one goroutine calls Recv at a time. Close is safe
+// concurrently with Recv blocked on the keepalive select or inner I/O; Close aborts
+// the in-flight inner Recv then closes the inner stream.
 type Keepalive struct {
 	inner lipapi.EventStream
 	cfg   KeepaliveConfig
@@ -59,6 +63,8 @@ type Keepalive struct {
 	abortMu   sync.Mutex
 	abortRead context.CancelFunc
 }
+
+var _ lipapi.EventStream = (*Keepalive)(nil)
 
 type item struct {
 	ev  lipapi.Event

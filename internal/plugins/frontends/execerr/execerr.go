@@ -13,7 +13,8 @@ const InternalWireMessage = "internal error"
 type Kind int
 
 const (
-	ClientReject Kind = iota
+	KindUnspecified Kind = iota
+	ClientReject
 	InternalError
 )
 

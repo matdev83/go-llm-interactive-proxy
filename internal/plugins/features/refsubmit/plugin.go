@@ -18,6 +18,8 @@ type hook struct {
 	marker string
 }
 
+var _ sdk.SubmitHook = hook{}
+
 // NewHook returns a submit hook that records a JSON marker extension on the canonical call.
 func NewHook(cfg Config) sdk.SubmitHook {
 	o := defaultOrder

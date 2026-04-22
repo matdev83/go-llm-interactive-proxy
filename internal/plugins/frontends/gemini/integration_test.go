@@ -128,7 +128,7 @@ func TestIntegration_refclientMultimodalCanonicalParts(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	parts := call.Messages[0].Parts
 	if len(parts) < 3 {
 		t.Fatalf("parts: %+v", parts)
@@ -322,12 +322,12 @@ func TestIntegration_toolStubRoundTrip_nonStreaming(t *testing.T) {
 	if len(cands) < 1 {
 		t.Fatalf("candidates: %v", v)
 	}
-	c0 := cands[0].(map[string]any)
-	content := c0["content"].(map[string]any)
-	parts := content["parts"].([]any)
+	c0 := testkit.MustMapStringAny(t, cands[0])
+	content := testkit.MustMapStringAny(t, c0["content"])
+	parts := testkit.MustSliceAny(t, content["parts"])
 	var saw bool
 	for _, p := range parts {
-		pm := p.(map[string]any)
+		pm := testkit.MustMapStringAny(t, p)
 		if fc, ok := pm["functionCall"].(map[string]any); ok {
 			if fc["name"] == "todo_add" {
 				saw = true
@@ -370,7 +370,7 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	if call.Route.Selector != "stub:route-from-header" {
 		t.Fatalf("route selector %q", call.Route.Selector)
 	}

@@ -16,7 +16,9 @@ import (
 
 func registerStandardBundleForTest(t *testing.T) {
 	t.Helper()
-	pluginreg.RegisterStandardBundle()
+	if err := pluginreg.RegisterStandardBundle(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {

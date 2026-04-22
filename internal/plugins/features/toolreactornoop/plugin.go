@@ -11,6 +11,8 @@ const hookOrder = 100
 
 type reactor struct{}
 
+var _ sdk.ToolReactor = reactor{}
+
 // NewToolReactor returns an inert tool reactor for tool-reactor-noop.
 func NewToolReactor() sdk.ToolReactor { return reactor{} }
 

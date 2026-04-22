@@ -56,16 +56,15 @@ func (c *client) cancelSession(ctx context.Context, cp CancelProfile, sessionID 
 		if err != nil {
 			return err
 		}
-		if _, err := c.t.CallUnary(ctx, body, http.StatusNoContent); err == nil {
+		_, errNC := c.t.CallUnary(ctx, body, http.StatusNoContent)
+		if errNC == nil {
 			return nil
-		} else {
-			lastErr = err
 		}
-		if _, err := c.t.CallUnary(ctx, body, http.StatusOK); err == nil {
+		_, errOK := c.t.CallUnary(ctx, body, http.StatusOK)
+		if errOK == nil {
 			return nil
-		} else {
-			lastErr = err
 		}
+		lastErr = errOK
 	}
 	if lastErr != nil {
 		return fmt.Errorf("acp: cancel: %w", lastErr)

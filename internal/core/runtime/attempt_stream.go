@@ -40,6 +40,8 @@ type retryRecvStream struct {
 	finished  bool
 }
 
+var _ lipapi.EventStream = (*retryRecvStream)(nil)
+
 // recvHookMeta returns identifiers for response-path hooks after B-leg allocation.
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 	pm := sdk.PartMeta{

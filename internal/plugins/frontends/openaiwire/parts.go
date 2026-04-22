@@ -7,14 +7,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// MustJSON marshals a raw-message map for json.Unmarshal into a typed struct.
-// It panics if marshaling fails (same contract as the legacy frontend decoders).
-func MustJSON(blk map[string]json.RawMessage) []byte {
-	b, err := json.Marshal(blk)
-	if err != nil {
-		panic("openaiwire.MustJSON: " + err.Error())
-	}
-	return b
+func MarshalBlock(blk map[string]json.RawMessage) ([]byte, error) {
+	return json.Marshal(blk)
 }
 
 // ImagePartFromURL maps a URL or data-URL string to a canonical image part.

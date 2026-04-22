@@ -71,6 +71,9 @@ type respHook struct {
 	prefix string
 }
 
+var _ sdk.RequestPartHook = hook{}
+var _ sdk.ResponsePartHook = respHook{}
+
 func (respHook) ID() string                   { return ID + "-response" }
 func (h respHook) Order() int                 { return h.order }
 func (respHook) FailureMode() sdk.FailureMode { return sdk.FailOpen }

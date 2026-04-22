@@ -120,7 +120,7 @@ func TestIntegration_refclientMultimodalCanonicalParts(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	partsOut := call.Messages[0].Parts
 	if len(partsOut) < 3 {
 		t.Fatalf("parts: %+v", partsOut)
@@ -361,7 +361,7 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	if call.Route.Selector != "stub:route-from-header" {
 		t.Fatalf("route selector %q", call.Route.Selector)
 	}

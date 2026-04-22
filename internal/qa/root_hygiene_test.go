@@ -41,6 +41,37 @@ func TestRootHygiene_MarkdownFiles(t *testing.T) {
 	}
 }
 
+func TestLayout_CanonicalInternalDirsExist(t *testing.T) {
+	t.Parallel()
+	rootDir, err := projectRoot()
+	if err != nil {
+		t.Fatalf("project root: %v", err)
+	}
+	dirs := []string{
+		"internal/pluginreg",
+		"internal/stdhttp",
+		"internal/infra/runtimebundle",
+		"internal/refbackend",
+		"internal/refclient",
+		"internal/qa",
+		"internal/archtest",
+		"internal/plugins/stores",
+	}
+	for _, rel := range dirs {
+		rel := rel
+		t.Run(rel, func(t *testing.T) {
+			t.Parallel()
+			st, err := os.Stat(filepath.Join(rootDir, rel))
+			if err != nil {
+				t.Fatalf("stat %s: %v", rel, err)
+			}
+			if !st.IsDir() {
+				t.Fatalf("%s: expected directory", rel)
+			}
+		})
+	}
+}
+
 func TestRootHygiene_NoLooseTextOrLogFiles(t *testing.T) {
 	t.Parallel()
 

@@ -2,6 +2,7 @@ package diag
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -22,9 +23,9 @@ type PluginRow struct {
 }
 
 // InventoryHandler serves GET JSON describing enabled plugin rows from cfg.
-func InventoryHandler(cfg *config.Config) http.Handler {
+func InventoryHandler(cfg *config.Config) (http.Handler, error) {
 	if cfg == nil {
-		panic("diag: InventoryHandler: nil config")
+		return nil, errors.New("diag: InventoryHandler: nil config")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -40,7 +41,7 @@ func InventoryHandler(cfg *config.Config) http.Handler {
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(true)
 		_ = enc.Encode(snap)
-	})
+	}), nil
 }
 
 func rows(in []config.PluginConfig) []PluginRow {

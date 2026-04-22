@@ -28,7 +28,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	pluginreg.RegisterStandardBundle()
+	if err := pluginreg.RegisterStandardBundle(); err != nil {
+		logger.Error("plugin registration failed", "error", err)
+		os.Exit(1)
+	}
 	reg := pluginreg.Default
 	if err := reg.ValidateBundledFactories(mandatoryStandardPlugins()); err != nil {
 		logger.Error("registry factory validation failed", "error", err)

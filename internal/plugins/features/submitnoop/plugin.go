@@ -15,6 +15,8 @@ type submitHook struct {
 	order int
 }
 
+var _ sdk.SubmitHook = submitHook{}
+
 // NewSubmitHook returns an inert submit hook with default ordering (HookConfig zero value).
 func NewSubmitHook() sdk.SubmitHook {
 	return NewSubmitHookWithConfig(HookConfig{})

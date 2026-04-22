@@ -1,6 +1,7 @@
 package openairesponses
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,7 +77,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		return nil, err
 	}
 
-	modelRaw, err := json.Marshal(model)
+	modelRaw, err := encodeJSONStringValue(model)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +354,11 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		var s struct {
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
+		raw, err := openaiwire.MarshalBlock(blk)
+		if err != nil {
+			return lipapi.Part{}, err
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.Text) == "" {
@@ -364,7 +369,11 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		var s struct {
 			ImageURL string `json:"image_url"`
 		}
-		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
+		raw, err := openaiwire.MarshalBlock(blk)
+		if err != nil {
+			return lipapi.Part{}, err
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.ImageURL) == "" {
@@ -376,7 +385,11 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 			FileData string `json:"file_data"`
 			Filename string `json:"filename"`
 		}
-		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
+		raw, err := openaiwire.MarshalBlock(blk)
+		if err != nil {
+			return lipapi.Part{}, err
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.FileData) == "" {
@@ -487,6 +500,20 @@ func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
 	default:
 		return lipapi.ToolChoice{}, fmt.Errorf("openairesponses: unsupported tool_choice type %q", obj.Type)
 	}
+}
+
+func encodeJSONStringValue(s string) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(true)
+	if err := enc.Encode(s); err != nil {
+		return nil, err
+	}
+	b := buf.Bytes()
+	if n := len(b); n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+	}
+	return b, nil
 }
 
 // ModelFromCall returns the wire model string stored during decode.

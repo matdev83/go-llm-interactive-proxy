@@ -22,7 +22,10 @@ import (
 // Extension key for wire model id stored by a frontend decoder.
 const extModelJSONKey = "bedrock.modelId"
 
-func newRuntimeClient(cfg Config) (*bedrockruntime.Client, error) {
+func newRuntimeClient(ctx context.Context, cfg Config) (*bedrockruntime.Client, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	region := strings.TrimSpace(cfg.Region)
 	if region == "" {
 		region = "us-east-1"
@@ -35,7 +38,7 @@ func newRuntimeClient(cfg Config) (*bedrockruntime.Client, error) {
 			credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, cfg.SessionToken),
 		))
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), loadOpts...)
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: aws config: %w", err)
 	}
@@ -238,9 +241,9 @@ func assistantPartsToContentBlocks(parts []lipapi.Part) ([]types.ContentBlock, e
 			if err := json.Unmarshal(p.Content, &payload); err != nil {
 				return nil, fmt.Errorf("bedrock: assistant json part: %w", err)
 			}
-			toolUseID, _ := payload["tool_use_id"].(string)
-			toolName, _ := payload["name"].(string)
-			if toolUseID == "" || toolName == "" {
+			toolUseID, okID := payload["tool_use_id"].(string)
+			toolName, okName := payload["name"].(string)
+			if !okID || !okName || toolUseID == "" || toolName == "" {
 				return nil, fmt.Errorf("bedrock: assistant json part requires tool_use_id and name")
 			}
 			input := payload["input"]

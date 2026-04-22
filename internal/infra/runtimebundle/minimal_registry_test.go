@@ -16,7 +16,9 @@ func TestBuild_injectedRegistryOnly(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	pluginreg.InstallStandardBackendsOn(reg)
+	if err := pluginreg.InstallStandardBackendsOn(reg); err != nil {
+		t.Fatal(err)
+	}
 
 	var empty yaml.Node
 	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {

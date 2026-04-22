@@ -9,7 +9,7 @@ import (
 
 func TestCollect_toolStartedRecordsNameAndOrder(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventToolCallStarted, ToolCallID: "call_a", ToolName: "fn_a"},
@@ -33,7 +33,7 @@ func TestCollect_toolStartedRecordsNameAndOrder(t *testing.T) {
 
 func TestCollect_argsDeltaBeforeStartedStillOrders(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "call_b", Delta: "1"},
@@ -53,7 +53,7 @@ func TestCollect_argsDeltaBeforeStartedStillOrders(t *testing.T) {
 
 func TestCollect_twoToolsPreservesOrder(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "a"},
@@ -77,7 +77,7 @@ func TestCollect_twoToolsPreservesOrder(t *testing.T) {
 
 func TestCollect_toolStartedMissingIDErrors(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventToolCallStarted, ToolName: "x"},

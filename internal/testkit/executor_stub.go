@@ -54,7 +54,7 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 						evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
 					}
 					evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
-					return lipapi.FixedEventStream(evs), nil
+					return lipapi.NewFixedEventStream(evs), nil
 				},
 			},
 		},
@@ -86,7 +86,7 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 						lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
 						lipapi.Event{Kind: lipapi.EventResponseFinished},
 					)
-					return lipapi.FixedEventStream(evs), nil
+					return lipapi.NewFixedEventStream(evs), nil
 				},
 			},
 		},

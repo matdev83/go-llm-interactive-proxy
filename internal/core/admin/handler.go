@@ -12,7 +12,13 @@ func DiagnosticsHandler(attemptLoader diag.AttemptLoader) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/health", diag.HealthHandler())
 	if attemptLoader != nil {
-		mux.Handle("/attempts", diag.AttemptsHandler(attemptLoader))
+		h, err := diag.AttemptsHandler(attemptLoader)
+		if err != nil {
+			h = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			})
+		}
+		mux.Handle("/attempts", h)
 	}
 	return mux
 }

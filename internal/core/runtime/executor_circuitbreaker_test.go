@@ -45,7 +45,7 @@ func TestExecutor_circuitBreakerSkipsAfterFailures(t *testing.T) {
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},
 		},

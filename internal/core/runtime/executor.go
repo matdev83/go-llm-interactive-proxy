@@ -108,6 +108,8 @@ func (l *lockedRng) Intn(n int) int {
 	return l.base.Intn(n)
 }
 
+var _ routing.Rng = (*lockedRng)(nil)
+
 func (e *Executor) now() time.Time {
 	if e.Now != nil {
 		return e.Now()

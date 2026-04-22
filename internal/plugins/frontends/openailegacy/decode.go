@@ -282,7 +282,11 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		var s struct {
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
+		raw, err := openaiwire.MarshalBlock(blk)
+		if err != nil {
+			return lipapi.Part{}, err
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		if strings.TrimSpace(s.Text) == "" {
@@ -295,7 +299,11 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 				URL string `json:"url"`
 			} `json:"image_url"`
 		}
-		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
+		raw, err := openaiwire.MarshalBlock(blk)
+		if err != nil {
+			return lipapi.Part{}, err
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		u := strings.TrimSpace(s.ImageURL.URL)
@@ -310,7 +318,11 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 				Filename string `json:"filename"`
 			} `json:"file"`
 		}
-		if err := json.Unmarshal(openaiwire.MustJSON(blk), &s); err != nil {
+		raw, err := openaiwire.MarshalBlock(blk)
+		if err != nil {
+			return lipapi.Part{}, err
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
 			return lipapi.Part{}, err
 		}
 		fd := strings.TrimSpace(s.File.FileData)

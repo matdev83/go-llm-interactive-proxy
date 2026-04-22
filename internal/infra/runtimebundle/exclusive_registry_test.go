@@ -10,9 +10,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -22,7 +22,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 
 	factoryID := "custom-registry-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
-	reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (any, error) {
+	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (any, error) {
 		_ = n
 		_ = upstream
 		return runtime.Backend{
@@ -31,7 +31,9 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 				return nil, errors.New("exclusive-registry-probe")
 			},
 		}, nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := pluginreg.BuildBackend(factoryID, yaml.Node{}, nil); err == nil {
 		t.Fatal("expected default registry to omit custom factory id")

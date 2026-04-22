@@ -96,7 +96,7 @@ func New(cfg Config) runtime.Backend {
 			if err != nil {
 				return nil, err
 			}
-			return newPromptNDJSONStream(body, c, sid, rpcID, msgID, mapper, cfg.ServerRequest, cancelProf, ctx), nil
+			return newPromptNDJSONStream(ctx, body, c, sid, rpcID, msgID, mapper, cfg.ServerRequest, cancelProf), nil
 		},
 	}
 }

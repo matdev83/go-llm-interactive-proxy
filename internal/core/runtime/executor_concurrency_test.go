@@ -29,7 +29,7 @@ func TestExecutor_concurrentExecute_nilBus(t *testing.T) {
 					_ = ctx
 					_ = call
 					_ = cand
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil
@@ -77,7 +77,7 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 		_ = ctx
 		_ = call
 		_ = cand
-		return lipapi.FixedEventStream([]lipapi.Event{
+		return lipapi.NewFixedEventStream([]lipapi.Event{
 			{Kind: lipapi.EventResponseStarted},
 			{Kind: lipapi.EventMessageStarted},
 			{Kind: lipapi.EventResponseFinished},

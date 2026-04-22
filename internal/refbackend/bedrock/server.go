@@ -6,13 +6,17 @@ package bedrock
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
 )
+
+const maxBodyBytes = 10 << 20
 
 // Config tunes the emulator handler.
 type Config struct {
@@ -61,7 +65,7 @@ func NewHandler(cfg Config) http.Handler {
 			}
 		}
 
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
 			http.Error(w, "read body", http.StatusBadRequest)
 			return
@@ -129,7 +133,8 @@ func defaultConverseStreamEvents() []byte {
 	for _, ev := range events {
 		payload, err := json.Marshal(ev.payload)
 		if err != nil {
-			panic(err)
+			_, _ = fmt.Fprintf(os.Stderr, "refbackend/bedrock: marshal stream fixture payload: %v\n", err)
+			continue
 		}
 		msg := eventstream.Message{
 			Headers: []eventstream.Header{
@@ -140,7 +145,8 @@ func defaultConverseStreamEvents() []byte {
 			Payload: payload,
 		}
 		if err := enc.Encode(&buf, msg); err != nil {
-			panic(err)
+			_, _ = fmt.Fprintf(os.Stderr, "refbackend/bedrock: encode stream fixture: %v\n", err)
+			return buf.Bytes()
 		}
 	}
 	return buf.Bytes()

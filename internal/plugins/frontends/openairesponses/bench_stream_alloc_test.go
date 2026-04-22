@@ -28,7 +28,7 @@ func BenchmarkWriteStreamSSE_textDeltas(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		rec := httptest.NewRecorder()
-		es := lipapi.FixedEventStream(events)
+		es := lipapi.NewFixedEventStream(events)
 		if err := WriteStreamSSE(context.Background(), rec, call, es, EncodeOptions{
 			ResponseID: "resp_bench",
 			MessageID:  "msg_bench",

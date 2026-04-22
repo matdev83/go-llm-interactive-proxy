@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,6 +89,30 @@ func TestConverseStreamInputForCall_systemInstructions(t *testing.T) {
 	}
 	if len(in.System) != 1 {
 		t.Fatalf("system len: %d", len(in.System))
+	}
+}
+
+func TestConverseStreamInputForCall_maxOutputTokensInt32Bound(t *testing.T) {
+	t.Parallel()
+	maxTok := math.MaxInt32
+	call := lipapi.Call{
+		ID: "mt",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &maxTok},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "m"}}
+	in, err := backend.ConverseStreamInputForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.InferenceConfig == nil || in.InferenceConfig.MaxTokens == nil {
+		t.Fatal("expected InferenceConfig.MaxTokens")
+	}
+	if aws.ToInt32(in.InferenceConfig.MaxTokens) != math.MaxInt32 {
+		t.Fatalf("MaxTokens: %v", in.InferenceConfig.MaxTokens)
 	}
 }
 

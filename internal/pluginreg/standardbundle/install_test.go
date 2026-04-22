@@ -11,7 +11,9 @@ import (
 func TestInstall_matchesRegisterStandardBundle(t *testing.T) {
 	t.Parallel()
 	// Standard bundle entrypoint used by cmd is RegisterStandardBundle; standardbundle.Install delegates.
-	standardbundle.Install()
+	if err := standardbundle.Install(); err != nil {
+		t.Fatal(err)
+	}
 	if err := pluginreg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
 		t.Fatal(err)
 	}

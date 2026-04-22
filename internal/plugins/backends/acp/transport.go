@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // JSON-RPC unary responses should be small; cap read size to avoid unbounded
@@ -65,7 +66,9 @@ func newHTTPTransport(baseURL string, hc *http.Client) (*httpTransport, error) {
 		return nil, fmt.Errorf("acp: BaseURL must include scheme and host")
 	}
 	if hc == nil {
-		hc = http.DefaultClient
+		hc = &http.Client{
+			Timeout: 120 * time.Second,
+		}
 	}
 	u2 := *parsed
 	u2.Path = strings.TrimSuffix(u2.Path, "/") + "/v1/acp"
@@ -131,7 +134,7 @@ func (t *httpTransport) SendJSONRPC(ctx context.Context, body []byte) error {
 		}
 		return fmt.Errorf("acp: SendJSONRPC: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }

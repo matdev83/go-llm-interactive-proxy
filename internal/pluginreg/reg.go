@@ -46,58 +46,61 @@ func NewRegistry() *Registry {
 var Default = NewRegistry()
 
 // RegisterBackend records a backend factory for the given plugin id (e.g. openai-responses).
-// Duplicate ids panic: the standard bundle must register each id exactly once.
-func RegisterBackend(id string, fn backendFactory) {
-	Default.RegisterBackend(id, fn)
+// Duplicate ids return an error: the standard bundle must register each id exactly once.
+func RegisterBackend(id string, fn backendFactory) error {
+	return Default.RegisterBackend(id, fn)
 }
 
 // RegisterBackend records a backend factory on r.
-func (r *Registry) RegisterBackend(id string, fn backendFactory) {
+func (r *Registry) RegisterBackend(id string, fn backendFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if id == "" {
-		panic("pluginreg: RegisterBackend: empty id")
+		return fmt.Errorf("pluginreg: RegisterBackend: empty id")
 	}
 	if _, exists := r.backends[id]; exists {
-		panic("pluginreg: duplicate backend registration: " + id)
+		return fmt.Errorf("pluginreg: duplicate backend registration: %s", id)
 	}
 	r.backends[id] = fn
+	return nil
 }
 
 // RegisterFrontend records a frontend mount for the given plugin id.
-func RegisterFrontend(id string, fn FrontendMount) {
-	Default.RegisterFrontend(id, fn)
+func RegisterFrontend(id string, fn FrontendMount) error {
+	return Default.RegisterFrontend(id, fn)
 }
 
 // RegisterFrontend records a frontend mount on r.
-func (r *Registry) RegisterFrontend(id string, fn FrontendMount) {
+func (r *Registry) RegisterFrontend(id string, fn FrontendMount) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if id == "" {
-		panic("pluginreg: RegisterFrontend: empty id")
+		return fmt.Errorf("pluginreg: RegisterFrontend: empty id")
 	}
 	if _, exists := r.frontends[id]; exists {
-		panic("pluginreg: duplicate frontend registration: " + id)
+		return fmt.Errorf("pluginreg: duplicate frontend registration: %s", id)
 	}
 	r.frontends[id] = fn
+	return nil
 }
 
 // RegisterFeature records a feature factory for the given plugin id.
-func RegisterFeature(id string, fn FeatureFactory) {
-	Default.RegisterFeature(id, fn)
+func RegisterFeature(id string, fn FeatureFactory) error {
+	return Default.RegisterFeature(id, fn)
 }
 
 // RegisterFeature records a feature factory on r.
-func (r *Registry) RegisterFeature(id string, fn FeatureFactory) {
+func (r *Registry) RegisterFeature(id string, fn FeatureFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if id == "" {
-		panic("pluginreg: RegisterFeature: empty id")
+		return fmt.Errorf("pluginreg: RegisterFeature: empty id")
 	}
 	if _, exists := r.features[id]; exists {
-		panic("pluginreg: duplicate feature registration: " + id)
+		return fmt.Errorf("pluginreg: duplicate feature registration: %s", id)
 	}
 	r.features[id] = fn
+	return nil
 }
 
 // BuildBackend constructs a backend from registry using the factory id (plugin kind).

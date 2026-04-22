@@ -21,7 +21,7 @@ func TestWriteNonStreamJSON_textFromStream(t *testing.T) {
 	call.Extensions = map[string]json.RawMessage{
 		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
 	}
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "hello-out"},
@@ -42,13 +42,13 @@ func TestWriteNonStreamJSON_textFromStream(t *testing.T) {
 	if len(cands) < 1 {
 		t.Fatalf("candidates: %v", body)
 	}
-	c0 := cands[0].(map[string]any)
-	content := c0["content"].(map[string]any)
+	c0 := testkit.MustMapStringAny(t, cands[0])
+	content := testkit.MustMapStringAny(t, c0["content"])
 	if content["role"] != "model" {
 		t.Fatalf("role: %v", content["role"])
 	}
-	parts := content["parts"].([]any)
-	p0 := parts[0].(map[string]any)
+	parts := testkit.MustSliceAny(t, content["parts"])
+	p0 := testkit.MustMapStringAny(t, parts[0])
 	if p0["text"] != "hello-out" {
 		t.Fatalf("text: %v", p0["text"])
 	}
@@ -65,7 +65,7 @@ func TestWriteNonStreamJSON_ignoresUsageFromStream(t *testing.T) {
 	call.Extensions = map[string]json.RawMessage{
 		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
 	}
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventUsageDelta, InputTokens: 10, OutputTokens: 5},
@@ -90,7 +90,7 @@ func TestWriteStreamSSE_dataLine(t *testing.T) {
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
 	}
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "Z"},
@@ -117,7 +117,7 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
 	}
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventUsageDelta, InputTokens: 7, OutputTokens: 0},
@@ -154,10 +154,10 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 		if len(cands) < 1 {
 			continue
 		}
-		c0 := cands[0].(map[string]any)
-		content := c0["content"].(map[string]any)
-		parts := content["parts"].([]any)
-		p0 := parts[0].(map[string]any)
+		c0 := testkit.MustMapStringAny(t, cands[0])
+		content := testkit.MustMapStringAny(t, c0["content"])
+		parts := testkit.MustSliceAny(t, content["parts"])
+		p0 := testkit.MustMapStringAny(t, parts[0])
 		txt, _ := p0["text"].(string)
 		if txt != "" {
 			texts = append(texts, txt)
@@ -176,7 +176,7 @@ func TestWriteStreamSSE_functionCallChunk(t *testing.T) {
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
 	}
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "pre"},
@@ -205,11 +205,11 @@ func TestWriteStreamSSE_functionCallChunk(t *testing.T) {
 		if len(cands) == 0 {
 			continue
 		}
-		c0 := cands[0].(map[string]any)
-		content := c0["content"].(map[string]any)
-		parts := content["parts"].([]any)
+		c0 := testkit.MustMapStringAny(t, cands[0])
+		content := testkit.MustMapStringAny(t, c0["content"])
+		parts := testkit.MustSliceAny(t, content["parts"])
 		for _, p := range parts {
-			pm := p.(map[string]any)
+			pm := testkit.MustMapStringAny(t, p)
 			if fc, ok := pm["functionCall"].(map[string]any); ok {
 				fcSeen = true
 				if fc["name"] != "compute" {
@@ -235,7 +235,7 @@ func TestWriteNonStreamJSON_functionCallOutput(t *testing.T) {
 	call.Extensions = map[string]json.RawMessage{
 		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
 	}
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "ok"},
@@ -256,11 +256,12 @@ func TestWriteNonStreamJSON_functionCallOutput(t *testing.T) {
 	if len(cands) == 0 {
 		t.Fatal("no candidates")
 	}
-	content := cands[0].(map[string]any)["content"].(map[string]any)
-	parts := content["parts"].([]any)
+	c0 := testkit.MustMapStringAny(t, cands[0])
+	content := testkit.MustMapStringAny(t, c0["content"])
+	parts := testkit.MustSliceAny(t, content["parts"])
 	var fcSeen bool
 	for _, p := range parts {
-		pm := p.(map[string]any)
+		pm := testkit.MustMapStringAny(t, p)
 		if fc, ok := pm["functionCall"].(map[string]any); ok {
 			fcSeen = true
 			if fc["name"] != "search" {

@@ -63,6 +63,21 @@ func TestFlushSSEDataJSON_decode(t *testing.T) {
 	}
 }
 
+func TestAcquireSSEBuffer_nonBufferPoolEntryAllocatesFresh(t *testing.T) {
+	// Mutates package-level sseBufPool; do not run parallel with other tests that rely on pool purity.
+	sseBufPool.Put("not-a-buffer")
+	buf := acquireSSEBuffer()
+	if buf == nil {
+		t.Fatal("expected non-nil buffer")
+	}
+	buf.Reset()
+	buf.WriteString("ok")
+	if buf.String() != "ok" {
+		t.Fatalf("buffer: %q", buf.String())
+	}
+	putSSEBuffer(buf)
+}
+
 func TestFlushSSEDataJoined_roundTrip(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()

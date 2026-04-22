@@ -3,6 +3,7 @@ package lipapi_test
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -122,6 +123,12 @@ func TestCallValidate_generationOptionBounds(t *testing.T) {
 	call.Options = lipapi.GenerationOptions{Temperature: &temp, TopP: &topP}
 	if err := call.Validate(); err == nil {
 		t.Fatal("expected top_p bound error")
+	}
+
+	tooBig := math.MaxInt32 + 1
+	call.Options = lipapi.GenerationOptions{MaxOutputTokens: &tooBig}
+	if err := call.Validate(); err == nil {
+		t.Fatal("expected max_output_tokens overflow error")
 	}
 }
 

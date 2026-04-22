@@ -45,7 +45,7 @@ func FuzzCollectWithLimitsProgram(f *testing.F) {
 		b = testkit.CapBytes(b, 4096)
 		evs := collectFuzzEvents(b)
 		ctx := context.Background()
-		_, _ = lipapi.CollectWithLimits(ctx, lipapi.FixedEventStream(evs), lipapi.CollectLimits{
+		_, _ = lipapi.CollectWithLimits(ctx, lipapi.NewFixedEventStream(evs), lipapi.CollectLimits{
 			MaxTextBytes:          1 << 20,
 			MaxReasoningBytes:     1 << 20,
 			MaxToolArgsTotalBytes: 1 << 20,

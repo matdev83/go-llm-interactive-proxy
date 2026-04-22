@@ -12,7 +12,9 @@ import (
 
 func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	t.Parallel()
-	pluginreg.RegisterStandardBundle()
+	if err := pluginreg.RegisterStandardBundle(); err != nil {
+		t.Fatal(err)
+	}
 
 	var empty yaml.Node
 	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {

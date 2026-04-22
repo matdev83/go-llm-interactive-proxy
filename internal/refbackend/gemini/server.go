@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const maxBodyBytes = 10 << 20
+
 // Config tunes the emulator handler.
 type Config struct {
 	// AllowMissingAPIKey, if true, skips the x-goog-api-key header check.
@@ -57,7 +59,7 @@ func routeAuthAndBody(w http.ResponseWriter, r *http.Request, cfg Config) bool {
 			return false
 		}
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
 		return false

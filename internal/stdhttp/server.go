@@ -62,17 +62,32 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		mux.Handle(hp, diag.HealthHandler())
 		ap := cfg.Diagnostics.AttemptsPath
 		if ap != "" {
-			mux.Handle(ap, diag.AttemptsHandler(store))
+			ah, err := diag.AttemptsHandler(store)
+			if err != nil {
+				releaseClosers()
+				return err
+			}
+			mux.Handle(ap, ah)
 		}
 		ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath)
 		if ip != "" {
-			mux.Handle(ip, diag.InventoryHandler(cfg))
+			ih, err := diag.InventoryHandler(cfg)
+			if err != nil {
+				releaseClosers()
+				return err
+			}
+			mux.Handle(ip, ih)
 		}
 		rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath)
 		if rt != "" {
 			traceBuf := diag.NewRouteTraceBuffer(64)
 			exec.RouteTrace = traceBuf
-			mux.Handle(rt, diag.RouteTraceHandler(traceBuf))
+			rh, err := diag.RouteTraceHandler(traceBuf)
+			if err != nil {
+				releaseClosers()
+				return err
+			}
+			mux.Handle(rt, rh)
 		}
 	}
 	reg := built.PluginRegistry
@@ -92,8 +107,12 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	handler := corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(mux))
 
 	srv := &http.Server{
-		Addr:    cfg.Server.Address,
-		Handler: handler,
+		Addr:              cfg.Server.Address,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	log.Info("listening", "addr", cfg.Server.Address)
 

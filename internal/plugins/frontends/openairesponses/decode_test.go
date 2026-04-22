@@ -1,6 +1,7 @@
 package openairesponses_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -526,5 +527,32 @@ func TestDecodeCreate_toolChoice_functionObject_missingName(t *testing.T) {
 	_, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
 	if err == nil {
 		t.Fatal("expected error for missing function name")
+	}
+}
+
+func TestDecodeCreate_modelExtensionMatchesJSONMarshal(t *testing.T) {
+	t.Parallel()
+	model := "a<b"
+	body, err := json.Marshal(map[string]any{
+		"model": model,
+		"input": "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := d.Call.Extensions["openairesponses.model"]
+	if string(raw) != string(want) {
+		t.Fatalf("extension %q want %q", raw, want)
+	}
+	if openairesponses.ModelFromCall(d.Call) != model {
+		t.Fatalf("ModelFromCall got %q", openairesponses.ModelFromCall(d.Call))
 	}
 }

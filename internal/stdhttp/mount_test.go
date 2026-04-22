@@ -39,7 +39,9 @@ func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
 func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	pluginreg.InstallStandardBackendsOn(reg)
+	if err := pluginreg.InstallStandardBackendsOn(reg); err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", nil)
 	err := MountBundledFrontends(mux, ex, "stub:x", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}, 0, reg)

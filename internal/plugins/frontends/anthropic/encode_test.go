@@ -15,7 +15,7 @@ import (
 
 func TestWriteNonStreamJSON_toolUseBlock(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventToolCallStarted, ToolCallID: "toolu_test", ToolName: "alpha"},
@@ -56,7 +56,7 @@ func TestWriteNonStreamJSON_toolUseBlock(t *testing.T) {
 
 func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "stable"},
@@ -100,7 +100,7 @@ func mustModelExt(tb testing.TB, model string) map[string]json.RawMessage {
 
 func TestWriteNonStreamJSON_shape(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "golden-ok"},
@@ -154,7 +154,7 @@ func TestWriteNonStreamJSON_shape(t *testing.T) {
 
 func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventUsageDelta, InputTokens: 11, OutputTokens: 0},
@@ -212,7 +212,7 @@ func TestWriteErrorJSON_shape(t *testing.T) {
 
 func TestWriteStreamSSE_eventsAndText(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "stream-ok"},
@@ -247,7 +247,7 @@ func TestWriteStreamSSE_eventsAndText(t *testing.T) {
 
 func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventUsageDelta, InputTokens: 7, OutputTokens: 0},
@@ -326,7 +326,7 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 
 func TestWriteStreamSSE_toolUseBlock(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "pre"},
@@ -423,7 +423,7 @@ func TestWriteStreamSSE_toolUseBlock(t *testing.T) {
 
 func TestWriteNonStreamJSON_toolUseOutput(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "ok"},

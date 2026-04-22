@@ -30,16 +30,6 @@ func DefaultCollectLimits() CollectLimits {
 	}
 }
 
-func toolArgsTotalBytes(m map[string]*strings.Builder) int {
-	n := 0
-	for _, b := range m {
-		if b != nil {
-			n += b.Len()
-		}
-	}
-	return n
-}
-
 // EventKind identifies canonical stream events.
 type EventKind string
 
@@ -145,37 +135,39 @@ func ValidateEventEnvelope(ev *Event) error {
 // EventStream is the primary execution result from backends and the executor.
 // Implementations assume a single goroutine calls Recv until completion or error
 // (no concurrent Recv on the same stream). Close may run concurrently with a
-// blocked Recv only if the implementation documents that as safe.
+// blocked Recv only when the implementation documents that guarantee locally.
+// See each concrete stream type for its Close/Recv concurrency contract.
 type EventStream interface {
 	Recv(ctx context.Context) (Event, error) // io.EOF means normal completion after terminal event
 	Close() error
 }
 
-// FixedEventStream returns a finite stream for tests and in-memory adapters.
+// FixedEventStream is a finite stream for tests and in-memory adapters.
 // It is not safe for concurrent Recv; use one consumer at a time.
-func FixedEventStream(events []Event) EventStream {
-	s := append([]Event(nil), events...)
-	return &fixedEventStream{events: s}
-}
-
-type fixedEventStream struct {
+type FixedEventStream struct {
 	events []Event
-	idx    int
+	pos    int
 }
 
-func (f *fixedEventStream) Recv(ctx context.Context) (Event, error) {
+// NewFixedEventStream returns a copied finite stream for tests and in-memory adapters.
+func NewFixedEventStream(events []Event) *FixedEventStream {
+	s := append([]Event(nil), events...)
+	return &FixedEventStream{events: s}
+}
+
+func (f *FixedEventStream) Recv(ctx context.Context) (Event, error) {
 	if err := ctx.Err(); err != nil {
 		return Event{}, err
 	}
-	if f.idx >= len(f.events) {
+	if f.pos >= len(f.events) {
 		return Event{}, io.EOF
 	}
-	e := f.events[f.idx]
-	f.idx++
+	e := f.events[f.pos]
+	f.pos++
 	return e, nil
 }
 
-func (f *fixedEventStream) Close() error { return nil }
+func (f *FixedEventStream) Close() error { return nil }
 
 // Collected aggregates a canonical stream for non-streaming responses.
 type Collected struct {
@@ -196,15 +188,6 @@ type Collected struct {
 	FinishReason string
 	// AssistantMedia collects EventAssistantImageRef / EventAssistantFileRef in order.
 	AssistantMedia []Part
-}
-
-func toolCallSeenBefore(order []string, id string) bool {
-	for _, x := range order {
-		if x == id {
-			return true
-		}
-	}
-	return false
 }
 
 // ToolCallSummary is one completed tool invocation aggregated from the stream.
@@ -256,6 +239,8 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 	var out Collected
 	out.ToolArgs = make(map[string]*strings.Builder)
 	out.ToolNames = make(map[string]string)
+	seenTool := make(map[string]struct{})
+	var toolArgBytes int
 
 	var sawResponseStarted bool
 	var sawMessage bool
@@ -333,7 +318,8 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s without tool_call_id", EventToolCallStarted)
 			}
 			id := ev.ToolCallID
-			if !toolCallSeenBefore(out.ToolCallOrder, id) {
+			if _, ok := seenTool[id]; !ok {
+				seenTool[id] = struct{}{}
 				out.ToolCallOrder = append(out.ToolCallOrder, id)
 			}
 			if strings.TrimSpace(ev.ToolName) != "" {
@@ -344,7 +330,8 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s without tool_call_id", EventToolCallArgsDelta)
 			}
 			id := ev.ToolCallID
-			if !toolCallSeenBefore(out.ToolCallOrder, id) {
+			if _, ok := seenTool[id]; !ok {
+				seenTool[id] = struct{}{}
 				out.ToolCallOrder = append(out.ToolCallOrder, id)
 			}
 			b := out.ToolArgs[id]
@@ -353,16 +340,18 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				out.ToolArgs[id] = nb
 				b = nb
 			}
-			if limits.MaxToolArgsTotalBytes > 0 && toolArgsTotalBytes(out.ToolArgs)+len(ev.Delta) > limits.MaxToolArgsTotalBytes {
+			if limits.MaxToolArgsTotalBytes > 0 && toolArgBytes+len(ev.Delta) > limits.MaxToolArgsTotalBytes {
 				return out, fmt.Errorf("%w: tool arguments aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxToolArgsTotalBytes)
 			}
+			toolArgBytes += len(ev.Delta)
 			b.WriteString(ev.Delta)
 		case EventToolCallFinished:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
 				return out, fmt.Errorf("%s without tool_call_id", EventToolCallFinished)
 			}
 			id := ev.ToolCallID
-			if !toolCallSeenBefore(out.ToolCallOrder, id) {
+			if _, ok := seenTool[id]; !ok {
+				seenTool[id] = struct{}{}
 				out.ToolCallOrder = append(out.ToolCallOrder, id)
 			}
 		case EventWarning:

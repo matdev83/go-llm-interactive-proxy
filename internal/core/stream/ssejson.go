@@ -25,9 +25,17 @@ func putSSEBuffer(buf *bytes.Buffer) {
 	sseBufPool.Put(buf)
 }
 
+func acquireSSEBuffer() *bytes.Buffer {
+	v := sseBufPool.Get()
+	if buf, ok := v.(*bytes.Buffer); ok && buf != nil {
+		return buf
+	}
+	return new(bytes.Buffer)
+}
+
 // FlushSSEEventJSON writes one SSE record: "event: name\ndata: <json>\n\n" using a pooled buffer.
 func FlushSSEEventJSON(w io.Writer, fl http.Flusher, eventName string, payload any) error {
-	buf := sseBufPool.Get().(*bytes.Buffer)
+	buf := acquireSSEBuffer()
 	buf.Reset()
 	defer putSSEBuffer(buf)
 	buf.WriteString("event: ")
@@ -48,7 +56,7 @@ func FlushSSEEventJSON(w io.Writer, fl http.Flusher, eventName string, payload a
 
 // FlushSSEDataJSON writes one SSE data line: "data: <json>\n\n" using a pooled buffer.
 func FlushSSEDataJSON(w io.Writer, fl http.Flusher, payload any) error {
-	buf := sseBufPool.Get().(*bytes.Buffer)
+	buf := acquireSSEBuffer()
 	buf.Reset()
 	defer putSSEBuffer(buf)
 	buf.WriteString("data: ")
@@ -68,7 +76,7 @@ func FlushSSEDataJSON(w io.Writer, fl http.Flusher, payload any) error {
 // FlushSSEDataJoined writes data: prefix+mid+suffix followed by "\n\n" using a pooled buffer.
 // prefix+mid+suffix must concatenate to one valid JSON value (no leading "data: " prefix).
 func FlushSSEDataJoined(w io.Writer, fl http.Flusher, prefix, mid, suffix []byte) error {
-	buf := sseBufPool.Get().(*bytes.Buffer)
+	buf := acquireSSEBuffer()
 	buf.Reset()
 	defer putSSEBuffer(buf)
 	buf.WriteString("data: ")

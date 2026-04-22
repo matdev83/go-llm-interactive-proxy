@@ -3,14 +3,23 @@ package openairesponses
 import (
 	"context"
 	"io"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 )
 
+// sdkStream adapts the OpenAI Responses SSE stream to lipapi.EventStream.
+//
+// Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
+// Recv blocked on sdk.Next; Close closes the SDK stream to unblock Next.
 type sdkStream struct {
+	mu        sync.Mutex
+	closeOnce sync.Once
+
 	sdk *ssestream.Stream[responses.ResponseStreamEventUnion]
 
 	pending      stream.PendingEventQueue
@@ -27,7 +36,7 @@ type sdkStream struct {
 
 func newSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion]) lipapi.EventStream {
 	if s == nil {
-		return lipapi.FixedEventStream(nil)
+		return lipapi.NewFixedEventStream(nil)
 	}
 	return &sdkStream{
 		sdk:               s,
@@ -42,17 +51,38 @@ func (s *sdkStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return lipapi.Event{}, err
 	}
 	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return lipapi.Event{}, io.EOF
+		}
 		if ev, ok := s.pending.PopFront(); ok {
+			s.mu.Unlock()
 			return ev, nil
 		}
+		s.mu.Unlock()
+
 		if !s.sdk.Next() {
+			s.mu.Lock()
+			if s.closed {
+				s.mu.Unlock()
+				return lipapi.Event{}, io.EOF
+			}
 			if err := s.sdk.Err(); err != nil {
+				s.mu.Unlock()
 				return lipapi.Event{}, err
 			}
+			s.mu.Unlock()
 			return lipapi.Event{}, io.EOF
 		}
 		cur := s.sdk.Current()
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			continue
+		}
 		s.handleUnion(cur)
+		s.mu.Unlock()
 	}
 }
 
@@ -291,15 +321,24 @@ func usageFromResponse(resp responses.Response) *lipapi.Event {
 	}
 	return &lipapi.Event{
 		Kind:         lipapi.EventUsageDelta,
-		InputTokens:  int(u.InputTokens),
-		OutputTokens: int(u.OutputTokens),
+		InputTokens:  safecast.IntFromInt64Clamp(u.InputTokens),
+		OutputTokens: safecast.IntFromInt64Clamp(u.OutputTokens),
 	}
 }
 
 func (s *sdkStream) Close() error {
+	s.mu.Lock()
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 	s.closed = true
-	return s.sdk.Close()
+	s.mu.Unlock()
+	var err error
+	s.closeOnce.Do(func() {
+		if s.sdk != nil {
+			err = s.sdk.Close()
+		}
+	})
+	return err
 }

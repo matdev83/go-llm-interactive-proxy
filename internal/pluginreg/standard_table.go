@@ -47,10 +47,13 @@ var standardBackendFactories = []struct {
 	}},
 }
 
-func installBackends(reg *Registry) {
+func installBackends(reg *Registry) error {
 	for _, e := range standardBackendFactories {
-		reg.RegisterBackend(e.ID, e.Factory)
+		if err := reg.RegisterBackend(e.ID, e.Factory); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 var standardFrontendMounts = []struct {
@@ -63,10 +66,13 @@ var standardFrontendMounts = []struct {
 	{frontgemini.ID, mountGemini},
 }
 
-func installFrontends(reg *Registry) {
+func installFrontends(reg *Registry) error {
 	for _, e := range standardFrontendMounts {
-		reg.RegisterFrontend(e.ID, e.Mount)
+		if err := reg.RegisterFrontend(e.ID, e.Mount); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 var standardFeatureFactories = []struct {
@@ -81,20 +87,27 @@ var standardFeatureFactories = []struct {
 	{reftool.ID, featureRefTool},
 }
 
-func installFeatures(reg *Registry) {
+func installFeatures(reg *Registry) error {
 	for _, e := range standardFeatureFactories {
-		reg.RegisterFeature(e.ID, e.Factory)
+		if err := reg.RegisterFeature(e.ID, e.Factory); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // InstallStandardBundleOn registers all standard bundled factories on reg (tests, alternate bundles).
-func InstallStandardBundleOn(reg *Registry) {
-	installBackends(reg)
-	installFrontends(reg)
-	installFeatures(reg)
+func InstallStandardBundleOn(reg *Registry) error {
+	if err := installBackends(reg); err != nil {
+		return err
+	}
+	if err := installFrontends(reg); err != nil {
+		return err
+	}
+	return installFeatures(reg)
 }
 
 // InstallStandardBackendsOn registers only bundled backend factories on reg (minimal partial bundles).
-func InstallStandardBackendsOn(reg *Registry) {
-	installBackends(reg)
+func InstallStandardBackendsOn(reg *Registry) error {
+	return installBackends(reg)
 }

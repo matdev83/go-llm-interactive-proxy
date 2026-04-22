@@ -315,7 +315,7 @@ func TestKeepalive_recvRejectsPreCanceledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	inner := lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}})
+	inner := lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}})
 	ka := mustNewKeepalive(t, inner, stream.KeepaliveConfig{Interval: time.Hour})
 	defer func() { _ = ka.Close() }()
 	_, err := ka.Recv(ctx)

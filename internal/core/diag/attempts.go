@@ -15,10 +15,12 @@ type AttemptLoader interface {
 	LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.AttemptRecord, error)
 }
 
+var _ AttemptLoader = (*b2bua.MemoryStore)(nil)
+
 // AttemptsHandler returns an http.Handler that GETs ?a_leg_id= and returns JSON attempt rows.
-func AttemptsHandler(store AttemptLoader) http.Handler {
+func AttemptsHandler(store AttemptLoader) (http.Handler, error) {
 	if store == nil {
-		panic("diag: AttemptsHandler: nil store")
+		return nil, errors.New("diag: AttemptsHandler: nil store")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -45,5 +47,5 @@ func AttemptsHandler(store AttemptLoader) http.Handler {
 		if err := enc.Encode(rows); err != nil {
 			return
 		}
-	})
+	}), nil
 }

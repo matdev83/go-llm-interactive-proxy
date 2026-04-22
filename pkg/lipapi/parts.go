@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 )
 
 // PartKind classifies canonical content parts.
@@ -162,8 +163,14 @@ func (o GenerationOptions) validate() error {
 			return &ValidationError{Field: "Options.TopP", Message: "top_p must be between 0 and 1"}
 		}
 	}
-	if o.MaxOutputTokens != nil && *o.MaxOutputTokens < 0 {
-		return &ValidationError{Field: "Options.MaxOutputTokens", Message: "max_output_tokens must be non-negative"}
+	if o.MaxOutputTokens != nil {
+		v := *o.MaxOutputTokens
+		if v < 0 {
+			return &ValidationError{Field: "Options.MaxOutputTokens", Message: "max_output_tokens must be non-negative"}
+		}
+		if v > math.MaxInt32 {
+			return &ValidationError{Field: "Options.MaxOutputTokens", Message: fmt.Sprintf("max_output_tokens must be at most %d", math.MaxInt32)}
+		}
 	}
 	return validateOptionStrings(o)
 }

@@ -45,7 +45,7 @@ func TestCollectUnbounded_nil_event_stream_returns_error(t *testing.T) {
 func TestCollect_happyPathOrderingAndAggregation(t *testing.T) {
 	t.Parallel()
 
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "hel"},
@@ -76,7 +76,7 @@ func TestCollect_happyPathOrderingAndAggregation(t *testing.T) {
 func TestCollect_errorTerminationReturnsError(t *testing.T) {
 	t.Parallel()
 
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "partial"},
@@ -137,7 +137,7 @@ func TestValidateEventSequence_rejectsMissingResponseStarted(t *testing.T) {
 func TestCollect_duplicateResponseStarted(t *testing.T) {
 	t.Parallel()
 
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventResponseStarted},
 	})
@@ -151,7 +151,7 @@ func TestCollect_duplicateResponseStarted(t *testing.T) {
 func TestCollect_limitExceededOnText(t *testing.T) {
 	t.Parallel()
 
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: strings.Repeat("z", 100)},
@@ -170,7 +170,7 @@ func TestCollect_limitExceededOnText(t *testing.T) {
 
 func TestCollect_assistantMediaAndFinishReason(t *testing.T) {
 	t.Parallel()
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "hi"},
@@ -201,7 +201,7 @@ func TestCollect_assistantMediaAndFinishReason(t *testing.T) {
 
 func TestCollect_assistantMediaLimit(t *testing.T) {
 	t.Parallel()
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "a"},
@@ -225,12 +225,65 @@ func TestCollect_contextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	stream := lipapi.FixedEventStream([]lipapi.Event{
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 	})
 
 	_, err := lipapi.Collect(ctx, stream)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected canceled, got %v", err)
+	}
+}
+
+func TestCollect_toolCallsInterleavedOrderAndDedup(t *testing.T) {
+	t.Parallel()
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "a", ToolName: "fa"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "b", ToolName: "fb"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "b", Delta: "2"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "a", Delta: "1"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "b"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "c"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "a", Delta: "3"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "a"},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "c"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "c", Delta: "4"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	out, err := lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(out.ToolCallOrder, ","); got != "a,b,c" {
+		t.Fatalf("tool order: %q", got)
+	}
+	if out.ToolNames["a"] != "fa" {
+		t.Fatalf("first tool name wins: %#v", out.ToolNames)
+	}
+	if out.ToolArgs["a"].String() != "13" || out.ToolArgs["b"].String() != "2" || out.ToolArgs["c"].String() != "4" {
+		t.Fatalf("args a=%q b=%q c=%q", out.ToolArgs["a"].String(), out.ToolArgs["b"].String(), out.ToolArgs["c"].String())
+	}
+}
+
+func TestCollect_toolArgsTotalLimitUsesRunningSum(t *testing.T) {
+	t.Parallel()
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "x", Delta: "aa"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "y", Delta: "b"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "x", Delta: "c"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	_, err := lipapi.CollectWithLimits(context.Background(), stream, lipapi.CollectLimits{
+		MaxToolArgsTotalBytes: 3,
+	})
+	if err == nil {
+		t.Fatal("expected limit error")
+	}
+	if !errors.Is(err, lipapi.ErrCollectLimitExceeded) {
+		t.Fatalf("got %v", err)
 	}
 }

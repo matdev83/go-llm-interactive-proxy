@@ -12,7 +12,9 @@ import (
 
 func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 	t.Parallel()
-	pluginreg.RegisterStandardBundle()
+	if err := pluginreg.RegisterStandardBundle(); err != nil {
+		t.Fatal(err)
+	}
 	tmp := t.TempDir()
 	dbpath := filepath.Join(tmp, "continuity.db")
 	cfg := &config.Config{

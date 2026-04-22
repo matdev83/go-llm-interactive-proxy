@@ -24,11 +24,11 @@ type Manager struct {
 }
 
 // NewManager creates a Manager backed by store.
-func NewManager(store b2bua.Store) *Manager {
+func NewManager(store b2bua.Store) (*Manager, error) {
 	if store == nil {
-		panic("continuity: nil store")
+		return nil, errors.New("continuity: nil store")
 	}
-	return &Manager{store: store}
+	return &Manager{store: store}, nil
 }
 
 // ResolveSession returns the existing session for ref, or creates a new one.
@@ -92,7 +92,10 @@ func (m *Manager) Store() b2bua.Store {
 // ResolveALegRecord resolves ref to a stored A-leg row (ALegID, WeightedFirstConsumed, etc.).
 // Session resolution order matches Manager.ResolveSession: ALegID, then ContinuityKey, then new A-leg.
 func ResolveALegRecord(ctx context.Context, store b2bua.Store, ref lipapi.SessionRef) (b2bua.ALegRecord, error) {
-	m := NewManager(store)
+	m, err := NewManager(store)
+	if err != nil {
+		return b2bua.ALegRecord{}, err
+	}
 	sess, err := m.ResolveSession(ctx, ref)
 	if err != nil {
 		return b2bua.ALegRecord{}, err

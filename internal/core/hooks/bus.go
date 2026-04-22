@@ -13,7 +13,7 @@ type Config struct {
 	RequestPartHooks  []sdk.RequestPartHook
 	ResponsePartHooks []sdk.ResponsePartHook
 	ToolReactors      []sdk.ToolReactor
-	// ToolReactorErrorPolicy controls reactor error propagation (zero = fail-open).
+	// ToolReactorErrorPolicy controls reactor error propagation (zero = unspecified; treated as fail-open).
 	ToolReactorErrorPolicy sdk.ToolReactorErrorPolicy
 }
 

@@ -7,7 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func TestMustJSON_roundTrip(t *testing.T) {
+func TestMarshalBlock_roundTrip(t *testing.T) {
 	t.Parallel()
 	blk := map[string]json.RawMessage{
 		"type": json.RawMessage(`"text"`),
@@ -17,7 +17,11 @@ func TestMustJSON_roundTrip(t *testing.T) {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if err := json.Unmarshal(MustJSON(blk), &s); err != nil {
+	raw, err := MarshalBlock(blk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
 		t.Fatal(err)
 	}
 	if s.Type != "text" || s.Text != "hi" {

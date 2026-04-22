@@ -36,7 +36,7 @@ func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},
 		},
@@ -99,7 +99,7 @@ func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil
@@ -204,7 +204,7 @@ func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					partLens = append(partLens, len(call.Messages[0].Parts))
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil

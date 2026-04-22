@@ -130,8 +130,8 @@ func mustInitAndSessionNew(t *testing.T, baseURL string, hc *http.Client) string
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("init %d", resp.StatusCode)
 	}
@@ -140,7 +140,7 @@ func mustInitAndSessionNew(t *testing.T, baseURL string, hc *http.Client) string
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	var m map[string]any
 	if err := json.NewDecoder(resp2.Body).Decode(&m); err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 package lipapi_test
 
 import (
+	"fmt"
 	"net/url"
 	"testing"
 
@@ -95,5 +96,15 @@ func TestMergeRouteQueryIntoGenerationOptions_invalidRange(t *testing.T) {
 	_, err := lipapi.MergeRouteQueryIntoGenerationOptions(lipapi.GenerationOptions{}, q)
 	if err == nil {
 		t.Fatal("expected validation error from GenerationOptions.validate")
+	}
+}
+
+func TestMergeRouteQueryIntoGenerationOptions_maxOutputTokensExceedsInt32(t *testing.T) {
+	t.Parallel()
+	q := url.Values{}
+	q.Set("max_output_tokens", fmt.Sprintf("%d", int64(1)<<40))
+	_, err := lipapi.MergeRouteQueryIntoGenerationOptions(lipapi.GenerationOptions{}, q)
+	if err == nil {
+		t.Fatal("expected validation error for max_output_tokens above int32 range")
 	}
 }

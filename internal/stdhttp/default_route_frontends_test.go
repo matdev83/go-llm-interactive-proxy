@@ -20,7 +20,9 @@ const unifiedPolicyRoute = "stub:unified-policy-model"
 
 func registerStandardBundleForTest(t *testing.T) {
 	t.Helper()
-	pluginreg.RegisterStandardBundle()
+	if err := pluginreg.RegisterStandardBundle(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func policyConfig() *config.Config {
@@ -57,7 +59,7 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	if got := call.Route.Selector; got != unifiedPolicyRoute {
 		t.Fatalf("route selector %q want %q", got, unifiedPolicyRoute)
 	}
@@ -86,7 +88,7 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	if got := call.Route.Selector; got != unifiedPolicyRoute {
 		t.Fatalf("route selector %q want %q", got, unifiedPolicyRoute)
 	}
@@ -115,7 +117,7 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	if !ok {
 		t.Fatal("expected captured call")
 	}
-	call := v.(lipapi.Call)
+	call := testkit.MustLIPCall(t, v)
 	if got := call.Route.Selector; got != unifiedPolicyRoute {
 		t.Fatalf("route selector %q want %q", got, unifiedPolicyRoute)
 	}

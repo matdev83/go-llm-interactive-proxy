@@ -10,7 +10,7 @@ import (
 // OpenAI family parity anchors (see .kiro/specs/llm-api-parity/design.md rows OAR-*, OAC-*).
 func TestParity_OpenAI_canonicalAssistantMediaCollects(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventTextDelta, Delta: "ok"},

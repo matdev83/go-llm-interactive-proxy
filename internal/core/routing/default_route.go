@@ -32,7 +32,7 @@ func EffectiveDefaultRouteSelector(cfg *config.Config, wireModel WireModelForBac
 			if instance == "" {
 				continue
 			}
-			model := "model"
+			var model string
 			if wireModel != nil {
 				model = strings.TrimSpace(wireModel(p.FactoryID()))
 				if model == "" {

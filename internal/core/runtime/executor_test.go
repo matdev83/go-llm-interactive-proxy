@@ -36,7 +36,7 @@ func TestExecutor_happyPath_collectNonStreaming(t *testing.T) {
 					_ = call
 					_ = ctx
 					_ = cand
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventTextDelta, Delta: "ok"},
@@ -130,7 +130,7 @@ func TestExecutor_preOutputRecoverableSwallowsAndLineage(t *testing.T) {
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -207,7 +207,7 @@ func TestExecutor_preOutputMultiOpenFailuresThenSuccess(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 					atomic.AddInt32(&opens, 1)
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventTextDelta, Delta: "done"},
@@ -257,7 +257,7 @@ func TestExecutor_postOutputNoSecondBackendOpen(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 					atomic.AddInt32(&opens, 1)
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -402,7 +402,7 @@ func TestExecutor_applyNegotiatedDowngradesReasoning(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					seenReasoning = call.Options.ReasoningEffort
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -446,7 +446,7 @@ func TestExecutor_backendOpen_contextCarriesTraceAndALeg(t *testing.T) {
 				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					openTrace = diag.TraceID(ctx)
 					openALeg = diag.ALegID(ctx)
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventTextDelta, Delta: "x"},
@@ -489,7 +489,7 @@ func TestExecutor_traceUsesCallIDWhenPresent(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					openTrace = diag.TraceID(ctx)
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -530,7 +530,7 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -587,7 +587,7 @@ func TestExecutor_routeQueryMergesIntoGenerationOptions(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					captured = call.Options
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -633,7 +633,7 @@ func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					captured = call.Options
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -676,7 +676,7 @@ func TestExecutor_callID_matchesAssignedTrace(t *testing.T) {
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -724,7 +724,7 @@ func TestExecutor_requestPartHook_metaIncludesBLeg(t *testing.T) {
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil
@@ -780,7 +780,7 @@ func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventToolCallStarted, ToolCallID: "c1", ToolName: "fn"},
@@ -846,7 +846,7 @@ func TestExecutor_downgradeNotStickyAcrossRetries(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityReasoning),
 				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
 					captured = call.Options.ReasoningEffort
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil
@@ -899,7 +899,7 @@ func TestExecutor_maxAttemptsBlocksFurtherBLegs(t *testing.T) {
 			"c": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},
 		},
@@ -935,7 +935,7 @@ func TestExecutor_modelOnlySelectorUsesDefaultBackend(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 					opened = cand.Primary.Backend + ":" + cand.Primary.Model
-					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},
 		},

@@ -36,7 +36,7 @@ func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
 					opened = cand.Primary.Backend + ":" + cand.Primary.Model
-					return lipapi.FixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},
 		},

@@ -25,7 +25,7 @@ func TestWriteStreamSSE_AllocBudget_textOnly(t *testing.T) {
 	opts := EncodeOptions{ResponseID: "resp_alloc", MessageID: "msg_alloc", CreatedAt: 1}
 	allocs := testing.AllocsPerRun(5, func() {
 		rec := httptest.NewRecorder()
-		es := lipapi.FixedEventStream(events)
+		es := lipapi.NewFixedEventStream(events)
 		if err := WriteStreamSSE(ctx, rec, call, es, opts); err != nil {
 			t.Fatal(err)
 		}

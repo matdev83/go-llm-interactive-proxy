@@ -23,7 +23,7 @@ func TestParity_Bedrock_bundledBackend(t *testing.T) {
 
 func TestParity_Bedrock_canonicalAssistantMediaCollects(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://cdn.example.com/x.png", AssistantMIME: "image/png"},

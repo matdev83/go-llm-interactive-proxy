@@ -37,7 +37,7 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 			"stub": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream(events), nil
+					return lipapi.NewFixedEventStream(events), nil
 				},
 			},
 		},

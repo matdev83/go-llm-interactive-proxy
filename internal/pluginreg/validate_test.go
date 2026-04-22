@@ -13,7 +13,9 @@ import (
 
 func registerStandardBundleForTest(t *testing.T) {
 	t.Helper()
-	pluginreg.RegisterStandardBundle()
+	if err := pluginreg.RegisterStandardBundle(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestValidateBundledFactories_succeedsForStandardRequirements(t *testing.T) {
@@ -27,7 +29,9 @@ func TestValidateBundledFactories_succeedsForStandardRequirements(t *testing.T) 
 func TestValidateBundledFactories_explicitPartialRegistryFails(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	pluginreg.InstallStandardBackendsOn(reg)
+	if err := pluginreg.InstallStandardBackendsOn(reg); err != nil {
+		t.Fatal(err)
+	}
 	if err := reg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err == nil {
 		t.Fatal("expected error when registry only has backends")
 	}
@@ -37,11 +41,13 @@ func TestValidateBundledFactories_customRegistryIndependentOfDefaultCompleteness
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	reg.RegisterBackend("validate-custom-only", func(n yaml.Node, upstream *http.Client) (any, error) {
+	if err := reg.RegisterBackend("validate-custom-only", func(n yaml.Node, upstream *http.Client) (any, error) {
 		_ = n
 		_ = upstream
 		return runtime.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	req := []lipsdk.Requirement{{
 		Kind: lipsdk.PluginKindBackend,

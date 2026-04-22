@@ -16,7 +16,11 @@ import (
 func TestAttemptsHandler_missingParam(t *testing.T) {
 	t.Parallel()
 	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	srv := httptest.NewServer(diag.AttemptsHandler(st))
+	ah, err := diag.AttemptsHandler(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(ah)
 	t.Cleanup(srv.Close)
 	res, err := http.Get(srv.URL)
 	if err != nil {
@@ -31,7 +35,11 @@ func TestAttemptsHandler_missingParam(t *testing.T) {
 func TestAttemptsHandler_notFound(t *testing.T) {
 	t.Parallel()
 	st := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	srv := httptest.NewServer(diag.AttemptsHandler(st))
+	ah, err := diag.AttemptsHandler(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(ah)
 	t.Cleanup(srv.Close)
 	res, err := http.Get(srv.URL + "?a_leg_id=does-not-exist")
 	if err != nil {
@@ -70,7 +78,11 @@ func TestAttemptsHandler_ok(t *testing.T) {
 	if err := st.RecordAttempt(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(diag.AttemptsHandler(st))
+	ah, err := diag.AttemptsHandler(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(ah)
 	t.Cleanup(srv.Close)
 	res, err := http.Get(srv.URL + "?a_leg_id=" + a.ALegID)
 	if err != nil {

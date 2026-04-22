@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const maxBodyBytes = 10 << 20
+
 // Config tunes the emulator handler.
 type Config struct {
 	// AllowMissingBearer, if true, skips the Authorization: Bearer check.
@@ -37,7 +39,7 @@ func NewHandler(cfg Config) http.Handler {
 				return
 			}
 		}
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
 			http.Error(w, "read body", http.StatusBadRequest)
 			return

@@ -13,7 +13,10 @@ func TestManager_ResolveSession_createsNewWhenEmpty(t *testing.T) {
 	t.Parallel()
 
 	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	m := continuity.NewManager(store)
+	m, err := continuity.NewManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	sess, err := m.ResolveSession(context.Background(), lipapi.SessionRef{})
 	if err != nil {
@@ -31,7 +34,10 @@ func TestManager_ResolveSession_resolvesByContinuityKey(t *testing.T) {
 	t.Parallel()
 
 	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	m := continuity.NewManager(store)
+	m, err := continuity.NewManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	sess1, err := m.ResolveSession(context.Background(), lipapi.SessionRef{
 		ContinuityKey: "key-1",
@@ -77,7 +83,10 @@ func TestManager_ResolveSession_resolvesByALegID(t *testing.T) {
 	t.Parallel()
 
 	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	m := continuity.NewManager(store)
+	m, err := continuity.NewManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	sess1, err := m.ResolveSession(context.Background(), lipapi.SessionRef{
 		ContinuityKey: "ck",
@@ -104,7 +113,10 @@ func TestManager_Store_returnsUnderlyingStore(t *testing.T) {
 	t.Parallel()
 
 	store := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
-	m := continuity.NewManager(store)
+	m, err := continuity.NewManager(store)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if m.Store() != store {
 		t.Fatal("expected same store")
 	}

@@ -9,11 +9,15 @@ import (
 
 type noopRouteObserver struct{}
 
+var _ lipsdk.RouteObserver = noopRouteObserver{}
+
 func (noopRouteObserver) ObserveRouteDecision(context.Context, string, string, string) {}
 
 type slogRouteObserver struct {
 	log *slog.Logger
 }
+
+var _ lipsdk.RouteObserver = (*slogRouteObserver)(nil)
 
 func (o slogRouteObserver) ObserveRouteDecision(ctx context.Context, traceID, decision, detail string) {
 	o.log.LogAttrs(ctx, slog.LevelInfo, "lip.route",

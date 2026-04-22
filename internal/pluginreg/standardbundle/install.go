@@ -7,6 +7,6 @@ package standardbundle
 import "github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 
 // Install registers all standard distribution factories; safe to call multiple times (sync.Once inside).
-func Install() {
-	pluginreg.RegisterStandardBundle()
+func Install() error {
+	return pluginreg.RegisterStandardBundle()
 }

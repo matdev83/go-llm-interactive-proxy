@@ -12,10 +12,12 @@ import (
 func TestBuildBackend_propagatesUpstreamHTTP(t *testing.T) {
 	var got *http.Client
 	id := "probe-upstream-http-" + strings.ReplaceAll(t.Name(), "/", "-")
-	RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (any, error) {
+	if err := RegisterBackend(id, func(n yaml.Node, upstreamHTTP *http.Client) (any, error) {
 		got = upstreamHTTP
 		return runtime.Backend{}, nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	want := &http.Client{}
 	if _, err := BuildBackend(id, yaml.Node{}, want); err != nil {

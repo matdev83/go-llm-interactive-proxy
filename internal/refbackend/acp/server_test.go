@@ -36,7 +36,8 @@ func TestHandler_initializeAdvertisesSubset(t *testing.T) {
 	if res == nil {
 		t.Fatal("missing result")
 	}
-	if int(res["protocolVersion"].(float64)) != 1 {
+	pv, ok := res["protocolVersion"].(float64)
+	if !ok || int(pv) != 1 {
 		t.Fatalf("protocolVersion: %#v", res["protocolVersion"])
 	}
 	acaps, _ := res["agentCapabilities"].(map[string]any)

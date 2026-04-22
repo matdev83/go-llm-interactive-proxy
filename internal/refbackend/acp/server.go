@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const maxBodyBytes = 10 << 20
+
 // Config tunes the emulator handler.
 type Config struct {
 	// OnRequestBody is invoked with the raw HTTP body after a successful POST /v1/acp
@@ -59,7 +61,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
 		return
@@ -212,7 +214,10 @@ func (h *handler) handleSessionPrompt(w http.ResponseWriter, r *http.Request, re
 
 	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fl, _ := w.(http.Flusher)
+	var fl http.Flusher
+	if f, ok := w.(http.Flusher); ok {
+		fl = f
+	}
 
 	resourceEcho := extractResourceEcho(p.Prompt)
 
@@ -385,20 +390,21 @@ func (s *emuSession) isCancelled() bool {
 func extractResourceEcho(prompt []map[string]any) string {
 	var b strings.Builder
 	for _, block := range prompt {
-		if typ, _ := block["type"].(string); typ != "resource" {
+		typ, ok := block["type"].(string)
+		if !ok || typ != "resource" {
 			continue
 		}
-		res, _ := block["resource"].(map[string]any)
-		if res == nil {
+		res, ok := block["resource"].(map[string]any)
+		if !ok || res == nil {
 			continue
 		}
-		if uri, _ := res["uri"].(string); uri != "" {
+		if uri, ok := res["uri"].(string); ok && uri != "" {
 			if b.Len() > 0 {
 				b.WriteString(";")
 			}
 			b.WriteString(uri)
 		}
-		if txt, _ := res["text"].(string); txt != "" {
+		if txt, ok := res["text"].(string); ok && txt != "" {
 			if b.Len() > 0 {
 				b.WriteString("|")
 			}

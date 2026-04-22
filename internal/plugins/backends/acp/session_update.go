@@ -60,7 +60,7 @@ func textFromACPContent(content map[string]any) string {
 	if td, ok := content["textDelta"].(string); ok && strings.TrimSpace(td) != "" {
 		return td
 	}
-	if typ, _ := content["type"].(string); typ == "text" {
+	if typ, ok := content["type"].(string); ok && typ == "text" {
 		if raw, ok := content["text"].(string); ok {
 			return raw
 		}
@@ -69,8 +69,8 @@ func textFromACPContent(content map[string]any) string {
 }
 
 func mapSessionUpdateToEvents(ctx context.Context, o SessionUpdateMapperOptions, upd map[string]any) ([]lipapi.Event, error) {
-	kind, _ := upd["sessionUpdate"].(string)
-	if kind == "" {
+	kind, ok := upd["sessionUpdate"].(string)
+	if !ok || kind == "" {
 		return nil, nil
 	}
 	content, _ := upd["content"].(map[string]any)
@@ -138,9 +138,14 @@ func planProgressLine(upd map[string]any) string {
 }
 
 func modeProgressLine(upd map[string]any) string {
-	mode, _ := upd["modeId"].(string)
+	var mode string
+	if m, ok := upd["modeId"].(string); ok {
+		mode = m
+	}
 	if mode == "" {
-		mode, _ = upd["mode"].(string)
+		if m, ok := upd["mode"].(string); ok {
+			mode = m
+		}
 	}
 	if strings.TrimSpace(mode) != "" {
 		return "[mode] " + strings.TrimSpace(mode) + "\n"
@@ -156,9 +161,9 @@ func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line str
 	}
 
 	if errObj, ok := probe["error"].(map[string]any); ok && probe["method"] == nil {
-		msg, _ := errObj["message"].(string)
-		if msg == "" {
-			msg = "unknown error"
+		msg := "unknown error"
+		if m, ok := errObj["message"].(string); ok && m != "" {
+			msg = m
 		}
 		return []lipapi.Event{
 			{Kind: lipapi.EventError, ErrorMessage: msg},
@@ -166,13 +171,13 @@ func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line str
 		}, nil
 	}
 
-	if method, _ := probe["method"].(string); method == acpUpdateMethod {
-		params, _ := probe["params"].(map[string]any)
-		if params == nil {
+	if method, ok := probe["method"].(string); ok && method == acpUpdateMethod {
+		params, ok := probe["params"].(map[string]any)
+		if !ok || params == nil {
 			return nil, nil
 		}
-		upd, _ := params["update"].(map[string]any)
-		if upd == nil {
+		upd, ok := params["update"].(map[string]any)
+		if !ok || upd == nil {
 			return nil, nil
 		}
 		return mapSessionUpdateToEvents(ctx, o, upd)
@@ -194,9 +199,9 @@ func parseNDJSONLine(ctx context.Context, o SessionUpdateMapperOptions, line str
 	}
 
 	if errObj, ok := probe["error"].(map[string]any); ok {
-		msg, _ := errObj["message"].(string)
-		if msg == "" {
-			msg = "unknown error"
+		msg := "unknown error"
+		if m, ok := errObj["message"].(string); ok && m != "" {
+			msg = m
 		}
 		return []lipapi.Event{
 			{Kind: lipapi.EventError, ErrorMessage: msg},

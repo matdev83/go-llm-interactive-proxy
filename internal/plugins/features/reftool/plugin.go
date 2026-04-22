@@ -18,6 +18,8 @@ type hook struct {
 	prefix string
 }
 
+var _ sdk.ToolReactor = hook{}
+
 // NewReactor prefixes tool argument deltas (rewrite path).
 func NewReactor(cfg Config) sdk.ToolReactor {
 	o := defaultOrder

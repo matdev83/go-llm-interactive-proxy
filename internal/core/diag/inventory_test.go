@@ -19,7 +19,11 @@ func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 			Features:  []config.PluginConfig{{ID: "submit-noop", Enabled: true}},
 		},
 	}
-	srv := httptest.NewServer(diag.InventoryHandler(cfg))
+	ih, err := diag.InventoryHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(ih)
 	t.Cleanup(srv.Close)
 	res, err := http.Get(srv.URL)
 	if err != nil {

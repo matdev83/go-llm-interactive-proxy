@@ -37,7 +37,7 @@ func TestReplayLineage_recvFailoverIncrementsBLegs(t *testing.T) {
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil

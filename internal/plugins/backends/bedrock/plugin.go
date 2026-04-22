@@ -20,8 +20,19 @@ func defaultBackendCaps() lipapi.BackendCaps {
 }
 
 // New returns a runtime backend that invokes Bedrock ConverseStream via the AWS SDK v2.
+// It loads AWS configuration with context.Background; use [NewWithContext] when a caller
+// context should bound credential/region resolution.
 func New(cfg Config) runtime.Backend {
-	cli, err := newRuntimeClient(cfg)
+	return NewWithContext(context.Background(), cfg)
+}
+
+// NewWithContext returns a runtime backend like [New], using ctx for awsconfig.LoadDefaultConfig.
+// If ctx is nil, context.Background is used.
+func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cli, err := newRuntimeClient(ctx, cfg)
 	if err != nil {
 		// Surface construction errors at Open time via a backend that always fails.
 		return runtime.Backend{

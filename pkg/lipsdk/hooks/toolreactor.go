@@ -10,7 +10,8 @@ import (
 type ToolDecision int
 
 const (
-	ToolPass ToolDecision = iota
+	ToolDecisionUnspecified ToolDecision = iota
+	ToolPass
 	ToolRewrite
 	ToolSwallow
 	ToolReplace
@@ -35,8 +36,9 @@ type ToolReactor interface {
 type ToolReactorErrorPolicy int
 
 const (
+	ToolReactorErrorPolicyUnspecified ToolReactorErrorPolicy = iota
 	// ToolReactorErrorsFailOpen preserves the current event and continues the chain (default).
-	ToolReactorErrorsFailOpen ToolReactorErrorPolicy = iota
+	ToolReactorErrorsFailOpen
 	// ToolReactorErrorsFailClosed stops the chain and surfaces the error to the stream runner.
 	ToolReactorErrorsFailClosed
 	// ToolReactorErrorsSwallowEvent drops the current tool event (same effect as ToolSwallow).

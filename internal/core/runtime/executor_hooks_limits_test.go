@@ -65,7 +65,7 @@ func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 					backendOpened.Store("A")
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -76,7 +76,7 @@ func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 					backendOpened.Store("B")
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -118,7 +118,7 @@ func TestExecutor_submitHook_oversizedCall_rejectedBeforeBackendOpen(t *testing.
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 					atomic.AddInt32(&opens, 1)
-					return lipapi.FixedEventStream([]lipapi.Event{
+					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
 						{Kind: lipapi.EventResponseFinished},

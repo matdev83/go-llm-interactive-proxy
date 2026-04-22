@@ -28,7 +28,7 @@ type converseStream struct {
 
 func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream) lipapi.EventStream {
 	if sdk == nil {
-		return lipapi.FixedEventStream(nil)
+		return lipapi.NewFixedEventStream(nil)
 	}
 	return &converseStream{
 		sdk: sdk,

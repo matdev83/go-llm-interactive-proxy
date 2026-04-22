@@ -23,7 +23,7 @@ func TestParity_Gemini_bundledFrontend(t *testing.T) {
 
 func TestParity_Gemini_canonicalAssistantMediaCollects(t *testing.T) {
 	t.Parallel()
-	es := lipapi.FixedEventStream([]lipapi.Event{
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "gs://bucket/x.png", AssistantMIME: "image/png"},

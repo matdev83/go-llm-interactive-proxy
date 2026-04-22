@@ -32,3 +32,5 @@ func (m MapResolver) DescribeCandidate(ctx context.Context, cand routing.Attempt
 	}
 	return fn(ctx, cand, call)
 }
+
+var _ Resolver = MapResolver(nil)

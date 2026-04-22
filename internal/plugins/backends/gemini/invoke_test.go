@@ -2,6 +2,7 @@ package gemini_test
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -75,6 +76,27 @@ func TestStreamParamsForCall_systemInstruction(t *testing.T) {
 	}
 	if sp.Config.SystemInstruction == nil || sp.Config.SystemInstruction.Parts[0].Text != "Be brief." {
 		t.Fatalf("system: %+v", sp.Config.SystemInstruction)
+	}
+}
+
+func TestStreamParamsForCall_maxOutputTokensInt32Bound(t *testing.T) {
+	t.Parallel()
+	maxTok := math.MaxInt32
+	call := lipapi.Call{
+		ID: "mt",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &maxTok},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	sp, err := backend.StreamParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp.Config.MaxOutputTokens != math.MaxInt32 {
+		t.Fatalf("MaxOutputTokens: %d", sp.Config.MaxOutputTokens)
 	}
 }
 

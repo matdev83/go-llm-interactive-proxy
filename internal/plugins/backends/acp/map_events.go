@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -13,6 +14,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// promptStream maps ACP prompt NDJSON lines to lipapi.EventStream.
+//
+// Concurrency: one goroutine calls Recv at a time. Close may run concurrently with
+// Recv blocked on scanner.Scan or network I/O; Close cancels the stream context and
+// closes the response body so Scan unblocks.
 type promptStream struct {
 	mu sync.Mutex
 
@@ -39,6 +45,7 @@ type promptStream struct {
 }
 
 func newPromptNDJSONStream(
+	parent context.Context,
 	body io.ReadCloser,
 	cli *client,
 	sessionID string,
@@ -47,7 +54,6 @@ func newPromptNDJSONStream(
 	mapper SessionUpdateMapperOptions,
 	srv ServerRequestHandler,
 	cancelProfile CancelProfile,
-	parent context.Context,
 ) *promptStream {
 	ctx, cancel := context.WithCancel(parent)
 	s := &promptStream{
@@ -188,7 +194,10 @@ func (s *promptStream) Recv(ctx context.Context) (lipapi.Event, error) {
 }
 
 func (s *promptStream) handleInboundServerRequest(ctx context.Context, probe map[string]any) error {
-	method, _ := probe["method"].(string)
+	method, ok := probe["method"].(string)
+	if !ok || strings.TrimSpace(method) == "" {
+		return fmt.Errorf("acp: inbound JSON-RPC missing method")
+	}
 	idRaw, ok := probe["id"]
 	if !ok || idRaw == nil {
 		return nil
@@ -217,7 +226,10 @@ func (s *promptStream) handleInboundServerRequest(ctx context.Context, probe map
 }
 
 func (s *promptStream) signalCancel() {
-	cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// WithoutCancel(s.ctx): the consumer ctx passed to Recv is already canceled when we run;
+	// we still need a short cancel RPC to complete even if the stream ctx is canceled later.
+	// Values from s.ctx (e.g. trace IDs) are preserved for the outbound request.
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 2*time.Second)
 	defer cancel()
 	_ = s.cli.cancelSession(cctx, s.cancelProfile, s.sessionID, s.promptRPCID, s.messageID)
 }
