@@ -61,7 +61,10 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 			runClosers(closers)
 		})
 	}
-	route := DefaultRouteSelector(cfg)
+	route := strings.TrimSpace(built.EffectiveDefaultRoute)
+	if route == "" {
+		route = DefaultRouteSelector(cfg)
+	}
 
 	mux := http.NewServeMux()
 	if cfg.Diagnostics.Enabled {

@@ -195,7 +195,7 @@ func TestIntegration_methodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := testkit.IntegrationHTTPClient(nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(front.HeaderRouteSelector, "stub:route-from-header")
-	res, err := http.DefaultClient.Do(req)
+	res, err := testkit.IntegrationHTTPClient(nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

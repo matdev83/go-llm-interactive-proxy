@@ -64,7 +64,9 @@ func newCell(frontend, backend string) MatrixCell {
 	case "acp":
 		meta.ToolsViable = false
 		meta.MultimodalViable = false
-		meta.SubsetJustification = "ACP v1 prompt-turn subset rejects canonical tools (validateACPCall); multimodal matrix rows for FE×ACP are deferred per design.md conformance table footnote (Tasks 12.2–12.3 use text-only + tool-exclusion documentation for this column)."
+		meta.SubsetJustification = "ACP v1 prompt-turn subset rejects canonical tools (validateACPCall); " +
+			"multimodal matrix rows for FE×ACP are deferred per design.md conformance table footnote " +
+			"(Tasks 12.2–12.3 use text-only + tool-exclusion documentation for this column)."
 	default:
 		meta.SubsetJustification = ""
 	}

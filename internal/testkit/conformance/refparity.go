@@ -129,7 +129,12 @@ const openAIResponsesNonStreamDefault = `{
 }`
 
 const openAIResponsesStreamDefault = "event: response.completed\n" +
-	"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}\n\n" +
+	"data: {\"type\":\"response.completed\",\"sequence_number\":1," +
+	"\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\"," +
+	"\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\"," +
+	"\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\"," +
+	"\"role\":\"assistant\",\"content\":[" +
+	"{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}}\n\n" +
 	"data: [DONE]\n\n"
 
 const openAILegacyNonStreamDefault = `{
@@ -140,7 +145,10 @@ const openAILegacyNonStreamDefault = `{
   "choices": [{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]
 }`
 
-const openAILegacyStreamDefault = "data: {\"id\":\"chatcmpl_refbackend_stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream-ok\"},\"finish_reason\":null}]}\n\n" +
+const openAILegacyStreamDefault = "data: {\"id\":\"chatcmpl_refbackend_stream\"," +
+	"\"object\":\"chat.completion.chunk\",\"created\":1715620000," +
+	"\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0," +
+	"\"delta\":{\"content\":\"stream-ok\"},\"finish_reason\":null}]}\n\n" +
 	"data: [DONE]\n\n"
 
 const anthropicNonStreamDefault = `{
@@ -165,7 +173,9 @@ const geminiNonStreamDefault = `{
   ]
 }`
 
-const geminiStreamDefault = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"stream-ok\"}]}}]}\n\n"
+const geminiStreamDefault = "data: " +
+	"{\"candidates\":[{\"content\":{" +
+	"\"role\":\"model\",\"parts\":[{\"text\":\"stream-ok\"}]}}]}\n\n"
 
 const bedrockConverseDefault = `{
   "metrics": { "latencyMs": 1 },

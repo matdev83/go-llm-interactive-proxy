@@ -2,9 +2,13 @@ package pluginreg
 
 import "strings"
 
-// DefaultWireModel returns the canonical default upstream model id for a bundled backend
-// plugin id. This is registry-owned composition metadata used when building fallback route
-// selectors (see routing.EffectiveDefaultRouteSelector); it must not be duplicated per frontend handler.
+// DefaultWireModel returns the canonical default upstream model id for a bundled backend factory id.
+//
+// This mapping is intentionally separate from [*Registry]: the registry holds constructors and mounts;
+// DefaultWireModel encodes standard-distribution routing defaults used when configs omit explicit
+// route selectors (see routing.EffectiveDefaultRouteSelector). Alternate bundles may supply a
+// different routing.WireModelForBackend via runtimebundle.BuildOptions.WireModel without changing
+// registry factories. It must not be duplicated per frontend handler.
 func DefaultWireModel(backendID string) string {
 	switch strings.TrimSpace(backendID) {
 	case "openai-responses", "openai-legacy":

@@ -10,21 +10,30 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func (e *Executor) recordAttempt(ctx context.Context, aLegID string, bleg b2bua.BLegRecord, cand routing.AttemptCandidate, out lipapi.AttemptOutcome, reason string) error {
+// recordAttemptParams is the argument bundle for [Executor.recordAttempt].
+type recordAttemptParams struct {
+	ALegID  string
+	BLeg    b2bua.BLegRecord
+	Cand    routing.AttemptCandidate
+	Outcome lipapi.AttemptOutcome
+	Reason  string
+}
+
+func (e *Executor) recordAttempt(ctx context.Context, p recordAttemptParams) error {
 	now := e.now()
 	rec := lipapi.AttemptRecord{
-		BLegID:         bleg.BLegID,
-		ALegID:         aLegID,
-		Seq:            bleg.Seq,
-		BackendID:      cand.Primary.Backend,
-		EffectiveModel: cand.Primary.Model,
+		BLegID:         p.BLeg.BLegID,
+		ALegID:         p.ALegID,
+		Seq:            p.BLeg.Seq,
+		BackendID:      p.Cand.Primary.Backend,
+		EffectiveModel: p.Cand.Primary.Model,
 		StartedAt:      now,
 		FinishedAt:     now,
-		Outcome:        out,
-		Reason:         reason,
+		Outcome:        p.Outcome,
+		Reason:         p.Reason,
 	}
 	if sink, ok := e.CandidateHealth.(policy.RoutingAttemptOutcomeSink); ok {
-		sink.OnRoutingAttemptOutcome(cand.Key, out)
+		sink.OnRoutingAttemptOutcome(p.Cand.Key, p.Outcome)
 	}
 	return e.Store.RecordAttempt(context.WithoutCancel(ctx), rec)
 }

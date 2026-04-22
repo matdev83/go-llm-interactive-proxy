@@ -97,5 +97,10 @@ const defaultNonStreamJSON = `{
 }`
 
 const defaultStreamSSE = "event: response.completed\n" +
-	"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\",\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}\n\n" +
+	"data: {\"type\":\"response.completed\",\"sequence_number\":1," +
+	"\"response\":{\"id\":\"resp_refbackend_stream\",\"object\":\"response\"," +
+	"\"created_at\":1715620000,\"status\":\"completed\",\"model\":\"gpt-4o-mini\"," +
+	"\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"status\":\"completed\"," +
+	"\"role\":\"assistant\",\"content\":[" +
+	"{\"type\":\"output_text\",\"text\":\"stream-ok\"}]}]}}}\n\n" +
 	"data: [DONE]\n\n"

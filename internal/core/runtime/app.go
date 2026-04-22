@@ -78,9 +78,6 @@ func (a *App) HookBus() *hooks.Bus {
 	if a == nil {
 		return hooks.New(hooks.Config{})
 	}
-	if a.hookBus == nil {
-		return hooks.New(hooks.Config{})
-	}
 	return a.hookBus
 }
 

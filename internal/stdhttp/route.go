@@ -9,6 +9,9 @@ import (
 // DefaultRouteSelector returns the routing selector used by frontends when X-LIP-Route is absent.
 // It delegates to routing.EffectiveDefaultRouteSelector with pluginreg.DefaultWireModel so default
 // models are registry-owned, not duplicated in frontend handlers.
+//
+// Prefer using [runtimebundle.Built.EffectiveDefaultRoute] from [runtimebundle.Build] so HTTP wiring
+// shares the same wire-model selection as the executor (including optional [runtimebundle.BuildOptions.WireModel]).
 func DefaultRouteSelector(cfg *config.Config) string {
 	return routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
 }

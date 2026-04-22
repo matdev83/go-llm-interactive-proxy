@@ -13,10 +13,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// TestExecutor_concurrentExecute_nilBus stresses a shared Executor with Bus left nil
-// (as when wiring omits hooks). There must be no data race on Executor.Bus and the
-// field must not be mutated — default hook chains are per-execution only.
-func TestExecutor_concurrentExecute_nilBus(t *testing.T) {
+// TestExecutor_concurrentExecute_sharedEmptyHooksBus stresses a shared Executor whose hook bus is
+// the explicit empty-bus value from hooks.New — there must be no data race on Executor.Bus.
+func TestExecutor_concurrentExecute_sharedEmptyHooksBus(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
@@ -24,7 +23,7 @@ func TestExecutor_concurrentExecute_nilBus(t *testing.T) {
 	}
 	ex := &runtime.Executor{
 		Store: st,
-		Bus:   nil,
+		Bus:   hooks.New(hooks.Config{}),
 		Backends: map[string]runtime.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -63,9 +62,6 @@ func TestExecutor_concurrentExecute_nilBus(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if ex.Bus != nil {
-		t.Fatal("Executor.Bus must stay nil when unset; default hook bus must not be stored on the executor")
-	}
 }
 
 // TestExecutor_concurrentExecute_sharedRand_weighted exercises a single *math/rand.Rand

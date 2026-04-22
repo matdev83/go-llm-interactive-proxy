@@ -66,7 +66,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		closers = append(closers, c.Close)
 	}
 
-	effectiveRoute := routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	wireModel := opts.WireModel
+	if wireModel == nil {
+		wireModel = pluginreg.DefaultWireModel
+	}
+	effectiveRoute := routing.EffectiveDefaultRouteSelector(cfg, wireModel)
 	defBE, err := routing.DefaultBackendFromRouteSelector(effectiveRoute)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
@@ -105,11 +109,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Log:             log,
 	}
 	return &Built{
-		Executor:       exec,
-		Store:          store,
-		Closers:        closers,
-		UpstreamHTTP:   upstream,
-		PluginRegistry: reg,
+		Executor:              exec,
+		Store:                 store,
+		Closers:               closers,
+		UpstreamHTTP:          upstream,
+		PluginRegistry:        reg,
+		EffectiveDefaultRoute: effectiveRoute,
 	}, nil
 }
 

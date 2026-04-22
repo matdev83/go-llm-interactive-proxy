@@ -81,10 +81,10 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.Event
 	if e == nil || e.Store == nil || call == nil {
 		return nil, fmt.Errorf("executor: invalid arguments")
 	}
-	bus := e.Bus
-	if bus == nil {
-		bus = hooks.New(hooks.Config{})
+	if e.Bus == nil {
+		return nil, fmt.Errorf("executor: nil hook bus")
 	}
+	bus := e.Bus
 	if err := call.Validate(); err != nil {
 		return nil, err
 	}

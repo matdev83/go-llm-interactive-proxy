@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 // DefaultModel returns the model name wired into routing.AttemptCandidate for a bundled backend ID.
@@ -34,9 +35,7 @@ func RouteSelector(backendID, model string) string {
 // NewTestExecutor wires a single backend against refBackendURL (or error injection URL) for conformance cells.
 func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) *runtime.Executor {
 	tb.Helper()
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
+	httpClient = testkit.IntegrationHTTPClient(httpClient)
 	be := BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {

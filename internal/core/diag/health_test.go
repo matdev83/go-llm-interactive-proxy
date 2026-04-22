@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestHealthHandler_get(t *testing.T) {
@@ -40,7 +41,7 @@ func TestHealthHandler_methodNotAllowed(t *testing.T) {
 	srv := httptest.NewServer(diag.HealthHandler())
 	t.Cleanup(srv.Close)
 	req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
-	res, err := http.DefaultClient.Do(req)
+	res, err := testkit.IntegrationHTTPClient(nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

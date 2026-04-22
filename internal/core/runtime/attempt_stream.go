@@ -105,14 +105,25 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				s.committed = true
 			}
 			if ev.Kind == lipapi.EventResponseFinished {
-				_ = s.executor.recordAttempt(ctx, s.aLegID, s.bleg, s.cand, lipapi.AttemptSuccess, "")
+				_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+					ALegID:  s.aLegID,
+					BLeg:    s.bleg,
+					Cand:    s.cand,
+					Outcome: lipapi.AttemptSuccess,
+				})
 				s.finished = true
 			}
 			return ev, nil
 		}
 		if errors.Is(err, io.EOF) {
 			if !s.finished {
-				_ = s.executor.recordAttempt(ctx, s.aLegID, s.bleg, s.cand, lipapi.AttemptSurfacedFailure, "stream ended without response_finished")
+				_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+					ALegID:  s.aLegID,
+					BLeg:    s.bleg,
+					Cand:    s.cand,
+					Outcome: lipapi.AttemptSurfacedFailure,
+					Reason:  "stream ended without response_finished",
+				})
 			}
 			s.finished = true
 			return lipapi.Event{}, io.EOF
@@ -122,7 +133,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if reason == "" {
 				reason = "cancelled"
 			}
-			_ = s.executor.recordAttempt(ctx, s.aLegID, s.bleg, s.cand, lipapi.AttemptCancelled, reason)
+			_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+				ALegID:  s.aLegID,
+				BLeg:    s.bleg,
+				Cand:    s.cand,
+				Outcome: lipapi.AttemptCancelled,
+				Reason:  reason,
+			})
 			_ = s.inner.Close()
 			s.inner = nil
 			s.finished = true
@@ -138,14 +155,26 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					CandidateKey: s.cand.Key,
 				}
 			}
-			_ = s.executor.recordAttempt(ctx, s.aLegID, s.bleg, s.cand, lipapi.AttemptSurfacedFailure, surfErr.Error())
+			_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+				ALegID:  s.aLegID,
+				BLeg:    s.bleg,
+				Cand:    s.cand,
+				Outcome: lipapi.AttemptSurfacedFailure,
+				Reason:  surfErr.Error(),
+			})
 			return lipapi.Event{}, surfErr
 		}
 		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 			slog.String("candidate_key", s.cand.Key),
 			slog.String("phase", "recv"),
 		)
-		_ = s.executor.recordAttempt(ctx, s.aLegID, s.bleg, s.cand, lipapi.AttemptSwallowedFailure, "recoverable pre-output (recv)")
+		_ = s.executor.recordAttempt(ctx, recordAttemptParams{
+			ALegID:  s.aLegID,
+			BLeg:    s.bleg,
+			Cand:    s.cand,
+			Outcome: lipapi.AttemptSwallowedFailure,
+			Reason:  "recoverable pre-output (recv)",
+		})
 		_ = s.inner.Close()
 		s.inner = nil
 		s.excluded[s.cand.Key] = struct{}{}

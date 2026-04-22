@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
@@ -17,4 +18,7 @@ type BuildOptions struct {
 	Clock func() time.Time
 	// PluginRegistry selects which bundled factories Build uses for backends. Required; nil fails [Build].
 	PluginRegistry *pluginreg.Registry
+	// WireModel resolves default upstream model ids when computing the effective default route selector.
+	// When nil, Build uses pluginreg.DefaultWireModel (standard distribution).
+	WireModel routing.WireModelForBackend
 }

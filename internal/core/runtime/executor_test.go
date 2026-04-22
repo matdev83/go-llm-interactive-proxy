@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1043,6 +1044,41 @@ func TestExecutor_execute_nilContext(t *testing.T) {
 	_, err = ex.Execute(nil, call) //nolint:staticcheck // deliberate nil ctx; expect lipapi.ErrNilContext
 	if !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("expected ErrNilContext, got %v", err)
+	}
+}
+
+func TestExecutor_Execute_nilHookBus(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   nil,
+		Rand:  rand.New(rand.NewSource(1)),
+		Backends: map[string]runtime.Backend{
+			"x": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.NewFixedEventStream(nil), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:m"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, err = ex.Execute(context.Background(), call)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "nil hook bus") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
