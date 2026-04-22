@@ -53,17 +53,26 @@ echo "OK: Format check passed"
 echo ""
 
 echo "[2/7] Checking Go modules..."
+pre_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
+pre_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
 go mod tidy
-tidy_changes=$(git diff --name-only go.mod go.sum 2>/dev/null || true)
-if [ -n "$tidy_changes" ]; then
+post_tidy_mod=$(git hash-object go.mod 2>/dev/null || printf 'missing-go-mod')
+post_tidy_sum=$(git hash-object go.sum 2>/dev/null || printf 'missing-go-sum')
+if [ "$pre_tidy_mod" != "$post_tidy_mod" ] || [ "$pre_tidy_sum" != "$post_tidy_sum" ]; then
+	tidy_changes=$(git diff --name-only go.mod go.sum 2>/dev/null || true)
 	echo "ERROR: go.mod/go.sum modified by 'go mod tidy'"
-	echo "Changes detected:"
-	echo "$tidy_changes"
+	if [ -n "$tidy_changes" ]; then
+		echo "Changes detected:"
+		echo "$tidy_changes"
+	fi
 	echo "Run: go mod tidy && git add go.mod go.sum"
 	exit 1
 fi
 echo "Verifying module checksums..."
-go mod verify
+if ! go mod verify; then
+	echo "ERROR: go mod verify failed (checksum mismatch or corrupt module cache)"
+	exit 1
+fi
 echo "OK: Module check passed"
 echo ""
 
@@ -97,7 +106,7 @@ fi
 echo ""
 
 echo "[7/7] Architecture guardrails (line budgets, no init in bundle path)..."
-if ! go test -short ./internal/archtest/...; then
+if ! go test ./internal/archtest/...; then
 	echo "ERROR: internal/archtest failed"
 	exit 1
 fi

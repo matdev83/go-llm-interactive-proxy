@@ -48,14 +48,20 @@ Write-Host "OK: Format check passed" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "[2/7] Checking Go modules..." -ForegroundColor Yellow
+$preTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
+$preTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
 go mod tidy
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
-$modChanges = git diff --name-only go.mod go.sum 2>$null
-if ($modChanges) {
+$postTidyMod = if (Test-Path go.mod) { (git hash-object go.mod 2>$null).Trim() } else { "missing-go-mod" }
+$postTidySum = if (Test-Path go.sum) { (git hash-object go.sum 2>$null).Trim() } else { "missing-go-sum" }
+if ($preTidyMod -ne $postTidyMod -or $preTidySum -ne $postTidySum) {
+    $modChanges = git diff --name-only go.mod go.sum 2>$null
     Write-Host "ERROR: go.mod/go.sum modified by 'go mod tidy'" -ForegroundColor Red
-    $modChanges | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    if ($modChanges) {
+        $modChanges | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    }
     Write-Host "Run: go mod tidy; git add go.mod go.sum" -ForegroundColor Yellow
     exit 1
 }
@@ -101,7 +107,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 
 Write-Host "[7/7] Architecture guardrails (line budgets, no init in bundle path)..." -ForegroundColor Yellow
-go test -short ./internal/archtest/...
+go test ./internal/archtest/...
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: internal/archtest failed" -ForegroundColor Red
     exit $LASTEXITCODE
