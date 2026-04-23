@@ -7,7 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -85,7 +85,7 @@ func TestFeatureHooksFromRegistrations_unknownEnabledFeature(t *testing.T) {
 	}
 }
 
-func TestRuntimeNew_withComposedHooks(t *testing.T) {
+func TestNewBootstrapApp_withComposedHooks(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 
@@ -100,7 +100,7 @@ func TestRuntimeNew_withComposedHooks(t *testing.T) {
 		t.Fatalf("feature hooks: %v", err)
 	}
 
-	app, err := runtime.New(runtime.Options{
+	app, err := runtimebundle.NewBootstrapApp(runtimebundle.BootstrapOptions{
 		Config:        cfg,
 		Logger:        testkit.DiscardLogger(),
 		Registrations: regs,
@@ -108,7 +108,7 @@ func TestRuntimeNew_withComposedHooks(t *testing.T) {
 		Hooks:         hookCfg,
 	})
 	if err != nil {
-		t.Fatalf("runtime.New: %v", err)
+		t.Fatalf("NewBootstrapApp: %v", err)
 	}
 	ns, nrq, nrs, nt := app.HookBus().HookChainLengths()
 	if ns != 1 || nrq != 1 || nrs != 1 || nt != 1 {

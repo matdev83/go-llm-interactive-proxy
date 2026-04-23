@@ -3,7 +3,7 @@ package pluginreg
 import (
 	"net/http"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
@@ -33,22 +33,22 @@ func installBackends(reg *Registry, keys UpstreamAPIKeys) error {
 		ID      string
 		Factory backendFactory
 	}{
-		{openairesponses.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+		{openairesponses.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendOpenAIResponses(n, upstream, keys)
 		}},
-		{openailegacy.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+		{openailegacy.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendOpenAILegacy(n, upstream, keys)
 		}},
-		{anthropic.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+		{anthropic.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendAnthropic(n, upstream, keys)
 		}},
-		{gemini.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+		{gemini.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendGemini(n, upstream, keys)
 		}},
-		{bedrock.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+		{bedrock.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendBedrock(n, upstream)
 		}},
-		{acp.ID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+		{acp.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendACP(n, upstream)
 		}},
 	}

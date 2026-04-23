@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -24,7 +25,7 @@ func TestExecutor_concurrentExecute_sharedEmptyHooksBus(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -87,7 +88,7 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.WrapRandV2(r),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"a": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
 			"b": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
 		},

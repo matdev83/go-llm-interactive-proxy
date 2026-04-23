@@ -1,6 +1,6 @@
 # Routing health: circuit breaker semantics
 
-Configuration: `routing.health.circuit_breaker` in the runtime YAML (`enabled`, `failure_threshold`, `open_for`). Wiring: [`internal/infra/runtimebundle/health_wire.go`](../internal/infra/runtimebundle/health_wire.go) → [`internal/core/policy.CircuitBreaker`](../internal/core/policy/circuitbreaker.go) on the executor’s `CandidateHealth`.
+Configuration: `routing.health.circuit_breaker` in the runtime YAML (`enabled`, `failure_threshold`, `open_for`). Wiring: [`internal/infra/routinghealth/config_health.go`](../internal/infra/routinghealth/config_health.go) (`CandidateHealthFromConfig`) is called from [`internal/infra/runtimebundle/build.go`](../internal/infra/runtimebundle/build.go) when constructing the executor; it returns a [`internal/core/policy.CircuitBreaker`](../internal/core/policy/circuitbreaker.go) (as `policy.CandidateHealth`) for the executor’s `CandidateHealth` field when the breaker is enabled.
 
 ## What counts as a failure
 

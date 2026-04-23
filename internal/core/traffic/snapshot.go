@@ -7,12 +7,5 @@ import (
 
 // PortBundleFromSnapshot builds emission ports from a frozen runtime snapshot.
 func PortBundleFromSnapshot(snap *extensions.RequestRuntimeSnapshot) sdktraffic.PortBundle {
-	if snap == nil {
-		return sdktraffic.PortBundle{}
-	}
-	return sdktraffic.PortBundle{
-		Raw: snap.RawCapture(),
-		Obs: snap.TrafficObserver(),
-		Red: snap.TrafficRedactors(),
-	}
+	return snap.TrafficPortBundle()
 }

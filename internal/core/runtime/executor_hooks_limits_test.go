@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -63,7 +64,7 @@ func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 		Bus: executorSubmitHooksBus(submitRouteRewrite{
 			to: "backendB:model-x",
 		}),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"backendA": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -119,7 +120,7 @@ func TestExecutor_submitHook_oversizedCall_rejectedBeforeBackendOpen(t *testing.
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   executorSubmitHooksBus(submitInflateUserText{}),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {

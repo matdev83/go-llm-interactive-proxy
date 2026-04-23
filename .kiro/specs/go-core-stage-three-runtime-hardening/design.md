@@ -525,8 +525,11 @@ internal/pluginreg/
 internal/infra/runtimebundle/
   build.go
   built.go
-  health_wire.go
+  bootstrap.go
   route_observer.go
+
+internal/infra/routinghealth/
+  config_health.go
 
 internal/core/
   runtime/

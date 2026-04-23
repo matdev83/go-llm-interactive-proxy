@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "description": "Machine-checked migration register: direct internal/core imports per package (go list -test=false). Edit intentionally when wiring boundaries move; see .kiro/specs/introduce-hexagonal-architecture/design.md. schema_version 2: exception entries require retirement_trigger; see retired_exceptions for completed allowance removals.",
+  "retired_exceptions": [
+    "internal/pluginreg used to import internal/core/runtime for backend construction types; retired after the executor-outbound adapter surface moved to internal/core/execbackend (introduce-hexagonal-architecture task 3)."
+  ],
+  "packages": [
+    {
+      "go_list_pattern": "./pkg/lipapi",
+      "classification": "aligned",
+      "allowed_internal_core_imports": []
+    },
+    {
+      "go_list_pattern": "./cmd/lipstd",
+      "classification": "aligned",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/stdhttp",
+      "classification": "aligned",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/http",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/pluginreg",
+      "classification": "exception",
+      "justification": "Registry still holds standard-distribution factory tables plus feature-surface merge/wrapping for hooks and extension slices.",
+      "retirement_trigger": "Narrow or retire when feature hook merge and inventory-facing feature bundle access move behind a composition-local helper or a slimmer SDK-facing merger surface.",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/infra/runtimebundle",
+      "classification": "extract",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/state",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/core/runtime",
+      "classification": "aligned",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/policy",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/stream",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/core/routing",
+      "classification": "aligned",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/core/execbackend",
+      "classification": "aligned",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+      ]
+    },
+    {
+      "go_list_pattern": "./internal/core/extensions",
+      "classification": "extract",
+      "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+      ]
+    }
+  ]
+}

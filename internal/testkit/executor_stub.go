@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -38,7 +39,7 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"stub": {
 				Caps: caps,
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -47,11 +48,13 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 					}
 					_ = ctx
 					_ = cand
-					evs := []lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-					}
-					evs = append(evs, stubToolPrefixEvents(call)...)
+					prefix := stubToolPrefixEvents(call)
+					evs := make([]lipapi.Event, 0, 2+len(prefix)+len(deltas)+1)
+					evs = append(evs,
+						lipapi.Event{Kind: lipapi.EventResponseStarted},
+						lipapi.Event{Kind: lipapi.EventMessageStarted},
+					)
+					evs = append(evs, prefix...)
 					for _, d := range deltas {
 						evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
 					}
@@ -73,7 +76,7 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"stub": {
 				Caps: caps,
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -82,11 +85,13 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 					}
 					_ = ctx
 					_ = cand
-					evs := []lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-					}
-					evs = append(evs, stubToolPrefixEvents(call)...)
+					prefix := stubToolPrefixEvents(call)
+					evs := make([]lipapi.Event, 0, 2+len(prefix)+2)
+					evs = append(evs,
+						lipapi.Event{Kind: lipapi.EventResponseStarted},
+						lipapi.Event{Kind: lipapi.EventMessageStarted},
+					)
+					evs = append(evs, prefix...)
 					evs = append(evs,
 						lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
 						lipapi.Event{Kind: lipapi.EventResponseFinished},

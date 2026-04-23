@@ -27,6 +27,12 @@ The core runtime owns:
 
 Plugins may supply information or policy inputs, but they do not own the orchestration contract.
 
+Hexagonal implication:
+
+- driving adapters may call concrete core executor or use-case services directly when that remains a clean boundary,
+- driven adapters may implement narrow consumer-owned seams around backend opening, continuity, and observation,
+- do not introduce orchestration interfaces only for symmetry if the existing seam is already replaceable and testable.
+
 ## Route Planning Rules
 
 Durable expectations:
@@ -91,6 +97,8 @@ Reserve stable seams for:
 
 These seams may influence runtime decisions through typed contracts, but the core must not know plugin-private semantics.
 
+Prefer keeping these seams close to the consuming orchestration capability. Avoid central catch-all `ports` or `services` packages that mix unrelated routing, recovery, and observation concerns.
+
 ## Continuity and lineage storage
 
 B2BUA A-leg continuity and attempt lineage flow through `b2bua.Store`.
@@ -110,4 +118,4 @@ When updating this file:
 - update whenever the core orchestration contract changes materially.
 
 ---
-_Updated 2026-04-22: configurable continuity store (memory default, optional SQLite); removed stale "in-memory only v1" claim._
+_Updated 2026-04-23: pragmatic hexagonal ownership notes for routing, observation, and orchestration seams._

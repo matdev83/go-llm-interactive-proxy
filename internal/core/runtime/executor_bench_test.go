@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -36,7 +37,7 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"stub": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {

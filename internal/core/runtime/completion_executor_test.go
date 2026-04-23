@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -44,7 +45,7 @@ func TestExecute_completionGateReplacesStream(t *testing.T) {
 		Store:           st,
 		Bus:             bus,
 		RuntimeSnapshot: snap,
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -117,7 +118,7 @@ func TestExecute_completionGate_truncatedUpstreamNoSyntheticSuccess(t *testing.T
 		Store:           st,
 		Bus:             bus,
 		RuntimeSnapshot: snap,
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -197,7 +198,7 @@ func TestExecute_completionGateOverflowLivePassthrough(t *testing.T) {
 		CompletionBufferLimits: completion.BufferLimits{
 			MaxEvents: 2,
 		},
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {

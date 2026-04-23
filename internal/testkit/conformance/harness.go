@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -45,12 +46,12 @@ func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClien
 		Store:    st,
 		Bus:      hooks.New(hooks.Config{}),
 		Rand:     routing.NewSeededRng(42),
-		Backends: map[string]runtime.Backend{backendID: be},
+		Backends: map[string]execbackend.Backend{backendID: be},
 	}
 }
 
-// BackendFor returns the bundled runtime.Backend for upstreamBaseURL (httptest origin or /v1 layout per plugin).
-func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) runtime.Backend {
+// BackendFor returns the bundled [execbackend.Backend] for upstreamBaseURL (httptest origin or /v1 layout per plugin).
+func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) execbackend.Backend {
 	tb.Helper()
 	switch backendID {
 	case openairesponses.ID:
@@ -95,7 +96,7 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 		})
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
-		return runtime.Backend{}
+		return execbackend.Backend{}
 	}
 }
 

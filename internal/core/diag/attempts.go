@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"reflect"
 
@@ -11,7 +12,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// AttemptLoader loads B2BUA attempt rows for diagnostics (typically b2bua.Store).
+// AttemptLoader is the query-style seam for diagnostics reads (hexagonal task 5.4): implementations
+// return canonical [lipapi.AttemptRecord] rows without exposing persistence internals to HTTP adapters.
+// Typical adapters implement this on top of [github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua.Store].
 type AttemptLoader interface {
 	LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.AttemptRecord, error)
 }
@@ -59,6 +62,7 @@ func AttemptsHandler(store AttemptLoader) (http.Handler, error) {
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(true)
 		if err := enc.Encode(rows); err != nil {
+			slog.ErrorContext(r.Context(), "diag: attempts encode", "error", err)
 			return
 		}
 	}), nil

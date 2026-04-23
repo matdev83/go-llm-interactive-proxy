@@ -15,7 +15,12 @@ const (
 	LegPTC Leg = "proxy_to_client"
 )
 
-// Observation is a structured, non-privileged traffic sample for plugins (redacted path).
+// Observation is the stable traffic observer contract (hexagonal task 5.2): only correlation and
+// routing metadata plus a redacted or non-sensitive body snapshot. It must not carry transport
+// types (for example *http.Request), provider SDK handles, executor-private structs, or raw
+// privileged payloads unless policy explicitly places them on the redacted path. Callers of
+// [Observer.OnObservation] run after [PortBundle.Emit] applies redactors; [Body] is the
+// post-redaction bytes passed to the observer.
 type Observation struct {
 	Leg         Leg
 	TraceID     string
@@ -32,7 +37,9 @@ type Observation struct {
 	RecordedAt  time.Time
 }
 
-// Observer receives non-mutating traffic observations (design §10).
+// Observer receives non-mutating traffic observations (design §10). Implementations should treat
+// [Observation] as read-only data for logging, transcript, or metrics adapters; they must not
+// mutate the slice backing [Observation.Body] in place if they retain it beyond the call.
 type Observer interface {
 	OnObservation(ctx context.Context, ev Observation) error
 }
@@ -42,7 +49,9 @@ type NoopObserver struct{}
 
 func (NoopObserver) OnObservation(context.Context, Observation) error { return nil }
 
-// CaptureMeta correlates a privileged raw capture write without embedding transport types.
+// CaptureMeta is correlation metadata for traffic legs: request trace, attempt lineage, principal
+// and session identifiers, and route-facing backend/frontend labels. It intentionally excludes
+// transport and provider concrete types (hexagonal task 5.2).
 type CaptureMeta struct {
 	TraceID     string
 	ALegID      string
@@ -54,7 +63,9 @@ type CaptureMeta struct {
 	FrontendID  string
 }
 
-// RawCaptureSink receives verbatim bytes for privileged capture paths (design §10).
+// RawCaptureSink receives verbatim bytes for privileged capture paths (design §10), using the
+// same [CaptureMeta] correlation fields as structured observers. It is not a general byte sink
+// for arbitrary adapter internals.
 type RawCaptureSink interface {
 	WriteRaw(ctx context.Context, leg Leg, meta CaptureMeta, payload []byte) error
 }

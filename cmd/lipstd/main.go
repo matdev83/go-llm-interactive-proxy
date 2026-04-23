@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
@@ -68,7 +67,7 @@ func main() {
 	}
 	merged.Hooks.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
 
-	app, err := runtime.New(runtime.Options{
+	app, err := runtimebundle.NewBootstrapApp(runtimebundle.BootstrapOptions{
 		Config:        cfg,
 		Logger:        logger,
 		Registrations: regs,

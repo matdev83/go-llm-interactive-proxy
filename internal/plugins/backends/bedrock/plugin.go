@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -29,7 +29,7 @@ const DefaultLoadConfigTimeout = 30 * time.Second
 //
 // Deprecated: prefer [NewWithContext] with a context whose deadline reflects your bootstrap
 // budget. New applies [DefaultLoadConfigTimeout] around AWS config load only.
-func New(cfg Config) runtime.Backend {
+func New(cfg Config) execbackend.Backend {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
 	defer cancel()
 	return NewWithContext(ctx, cfg)
@@ -40,7 +40,7 @@ func New(cfg Config) runtime.Backend {
 // indefinitely. The caller must invoke the returned CancelFunc.
 func ensureLoadConfigDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
-		return context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
+		return context.WithTimeout(context.TODO(), DefaultLoadConfigTimeout)
 	}
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, func() {}
@@ -51,13 +51,13 @@ func ensureLoadConfigDeadline(ctx context.Context) (context.Context, context.Can
 // NewWithContext returns a runtime backend like [New], using ctx for awsconfig.LoadDefaultConfig.
 // A deadline is always applied for the load step: either ctx's own deadline, or
 // [DefaultLoadConfigTimeout] when ctx is nil or uncancelled without a deadline.
-func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
+func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 	loadCtx, cancel := ensureLoadConfigDeadline(ctx)
 	defer cancel()
 	cli, err := newRuntimeClient(loadCtx, cfg)
 	if err != nil {
 		// Surface construction errors at Open time via a backend that always fails.
-		return runtime.Backend{
+		return execbackend.Backend{
 			Caps: defaultBackendCaps(),
 			ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 				return ModelCapabilities(resolveModelID(cand, call))
@@ -68,7 +68,7 @@ func NewWithContext(ctx context.Context, cfg Config) runtime.Backend {
 		}
 	}
 	client := cli
-	return runtime.Backend{
+	return execbackend.Backend{
 		Caps: defaultBackendCaps(),
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModelID(cand, call))

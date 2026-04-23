@@ -9,8 +9,8 @@ import (
 
 // BackendBuild is the opaque return type of [BackendFactory]. It aliases any on purpose:
 // lipsdk must not import internal/core/runtime (AGENTS.md: core-owned types stay out of stable
-// SDK surfaces). Official wiring in internal/pluginreg type-asserts to runtime.Backend at the
-// composition root; custom distributions may assert their own concrete backend wrapper instead.
+// SDK surfaces). Official wiring in internal/pluginreg builds internal/core/execbackend.Backend
+// values at the composition root; custom distributions may assert their own concrete backend wrapper instead.
 // The alias documents that boundary while keeping registration signatures ergonomic for YAML-only factories.
 type BackendBuild = any
 

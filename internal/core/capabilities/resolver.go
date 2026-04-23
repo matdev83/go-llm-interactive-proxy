@@ -17,7 +17,8 @@ type Resolver interface {
 // BackendCapsFunc resolves caps for a single backend id; used to build MapResolver at composition.
 type BackendCapsFunc func(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call) lipapi.BackendCaps
 
-// MapResolver dispatches to a per-backend-id function (typically wrapping runtime.Backend.ResolveCaps).
+// MapResolver dispatches to a per-backend-id function (typically wrapping per-plugin ResolveCaps shims
+// from the executor backend seam in internal/core/execbackend).
 type MapResolver map[string]BackendCapsFunc
 
 // DescribeCandidate implements Resolver.

@@ -12,15 +12,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func newTestBedrock(t *testing.T, cfg backend.Config) runtime.Backend {
+func newTestBedrock(t *testing.T, cfg backend.Config) execbackend.Backend {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), backend.DefaultLoadConfigTimeout)
 	defer cancel()

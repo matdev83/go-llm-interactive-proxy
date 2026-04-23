@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -27,7 +28,7 @@ func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 		CandidateHealth: policy.StaticUnhealthy{
 			"bad:m": {},
 		},
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -72,7 +73,7 @@ func TestExecutor_allCandidatesUnhealthy_returnsErrNoEligibleCandidate(t *testin
 		Bus:             hooks.New(hooks.Config{}),
 		Rand:            routing.NewSeededRng(11),
 		CandidateHealth: policy.StaticUnhealthy{"arm1:m": {}, "arm2:m": {}},
-		Backends:        map[string]runtime.Backend{},
+		Backends:        map[string]execbackend.Backend{},
 	}
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ContinuityKey: "no-eligible"},

@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -23,10 +23,10 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 
 	factoryID := "custom-registry-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
+	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 		_ = n
 		_ = upstream
-		return runtime.Backend{
+		return execbackend.Backend{
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 				return nil, errors.New("exclusive-registry-probe")

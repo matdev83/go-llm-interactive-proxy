@@ -45,6 +45,8 @@ shape rather than as a directory renaming exercise or a full-system rewrite.
 3.4. Where multiple integrations satisfy the same port, the LLM Interactive Proxy shall allow them to be substituted without changing the core contract.
 3.5. The LLM Interactive Proxy shall keep canonical contracts and plugin SDK contracts free of official provider SDK types.
 3.6. When an existing seam is already sufficient and low-coupling, the LLM Interactive Proxy shall be allowed to keep that seam without extracting a new dedicated port solely for architectural symmetry.
+3.7. When a new outbound port is introduced, the LLM Interactive Proxy shall define that port from the consuming core boundary rather than from an adapter package.
+3.8. If a proposed interface exists only to support mocking, mirror one implementation, or satisfy naming symmetry, the LLM Interactive Proxy shall treat that interface as non-required.
 
 ### Requirement 4: Dependency Direction and Explicit Wiring
 **Objective:** As a maintainer, I want dependencies to point inward and wiring to stay explicit, so that the architecture remains understandable and auditable.
@@ -87,6 +89,7 @@ shape rather than as a directory renaming exercise or a full-system rewrite.
 7.3. When logging, tracing, metrics, or diagnostics are enabled, the LLM Interactive Proxy shall propagate request and attempt identifiers across ports without coupling core use cases to transport frameworks.
 7.4. While cross-cutting transport concerns such as authentication are enabled, the LLM Interactive Proxy shall place transport-specific handling at the system edge and expose only stable core-facing context.
 7.5. The LLM Interactive Proxy shall make it possible to verify architectural boundary violations through targeted architecture or integration tests.
+7.6. When read-only admin, diagnostics, or reporting flows are simpler as projections than as aggregate persistence, the LLM Interactive Proxy shall allow dedicated query adapters and read DTOs instead of forcing repository-shaped write seams.
 
 ### Requirement 8: Pragmatic Hexagonal Formalization
 **Objective:** As a maintainer, I want hexagonal architecture to be adopted through clear ownership and dependency rules rather than textbook ceremony, so that maintainability improves without unnecessary churn.
@@ -97,5 +100,7 @@ shape rather than as a directory renaming exercise or a full-system rewrite.
 8.3. When a new explicit port is introduced, the LLM Interactive Proxy shall justify it by a real substitution, ownership, or coupling problem rather than by a desire for textbook layer symmetry.
 8.4. The LLM Interactive Proxy shall prefer selective extraction of high-value ports and stronger architecture guardrails over broad package churn.
 8.5. Where the current structure already behaves as a valid hexagonal boundary, the LLM Interactive Proxy shall allow the design to formalize that boundary rather than replace it.
+8.6. When driving adapters call into the core, the LLM Interactive Proxy shall prefer concrete use-case services or narrow function seams unless multiple real consumers justify an inbound interface.
+8.7. When a new internal seam is extracted, the LLM Interactive Proxy shall place it near the consuming core capability or a narrowly scoped shared boundary rather than in a generic repo-wide `ports`, `interfaces`, or `services` bucket.
 
 

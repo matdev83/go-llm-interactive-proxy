@@ -22,7 +22,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -40,8 +39,12 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 	call.ID = traceID
 
 	outCtx = ctx
-	if p, ok := httpauth.PrincipalFromContext(ctx); ok {
-		outCtx = httpauth.WithPrincipal(outCtx, p)
+	var principal execview.PrincipalView
+	hasPrincipal := false
+	if p, ok := execview.PrincipalFromContext(ctx); ok {
+		principal = p
+		hasPrincipal = true
+		outCtx = execview.WithPrincipal(outCtx, p)
 	}
 	outCtx = diag.WithCallDiag(outCtx, traceID, "")
 
@@ -53,10 +56,6 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 		SessionID: strings.TrimSpace(work.Session.ClientSessionID),
 		ALegID:    strings.TrimSpace(preALeg.ALegID),
 		IsNew:     aLegRecordIsNew(preALeg),
-	}
-	var principal execview.PrincipalView
-	if p, ok := httpauth.PrincipalFromContext(outCtx); ok {
-		principal = p
 	}
 	if e.RuntimeSnapshot != nil {
 		openIn := session.OpenInput{TraceID: traceID, Principal: principal, Session: preSession}
@@ -194,8 +193,8 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 	call.Session.ALegID = aLeg.ALegID
 	outCtx = diag.EnsureCallDiag(outCtx, traceID, aLeg.ALegID)
 	views := execctx.ViewsFromSubmit(traceID, aLeg, baseline, submitMeta.Annotations)
-	if p, ok := httpauth.PrincipalFromContext(outCtx); ok {
-		views.Principal = p
+	if hasPrincipal {
+		views.Principal = principal
 	}
 	views.Workspace = wsView
 	for k, v := range preSession.Labels {

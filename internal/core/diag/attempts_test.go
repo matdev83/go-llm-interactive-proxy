@@ -1,10 +1,14 @@
 package diag_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +29,11 @@ func TestAttemptsHandler_missingParam(t *testing.T) {
 	}
 	srv := httptest.NewServer(ah)
 	t.Cleanup(srv.Close)
-	res, err := http.Get(srv.URL)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +55,11 @@ func TestAttemptsHandler_notFound(t *testing.T) {
 	}
 	srv := httptest.NewServer(ah)
 	t.Cleanup(srv.Close)
-	res, err := http.Get(srv.URL + "?a_leg_id=does-not-exist")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"?a_leg_id=does-not-exist", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +76,99 @@ func TestAttemptsHandler_typedNilStoreRejected(t *testing.T) {
 	_, err := diag.AttemptsHandler(loader)
 	if err == nil {
 		t.Fatal("expected error for typed-nil AttemptLoader")
+	}
+}
+
+type fakeAttemptLoader struct {
+	byALeg map[string][]lipapi.AttemptRecord
+}
+
+func (f *fakeAttemptLoader) LoadAttempts(_ context.Context, aLegID string) ([]lipapi.AttemptRecord, error) {
+	rows, ok := f.byALeg[aLegID]
+	if !ok {
+		return nil, b2bua.ErrALegNotFound
+	}
+	return rows, nil
+}
+
+var errFailsWrite = errors.New("fail response write")
+
+type failResponseWriter struct {
+	hdr http.Header
+}
+
+func (f *failResponseWriter) Header() http.Header {
+	if f.hdr == nil {
+		f.hdr = make(http.Header)
+	}
+	return f.hdr
+}
+
+func (*failResponseWriter) WriteHeader(int) {}
+
+func (*failResponseWriter) Write([]byte) (int, error) {
+	return 0, errFailsWrite
+}
+
+func TestAttemptsHandler_encodeError_logsOnce(t *testing.T) {
+	// Uses slog.SetDefault — not parallel-safe with other tests touching the default logger.
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelError}))
+	prev := slog.Default()
+	slog.SetDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	loader := &fakeAttemptLoader{byALeg: map[string][]lipapi.AttemptRecord{"a1": {{
+		BLegID: "b1", ALegID: "a1", Seq: 1, BackendID: "be",
+		EffectiveModel: "m", StartedAt: now, FinishedAt: now, Outcome: lipapi.AttemptSuccess,
+	}}}}
+	ah, err := diag.AttemptsHandler(loader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/?a_leg_id=a1", nil)
+	req = req.WithContext(context.Background())
+
+	ah.ServeHTTP(&failResponseWriter{}, req)
+
+	if !strings.Contains(logBuf.String(), "diag: attempts encode") {
+		t.Fatalf("expected log line with diag: attempts encode, got %q", logBuf.String())
+	}
+}
+
+func TestAttemptsHandler_fakeAttemptLoaderJSON(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	want := lipapi.AttemptRecord{
+		BLegID: "b1", ALegID: "a1", Seq: 1, BackendID: "be",
+		EffectiveModel: "m", StartedAt: now, FinishedAt: now, Outcome: lipapi.AttemptSuccess,
+	}
+	loader := &fakeAttemptLoader{byALeg: map[string][]lipapi.AttemptRecord{"a1": {want}}}
+	ah, err := diag.AttemptsHandler(loader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(ah)
+	t.Cleanup(srv.Close)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"?a_leg_id=a1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var rows []lipapi.AttemptRecord
+	if err := json.NewDecoder(res.Body).Decode(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].BLegID != want.BLegID || rows[0].ALegID != want.ALegID {
+		t.Fatalf("got %+v", rows)
 	}
 }
 
@@ -103,7 +208,11 @@ func TestAttemptsHandler_ok(t *testing.T) {
 	}
 	srv := httptest.NewServer(ah)
 	t.Cleanup(srv.Close)
-	res, err := http.Get(srv.URL + "?a_leg_id=" + a.ALegID)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"?a_leg_id="+a.ALegID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

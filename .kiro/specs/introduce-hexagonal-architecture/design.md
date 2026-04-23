@@ -7,6 +7,8 @@ This design formalizes the existing Go LLM Interactive Proxy as a pragmatic hexa
 
 The target users are maintainers and plugin authors who need a stable, testable way to evolve routing, streaming, continuity, auth, storage, and plugin integration behavior. The feature changes the current system by documenting and enforcing core policy ownership, adapter boundaries, and explicit composition rules while preserving the current runtime structure where it is already healthy.
 
+The design intentionally favors dependency direction and ownership over textbook package taxonomy. It does not require a repo-wide `app/domain/adapters` split, a generic `ports` bucket, or interface extraction for every seam. Where an existing concrete service, function seam, or frozen contract already gives the core a clean boundary, the design keeps it.
+
 ### Goals
 - Make the current core/adapters split explicit in hexagonal terms.
 - Preserve routing, streaming, continuity, and canonical translation semantics while improving boundary clarity.
@@ -25,12 +27,12 @@ The target users are maintainers and plugin authors who need a stable, testable 
 |-------------|---------|------------|------------|-------|
 | 1.1-1.6 | Define the application core and keep it transport/provider-agnostic | Core Boundary Map, Runtime Executor Boundary | Boundary map contract, executor boundary contract | Request execution flow |
 | 2.1-2.5 | Keep driving adapters at the system edge | Driving Adapter Map | Transport/decode/encode ownership contract | Request/response edge flow |
-| 3.1-3.6 | Keep outbound integrations behind stable ports | Port Rationalization Plan | Port inventory and classification rules | Core-to-adapter invocation flow |
+| 3.1-3.8 | Keep outbound integrations behind stable consumer-owned seams | Port Rationalization Plan | Port inventory and classification rules | Core-to-adapter invocation flow |
 | 4.1-4.6 | Maintain inward dependency direction and explicit wiring | Composition Roots, Architecture Guardrails | Composition root contract, guardrail policy | Bootstrap flow |
 | 5.1-5.5 | Preserve product-defining proxy semantics | Runtime Executor Boundary | Canonical stream + retry/commit constraints | Request execution flow |
 | 6.1-6.6 | Support safe incremental migration | Migration Classifier | Classification and exception register rules | Incremental migration flow |
-| 7.1-7.5 | Improve testability and cross-cutting discipline | Driving Adapter Map, Architecture Guardrails | Cross-port context rules, contract test rules | Cross-cutting concern flow |
-| 8.1-8.5 | Adopt a pragmatic rather than ceremonial hexagonal model | Core Boundary Map, Port Rationalization Plan, Architecture Guardrails | Port-creation decision rule | Incremental migration flow |
+| 7.1-7.6 | Improve testability and cross-cutting discipline | Driving Adapter Map, Architecture Guardrails | Cross-port context rules, contract test rules | Cross-cutting concern flow |
+| 8.1-8.7 | Adopt a pragmatic rather than ceremonial hexagonal model | Core Boundary Map, Port Rationalization Plan, Architecture Guardrails | Port-creation decision rule | Incremental migration flow |
 
 ## Architecture
 
@@ -44,10 +46,11 @@ The main weakness is not missing architecture but incomplete formalization. Some
 
 **Architecture Integration:**
 - Selected pattern: ports-and-adapters around the existing canonical orchestration core.
-- Domain/feature boundaries: core policy remains in `pkg/lipapi` and `internal/core/*`; transport/provider/storage/integration concerns remain at the edge.
+- Domain/feature boundaries: `internal/core/*` remains the policy and orchestration center; `pkg/lipapi` remains the stable canonical contract surface adjacent to the core; transport/provider/storage/integration concerns remain at the edge.
 - Existing patterns preserved: canonical-in-the-middle, streaming-first execution, explicit composition, plugin-first extensibility, no provider SDKs in core.
 - New components rationale: mostly documentation, seam rationalization, and architecture-test expansion rather than new runtime subsystems.
 - Steering compliance: preserves small core, core-owned routing/failover/B2BUA, provider isolation, and no pairwise translators.
+- Seam placement rule: any newly named internal seam should live near the consuming capability or other narrowly scoped boundary, not in a repo-wide `ports` or `interfaces` package.
 
 ```mermaid
 graph TB
@@ -78,6 +81,8 @@ graph TB
 - Treat `internal/stdhttp/` and `internal/plugins/frontends/*` as driving adapters.
 - Treat backend plugins, continuity store implementations, transport-auth providers, and observability integrations as driven adapters.
 - Keep `cmd/lipstd/`, `internal/pluginreg/`, and `internal/infra/runtimebundle/` as explicit composition roots and assembly helpers.
+- Prefer consumer-owned seams that may be small interfaces, function-typed contracts, or narrow frozen structs; do not require interface extraction where an existing seam already gives the core replaceability and testability.
+- Prefer concrete use-case services for inbound calls from driving adapters unless multiple real consumers justify an inbound interface.
 
 ### Technology Stack
 
@@ -144,7 +149,7 @@ Key decisions
 | Core Boundary Map | Architecture/Core | Define which packages are inside the application core and which are adapters | 1.1-1.6, 8.1-8.5 | Steering docs (P0), current package map (P0) | Service, State |
 | Runtime Executor Boundary | Core | Preserve executor/routing/continuity ownership and isolate adapter concerns | 1.1-1.6, 5.1-5.5 | `internal/core/runtime` (P0), `internal/core/routing` (P0) | Service |
 | Driving Adapter Map | Driving adapters | Define transport/auth/decode/encode ownership | 2.1-2.5, 7.3-7.4 | `internal/stdhttp` (P0), frontend plugins (P0) | Service, API |
-| Port Rationalization Plan | Core/Adapter boundary | Identify which seams need explicit ports and which can stay as-is | 3.1-3.6, 8.3-8.5 | current seam inventory (P0), pluginreg/runtimebundle (P1) | Service, State |
+| Port Rationalization Plan | Core/Adapter boundary | Identify which seams need explicit ports and which can stay as-is | 3.1-3.8, 8.3-8.7 | current seam inventory (P0), pluginreg/runtimebundle (P1) | Service, State |
 | Composition Roots | Assembly | Keep construction explicit and outward-facing | 4.1-4.6 | `cmd/lipstd` (P0), `runtimebundle` (P0), `pluginreg` (P0) | Service |
 | Migration Classifier | Architecture process | Classify packages as aligned, extract, or exception | 6.1-6.6 | package inventory (P1), follow-up tasks (P1) | State |
 | Architecture Guardrails | Verification | Enforce dependency direction and contract visibility | 4.5-4.6, 7.1-7.5, 8.4 | `internal/archtest` (P0), package tests (P0) | Batch, State |
@@ -313,6 +318,8 @@ Core-Facing Context Contract
 - Inventory current seams such as backend execution, continuity store access, transport-auth principal propagation, extension-service facades, and observability sinks.
 - Retain seams that are already low-coupling and well-owned.
 - Extract or rename only seams that currently force adapters to depend on runtime internals or obscure core ownership.
+- Define any new seam from the consuming core package or capability boundary, not from an adapter package.
+- Allow a seam to stay as a concrete type or function contract when that shape is already sufficient for substitution and tests.
 
 **Dependencies**
 - Inbound: core packages that consume outward capabilities (P0)
@@ -330,20 +337,20 @@ Core-Facing Context Contract
 
 | Seam | Current owner / shape | Classification | Rationale | Exit criteria |
 |------|------------------------|----------------|-----------|---------------|
-| Backend execution (`runtime.Backend`) | `internal/core/runtime` struct consumed by `runtimebundle` and `pluginreg` | `extract` | It is a true outbound boundary, but its current name and placement are runtime-shaped rather than explicitly application-port-shaped | A stable internal core-owned backend port lives outside runtime assembly code and `pluginreg` no longer needs to import `internal/core/runtime` only to name the backend seam |
+| Backend execution (`runtime.Backend`) | `internal/core/runtime` struct consumed by `runtimebundle` and `pluginreg` | `extract` | It is a true outbound boundary, but its current name and placement are runtime-shaped rather than clearly owned as an executor-consumed seam | `pluginreg` no longer needs to import the main executor package only to name the backend seam; extraction may be a dedicated seam package or promotion of the existing narrow contract if that gives the same ownership clarity |
 | Continuity store (`b2bua.Store`) | Core-owned store seam opened by composition | `keep` | Already expresses a real core-facing store boundary with low coupling and no transport/provider leakage | Keep unless a concrete coupling problem appears |
 | Principal propagation (`httpauth` -> `execctx.Views`) | Transport auth normalizes into typed views | `keep` | Existing typed view model is already transport-agnostic enough for the core if kept narrow | Keep the allowed-field contract explicit and prevent raw HTTP types from crossing inward |
-| Extension runtime services (`RequestRuntimeSnapshot`) | Core snapshot wiring exposing state, workspace, auxiliary, traffic, and request services | `extract` | The snapshot is useful, but some services need clearer port inventory and ownership naming for long-term maintainability | A documented internal port surface exists for each service family and adapters depend only on those service-specific contracts rather than the undifferentiated snapshot bundle |
-| Observability sinks and route observers | Mixed core hooks plus infra-backed observers | `extract` | Good existing seam, but ownership and allowed metadata need a clearer contract for long-term guardrails | Observer-facing contracts define the allowed metadata set and guardrails verify that infra adapters consume only those contracts |
+| Extension runtime services (`RequestRuntimeSnapshot`) | Core snapshot wiring exposing state, workspace, auxiliary, traffic, and request services | `extract` | The snapshot is useful, but some consumers may depend on a broader service bundle than they need | Split only where a consumer is forced to depend on unrelated capabilities; cohesive grouped facades may remain if they preserve clarity and testability |
+| Observability sinks and route observers | Mixed core hooks plus infra-backed observers | `extract` | Good existing seam, but ownership and allowed metadata need a clearer contract for long-term guardrails | Keep the current observer seam if its metadata contract is already sufficient; otherwise narrow the emitted contract without pushing logging or transport concerns into the core |
 | Registry standard-table coupling to runtime types | `internal/pluginreg` imports `internal/core/runtime` | `exception` | Acceptable short-term because standard composition is explicit, but it weakens the cleanest ports-and-adapters story | Exception is either retired by backend seam extraction or explicitly retained as a permanent bounded composition-only dependency with a dedicated architecture test |
 
 ##### Extract Seam Target Decisions
 
 | Seam | Owning package | Internal or SDK-facing | Minimum contract shape | Allowed import direction | Migration stop condition |
 |------|----------------|------------------------|------------------------|--------------------------|--------------------------|
-| Backend execution | New executor-owned seam package under `internal/core/runtime/` consumed by the executor path | Internal-only | `BackendPort` with capability description and `Open(ctx, call, candidate)` canonical stream open semantics; concrete backend config/build helpers stay outside this seam | `runtimebundle`, `pluginreg`, and backend adapters may depend on the seam package; the seam package must not depend on concrete backends, transport packages, or routing policy packages outside executor consumption | `pluginreg` and runtime assembly code can construct backend adapters without importing the main executor package for backend contract naming |
-| Extension runtime services | Service-specific internal core seam packages or narrowed contracts published from `internal/core/extensions` | Internal-only | Per-service contracts for auxiliary requests, state, workspace, traffic observation, and request transforms | Feature adapters depend on service-specific contracts; service contracts depend only inward to core-friendly types | Feature adapters no longer need the full snapshot bundle when they only consume one service family |
-| Observability sinks and route observers | Internal core/infra seam adjacent to diagnostics and executor observation | Internal-only | Observer contract carrying request ID, trace ID, attempt lineage, route decision summary, and redacted annotations only | Core emits observer contracts; infra adapters consume them; no transport or provider payload types flow back inward | Route/traffic observer implementations compile against the stable observer contract without importing executor internals beyond the seam |
+| Backend execution | Executor-owned seam adjacent to `internal/core/runtime` and consumed by the executor path | Internal-only | Minimal backend contract with capability description and canonical attempt-open semantics; this may remain a narrow struct-of-functions if that is the clearest stable shape | `runtimebundle`, `pluginreg`, and backend adapters may depend on the seam package or contract; the seam must not depend on concrete backends, transport packages, or routing policy packages outside executor consumption | `pluginreg` and runtime assembly code can construct backend adapters without importing the main executor package only for backend contract naming |
+| Extension runtime services | Narrowed contracts published from `internal/core/extensions` near the consuming service families | Internal-only | Per-service contracts only where consumers need less than the current snapshot bundle; cohesive grouped facades may remain when they map to one stable capability family | Feature adapters depend on service-specific contracts or approved grouped facades; service contracts depend only inward to core-friendly types | Feature adapters no longer receive unrelated capabilities just because the snapshot bundle is convenient |
+| Observability sinks and route observers | Internal core/infra seam adjacent to diagnostics and executor observation | Internal-only | Observer contract carrying request ID, trace ID, attempt lineage, route decision summary, and redacted annotations only, unless the current SDK seam already expresses that contract adequately | Core emits observer contracts; infra adapters consume them; no transport or provider payload types flow back inward | Route/traffic observer implementations compile against a stable observer contract without importing broader executor internals |
 
 **Implementation Notes**
 - Integration: likely high-value candidates are backend execution, continuity store, auth/principal context, and selected extension services.
@@ -445,6 +452,7 @@ Composition Root Contract
 - Extend current import-boundary tests to cover stricter hexagonal rules.
 - Verify that adapters depend on core contracts or explicitly allowed seams rather than runtime internals where the design calls for extraction.
 - Keep tests focused on significant boundary violations rather than trivial naming-style checks.
+- Avoid guardrails that require inbound interfaces, forced package renames, or one-interface-per-adapter ceremony.
 
 **Dependencies**
 - Inbound: design decisions and package map (P0)
@@ -469,6 +477,7 @@ Composition Root Contract
 | `internal/stdhttp` | core contracts, runtimebundle outputs, transport auth providers, diagnostics and infra helpers | concrete backend SDK types, provider semantics in handlers | Keep HTTP concerns at the edge |
 | `internal/plugins/frontends/*` | `pkg/lipapi`, `pkg/lipsdk` where needed, core execution entrypoints | direct provider SDK imports, backend plugin imports, transport-global mutable state | Keep frontends as driving adapters only |
 | `internal/plugins/backends/*` | `pkg/lipapi`, `pkg/lipsdk` where needed, official provider SDKs, adapter-local helpers | `internal/stdhttp`, concrete frontend imports, core policy packages beyond stable seams | Keep provider logic at the edge |
+| new internal seam packages | consuming core capability, canonical contracts, narrow support types | generic repo-wide `ports/interfaces/services` buckets, concrete adapters, transport packages, provider SDKs | Keep seams close to their owning capability and prevent architecture theater |
 | `internal/pluginreg` | plugin factories, config decoding support, the named backend seam exception only | broader `internal/core/*` imports beyond the allowed backend seam, hidden singletons, `init()`-driven standard wiring | Keep composition explicit and confine the exception to one seam |
 | `internal/infra/runtimebundle` | config, infra clients, continuity store seam, request-runtime service seams, executor-owned backend seam, metrics/tracing helpers | concrete frontend packages, transport middleware packages, hidden singletons, broad imports of unrelated core policy packages | Keep runtime assembly explicit while depending only on the seams it wires |
 
@@ -481,6 +490,16 @@ Exception policy
 - Integration: build on `internal/archtest/extension_platform_boundaries_test.go` and related guardrails.
 - Validation: add only rules that correspond to explicit design decisions.
 - Risks: overfitting tests to transient package names rather than enduring ownership rules.
+
+##### Recommended First Guardrail Additions
+
+The first implementation slice should add only guardrails that enforce already-observed architectural intent:
+
+1. `internal/pluginreg` may import the backend seam package only, and no broader `internal/core/*` packages.
+2. `internal/infra/runtimebundle` may import the backend seam package and other named core support seams it wires, but not unrelated core policy packages.
+3. `pkg/lipapi` and `pkg/lipsdk` must remain free of provider SDK imports and transport-server package imports.
+4. New internal seam packages, if introduced, must not depend on concrete adapters or provider SDKs.
+5. Architecture tests must not fail solely because a driving adapter uses a concrete core service instead of an inbound interface.
 
 ## Data Models
 
@@ -514,6 +533,7 @@ The core business invariants remain the existing proxy invariants:
 This feature is primarily about Go package and interface contracts, not wire payloads.
 - Core-facing contracts stay in canonical/core language.
 - Adapter-facing translations remain local to the adapter packages.
+- Read-only admin, diagnostics, and reporting paths may use dedicated query DTOs and query adapters when that is simpler than forcing write-side repository shapes.
 - Architecture-test inputs are package patterns and forbidden dependency rules.
 
 ## Error Handling
@@ -535,6 +555,7 @@ Success is monitored through:
 ### Unit Tests
 - Extend import-boundary tests for core purity and seam ownership.
 - Add seam-specific tests where a new port replaces a runtime-shaped dependency.
+- Add tests that allow dedicated query/read adapters without requiring them to masquerade as aggregate repositories.
 - Add regression tests for any classifier or architecture-rule evaluator introduced by implementation tasks.
 
 ### Integration Tests
@@ -550,6 +571,7 @@ Success is monitored through:
 - Risk: over-rotating into a textbook package rewrite. Mitigation: require every move to justify a real dependency or ownership improvement.
 - Risk: weakening routing, streaming, or continuity semantics while reshaping seams. Mitigation: treat core proxy invariants as explicit non-regression gates.
 - Risk: creating interface ceremony with little benefit. Mitigation: extract only high-value ports and allow good existing seams to remain.
+- Risk: creating a generic `ports` layer that becomes a new dumping ground. Mitigation: keep seams near the consuming capability and reject repo-wide architecture buckets without a clear ownership reason.
 - Risk: architecture tests that chase naming instead of ownership. Mitigation: write tests around dependency direction and forbidden imports, not aesthetics.
 
 ## Supporting References

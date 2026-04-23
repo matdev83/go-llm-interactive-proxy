@@ -20,6 +20,10 @@ Exact versions belong in `go.mod`. This file records stable technical patterns a
 The core is assembled through constructors and registration in composition roots.
 Avoid DI containers, reflection-heavy registries, and service locators.
 
+When tightening seams, prefer the smallest shape that improves ownership and testability.
+That may be a consumer-owned interface, a function seam, or a narrow frozen struct.
+Do not introduce repo-wide `ports` packages or symmetry-driven interfaces unless they solve a real coupling problem.
+
 `cmd/lipstd/` is expected to:
 - load runtime config,
 - register official frontend plugins,
@@ -121,7 +125,15 @@ Default preference order:
 2. small focused library with strong adoption,
 3. larger framework only with explicit architectural justification.
 
+## Pragmatic port and query rules
+
+- define outbound seams where the core consumes them,
+- keep inbound seams concrete by default for driving adapters,
+- use interfaces for real substitution boundaries, not just mocks,
+- allow dedicated query/read adapters for read-only operator and diagnostic flows,
+- avoid forcing every read through repository-style write abstractions.
+
 ---
 _Initial Go steering version: 2026-04-20_
-_Updated 2026-04-22: observability stack, jsonpresence, bench/benchmark CI notes._
-_Reason: capture the technical defaults for the Go rewrite and prevent a repeat of the Python-era coupling patterns._
+_Updated 2026-04-23: pragmatic seam-shape rules and query/read guidance for the current architecture direction._
+_Reason: capture current technical defaults for a small-core, explicitly wired, pragmatically hexagonal Go runtime._

@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -47,10 +47,10 @@ func defaultBackendCaps() lipapi.BackendCaps {
 }
 
 // New returns a runtime backend that invokes an ACP agent via the prompt-turn subset.
-func New(cfg Config) runtime.Backend {
+func New(cfg Config) execbackend.Backend {
 	cli, err := newClient(cfg.BaseURL, cfg.HTTPClient, cfg.Log)
 	if err != nil {
-		return runtime.Backend{
+		return execbackend.Backend{
 			Caps: defaultBackendCaps(),
 			ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 				return defaultBackendCaps()
@@ -67,7 +67,7 @@ func New(cfg Config) runtime.Backend {
 	}
 	mapper := mergeMapperOptions(cfg)
 	cancelProf := mergeCancelProfile(cfg)
-	return runtime.Backend{
+	return execbackend.Backend{
 		Caps: defaultBackendCaps(),
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return defaultBackendCaps()

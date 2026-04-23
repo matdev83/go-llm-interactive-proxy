@@ -44,14 +44,32 @@ func TestPrincipalFromContext_missing(t *testing.T) {
 	}
 }
 
-func TestWithPrincipal_nilParent_usesBackground(t *testing.T) {
+func TestWithPrincipal_nilParent_usesTODO(t *testing.T) {
 	t.Parallel()
-	ctx := httpauth.WithPrincipal(nil, execview.PrincipalView{ID: "x"}) //nolint:staticcheck // SA1012: intentional nil parent contract
+	ctx := httpauth.WithPrincipal(
+		nil, //nolint:staticcheck // SA1012: intentional nil parent contract
+		execview.PrincipalView{ID: "x"},
+	)
 	if ctx == nil {
 		t.Fatal("expected non-nil context")
 	}
 	got, ok := httpauth.PrincipalFromContext(ctx)
 	if !ok || got.ID != "x" {
 		t.Fatalf("principal %+v ok=%v", got, ok)
+	}
+}
+
+func TestPrincipalContext_httpauthAndExecviewInterchangeable(t *testing.T) {
+	t.Parallel()
+	p := execview.PrincipalView{ID: "edge", DisplayName: "D"}
+	ctxA := httpauth.WithPrincipal(context.Background(), p)
+	gotA, okA := execview.PrincipalFromContext(ctxA)
+	if !okA || gotA.ID != p.ID {
+		t.Fatalf("httpauth set, execview read: %+v ok=%v", gotA, okA)
+	}
+	ctxB := execview.WithPrincipal(context.Background(), p)
+	gotB, okB := httpauth.PrincipalFromContext(ctxB)
+	if !okB || gotB.ID != p.ID {
+		t.Fatalf("execview set, httpauth read: %+v ok=%v", gotB, okB)
 	}
 }

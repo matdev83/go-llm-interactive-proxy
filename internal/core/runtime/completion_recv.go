@@ -25,11 +25,11 @@ func (s *retryRecvStream) completionSnapshot(ctx context.Context) *extensions.Re
 }
 
 func (s *retryRecvStream) completionGatesFromContext(ctx context.Context) []completion.Gate {
-	snap := s.completionSnapshot(ctx)
-	if snap == nil {
-		return nil
+	var fallback extensions.CompletionGatesView
+	if s.executor != nil {
+		fallback = s.executor.RuntimeSnapshot
 	}
-	return snap.CompletionGates()
+	return extensions.CompletionGatesFromContext(ctx, fallback)
 }
 
 func (s *retryRecvStream) popGateDrainHead() (lipapi.Event, bool) {

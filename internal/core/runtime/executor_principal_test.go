@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
 func TestExecutor_OpenContext_carriesTransportPrincipalInViews(t *testing.T) {
@@ -24,7 +24,7 @@ func TestExecutor_OpenContext_carriesTransportPrincipalInViews(t *testing.T) {
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -46,7 +46,7 @@ func TestExecutor_OpenContext_carriesTransportPrincipalInViews(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
 		}},
 	}
-	ctx := httpauth.WithPrincipal(context.Background(), execview.PrincipalView{ID: "transport-user"})
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "transport-user"})
 	stream, err := ex.Execute(ctx, call)
 	if err != nil {
 		t.Fatal(err)

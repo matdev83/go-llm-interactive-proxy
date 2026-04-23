@@ -14,6 +14,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -22,6 +24,7 @@ import (
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -70,7 +73,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	upstream = wrapUpstreamClient(upstream, bundle, opts.OutboundTracing)
 
-	backends := make(map[string]runtime.Backend, len(cfg.Plugins.Backends))
+	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
 			continue
@@ -83,7 +86,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		}
 		backends[iid] = be
 	}
-	store, err := pluginreg.OpenContinuityStore(cfg.Continuity)
+	store, err := continuity.OpenStore(cfg.Continuity)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
@@ -104,7 +107,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	capMap := make(capabilities.MapResolver, len(backends))
 	for id, be := range backends {
 		capMap[id] = func(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call) lipapi.BackendCaps {
-			return runtime.BackendEffectiveCaps(ctx, be, call, cand)
+			return execbackend.EffectiveCaps(ctx, be, call, cand)
 		}
 	}
 
@@ -178,7 +181,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		CapsResolver:         capMap,
 		Rand:                 routing.NewSeededRng(seed),
 		Now:                  nowFn,
-		CandidateHealth:      routingCandidateHealth(cfg, nowFn),
+		CandidateHealth:      routinghealth.CandidateHealthFromConfig(cfg, nowFn),
 		RouteObserver:        routeObserverFor(log),
 		Log:                  log,
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,

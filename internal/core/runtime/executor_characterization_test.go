@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -27,7 +28,7 @@ func TestExecutor_weightedFirstBranch_persistsConsumed(t *testing.T) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(99),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"cheap": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -99,7 +100,7 @@ func TestExecutor_recordAttempt_usesWithoutCancelOnCanceledRequestCtx(t *testing
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"slow": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -160,7 +161,7 @@ func TestExecutor_plan_candidate_observedAndTraced(t *testing.T) {
 		Rand:          routing.NewSeededRng(2),
 		RouteObserver: obs,
 		RouteTrace:    rt,
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {

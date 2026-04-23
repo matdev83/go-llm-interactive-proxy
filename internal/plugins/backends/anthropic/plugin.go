@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/checkcfg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -32,12 +32,12 @@ func defaultBackendCaps() lipapi.BackendCaps {
 }
 
 // New returns a runtime backend that invokes the Anthropic Messages API using anthropic-sdk-go.
-func New(cfg Config) runtime.Backend {
+func New(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(ID, "base_url", cfg.BaseURL); err != nil {
 		return newConfigErrorBackend(err)
 	}
 	cli := newSDKClient(cfg)
-	return runtime.Backend{
+	return execbackend.Backend{
 		Caps: defaultBackendCaps(),
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
@@ -56,8 +56,8 @@ func New(cfg Config) runtime.Backend {
 	}
 }
 
-func newConfigErrorBackend(err error) runtime.Backend {
-	return runtime.Backend{
+func newConfigErrorBackend(err error) execbackend.Backend {
+	return execbackend.Backend{
 		Caps: defaultBackendCaps(),
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))

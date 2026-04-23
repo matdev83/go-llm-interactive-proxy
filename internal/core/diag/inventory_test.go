@@ -14,6 +14,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
+var _ diag.FeatureRegistry = (*pluginreg.Registry)(nil)
+
 func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{

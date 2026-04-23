@@ -1,6 +1,9 @@
 // Package runtimebundle is the standard-distribution composition root: assembles continuity
 // store, executor (production clock/RNG, routing health, route observation), shared upstream HTTP,
-// and resource shutdown hooks.
+// and resource shutdown hooks. The standard binary uses [NewBootstrapApp] so the main command
+// does not need a direct import of the core runtime bootstrap package. Executor routing health
+// (empty vs circuit breaker) is built with
+// [github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth.CandidateHealthFromConfig].
 //
 // Upstream HTTP: backends that call providers over HTTP receive the client from [Build] (see
 // [BuildOptions.HTTPClient]; default tuned client from httpclient.TransportTuneFromConfig plus

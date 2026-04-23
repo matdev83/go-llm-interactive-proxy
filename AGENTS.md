@@ -1,7 +1,5 @@
 # Rules for coding agents
 
-Language: English.
-
 ## Project identity
 
 Go-based LLM Interactive Proxy.

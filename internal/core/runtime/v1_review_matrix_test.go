@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -36,7 +37,7 @@ func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{SubmitHooks: []sdk.SubmitHook{sub}}),
 		Rand:  routing.NewSeededRng(4),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -93,7 +94,7 @@ func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 		Store: st,
 		Bus:   hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}}),
 		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
@@ -201,7 +202,7 @@ func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.
 		Store: st,
 		Bus:   hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}}),
 		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]runtime.Backend{
+		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {

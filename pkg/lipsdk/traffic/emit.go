@@ -6,6 +6,8 @@ import (
 )
 
 // PortBundle is the raw/redactor/observer triple used at each traffic leg (design §10–§11).
+// [Emit] maps [CaptureMeta] and the leg/protocol/content-type arguments into [Observation] only;
+// it does not attach transport handles or provider-specific values beyond those string fields.
 type PortBundle struct {
 	Raw RawCaptureSink
 	Obs Observer
@@ -38,7 +40,8 @@ func (p PortBundle) EmitIsNoop() bool {
 }
 
 // Emit runs privileged raw capture, redactors, then the general observer (fail-open on observer errors).
-// A zero or empty bundle is a no-op.
+// A zero or empty bundle is a no-op. The observer sees only metadata copied from meta plus leg,
+// protocol, contentType, redacted body, and a recorded timestamp—see [Observation] (task 5.2).
 func (p PortBundle) Emit(ctx context.Context, leg Leg, meta CaptureMeta, protocol, contentType string, payload []byte) {
 	if p.EmitIsNoop() {
 		return

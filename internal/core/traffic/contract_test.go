@@ -19,6 +19,14 @@ func (testRedactor) Redact(_ context.Context, _ sdktraffic.Leg, _ sdktraffic.Cap
 	return []byte("Y"), nil
 }
 
+func TestPortBundleFromSnapshot_nilSnapshot_noPanic(t *testing.T) {
+	t.Parallel()
+	b := coretraffic.PortBundleFromSnapshot(nil)
+	if !b.EmitIsNoop() {
+		t.Fatal("expected empty port bundle from nil snapshot to be a no-op emit")
+	}
+}
+
 func TestPortBundleFromSnapshot_eachLegMeta(t *testing.T) {
 	t.Parallel()
 	raw := &testkit.RecordingRawCaptureSink{}

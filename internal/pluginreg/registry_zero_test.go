@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"gopkg.in/yaml.v3"
@@ -16,13 +16,13 @@ func TestRegistry_zeroValueRegisterBackend(t *testing.T) {
 	t.Parallel()
 	var r Registry
 	id := "zero-value-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (runtime.Backend, error) {
-		return runtime.Backend{}, nil
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+		return execbackend.Backend{}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (runtime.Backend, error) {
-		return runtime.Backend{}, nil
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+		return execbackend.Backend{}, nil
 	}); err == nil {
 		t.Fatal("expected duplicate registration error")
 	}

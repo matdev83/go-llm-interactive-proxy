@@ -28,6 +28,8 @@ Around the core and plugins sit explicit **standard distribution** packages (`in
 - plugin metadata and factory inputs
 - no core implementation details
 
+Orchestration policy (routing, recovery, extension stages) lives in `internal/core`, not in these public trees; see `docs/architecture-guardrails.md` for the dependency checks.
+
 ### 2. Internal core runtime
 
 `internal/core/`
@@ -164,7 +166,26 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 - keep exported surface area small.
 - prefer internal packages for code that should not be imported externally.
 
+## Pragmatic hexagonal guidance
+
+Apply hexagonal architecture here as an ownership and dependency-direction discipline, not as a directory-renaming exercise.
+
+- keep the existing package map when it already expresses a clean boundary,
+- prefer selective seam extraction over repo-wide package churn,
+- place new seams near the consuming capability, not in generic `ports`, `interfaces`, or `services` buckets,
+- prefer concrete inbound services for driving adapters unless multiple real consumers justify an interface,
+- allow dedicated query adapters and read DTOs for diagnostics, admin, or reporting flows when they are simpler than repository-shaped write abstractions,
+- do not create interfaces only for mocking or symmetry.
+
+This means a seam may legitimately be:
+
+- a small interface,
+- a narrow function-typed contract,
+- or a frozen concrete struct,
+
+as long as it gives the core a real substitution boundary and keeps technology details at the edge.
+
 ---
 _Initial Go steering version: 2026-04-20_
-_Updated 2026-04-22: `diag/`, `hooks/`, infra metrics/tracing/httpclient, continuity store note._
-_Reason: establish the default repository map for the greenfield rewrite and make ownership boundaries explicit._
+_Updated 2026-04-23: pragmatic hexagonal guidance for seam placement, query adapters, and inbound concrete services._
+_Reason: reflect the current brownfield direction: preserve the working package map, tighten ownership, and avoid architecture theater._

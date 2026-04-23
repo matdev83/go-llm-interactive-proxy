@@ -6,12 +6,21 @@ import (
 	"time"
 )
 
-func TestEnsureLoadConfigDeadline_nilYieldsDeadline(t *testing.T) {
+func TestEnsureLoadConfigDeadline_todoYieldsDeadline(t *testing.T) {
 	t.Parallel()
 	c, cancel := ensureLoadConfigDeadline(context.TODO())
 	defer cancel()
 	if _, ok := c.Deadline(); !ok {
-		t.Fatal("expected deadline for nil context")
+		t.Fatal("expected child deadline when parent has none")
+	}
+}
+
+func TestEnsureLoadConfigDeadline_nilYieldsDeadline(t *testing.T) {
+	t.Parallel()
+	c, cancel := ensureLoadConfigDeadline(nil)
+	defer cancel()
+	if _, ok := c.Deadline(); !ok {
+		t.Fatal("expected deadline when parent context is nil")
 	}
 }
 

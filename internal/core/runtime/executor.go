@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -25,22 +26,6 @@ import (
 
 var _ lipsdk.ExecutorView = (*Executor)(nil)
 
-// Backend opens a canonical event stream for one route candidate.
-type Backend struct {
-	Caps lipapi.BackendCaps
-	// ResolveCaps, when set, supplies model/candidate-aware capabilities; otherwise Caps is used.
-	ResolveCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps
-	Open        func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error)
-}
-
-// BackendEffectiveCaps returns the caps used for negotiation for one backend and candidate.
-func BackendEffectiveCaps(ctx context.Context, be Backend, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-	if be.ResolveCaps != nil {
-		return be.ResolveCaps(ctx, call, cand)
-	}
-	return be.Caps
-}
-
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
 type Executor struct {
 	Store b2bua.Store
@@ -49,7 +34,7 @@ type Executor struct {
 	// When non-nil, it must not be mutated after the executor is handed to concurrent callers;
 	// see [extensions.RequestRuntimeSnapshot].
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
-	Backends        map[string]Backend // key: routing.Primary.Backend (non-empty)
+	Backends        map[string]execbackend.Backend // key: routing.Primary.Backend (non-empty)
 	// Rand supplies weighted routing rolls. Typical *rand/v2.Rand-backed values are not safe for
 	// concurrent use; rng() wraps a non-nil Rand accordingly.
 	Rand routing.Rng
@@ -62,7 +47,7 @@ type Executor struct {
 	// DefaultBackend resolves model-only selectors using routing.ApplyModelOnlyBackends (from config default_route).
 	DefaultBackend string
 	// CapsResolver, when set, supplies candidate-aware caps for negotiation; otherwise each
-	// Backend's ResolveCaps / Caps is used via BackendEffectiveCaps.
+	// Backend's ResolveCaps / Caps is used via [execbackend.EffectiveCaps].
 	CapsResolver capabilities.Resolver
 	// CandidateHealth, when set, supplies unhealthy routing keys merged into planner options.
 	CandidateHealth policy.CandidateHealth
@@ -83,11 +68,16 @@ type Executor struct {
 	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
 }
 
-func (e *Executor) capsForAttempt(ctx context.Context, be Backend, attempt lipapi.Call, c routing.AttemptCandidate) lipapi.BackendCaps {
+func (e *Executor) capsForAttempt(
+	ctx context.Context,
+	be execbackend.Backend,
+	attempt lipapi.Call,
+	c routing.AttemptCandidate,
+) lipapi.BackendCaps {
 	if e != nil && e.CapsResolver != nil {
 		return e.CapsResolver.DescribeCandidate(ctx, c, attempt)
 	}
-	return BackendEffectiveCaps(ctx, be, attempt, c)
+	return execbackend.EffectiveCaps(ctx, be, attempt, c)
 }
 
 // Execute runs submit hooks, resolves the A-leg, plans routes, negotiates per attempt,

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
@@ -17,7 +17,7 @@ import (
 type FrontendMount = lipsdk.FrontendMount
 
 // backendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
-type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error)
+type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error)
 
 // FeatureFactory builds a versioned feature bundle from opaque plugin YAML.
 type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
@@ -103,14 +103,14 @@ func (r *Registry) RegisterFeature(id string, fn FeatureFactory) error {
 // BuildBackend constructs a backend from r using the factory id (plugin kind).
 // upstreamHTTP is the shared outbound client from the composition root; nil is passed through
 // to factories, which apply defaults where HTTP is required (e.g. Bedrock, ACP).
-func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error) {
+func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error) {
 	factoryID = strings.TrimSpace(factoryID)
 
 	r.mu.RLock()
 	fn, ok := r.backends[factoryID]
 	r.mu.RUnlock()
 	if !ok {
-		return runtime.Backend{}, fmt.Errorf("pluginreg: unknown backend plugin %q", factoryID)
+		return execbackend.Backend{}, fmt.Errorf("pluginreg: unknown backend plugin %q", factoryID)
 	}
 	return fn(n, upstreamHTTP)
 }
@@ -141,10 +141,10 @@ func (r *Registry) BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeatur
 	}
 	b, err := fn(n)
 	if err != nil {
-		return lipfeature.FeatureBundle{}, err
+		return lipfeature.FeatureBundle{}, fmt.Errorf("pluginreg: feature %q: %w", factoryKey, err)
 	}
 	if err := b.Validate(); err != nil {
-		return lipfeature.FeatureBundle{}, err
+		return lipfeature.FeatureBundle{}, fmt.Errorf("pluginreg: feature %q: validate: %w", factoryKey, err)
 	}
 	return b, nil
 }

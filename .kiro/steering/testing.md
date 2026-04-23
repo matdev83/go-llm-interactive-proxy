@@ -81,6 +81,8 @@ Always prioritize tests for:
 - Fake clocks, stores, and id generators are encouraged when time or randomness matters.
 - Use real canonical types in tests whenever possible.
 - Provider SDKs should usually be hidden behind backend adapter seams in tests.
+- Do not introduce interfaces only to satisfy mocks; prefer small fakes around real consumer-owned seams.
+- Architecture tests should enforce ownership and dependency direction, not naming symmetry or textbook package taxonomy.
 
 ## Regression policy
 
@@ -101,6 +103,10 @@ Default commands:
 - `go vet ./...`
 - `staticcheck ./...`
 
+Architecture and hygiene commands that should remain easy to run:
+- `go test ./internal/archtest/...`
+- `go test -tags=precommit ./internal/qa/... ./internal/core/runtime/...`
+
 Performance smoke (not part of default PR gates unless you opt in): `make bench` runs benchmarks across core, stream, routing, diag, testkit, and frontend encoder packages; see `docs/performance-checks.md`. CI may upload weekly `make bench` output via `.github/workflows/benchmarks.yml` for manual `benchstat` comparison.
 
 ## What to avoid
@@ -108,9 +114,11 @@ Performance smoke (not part of default PR gates unless you opt in): `make bench`
 - brittle assertions tied to logging text or call counts only,
 - tests that only prove mocks were invoked,
 - protocol tests that ignore streaming order and termination,
+- architecture tests that fail because a concrete inbound service is used instead of an interface,
+- architecture tests that force generic `ports` or `services` packages,
 - broad end-to-end tests with poor failure localization when a smaller contract test would suffice.
 
 ---
 _Initial Go steering version: 2026-04-20_
-_Updated 2026-04-22: goleak package list (`standardbundle`), benchmark/doc references._
-_Reason: define the executable-spec culture for the Go rewrite and protect the streaming/routing boundaries that matter most._
+_Updated 2026-04-23: architecture-test guidance for pragmatic hexagonal enforcement and boundary-focused fakes._
+_Reason: keep testing guidance aligned with the current small-core, ownership-first architecture direction._

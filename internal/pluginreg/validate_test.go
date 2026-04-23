@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -37,11 +37,14 @@ func TestValidateBundledFactories_customRegistryIndependentOfDefaultCompleteness
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("validate-custom-only", func(n yaml.Node, upstream *http.Client) (runtime.Backend, error) {
-		_ = n
-		_ = upstream
-		return runtime.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
-	}); err != nil {
+	if err := reg.RegisterBackend(
+		"validate-custom-only",
+		func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			_ = n
+			_ = upstream
+			return execbackend.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
+		},
+	); err != nil {
 		t.Fatal(err)
 	}
 

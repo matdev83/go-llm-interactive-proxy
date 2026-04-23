@@ -67,6 +67,36 @@
 - **Trade-offs**: Some runtime-shaped seams may remain until a later phase justifies more work.
 - **Follow-up**: Prioritize backend execution, continuity storage, auth/principal context, and selected extension services.
 
+### Decision: Keep seams consumer-owned and local rather than introducing a repo-wide ports layer
+- **Context**: A brownfield hexagonal refactor often drifts into generic `ports`, `interfaces`, or `services` packages that flatten ownership instead of clarifying it.
+- **Alternatives Considered**:
+  1. Create a central shared package for all new seam contracts.
+  2. Place each seam near the consuming core capability or keep it as an already-adequate local contract.
+- **Selected Approach**: Keep seams local to the consuming capability and avoid central architecture buckets.
+- **Rationale**: This preserves bounded ownership, reduces accidental coupling, and avoids refactor churn that mostly renames things.
+- **Trade-offs**: The resulting package map is less visually uniform, but it better matches how the code actually evolves.
+- **Follow-up**: Review each proposed extraction against the owning capability before creating any new package.
+
+### Decision: Do not force inbound interfaces or repository-shaped reads
+- **Context**: In Go, driving adapters can often depend directly on concrete application services, and read-oriented flows may be clearer as query adapters than as aggregate repositories.
+- **Alternatives Considered**:
+  1. Require interfaces on both inbound and outbound sides for symmetry.
+  2. Keep inbound seams concrete by default and allow dedicated query/read seams where they simplify the design.
+- **Selected Approach**: Keep inbound seams pragmatic and allow query-specific read models.
+- **Rationale**: This improves testability and maintainability without introducing interface ceremony or forcing diagnostics/reporting reads through write-oriented abstractions.
+- **Trade-offs**: The architecture story is less uniform on paper, but the code remains easier to navigate and change.
+- **Follow-up**: Encode this rule in requirements, design guidance, and tasks so later implementation work does not regress into symmetry-driven abstractions.
+
+### Decision: Make the backend seam the first extraction target
+- **Context**: The clearest concrete composition leak today is that `internal/pluginreg` and `internal/infra/runtimebundle` import `internal/core/runtime` mainly to name `runtime.Backend` and related helpers.
+- **Alternatives Considered**:
+  1. Start by splitting `RequestRuntimeSnapshot` and observer seams first.
+  2. Start by extracting only the backend seam out of the main executor package and leave other seams alone until evidence justifies more work.
+- **Selected Approach**: Extract the backend seam first.
+- **Rationale**: It resolves a real inward dependency concern, has a small blast radius, and improves architecture clarity without changing product semantics.
+- **Trade-offs**: Other seams remain somewhat broad for now, but they are not yet the highest-value problem.
+- **Follow-up**: Pair the extraction with narrow architecture tests and executor non-regression coverage.
+
 ### Decision: Use architecture tests as the primary enforcement mechanism
 - **Context**: The repo already relies on automated guardrails for important structural rules.
 - **Alternatives Considered**:
@@ -81,6 +111,7 @@
 - Textbook rewrite drift - Mitigate by explicitly forbidding package churn without a coupling benefit.
 - Semantic regression in routing/streaming/continuity - Mitigate with non-regression tests around executor behavior.
 - Interface overproduction - Mitigate with a port-justification rule for every new seam.
+- Generic ports-layer sprawl - Mitigate by keeping seams near consuming capabilities and rejecting central interface buckets without a clear ownership need.
 - Hidden exceptions - Mitigate with a migration classifier and explicit exception register.
 
 ## References

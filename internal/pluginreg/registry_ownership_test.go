@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -15,8 +15,8 @@ func TestRegistriesDoNotShareFactories(t *testing.T) {
 	a := NewRegistry()
 	b := NewRegistry()
 	id := "isolated-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := a.RegisterBackend(id, func(yaml.Node, *http.Client) (runtime.Backend, error) {
-		return runtime.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
+	if err := a.RegisterBackend(id, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+		return execbackend.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +30,8 @@ func TestDuplicateRegistrationScopedPerRegistry(t *testing.T) {
 	r1 := NewRegistry()
 	r2 := NewRegistry()
 	id := "dup-scope-" + strings.ReplaceAll(t.Name(), "/", "-")
-	fn := func(yaml.Node, *http.Client) (runtime.Backend, error) {
-		return runtime.Backend{}, nil
+	fn := func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+		return execbackend.Backend{}, nil
 	}
 	if err := r1.RegisterBackend(id, fn); err != nil {
 		t.Fatal(err)
