@@ -1,0 +1,58 @@
+package httpauth
+
+import (
+	"net/http"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+)
+
+// AuthenticationType classifies the outcome of one provider invocation.
+type AuthenticationType uint8
+
+const (
+	// TypeContinue means this provider did not terminate the chain; processing continues.
+	TypeContinue AuthenticationType = iota
+	// TypePrincipal attaches identity and continues the provider chain.
+	TypePrincipal
+	// TypeReject ends the request with HTTPStatus and optional Body.
+	TypeReject
+	// TypeChallenge ends the request with HTTPStatus and response Headers (e.g. WWW-Authenticate).
+	TypeChallenge
+	// TypeAnnotate merges ResponseHeaders onto the outbound response and continues the chain.
+	TypeAnnotate
+)
+
+// AuthenticationResult is the typed outcome from [Provider.Authenticate].
+type AuthenticationResult struct {
+	Type AuthenticationType
+
+	// Principal is used when Type is TypePrincipal.
+	Principal execview.PrincipalView
+
+	// HTTPStatus is used for TypeReject and TypeChallenge (default 401 if zero).
+	HTTPStatus int
+
+	// Headers is copied for TypeChallenge (and optional metadata for TypeReject).
+	Headers http.Header
+
+	// Body is optional for TypeReject.
+	Body []byte
+
+	// ResponseHeaders are merged on the success path when Type is TypeAnnotate.
+	// The stdhttp integration allow-lists safe response header names (cache, security
+	// meta, Vary); disallowed names (e.g. Set-Cookie) are dropped with a warning log.
+	ResponseHeaders http.Header
+}
+
+// EffectiveStatus returns a non-zero HTTP status for reject/challenge results.
+func (r AuthenticationResult) EffectiveStatus() int {
+	if r.HTTPStatus != 0 {
+		return r.HTTPStatus
+	}
+	switch r.Type {
+	case TypeReject, TypeChallenge:
+		return http.StatusUnauthorized
+	default:
+		return 0
+	}
+}

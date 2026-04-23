@@ -14,6 +14,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -226,7 +227,7 @@ func TestUpstreamError_returnsAPIError(t *testing.T) {
 
 	cli := anthropic.NewClient(
 		option.WithBaseURL(srv.URL),
-		option.WithAPIKey("sk-ant-test"),
+		option.WithAPIKey(testkit.SyntheticAnthropicAPIKey),
 	)
 	_, err := cli.Messages.New(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),

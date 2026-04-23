@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -155,7 +156,7 @@ func ConverseStreamInputForCall(call *lipapi.Call, cand routing.AttemptCandidate
 	if o := call.Options; o.Temperature != nil || o.TopP != nil || o.MaxOutputTokens != nil {
 		ic := &types.InferenceConfiguration{}
 		if o.MaxOutputTokens != nil {
-			ic.MaxTokens = aws.Int32(int32(*o.MaxOutputTokens))
+			ic.MaxTokens = aws.Int32(safecast.Int32FromIntClamp(*o.MaxOutputTokens))
 		}
 		if o.Temperature != nil {
 			ic.Temperature = aws.Float32(float32(*o.Temperature))

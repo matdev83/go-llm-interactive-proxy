@@ -5,13 +5,13 @@ GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
 
 help:
 	@echo "Targets:"
-	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go mod verify, go build, go vet, guard scripts, archtest"
+	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
 	@echo "  make test            - quality-checks then full unit tests"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
-	@echo "  make test-race       - race scan (skipped on Windows; Linux CI / WSL)"
+	@echo "  make test-race       - race scan (on Windows: WSL/Linux script; macOS/Linux: native)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
 	@echo "  make parity-checks   - conformance package tests only (API parity suites + matrix; see .kiro/specs/llm-api-parity/)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"

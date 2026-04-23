@@ -1,0 +1,34 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+)
+
+func TestRetryRecvStream_recvExecContext_mergesViewsAndRoutePrefs(t *testing.T) {
+	t.Parallel()
+	want := execctx.Views{Session: session.SessionView{SessionID: "sid"}}
+	s := &retryRecvStream{
+		traceID:     "tr1",
+		aLegID:      "a1",
+		recvViewsOK: true,
+		recvViews:   want,
+		routePrefs:  []string{"cand-a", "cand-b"},
+	}
+	ctx := s.recvExecContext(context.Background())
+	if got := diag.TraceID(ctx); got != "tr1" {
+		t.Fatalf("diag trace: got %q want tr1", got)
+	}
+	gotViews, ok := execctx.FromContext(ctx)
+	if !ok || gotViews.Session.SessionID != "sid" {
+		t.Fatalf("views: ok=%v %+v", ok, gotViews.Session)
+	}
+	prefs := execctx.RouteCandidatePreferences(ctx)
+	if len(prefs) != 2 || prefs[0] != "cand-a" || prefs[1] != "cand-b" {
+		t.Fatalf("prefs: %#v", prefs)
+	}
+}

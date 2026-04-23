@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"google.golang.org/genai"
 )
@@ -84,7 +85,7 @@ func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (Stre
 		cfg.TopP = &p
 	}
 	if o.MaxOutputTokens != nil {
-		cfg.MaxOutputTokens = int32(*o.MaxOutputTokens)
+		cfg.MaxOutputTokens = safecast.Int32FromIntClamp(*o.MaxOutputTokens)
 	}
 
 	if len(call.Tools) > 0 {

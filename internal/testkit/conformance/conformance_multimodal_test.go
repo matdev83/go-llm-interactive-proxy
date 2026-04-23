@@ -18,6 +18,7 @@ import (
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
@@ -132,7 +133,7 @@ func multimodalImageOnly(tb testing.TB, frontendID, proxyOrigin string, httpClie
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 		img := anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
@@ -233,7 +234,7 @@ func multimodalPDFOnly(tb testing.TB, frontendID, proxyOrigin string, httpClient
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 		doc := anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: pdfB64})

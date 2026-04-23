@@ -17,6 +17,6 @@ func FuzzHandleResponseStreamUnion(f *testing.F) {
 			return
 		}
 		s := &sdkStream{}
-		s.handleUnion(u)
+		_ = s.handleUnion(u)
 	})
 }

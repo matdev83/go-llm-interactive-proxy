@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -23,6 +24,11 @@ type ToolApplyResult struct {
 func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) ToolApplyResult {
 	if ctx == nil {
 		return ToolApplyResult{Err: fmt.Errorf("hooks: %w", lipapi.ErrNilContext)}
+	}
+	if v, ok := execctx.FromContext(ctx); ok {
+		meta.Principal = v.Principal
+		meta.Session = v.Session
+		meta.Workspace = v.Workspace
 	}
 	cur := te
 	tools := []sdk.ToolReactor{}

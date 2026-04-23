@@ -51,6 +51,7 @@ func (s *sdkLikeRecvBlocker) Close() error {
 // keepalive wrapper, canceling the consumer context returns from Recv promptly even
 // when the inner stream ignores ctx while blocked (mirrors SSE-style backends).
 func TestWrapRecoveryKeepalive_cancelReturnsBeforeClose(t *testing.T) {
+	t.Parallel()
 	inner := newSDKLikeRecvBlocker()
 	ka, err := WrapRecoveryKeepalive(inner)
 	if err != nil {
@@ -87,6 +88,7 @@ func TestWrapRecoveryKeepalive_cancelReturnsBeforeClose(t *testing.T) {
 // TestSDKLikeRecvBlocker_cancelAloneDoesNotUnblock documents that without Close, a
 // stream that ignores ctx during Recv stays blocked (callers must Close).
 func TestSDKLikeRecvBlocker_cancelAloneDoesNotUnblock(t *testing.T) {
+	t.Parallel()
 	inner := newSDKLikeRecvBlocker()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

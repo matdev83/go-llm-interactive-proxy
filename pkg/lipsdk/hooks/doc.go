@@ -11,4 +11,7 @@
 //     hook bus via [ToolReactorErrorPolicy], not a per-hook FailureMode method.
 //
 // pkg/lipsdk stays free of internal/runtime types; only lipapi shapes appear in hook signatures.
+//
+// Tool reactions are expressed with [lipapi.ToolEvent] (canonical stream tool lifecycle); they
+// must not depend on provider SDK event types (R9, R15).
 package hooks

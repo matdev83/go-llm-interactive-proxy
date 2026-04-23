@@ -4,6 +4,9 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // ToolDecision is the outcome of a tool reactor for one tool event.
@@ -18,11 +21,17 @@ const (
 )
 
 // ToolMeta carries stream and session context for tool reactors.
+// Principal, Session, and Workspace are optional: the standard hook bus copies them from the
+// request-scoped views attached to context when present (R9 policy context).
 type ToolMeta struct {
 	TraceID    string
 	ALegID     string
 	BLegID     string
 	AttemptSeq int
+
+	Principal execview.PrincipalView
+	Session   session.SessionView
+	Workspace workspace.WorkspaceView
 }
 
 // ToolReactor observes canonical tool lifecycle events and may rewrite output.

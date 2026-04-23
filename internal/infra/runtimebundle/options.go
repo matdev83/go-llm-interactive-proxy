@@ -6,6 +6,14 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // BuildOptions configures composition-root dependencies for Build.
@@ -24,4 +32,17 @@ type BuildOptions struct {
 	// WireModel resolves default upstream model ids when computing the effective default route selector.
 	// When nil, Build uses pluginreg.DefaultWireModel (standard distribution).
 	WireModel routing.WireModelForBackend
+	// HTTPAuthProviders runs in [internal/stdhttp] before frontend decode (R4). Nil or empty skips auth.
+	HTTPAuthProviders []httpauth.Provider
+	// SessionOpeners and WorkspaceResolvers are merged from enabled feature bundles (task 5.1).
+	SessionOpeners     []session.Opener
+	WorkspaceResolvers []workspace.Resolver
+	// ToolCatalogFilters and RequestTransforms are merged from enabled feature bundles (tasks 7–7.1).
+	ToolCatalogFilters []toolcatalog.Filter
+	RequestTransforms  []request.Transform
+	RouteHintProviders []routehint.Provider
+	CompletionGates    []completion.Gate
+	TrafficObservers   []traffic.Observer
+	RawCaptureSinks    []traffic.RawCaptureSink
+	TrafficRedactors   []traffic.Redactor
 }

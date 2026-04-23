@@ -91,7 +91,7 @@ func TestEnsureCallDiag_identityWhenAlreadySet(t *testing.T) {
 
 func TestEnsureCallDiag_nilContext(t *testing.T) {
 	t.Parallel()
-	ctx := diag.EnsureCallDiag(nil, "tid-nil", "aleg-nil")
+	ctx := diag.EnsureCallDiag(nil, "tid-nil", "aleg-nil") //nolint:staticcheck // SA1012: intentional nil parent contract
 	if diag.TraceID(ctx) != "tid-nil" || diag.ALegID(ctx) != "aleg-nil" {
 		t.Fatalf("EnsureCallDiag(nil,...) = (%q,%q)", diag.TraceID(ctx), diag.ALegID(ctx))
 	}

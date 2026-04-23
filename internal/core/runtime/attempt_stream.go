@@ -2,18 +2,24 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 // retryRecvStream wraps a backend stream and performs recv-phase failover within attempt budget.
@@ -43,6 +49,16 @@ type retryRecvStream struct {
 	cand      routing.AttemptCandidate
 	committed bool
 	finished  bool
+
+	// recvViews / routePrefs preserve [execctx] values from prepare so Recv callers can pass a bare HTTP context.
+	recvViews   execctx.Views
+	recvViewsOK bool
+	routePrefs  []string
+
+	// Completion gates (R8): buffer canonical post-hook events until finish or overflow, then emit drain queue.
+	gateBuf   []lipapi.Event
+	gateDrain []lipapi.Event
+	gateLive  bool
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -71,6 +87,17 @@ func (s *retryRecvStream) takeAndNilInner() lipapi.EventStream {
 }
 
 // recvHookMeta returns identifiers for response-path hooks after B-leg allocation.
+func (s *retryRecvStream) recvExecContext(parent context.Context) context.Context {
+	ctx := diag.EnsureCallDiag(parent, s.traceID, s.aLegID)
+	if s.recvViewsOK {
+		ctx = execctx.WithViews(ctx, s.recvViews)
+	}
+	if len(s.routePrefs) > 0 {
+		ctx = execctx.WithRouteCandidatePreferences(ctx, s.routePrefs)
+	}
+	return ctx
+}
+
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 	pm := sdk.PartMeta{
 		TraceID:    s.traceID,
@@ -97,8 +124,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.finished {
 		return lipapi.Event{}, io.EOF
 	}
-	ctx = diag.EnsureCallDiag(ctx, s.traceID, s.aLegID)
+	ctx = s.recvExecContext(ctx)
 	for {
+		if ev, ok := s.popGateDrainHead(); ok {
+			ev = s.emitGateDrained(ctx, ev)
+			s.emitTrafficPTC(ctx, ev)
+			return ev, nil
+		}
 		var inner lipapi.EventStream
 		for {
 			inner = s.loadInner()
@@ -115,6 +147,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		ev, err := inner.Recv(ctx)
 		if err == nil {
+			s.emitTrafficBTP(ctx, ev)
 			pm, tm := s.recvHookMeta()
 			if te, ok := lipapi.ToolEventFromEvent(ev); ok {
 				res := s.bus.ApplyToolReactors(ctx, te, tm)
@@ -133,6 +166,19 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return lipapi.Event{}, herr
 			}
 			ev = evp
+			gates := s.completionGatesFromContext(ctx)
+			if len(gates) > 0 {
+				out, gerr := s.completionGatedEmit(ctx, gates, ev)
+				if errors.Is(gerr, errGateContinueInner) {
+					continue
+				}
+				if gerr != nil {
+					return lipapi.Event{}, gerr
+				}
+				out = s.emitGateDrained(ctx, out)
+				s.emitTrafficPTC(ctx, out)
+				return out, nil
+			}
 			if lipapi.OutputCommitted(ev) {
 				s.committed = true
 			}
@@ -145,9 +191,16 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				s.finished = true
 			}
+			s.emitTrafficPTC(ctx, ev)
 			return ev, nil
 		}
 		if errors.Is(err, io.EOF) {
+			// Truncated upstream: never run completion gates on a partial buffer (replace gates could
+			// synthesize response_finished and mask the failure).
+			gates := s.completionGatesFromContext(ctx)
+			if len(gates) > 0 && !s.gateLive && len(s.gateBuf) > 0 && !extensions.StreamFinished(s.gateBuf) {
+				s.gateBuf = nil
+			}
 			if !s.finished {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:  s.aLegID,
@@ -226,6 +279,75 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		s.excluded[s.cand.Key] = struct{}{}
 	}
+}
+
+func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event) {
+	if s.executor == nil || s.executor.RuntimeSnapshot == nil {
+		return
+	}
+	bundle := coretraffic.PortBundleFromSnapshot(s.executor.RuntimeSnapshot)
+	if bundle.EmitIsNoop() {
+		return
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		if s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "retry_recv traffic marshal skipped", "leg", sdktraffic.LegBTP, "error", err)
+		}
+		return
+	}
+	pm, _ := s.recvHookMeta()
+	meta := sdktraffic.CaptureMeta{
+		TraceID:    pm.TraceID,
+		ALegID:     pm.ALegID,
+		BLegID:     pm.BLegID,
+		AttemptSeq: pm.AttemptSeq,
+		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
+	}
+	bundle.Emit(
+		ctx,
+		sdktraffic.LegBTP,
+		meta,
+		"lip/canonical+json",
+		"application/json",
+		b,
+	)
+}
+
+func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event) {
+	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
+		return
+	}
+	if s.executor == nil || s.executor.RuntimeSnapshot == nil {
+		return
+	}
+	bundle := coretraffic.PortBundleFromSnapshot(s.executor.RuntimeSnapshot)
+	if bundle.EmitIsNoop() {
+		return
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		if s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "retry_recv traffic marshal skipped", "leg", sdktraffic.LegPTC, "error", err)
+		}
+		return
+	}
+	pm, _ := s.recvHookMeta()
+	meta := sdktraffic.CaptureMeta{
+		TraceID:    pm.TraceID,
+		ALegID:     pm.ALegID,
+		BLegID:     pm.BLegID,
+		AttemptSeq: pm.AttemptSeq,
+		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
+	}
+	bundle.Emit(
+		ctx,
+		sdktraffic.LegPTC,
+		meta,
+		"lip/canonical+json",
+		"application/json",
+		b,
+	)
 }
 
 // cancellationAttemptReason returns a low-cardinality bucket for attempt records when

@@ -3,7 +3,6 @@ package testkit
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -18,11 +17,7 @@ func GoldenPathFromRepo(t *testing.T, repoRoot string, parts ...string) string {
 func ReadGoldenBytes(t *testing.T, repoRoot string, parts ...string) []byte {
 	t.Helper()
 	path := GoldenPathFromRepo(t, repoRoot, parts...)
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read golden %s: %v", path, err)
-	}
-	return b
+	return MustReadFileUnderRoot(t, repoRoot, path)
 }
 
 // AssertJSONEqual compares two JSON blobs with stable key ordering via compact encoding.

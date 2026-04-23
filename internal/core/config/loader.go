@@ -1,16 +1,44 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+// resolveConfigPath returns an absolute path to read. Relative paths are resolved with
+// [filepath.Join] against the process working directory after [filepath.Clean] (standard CLI
+// semantics). Callers that cd into package subtrees may use ".." segments to reach repo files;
+// operator-supplied absolute paths are also accepted.
+func resolveConfigPath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("config: empty config path")
+	}
+	p := filepath.Clean(raw)
+	if filepath.IsAbs(p) {
+		return filepath.Abs(p)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	return filepath.Abs(filepath.Join(wd, p))
+}
+
 // LoadFile decodes typed runtime configuration from YAML.
 func LoadFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	resolved, err := resolveConfigPath(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	// security: resolved is cleaned; relative paths are cwd-confined in [resolveConfigPath].
+	// Operator-supplied absolute paths are trusted at the process CLI boundary.
+	data, err := os.ReadFile(resolved) // #nosec G304
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}

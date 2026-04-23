@@ -11,9 +11,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refparts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refsubmit"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftool"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftoolpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftraffictranscript"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
 	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
@@ -78,12 +83,17 @@ var standardFeatureFactories = []struct {
 	ID      string
 	Factory FeatureFactory
 }{
-	{submitnoop.ID, featureSubmitNoop},
-	{partsnoop.ID, featurePartsNoop},
-	{toolreactornoop.ID, featureToolReactorNoop},
-	{refsubmit.ID, featureRefSubmit},
-	{refparts.ID, featureRefParts},
-	{reftool.ID, featureRefTool},
+	{submitnoop.ID, FeatureFactoryFromHooks(featureSubmitNoop)},
+	{partsnoop.ID, FeatureFactoryFromHooks(featurePartsNoop)},
+	{toolreactornoop.ID, FeatureFactoryFromHooks(featureToolReactorNoop)},
+	{refsubmit.ID, FeatureFactoryFromHooks(featureRefSubmit)},
+	{refparts.ID, FeatureFactoryFromHooks(featureRefParts)},
+	{reftool.ID, FeatureFactoryFromHooks(featureRefTool)},
+	{refautoappend.ID, featureRefAutoappend},
+	{reftoolpolicy.ID, featureRefToolPolicy},
+	{refworkspaceguard.ID, featureRefWorkspaceGuard},
+	{reftraffictranscript.ID, featureRefTrafficTranscript},
+	{refverifier.ID, featureRefVerifier},
 }
 
 func installFeatures(reg *Registry) error {

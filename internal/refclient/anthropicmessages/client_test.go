@@ -14,6 +14,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestCreateMessage_nonStreaming(t *testing.T) {
@@ -43,7 +44,7 @@ func TestCreateMessage_nonStreaming(t *testing.T) {
 
 	cli := anthropicmessages.New(anthropicmessages.Config{
 		BaseURL: srv.URL,
-		APIKey:  "sk-ant-test",
+		APIKey:  testkit.SyntheticAnthropicAPIKey,
 	})
 	msg, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),

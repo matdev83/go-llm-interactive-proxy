@@ -8,7 +8,7 @@ import (
 
 func TestEnsureLoadConfigDeadline_nilYieldsDeadline(t *testing.T) {
 	t.Parallel()
-	c, cancel := ensureLoadConfigDeadline(nil)
+	c, cancel := ensureLoadConfigDeadline(context.TODO())
 	defer cancel()
 	if _, ok := c.Deadline(); !ok {
 		t.Fatal("expected deadline for nil context")

@@ -11,9 +11,10 @@ import (
 
 // InventorySnapshot is a JSON-serializable view of configured plugins for operators.
 type InventorySnapshot struct {
-	Frontends []PluginRow `json:"frontends"`
-	Backends  []PluginRow `json:"backends"`
-	Features  []PluginRow `json:"features"`
+	Frontends  []PluginRow         `json:"frontends"`
+	Backends   []PluginRow         `json:"backends"`
+	Features   []PluginRow         `json:"features"`
+	Extensions InventoryExtensions `json:"extensions"`
 }
 
 // PluginRow is one config row (instance id + factory kind + enabled; config payloads stay opaque/private).
@@ -24,7 +25,8 @@ type PluginRow struct {
 }
 
 // InventoryHandler serves GET JSON describing enabled plugin rows from cfg.
-func InventoryHandler(cfg *config.Config) (http.Handler, error) {
+// extras may be nil; when extras.Reg is set, extension occupancy is resolved from live factories.
+func InventoryHandler(cfg *config.Config, extras *InventoryExtras) (http.Handler, error) {
 	if cfg == nil {
 		return nil, errors.New("diag: InventoryHandler: nil config")
 	}
@@ -34,15 +36,16 @@ func InventoryHandler(cfg *config.Config) (http.Handler, error) {
 			return
 		}
 		snap := InventorySnapshot{
-			Frontends: rows(cfg.Plugins.Frontends),
-			Backends:  rows(cfg.Plugins.Backends),
-			Features:  rows(cfg.Plugins.Features),
+			Frontends:  rows(cfg.Plugins.Frontends),
+			Backends:   rows(cfg.Plugins.Backends),
+			Features:   rows(cfg.Plugins.Features),
+			Extensions: buildInventoryExtensions(r.Context(), cfg, extras),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(true)
 		if err := enc.Encode(snap); err != nil {
-			slog.Default().Error("diag: inventory encode", "err", err)
+			slog.ErrorContext(r.Context(), "diag: inventory encode", "error", err)
 		}
 	}), nil
 }

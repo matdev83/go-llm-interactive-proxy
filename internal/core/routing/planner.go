@@ -22,6 +22,8 @@ type PlanOptions struct {
 	Excluded  map[string]struct{}
 	Unhealthy map[string]struct{}
 	Session   *SessionRoutingState
+	// PreferredCandidateKeys hints expand order when keys are already eligible (design §12, advisory).
+	PreferredCandidateKeys []string
 	// Rand supplies weighted-branch rolls. When nil, weighted selection uses a fixed-seeded
 	// math/rand/v2 PCG stream (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
 	Rand        Rng
@@ -78,7 +80,36 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 	if len(out) == 0 {
 		return nil, ErrNoEligibleCandidate
 	}
+	out = reorderPreferredCandidates(out, opt.PreferredCandidateKeys)
 	return out, nil
+}
+
+func reorderPreferredCandidates(list []AttemptCandidate, preferred []string) []AttemptCandidate {
+	if len(list) <= 1 || len(preferred) == 0 {
+		return list
+	}
+	seen := make(map[string]struct{}, len(list))
+	out := make([]AttemptCandidate, 0, len(list))
+	for _, k := range preferred {
+		if k == "" {
+			continue
+		}
+		for _, c := range list {
+			if c.Key == k {
+				if _, ok := seen[c.Key]; !ok {
+					out = append(out, c)
+					seen[c.Key] = struct{}{}
+				}
+				break
+			}
+		}
+	}
+	for _, c := range list {
+		if _, ok := seen[c.Key]; !ok {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func excluded(key string, ex, uh map[string]struct{}) bool {

@@ -1,6 +1,7 @@
 package runtimebundle_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	dto "github.com/prometheus/client_model/go"
 )
 
@@ -53,6 +55,21 @@ func TestBuildExecutor_productionClockAndRNG(t *testing.T) {
 	}
 	if ex.RouteObserver == nil {
 		t.Fatal("expected RouteObserver wired")
+	}
+	if b.RuntimeSnapshot == nil {
+		t.Fatal("expected RuntimeSnapshot on Built")
+	}
+	if ex.RuntimeSnapshot != b.RuntimeSnapshot {
+		t.Fatal("executor snapshot should match Built.RuntimeSnapshot")
+	}
+	ctx := context.Background()
+	if err := b.RuntimeSnapshot.State().Put(ctx, lipstate.ScopeGlobal, "rtbundle", "probe", "1", 0); err != nil {
+		t.Fatalf("runtime snapshot state: %v", err)
+	}
+	var out string
+	found, err := b.RuntimeSnapshot.State().Get(ctx, lipstate.ScopeGlobal, "rtbundle", "probe", &out)
+	if err != nil || !found || out != "1" {
+		t.Fatalf("state get found=%v out=%q err=%v", found, out, err)
 	}
 }
 

@@ -18,6 +18,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 // Run is a convenience wrapper: it calls [runtimebundle.Build] with cfg, app.HookBus(), log,
@@ -86,6 +88,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	if route == "" {
 		route = DefaultRouteSelector(cfg)
 	}
+	reg := built.PluginRegistry
 
 	mux := http.NewServeMux()
 
@@ -123,7 +126,10 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		}
 		ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath)
 		if ip != "" {
-			ih, err := diag.InventoryHandler(cfg)
+			ih, err := diag.InventoryHandler(cfg, &diag.InventoryExtras{
+				Reg:           reg,
+				Registrations: app.Registrations(),
+			})
 			if err != nil {
 				releaseClosers()
 				return fmt.Errorf("stdhttp: inventory handler: %w", err)
@@ -150,8 +156,15 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 			}
 		}
 	}
-	reg := built.PluginRegistry
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
+	var trafficPorts traffic.PortBundle
+	if built.RuntimeSnapshot != nil {
+		trafficPorts = traffic.PortBundle{
+			Raw: built.RuntimeSnapshot.RawCapture(),
+			Obs: built.RuntimeSnapshot.TrafficObserver(),
+			Red: built.RuntimeSnapshot.TrafficRedactors(),
+		}
+	}
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux:                  mux,
 		Exec:                 exec,
@@ -159,6 +172,7 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 		Plugins:              cfg.Plugins.Frontends,
 		MaxRequestBodyBytes:  maxBody,
 		Reg:                  reg,
+		TrafficPorts:         trafficPorts,
 	}); err != nil {
 		releaseClosers()
 		return fmt.Errorf("stdhttp: mount frontends: %w", err)
@@ -170,6 +184,10 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 
 	traceGen := diag.NewTraceIDGenerator()
 	inner := http.Handler(mux)
+	// Stack below builds outer → inner. After the next three lines: OpenTelemetry trace + request
+	// ID, then access log, then transport auth, then the mux/frontend routes (R4: auth before decode to mux).
+	// Optional prometheus/tracing layers below wrap the same core further outward.
+	inner = stdauth.Middleware(log, built.HTTPAuthProviders, inner)
 	inner = accessLogMiddleware(cfg, log, inner)
 	inner = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, inner))
 	if httpProm != nil {

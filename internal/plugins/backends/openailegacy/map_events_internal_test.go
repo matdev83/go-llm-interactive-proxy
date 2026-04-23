@@ -31,7 +31,7 @@ func TestHandleChunk_toolCallsStreamingFromJSON(t *testing.T) {
 			if err := json.Unmarshal([]byte(raw), &ch); err != nil {
 				t.Fatal(err)
 			}
-			s.handleChunk(ch)
+			_ = s.handleChunk(ch)
 		})
 	}
 	var args strings.Builder
@@ -63,7 +63,7 @@ func TestHandleChunk_multipleToolCallsFinishInStartOrder(t *testing.T) {
 	}
 
 	s := &chatStream{}
-	s.handleChunk(ch)
+	_ = s.handleChunk(ch)
 
 	var startIDs []string
 	var finishIDs []string
@@ -95,7 +95,7 @@ func TestHandleChunk_multipleToolCallsFinishFollowsWireOrderWhenIndicesOutOfNume
 	}
 
 	s := &chatStream{}
-	s.handleChunk(ch)
+	_ = s.handleChunk(ch)
 
 	var startIDs []string
 	var finishIDs []string

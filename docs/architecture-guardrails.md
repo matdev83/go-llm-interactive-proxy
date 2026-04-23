@@ -2,6 +2,10 @@
 
 This document complements [ADR 0001](adr/0001-registry-driven-composition.md) and [ADR 0005](adr/0005-architecture-guardrails-and-complexity-budgets.md). It explains why we enforce structural rules and where to update the numbers.
 
+Stage four (extension platform) adds the **legal extension pipeline**, brownfield hook-bus migration rules, privileged inventory surfaces, and reload-oriented snapshot assumptions — see [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md).
+
+**Authoring** — stage choice, facades, privileged inventory fields, hook→bundle migration, and the feature→seam mapping for new work: [extension-platform-authoring.md](extension-platform-authoring.md).
+
 ## Goals
 
 - Keep `internal/core` free of concrete plugin implementations.
@@ -21,6 +25,7 @@ This document complements [ADR 0001](adr/0001-registry-driven-composition.md) an
 | `cmd/lipstd` production code must not reference `sync.Once` and call `InstallStandardBundleOn` / `RegisterStandardBundle` in the same file | same |
 | Tests must not pair `func init()` with `RegisterStandardBundle()` | same |
 | Core does not import bundled plugins | [`internal/core/runtime/boundaries_test.go`](../internal/core/runtime/boundaries_test.go) (`TestCorePackagesDoNotDependOnConcretePluginPackages`) |
+| Extension platform import boundaries (no vendor SDK in `pkg/lipsdk`, no `stdhttp` in core, no concrete frontends/backends in core) | [`internal/archtest/extension_platform_boundaries_test.go`](../internal/archtest/extension_platform_boundaries_test.go) |
 
 Circuit breaker behavior (what counts as failure, recovery) is documented in [`routing-health-circuit-breaker.md`](routing-health-circuit-breaker.md).
 

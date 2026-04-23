@@ -17,11 +17,11 @@ func TestHandleUnion_textDeltaThenCompleted_noDuplicateText(t *testing.T) {
 	t.Parallel()
 	s := &sdkStream{}
 
-	s.handleUnion(responses.ResponseStreamEventUnion{
+	_ = s.handleUnion(responses.ResponseStreamEventUnion{
 		Type:  "response.output_text.delta",
 		Delta: "hel",
 	})
-	s.handleUnion(responses.ResponseStreamEventUnion{
+	_ = s.handleUnion(responses.ResponseStreamEventUnion{
 		Type:  "response.output_text.delta",
 		Delta: "lo",
 	})
@@ -38,7 +38,7 @@ func TestHandleUnion_textDeltaThenCompleted_noDuplicateText(t *testing.T) {
 			},
 		},
 	}
-	s.handleUnion(responses.ResponseStreamEventUnion{
+	_ = s.handleUnion(responses.ResponseStreamEventUnion{
 		Type:     "response.completed",
 		Response: resp,
 	})
@@ -74,7 +74,7 @@ func TestHandleUnion_completedOnly_emitsFullText(t *testing.T) {
 			},
 		},
 	}
-	s.handleUnion(responses.ResponseStreamEventUnion{
+	_ = s.handleUnion(responses.ResponseStreamEventUnion{
 		Type:     "response.completed",
 		Response: resp,
 	})
@@ -101,7 +101,7 @@ func TestHandleUnion_streamError_emitsEventError(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &sdkStream{}
-	s.handleUnion(u)
+	_ = s.handleUnion(u)
 	var errs []lipapi.Event
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventError {
@@ -124,7 +124,7 @@ func TestHandleUnion_streamError_emptyMessage_defaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &sdkStream{}
-	s.handleUnion(u)
+	_ = s.handleUnion(u)
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventError && ev.ErrorMessage != "stream error" {
 			t.Fatalf("expected default message, got %q", ev.ErrorMessage)
@@ -150,7 +150,7 @@ func TestHandleUnion_nonMappedEventTypes_emitNoTextOrToolDeltas(t *testing.T) {
 				t.Fatalf("unmarshal %s: %v", tc.raw, err)
 			}
 			s := &sdkStream{}
-			s.handleUnion(u)
+			_ = s.handleUnion(u)
 			for _, ev := range stream.DrainPending(&s.pending) {
 				switch ev.Kind {
 				case lipapi.EventTextDelta, lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished:
@@ -170,28 +170,28 @@ func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	if err := json.Unmarshal([]byte(rawAdded), &u1); err != nil {
 		t.Fatal(err)
 	}
-	s.handleUnion(u1)
+	_ = s.handleUnion(u1)
 
 	rawDelta := `{"type":"response.function_call_arguments.delta","sequence_number":1,"item_id":"fc_1","output_index":0,"delta":"{\"city\":"}`
 	var u2 responses.ResponseStreamEventUnion
 	if err := json.Unmarshal([]byte(rawDelta), &u2); err != nil {
 		t.Fatal(err)
 	}
-	s.handleUnion(u2)
+	_ = s.handleUnion(u2)
 
 	rawDelta2 := `{"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_1","output_index":0,"delta":"\"NYC\"}"}`
 	var u3 responses.ResponseStreamEventUnion
 	if err := json.Unmarshal([]byte(rawDelta2), &u3); err != nil {
 		t.Fatal(err)
 	}
-	s.handleUnion(u3)
+	_ = s.handleUnion(u3)
 
 	rawDone := `{"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_1","output_index":0,"name":"get_weather","arguments":"{\"city\":\"NYC\"}"}`
 	var u4 responses.ResponseStreamEventUnion
 	if err := json.Unmarshal([]byte(rawDone), &u4); err != nil {
 		t.Fatal(err)
 	}
-	s.handleUnion(u4)
+	_ = s.handleUnion(u4)
 
 	var kinds []lipapi.EventKind
 	var args strings.Builder

@@ -28,7 +28,7 @@ func TestIntegration_refclientNonStreaming(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	msg, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 64,
@@ -57,7 +57,7 @@ func TestIntegration_refclientStreaming(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	stream := cli.CreateMessageStream(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 16,
@@ -111,7 +111,7 @@ func TestIntegration_refclientMultimodalCanonicalParts(t *testing.T) {
 		Data: base64.StdEncoding.EncodeToString(pdf),
 	})
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	_, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 128,
@@ -216,7 +216,7 @@ func TestIntegration_capabilityReject_returns400(t *testing.T) {
 		Data:      base64.StdEncoding.EncodeToString(png),
 		MediaType: anthropic.Base64ImageSourceMediaTypeImagePNG,
 	})
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	_, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 64,
@@ -238,7 +238,7 @@ func TestIntegration_toolStubRoundTrip_streaming(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	stream := cli.CreateMessageStream(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 128,

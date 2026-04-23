@@ -3,6 +3,7 @@ package jsonpresence
 import "testing"
 
 func TestIsJSONNull(t *testing.T) {
+	t.Parallel()
 	if !IsJSONNull([]byte("null")) {
 		t.Fatal("null literal")
 	}
@@ -12,6 +13,7 @@ func TestIsJSONNull(t *testing.T) {
 }
 
 func TestIsAbsentOrJSONNull(t *testing.T) {
+	t.Parallel()
 	for _, raw := range [][]byte{nil, {}, []byte("null")} {
 		if !IsAbsentOrJSONNull(raw) {
 			t.Fatalf("want absent/null: %q", raw)
@@ -23,6 +25,7 @@ func TestIsAbsentOrJSONNull(t *testing.T) {
 }
 
 func TestIsPresentNonNullJSON(t *testing.T) {
+	t.Parallel()
 	if !IsPresentNonNullJSON([]byte("{}")) {
 		t.Fatal("{}")
 	}

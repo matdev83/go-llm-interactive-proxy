@@ -86,6 +86,16 @@ func (a *App) HookBus() *hooks.Bus {
 	return a.hookBus
 }
 
+// Registrations returns a copy of bootstrap plugin registrations (may be empty).
+func (a *App) Registrations() []lipsdk.Registration {
+	if a == nil {
+		return nil
+	}
+	out := make([]lipsdk.Registration, len(a.registrations))
+	copy(out, a.registrations)
+	return out
+}
+
 // Start logs hook chain lengths and starts plugin lifecycles. The bundled HTTP server is started by stdhttp.Run from cmd/lipstd.
 func (a *App) Start(ctx context.Context) error {
 	ns, nrq, nrs, nt := a.HookBus().HookChainLengths()

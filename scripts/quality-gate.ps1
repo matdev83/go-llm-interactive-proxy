@@ -43,10 +43,14 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-# Race detector is not run on Windows (ThreadSanitizer is unreliable). CI runs
-# `bash scripts/race-check.sh` on Linux; for local -race use WSL or Linux.
+# On Windows, race checks run inside WSL (see scripts/race-check.ps1).
 Write-Host ""
-Write-Host "Skipping race detector (Windows; use Linux CI or WSL for go test -race)." -ForegroundColor Yellow
+Write-Host "Running race detector scan (WSL on Windows)..." -ForegroundColor Yellow
+& "$ScriptDir\race-check.ps1" -Staged
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Race detector scan failed!" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
 Write-Host ""
 Write-Host "Running linter..." -ForegroundColor Yellow

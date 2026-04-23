@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 const (
@@ -25,6 +26,7 @@ type Handler struct {
 	// MaxRequestBodyBytes caps the request body; zero uses reqbody.DefaultMaxBytes.
 	MaxRequestBodyBytes int64
 	Log                 *slog.Logger
+	TrafficPorts        traffic.PortBundle
 }
 
 func (h *Handler) maxBodyLimit() int64 {
@@ -63,6 +65,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "could not read request body", "invalid_request_error", ""))
 		return
 	}
+	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
 	if h.Exec == nil {
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusInternalServerError, "executor not configured", "api_error", ""))
 		return
@@ -89,6 +95,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	traceID := diag.StableCallID(call)
+	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
+	h.TrafficPorts.Emit(ctx, traffic.LegCTP, traffic.CaptureMeta{
+		TraceID:   traceID,
+		SessionID: strings.TrimSpace(call.Session.ClientSessionID),
+	}, "http", ct, body)
+
 	es, err := h.Exec.Execute(ctx, call)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
@@ -103,7 +116,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx = diag.EnsureCallDiag(ctx, call.ID, call.Session.ALegID)
+	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
 
 	opts := EncodeOptions{
 		ResponseID: "resp_" + diag.StableCallToken(call),

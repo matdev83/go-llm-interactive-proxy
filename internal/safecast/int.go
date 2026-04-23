@@ -14,3 +14,16 @@ func IntFromInt64Clamp(v int64) int {
 	}
 	return int(v)
 }
+
+// Int32FromIntClamp converts v to int32, clamping to [math.MinInt32, math.MaxInt32].
+// Use at provider boundaries after validation (e.g. lipapi bounds max_output_tokens) so
+// static analyzers see an explicit bound even when invariants already hold.
+func Int32FromIntClamp(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
+}

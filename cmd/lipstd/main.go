@@ -61,20 +61,20 @@ func main() {
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
-	hookCfg, lifes, err := reg.BuildFeatureHooks(regs)
+	merged, err := reg.MergeFeatureSurface(regs)
 	if err != nil {
 		logger.Error("hook composition failed", "error", err)
 		os.Exit(1)
 	}
-	hookCfg.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
+	merged.Hooks.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
 
 	app, err := runtime.New(runtime.Options{
 		Config:        cfg,
 		Logger:        logger,
 		Registrations: regs,
 		Mandatory:     mandatoryStandardPlugins(),
-		Hooks:         hookCfg,
-		Lifecycles:    lifes,
+		Hooks:         merged.Hooks,
+		Lifecycles:    merged.Lifecycles,
 	})
 	if err != nil {
 		logger.Error("runtime wiring failed", "error", err)
@@ -82,8 +82,17 @@ func main() {
 	}
 
 	built, err := runtimebundle.Build(cfg, app.HookBus(), logger, &runtimebundle.BuildOptions{
-		PluginRegistry:  reg,
-		OutboundTracing: traceRes.Active,
+		PluginRegistry:     reg,
+		OutboundTracing:    traceRes.Active,
+		SessionOpeners:     merged.SessionOpeners,
+		WorkspaceResolvers: merged.WorkspaceResolvers,
+		ToolCatalogFilters: merged.ToolCatalogFilters,
+		RequestTransforms:  merged.RequestTransforms,
+		RouteHintProviders: merged.RouteHintProviders,
+		CompletionGates:    merged.CompletionGates,
+		TrafficObservers:   merged.TrafficObservers,
+		RawCaptureSinks:    merged.RawCaptureSinks,
+		TrafficRedactors:   merged.TrafficRedactors,
 	})
 	if err != nil {
 		logger.Error("runtime assembly failed", "error", err)

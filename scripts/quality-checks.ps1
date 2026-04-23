@@ -65,11 +65,22 @@ if ($preTidyMod -ne $postTidyMod -or $preTidySum -ne $postTidySum) {
     Write-Host "Run: go mod tidy; git add go.mod go.sum" -ForegroundColor Yellow
     exit 1
 }
-Write-Host "Verifying module checksums..." -ForegroundColor DarkGray
-go mod verify
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: go mod verify failed (checksum mismatch or corrupt module cache)" -ForegroundColor Red
-    exit $LASTEXITCODE
+$shouldVerifyModuleCache = $false
+if ($env:LIP_VERIFY_MODULE_CACHE -match '^(?i:1|true|yes|on)$') {
+    $shouldVerifyModuleCache = $true
+} elseif ($env:CI -match '^(?i:1|true|yes|on)$') {
+    $shouldVerifyModuleCache = $true
+}
+
+if ($shouldVerifyModuleCache) {
+    Write-Host "Verifying module checksums..." -ForegroundColor DarkGray
+    go mod verify
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: go mod verify failed (checksum mismatch or corrupt module cache)" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+} else {
+    Write-Host "Skipping module cache verification locally (set LIP_VERIFY_MODULE_CACHE=1 to enable)." -ForegroundColor DarkGray
 }
 Write-Host "OK: Module check passed" -ForegroundColor Green
 Write-Host ""

@@ -68,7 +68,7 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 	case anthropic.ID:
 		return anthropic.New(anthropic.Config{
 			BaseURL:    upstreamBaseURL,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 	case gemini.ID:

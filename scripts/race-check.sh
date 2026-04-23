@@ -23,6 +23,17 @@ if ! command -v go >/dev/null 2>&1; then
 	exit 1
 fi
 
+# WSL DrvFS (/mnt/c, /mnt/d, ...): ThreadSanitizer often fails to mmap shadow
+# memory for binaries and temp files on 9p. Force temp + build cache onto the
+# native Linux filesystem (same pattern as many Go+WSL setups).
+repo_root="$(pwd -P)"
+if [[ "$repo_root" == /mnt/* ]]; then
+	race_work="${XDG_CACHE_HOME:-$HOME/.cache}/go-llm-interactive-proxy/race-check"
+	mkdir -p "${race_work}/tmp" "${race_work}/gocache"
+	export TMPDIR="${race_work}/tmp"
+	export GOCACHE="${race_work}/gocache"
+fi
+
 CGO_ENABLED="$(go env CGO_ENABLED)"
 CC_VALUE="$(go env CC)"
 CC_BIN="${CC_VALUE%% *}"

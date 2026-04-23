@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -315,7 +316,7 @@ func TestRunWithRuntime_metricsEnabledRequiresBuiltMetrics(t *testing.T) {
 	}
 }
 
-func TestRun_initializesTracingAndOutboundPropagation(t *testing.T) {
+func TestRun_initializesTracingAndOutboundPropagation(t *testing.T) { //nolint:paralleltest // mutates global OpenTelemetry providers
 	originalProvider := otel.GetTracerProvider()
 	originalPropagator := otel.GetTextMapPropagator()
 	t.Cleanup(func() {
@@ -362,19 +363,11 @@ func TestRun_initializesTracingAndOutboundPropagation(t *testing.T) {
 		t.Fatalf("expected tracing.Init to install sdk tracer provider, got %T", otel.GetTracerProvider())
 	}
 	fields := otel.GetTextMapPropagator().Fields()
-	if !sameStrings(fields, []string{"traceparent", "tracestate", "baggage"}) {
-		t.Fatalf("expected tracing.Init to install tracecontext+baggage propagator, got %v", fields)
+	got := slices.Clone(fields)
+	want := []string{"traceparent", "tracestate", "baggage"}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected tracing.Init to install tracecontext+baggage propagator fields, got %v", fields)
 	}
-}
-
-func sameStrings(got, want []string) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			return false
-		}
-	}
-	return true
 }

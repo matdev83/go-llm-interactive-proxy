@@ -16,6 +16,7 @@ import (
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/gemini"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"google.golang.org/genai"
 )
 
@@ -74,7 +75,7 @@ func nonStreamAssistantText(tb testing.TB, frontendID, proxyOrigin string, httpC
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 		msg, err := cli.CreateMessage(ctx, anthropic.MessageNewParams{
@@ -177,7 +178,7 @@ func streamAssistantText(tb testing.TB, frontendID, proxyOrigin string, httpClie
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 		stream := cli.CreateMessageStream(ctx, anthropic.MessageNewParams{

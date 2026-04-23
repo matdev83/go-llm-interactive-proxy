@@ -3,6 +3,7 @@ package lipsdk
 import (
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,6 +30,8 @@ type FrontendMountOptions struct {
 	// MaxRequestBodyBytes caps inbound HTTP request size. Zero means the frontend should use its
 	// own default limit.
 	MaxRequestBodyBytes int64
+	// TrafficPorts optionally emits client→proxy raw bytes after body read (design §10).
+	TrafficPorts traffic.PortBundle
 }
 
 // FrontendMount registers HTTP routes for one frontend plugin instance.

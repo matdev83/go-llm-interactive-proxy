@@ -7,25 +7,42 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
+	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // Build assembles continuity store, executor, and closers for the standard distribution.
 //
 // cfg must be non-nil. bus may be nil (replaced with an empty hooks.Bus). log must be non-nil.
 // opts must be non-nil and opts.PluginRegistry must be non-nil; other BuildOptions fields are optional.
+//
+// The returned [Built.RuntimeSnapshot] (and executor snapshot) is shared by concurrent requests:
+// do not mutate bus or snapshot contents after Build. Reload or reconfiguration must call Build
+// again and swap to new [*Built] / executor instances so each generation gets its own snapshot.
 func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOptions) (*Built, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("runtimebundle: nil config")
@@ -101,9 +118,60 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		nowFn = opts.Clock
 	}
 
-	exec := &runtime.Executor{
+	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
+	if len(opts.WorkspaceResolvers) > 0 {
+		ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
+	}
+	var openers []session.Opener
+	if len(opts.SessionOpeners) > 0 {
+		openers = slices.Clone(opts.SessionOpeners)
+	}
+	var catalogFilters []toolcatalog.Filter
+	if len(opts.ToolCatalogFilters) > 0 {
+		catalogFilters = slices.Clone(opts.ToolCatalogFilters)
+	}
+	var reqTransforms []request.Transform
+	if len(opts.RequestTransforms) > 0 {
+		reqTransforms = slices.Clone(opts.RequestTransforms)
+	}
+	var routeHints []routehint.Provider
+	if len(opts.RouteHintProviders) > 0 {
+		routeHints = slices.Clone(opts.RouteHintProviders)
+	}
+	var exec *runtime.Executor
+	var compGates []completion.Gate
+	if len(opts.CompletionGates) > 0 {
+		compGates = slices.Clone(opts.CompletionGates)
+	}
+	var trafficObs traffic.Observer = traffic.NoopObserver{}
+	if len(opts.TrafficObservers) > 0 {
+		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
+	}
+	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
+	if len(opts.RawCaptureSinks) > 0 {
+		trafficRaw = traffic.MultiRawCapture(opts.RawCaptureSinks...)
+	}
+	var trafficRedactors []traffic.Redactor
+	if len(opts.TrafficRedactors) > 0 {
+		trafficRedactors = slices.Clone(opts.TrafficRedactors)
+	}
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		State:              corestate.NewMem(nowFn),
+		Aux:                auxreq.NewClient(func() auxreq.ExecutorRunner { return exec }),
+		Workspace:          ws,
+		SessionOpeners:     openers,
+		ToolCatalogFilters: catalogFilters,
+		RequestTransforms:  reqTransforms,
+		RouteHintProviders: routeHints,
+		CompletionGates:    compGates,
+		TrafficObserver:    trafficObs,
+		RawCapture:         trafficRaw,
+		TrafficRedactors:   trafficRedactors,
+	})
+	exec = &runtime.Executor{
 		Store:                store,
 		Bus:                  bus,
+		RuntimeSnapshot:      snap,
 		Backends:             backends,
 		MaxAttempts:          cfg.Routing.MaxAttempts,
 		DefaultBackend:       defBE,
@@ -117,6 +185,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	if bundle != nil {
 		exec.Metrics = bundle.ExecutorSink()
+		exec.ExtensionMetrics = bundle.ExtensionStageSink()
+	}
+	var httpAuth []httpauth.Provider
+	if len(opts.HTTPAuthProviders) > 0 {
+		httpAuth = slices.Clone(opts.HTTPAuthProviders)
 	}
 	return &Built{
 		Executor:              exec,
@@ -126,6 +199,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		PluginRegistry:        reg,
 		EffectiveDefaultRoute: effectiveRoute,
 		Metrics:               bundle,
+		RuntimeSnapshot:       snap,
+		HTTPAuthProviders:     httpAuth,
 	}, nil
 }
 

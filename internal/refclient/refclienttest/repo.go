@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 // ModuleRoot returns the directory containing go.mod.
@@ -34,10 +36,7 @@ func ModuleRoot(tb testing.TB) string {
 // ReadRefclientFixture loads testdata/refclient/<name> from the module root.
 func ReadRefclientFixture(tb testing.TB, name string) []byte {
 	tb.Helper()
-	p := filepath.Join(ModuleRoot(tb), "testdata", "refclient", name)
-	b, err := os.ReadFile(p)
-	if err != nil {
-		tb.Fatalf("read fixture %s: %v", p, err)
-	}
-	return b
+	root := ModuleRoot(tb)
+	p := filepath.Join(root, "testdata", "refclient", name)
+	return testkit.MustReadFileUnderRoot(tb, root, p)
 }

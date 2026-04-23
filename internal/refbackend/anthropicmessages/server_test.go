@@ -13,6 +13,7 @@ import (
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refcli "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestHandler_nonStreaming_refclientSmoke(t *testing.T) {
@@ -20,7 +21,7 @@ func TestHandler_nonStreaming_refclientSmoke(t *testing.T) {
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
 	t.Cleanup(srv.Close)
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	msg, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 64,
@@ -44,7 +45,7 @@ func TestHandler_streaming_refclientReadsStartStop(t *testing.T) {
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
 	t.Cleanup(srv.Close)
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	stream := cli.CreateMessageStream(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 16,
@@ -125,7 +126,7 @@ func TestHandler_multimodalRequest_customJSON(t *testing.T) {
 		Data: base64.StdEncoding.EncodeToString(pdf),
 	})
 
-	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	cli := refcli.New(refcli.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	msg, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
 		MaxTokens: 128,

@@ -15,8 +15,17 @@ func TestNewBundle_executorSink(t *testing.T) {
 		},
 	}
 	b := NewBundle(cfg)
-	if b == nil || b.Registry == nil || b.HTTP == nil || b.Executor == nil || b.Upstream == nil {
+	allPresent := b != nil &&
+		b.Registry != nil &&
+		b.HTTP != nil &&
+		b.Executor != nil &&
+		b.ExtensionStages != nil &&
+		b.Upstream != nil
+	if !allPresent {
 		t.Fatal("expected non-nil bundle components")
+	}
+	if b.ExtensionStageSink() == nil {
+		t.Fatal("expected extension stage sink")
 	}
 	sink := b.ExecutorSink()
 	if sink == nil {

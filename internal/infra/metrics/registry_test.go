@@ -58,7 +58,11 @@ func TestHTTPMetricsMiddleware_boundedLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	t.Cleanup(func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("response body close: %v", err)
+		}
+	})
 
 	mfs, err := reg.Gather()
 	if err != nil {

@@ -17,6 +17,6 @@ func FuzzHandleChatCompletionChunk(f *testing.F) {
 			return
 		}
 		s := &chatStream{}
-		s.handleChunk(ch)
+		_ = s.handleChunk(ch)
 	})
 }

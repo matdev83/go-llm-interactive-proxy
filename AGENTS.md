@@ -58,6 +58,10 @@ Treat these paths as the default structure unless a spec says otherwise:
 
 For a fuller package-by-package map (including where to edit for a given change), use [`.kiro/steering/structure.md`](.kiro/steering/structure.md).
 
+### Windows Git paths
+
+Use forward slashes in pathspecs (`internal/core/...`). On case-insensitive volumes, avoid paths that differ only by case from existing files. This clone sets `core.protectNTFS` locally to reduce accidental duplicate-path issues.
+
 ## Kiro Spec-Driven Development
 
 ### When to use Kiro specs
@@ -125,7 +129,7 @@ Prefer repo-defined scripts or make targets:
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
 - `make test` — quality checks plus `go test -parallel=8 ./...` (omits `//go:build precommit` files unless you pass `-tags=precommit` as in `make test-precommit-extra` / `make qa`)
 - `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); also run by `make qa`, the git pre-commit quality gate, and CI unit tests
-- `make test-race` — no-op on Windows; on Linux/macOS/WSL runs `race-check.sh`-style scan. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
+- `make test-race` — on Windows runs `race-check.sh` inside WSL (see `scripts/race-check.ps1`); on Linux/macOS runs the same shell script natively. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make qa` — quality checks, unit tests, precommit-tagged tests, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
 - `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.

@@ -17,6 +17,6 @@ func FuzzHandleMessageStreamEventUnion(f *testing.F) {
 			return
 		}
 		s := &msgStream{}
-		s.handleEvent(u)
+		_ = s.handleEvent(u)
 	})
 }

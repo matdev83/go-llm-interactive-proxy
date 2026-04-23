@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -61,7 +62,7 @@ func TestIntegration_refbackendStreamingText(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	call := lipapi.Call{
 		ID: "int1",
 		Messages: []lipapi.Message{{
@@ -91,7 +92,7 @@ func TestIntegration_refbackendDefaultStreamCompletes(t *testing.T) {
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	call := lipapi.Call{
 		ID: "int-def",
 		Messages: []lipapi.Message{{
@@ -145,7 +146,7 @@ func TestIntegration_refbackendStreamUsage(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	call := lipapi.Call{
 		ID: "int2",
 		Messages: []lipapi.Message{{
@@ -180,7 +181,7 @@ func TestIntegration_refbackendMultimodalRequestBody(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	call := lipapi.Call{
 		ID: "mm",
 		Messages: []lipapi.Message{{
@@ -229,7 +230,7 @@ func TestIntegration_refbackendToolUseStream(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "sk-ant-test"})
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: testkit.SyntheticAnthropicAPIKey})
 	call := lipapi.Call{
 		ID: "tool-int",
 		Messages: []lipapi.Message{{

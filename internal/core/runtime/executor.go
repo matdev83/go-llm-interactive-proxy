@@ -4,17 +4,21 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -39,9 +43,13 @@ func BackendEffectiveCaps(ctx context.Context, be Backend, call lipapi.Call, can
 
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
 type Executor struct {
-	Store    b2bua.Store
-	Bus      *hooks.Bus
-	Backends map[string]Backend // key: routing.Primary.Backend (non-empty)
+	Store b2bua.Store
+	Bus   *hooks.Bus
+	// RuntimeSnapshot is the per-build execution binding published on each request context.
+	// When non-nil, it must not be mutated after the executor is handed to concurrent callers;
+	// see [extensions.RequestRuntimeSnapshot].
+	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
+	Backends        map[string]Backend // key: routing.Primary.Backend (non-empty)
 	// Rand supplies weighted routing rolls. Typical *rand/v2.Rand-backed values are not safe for
 	// concurrent use; rng() wraps a non-nil Rand accordingly.
 	Rand routing.Rng
@@ -66,6 +74,10 @@ type Executor struct {
 	MaxPendingWireEvents int
 	// Metrics receives coarse executor observations when non-nil.
 	Metrics MetricsSink
+	// ExtensionMetrics records extension pipeline stage timings when non-nil (Prometheus when enabled).
+	ExtensionMetrics extensions.StageMetrics
+	// CompletionBufferLimits overrides completion-gate buffering bounds (tests). Zero MaxEvents uses SDK defaults.
+	CompletionBufferLimits completion.BufferLimits
 
 	rngOnce    sync.Once
 	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
@@ -99,6 +111,9 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if ctx == nil {
 		return nil, lipapi.ErrNilContext
 	}
+	if e.RuntimeSnapshot != nil {
+		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
+	}
 	ctx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
 	defer func() {
 		if err != nil {
@@ -111,6 +126,13 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if err != nil {
 		return nil, fmt.Errorf("executor: prepare submit: %w", err)
 	}
+	var recvViews execctx.Views
+	recvViewsOK := false
+	if v, ok := execctx.FromContext(ctx); ok {
+		recvViews = v
+		recvViewsOK = true
+	}
+	routePrefs := slices.Clone(execctx.RouteCandidatePreferences(ctx))
 	sel, err := routing.Parse(baseline.Route.Selector)
 	if err != nil {
 		return nil, fmt.Errorf("executor: parse route selector: %w", err)
@@ -161,6 +183,10 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			rng:      rng,
 			bleg:     out.bleg,
 			cand:     out.cand,
+
+			recvViews:   recvViews,
+			recvViewsOK: recvViewsOK,
+			routePrefs:  routePrefs,
 		}
 		rs.storeInner(out.stream)
 		return rs, nil

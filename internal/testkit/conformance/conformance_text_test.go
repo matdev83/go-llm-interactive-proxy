@@ -17,6 +17,7 @@ import (
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/gemini"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"google.golang.org/genai"
 )
 
@@ -193,7 +194,7 @@ func nonStreamExpectError(tb testing.TB, frontendID, proxyOrigin string, httpCli
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 		_, err := cli.CreateMessage(ctx, anthropic.MessageNewParams{

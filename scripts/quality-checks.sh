@@ -68,10 +68,27 @@ if [ "$pre_tidy_mod" != "$post_tidy_mod" ] || [ "$pre_tidy_sum" != "$post_tidy_s
 	echo "Run: go mod tidy && git add go.mod go.sum"
 	exit 1
 fi
-echo "Verifying module checksums..."
-if ! go mod verify; then
-	echo "ERROR: go mod verify failed (checksum mismatch or corrupt module cache)"
-	exit 1
+should_verify_module_cache=false
+case "${LIP_VERIFY_MODULE_CACHE:-}" in
+	1|true|TRUE|yes|YES|on|ON)
+		should_verify_module_cache=true
+		;;
+esac
+if [ "$should_verify_module_cache" = false ]; then
+	case "${CI:-}" in
+		1|true|TRUE|yes|YES|on|ON)
+			should_verify_module_cache=true
+			;;
+	esac
+fi
+if [ "$should_verify_module_cache" = true ]; then
+	echo "Verifying module checksums..."
+	if ! go mod verify; then
+		echo "ERROR: go mod verify failed (checksum mismatch or corrupt module cache)"
+		exit 1
+	fi
+else
+	echo "Skipping module cache verification locally (set LIP_VERIFY_MODULE_CACHE=1 to enable)."
 fi
 echo "OK: Module check passed"
 echo ""

@@ -23,7 +23,7 @@ func TestHandleEvent_thinkingDeltaFromJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &msgStream{}
-	s.handleEvent(u)
+	_ = s.handleEvent(u)
 	var got []string
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventReasoningDelta {
@@ -43,7 +43,7 @@ func TestHandleEvent_assistantImageURLContentBlockStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &msgStream{}
-	s.handleEvent(u)
+	_ = s.handleEvent(u)
 	var refs []string
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventAssistantImageRef {
@@ -63,7 +63,7 @@ func TestHandleEvent_assistantDocumentURLContentBlockStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &msgStream{}
-	s.handleEvent(u)
+	_ = s.handleEvent(u)
 	var got []lipapi.Event
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventAssistantFileRef {
@@ -91,7 +91,7 @@ func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 			if err := json.Unmarshal([]byte(raw), &u); err != nil {
 				t.Fatalf("unmarshal %q: %v", raw, err)
 			}
-			s.handleEvent(u)
+			_ = s.handleEvent(u)
 		})
 	}
 	var names []string

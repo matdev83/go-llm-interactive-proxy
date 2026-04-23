@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
 // MountBundledFrontendsInput carries wiring for [MountBundledFrontends].
@@ -20,6 +21,8 @@ type MountBundledFrontendsInput struct {
 	Plugins              []config.PluginConfig
 	MaxRequestBodyBytes  int64
 	Reg                  *pluginreg.Registry
+	// TrafficPorts is optional four-leg wiring for client→proxy raw observation (task 10).
+	TrafficPorts traffic.PortBundle
 }
 
 // MountBundledFrontends registers enabled frontend protocol handlers from config on mux.
@@ -58,6 +61,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 				Exec:                in.Exec,
 				DefaultRoute:        in.DefaultRouteSelector,
 				MaxRequestBodyBytes: in.MaxRequestBodyBytes,
+				TrafficPorts:        in.TrafficPorts,
 			},
 		); err != nil {
 			return err
@@ -75,6 +79,7 @@ func MountBundledFrontendsLegacy(mux *http.ServeMux, exec *runtime.Executor, def
 		Plugins:              allBundledFrontendsEnabled(),
 		MaxRequestBodyBytes:  0,
 		Reg:                  reg,
+		TrafficPorts:         traffic.PortBundle{},
 	})
 }
 

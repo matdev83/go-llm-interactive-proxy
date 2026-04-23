@@ -7,10 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,8 +19,8 @@ type FrontendMount = lipsdk.FrontendMount
 // backendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
 type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (runtime.Backend, error)
 
-// FeatureFactory builds hook chains (and optional lifecycles) from opaque plugin YAML.
-type FeatureFactory func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error)
+// FeatureFactory builds a versioned feature bundle from opaque plugin YAML.
+type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
 
 // Registry holds bundled plugin factories for one composition root. The zero value is an
 // empty registry: lookups behave like an empty bundle, and the first Register* call lazily
@@ -130,30 +129,22 @@ func (r *Registry) MountFrontend(id string, mux *http.ServeMux, opts lipsdk.Fron
 	)
 }
 
-// BuildFeatureHooks merges enabled feature plugins into a hook bus configuration using r.
-func (r *Registry) BuildFeatureHooks(registrations []lipsdk.Registration) (hooks.Config, []lipplugin.Lifecycle, error) {
-	var out hooks.Config
-	lifes := []lipplugin.Lifecycle{}
-	for _, reg := range registrations {
-		if reg.Kind != lipsdk.PluginKindFeature || !reg.Enabled {
-			continue
-		}
-		factoryKey := reg.RegistryFactoryKey()
-		r.mu.RLock()
-		fn, ok := r.features[factoryKey]
-		r.mu.RUnlock()
-		if !ok {
-			return hooks.Config{}, nil, fmt.Errorf("pluginreg: unknown enabled feature plugin %q", factoryKey)
-		}
-		h, lc, err := fn(reg.Config.Node)
-		if err != nil {
-			return hooks.Config{}, nil, err
-		}
-		out.SubmitHooks = append(out.SubmitHooks, h.SubmitHooks...)
-		out.RequestPartHooks = append(out.RequestPartHooks, h.RequestPartHooks...)
-		out.ResponsePartHooks = append(out.ResponsePartHooks, h.ResponsePartHooks...)
-		out.ToolReactors = append(out.ToolReactors, h.ToolReactors...)
-		lifes = append(lifes, lc...)
+// BuildFeatureHooks merges enabled feature plugins into hook configuration; see [Registry.MergeFeatureSurface]
+// for session openers and workspace resolvers. [Registry.BuildFeatureBundle] constructs one bundle from YAML.
+func (r *Registry) BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error) {
+	factoryKey = strings.TrimSpace(factoryKey)
+	r.mu.RLock()
+	fn, ok := r.features[factoryKey]
+	r.mu.RUnlock()
+	if !ok {
+		return lipfeature.FeatureBundle{}, fmt.Errorf("pluginreg: unknown feature plugin %q", factoryKey)
 	}
-	return out, lifes, nil
+	b, err := fn(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	if err := b.Validate(); err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	return b, nil
 }

@@ -4,9 +4,11 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
 // Built holds assembled runtime dependencies for the standard distribution composition root.
@@ -25,4 +27,9 @@ type Built struct {
 	PluginRegistry *pluginreg.Registry
 	// Metrics is non-nil when observability.metrics.enabled; [stdhttp.RunWithRuntime] uses it for /metrics and HTTP middleware.
 	Metrics *metrics.Bundle
+	// RuntimeSnapshot is the execution binding for feature stages and facades (design §15B).
+	// Treat as read-only for the lifetime of this Built; see [extensions.RequestRuntimeSnapshot].
+	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
+	// HTTPAuthProviders is copied from [BuildOptions] for stdhttp wiring (transport auth, R4).
+	HTTPAuthProviders []httpauth.Provider
 }

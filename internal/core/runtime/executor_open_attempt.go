@@ -2,17 +2,22 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -44,11 +49,12 @@ type attemptOpenResult struct {
 func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, error) {
 	var zero attemptOpenResult
 	list, err := routing.ExpandFailover(p.sel, routing.PlanOptions{
-		Excluded:    p.excluded,
-		Unhealthy:   e.mergePlannerHealth(),
-		Session:     p.session,
-		Rand:        p.rng,
-		IsRetryPath: p.isRetryPath,
+		Excluded:               p.excluded,
+		Unhealthy:              e.mergePlannerHealth(),
+		Session:                p.session,
+		PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
+		Rand:                   p.rng,
+		IsRetryPath:            p.isRetryPath,
 	})
 	if err != nil {
 		if errors.Is(err, routing.ErrNoEligibleCandidate) && p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject {
@@ -114,6 +120,25 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	openCall, err := backendCallWithRouteParams(attempt, c)
 	if err != nil {
 		return zero, fmt.Errorf("executor: %w", err)
+	}
+	if e.RuntimeSnapshot != nil {
+		if rawPayload, jerr := json.Marshal(openCall); jerr == nil {
+			meta := sdktraffic.CaptureMeta{
+				TraceID:    p.traceID,
+				ALegID:     p.aLegID,
+				BLegID:     bleg.BLegID,
+				AttemptSeq: bleg.Seq,
+				BackendID:  strings.TrimSpace(c.Primary.Backend),
+			}
+			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
+				p.ctx,
+				sdktraffic.LegPTB,
+				meta,
+				"lip/canonical+json",
+				"application/json",
+				rawPayload,
+			)
+		}
 	}
 	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(p.ctx, "lip.executor.backend_open",
 		trace.WithAttributes(

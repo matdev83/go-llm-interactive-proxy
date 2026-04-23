@@ -7,7 +7,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 | Gate | Criterion | Command |
 |------|-----------|---------|
 | Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `go test ./internal/testkit/conformance/...` |
-| Race (Req. 14.6) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); `make test-race` is a no-op on Windows (use WSL/Linux locally) |
+| Race (Req. 14.6) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); on Windows `make test-race` runs that script inside WSL (see `scripts/race-check.ps1`) |
 | Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` (see budgets) |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
 
@@ -73,5 +73,5 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 
 ## Single entry point
 
-- `make release-gates` — conformance package tests, then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` on Linux/WSL (skipped on Windows) or rely on CI (`bash scripts/race-check.sh --strict`).
+- `make release-gates` — conformance package tests, then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally (WSL-backed on Windows) or rely on CI (`bash scripts/race-check.sh --strict`).
 - Full QA remains `make qa` (quality + unit tests + lint + vuln). CI also runs race, lint, and vuln as separate steps (see `.github/workflows/qa.yml`).

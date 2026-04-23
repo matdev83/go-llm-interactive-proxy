@@ -43,9 +43,9 @@ func TestRegistry_zeroValueRegisterFeature(t *testing.T) {
 	t.Parallel()
 	var r Registry
 	id := "zero-value-feature-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterFeature(id, func(yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+	if err := r.RegisterFeature(id, FeatureFactoryFromHooks(func(yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
 		return hooks.Config{}, nil, nil
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 }

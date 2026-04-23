@@ -20,6 +20,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"google.golang.org/genai"
 )
 
@@ -150,7 +151,7 @@ func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClie
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
-			APIKey:     "sk-ant-test",
+			APIKey:     testkit.SyntheticAnthropicAPIKey,
 			HTTPClient: httpClient,
 		})
 		params := anthropic.MessageNewParams{
