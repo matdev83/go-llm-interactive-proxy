@@ -3,6 +3,7 @@ package gemini_test
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -216,5 +217,122 @@ func TestHandler_wrongPath_404(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
+	}
+}
+
+const geminiGenerateMinimalPath = "/v1beta/models/gemini-2.0-flash:generateContent"
+
+func TestHandler_forced401_jsonError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusUnauthorized,
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+geminiGenerateMinimalPath, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", "k401")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "API key") && !strings.Contains(string(b), "401") {
+		t.Fatalf("body: %s", b)
+	}
+}
+
+func TestHandler_forced429_retryAfter(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "60",
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+geminiGenerateMinimalPath, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", "k429")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "60" {
+		t.Fatalf("Retry-After: %q", got)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "RESOURCE_EXHAUSTED") && !strings.Contains(string(b), "429") {
+		t.Fatalf("body: %s", b)
+	}
+}
+
+func TestHandler_onAuthorizedCredential_seesAPIKey(t *testing.T) {
+	t.Parallel()
+	var seen string
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		OnAuthorizedCredential: func(s string) { seen = s },
+	}))
+	t.Cleanup(srv.Close)
+
+	key := "gemini-probe-key"
+	req, err := http.NewRequest(http.MethodPost, srv.URL+geminiGenerateMinimalPath, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if seen != key {
+		t.Fatalf("credential: got %q", seen)
+	}
+}
+
+func TestHandler_forced429_streamPath_returnsJSONError(t *testing.T) {
+	t.Parallel()
+	streamPath := "/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "2",
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+streamPath, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", "ks")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("Content-Type: %q", ct)
 	}
 }

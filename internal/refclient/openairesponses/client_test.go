@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	refbackendopenai "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/openai/openai-go/v3"
@@ -197,5 +199,40 @@ func TestCreateResponseStream_readsCompletedEvent(t *testing.T) {
 	}
 	if !saw {
 		t.Fatal("expected response.completed with id resp_stream")
+	}
+}
+
+func TestRefclient_disableSDKRetries_singleHTTPAttemptOn429(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackendopenai.NewHandler(refbackendopenai.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := openairesponses.New(openairesponses.Config{
+		BaseURL:           srv.URL + "/v1",
+		APIKey:            "sk",
+		HTTPClient:        srv.Client(),
+		DisableSDKRetries: true,
+	})
+	_, err := cli.CreateResponse(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("gpt-4o-mini"),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage("x", responses.EasyInputMessageRoleUser),
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from 429 refbackend")
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
 	}
 }

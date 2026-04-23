@@ -16,6 +16,15 @@ const maxBodyBytes = 10 << 20
 type Config struct {
 	// AllowMissingBearer, if true, skips the Authorization: Bearer check.
 	AllowMissingBearer bool
+	// OnAuthorizedCredential is invoked after local auth passes with the raw bearer
+	// secret (Authorization without the "Bearer " prefix). Do not log this value.
+	OnAuthorizedCredential func(secret string)
+	// ForcedHTTPStatus, when 401 or 429, returns that status with provider-shaped JSON instead of success.
+	ForcedHTTPStatus int
+	// ForcedRetryAfter is sent as Retry-After when ForcedHTTPStatus is 429.
+	ForcedRetryAfter string
+	// ForcedErrorJSON overrides the forced-error JSON body; when empty a minimal default is used.
+	ForcedErrorJSON string
 	// OnRequestBody is invoked with the full request body after a successful route/auth
 	// check and before the response is written.
 	OnRequestBody func(body []byte)
@@ -49,6 +58,15 @@ func NewHandler(cfg Config) http.Handler {
 			cfg.OnRequestBody(body)
 		}
 
+		secret := strings.TrimPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer ")
+		secret = strings.TrimSpace(secret)
+		if cfg.OnAuthorizedCredential != nil {
+			cfg.OnAuthorizedCredential(secret)
+		}
+		if tryWriteForcedHTTPError(w, cfg) {
+			return
+		}
+
 		stream := strings.Contains(string(body), `"stream":true`)
 		if stream {
 			writeStream(w, cfg, body)
@@ -56,6 +74,36 @@ func NewHandler(cfg Config) http.Handler {
 		}
 		writeJSON(w, cfg)
 	})
+}
+
+func tryWriteForcedHTTPError(w http.ResponseWriter, cfg Config) bool {
+	switch cfg.ForcedHTTPStatus {
+	case http.StatusUnauthorized, http.StatusTooManyRequests:
+	default:
+		return false
+	}
+	if cfg.ForcedRetryAfter != "" && cfg.ForcedHTTPStatus == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", cfg.ForcedRetryAfter)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(cfg.ForcedHTTPStatus)
+	body := cfg.ForcedErrorJSON
+	if body == "" {
+		body = defaultForcedErrorJSON(cfg.ForcedHTTPStatus)
+	}
+	_, _ = w.Write([]byte(body))
+	return true
+}
+
+func defaultForcedErrorJSON(status int) string {
+	switch status {
+	case http.StatusUnauthorized:
+		return `{"error":{"message":"incorrect api key","type":"invalid_request_error","code":"invalid_api_key"}}`
+	case http.StatusTooManyRequests:
+		return `{"error":{"message":"rate limit exceeded","type":"requests","code":"rate_limit_exceeded"}}`
+	default:
+		return `{"error":{"message":"error","type":"invalid_request_error"}}`
+	}
 }
 
 func writeJSON(w http.ResponseWriter, cfg Config) {

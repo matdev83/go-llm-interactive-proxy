@@ -17,6 +17,8 @@ type Config struct {
 	BaseURL    string
 	APIKey     string
 	HTTPClient *http.Client
+	// DisableSDKRetries, when true, sets MaxRetries to 0 for deterministic refbackend errors.
+	DisableSDKRetries bool
 }
 
 // Client wraps the SDK Messages surface.
@@ -32,6 +34,9 @@ func New(cfg Config) *Client {
 	}
 	if cfg.HTTPClient != nil {
 		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
+	}
+	if cfg.DisableSDKRetries {
+		opts = append(opts, option.WithMaxRetries(0))
 	}
 	return &Client{sdk: anthropic.NewClient(opts...)}
 }

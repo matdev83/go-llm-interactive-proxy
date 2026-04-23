@@ -19,6 +19,9 @@ type Config struct {
 	APIKey  string
 	// If nil, the SDK default HTTP client is used.
 	HTTPClient *http.Client
+	// DisableSDKRetries, when true, sets the official client MaxRetries to 0 so the first
+	// 401/429 from httptest/refbackend is visible to credential-rotation tests.
+	DisableSDKRetries bool
 }
 
 // Client wraps the official SDK for scriptable Responses calls.
@@ -34,6 +37,9 @@ func New(cfg Config) *Client {
 	}
 	if cfg.HTTPClient != nil {
 		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
+	}
+	if cfg.DisableSDKRetries {
+		opts = append(opts, option.WithMaxRetries(0))
 	}
 	return &Client{sdk: openai.NewClient(opts...)}
 }

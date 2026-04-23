@@ -3,6 +3,7 @@ package openairesponses_test
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -238,5 +239,117 @@ func TestHandler_wrongPath_404(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
+	}
+}
+
+const openaiResponsesMinimalBody = `{"model":"gpt-4o-mini","input":[{"type":"message","role":"user","content":"x"}]}`
+
+func TestHandler_forced401_jsonError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusUnauthorized,
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/responses", strings.NewReader(openaiResponsesMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-forced-401")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), `"error"`) || !strings.Contains(string(b), "invalid_api_key") {
+		t.Fatalf("body: %s", b)
+	}
+}
+
+func TestHandler_forced429_retryAfterAndJSON(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "42",
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/responses", strings.NewReader(openaiResponsesMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-rl")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "42" {
+		t.Fatalf("Retry-After: %q", got)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "rate_limit_exceeded") {
+		t.Fatalf("body: %s", b)
+	}
+}
+
+func TestHandler_onAuthorizedCredential_seesBearerSecret(t *testing.T) {
+	t.Parallel()
+	var seen string
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		OnAuthorizedCredential: func(secret string) { seen = secret },
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/responses", strings.NewReader(openaiResponsesMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-test-alpha")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if seen != "sk-test-alpha" {
+		t.Fatalf("credential: got %q", seen)
+	}
+}
+
+func TestHandler_forced429_streamRequest_returnsJSONError(t *testing.T) {
+	t.Parallel()
+	streamBody := `{"model":"gpt-4o-mini","stream":true,"input":[{"type":"message","role":"user","content":"x"}]}`
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/responses", strings.NewReader(streamBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-s")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("Content-Type: %q want json", ct)
 	}
 }

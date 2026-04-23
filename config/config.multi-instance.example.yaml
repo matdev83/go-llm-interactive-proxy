@@ -1,4 +1,12 @@
-# Example: two configured backends using the same adapter kind (factory id) with distinct instance ids.
+# Example: multi-key credential pool vs. multiple backend *instances*.
+#
+# - One runtime backend `id` is one upstream deployment (same adapter + base URL + parameters).
+#   Multiple API keys for that same target go in `api_key` + `api_keys` (ordered pool), not in
+#   extra backend rows. Numbered env vars (`OPENAI_API_KEY`, `OPENAI_API_KEY_2`, …) also map to
+#   a single default pool when YAML omits credentials (Anthropic/Gemini use the same
+#   numbered-env pattern with their respective prefixes).
+# - Use a second backend row with a distinct `id` only for a genuinely separate deployment
+#   (e.g. different `base_url`, region, or provider account), not for each spare API key.
 # Copy/adapt for your environment; do not commit real secrets.
 server:
   address: ":8080"
@@ -33,13 +41,17 @@ plugins:
       id: openai-primary
       enabled: true
       config:
+        # Ordered pool for one OpenAI deployment (same base_url default).
         api_key: ${OPENAI_API_KEY_PRIMARY}
+        api_keys:
+          - ${OPENAI_API_KEY_SECONDARY}
     - kind: openai-responses
-      id: openai-failover
+      id: openai-corporate-proxy
       enabled: true
       config:
-        api_key: ${OPENAI_API_KEY_FAILOVER}
-        base_url: https://api.openai.com/v1
+        # Second *instance*: different upstream target (example: tenant-specific gateway).
+        base_url: https://openai-gateway.example.corp/v1
+        api_key: ${OPENAI_API_KEY_CORP_GATEWAY}
   features:
     - id: submit-noop
       enabled: true

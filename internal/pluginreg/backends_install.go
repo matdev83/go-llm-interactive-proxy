@@ -33,8 +33,9 @@ type acpBackendYAML struct {
 }
 
 type openAIStyleYAML struct {
-	BaseURL string `yaml:"base_url"`
-	APIKey  string `yaml:"api_key"`
+	BaseURL string   `yaml:"base_url"`
+	APIKey  string   `yaml:"api_key"`
+	APIKeys []string `yaml:"api_keys"`
 }
 
 func resolveUpstreamHTTP(upstream *http.Client) *http.Client {
@@ -53,10 +54,12 @@ func backendOpenAIResponses(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
-	return openairesponses.New(openairesponses.Config{
-		BaseURL: base,
-		APIKey:  effectiveAPIKey(y.APIKey, keys.OpenAI),
-	}), nil
+	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
+	cfg := openairesponses.Config{BaseURL: base, APIKeys: ek}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return openairesponses.New(cfg), nil
 }
 
 func backendOpenAILegacy(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
@@ -68,10 +71,12 @@ func backendOpenAILegacy(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (exe
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
-	return openailegacy.New(openailegacy.Config{
-		BaseURL: base,
-		APIKey:  effectiveAPIKey(y.APIKey, keys.OpenAI),
-	}), nil
+	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
+	cfg := openailegacy.Config{BaseURL: base, APIKeys: ek}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return openailegacy.New(cfg), nil
 }
 
 func backendAnthropic(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
@@ -83,10 +88,12 @@ func backendAnthropic(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execba
 	if base == "" {
 		base = "https://api.anthropic.com"
 	}
-	return anthropic.New(anthropic.Config{
-		BaseURL: base,
-		APIKey:  effectiveAPIKey(y.APIKey, keys.Anthropic),
-	}), nil
+	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Anthropic)
+	cfg := anthropic.Config{BaseURL: base, APIKeys: ek}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return anthropic.New(cfg), nil
 }
 
 func backendGemini(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
@@ -98,10 +105,12 @@ func backendGemini(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbacke
 	if base == "" {
 		base = "https://generativelanguage.googleapis.com"
 	}
-	return gemini.New(gemini.Config{
-		BaseURL: base,
-		APIKey:  effectiveAPIKey(y.APIKey, keys.Gemini),
-	}), nil
+	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Gemini)
+	cfg := gemini.Config{BaseURL: base, APIKeys: ek}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return gemini.New(cfg), nil
 }
 
 func backendBedrock(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {

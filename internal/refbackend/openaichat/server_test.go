@@ -3,6 +3,7 @@ package openaichat_test
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -154,5 +155,85 @@ func TestHandler_wrongPath_404(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
+	}
+}
+
+const openaiChatMinimalBody = `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"x"}]}`
+
+func TestHandler_forced401_jsonError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusUnauthorized,
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", strings.NewReader(openaiChatMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-401")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "invalid_api_key") {
+		t.Fatalf("body: %s", b)
+	}
+}
+
+func TestHandler_forced429_retryAfter(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "120",
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", strings.NewReader(openaiChatMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-429")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "120" {
+		t.Fatalf("Retry-After: %q", got)
+	}
+}
+
+func TestHandler_onAuthorizedCredential_seesBearerSecret(t *testing.T) {
+	t.Parallel()
+	var seen string
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		OnAuthorizedCredential: func(s string) { seen = s },
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", strings.NewReader(openaiChatMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-beta")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if seen != "sk-beta" {
+		t.Fatalf("credential: got %q", seen)
 	}
 }

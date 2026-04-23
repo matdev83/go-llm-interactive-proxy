@@ -3,8 +3,10 @@ package openairesponses_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -201,5 +203,243 @@ func TestIntegration_refbackendToolCallStream(t *testing.T) {
 	}
 	if tcs[0].Arguments != `{"q":1}` {
 		t.Fatalf("arguments: %q", tcs[0].Arguments)
+	}
+}
+
+func ptrInt(v int) *int { return &v }
+
+func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZero(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-test",
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rl",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gpt-4o-mini"},
+	}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected Open error from 429 refbackend (single credential exhausted)")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
+	}
+}
+
+func parseBearerAuth(r *http.Request) string {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(h, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+}
+
+func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		switch parseBearerAuth(r) {
+		case "sk-429":
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"rate","type":"requests","code":"rate_limit_exceeded"}}`))
+			return
+		default:
+			ok.ServeHTTP(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-429",
+		APIKeys:       []string{"sk-429", "sk-ok"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rot429",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_multiKey401ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		switch parseBearerAuth(r) {
+		case "sk-bad":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"incorrect api key","type":"invalid_request_error","code":"invalid_api_key"}}`))
+			return
+		default:
+			ok.ServeHTTP(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-bad",
+		APIKeys:       []string{"sk-bad", "sk-ok"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rot401",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_multiKeyAllRateLimitedRecoverablePreOutput(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "3600",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "a",
+		APIKeys:       []string{"a", "b"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "exhaust",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_multiKeyFirstReturns400NoRotation(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		if parseBearerAuth(r) == "sk-badreq" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"bad","type":"invalid_request_error","code":"bad"}}`))
+			return
+		}
+		ok.ServeHTTP(w, r)
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-badreq",
+		APIKeys:       []string{"sk-badreq", "sk-ok"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "no-rot-400",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("did not expect recoverable pre-output for 400: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1 (no second credential try)", n)
 	}
 }

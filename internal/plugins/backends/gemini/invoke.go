@@ -23,8 +23,8 @@ type StreamParams struct {
 	Config   *genai.GenerateContentConfig
 }
 
-func newGenaiClient(ctx context.Context, cfg Config) (*genai.Client, error) {
-	cc := genai.ClientConfig{APIKey: cfg.APIKey}
+func newGenaiClient(ctx context.Context, cfg Config, apiKey string) (*genai.Client, error) {
+	cc := genai.ClientConfig{APIKey: apiKey}
 	if cfg.HTTPClient != nil {
 		cc.HTTPClient = cfg.HTTPClient
 	}

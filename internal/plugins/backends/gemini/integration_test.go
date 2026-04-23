@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -177,5 +180,153 @@ func TestIntegration_refbackendToolCallStream(t *testing.T) {
 	}
 	if tcs[0].Arguments != `{"city":"NYC"}` {
 		t.Fatalf("args: %q", tcs[0].Arguments)
+	}
+}
+
+func TestIntegration_refbackend429_singleUpstreamHTTPAttempt(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()})
+	call := lipapi.Call{
+		ID: "rl",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected Open error from 429 refbackend (single credential exhausted)")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1 (genai should not mask first 429)", n)
+	}
+}
+
+func parseGeminiAPIKey(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("x-goog-api-key"))
+}
+
+func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	var keysMu sync.Mutex
+	var keys []string
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		k := parseGeminiAPIKey(r)
+		keysMu.Lock()
+		keys = append(keys, k)
+		keysMu.Unlock()
+		if k == "key-429" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"code":429,"message":"rate","status":"RESOURCE_EXHAUSTED"}}`))
+			return
+		}
+		ok.ServeHTTP(w, r)
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:    srv.URL,
+		APIKey:     "key-429",
+		APIKeys:    []string{"key-429", "key-ok"},
+		HTTPClient: srv.Client(),
+	})
+	call := lipapi.Call{
+		ID: "rot429",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+	keysMu.Lock()
+	got := append([]string(nil), keys...)
+	keysMu.Unlock()
+	if len(got) != 2 || got[0] != "key-429" || got[1] != "key-ok" {
+		t.Fatalf("credential sequence: %#v", got)
+	}
+}
+
+func TestIntegration_multiKey401ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		k := parseGeminiAPIKey(r)
+		if k == "key-bad" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"code":401,"message":"API key not valid","status":"INVALID_ARGUMENT"}}`))
+			return
+		}
+		ok.ServeHTTP(w, r)
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:    srv.URL,
+		APIKey:     "key-bad",
+		APIKeys:    []string{"key-bad", "key-ok"},
+		HTTPClient: srv.Client(),
+	})
+	call := lipapi.Call{
+		ID: "rot401",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gemini-2.0-flash"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
 	}
 }

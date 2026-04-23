@@ -1,9 +1,16 @@
 // Package gemini is a reference client emulator for the Google Gemini generateContent API,
 // built on google.golang.org/genai.
+//
+// Unlike openai-go and anthropic-sdk-go, the genai client's generateContent and
+// streamGenerateContent paths issue a single HTTP round-trip per call (no built-in
+// exponential retry on 429 for these RPCs). Credential tests can rely on one upstream
+// hit when using refbackend ForcedHTTPStatus 429; see server tests in
+// internal/refbackend/gemini.
 package gemini
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"net/http"
 
@@ -35,7 +42,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	c, err := genai.NewClient(ctx, &cc)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini refclient: new genai client: %w", err)
 	}
 	return &Client{inner: c}, nil
 }

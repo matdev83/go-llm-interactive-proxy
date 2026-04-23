@@ -3,6 +3,7 @@ package anthropicmessages_test
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -160,5 +161,86 @@ func TestHandler_wrongPath_404(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
+	}
+}
+
+const anthropicMinimalBody = `{"model":"claude-3-5-haiku-20241022","max_tokens":64,"messages":[{"role":"user","content":"x"}]}`
+
+func TestHandler_forced401_jsonError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusUnauthorized,
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/messages", strings.NewReader(anthropicMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("x-api-key", testkit.SyntheticAnthropicAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "authentication_error") {
+		t.Fatalf("body: %s", b)
+	}
+}
+
+func TestHandler_forced429_retryAfter(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "15",
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/messages", strings.NewReader(anthropicMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("x-api-key", testkit.SyntheticAnthropicAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "15" {
+		t.Fatalf("Retry-After: %q", got)
+	}
+}
+
+func TestHandler_onAuthorizedCredential_seesAPIKey(t *testing.T) {
+	t.Parallel()
+	var seen string
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		OnAuthorizedCredential: func(s string) { seen = s },
+	}))
+	t.Cleanup(srv.Close)
+
+	key := "anthropic-key-probe-xyz"
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/messages", strings.NewReader(anthropicMinimalBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("x-api-key", key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if seen != key {
+		t.Fatalf("credential: got %q", seen)
 	}
 }

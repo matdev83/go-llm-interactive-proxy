@@ -38,6 +38,21 @@ func NewTestExecutor(tb testing.TB, backendID, upstreamBaseURL string, httpClien
 	tb.Helper()
 	httpClient = testkit.IntegrationHTTPClient(httpClient)
 	be := BackendFor(tb, backendID, upstreamBaseURL, httpClient)
+	return newExecutorWithBackend(tb, backendID, be)
+}
+
+// NewTestExecutorDualCredential wires hosted OpenAI, Anthropic, and Gemini backends with two ordered
+// API keys so credential pools are populated. Bedrock and ACP use the same construction as
+// [NewTestExecutor] (no multi-key pool in this harness).
+func NewTestExecutorDualCredential(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) *runtime.Executor {
+	tb.Helper()
+	httpClient = testkit.IntegrationHTTPClient(httpClient)
+	be := BackendForDualCredential(tb, backendID, upstreamBaseURL, httpClient)
+	return newExecutorWithBackend(tb, backendID, be)
+}
+
+func newExecutorWithBackend(tb testing.TB, backendID string, be execbackend.Backend) *runtime.Executor {
+	tb.Helper()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		tb.Fatal(err)
@@ -94,6 +109,49 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			BaseURL:    upstreamBaseURL,
 			HTTPClient: httpClient,
 		})
+	default:
+		tb.Fatalf("unknown backend id %q", backendID)
+		return execbackend.Backend{}
+	}
+}
+
+// BackendForDualCredential is like [BackendFor] but supplies a second synthetic key for hosted
+// providers that support credential pools. Reference backends accept any non-empty key material
+// used by conformance clients (sk-test, synthetic Anthropic key, fake Gemini key).
+func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, httpClient *http.Client) execbackend.Backend {
+	tb.Helper()
+	switch backendID {
+	case openairesponses.ID:
+		return openairesponses.New(openairesponses.Config{
+			BaseURL:    upstreamBaseURL + "/v1",
+			APIKey:     "sk-test",
+			APIKeys:    []string{"sk-test", "sk-test-pool2"},
+			HTTPClient: httpClient,
+		})
+	case openailegacy.ID:
+		return openailegacy.New(openailegacy.Config{
+			BaseURL:    upstreamBaseURL + "/v1",
+			APIKey:     "sk-test",
+			APIKeys:    []string{"sk-test", "sk-test-pool2"},
+			HTTPClient: httpClient,
+		})
+	case anthropic.ID:
+		k := testkit.SyntheticAnthropicAPIKey
+		return anthropic.New(anthropic.Config{
+			BaseURL:    upstreamBaseURL,
+			APIKey:     k,
+			APIKeys:    []string{k, k + "-pool2"},
+			HTTPClient: httpClient,
+		})
+	case gemini.ID:
+		return gemini.New(gemini.Config{
+			BaseURL:    upstreamBaseURL,
+			APIKey:     "fake-key",
+			APIKeys:    []string{"fake-key", "fake-key-pool2"},
+			HTTPClient: httpClient,
+		})
+	case bedrock.ID, acp.ID:
+		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}

@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	refbackendchat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/openai/openai-go/v3"
@@ -129,5 +131,38 @@ func TestCreateChatCompletionStream_readsChunk(t *testing.T) {
 	}
 	if got.String() != "Z" {
 		t.Fatalf("delta content: got %q", got.String())
+	}
+}
+
+func TestRefclient_disableSDKRetries_singleHTTPAttemptOn429(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackendchat.NewHandler(refbackendchat.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := openaichat.New(openaichat.Config{
+		BaseURL:           srv.URL + "/v1",
+		APIKey:            "sk",
+		HTTPClient:        srv.Client(),
+		DisableSDKRetries: true,
+	})
+	_, err := cli.CreateChatCompletion(context.Background(), openai.ChatCompletionNewParams{
+		Model: shared.ChatModelGPT4oMini,
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage("x"),
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error from 429 refbackend")
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
 	}
 }

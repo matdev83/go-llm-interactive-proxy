@@ -3,8 +3,10 @@ package openailegacy_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -27,14 +29,9 @@ func TestIntegration_refbackendMissingAPIKeyOpenFails(t *testing.T) {
 		}},
 	}
 	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
-	es, err := be.Open(context.Background(), call, cand)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = es.Close() })
-	_, err = lipapi.Collect(context.Background(), es)
+	_, err := be.Open(context.Background(), call, cand)
 	if err == nil {
-		t.Fatal("expected error when API key is missing for Bearer auth")
+		t.Fatal("expected error when API key is missing (no credentials to build pool)")
 	}
 }
 
@@ -181,5 +178,214 @@ func TestIntegration_refbackendToolCallsStream(t *testing.T) {
 	}
 	if tools[0].ID != "call_ab" || tools[0].Name != "get_weather" || tools[0].Arguments != `{"city":"NYC"}` {
 		t.Fatalf("tool summary: %+v", tools[0])
+	}
+}
+
+func ptrInt(v int) *int { return &v }
+
+func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZero(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-test",
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rl",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gpt-4o-mini"},
+	}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected Open error from 429 refbackend (single credential exhausted)")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
+	}
+}
+
+func parseBearerAuthLegacy(r *http.Request) string {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(h, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+}
+
+func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		switch parseBearerAuthLegacy(r) {
+		case "sk-429":
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"rate","type":"requests","code":"rate_limit_exceeded"}}`))
+			return
+		default:
+			ok.ServeHTTP(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-429",
+		APIKeys:       []string{"sk-429", "sk-ok"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rot429",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_multiKey401ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		switch parseBearerAuthLegacy(r) {
+		case "sk-bad":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"incorrect api key","type":"invalid_request_error","code":"invalid_api_key"}}`))
+			return
+		default:
+			ok.ServeHTTP(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-bad",
+		APIKeys:       []string{"sk-bad", "sk-ok"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rot401",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_eventOrderUnchangedAfter429Rotation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		if parseBearerAuthLegacy(r) == "sk-429" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"rate","type":"requests","code":"rate_limit_exceeded"}}`))
+			return
+		}
+		ok.ServeHTTP(w, r)
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-429",
+		APIKeys:       []string{"sk-429", "sk-ok"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "order",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("order-check")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	es, err := be.Open(ctx, call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	var kinds []lipapi.EventKind
+	for {
+		ev, rerr := es.Recv(ctx)
+		if rerr != nil {
+			break
+		}
+		kinds = append(kinds, ev.Kind)
+	}
+	if len(kinds) < 3 {
+		t.Fatalf("expected several events, got kinds=%v", kinds)
+	}
+	if kinds[0] != lipapi.EventResponseStarted {
+		t.Fatalf("first event: got %v want EventResponseStarted", kinds[0])
 	}
 }

@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	refbackendanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -159,5 +161,37 @@ func TestCreateMessageStream_readsEvents(t *testing.T) {
 	}
 	if !sawStart || !sawStop {
 		t.Fatalf("events: start=%v stop=%v", sawStart, sawStop)
+	}
+}
+
+func TestRefclient_disableSDKRetries_singleHTTPAttemptOn429(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackendanthropic.NewHandler(refbackendanthropic.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := anthropicmessages.New(anthropicmessages.Config{
+		BaseURL:           srv.URL,
+		APIKey:            testkit.SyntheticAnthropicAPIKey,
+		HTTPClient:        srv.Client(),
+		DisableSDKRetries: true,
+	})
+	_, err := cli.CreateMessage(context.Background(), anthropic.MessageNewParams{
+		Model:     anthropic.Model("claude-3-5-haiku-20241022"),
+		MaxTokens: 8,
+		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock("x"))},
+	})
+	if err == nil {
+		t.Fatal("expected error from 429 refbackend")
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
 	}
 }

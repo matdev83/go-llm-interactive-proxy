@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	refbackendgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"google.golang.org/genai"
@@ -181,5 +183,36 @@ func TestGenerateContentStream_readsChunk(t *testing.T) {
 	}
 	if got.String() != "Z" {
 		t.Fatalf("stream text: %q", got.String())
+	}
+}
+
+func TestGenai_refbackend429_singleHTTPAttempt(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackendgemini.NewHandler(refbackendgemini.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cli, err := gemini.New(context.Background(), gemini.Config{
+		APIKey:     "k",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cli.GenerateContent(context.Background(), "gemini-2.0-flash",
+		[]*genai.Content{genai.NewContentFromText("x", genai.RoleUser)}, nil)
+	if err == nil {
+		t.Fatal("expected error from 429 refbackend")
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1 (genai must not transparently retry generateContent)", n)
 	}
 }

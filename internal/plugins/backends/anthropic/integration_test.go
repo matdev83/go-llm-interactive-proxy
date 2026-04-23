@@ -2,8 +2,10 @@ package anthropic_test
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -27,14 +29,9 @@ func TestIntegration_refbackendMissingAPIKeyOpenFails(t *testing.T) {
 		}},
 	}
 	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "claude-3-5-haiku-20241022"}}
-	es, err := be.Open(context.Background(), call, cand)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = es.Close() })
-	_, err = lipapi.Collect(context.Background(), es)
+	_, err := be.Open(context.Background(), call, cand)
 	if err == nil {
-		t.Fatal("expected error when x-api-key is missing")
+		t.Fatal("expected error when no credentials to build pool")
 	}
 }
 
@@ -255,5 +252,193 @@ func TestIntegration_refbackendToolUseStream(t *testing.T) {
 	}
 	if tools[0].ID != "toolu_01" || tools[0].Name != "get_weather" || tools[0].Arguments != `{"city":"NYC"}` {
 		t.Fatalf("tool summary: %+v", tools[0])
+	}
+}
+
+func ptrInt(v int) *int { return &v }
+
+func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZero(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL,
+		APIKey:        testkit.SyntheticAnthropicAPIKey,
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rl",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "claude-3-5-haiku-20241022"},
+	}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected Open error from 429 refbackend (single credential exhausted)")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
+	}
+}
+
+func parseAnthropicAPIKey(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("x-api-key"))
+}
+
+func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{StreamSSE: refbackendStreamTextSSE})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		switch parseAnthropicAPIKey(r) {
+		case "sk-429":
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`))
+			return
+		default:
+			ok.ServeHTTP(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-429",
+		APIKeys:       []string{"sk-429", testkit.SyntheticAnthropicAPIKey},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rot429",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "claude-3-5-haiku-20241022"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_multiKey401ThenSuccessOnSecondCredential(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{StreamSSE: refbackendStreamTextSSE})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		switch parseAnthropicAPIKey(r) {
+		case "sk-bad":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid"}}`))
+			return
+		default:
+			ok.ServeHTTP(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-bad",
+		APIKeys:       []string{"sk-bad", testkit.SyntheticAnthropicAPIKey},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "rot401",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "claude-3-5-haiku-20241022"}}
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(col.Text.String(), "stream-ok") {
+		t.Fatalf("text: %q", col.Text.String())
+	}
+	if n := reqs.Load(); n != 2 {
+		t.Fatalf("upstream HTTP attempts: %d want 2", n)
+	}
+}
+
+func TestIntegration_paramsErrorDoesNotRotateCredentials(t *testing.T) {
+	t.Parallel()
+	var reqs atomic.Int32
+	ok := refbackend.NewHandler(refbackend.Config{StreamSSE: refbackendStreamTextSSE})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		ok.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-a",
+		APIKeys:       []string{"sk-a", "sk-b"},
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: ptrInt(0),
+	})
+	call := lipapi.Call{
+		ID: "params",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	// No model on candidate or call extensions — ParamsForCall fails before any HTTP.
+	cand := routing.AttemptCandidate{Primary: routing.Primary{}}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected params error")
+	}
+	if strings.Contains(err.Error(), "model is required") == false {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reqs.Load() != 0 {
+		t.Fatalf("unexpected HTTP attempts: %d", reqs.Load())
 	}
 }

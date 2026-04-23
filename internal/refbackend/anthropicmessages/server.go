@@ -15,6 +15,15 @@ const maxBodyBytes = 10 << 20
 type Config struct {
 	// AllowMissingAPIKey, if true, skips the x-api-key header check.
 	AllowMissingAPIKey bool
+	// OnAuthorizedCredential is invoked after local auth passes with the raw x-api-key value.
+	// Do not log this value.
+	OnAuthorizedCredential func(secret string)
+	// ForcedHTTPStatus, when 401 or 429, returns that status with provider-shaped JSON instead of success.
+	ForcedHTTPStatus int
+	// ForcedRetryAfter is sent as Retry-After when ForcedHTTPStatus is 429.
+	ForcedRetryAfter string
+	// ForcedErrorJSON overrides the forced-error JSON body; when empty a minimal default is used.
+	ForcedErrorJSON string
 	// OnRequestBody is invoked with the full request body after a successful route/auth
 	// check and before the response is written.
 	OnRequestBody func(body []byte)
@@ -48,6 +57,14 @@ func NewHandler(cfg Config) http.Handler {
 			cfg.OnRequestBody(body)
 		}
 
+		key := strings.TrimSpace(r.Header.Get("x-api-key"))
+		if cfg.OnAuthorizedCredential != nil {
+			cfg.OnAuthorizedCredential(key)
+		}
+		if tryWriteForcedHTTPError(w, cfg) {
+			return
+		}
+
 		stream := strings.Contains(string(body), `"stream":true`)
 		if stream {
 			writeStream(w, cfg)
@@ -55,6 +72,36 @@ func NewHandler(cfg Config) http.Handler {
 		}
 		writeJSON(w, cfg)
 	})
+}
+
+func tryWriteForcedHTTPError(w http.ResponseWriter, cfg Config) bool {
+	switch cfg.ForcedHTTPStatus {
+	case http.StatusUnauthorized, http.StatusTooManyRequests:
+	default:
+		return false
+	}
+	if cfg.ForcedRetryAfter != "" && cfg.ForcedHTTPStatus == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", cfg.ForcedRetryAfter)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(cfg.ForcedHTTPStatus)
+	body := cfg.ForcedErrorJSON
+	if body == "" {
+		body = defaultForcedErrorJSON(cfg.ForcedHTTPStatus)
+	}
+	_, _ = w.Write([]byte(body))
+	return true
+}
+
+func defaultForcedErrorJSON(status int) string {
+	switch status {
+	case http.StatusUnauthorized:
+		return `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`
+	case http.StatusTooManyRequests:
+		return `{"type":"error","error":{"type":"rate_limit_error","message":"rate limit exceeded"}}`
+	default:
+		return `{"type":"error","error":{"type":"api_error","message":"error"}}`
+	}
 }
 
 func writeJSON(w http.ResponseWriter, cfg Config) {

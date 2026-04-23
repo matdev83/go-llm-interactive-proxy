@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
@@ -17,17 +16,6 @@ import (
 
 // Extension key for wire model stored by the OpenAI Responses frontend decoder.
 const extModelJSONKey = "openairesponses.model"
-
-func newSDKClient(cfg Config) openai.Client {
-	opts := []option.RequestOption{
-		option.WithBaseURL(cfg.BaseURL),
-		option.WithAPIKey(cfg.APIKey),
-	}
-	if cfg.HTTPClient != nil {
-		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
-	}
-	return openai.NewClient(opts...)
-}
 
 func resolveModel(cand routing.AttemptCandidate, call lipapi.Call) string {
 	m := strings.TrimSpace(cand.Primary.Model)
