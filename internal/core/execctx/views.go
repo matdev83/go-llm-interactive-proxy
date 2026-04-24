@@ -24,9 +24,10 @@ type Views struct {
 
 // WithViews returns a child context carrying v. String maps are copied so later mutation
 // of the caller's maps does not affect stored snapshots.
+// A nil parent is treated as [context.TODO] so the result is always non-nil.
 func WithViews(ctx context.Context, v Views) context.Context {
 	if ctx == nil {
-		return ctx
+		ctx = context.TODO()
 	}
 	v = copyViews(v)
 	return context.WithValue(ctx, keyViews, v)

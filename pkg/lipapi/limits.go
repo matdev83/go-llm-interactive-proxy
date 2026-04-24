@@ -14,6 +14,10 @@ const (
 	MaxClientSessionIDBytes = 4 * 1024
 	MaxContinuityKeyBytes   = 4 * 1024
 	MaxALegIDBytes          = 4 * 1024
+	// MaxAuthoritativeSessionIDBytes bounds proxy-owned session ids (opaque strings).
+	MaxAuthoritativeSessionIDBytes = 4 * 1024
+	// MaxResumeTokenBytes bounds bearer resume proofs presented on the canonical call (decoded by frontends).
+	MaxResumeTokenBytes     = 8 * 1024
 	MaxMessages             = 4_096
 	MaxInstructionMessages  = 1_024
 	MaxPartsPerMessage      = 2_048
@@ -60,6 +64,12 @@ func (c Call) validateEnvelopeSizes() error {
 		return err
 	}
 	if err := validateStringField("Session.ALegID", c.Session.ALegID, MaxALegIDBytes); err != nil {
+		return err
+	}
+	if err := validateStringField("Session.AuthoritativeSessionID", c.Session.AuthoritativeSessionID, MaxAuthoritativeSessionIDBytes); err != nil {
+		return err
+	}
+	if err := validateStringField("Session.ResumeToken", c.Session.ResumeToken, MaxResumeTokenBytes); err != nil {
 		return err
 	}
 	if len(c.Messages) > MaxMessages {

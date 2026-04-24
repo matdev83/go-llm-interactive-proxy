@@ -193,14 +193,15 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	}
 	if err != nil {
 		openSpan.RecordError(err)
-		openSpan.SetStatus(codes.Error, err.Error())
+		openSpan.SetStatus(codes.Error, "backend open failed")
 		if lipapi.IsRecoverablePreOutput(err) {
 			e.recordAttemptLogged(p.ctx, recordAttemptParams{
-				ALegID:  p.aLegID,
-				BLeg:    bleg,
-				Cand:    c,
-				Outcome: lipapi.AttemptSwallowedFailure,
-				Reason:  "recoverable pre-output (open)",
+				ALegID:    p.aLegID,
+				BLeg:      bleg,
+				Cand:      c,
+				Outcome:   lipapi.AttemptSwallowedFailure,
+				Reason:    "recoverable pre-output (open)",
+				DetailErr: err,
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 			diag.LogDecision(p.ctx, e.Log, "recoverable_pre_output_swallowed",
 				diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
@@ -211,13 +212,23 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			return zero, nil
 		}
 		e.recordAttemptLogged(p.ctx, recordAttemptParams{
-			ALegID:  p.aLegID,
-			BLeg:    bleg,
-			Cand:    c,
-			Outcome: lipapi.AttemptSurfacedFailure,
-			Reason:  attemptReasonDetail(err),
+			ALegID:    p.aLegID,
+			BLeg:      bleg,
+			Cand:      c,
+			Outcome:   lipapi.AttemptSurfacedFailure,
+			Reason:    attemptReasonDetail(err),
+			DetailErr: err,
 		}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 		return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
+	}
+	if m := e.secureSessionForAttempt(); m != nil {
+		if st, ok := execctx.SecureSessionTurnFromContext(openCtx); ok {
+			tr := buildAttemptTrace(st, p.aLegID, bleg, c, openCall, openStart)
+			persistCtx := context.WithoutCancel(openCtx)
+			if rerr := m.RecordAttemptOpened(persistCtx, tr); rerr != nil && e.Log != nil {
+				e.Log.DebugContext(persistCtx, "secure_session_attempt_trace_failed", "error", rerr)
+			}
+		}
 	}
 	diag.LogDecision(p.ctx, e.Log, "backend_stream_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 		slog.String("candidate_key", c.Key),

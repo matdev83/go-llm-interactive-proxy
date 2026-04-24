@@ -15,8 +15,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
+//nolint:paralleltest // Mutates global OpenTelemetry tracer provider; must run serially.
 func TestExecutor_executeSpan_recordsErrorWhenOpenPanicExhaustsCandidates(t *testing.T) {
-	// Do not run parallel: mutates global OpenTelemetry tracer provider.
 	rec := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
 	prev := otel.GetTracerProvider()

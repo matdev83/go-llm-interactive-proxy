@@ -84,6 +84,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	decoded, err := DecodeMessageRequest(body, DecodeOptions{
 		RouteSelector:    sel,
 		AnthropicVersion: anthVer,
+		Headers:          r.Header,
 	})
 	if err != nil {
 		if h.Log != nil {
@@ -105,20 +106,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
 	h.TrafficPorts.Emit(ctx, traffic.LegCTP, traffic.CaptureMeta{
 		TraceID:   traceID,
-		SessionID: strings.TrimSpace(call.Session.ClientSessionID),
+		SessionID: call.Session.CorrelationID(),
 	}, "http", ct, body)
 
 	es, err := h.Exec.Execute(ctx, call)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
-		if out.Kind == execerr.InternalError && h.Log != nil && out.Err != nil {
+		if out.Kind == execerr.KindInternalError && h.Log != nil && out.Err != nil {
 			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
-		errType := "api_error"
-		if out.Kind == execerr.ClientReject {
+		var errType string
+		switch out.Kind {
+		case execerr.KindSessionDenial:
+			errType = execerr.OpenAIWireErrorType(out.Status)
+		case execerr.KindClientReject:
 			errType = "invalid_request_error"
+		default:
+			errType = "api_error"
 		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, errType))
+		msg := out.Message
+		if out.Kind == execerr.KindInternalError {
+			msg = execerr.InternalWireMessage
+		}
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, msg, errType))
 		return
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -66,6 +67,29 @@ type Executor struct {
 	ExtensionMetrics extensions.StageMetrics
 	// CompletionBufferLimits overrides completion-gate buffering bounds (tests). Zero MaxEvents uses SDK defaults.
 	CompletionBufferLimits completion.BufferLimits
+
+	// SecureSessionEnabled gates the secure-session prepare path. When true, SecureSession must be non-nil
+	// for secure behavior; if the manager is nil, the executor treats secure sessions as disabled (legacy path).
+	SecureSessionEnabled bool
+	// SecureSession authorizes turns and records attempt traces/outcomes when SecureSessionEnabled is true.
+	SecureSession *app.Manager
+	// SecureSessionRecorder receives transcript/usage/audit activity after gate success and on stream recv.
+	SecureSessionRecorder app.GateRecording
+	// SecureSessionRecordingMandatory fail-closes prepare and treats post-output recorder failures as terminal
+	// for the committed attempt (no silent recv-phase B-leg replacement).
+	SecureSessionRecordingMandatory bool
+	// SessionDenialMapper maps secure-session policy errors to stable client-facing [lipapi] session
+	// denials when the secure prepare path is used. Wired at the composition root (not in [Executor]
+	// by default); set to nil to surface underlying errors without translation.
+	SessionDenialMapper func(error) error
+	// SecureSessionMetrics records secure-session create/resume/denial and recorder outcomes when non-nil.
+	SecureSessionMetrics SecureSessionMetrics
+	// SecureSessionRequireWorkspaceID sets WorkspaceMatchRequired on secure BeginTurn when true
+	// (from secure_session.require_workspace_id).
+	SecureSessionRequireWorkspaceID bool
+	// SecureSessionWorkspaceResolveFailClosed when true rejects prepare if workspace resolution errors
+	// (from secure_session.workspace_resolve_on_error: fail_closed).
+	SecureSessionWorkspaceResolveFailClosed bool
 
 	rngOnce    sync.Once
 	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
@@ -124,6 +148,12 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if v, ok := execctx.FromContext(ctx); ok {
 		recvViews = v
 		recvViewsOK = true
+	}
+	var secureTurn execctx.SecureSessionTurn
+	secureTurnOK := false
+	if st, ok := execctx.SecureSessionTurnFromContext(ctx); ok {
+		secureTurn = st
+		secureTurnOK = true
 	}
 	routePrefs := slices.Clone(execctx.RouteCandidatePreferences(ctx))
 	selStr := strings.TrimSpace(baseline.Route.Selector)
@@ -184,6 +214,9 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			recvViews:   recvViews,
 			recvViewsOK: recvViewsOK,
 			routePrefs:  routePrefs,
+
+			secureTurn:   secureTurn,
+			secureTurnOK: secureTurnOK,
 		}
 		rs.storeInner(out.stream)
 		return rs, nil

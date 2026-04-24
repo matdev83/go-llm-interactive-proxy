@@ -54,14 +54,14 @@ make quality-checks   # gofmt -l, tidy+diff guard, go build, go vet; add LIP_VER
 make test             # quality-checks + go test -parallel=8 ./... (excludes precommit-tagged tests)
 make test-precommit-extra  # hygiene + executor matrices (-tags=precommit; included in make qa + CI)
 make test-fast        # quality-checks + tests for staged packages (or all if none staged)
-make test-race        # on Windows runs scripts/race-check.sh inside WSL (Ubuntu-named distro or LIP_WSL_DISTRO); else native/Linux CI
+make test-race        # skipped on Windows; on Linux/macOS runs scripts/race-check.sh (CI: strict race on Linux)
 make test-fuzz        # short fuzz smoke on internal/testkit (override: FUZZTIME=30s make test-fuzz)
 make bench            # benchmarks: testkit, core stream/runtime/routing/diag, frontend streaming encoders (see docs/performance-checks.md)
 make qa               # quality-checks + unit tests + golangci-lint + govulncheck (via `go tool`, see go.mod)
 make hooks-install    # set core.hooksPath to .githooks (runs scripts/quality-gate on pre-commit when .go is staged)
 ```
 
-Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, staged race scan via WSL on Windows, `golangci-lint` if present, `go tool govulncheck`). On Windows, install WSL with Go/gcc in that distro so the race step can run.
+Pre-commit runs `scripts/quality-gate` (quality checks, staged tests, staged race scan on Linux/macOS only — skipped on Windows, `golangci-lint` if present, `go tool govulncheck`).
 
 CI (`.github/workflows/qa.yml`) runs `make quality-checks`, unit tests, strict race on Linux, `golangci-lint-action`, and `go tool govulncheck`.
 
@@ -70,6 +70,7 @@ Linter config lives in `.golangci.yml` (golangci-lint **v2** schema: staticcheck
 ### SDK and HTTP mount API (breaking)
 
 - [`lipsdk/continuity.Store`](pkg/lipsdk/continuity/store.go) — `GetALeg` was renamed to **`FetchALeg`** (golang naming: avoid `Get` on accessors). [`runtime.ErrNilConfig`](internal/core/runtime/app.go) and [`lipapi.ErrRecoverablePreOutput`](pkg/lipapi/upstream.go) `Error()` text now include a `runtime:` / `lipapi:` prefix; use [`errors.Is`](https://pkg.go.dev/errors#Is) instead of string equality.
+- [`lipapi.SessionRef`](pkg/lipapi/call.go) — the proxy-owned session id field is **`AuthoritativeSessionID`** (renamed from `SessionID` to avoid stutter with the struct name). JSON still uses the key **`SessionID`** for wire compatibility.
 - [`lipsdk.FrontendMount`](pkg/lipsdk/factory.go) now takes a single [`lipsdk.FrontendMountOptions`](pkg/lipsdk/factory.go) after the [`http.ServeMux`](https://pkg.go.dev/net/http#ServeMux). [`pluginreg.(*Registry).MountFrontend`](internal/pluginreg/reg.go) matches that shape (factory id, mux, options).
 - [`stdhttp.MountBundledFrontends`](internal/stdhttp/mount.go) takes [`stdhttp.MountBundledFrontendsInput`](internal/stdhttp/mount.go) instead of six separate parameters.
 - Composition roots: [`pluginreg.InstallStandardBundleOn`](internal/pluginreg/standard_table.go) / [`InstallStandardBackendsOn`](internal/pluginreg/standard_table.go) take [`pluginreg.UpstreamAPIKeys`](internal/pluginreg/keys.go) (per-family **ordered slices**; use [`ResolveUpstreamAPIKeysFromEnv`](internal/pluginreg/keys.go) in `main`, or `UpstreamAPIKeys{}` in tests). Env resolution includes numbered keys (`OPENAI_API_KEY_2`, … **contiguous** suffixes only: scanning stops at the first missing or empty `_N`, so a gap like `_2` unset while `_3` is set will not load `_3`; same pattern for Anthropic/Gemini). Hosted backend YAML accepts optional `api_keys` alongside `api_key` (see [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml)). [`runtime.New`](internal/core/runtime/app.go), [`runtimebundle.Build`](internal/infra/runtimebundle/build.go), [`stdhttp.Run`](internal/stdhttp/server.go), and [`stdhttp.RunWithRuntime`](internal/stdhttp/server.go) require a **non-nil** `*slog.Logger`. [`pluginreg.(*Registry).RegisterBackend`](internal/pluginreg/reg.go) factories return [`execbackend.Backend`](internal/core/execbackend/backend.go) directly (not `any`). [`sqlitestore.New`](internal/core/continuity/sqlitestore/store.go) accepts an existing `*sql.DB` for tests.

@@ -18,6 +18,33 @@ func (s stubRes) Resolve(context.Context) (lipworkspace.WorkspaceView, error) {
 	return s.v, s.e
 }
 
+func TestStrictChain_propagatesFirstError(t *testing.T) {
+	t.Parallel()
+	chain := corews.NewStrictChain([]lipworkspace.Resolver{
+		stubRes{e: errors.New("boom")},
+		stubRes{v: lipworkspace.WorkspaceView{ID: "w"}},
+	})
+	_, err := chain.Resolve(context.Background())
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestStrictChain_okMerges(t *testing.T) {
+	t.Parallel()
+	chain := corews.NewStrictChain([]lipworkspace.Resolver{
+		stubRes{v: lipworkspace.WorkspaceView{ProjectRoot: "/a"}},
+		stubRes{v: lipworkspace.WorkspaceView{ID: "id1"}},
+	})
+	got, err := chain.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProjectRoot != "/a" || got.ID != "id1" {
+		t.Fatalf("got %#v", got)
+	}
+}
+
 func TestResolverChain_failOpenSkipsErrors(t *testing.T) {
 	t.Parallel()
 	chain := corews.NewResolverChain([]lipworkspace.Resolver{
@@ -39,6 +66,24 @@ func TestResolverChain_emptyUsesDisabled(t *testing.T) {
 	_, err := chain.Resolve(context.Background())
 	if !errors.Is(err, lipworkspace.ErrResolverNotConfigured) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestResolverChain_mergePropagatesWorkspaceID(t *testing.T) {
+	t.Parallel()
+	chain := corews.NewResolverChain([]lipworkspace.Resolver{
+		stubRes{v: lipworkspace.WorkspaceView{ID: "ws-a", ProjectRoot: "/r1"}},
+		stubRes{v: lipworkspace.WorkspaceView{ProjectRoot: "/r2"}},
+	})
+	got, err := chain.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "ws-a" {
+		t.Fatalf("id %q", got.ID)
+	}
+	if got.ProjectRoot != "/r2" {
+		t.Fatalf("root %q", got.ProjectRoot)
 	}
 }
 

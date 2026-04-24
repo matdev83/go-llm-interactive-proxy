@@ -28,7 +28,8 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/http",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/safety",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
       ]
     },
     {
@@ -56,6 +57,11 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/state",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
       ]
@@ -76,6 +82,8 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/policy",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/safety",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/stream",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
       ]

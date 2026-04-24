@@ -1,0 +1,168 @@
+package testkit
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
+)
+
+// SecureSessionTestFingerprintKey returns a deterministic 32-byte key for secure-session tests.
+func SecureSessionTestFingerprintKey() []byte {
+	k := make([]byte, 32)
+	for i := range k {
+		k[i] = byte(i + 1)
+	}
+	return k
+}
+
+// SecureSessionStubExecutorOptions configures [NewStubExecutorWithSecureSession] (task 11.x harness).
+type SecureSessionStubExecutorOptions struct {
+	Now      func() time.Time
+	Rand     routing.Rng
+	RandSeed int64 // used when Rand is nil (default 42)
+
+	// Workspace is merged into the runtime snapshot; nil uses empty workspace (void resolver).
+	Workspace lipworkspace.Resolver
+
+	// SecureStore when non-nil is used as the secure-session durable store; otherwise a memory
+	// store with SimulateDurable=true is constructed.
+	SecureStore app.Store
+
+	// SecureSessionRequireWorkspaceID mirrors runtime.Executor.SecureSessionRequireWorkspaceID.
+	SecureSessionRequireWorkspaceID bool
+	// SecureSessionWorkspaceResolveFailClosed mirrors runtime.Executor.SecureSessionWorkspaceResolveFailClosed.
+	SecureSessionWorkspaceResolveFailClosed bool
+
+	// FingerprintKey for resume fingerprinting; nil uses [SecureSessionTestFingerprintKey].
+	FingerprintKey []byte
+
+	// ManagerConfig is merged after FingerprintKey/ResumeWindow/StoreDurable defaults are applied.
+	ManagerConfig app.ManagerConfig
+
+	// Backends when non-nil replaces the default single-stub map entirely.
+	Backends map[string]execbackend.Backend
+
+	// StubText is emitted as one text delta when Backends is nil (same as [NewStubExecutor]).
+	StubText string
+
+	SecureSessionRecorder           app.GateRecording
+	SecureSessionRecordingMandatory bool
+}
+
+// NewStubExecutorWithSecureSession builds an executor with secure-session enabled, lipapi denial
+// mapping, B2BUA memory store, and an optional stub backend (task 11 E2E harness).
+func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecutorOptions, caps lipapi.BackendCaps, capture *sync.Map) *runtime.Executor {
+	t.Helper()
+	b2st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fk := opts.FingerprintKey
+	if len(fk) == 0 {
+		fk = SecureSessionTestFingerprintKey()
+	}
+	st := opts.SecureStore
+	if st == nil {
+		st = memory.New(memory.Options{SimulateDurable: true})
+	}
+	mc := opts.ManagerConfig
+	mc.FingerprintKey = fk
+	mc.StoreDurable = true
+	mgr, err := app.NewManager(st, app.NewRandGenerator(fk), b2bualineage.New(b2st), mc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := opts.Workspace
+	if ws == nil {
+		ws = voidWorkspaceResolver{}
+	}
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{ws}),
+	})
+	nowFn := opts.Now
+	if nowFn == nil {
+		nowFn = func() time.Time { return time.Unix(3000, 0).UTC() }
+	}
+	rng := opts.Rand
+	if rng == nil {
+		seed := opts.RandSeed
+		if seed == 0 {
+			seed = 42
+		}
+		rng = routing.NewSeededRng(seed)
+	}
+	text := opts.StubText
+	if text == "" {
+		text = "stub-ok"
+	}
+	be := opts.Backends
+	if be == nil {
+		be = map[string]execbackend.Backend{
+			"stub": {
+				Caps: caps,
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+					if capture != nil {
+						capture.Store("last", call)
+						var n int
+						if v, ok := capture.Load("openCount"); ok {
+							n, _ = v.(int)
+						}
+						capture.Store("openCount", n+1)
+					}
+					_ = ctx
+					_ = cand
+					prefix := stubToolPrefixEvents(call)
+					evs := make([]lipapi.Event, 0, 2+len(prefix)+2)
+					evs = append(evs,
+						lipapi.Event{Kind: lipapi.EventResponseStarted},
+						lipapi.Event{Kind: lipapi.EventMessageStarted},
+					)
+					evs = append(evs, prefix...)
+					evs = append(evs,
+						lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
+						lipapi.Event{Kind: lipapi.EventResponseFinished},
+					)
+					return lipapi.NewFixedEventStream(evs), nil
+				},
+			},
+		}
+	}
+	ex := &runtime.Executor{
+		Store:                                   b2st,
+		Bus:                                     bus,
+		RuntimeSnapshot:                         snap,
+		Rand:                                    rng,
+		Now:                                     nowFn,
+		Backends:                                be,
+		SecureSessionEnabled:                    true,
+		SecureSession:                           mgr,
+		SecureSessionRecorder:                   opts.SecureSessionRecorder,
+		SecureSessionRecordingMandatory:         opts.SecureSessionRecordingMandatory,
+		SessionDenialMapper:                     lipapidenial.MapToSessionDenial,
+		SecureSessionRequireWorkspaceID:         opts.SecureSessionRequireWorkspaceID,
+		SecureSessionWorkspaceResolveFailClosed: opts.SecureSessionWorkspaceResolveFailClosed,
+	}
+	return ex
+}
+
+type voidWorkspaceResolver struct{}
+
+func (voidWorkspaceResolver) Resolve(context.Context) (lipworkspace.WorkspaceView, error) {
+	return lipworkspace.WorkspaceView{}, nil
+}

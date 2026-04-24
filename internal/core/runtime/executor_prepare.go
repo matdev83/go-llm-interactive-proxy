@@ -27,9 +27,19 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-// prepareSubmitAndALeg assigns trace id, runs session_open and workspace resolution before submit hooks (R12),
-// then runs submit hooks, resolves the A-leg row, and publishes [execctx.Views].
+// prepareSubmitAndALeg assigns trace id, runs session_open and workspace resolution, then submit hooks
+// and extension stages (R12). When secure sessions are enabled, workspace resolution (with optional
+// fail-closed policy) and secure-session BeginTurn run before submit hooks so hooks and CTP traffic
+// see proxy-validated session continuity.
 func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, call *lipapi.Call) (traceID string, baseline lipapi.Call, aLeg b2bua.ALegRecord, outCtx context.Context, err error) {
+	if e.secureSessionActive() {
+		return e.prepareSubmitAndALegSecure(ctx, bus, call)
+	}
+	return e.prepareSubmitAndALegLegacy(ctx, bus, call)
+}
+
+// prepareSubmitAndALegLegacy is the continuity-first path when secure sessions are disabled.
+func (e *Executor) prepareSubmitAndALegLegacy(ctx context.Context, bus *hooks.Bus, call *lipapi.Call) (traceID string, baseline lipapi.Call, aLeg b2bua.ALegRecord, outCtx context.Context, err error) {
 	work := *call
 	traceID = strings.TrimSpace(work.ID)
 	if traceID == "" {
@@ -53,9 +63,11 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}
 	preSession := session.SessionView{
-		SessionID: strings.TrimSpace(work.Session.ClientSessionID),
-		ALegID:    strings.TrimSpace(preALeg.ALegID),
-		IsNew:     aLegRecordIsNew(preALeg),
+		AuthoritativeSessionID: strings.TrimSpace(work.Session.AuthoritativeSessionID),
+		ClientSessionHint:      strings.TrimSpace(work.Session.ClientSessionID),
+		ALegID:                 strings.TrimSpace(preALeg.ALegID),
+		IsNew:                  aLegRecordIsNew(preALeg),
+		ResumeEligible:         false,
 	}
 	if e.RuntimeSnapshot != nil {
 		openIn := session.OpenInput{TraceID: traceID, Principal: principal, Session: preSession}
@@ -87,7 +99,7 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 				e.Log.DebugContext(wsCtx, "workspace: resolve error (fail-open)", "error", werr)
 			}
 			wsSpan.RecordError(werr)
-			wsSpan.SetStatus(codes.Error, werr.Error())
+			wsSpan.SetStatus(codes.Error, "workspace resolve failed")
 		} else {
 			wsSpan.SetStatus(codes.Ok, "")
 		}
@@ -106,11 +118,15 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}
 	if e.RuntimeSnapshot != nil {
-		if rawPayload, jerr := json.Marshal(&work); jerr == nil {
+		ctpCall := work
+		ctpSess := work.Session
+		ctpSess.ResumeToken = ""
+		ctpCall.Session = ctpSess
+		if rawPayload, jerr := json.Marshal(&ctpCall); jerr == nil {
 			meta := sdktraffic.CaptureMeta{
 				TraceID:     traceID,
 				ALegID:      strings.TrimSpace(preSession.ALegID),
-				SessionID:   strings.TrimSpace(work.Session.ClientSessionID),
+				SessionID:   ctpCall.Session.CorrelationID(),
 				PrincipalID: strings.TrimSpace(principal.ID),
 			}
 			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
@@ -149,7 +165,7 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 		}
 		reqMeta := request.RequestMeta{
 			TraceID:     traceID,
-			Annotations: maps.Clone(submitMeta.Annotations),
+			Annotations: ann,
 			Principal:   principal,
 			Session:     preSession,
 			Workspace:   wsView,
@@ -200,6 +216,7 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 		views.Principal = principal
 	}
 	views.Workspace = wsView
+	views.Session.WorkspaceID = strings.TrimSpace(wsView.ID)
 	for k, v := range preSession.Labels {
 		if views.Session.Labels == nil {
 			views.Session.Labels = make(map[string]string, len(preSession.Labels))

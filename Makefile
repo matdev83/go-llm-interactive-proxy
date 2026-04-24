@@ -11,7 +11,7 @@ help:
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
-	@echo "  make test-race       - race scan (on Windows: WSL/Linux script; macOS/Linux: native)"
+	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
 	@echo "  make parity-checks   - conformance package tests only (API parity suites + matrix; see .kiro/specs/llm-api-parity/)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
@@ -99,6 +99,7 @@ release-gates:
 
 bench:
 	$(GO) test -bench=. -benchmem -run=Benchmark ./internal/testkit/... ./internal/core/stream/... \
+		./internal/core/securesession/... \
 		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
 		./internal/plugins/frontends/openailegacy/... \
 		./internal/plugins/frontends/gemini/... \

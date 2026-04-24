@@ -27,7 +27,7 @@ func (labelOpener) Open(context.Context, session.OpenInput) (session.OpenResult,
 type memWS struct{}
 
 func (memWS) Resolve(context.Context) (lipworkspace.WorkspaceView, error) {
-	return lipworkspace.WorkspaceView{ProjectRoot: "/proj"}, nil
+	return lipworkspace.WorkspaceView{ID: "ws-1", ProjectRoot: "/proj"}, nil
 }
 
 func TestExecutor_backendOpenContext_hasSessionLabelsAndWorkspace(t *testing.T) {
@@ -80,5 +80,8 @@ func TestExecutor_backendOpenContext_hasSessionLabelsAndWorkspace(t *testing.T) 
 	}
 	if v.Workspace.ProjectRoot != "/proj" {
 		t.Fatalf("workspace root %q", v.Workspace.ProjectRoot)
+	}
+	if v.Session.WorkspaceID != "ws-1" {
+		t.Fatalf("session workspace id: got %q", v.Session.WorkspaceID)
 	}
 }

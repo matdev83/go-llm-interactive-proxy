@@ -19,6 +19,7 @@ func TestNewBundle_executorSink(t *testing.T) {
 		b.Registry != nil &&
 		b.HTTP != nil &&
 		b.Executor != nil &&
+		b.SecureSession != nil &&
 		b.ExtensionStages != nil &&
 		b.Upstream != nil
 	if !allPresent {

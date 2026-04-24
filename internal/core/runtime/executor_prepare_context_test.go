@@ -190,8 +190,8 @@ func TestExecutor_prepareSubmitAndALeg_usesPreResolveSessionForOpenersAndPostRes
 	if call.Session.ALegID != postALeg.ALegID {
 		t.Fatalf("call session aleg id: want %q got %q", postALeg.ALegID, call.Session.ALegID)
 	}
-	if opener.seen.Session.SessionID != "client-2" {
-		t.Fatalf("opener saw session id: want client-2 got %q", opener.seen.Session.SessionID)
+	if opener.seen.Session.ClientSessionHint != "client-2" {
+		t.Fatalf("opener saw client hint: want client-2 got %q", opener.seen.Session.ClientSessionHint)
 	}
 	if opener.seen.Session.ALegID != preALeg.ALegID {
 		t.Fatalf("opener saw aleg id: want %q got %q", preALeg.ALegID, opener.seen.Session.ALegID)

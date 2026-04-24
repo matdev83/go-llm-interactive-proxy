@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -21,6 +23,8 @@ const (
 type DecodeOptions struct {
 	// RouteSelector is required (e.g. "stub:gpt-4o-mini"); usually from X-LIP-Route header.
 	RouteSelector string
+	// Headers carries optional HTTP carriers (e.g. LIP session resume headers).
+	Headers http.Header
 }
 
 // DecodedCreate is the result of decoding POST /v1/responses JSON.
@@ -41,6 +45,8 @@ type wireCreate struct {
 	Temperature   *float64        `json:"temperature"`
 	TopP          *float64        `json:"top_p"`
 	MaxOut        *int            `json:"max_output_tokens"`
+	// Metadata may include LIP session keys ([sessionwire.MetaKeyAuthoritativeSessionID]).
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // DecodeCreateRequest maps an OpenAI Responses create JSON body into a canonical call.
@@ -97,6 +103,12 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 			MaxOutputTokens:   w.MaxOut,
 			ParallelToolCalls: w.ParallelTools,
 		},
+	}
+	if len(w.Metadata) > 0 {
+		sessionwire.ApplyMetadata(&call.Session, w.Metadata)
+	}
+	if opts.Headers != nil {
+		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)
 	}
 	return &DecodedCreate{Call: call, Stream: w.Stream, Model: model}, nil
 }

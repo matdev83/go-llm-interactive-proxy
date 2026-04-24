@@ -18,7 +18,7 @@ func ExecCtxViewsFixture() execctx.Views {
 			Claims: map[string]string{"fixture": "1"},
 		},
 		Session: session.SessionView{
-			SessionID: "fixture-session", ALegID: "fixture-aleg", IsNew: true,
+			ClientSessionHint: "fixture-session", ALegID: "fixture-aleg", IsNew: true,
 			Labels: map[string]string{"fixture": "session"},
 		},
 		Attempt: execview.AttemptView{

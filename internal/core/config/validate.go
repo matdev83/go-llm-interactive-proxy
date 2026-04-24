@@ -45,7 +45,108 @@ func Validate(cfg *Config) error {
 	if err := validateServer(cfg); err != nil {
 		return err
 	}
+	if err := validateSecureSession(cfg); err != nil {
+		return err
+	}
 	return validateRoutingHealth(cfg)
+}
+
+func validateSecureSession(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	ss := &cfg.SecureSession
+	if !ss.Enabled {
+		return nil
+	}
+	store := strings.ToLower(strings.TrimSpace(ss.Store))
+	if store == "" {
+		store = "memory"
+	}
+	if store != "memory" && store != "sqlite" {
+		return fmt.Errorf("secure_session.store: want memory or sqlite, got %q", ss.Store)
+	}
+	key := strings.TrimSpace(ss.TokenFingerprintKey)
+	if len(key) < 32 {
+		return fmt.Errorf("secure_session.token_fingerprint_key: must be at least 32 characters when secure_session is enabled")
+	}
+	rw := strings.TrimSpace(ss.ResumeWindow)
+	if rw != "" {
+		d, err := time.ParseDuration(rw)
+		if err != nil {
+			return fmt.Errorf("secure_session.resume_window: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("secure_session.resume_window: must be a positive duration")
+		}
+	}
+	audit := strings.ToLower(strings.TrimSpace(ss.AuditDurability))
+	if audit == "" {
+		audit = "best_effort"
+	}
+	if audit != "best_effort" && audit != "durable" {
+		return fmt.Errorf("secure_session.audit_durability: want best_effort or durable, got %q", ss.AuditDurability)
+	}
+	if audit == "durable" {
+		if store != "sqlite" {
+			return fmt.Errorf("secure_session.audit_durability: durable requires secure_session.store: sqlite")
+		}
+	}
+	if store == "sqlite" {
+		path := strings.TrimSpace(ss.SQLitePath)
+		if path == "" {
+			return fmt.Errorf("secure_session.sqlite_path: required when store is \"sqlite\"")
+		}
+		if strings.ContainsAny(path, "\x00?#&") {
+			return fmt.Errorf("secure_session.sqlite_path: must not contain NUL, ?, #, or & (ambiguous with SQLite URI query)")
+		}
+	}
+
+	nd := strings.ToLower(strings.TrimSpace(ss.NonDurableWarning))
+	if nd == "" {
+		nd = "log"
+	}
+	switch nd {
+	case "silent", "log", "strict":
+	default:
+		return fmt.Errorf("secure_session.non_durable_warning: want silent, log, or strict, got %q", ss.NonDurableWarning)
+	}
+
+	red := strings.ToLower(strings.TrimSpace(ss.RedactionDefault))
+	if red == "" {
+		red = "standard"
+	}
+	if red != "standard" && red != "strict" {
+		return fmt.Errorf("secure_session.redaction_default: want standard or strict, got %q", ss.RedactionDefault)
+	}
+
+	if ss.DiagnosticsExposeSummaries {
+		p := strings.TrimSpace(ss.DiagnosticsPathPrefix)
+		if p == "" {
+			return fmt.Errorf("secure_session.diagnostics_path_prefix: required when diagnostics_expose_summaries is true")
+		}
+		if !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
+		}
+		// Secure-session diagnostics use [diag.WrapDiagnosticsProtect]; an empty shared secret would
+		// leave routes unauthenticated. Length when non-empty is enforced by validateDiagnosticsSecret.
+		if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
+			return fmt.Errorf("diagnostics.shared_secret: required when secure_session.diagnostics_expose_summaries is true (non-empty; at least 12 characters; same header as other protected diagnostics)")
+		}
+	}
+	if !ss.DiagnosticsExposeSummaries {
+		if p := strings.TrimSpace(ss.DiagnosticsPathPrefix); p != "" && !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
+		}
+	}
+	wsErr := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError))
+	if wsErr == "" {
+		wsErr = "fail_open"
+	}
+	if wsErr != "fail_open" && wsErr != "fail_closed" {
+		return fmt.Errorf("secure_session.workspace_resolve_on_error: want fail_open or fail_closed, got %q", ss.WorkspaceResolveOnError)
+	}
+	return nil
 }
 
 func validateServer(cfg *Config) error {
@@ -205,6 +306,18 @@ func validateDiagnosticsPaths(cfg *Config) error {
 	}
 	if err := add(pp); err != nil {
 		return err
+	}
+	if cfg.SecureSession.Enabled {
+		ssp := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
+		if ssp != "" {
+			if !strings.HasPrefix(ssp, "/") {
+				return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
+			}
+			ssp = strings.TrimSuffix(ssp, "/")
+			if err := add(ssp); err != nil {
+				return err
+			}
+		}
 	}
 	mp, err := checkObservabilityMetricsPath(cfg)
 	if err != nil {

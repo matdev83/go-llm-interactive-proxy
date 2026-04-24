@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -21,6 +23,7 @@ const (
 type DecodeOptions struct {
 	// RouteSelector is required (e.g. "stub:gpt-4o-mini"); usually from X-LIP-Route header.
 	RouteSelector string
+	Headers       http.Header
 }
 
 // DecodedChat is the result of decoding POST /v1/chat/completions JSON.
@@ -41,6 +44,7 @@ type wireCreate struct {
 	MaxTokens         *int              `json:"max_tokens"`
 	ParallelToolCalls *bool             `json:"parallel_tool_calls"`
 	StreamOptions     json.RawMessage   `json:"stream_options"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
 // DecodeChatRequest maps a Chat Completions JSON body into a canonical call.
@@ -95,6 +99,12 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 			MaxOutputTokens:   w.MaxTokens,
 			ParallelToolCalls: w.ParallelToolCalls,
 		},
+	}
+	if len(w.Metadata) > 0 {
+		sessionwire.ApplyMetadata(&call.Session, w.Metadata)
+	}
+	if opts.Headers != nil {
+		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)
 	}
 	return &DecodedChat{Call: call, Stream: w.Stream, Model: model}, nil
 }

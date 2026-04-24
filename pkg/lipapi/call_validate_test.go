@@ -182,6 +182,69 @@ func TestCallValidate_toolParametersMustBeValidJSONWhenSet(t *testing.T) {
 	}
 }
 
+func TestSessionRef_CorrelationID_prefersAuthoritative(t *testing.T) {
+	t.Parallel()
+	if got := (lipapi.SessionRef{ClientSessionID: "c", AuthoritativeSessionID: "p"}).CorrelationID(); got != "p" {
+		t.Fatalf("got %q", got)
+	}
+	if got := (lipapi.SessionRef{ClientSessionID: "c"}).CorrelationID(); got != "c" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCallValidate_sessionLegacyFieldsCompatible(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Session: lipapi.SessionRef{
+			ClientSessionID: "client-hint",
+			ContinuityKey:   "continuity",
+			ALegID:          "aleg-1",
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+	}
+	if err := call.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCallValidate_sessionSecureFieldsSizeLimits(t *testing.T) {
+	t.Parallel()
+	base := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+	}
+	t.Run("oversized session id", func(t *testing.T) {
+		t.Parallel()
+		c := base
+		c.Session.AuthoritativeSessionID = strings.Repeat("x", lipapi.MaxAuthoritativeSessionIDBytes+1)
+		if err := c.Validate(); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+	t.Run("oversized resume token", func(t *testing.T) {
+		t.Parallel()
+		c := base
+		c.Session.ResumeToken = strings.Repeat("t", lipapi.MaxResumeTokenBytes+1)
+		if err := c.Validate(); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+	t.Run("secure fields ok at limits", func(t *testing.T) {
+		t.Parallel()
+		c := base
+		c.Session.AuthoritativeSessionID = strings.Repeat("s", lipapi.MaxAuthoritativeSessionIDBytes)
+		c.Session.ResumeToken = strings.Repeat("r", lipapi.MaxResumeTokenBytes)
+		if err := c.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestCallValidate_validMinimalCall(t *testing.T) {
 	t.Parallel()
 

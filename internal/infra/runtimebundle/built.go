@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -32,4 +33,7 @@ type Built struct {
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
 	// HTTPAuthProviders is copied from [BuildOptions] for stdhttp wiring (transport auth, R4).
 	HTTPAuthProviders []httpauth.Provider
+	// SecureSessionStore is optional; when non-nil with secure-session diagnostics config, stdhttp
+	// mounts operator session routes (see [BuildOptions.SecureSessionStore]).
+	SecureSessionStore app.Store
 }

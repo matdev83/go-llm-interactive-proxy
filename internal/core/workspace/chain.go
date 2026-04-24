@@ -18,7 +18,7 @@ type ResolverChain struct {
 // NewResolverChain returns a [lipworkspace.Resolver] backed by resolvers (nil entries skipped).
 // An empty list returns [lipworkspace.DisabledResolver].
 func NewResolverChain(resolvers []lipworkspace.Resolver) lipworkspace.Resolver {
-	var filtered []lipworkspace.Resolver
+	filtered := make([]lipworkspace.Resolver, 0, len(resolvers))
 	for _, r := range resolvers {
 		if r == nil {
 			continue
@@ -29,6 +29,41 @@ func NewResolverChain(resolvers []lipworkspace.Resolver) lipworkspace.Resolver {
 		return lipworkspace.DisabledResolver{}
 	}
 	return ResolverChain{list: filtered}
+}
+
+// strictChain is like [ResolverChain] but propagates the first resolver error instead of fail-open
+// skipping (used when secure_session.workspace_resolve_on_error is fail_closed).
+type strictChain struct {
+	list []lipworkspace.Resolver
+}
+
+// NewStrictChain returns a workspace resolver that runs entries in order and stops on the first error.
+// Nil entries are skipped. An empty list returns [lipworkspace.DisabledResolver].
+func NewStrictChain(resolvers []lipworkspace.Resolver) lipworkspace.Resolver {
+	filtered := make([]lipworkspace.Resolver, 0, len(resolvers))
+	for _, r := range resolvers {
+		if r == nil {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	if len(filtered) == 0 {
+		return lipworkspace.DisabledResolver{}
+	}
+	return strictChain{list: filtered}
+}
+
+// Resolve implements [lipworkspace.Resolver].
+func (c strictChain) Resolve(ctx context.Context) (lipworkspace.WorkspaceView, error) {
+	var out lipworkspace.WorkspaceView
+	for _, r := range c.list {
+		v, err := r.Resolve(ctx)
+		if err != nil {
+			return lipworkspace.WorkspaceView{}, err
+		}
+		out = mergeWorkspaceViews(out, v)
+	}
+	return out, nil
 }
 
 // Resolve implements [lipworkspace.Resolver].
@@ -44,13 +79,19 @@ func (c ResolverChain) Resolve(ctx context.Context) (lipworkspace.WorkspaceView,
 	return out, nil
 }
 
+// mergeWorkspaceViews accumulates non-empty fields from resolvers. ID and ProjectRoot
+// are overwritten when the additive view has a non-empty value (last writer wins
+// in registration order).
 func mergeWorkspaceViews(base, add lipworkspace.WorkspaceView) lipworkspace.WorkspaceView {
+	if strings.TrimSpace(add.ID) != "" {
+		base.ID = strings.TrimSpace(add.ID)
+	}
 	if strings.TrimSpace(add.ProjectRoot) != "" {
 		base.ProjectRoot = strings.TrimSpace(add.ProjectRoot)
 	}
 	base.DirtyTree = base.DirtyTree || add.DirtyTree
 	if len(add.Markers) > 0 {
-		seen := map[string]struct{}{}
+		seen := make(map[string]struct{}, len(base.Markers)+len(add.Markers))
 		for _, m := range base.Markers {
 			seen[m] = struct{}{}
 		}
@@ -64,7 +105,7 @@ func mergeWorkspaceViews(base, add lipworkspace.WorkspaceView) lipworkspace.Work
 	}
 	if len(add.Labels) > 0 {
 		if base.Labels == nil {
-			base.Labels = map[string]string{}
+			base.Labels = make(map[string]string, len(add.Labels))
 		}
 		maps.Copy(base.Labels, add.Labels)
 	}

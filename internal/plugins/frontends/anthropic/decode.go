@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -21,6 +23,7 @@ type DecodeOptions struct {
 	RouteSelector string
 	// AnthropicVersion is the optional anthropic-version header; empty means default for decode.
 	AnthropicVersion string
+	Headers          http.Header
 }
 
 // DecodedMessage is the result of decoding POST /v1/messages JSON.
@@ -103,7 +106,15 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 			MaxOutputTokens: &maxOut,
 		},
 	}
-	_ = w.Metadata
+	if jsonpresence.IsPresentNonNullJSON(w.Metadata) {
+		var meta map[string]string
+		if jerr := json.Unmarshal(w.Metadata, &meta); jerr == nil && len(meta) > 0 {
+			sessionwire.ApplyMetadata(&call.Session, meta)
+		}
+	}
+	if opts.Headers != nil {
+		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)
+	}
 	_ = w.TopK
 	return &DecodedMessage{Call: call, Stream: w.Stream, Model: model}, nil
 }

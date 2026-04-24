@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -19,7 +21,8 @@ type DecodeOptions struct {
 	// Model is taken from the URL path (…/models/{model}:generateContent); must be non-empty.
 	Model string
 	// Stream is true when the request targets :streamGenerateContent.
-	Stream bool
+	Stream  bool
+	Headers http.Header
 }
 
 // DecodedGenerate is the result of decoding a generateContent JSON body.
@@ -102,6 +105,9 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 		ToolChoice:   toolChoice,
 		Options:      genOpts,
 		Extensions:   ext,
+	}
+	if opts.Headers != nil {
+		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)
 	}
 	return &DecodedGenerate{Call: call, Stream: opts.Stream, Model: model}, nil
 }

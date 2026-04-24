@@ -71,10 +71,10 @@ func TestMem_sessionPartitionIsolation(t *testing.T) {
 	t.Parallel()
 	s := state.NewMem(steadyClock(time.Unix(2100, 0)))
 	ctxA := execctx.WithViews(context.Background(), execctx.Views{
-		Session: session.SessionView{SessionID: "sess-a"},
+		Session: session.SessionView{ClientSessionHint: "sess-a"},
 	})
 	ctxB := execctx.WithViews(context.Background(), execctx.Views{
-		Session: session.SessionView{SessionID: "sess-b"},
+		Session: session.SessionView{ClientSessionHint: "sess-b"},
 	})
 	_ = s.Put(ctxA, lipstate.ScopeSession, "ns", "flag", "1", 0)
 	_ = s.Put(ctxB, lipstate.ScopeSession, "ns", "flag", "2", 0)
@@ -210,7 +210,7 @@ func TestMem_flowSessionAndWorkspaceCorrelation(t *testing.T) {
 	clk := &mutableClock{t: time.Unix(6000, 0)}
 	s := state.NewMem(clk.Now)
 	ctx := execctx.WithViews(context.Background(), execctx.Views{
-		Session:   session.SessionView{SessionID: "sess-ws", Labels: map[string]string{"tier": "a"}},
+		Session:   session.SessionView{ClientSessionHint: "sess-ws", Labels: map[string]string{"tier": "a"}},
 		Attempt:   execview.AttemptView{TraceID: "req-ws"},
 		Workspace: workspace.WorkspaceView{ProjectRoot: "/proj/x", Labels: map[string]string{"kind": "repo"}},
 	})
@@ -227,7 +227,7 @@ func TestMem_flowSessionAndWorkspaceCorrelation(t *testing.T) {
 		t.Fatalf("root=%q once=%q", root, once)
 	}
 	ctxOther := execctx.WithViews(context.Background(), execctx.Views{
-		Session: session.SessionView{SessionID: "other"},
+		Session: session.SessionView{ClientSessionHint: "other"},
 		Attempt: execview.AttemptView{TraceID: "req-other"},
 	})
 	found, err := s.Get(ctxOther, lipstate.ScopeSession, "guard", "lastRoot", &root)
@@ -242,7 +242,7 @@ func TestMem_flowTTLExpirySession(t *testing.T) {
 	clk := &mutableClock{t: start}
 	s := state.NewMem(clk.Now)
 	ctx := execctx.WithViews(context.Background(), execctx.Views{
-		Session: session.SessionView{SessionID: "ttl-sess"},
+		Session: session.SessionView{ClientSessionHint: "ttl-sess"},
 	})
 	if err := s.Put(ctx, lipstate.ScopeSession, "p", "k", "v", 10*time.Second); err != nil {
 		t.Fatal(err)

@@ -22,6 +22,7 @@ type Config struct {
 	HTTPClient    HTTPClientConfig    `yaml:"http_client"`
 	Routing       RoutingConfig       `yaml:"routing"`
 	Continuity    ContinuityConfig    `yaml:"continuity"`
+	SecureSession SecureSessionConfig `yaml:"secure_session"`
 	Hooks         HooksConfig         `yaml:"hooks"`
 	Plugins       PluginsConfig       `yaml:"plugins"`
 	ModelAliases  []ModelAliasConfig  `yaml:"model_aliases"`
@@ -216,6 +217,42 @@ type CircuitBreakerConfig struct {
 	Enabled          bool   `yaml:"enabled"`
 	FailureThreshold int    `yaml:"failure_threshold"`
 	OpenFor          string `yaml:"open_for"`
+}
+
+// SecureSessionConfig controls the core-owned secure session layer (resume proofs, durable evidence, diagnostics).
+// When Enabled is false, other fields are ignored by validation except unknown enum-like strings still rejected when set.
+type SecureSessionConfig struct {
+	// Enabled turns on secure-session validation and runtime wiring (store, tokens, audit gates).
+	Enabled bool `yaml:"enabled"`
+	// Store is "memory" (non-durable) or "sqlite" (durable). Empty is normalized to "memory" in [LoadFile] when Enabled.
+	Store string `yaml:"store"`
+	// SQLitePath is the database file path when store is "sqlite".
+	SQLitePath string `yaml:"sqlite_path"`
+	// ResumeWindow is a Go duration string for inactivity-based resume limits; empty means no fixed window (policy default).
+	ResumeWindow string `yaml:"resume_window"`
+	// TokenFingerprintKey is deployment secret material used to HMAC resume-token fingerprints; required for sqlite store.
+	TokenFingerprintKey string `yaml:"token_fingerprint_key"`
+	// AuditDurability is "best_effort" or "durable"; durable requires Store "sqlite" and a non-empty token fingerprint key.
+	AuditDurability string `yaml:"audit_durability"`
+	// RedactionDefault is "standard" or "strict" for operator-visible session payloads (diagnostics); invalid values rejected when enabled.
+	RedactionDefault string `yaml:"redaction_default"`
+	// DiagnosticsExposeSummaries registers operator session summary routes when true (requires DiagnosticsPathPrefix
+	// and a non-empty diagnostics.shared_secret, same minimum length as other protected diagnostics routes).
+	DiagnosticsExposeSummaries bool `yaml:"diagnostics_expose_summaries"`
+	// DiagnosticsPathPrefix is the URL prefix for secure-session diagnostics (e.g. "/debug/sessions"); must start with "/".
+	DiagnosticsPathPrefix string `yaml:"diagnostics_path_prefix"`
+	// NonDurableWarning is "silent", "log", or "strict" when store is non-durable (memory): strict fails validation when audit requires durability.
+	NonDurableWarning string `yaml:"non_durable_warning"`
+	// RequireWorkspaceID when true rejects secure-session turns when no workspace id was resolved
+	// (maps to [WorkspaceMatchRequired] on BeginTurn; Req 11.1 / 11.6).
+	RequireWorkspaceID bool `yaml:"require_workspace_id"`
+	// WorkspaceResolveOnError is "fail_open" (default) or "fail_closed". When fail_closed, workspace
+	// resolver errors reject the request instead of continuing with an empty workspace (Req 11.6).
+	WorkspaceResolveOnError string `yaml:"workspace_resolve_on_error"`
+	// ResumeTokenBindPrincipalOnly when true fingerprints resume tokens using only the authenticated
+	// principal id (not agent digest or first-message digest), so benign client metadata drift
+	// between turns does not invalidate bearer resumes.
+	ResumeTokenBindPrincipalOnly bool `yaml:"resume_token_bind_principal_only"`
 }
 
 type ContinuityConfig struct {

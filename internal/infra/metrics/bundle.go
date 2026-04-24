@@ -12,6 +12,8 @@ type Bundle struct {
 	Registry *prometheus.Registry
 	HTTP     *HTTPMetrics
 	Executor *ExecutorProm
+	// SecureSession is non-nil when metrics are enabled; secure-session begin/recorder/touch series.
+	SecureSession *SecureSessionProm
 	// ExtensionStages is non-nil when metrics are enabled; used for extension pipeline histograms/counters.
 	ExtensionStages *ExtensionStageProm
 	Upstream        *UpstreamProm
@@ -24,12 +26,14 @@ func NewBundle(cfg *config.Config) *Bundle {
 	exemplars := cfg != nil && cfg.Observability.Metrics.ExemplarsEnabled
 	httpm := RegisterHTTPMetrics(r, exemplars)
 	exec := RegisterExecutorProm(r)
+	ss := RegisterSecureSessionProm(r)
 	ext := RegisterExtensionStageProm(r)
 	up := RegisterUpstreamProm(r, exemplars)
 	return &Bundle{
 		Registry:        r,
 		HTTP:            httpm,
 		Executor:        exec,
+		SecureSession:   ss,
 		ExtensionStages: ext,
 		Upstream:        up,
 		sink:            NewExecutorPromSink(exec),
@@ -50,4 +54,12 @@ func (b *Bundle) ExtensionStageSink() extensions.StageMetrics {
 		return nil
 	}
 	return NewExtensionStageSink(b.ExtensionStages)
+}
+
+// SecureSessionMetricsSink returns a [runtime.SecureSessionMetrics] backed by this bundle, or nil when b is nil.
+func (b *Bundle) SecureSessionMetricsSink() runtime.SecureSessionMetrics {
+	if b == nil {
+		return nil
+	}
+	return SecureSessionMetricsSink(b.SecureSession)
 }

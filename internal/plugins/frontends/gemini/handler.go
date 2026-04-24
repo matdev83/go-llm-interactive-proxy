@@ -82,6 +82,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RouteSelector: sel,
 		Model:         model,
 		Stream:        stream,
+		Headers:       r.Header,
 	})
 	if err != nil {
 		if h.Log != nil {
@@ -103,16 +104,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
 	h.TrafficPorts.Emit(ctx, traffic.LegCTP, traffic.CaptureMeta{
 		TraceID:   traceID,
-		SessionID: strings.TrimSpace(call.Session.ClientSessionID),
+		SessionID: call.Session.CorrelationID(),
 	}, "http", ct, body)
 
 	es, err := h.Exec.Execute(ctx, call)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
-		if out.Kind == execerr.InternalError && h.Log != nil && out.Err != nil {
+		if out.Kind == execerr.KindInternalError && h.Log != nil && out.Err != nil {
 			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message))
+		msg := out.Message
+		if out.Kind == execerr.KindInternalError {
+			msg = execerr.InternalWireMessage
+		}
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, msg))
 		return
 	}
 

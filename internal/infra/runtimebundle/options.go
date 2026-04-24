@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -45,4 +46,6 @@ type BuildOptions struct {
 	TrafficObservers   []traffic.Observer
 	RawCaptureSinks    []traffic.RawCaptureSink
 	TrafficRedactors   []traffic.Redactor
+	// SecureSessionStore is optional; when set on Built, stdhttp may mount secure-session diagnostics.
+	SecureSessionStore app.Store
 }

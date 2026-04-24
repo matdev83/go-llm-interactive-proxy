@@ -26,7 +26,7 @@ func partitionForScope(ctx context.Context, scope lipstate.Scope) (string, error
 			}
 			return t, nil
 		case lipstate.ScopeSession:
-			s := strings.TrimSpace(v.Session.SessionID)
+			s := strings.TrimSpace(v.Session.PartitionKey())
 			if s == "" {
 				return "", lipstate.ErrMissingExecutionContext
 			}

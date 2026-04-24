@@ -17,9 +17,11 @@ import (
 func ViewsFromSubmit(traceID string, aLeg b2bua.ALegRecord, call lipapi.Call, hookAnnotations map[string]string) Views {
 	v := Views{
 		Session: session.SessionView{
-			SessionID: strings.TrimSpace(call.Session.ClientSessionID),
-			ALegID:    strings.TrimSpace(aLeg.ALegID),
-			IsNew:     aLegIsNew(aLeg),
+			AuthoritativeSessionID: strings.TrimSpace(call.Session.AuthoritativeSessionID),
+			ClientSessionHint:      strings.TrimSpace(call.Session.ClientSessionID),
+			ALegID:                 strings.TrimSpace(aLeg.ALegID),
+			IsNew:                  aLegIsNew(aLeg),
+			ResumeEligible:         false,
 		},
 		Attempt: execview.AttemptView{TraceID: strings.TrimSpace(traceID)},
 	}
@@ -34,4 +36,35 @@ func aLegIsNew(a b2bua.ALegRecord) bool {
 		return false
 	}
 	return a.CreatedAt.Equal(a.LastSeenAt)
+}
+
+// SecureSubmitViewsInput carries the parameters for [ViewsFromSecureSubmit] after
+// [app.Manager.BeginTurn] and B2BUA A-leg fetch.
+type SecureSubmitViewsInput struct {
+	TraceID                string
+	ALeg                   b2bua.ALegRecord
+	Call                   lipapi.Call
+	HookAnnotations        map[string]string
+	AuthoritativeSessionID string
+	TurnID                 string
+	ResumeEligible         bool
+	PolicyLabels           map[string]string
+}
+
+// ViewsFromSecureSubmit builds views after [app.Manager.BeginTurn] and B2BUA A-leg fetch.
+// AuthoritativeSessionID and TurnID come from validated secure-session state; Call must not carry raw resume tokens.
+func ViewsFromSecureSubmit(in SecureSubmitViewsInput) Views {
+	v := ViewsFromSubmit(in.TraceID, in.ALeg, in.Call, in.HookAnnotations)
+	v.Session.AuthoritativeSessionID = strings.TrimSpace(in.AuthoritativeSessionID)
+	v.Session.ClientSessionHint = strings.TrimSpace(in.Call.Session.ClientSessionID)
+	v.Session.ResumeEligible = in.ResumeEligible
+	v.Session.TurnID = strings.TrimSpace(in.TurnID)
+	if len(in.PolicyLabels) > 0 {
+		if v.Session.Labels == nil {
+			v.Session.Labels = maps.Clone(in.PolicyLabels)
+		} else {
+			maps.Copy(v.Session.Labels, in.PolicyLabels)
+		}
+	}
+	return v
 }

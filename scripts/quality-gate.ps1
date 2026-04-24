@@ -40,9 +40,9 @@ try {
     Remove-Item Env:LIP_TEST_PRECOMMIT -ErrorAction SilentlyContinue
 }
 
-# On Windows, race checks run inside WSL (see scripts/race-check.ps1).
+# On Windows, race checks are skipped (see scripts/race-check.ps1).
 Write-Host ""
-Write-Host "Running race detector scan (WSL on Windows)..." -ForegroundColor Yellow
+Write-Host "Race detector step (skipped on Windows)..." -ForegroundColor Yellow
 & "$ScriptDir\race-check.ps1" -Staged
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Race detector scan failed!" -ForegroundColor Red

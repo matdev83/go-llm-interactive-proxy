@@ -20,7 +20,7 @@ func TestOpener_upsertsPendingLabel(t *testing.T) {
 	}
 	got, err := o.Open(context.Background(), session.OpenInput{
 		TraceID: "t1",
-		Session: session.SessionView{SessionID: "s1"},
+		Session: session.SessionView{ClientSessionHint: "s1"},
 	})
 	if err != nil {
 		t.Fatal(err)

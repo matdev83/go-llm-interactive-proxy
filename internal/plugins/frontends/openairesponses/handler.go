@@ -78,7 +78,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if sel == "" {
 		sel = strings.TrimSpace(h.DefaultRouteSelector)
 	}
-	decoded, err := DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel})
+	decoded, err := DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
 	if err != nil {
 		if h.Log != nil {
 			diag.LogError(ctx, h.Log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
@@ -99,20 +99,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
 	h.TrafficPorts.Emit(ctx, traffic.LegCTP, traffic.CaptureMeta{
 		TraceID:   traceID,
-		SessionID: strings.TrimSpace(call.Session.ClientSessionID),
+		SessionID: call.Session.CorrelationID(),
 	}, "http", ct, body)
 
 	es, err := h.Exec.Execute(ctx, call)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
-		if out.Kind == execerr.InternalError && h.Log != nil && out.Err != nil {
+		if out.Kind == execerr.KindInternalError && h.Log != nil && out.Err != nil {
 			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
-		code := ""
-		if out.Kind == execerr.ClientReject {
-			code = "unsupported_parameter"
+		switch out.Kind {
+		case execerr.KindSessionDenial:
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, execerr.OpenAIWireErrorType(out.Status), ""))
+		case execerr.KindClientReject:
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, "invalid_request_error", "unsupported_parameter"))
+		default:
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, execerr.InternalWireMessage, "api_error", ""))
 		}
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, "invalid_request_error", code))
 		return
 	}
 

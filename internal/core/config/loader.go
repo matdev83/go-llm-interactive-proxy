@@ -70,6 +70,10 @@ func LoadFile(path string) (*Config, error) {
 		cfg.Continuity.Store = "memory"
 	}
 
+	if cfg.SecureSession.Enabled && strings.TrimSpace(cfg.SecureSession.Store) == "" {
+		cfg.SecureSession.Store = "memory"
+	}
+
 	if strings.TrimSpace(cfg.Logging.Level) == "" {
 		cfg.Logging.Level = "info"
 	}

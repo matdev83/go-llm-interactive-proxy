@@ -3,6 +3,7 @@ package lipapi
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Role identifies who produced a message in the canonical turn sequence.
@@ -15,11 +16,28 @@ const (
 	RoleTool      Role = "tool"
 )
 
-// SessionRef carries client hints and core continuity identifiers.
+// SessionRef carries client hints, core continuity identifiers, and optional proxy-owned session authority.
+//
+// ClientSessionID, ContinuityKey, and ALegID are hints or correlation values unless validated through
+// proxy-owned secure-session state. AuthoritativeSessionID is the proxy-owned session id when issued
+// by the secure session layer. ResumeToken is a bearer resume proof; it must never be forwarded to backends
+// or persisted raw by adapters—only validated via secure-session fingerprints.
+//
+// JSON name remains "SessionID" for wire compatibility.
 type SessionRef struct {
-	ClientSessionID string
-	ContinuityKey   string
-	ALegID          string
+	ClientSessionID        string
+	ContinuityKey          string
+	ALegID                 string
+	AuthoritativeSessionID string `json:"SessionID,omitempty"`
+	ResumeToken            string
+}
+
+// CorrelationID returns a stable identifier for diagnostics and traffic capture: authoritative id when set, otherwise the client hint.
+func (s SessionRef) CorrelationID() string {
+	if x := strings.TrimSpace(s.AuthoritativeSessionID); x != "" {
+		return x
+	}
+	return strings.TrimSpace(s.ClientSessionID)
 }
 
 // RouteIntent captures routing input produced by a frontend decoder.

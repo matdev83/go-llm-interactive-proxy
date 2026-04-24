@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -30,6 +31,8 @@ type recordAttemptParams struct {
 	Cand    routing.AttemptCandidate
 	Outcome lipapi.AttemptOutcome
 	Reason  string
+	// DetailErr is the surfaced failure, when any, for secure-session outcome mapping.
+	DetailErr error
 }
 
 func (e *Executor) recordAttempt(ctx context.Context, p recordAttemptParams) error {
@@ -52,7 +55,7 @@ func (e *Executor) recordAttempt(ctx context.Context, p recordAttemptParams) err
 }
 
 // recordAttemptLogged runs [Executor.recordAttempt]; persistence failure is logged at debug only.
-func (e *Executor) recordAttemptLogged(ctx context.Context, p recordAttemptParams, o diag.AttrOpts) {
+func (e *Executor) recordAttemptLogged(ctx context.Context, p recordAttemptParams, attrOpts diag.AttrOpts) {
 	if e == nil {
 		return
 	}
@@ -60,11 +63,25 @@ func (e *Executor) recordAttemptLogged(ctx context.Context, p recordAttemptParam
 		e.Metrics.OnAttemptRecorded(p.Outcome, p.Cand.Primary.Backend)
 	}
 	if err := e.recordAttempt(ctx, p); err != nil && e.Log != nil {
-		base := diag.Attrs(ctx, o)
+		base := diag.Attrs(ctx, attrOpts)
 		attrs := make([]slog.Attr, 0, len(base)+1)
 		attrs = append(attrs, base...)
 		attrs = append(attrs, slog.Any("error", err))
 		e.Log.LogAttrs(ctx, slog.LevelDebug, "record_attempt_failed", attrs...)
+	}
+	if m := e.secureSessionForAttempt(); m != nil {
+		st, ok := execctx.SecureSessionTurnFromContext(ctx)
+		if !ok {
+			return
+		}
+		out := secureAttemptOutcome(st, p.BLeg, p, e.now())
+		if err := m.RecordAttemptOutcome(context.WithoutCancel(ctx), out); err != nil && e.Log != nil {
+			base := diag.Attrs(ctx, attrOpts)
+			attrs := make([]slog.Attr, 0, len(base)+1)
+			attrs = append(attrs, base...)
+			attrs = append(attrs, slog.Any("error", err))
+			e.Log.LogAttrs(ctx, slog.LevelDebug, "secure_session_attempt_outcome_failed", attrs...)
+		}
 	}
 }
 

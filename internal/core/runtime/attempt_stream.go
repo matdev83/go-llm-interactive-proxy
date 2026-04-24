@@ -56,6 +56,13 @@ type retryRecvStream struct {
 	recvViewsOK bool
 	routePrefs  []string
 
+	// secureTurn preserves validated secure-session ids for attempt trace/outcome on recv paths.
+	secureTurn   execctx.SecureSessionTurn
+	secureTurnOK bool
+	// secureRecvRecordingHardStop blocks recv-phase B-leg replacement after a mandatory recorder failure
+	// once client-visible output is committed for this stream.
+	secureRecvRecordingHardStop bool
+
 	// Completion gates (R8): buffer canonical post-hook events until finish or overflow, then emit drain queue.
 	gateBuf   []lipapi.Event
 	gateDrain []lipapi.Event
@@ -92,6 +99,9 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	ctx := diag.EnsureCallDiag(parent, s.traceID, s.aLegID)
 	if s.recvViewsOK {
 		ctx = execctx.WithViews(ctx, s.recvViews)
+	}
+	if s.secureTurnOK {
+		ctx = execctx.WithSecureSessionTurn(ctx, s.secureTurn)
 	}
 	if len(s.routePrefs) > 0 {
 		ctx = execctx.WithRouteCandidatePreferences(ctx, s.routePrefs)
@@ -132,6 +142,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	for {
 		if ev, ok := s.popGateDrainHead(); ok {
 			ev = s.emitGateDrained(ctx, ev)
+			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
+				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+					return lipapi.Event{}, err
+				}
+				if s.executor != nil && s.executor.Log != nil {
+					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+				}
+			}
 			s.emitTrafficPTC(ctx, ev)
 			return ev, nil
 		}
@@ -188,6 +206,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					return lipapi.Event{}, gerr
 				}
 				out = s.emitGateDrained(ctx, out)
+				if err := s.beforeEmitClientFacing(ctx, out); err != nil {
+					if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+						return lipapi.Event{}, err
+					}
+					if s.executor != nil && s.executor.Log != nil {
+						s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+					}
+				}
 				s.emitTrafficPTC(ctx, out)
 				return out, nil
 			}
@@ -203,6 +229,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				s.finished = true
 			}
+			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
+				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+					return lipapi.Event{}, err
+				}
+				if s.executor != nil && s.executor.Log != nil {
+					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+				}
+			}
 			s.emitTrafficPTC(ctx, ev)
 			return ev, nil
 		}
@@ -215,11 +249,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			if !s.finished {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:  s.aLegID,
-					BLeg:    s.bleg,
-					Cand:    s.cand,
-					Outcome: lipapi.AttemptSurfacedFailure,
-					Reason:  "stream ended without response_finished",
+					ALegID:    s.aLegID,
+					BLeg:      s.bleg,
+					Cand:      s.cand,
+					Outcome:   lipapi.AttemptSurfacedFailure,
+					Reason:    "stream ended without response_finished",
+					DetailErr: io.EOF,
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			}
 			s.finished = true
@@ -234,11 +269,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				)
 			}
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:  s.aLegID,
-				BLeg:    s.bleg,
-				Cand:    s.cand,
-				Outcome: lipapi.AttemptCancelled,
-				Reason:  reason,
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptCancelled,
+				Reason:    reason,
+				DetailErr: err,
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			if c := s.takeAndNilInner(); c != nil {
 				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
@@ -262,25 +298,31 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 			}
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:  s.aLegID,
-				BLeg:    s.bleg,
-				Cand:    s.cand,
-				Outcome: lipapi.AttemptSurfacedFailure,
-				Reason:  attemptReasonDetail(surfErr),
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSurfacedFailure,
+				Reason:    attemptReasonDetail(surfErr),
+				DetailErr: surfErr,
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			return lipapi.Event{}, surfErr
 		}
-		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed",
+		var log *slog.Logger
+		if s.executor != nil {
+			log = s.executor.Log
+		}
+		diag.LogDecision(ctx, log, "recoverable_pre_output_swallowed",
 			diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 			slog.String("candidate_key", s.cand.Key),
 			slog.String("phase", "recv"),
 		)
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:  s.aLegID,
-			BLeg:    s.bleg,
-			Cand:    s.cand,
-			Outcome: lipapi.AttemptSwallowedFailure,
-			Reason:  "recoverable pre-output (recv)",
+			ALegID:    s.aLegID,
+			BLeg:      s.bleg,
+			Cand:      s.cand,
+			Outcome:   lipapi.AttemptSwallowedFailure,
+			Reason:    "recoverable pre-output (recv)",
+			DetailErr: err,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 		if c := s.takeAndNilInner(); c != nil {
 			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
@@ -394,6 +436,14 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	if s.committed && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+		return false, &lipapi.UpstreamFailure{
+			Phase:        lipapi.PhasePostOutput,
+			Recoverable:  false,
+			Reason:       "secure session mandatory recorder failure after committed output",
+			CandidateKey: strings.TrimSpace(s.cand.Key),
+		}
+	}
 	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
 		ctx:         ctx,
 		bus:         s.bus,
@@ -437,12 +487,13 @@ func (s *retryRecvStream) Close() error {
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
 		if s.executor != nil && s.executor.Log != nil {
-			attrs := diag.IsolatedCrashAttrs(context.Background(), pe, diag.CrashAttrOpts{
+			logCtx := diag.EnsureCallDiag(context.Background(), s.traceID, s.aLegID)
+			attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{
 				AttrOpts:   diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 				AttemptSeq: int(s.bleg.Seq),
 			})
 			attrs = diag.AppendIsolatedCrashStack(attrs, pe)
-			s.executor.Log.LogAttrs(context.Background(), slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
+			s.executor.Log.LogAttrs(logCtx, slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
 		}
 		return nil
 	}

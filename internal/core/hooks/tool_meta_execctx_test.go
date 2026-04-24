@@ -30,13 +30,13 @@ func TestApplyToolReactors_enrichesMetaFromExecctxViews(t *testing.T) {
 	cap := &metaCaptureReactor{}
 	bus := hooks.New(hooks.Config{ToolReactors: []sdkhooks.ToolReactor{cap}})
 	ctx := execctx.WithViews(context.Background(), execctx.Views{
-		Session:   session.SessionView{SessionID: "s1"},
+		Session:   session.SessionView{ClientSessionHint: "s1"},
 		Workspace: lipworkspace.WorkspaceView{ProjectRoot: "/root"},
 	})
 	te := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted}
 	base := sdkhooks.ToolMeta{TraceID: "t", ALegID: "a", BLegID: "b", AttemptSeq: 1}
 	_ = bus.ApplyToolReactors(ctx, te, base)
-	if cap.got.Session.SessionID != "s1" {
+	if cap.got.Session.ClientSessionHint != "s1" {
 		t.Fatalf("session %+v", cap.got.Session)
 	}
 	if cap.got.Workspace.ProjectRoot != "/root" {

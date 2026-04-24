@@ -23,6 +23,12 @@ func WriteErrorJSON(w http.ResponseWriter, status int, message string) error {
 	switch {
 	case status == http.StatusBadRequest:
 		we.Error.Status = "INVALID_ARGUMENT"
+	case status == http.StatusUnauthorized:
+		we.Error.Status = "UNAUTHENTICATED"
+	case status == http.StatusForbidden:
+		we.Error.Status = "PERMISSION_DENIED"
+	case status == http.StatusServiceUnavailable:
+		we.Error.Status = "UNAVAILABLE"
 	case status >= 500:
 		we.Error.Status = "INTERNAL"
 	default:

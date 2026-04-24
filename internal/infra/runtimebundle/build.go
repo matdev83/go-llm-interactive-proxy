@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
@@ -95,6 +96,14 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		closers = append(closers, c.Close)
 	}
 
+	ssRun, err := buildSecureSessionRuntime(cfg, store, log, bundle)
+	if err != nil {
+		return nil, err
+	}
+	if ssRun != nil && ssRun.closer != nil {
+		closers = append(closers, ssRun.closer)
+	}
+
 	wireModel := opts.WireModel
 	if wireModel == nil {
 		wireModel = pluginreg.DefaultWireModel
@@ -128,7 +137,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.WorkspaceResolvers) > 0 {
-		ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
+		ss := cfg.SecureSession
+		failClosedWS := ss.Enabled && strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
+		if failClosedWS {
+			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
+		} else {
+			ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
+		}
 	}
 	var openers []session.Opener
 	if len(opts.SessionOpeners) > 0 {
@@ -192,13 +207,19 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Log:                  log,
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
 	}
+	applySecureSessionToExecutor(exec, ssRun)
 	if bundle != nil {
 		exec.Metrics = bundle.ExecutorSink()
 		exec.ExtensionMetrics = bundle.ExtensionStageSink()
+		exec.SecureSessionMetrics = bundle.SecureSessionMetricsSink()
 	}
 	var httpAuth []httpauth.Provider
 	if len(opts.HTTPAuthProviders) > 0 {
 		httpAuth = slices.Clone(opts.HTTPAuthProviders)
+	}
+	secureSessionStore := opts.SecureSessionStore
+	if ssRun != nil {
+		secureSessionStore = ssRun.appStore
 	}
 	return &Built{
 		Executor:              exec,
@@ -210,6 +231,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Metrics:               bundle,
 		RuntimeSnapshot:       snap,
 		HTTPAuthProviders:     httpAuth,
+		SecureSessionStore:    secureSessionStore,
 	}, nil
 }
 

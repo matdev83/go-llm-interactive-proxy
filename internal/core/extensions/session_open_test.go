@@ -29,7 +29,7 @@ func TestRunSessionOpenStage_failOpenContinues(t *testing.T) {
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		SessionOpeners: []session.Opener{openErr{}, open1{}},
 	})
-	in := session.OpenInput{TraceID: "t1", Session: session.SessionView{SessionID: "s"}}
+	in := session.OpenInput{TraceID: "t1", Session: session.SessionView{ClientSessionHint: "s"}}
 	got := extensions.RunSessionOpenStage(context.Background(), nil, nil, snap.SessionOpeners(), in)
 	if got.SessionLabelUpserts["k"] != "v" {
 		t.Fatalf("labels %+v", got.SessionLabelUpserts)

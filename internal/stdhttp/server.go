@@ -15,6 +15,7 @@ import (
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+	ssessiondiag "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
@@ -200,6 +201,23 @@ func RunWithRuntime(
 				log.Info("diagnostics pprof mounted", "path", prefix)
 			}
 		}
+	}
+	if cfg.SecureSession.Enabled && cfg.SecureSession.DiagnosticsExposeSummaries && built.SecureSessionStore != nil {
+		p := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
+		if p == "" {
+			releaseClosers()
+			return fmt.Errorf("stdhttp: secure_session diagnostics_expose_summaries requires secure_session.diagnostics_path_prefix")
+		}
+		base := strings.TrimSuffix(p, "/")
+		ssh, err := ssessiondiag.NewHandler(base, built.SecureSessionStore, cfg.SecureSession.RedactionDefault, nil, log)
+		if err != nil {
+			releaseClosers()
+			return fmt.Errorf("stdhttp: secure-session diagnostics handler: %w", err)
+		}
+		dh := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ssh)
+		mux.Handle("GET "+base+"/", dh)
+		mux.Handle("GET "+base, dh)
+		log.Info("secure-session diagnostics mounted", "path", base)
 	}
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
 	var trafficPorts traffic.PortBundle

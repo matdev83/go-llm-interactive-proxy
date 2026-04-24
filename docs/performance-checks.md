@@ -7,6 +7,7 @@ make bench
 ```
 
 This runs packages under `internal/testkit`, `internal/core/stream`, `internal/core/runtime`, `internal/core/routing`, `internal/core/diag`, and streaming encoders. For a single package, e.g. `go test -bench=. -benchmem -run=Benchmark ./internal/core/runtime/...`.
+Secure-session recorder smoke: `go test -bench=BenchmarkRecorder -benchmem -run=^$ ./internal/core/securesession/app` (also included in `make bench`).
 
 ## Comparing before/after (benchstat)
 

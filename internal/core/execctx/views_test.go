@@ -28,9 +28,16 @@ func TestFromContext_nilContext(t *testing.T) {
 
 func TestWithViews_nilParent(t *testing.T) {
 	t.Parallel()
-	ctx := execctx.WithViews(nil, execctx.Views{}) //nolint:staticcheck // SA1012: intentional nil parent contract
-	if ctx != nil {
-		t.Fatalf("want nil parent unchanged, got %v", ctx)
+	ctx := execctx.WithViews(nil, execctx.Views{}) //nolint:staticcheck // SA1012: exercise nil-parent hardening
+	if ctx == nil {
+		t.Fatal("want non-nil context (nil parent uses context.TODO)")
+	}
+	got, ok := execctx.FromContext(ctx)
+	if !ok {
+		t.Fatal("want views attached")
+	}
+	if got.Principal.ID != "" || len(got.Annotations) != 0 {
+		t.Fatalf("want empty views, got %+v", got)
 	}
 }
 
@@ -43,7 +50,7 @@ func TestWithViews_roundTrip(t *testing.T) {
 			Claims: map[string]string{"tenant": "a"},
 		},
 		Session: session.SessionView{
-			SessionID: "s1", ALegID: "a1", IsNew: true,
+			ClientSessionHint: "s1", ALegID: "a1", IsNew: true,
 			Labels: map[string]string{"k": "v"},
 		},
 		Attempt: execview.AttemptView{
@@ -62,7 +69,7 @@ func TestWithViews_roundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("want views present")
 	}
-	if got.Principal.ID != want.Principal.ID || got.Session.SessionID != want.Session.SessionID {
+	if got.Principal.ID != want.Principal.ID || got.Session.ClientSessionHint != want.Session.ClientSessionHint {
 		t.Fatalf("principal/session mismatch: %+v vs %+v", got, want)
 	}
 	if got.Attempt.BLegID != want.Attempt.BLegID || got.Workspace.ProjectRoot != want.Workspace.ProjectRoot {

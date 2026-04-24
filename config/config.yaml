@@ -69,6 +69,27 @@ continuity:
   # store: sqlite
   # sqlite_path: ./data/continuity.db
 
+# Secure sessions (proxy-owned session id + resume proofs). Disabled by default: no token key or SQLite required.
+# When enabled with store: memory, session evidence is non-durable (lost on restart) unless you use store: sqlite
+# with sqlite_path below. Continuity keys and provider conversation ids are not proof of session ownership; only
+# proxy-issued resume material authorizes a turn.
+# Durable mode (store: sqlite) requires sqlite_path, token_fingerprint_key (>=32 chars), and (for durable audit) audit_durability: durable.
+# secure_session:
+#   enabled: false
+#   store: memory
+#   # sqlite_path: ./data/secure_session.db
+#   resume_window: 168h
+#   token_fingerprint_key: "replace-with-32+byte-secret----------------"
+#   audit_durability: best_effort   # or durable (requires store: sqlite, sqlite_path, and key above)
+#   redaction_default: standard
+#   non_durable_warning: log      # silent | log | strict (memory store: operator log when "log" at startup)
+#   diagnostics_expose_summaries: false
+#   diagnostics_path_prefix: "/debug/sessions"
+#   # When diagnostics_expose_summaries is true, set diagnostics.shared_secret (>=12 chars) so operator routes are not world-readable.
+#   require_workspace_id: false   # when true, reject turns with no resolved workspace id (secure-session BeginTurn)
+#   workspace_resolve_on_error: fail_open   # fail_closed: workspace resolver errors deny the request (Req 11.6)
+#   resume_token_bind_principal_only: false # when true, resume fingerprints use only principal id (stable across client hint drift)
+
 plugins:
   frontends:
     - id: openai-responses
