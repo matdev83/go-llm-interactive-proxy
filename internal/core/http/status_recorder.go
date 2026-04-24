@@ -23,6 +23,17 @@ func (rr *ResponseStatusRecorder) WriteHeader(code int) {
 	rr.ResponseWriter.WriteHeader(code)
 }
 
+// Write implements [net/http.ResponseWriter]. If WriteHeader has not been called yet,
+// the first Write implicitly sets status 200 (matching [net/http.ResponseWriter] rules)
+// so [ResponseStatusRecorder.Status] reflects a committed response for middleware such
+// as panic recovery that must not write a second body after bytes have been sent.
+func (rr *ResponseStatusRecorder) Write(b []byte) (int, error) {
+	if rr.Status == 0 {
+		rr.Status = nethttp.StatusOK
+	}
+	return rr.ResponseWriter.Write(b)
+}
+
 // Flush forwards to the underlying [net/http.Flusher] when supported; otherwise it is a no-op.
 func (rr *ResponseStatusRecorder) Flush() {
 	if f, ok := rr.ResponseWriter.(nethttp.Flusher); ok {
@@ -49,7 +60,11 @@ func (rr *ResponseStatusRecorder) Push(target string, opts *nethttp.PushOptions)
 }
 
 // ReadFrom forwards to the underlying [io.ReaderFrom] when supported.
+// Like [ResponseStatusRecorder.Write], the first body bytes imply status 200 if WriteHeader was not called.
 func (rr *ResponseStatusRecorder) ReadFrom(r io.Reader) (int64, error) {
+	if rr.Status == 0 {
+		rr.Status = nethttp.StatusOK
+	}
 	if rf, ok := rr.ResponseWriter.(io.ReaderFrom); ok {
 		return rf.ReadFrom(r)
 	}

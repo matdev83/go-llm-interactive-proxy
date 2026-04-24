@@ -76,10 +76,7 @@ func retryAfterFromGenaiDetails(details []map[string]any) string {
 		if err != nil || dur <= 0 {
 			continue
 		}
-		secs := int(math.Ceil(dur.Seconds()))
-		if secs < 1 {
-			secs = 1
-		}
+		secs := max(1, int(math.Ceil(dur.Seconds())))
 		return strconv.Itoa(secs)
 	}
 	return ""

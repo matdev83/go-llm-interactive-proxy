@@ -21,13 +21,14 @@ func (gateID) Handle(context.Context, completion.Meta, completion.Buffered, comp
 	return completion.PassOriginalOutcome(), nil
 }
 
-func TestCompletionGatesFromContext_nilCtxUsesFallback(t *testing.T) {
+func TestCompletionGatesFromContext_withoutSnapshotUsesFallback(t *testing.T) {
 	t.Parallel()
 	bus := hooks.New(hooks.Config{})
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates: []completion.Gate{gateID("fb")},
 	})
-	got := extensions.CompletionGatesFromContext(nil, fallback)
+	// context.TODO (like Background) has no snapshot; must hit fallback path.
+	got := extensions.CompletionGatesFromContext(context.TODO(), fallback)
 	if len(got) != 1 || got[0].ID() != "fb" {
 		t.Fatalf("got %+v", got)
 	}

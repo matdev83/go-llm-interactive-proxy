@@ -126,9 +126,9 @@ Prefer repo-defined scripts or make targets:
 
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
 - `make test` — quality checks plus `go test -parallel=8 ./...` (omits `//go:build precommit` files unless you pass `-tags=precommit` as in `make test-precommit-extra` / `make qa`)
-- `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); also run by `make qa`, the git pre-commit quality gate, and CI unit tests
+- `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); used by the pre-commit gate via merged `test-staged` (see `LIP_TEST_PRECOMMIT` in `scripts/test-staged.*`); CI runs `go test -tags=precommit ./...`
+- `make qa` — quality checks, **one** full `go test -tags=precommit ./...`, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-race` — on Windows runs `race-check.sh` inside WSL (see `scripts/race-check.ps1`); on Linux/macOS runs the same shell script natively. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
-- `make qa` — quality checks, unit tests, precommit-tagged tests, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
 - `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
@@ -136,7 +136,7 @@ Prefer repo-defined scripts or make targets:
 - `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
-CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit ./...`, `make parity-checks`, release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint`, and `go tool govulncheck`.
+CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit ./...` (includes `internal/testkit/conformance/...`; no separate parity step), release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint`, and `go tool govulncheck`.
 
 ### Go build and test caching
 

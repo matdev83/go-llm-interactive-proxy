@@ -165,23 +165,22 @@ func TestAcquire_concurrentAcquireAndMark(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 50; j++ {
+	for range 32 {
+		wg.Go(func() {
+			for j := range 50 {
 				c, err := p.Acquire(base, nil)
 				if err != nil {
 					continue
 				}
-				if j%3 == 0 {
+				switch j % 3 {
+				case 0:
 					p.MarkRateLimited(c.ID, base.Add(time.Second))
-				} else if j%3 == 1 {
+				case 1:
 					p.MarkAuthInvalid(c.ID)
 				}
 				_ = c
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

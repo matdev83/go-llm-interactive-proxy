@@ -110,6 +110,7 @@ func (*failResponseWriter) Write([]byte) (int, error) {
 	return 0, errFailsWrite
 }
 
+//nolint:paralleltest // mutates slog default logger; not safe with other tests in parallel.
 func TestAttemptsHandler_encodeError_logsOnce(t *testing.T) {
 	// Uses slog.SetDefault — not parallel-safe with other tests touching the default logger.
 	var logBuf bytes.Buffer

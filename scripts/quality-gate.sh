@@ -17,12 +17,8 @@ echo "Running quality checks..."
 bash "$SCRIPT_DIR/quality-checks.sh"
 
 echo ""
-echo "Running test suite..."
-bash "$SCRIPT_DIR/test-staged.sh"
-
-echo ""
-echo "Running precommit-tagged tests (repo hygiene + executor regression matrices)..."
-bash "$SCRIPT_DIR/precommit-extra-tests.sh"
+echo "Running test suite (staged packages + precommit matrices in one go test)..."
+env LIP_TEST_PRECOMMIT=1 bash "$SCRIPT_DIR/test-staged.sh"
 
 echo ""
 echo "Running race detector scan..."

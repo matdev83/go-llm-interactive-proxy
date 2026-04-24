@@ -86,6 +86,10 @@ func New(cfg Config) execbackend.Backend {
 				}
 				_ = es.Close()
 				kind, retryAfter := classifyGenaiAPIError(rerr)
+				// Anchor pool "now" to the post-response instant. Using the iteration-start
+				// time for Retry-After math can expire the cooldown before MarkRateLimited if
+				// the upstream round trip was slower than the delta (flaky second attempt).
+				now = time.Now()
 				switch kind {
 				case apiFailureAuthInvalid:
 					pool.MarkAuthInvalid(cred.ID)
@@ -95,7 +99,6 @@ func New(cfg Config) execbackend.Backend {
 				default:
 					return nil, rerr
 				}
-				now = time.Now()
 			}
 		},
 	}

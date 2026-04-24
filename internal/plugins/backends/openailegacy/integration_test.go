@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
@@ -181,8 +182,6 @@ func TestIntegration_refbackendToolCallsStream(t *testing.T) {
 	}
 }
 
-func ptrInt(v int) *int { return &v }
-
 func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZero(t *testing.T) {
 	t.Parallel()
 	var reqs atomic.Int32
@@ -200,10 +199,58 @@ func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZer
 		BaseURL:       srv.URL + "/v1",
 		APIKey:        "sk-test",
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "rl",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: backend.ID, Model: "gpt-4o-mini"},
+	}
+	_, err := be.Open(context.Background(), call, cand)
+	if err == nil {
+		t.Fatal("expected Open error from 429 refbackend (single credential exhausted)")
+	}
+	if !lipapi.IsRecoverablePreOutput(err) {
+		t.Fatalf("expected recoverable pre-output, got: %v", err)
+	}
+	if n := reqs.Load(); n != 1 {
+		t.Fatalf("upstream HTTP attempts: %d want 1", n)
+	}
+}
+
+// Regression: Retry-After deltas must be anchored to the error instant, not the start
+// of the credential attempt; otherwise a slow upstream can elapse the whole delta
+// before MarkRateLimited and the pool retries the same key (second HTTP attempt).
+func TestIntegration_refbackend429_singleAttemptAfterSlow429Response(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("sleeps >1s in the test server handler")
+	}
+	var reqs atomic.Int32
+	rb := refbackend.NewHandler(refbackend.Config{
+		ForcedHTTPStatus: http.StatusTooManyRequests,
+		ForcedRetryAfter: "1",
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		time.Sleep(1100 * time.Millisecond)
+		rb.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       srv.URL + "/v1",
+		APIKey:        "sk-test",
+		HTTPClient:    srv.Client(),
+		SDKMaxRetries: new(int),
+	})
+	call := lipapi.Call{
+		ID: "rl-slow",
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},
@@ -257,7 +304,7 @@ func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
 		APIKey:        "sk-429",
 		APIKeys:       []string{"sk-429", "sk-ok"},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "rot429",
@@ -308,7 +355,7 @@ func TestIntegration_multiKey401ThenSuccessOnSecondCredential(t *testing.T) {
 		APIKey:        "sk-bad",
 		APIKeys:       []string{"sk-bad", "sk-ok"},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "rot401",
@@ -359,7 +406,7 @@ func TestIntegration_eventOrderUnchangedAfter429Rotation(t *testing.T) {
 		APIKey:        "sk-429",
 		APIKeys:       []string{"sk-429", "sk-ok"},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "order",

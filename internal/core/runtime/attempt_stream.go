@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -95,6 +96,9 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	if len(s.routePrefs) > 0 {
 		ctx = execctx.WithRouteCandidatePreferences(ctx, s.routePrefs)
 	}
+	if s.executor != nil && s.executor.Log != nil {
+		ctx = hooks.WithDiagnosticsLogger(ctx, s.executor.Log)
+	}
 	return ctx
 }
 
@@ -145,7 +149,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return stream.DefaultKeepaliveEvent(), nil
 			}
 		}
-		ev, err := inner.Recv(ctx)
+		ev, err := safety.CallValue(safety.BoundaryBackend, "backend_recv", func() (lipapi.Event, error) {
+			return inner.Recv(ctx)
+		})
+		if err != nil {
+			var pe *safety.PanicError
+			if errors.As(err, &pe) {
+				err = mapStreamPanic(pe, s.committed)
+			}
+		}
 		if err == nil {
 			s.emitTrafficBTP(ctx, ev)
 			pm, tm := s.recvHookMeta()
@@ -258,7 +270,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			return lipapi.Event{}, surfErr
 		}
-		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
+		diag.LogDecision(ctx, s.executor.Log, "recoverable_pre_output_swallowed",
+			diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 			slog.String("candidate_key", s.cand.Key),
 			slog.String("phase", "recv"),
 		)
@@ -412,8 +425,26 @@ func (s *retryRecvStream) Close() error {
 		return nil
 	}
 	c := s.takeAndNilInner()
-	if c != nil {
-		return c.Close()
+	if c == nil {
+		return nil
 	}
-	return nil
+	err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
+		return c.Close()
+	})
+	if err == nil {
+		return nil
+	}
+	var pe *safety.PanicError
+	if errors.As(err, &pe) {
+		if s.executor != nil && s.executor.Log != nil {
+			attrs := diag.IsolatedCrashAttrs(context.Background(), pe, diag.CrashAttrOpts{
+				AttrOpts:   diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
+				AttemptSeq: int(s.bleg.Seq),
+			})
+			attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+			s.executor.Log.LogAttrs(context.Background(), slog.LevelError, "isolated_panic_backend_stream_close", attrs...)
+		}
+		return nil
+	}
+	return err
 }

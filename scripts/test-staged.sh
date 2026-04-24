@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # test-staged.sh
 # Run tests for packages touched by staged Go files; otherwise ./...
+# Set LIP_TEST_PRECOMMIT=1 (e.g. from quality-gate) to use -tags=precommit and always include
+# ./internal/qa/... and ./internal/core/runtime/... in one invocation (avoids a second go test).
 
 set -euo pipefail
 
 VERBOSE=${VERBOSE:-false}
 
+pre_flags=()
+if [[ "${LIP_TEST_PRECOMMIT:-}" =~ ^(1|true|yes|on)$ ]]; then
+	pre_flags=( -tags=precommit )
+fi
+
 if ! STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR 2>&1); then
 	echo "Error getting staged files. Running all tests..."
-	go test -parallel=8 ./...
+	go test -parallel=8 "${pre_flags[@]}" ./...
 	exit $?
 fi
 
@@ -17,7 +24,7 @@ TEST_FILES=$(echo "$STAGED_FILES" | grep '_test\.go$' || true)
 
 if [ -z "$GO_FILES" ] && [ -z "$TEST_FILES" ]; then
 	echo "No Go files staged. Running all tests..."
-	go test -parallel=8 ./...
+	go test -parallel=8 "${pre_flags[@]}" ./...
 	exit $?
 fi
 
@@ -31,8 +38,13 @@ done
 
 if [ ${#PACKAGES[@]} -eq 0 ]; then
 	echo "No packages identified. Running all tests..."
-	go test -parallel=8 ./...
+	go test -parallel=8 "${pre_flags[@]}" ./...
 	exit $?
+fi
+
+if [[ "${LIP_TEST_PRECOMMIT:-}" =~ ^(1|true|yes|on)$ ]]; then
+	PACKAGES["./internal/qa/..."]=1
+	PACKAGES["./internal/core/runtime/..."]=1
 fi
 
 echo "Testing packages:"
@@ -47,5 +59,5 @@ for pkg in "${!PACKAGES[@]}"; do
 done
 
 # Omit -count=1 so Go's test result cache can skip unchanged packages on repeat runs (build cache is always on via GOCACHE).
-go test -parallel=8 $PKG_LIST
+go test -parallel=8 "${pre_flags[@]}" $PKG_LIST
 exit $?

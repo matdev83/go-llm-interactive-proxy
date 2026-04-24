@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -31,9 +32,12 @@ func (b *Bus) RunSubmit(ctx context.Context, call *lipapi.Call, meta *sdk.Submit
 		if execctx.IsSuppressedPluginID(ctx, h.ID()) {
 			continue
 		}
-		dec, err := h.Handle(ctx, call, meta)
+		dec, err := safety.CallValue(safety.BoundaryExtension, "submit_hook", func() (sdk.SubmitDecision, error) {
+			return h.Handle(ctx, call, meta)
+		})
 		if err != nil {
 			if h.FailureMode() == sdk.FailOpen {
+				logFailOpenHookPanic(ctx, "submit_hook", h.ID(), err)
 				continue
 			}
 			return fmt.Errorf("submit hook %q: %w", h.ID(), err)

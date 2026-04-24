@@ -1,9 +1,14 @@
 package stdhttp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -12,6 +17,7 @@ import (
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -313,6 +319,121 @@ func TestRunWithRuntime_metricsEnabledRequiresBuiltMetrics(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "built.Metrics") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Does not use t.Parallel: it mutates package-level [listenAndServe] used by [RunWithRuntime].
+//
+//nolint:paralleltest // mutates global listenAndServe; must not run concurrently with other tests touching it.
+func TestRunWithRuntime_listenAndServePanic_reportsAsServeError(t *testing.T) {
+	orig := listenAndServe
+	t.Cleanup(func() { listenAndServe = orig })
+	listenAndServe = func(_ *http.Server) error {
+		panic("injected listen failure")
+	}
+	ctx := context.Background()
+	cfg := &coreconfig.Config{
+		Server:     coreconfig.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3, DefaultRoute: "openai-responses:gpt-4o-mini"},
+		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
+		Plugins: coreconfig.PluginsConfig{
+			Frontends: []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: false}},
+		},
+	}
+	log := testkit.DiscardLogger()
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RunWithRuntime(ctx, cfg, app, log, built)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "stdhttp: serve") {
+		t.Fatalf("error %q missing serve context", err.Error())
+	}
+	var pe *safety.PanicError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *safety.PanicError in error chain, got %v", err)
+	}
+	if pe.Boundary() != safety.BoundaryWorker {
+		t.Fatalf("boundary=%q want %q", pe.Boundary(), safety.BoundaryWorker)
+	}
+}
+
+// Does not use t.Parallel: it mutates package-level [listenAndServe] used by [RunWithRuntime].
+//
+//nolint:paralleltest // mutates global listenAndServe; must not run concurrently with other tests touching it.
+func TestRunWithRuntime_listenAndServePanic_logsIsolatedCrashAttrs(t *testing.T) {
+	orig := listenAndServe
+	t.Cleanup(func() { listenAndServe = orig })
+	listenAndServe = func(_ *http.Server) error {
+		panic("injected listen failure")
+	}
+	ctx := context.Background()
+	cfg := &coreconfig.Config{
+		Server:     coreconfig.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3, DefaultRoute: "openai-responses:gpt-4o-mini"},
+		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
+		Plugins: coreconfig.PluginsConfig{
+			Frontends: []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: false}},
+		},
+	}
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelError}))
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RunWithRuntime(ctx, cfg, app, log, built)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "injected listen failure") {
+		t.Fatalf("serve error must not include raw panic text, got %q", err.Error())
+	}
+	var pe *safety.PanicError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *safety.PanicError in error chain, got %v", err)
+	}
+	if want := "isolated panic: boundary=owned_worker operation=listen_and_serve"; pe.Error() != want {
+		t.Fatalf("PanicError.Error()=%q want %q", pe.Error(), want)
+	}
+
+	var foundWorkerMsg bool
+	scan := bufio.NewScanner(&logBuf)
+	for scan.Scan() {
+		line := scan.Bytes()
+		var m map[string]any
+		if err := json.Unmarshal(line, &m); err != nil {
+			t.Fatalf("log line: %s", err)
+		}
+		if m["msg"] != "stdhttp: isolated panic in listenAndServe worker" {
+			continue
+		}
+		foundWorkerMsg = true
+		if m["panic_boundary"] != "owned_worker" {
+			t.Fatalf("panic_boundary=%v want owned_worker", m["panic_boundary"])
+		}
+		if m["operation"] != "listen_and_serve" {
+			t.Fatalf("operation=%v want listen_and_serve", m["operation"])
+		}
+	}
+	if err := scan.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !foundWorkerMsg {
+		t.Fatalf("expected listenAndServe worker isolated panic log, got %q", logBuf.String())
 	}
 }
 

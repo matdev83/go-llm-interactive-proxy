@@ -28,19 +28,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Running test suite..." -ForegroundColor Yellow
-& "$ScriptDir\test-staged.ps1"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Tests failed!" -ForegroundColor Red
-    exit $LASTEXITCODE
-}
-
-Write-Host ""
-Write-Host "Running precommit-tagged tests (repo hygiene + executor regression matrices)..." -ForegroundColor Yellow
-& "$ScriptDir\precommit-extra-tests.ps1"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Precommit-tagged tests failed!" -ForegroundColor Red
-    exit $LASTEXITCODE
+Write-Host "Running test suite (staged packages + precommit matrices in one go test)..." -ForegroundColor Yellow
+$env:LIP_TEST_PRECOMMIT = "1"
+try {
+    & "$ScriptDir\test-staged.ps1"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Tests failed!" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+} finally {
+    Remove-Item Env:LIP_TEST_PRECOMMIT -ErrorAction SilentlyContinue
 }
 
 # On Windows, race checks run inside WSL (see scripts/race-check.ps1).

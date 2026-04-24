@@ -7,6 +7,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# When set (e.g. by quality-gate), run one go test with -tags=precommit and always include
+# internal/qa + core/runtime so pre-commit does not run two separate test compilations.
+$precommitMode = $env:LIP_TEST_PRECOMMIT -match '^(?i:1|true|yes|on)$'
+$preFlags = @()
+if ($precommitMode) {
+    $preFlags = @("-tags=precommit")
+}
+
 $stagedFilesRaw = git diff --cached --name-only --diff-filter=ACMR 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error getting staged files. Running all tests..." -ForegroundColor Yellow
@@ -20,7 +28,7 @@ $testFiles = @($stagedFiles | Where-Object { $_ -match '_test\.go$' })
 
 if (-not $goFiles -and -not $testFiles) {
     Write-Host "No Go files staged. Running all tests..." -ForegroundColor Cyan
-    go test -parallel=8 ./...
+    go test -parallel=8 @preFlags ./...
     exit $LASTEXITCODE
 }
 
@@ -35,8 +43,13 @@ foreach ($file in ($goFiles + $testFiles)) {
 
 if ($packages.Count -eq 0) {
     Write-Host "No packages identified. Running all tests..." -ForegroundColor Cyan
-    go test -parallel=8 ./...
+    go test -parallel=8 @preFlags ./...
     exit $LASTEXITCODE
+}
+
+if ($precommitMode) {
+    [void]$packages.Add("./internal/qa/...")
+    [void]$packages.Add("./internal/core/runtime/...")
 }
 
 Write-Host "Testing packages:" -ForegroundColor Green
@@ -47,5 +60,5 @@ Write-Host ""
 
 $packageList = @($packages)
 # Omit -count=1 so Go's test result cache can skip unchanged packages on repeat runs (build cache is always on via GOCACHE).
-go test -parallel=8 @packageList
+go test -parallel=8 @preFlags @packageList
 exit $LASTEXITCODE

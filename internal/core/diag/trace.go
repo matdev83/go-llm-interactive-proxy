@@ -2,103 +2,44 @@ package diag
 
 import (
 	"context"
-	"fmt"
-	"sync/atomic"
 
-	oteltrace "go.opentelemetry.io/otel/trace"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/lineage"
 )
 
-type TraceIDGenerator struct {
-	seq atomic.Uint64
-}
+// TraceIDGenerator re-exports [lineage.TraceIDGenerator] for backward-compatible wiring.
+type TraceIDGenerator = lineage.TraceIDGenerator
 
+// NewTraceIDGenerator re-exports [lineage.NewTraceIDGenerator].
 func NewTraceIDGenerator() *TraceIDGenerator {
-	return &TraceIDGenerator{}
+	return lineage.NewTraceIDGenerator()
 }
 
-func (g *TraceIDGenerator) Next() string {
-	return fmt.Sprintf("t_%08d", g.seq.Add(1))
-}
-
-type ctxKey int
-
-const (
-	keyTraceID ctxKey = iota + 1
-	keyALegID
-	keyCallDiag
-)
-
-// callDiag carries trace and A-leg identifiers in a single context.Value for hot paths.
-type callDiag struct {
-	Trace string
-	ALeg  string
-}
-
-// WithTraceID returns a child context that carries traceID for diagnostics propagation.
+// WithTraceID re-exports [lineage.WithTraceID].
 func WithTraceID(ctx context.Context, traceID string) context.Context {
-	return context.WithValue(ctx, keyTraceID, traceID)
+	return lineage.WithTraceID(ctx, traceID)
 }
 
-// WithCallDiag attaches traceID and aLegID in one context layer (one allocation).
-// Use on streaming hot paths instead of chaining WithTraceID and WithALeg.
-// ctx must be non-nil for production call paths; use [context.TODO] only in tests.
+// WithCallDiag re-exports [lineage.WithCallDiag].
 func WithCallDiag(ctx context.Context, traceID, aLegID string) context.Context {
-	return context.WithValue(ctx, keyCallDiag, callDiag{Trace: traceID, ALeg: aLegID})
+	return lineage.WithCallDiag(ctx, traceID, aLegID)
 }
 
-// EnsureCallDiag behaves like [WithCallDiag], but returns ctx unchanged when [TraceID]
-// and [ALegID] already match traceID and aLegID (including legacy WithTraceID/WithALeg pairs).
-// Use on streaming hot paths to avoid an extra context layer allocation per Recv/event.
-//
-// If ctx is nil, the result is based on [context.TODO] (not [context.Background]) so call
-// sites without cancellation are obvious in code review. APIs that require a request-scoped
-// context should still validate non-nil [context.Context] at their boundary; do not rely on
-// nil here for production traffic.
+// EnsureCallDiag re-exports [lineage.EnsureCallDiag].
 func EnsureCallDiag(ctx context.Context, traceID, aLegID string) context.Context {
-	if ctx == nil {
-		return WithCallDiag(context.TODO(), traceID, aLegID)
-	}
-	if TraceID(ctx) == traceID && ALegID(ctx) == aLegID {
-		return ctx
-	}
-	return WithCallDiag(ctx, traceID, aLegID)
+	return lineage.EnsureCallDiag(ctx, traceID, aLegID)
 }
 
-// TraceID returns the trace identifier from ctx, or empty string if unset.
-// Precedence: explicit LIP context ([WithCallDiag], [WithTraceID]) over the OpenTelemetry
-// W3C trace id so client X-Trace-ID and in-process correlation win in logs while OTLP export
-// still uses the active span.
+// TraceID re-exports [lineage.TraceID].
 func TraceID(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	if v, ok := ctx.Value(keyCallDiag).(callDiag); ok && v.Trace != "" {
-		return v.Trace
-	}
-	if v, ok := ctx.Value(keyTraceID).(string); ok && v != "" {
-		return v
-	}
-	if span := oteltrace.SpanFromContext(ctx); span.SpanContext().IsValid() {
-		return span.SpanContext().TraceID().String()
-	}
-	return ""
+	return lineage.TraceID(ctx)
 }
 
-// WithALeg returns a child context that carries the A-leg identifier for lineage diagnostics.
+// WithALeg re-exports [lineage.WithALeg].
 func WithALeg(ctx context.Context, aLegID string) context.Context {
-	return context.WithValue(ctx, keyALegID, aLegID)
+	return lineage.WithALeg(ctx, aLegID)
 }
 
-// ALegID returns the A-leg identifier from ctx, or empty string if unset.
+// ALegID re-exports [lineage.ALegID].
 func ALegID(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	if v, ok := ctx.Value(keyCallDiag).(callDiag); ok {
-		return v.ALeg
-	}
-	if v, ok := ctx.Value(keyALegID).(string); ok {
-		return v
-	}
-	return ""
+	return lineage.ALegID(ctx)
 }

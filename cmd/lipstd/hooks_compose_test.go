@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -32,6 +33,9 @@ func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 	cfg, err := config.LoadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
+	}
+	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
+		t.Fatalf("model_aliases: %v", err)
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
@@ -93,6 +97,9 @@ func TestNewBootstrapApp_withComposedHooks(t *testing.T) {
 	cfg, err := config.LoadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
+	}
+	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
+		t.Fatalf("model_aliases: %v", err)
 	}
 	regs := config.RegistrationsFromConfig(cfg)
 	hookCfg, _, err := reg.BuildFeatureHooks(regs)

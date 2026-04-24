@@ -12,6 +12,9 @@ func Validate(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config: nil")
 	}
+	if cfg.ModelAliases == nil {
+		cfg.ModelAliases = []ModelAliasConfig{}
+	}
 	if err := validatePluginSlice("plugins.frontends", cfg.Plugins.Frontends); err != nil {
 		return err
 	}

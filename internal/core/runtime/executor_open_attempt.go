@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -57,7 +58,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		IsRetryPath:            p.isRetryPath,
 	})
 	if err != nil {
-		if errors.Is(err, routing.ErrNoEligibleCandidate) && p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject {
+		noEligible := errors.Is(err, routing.ErrNoEligibleCandidate)
+		lastNegotiationReject := p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject
+		if noEligible && lastNegotiationReject {
 			return zero, p.lastReject.Err()
 		}
 		return zero, fmt.Errorf("executor: expand failover: %w", err)
@@ -73,7 +76,30 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	if !ok {
 		return zero, fmt.Errorf("executor: unknown backend %q", c.Primary.Backend)
 	}
-	res := lipapi.Negotiate(req, e.capsForAttempt(p.ctx, be, attempt, c))
+	res, negotiatePanicErr := safety.CallValue(
+		safety.BoundaryBackend,
+		"backend_capability_negotiate",
+		func() (lipapi.NegotiationResult, error) {
+			return lipapi.Negotiate(req, e.capsForAttempt(p.ctx, be, attempt, c)), nil
+		},
+	)
+	if negotiatePanicErr != nil {
+		var pe *safety.PanicError
+		if errors.As(negotiatePanicErr, &pe) {
+			if e != nil && e.Log != nil {
+				attrs := diag.IsolatedCrashAttrs(p.ctx, pe, diag.CrashAttrOpts{AttrOpts: diag.AttrOpts{CallID: p.traceID}})
+				attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+				e.Log.LogAttrs(p.ctx, slog.LevelError, "isolated_panic_capability_negotiate", attrs...)
+			}
+			diag.LogDecision(p.ctx, e.Log, "capability_negotiate_panic_exclude", diag.AttrOpts{CallID: p.traceID},
+				slog.String("candidate_key", c.Key),
+				slog.String("backend", c.Primary.Backend),
+			)
+			p.excluded[c.Key] = struct{}{}
+			return zero, nil
+		}
+		return zero, negotiatePanicErr
+	}
 	if res.Kind == lipapi.NegotiationReject {
 		if p.lastReject != nil {
 			*p.lastReject = res
@@ -109,7 +135,11 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	if err != nil {
 		return zero, fmt.Errorf("executor: next b-leg: %w", err)
 	}
-	if err := p.bus.RunRequestPartHooks(p.ctx, &attempt, sdk.PartMeta{
+	hookCtx := p.ctx
+	if e != nil && e.Log != nil {
+		hookCtx = hooks.WithDiagnosticsLogger(p.ctx, e.Log)
+	}
+	if err := p.bus.RunRequestPartHooks(hookCtx, &attempt, sdk.PartMeta{
 		TraceID:    p.traceID,
 		ALegID:     p.aLegID,
 		BLegID:     bleg.BLegID,
@@ -148,8 +178,16 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	)
 	defer openSpan.End()
 	openStart := time.Now()
-	stream, err := be.Open(openCtx, openCall, c)
+	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.EventStream, error) {
+		return be.Open(openCtx, openCall, c)
+	})
 	openDur := time.Since(openStart).Seconds()
+	if err != nil {
+		var pe *safety.PanicError
+		if errors.As(err, &pe) {
+			err = mapBackendPanic(pe, false, c.Key)
+		}
+	}
 	if e != nil && e.Metrics != nil {
 		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)
 	}
@@ -164,7 +202,8 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 				Outcome: lipapi.AttemptSwallowedFailure,
 				Reason:  "recoverable pre-output (open)",
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
-			diag.LogDecision(p.ctx, e.Log, "recoverable_pre_output_swallowed", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
+			diag.LogDecision(p.ctx, e.Log, "recoverable_pre_output_swallowed",
+				diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
 			)

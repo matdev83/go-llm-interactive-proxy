@@ -88,7 +88,6 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 	}
 
 	for _, row := range doc.Packages {
-		row := row
 		t.Run(strings.TrimPrefix(row.GoListPattern, "./"), func(t *testing.T) {
 			t.Parallel()
 			if row.GoListPattern == "" {

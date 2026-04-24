@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -16,7 +16,7 @@ help:
 	@echo "  make parity-checks   - conformance package tests only (API parity suites + matrix; see .kiro/specs/llm-api-parity/)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag, frontend encoders)"
-	@echo "  make qa              - quality-checks + unit tests + lint + vuln (local)"
+	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit) + lint + vuln (local)"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks"
 	@echo "  make run             - go run ./cmd/lipstd"
@@ -105,7 +105,11 @@ bench:
 		./internal/plugins/frontends/openairesponses/... \
 		./internal/plugins/frontends/anthropic/...
 
-qa: quality-checks test-unit test-precommit-extra lint vuln
+# Single test invocation matches CI (go test -tags=precommit ./...) and avoids compiling twice.
+qa: quality-checks qa-tests lint vuln
+
+qa-tests:
+	$(GO) test $(GO_TEST_FLAGS) -tags=precommit ./...
 
 vet:
 	$(GO) vet ./...

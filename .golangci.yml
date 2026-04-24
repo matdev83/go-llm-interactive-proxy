@@ -2,6 +2,7 @@ version: "2"
 
 run:
   timeout: 10m
+  # Linting *_test.go catches more issues but roughly doubles analyzer work vs tests: false.
   tests: true
 
 linters:

@@ -255,8 +255,6 @@ func TestIntegration_refbackendToolUseStream(t *testing.T) {
 	}
 }
 
-func ptrInt(v int) *int { return &v }
-
 func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZero(t *testing.T) {
 	t.Parallel()
 	var reqs atomic.Int32
@@ -274,7 +272,7 @@ func TestIntegration_refbackend429_singleUpstreamHTTPAttemptWhenSDKMaxRetriesZer
 		BaseURL:       srv.URL,
 		APIKey:        testkit.SyntheticAnthropicAPIKey,
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "rl",
@@ -327,7 +325,7 @@ func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
 		APIKey:        "sk-429",
 		APIKeys:       []string{"sk-429", testkit.SyntheticAnthropicAPIKey},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "rot429",
@@ -378,7 +376,7 @@ func TestIntegration_multiKey401ThenSuccessOnSecondCredential(t *testing.T) {
 		APIKey:        "sk-bad",
 		APIKeys:       []string{"sk-bad", testkit.SyntheticAnthropicAPIKey},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "rot401",
@@ -420,7 +418,7 @@ func TestIntegration_paramsErrorDoesNotRotateCredentials(t *testing.T) {
 		APIKey:        "sk-a",
 		APIKeys:       []string{"sk-a", "sk-b"},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 	call := lipapi.Call{
 		ID: "params",

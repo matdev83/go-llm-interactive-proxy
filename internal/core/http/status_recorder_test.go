@@ -59,6 +59,9 @@ func TestResponseStatusRecorder_ReadFromForwards(t *testing.T) {
 	if base.Body.String() != "hello" {
 		t.Fatalf("body = %q", base.Body.String())
 	}
+	if rr.Status != http.StatusOK {
+		t.Fatalf("Status after ReadFrom = %d want %d", rr.Status, http.StatusOK)
+	}
 }
 
 func TestResponseStatusRecorder_ReadFromFallsBackToCopy(t *testing.T) {
@@ -71,6 +74,21 @@ func TestResponseStatusRecorder_ReadFromFallsBackToCopy(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("n = %d", n)
+	}
+	if rr.Status != http.StatusOK {
+		t.Fatalf("Status after ReadFrom = %d want %d", rr.Status, http.StatusOK)
+	}
+}
+
+func TestResponseStatusRecorder_Write_setsImplicitOKWithoutWriteHeader(t *testing.T) {
+	t.Parallel()
+	base := httptest.NewRecorder()
+	rr := &corehttp.ResponseStatusRecorder{ResponseWriter: base}
+	if _, err := rr.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if rr.Status != http.StatusOK {
+		t.Fatalf("Status = %d want %d", rr.Status, http.StatusOK)
 	}
 }
 

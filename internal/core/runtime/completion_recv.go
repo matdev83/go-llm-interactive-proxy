@@ -7,12 +7,17 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 )
 
 // errGateContinueInner signals Recv to pull another inner event without returning to the client yet.
 var errGateContinueInner = errors.New("runtime: completion gate continue buffering")
+
+func gateBufHasCommittedOutput(buf []lipapi.Event) bool {
+	return slices.ContainsFunc(buf, lipapi.OutputCommitted)
+}
 
 func (s *retryRecvStream) completionSnapshot(ctx context.Context) *extensions.RequestRuntimeSnapshot {
 	if snap := extensions.RequestRuntimeSnapshotFromContext(ctx); snap != nil {
@@ -57,7 +62,11 @@ func (s *retryRecvStream) emitGateDrained(ctx context.Context, ev lipapi.Event) 
 	return ev
 }
 
-func (s *retryRecvStream) completionGatedEmit(ctx context.Context, gates []completion.Gate, ev lipapi.Event) (lipapi.Event, error) {
+func (s *retryRecvStream) completionGatedEmit(
+	ctx context.Context,
+	gates []completion.Gate,
+	ev lipapi.Event,
+) (lipapi.Event, error) {
 	if s.gateLive {
 		return ev, nil
 	}
@@ -99,11 +108,22 @@ func (s *retryRecvStream) completionGatedEmit(ctx context.Context, gates []compl
 			svc.State = snap.State()
 			svc.Aux = snap.Aux()
 		}
-		out, err := extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, s.committed, svc)
-		s.gateBuf = nil
+		committedForPanic := s.committed || gateBufHasCommittedOutput(s.gateBuf)
+		out, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() ([]lipapi.Event, error) {
+			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, s.committed, svc)
+		})
 		if err != nil {
+			var pe *safety.PanicError
+			if errors.As(err, &pe) {
+				s.gateBuf = nil
+				s.gateDrain = nil
+				s.gateLive = false
+				return lipapi.Event{}, mapStreamPanic(pe, committedForPanic)
+			}
+			s.gateBuf = nil
 			return lipapi.Event{}, err
 		}
+		s.gateBuf = nil
 		if len(out) == 0 {
 			return lipapi.Event{}, errors.New("runtime: completion gate produced empty stream")
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
@@ -22,13 +23,51 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
+// listenAndServe is the [http.Server.ListenAndServe] implementation (overridable in tests).
+var listenAndServe = func(srv *http.Server) error { return srv.ListenAndServe() }
+
+// stackHTTPInput carries dependencies for [stackHTTPHandler] (same stack as [RunWithRuntime]).
+type stackHTTPInput struct {
+	Cfg      *config.Config
+	Log      *slog.Logger
+	Built    *runtimebundle.Built
+	TraceGen *diag.TraceIDGenerator
+	Inner    http.Handler
+	HTTPProm *metrics.HTTPMetrics
+}
+
+// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner: tracing
+// and metrics, then request ID, access log, recovery, transport auth, route mux). Innermost is
+// the shared [http.ServeMux] from mounting.
+//
+// Panic containment: [RecoveryMiddleware] wraps transport auth and the mux only. Panics in access
+// logging, Prometheus metrics, or OpenTelemetry HTTP middleware still propagate to the root handler
+// (no recovery there); keep those layers minimal so request-scoped containment remains meaningful.
+func stackHTTPHandler(in stackHTTPInput) http.Handler {
+	cfg, log, built, traceGen, inner, httpProm := in.Cfg, in.Log, in.Built, in.TraceGen, in.Inner, in.HTTPProm
+	if built == nil {
+		built = &runtimebundle.Built{}
+	}
+	h := stdauth.Middleware(log, built.HTTPAuthProviders, inner)
+	h = RecoveryMiddleware(log, h)
+	h = accessLogMiddleware(cfg, log, h)
+	h = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, h))
+	if httpProm != nil {
+		h = httpProm.Middleware(h)
+	}
+	if cfg != nil && cfg.Observability.Tracing.Enabled {
+		h = tracing.HTTPMiddleware(true, h)
+	}
+	return h
+}
+
 // Run is a convenience wrapper: it calls [runtimebundle.Build] with cfg, app.HookBus(), log,
 // and [runtimebundle.BuildOptions.PluginRegistry] set to reg, then [RunWithRuntime].
 //
-// Composition roots (for example the lipstd command in directory cmd/lipstd) should normally call [runtimebundle.Build] once
-// themselves—so shared [runtimebundle.BuildOptions] (custom HTTP client, wire model, etc.) are
-// explicit—and pass the resulting [*runtimebundle.Built] to [RunWithRuntime]. That avoids an
-// extra assembly pass and matches how tests exercise the server.
+// Composition roots (for example the lipstd command in directory cmd/lipstd) should normally
+// call [runtimebundle.Build] once themselves—so shared [runtimebundle.BuildOptions] (custom HTTP
+// client, wire model, etc.) are explicit—and pass the resulting [*runtimebundle.Built] to
+// [RunWithRuntime]. That avoids an extra assembly pass and matches how tests exercise the server.
 func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger, reg *pluginreg.Registry) error {
 	if reg == nil {
 		return errors.New("stdhttp: nil plugin registry")
@@ -59,7 +98,13 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 
 // RunWithRuntime mounts bundled frontends and diagnostics, serves HTTP, then shuts down in order:
 // stop HTTP server, app feature lifecycles, then resource closers.
-func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger, built *runtimebundle.Built) error {
+func RunWithRuntime(
+	ctx context.Context,
+	cfg *config.Config,
+	app *runtime.App,
+	log *slog.Logger,
+	built *runtimebundle.Built,
+) error {
 	if cfg == nil {
 		return errors.New("stdhttp: nil config")
 	}
@@ -183,20 +228,11 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	}
 
 	traceGen := diag.NewTraceIDGenerator()
-	inner := http.Handler(mux)
-	// Stack below builds outer → inner. After the next three lines: OpenTelemetry trace + request
-	// ID, then access log, then transport auth, then the mux/frontend routes (R4: auth before decode to mux).
-	// Optional prometheus/tracing layers below wrap the same core further outward.
-	inner = stdauth.Middleware(log, built.HTTPAuthProviders, inner)
-	inner = accessLogMiddleware(cfg, log, inner)
-	inner = corehttp.TraceMiddleware(corehttp.RequestIDMiddleware(traceGen, inner))
-	if httpProm != nil {
-		inner = httpProm.Middleware(inner)
-	}
-	if cfg.Observability.Tracing.Enabled {
-		inner = tracing.HTTPMiddleware(true, inner)
-	}
-	handler := inner
+	// outer → inner: optional OpenTelemetry HTTP, optional Prometheus, trace + request ID, access
+	// log, request panic recovery, transport auth, then mux/frontend routes (R4: auth after recovery).
+	handler := stackHTTPHandler(stackHTTPInput{
+		Cfg: cfg, Log: log, Built: built, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Server.Address,
@@ -209,7 +245,28 @@ func RunWithRuntime(ctx context.Context, cfg *config.Config, app *runtime.App, l
 	log.Info("listening", "addr", cfg.Server.Address)
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() {
+		err := func() (err error) {
+			defer func() {
+				if p := recover(); p != nil {
+					pe := safety.Capture(safety.BoundaryWorker, "listen_and_serve", p)
+					if log != nil {
+						logCtx := context.Background()
+						if ctx != nil {
+							logCtx = context.WithoutCancel(ctx)
+						}
+						attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{})
+						attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+						log.LogAttrs(logCtx, slog.LevelError, "stdhttp: isolated panic in listenAndServe worker", attrs...)
+					}
+					// [RunWithRuntime] wraps the channel result once with "stdhttp: serve".
+					err = pe
+				}
+			}()
+			return listenAndServe(srv)
+		}()
+		errCh <- err
+	}()
 
 	select {
 	case <-ctx.Done():

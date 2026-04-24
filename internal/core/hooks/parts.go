@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -21,8 +22,12 @@ func (b *Bus) RunRequestPartHooks(ctx context.Context, call *lipapi.Call, meta s
 		reqParts = b.requestParts
 	}
 	for _, h := range reqParts {
-		if err := h.HandleRequestParts(ctx, call, meta); err != nil {
+		err := safety.Call(safety.BoundaryExtension, "request_part_hook", func() error {
+			return h.HandleRequestParts(ctx, call, meta)
+		})
+		if err != nil {
 			if h.FailureMode() == sdk.FailOpen {
+				logFailOpenHookPanic(ctx, "request_part_hook", h.ID(), err)
 				continue
 			}
 			return fmt.Errorf("request part hook %q: %w", h.ID(), err)
@@ -47,8 +52,12 @@ func (b *Bus) RunResponsePartHooks(ctx context.Context, ev *lipapi.Event, meta s
 		respParts = b.responseParts
 	}
 	for _, h := range respParts {
-		if err := h.HandleEvent(ctx, ev, meta); err != nil {
+		err := safety.Call(safety.BoundaryExtension, "response_part_hook", func() error {
+			return h.HandleEvent(ctx, ev, meta)
+		})
+		if err != nil {
 			if h.FailureMode() == sdk.FailOpen {
+				logFailOpenHookPanic(ctx, "response_part_hook", h.ID(), err)
 				continue
 			}
 			return fmt.Errorf("response part hook %q: %w", h.ID(), err)

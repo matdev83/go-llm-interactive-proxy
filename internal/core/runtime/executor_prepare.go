@@ -99,6 +99,9 @@ func (e *Executor) prepareSubmitAndALeg(ctx context.Context, bus *hooks.Bus, cal
 	}
 
 	submitMeta := &sdk.SubmitMeta{TraceID: traceID, Annotations: map[string]string{}}
+	if e.Log != nil {
+		outCtx = hooks.WithDiagnosticsLogger(outCtx, e.Log)
+	}
 	if err := bus.RunSubmit(outCtx, &work, submitMeta); err != nil {
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}

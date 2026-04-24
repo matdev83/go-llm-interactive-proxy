@@ -3,9 +3,12 @@ package stream
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -24,6 +27,8 @@ type KeepaliveConfig struct {
 	Interval time.Duration
 	// NewKeepalive builds the synthetic event. Nil selects DefaultKeepaliveEvent.
 	NewKeepalive func() lipapi.Event
+	// Log when set receives the rare reader-panic log when the panic cannot be sent on the result channel.
+	Log *slog.Logger
 }
 
 // KeepaliveEventCode is the WarningCode used for canonical keepalive events.
@@ -108,8 +113,11 @@ func NewKeepalive(s lipapi.EventStream, cfg KeepaliveConfig) (*Keepalive, error)
 		cfg: KeepaliveConfig{
 			Interval:     cfg.Interval,
 			NewKeepalive: kaFn,
+			Log:          cfg.Log,
 		},
-		result: make(chan item, 1),
+		// Buffer 2: one slot may hold a queued inner event while Recv waits on the keepalive
+		// timer; the reader goroutine must still be able to deliver a panic without dropping it.
+		result: make(chan item, 2),
 		done:   make(chan struct{}),
 	}, nil
 }
@@ -117,7 +125,25 @@ func NewKeepalive(s lipapi.EventStream, cfg KeepaliveConfig) (*Keepalive, error)
 func (k *Keepalive) startReader() {
 	k.once.Do(func() {
 		go func() {
-			defer close(k.result)
+			defer func() {
+				if r := recover(); r != nil {
+					pe := safety.Capture(safety.BoundaryWorker, "stream_keepalive_reader", r)
+					ctx := context.Background()
+					select {
+					case k.result <- item{err: pe}:
+					case <-k.done:
+					default:
+						attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{})
+						attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+						log := k.cfg.Log
+						if log == nil {
+							log = slog.Default()
+						}
+						log.LogAttrs(ctx, slog.LevelError, "stream keepalive: reader panic could not be sent on result channel", attrs...)
+					}
+				}
+				close(k.result)
+			}()
 			for {
 				select {
 				case <-k.done:

@@ -6,8 +6,8 @@ import "strings"
 //
 // This mapping is intentionally separate from [*Registry]: the registry holds constructors and mounts;
 // DefaultWireModel encodes standard-distribution routing defaults used when configs omit explicit
-// route selectors (see routing.EffectiveDefaultRouteSelector). Alternate bundles may supply a
-// different routing.WireModelForBackend via runtimebundle.BuildOptions.WireModel without changing
+// route selectors (see config.EffectiveDefaultRouteSelector). Alternate bundles may supply a
+// different config.WireModelForBackend via runtimebundle.BuildOptions.WireModel without changing
 // registry factories. It must not be duplicated per frontend handler.
 func DefaultWireModel(backendID string) string {
 	switch strings.TrimSpace(backendID) {

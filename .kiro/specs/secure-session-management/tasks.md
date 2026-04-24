@@ -29,11 +29,12 @@
 - [ ] 2. Build secure-session core types, crypto, and error mapping
 
 - [ ] 2.1 Define secure-session domain types
-  - Create `internal/core/securesession` domain types for session ids, token fingerprints, principals, workspaces, client hints, policy metadata, usage totals, transcript items, audit items, turn ids, activity sources, summaries, and read/query options.
+  - Create `internal/core/securesession/domain` types for session ids, token fingerprints, principals, workspaces, client hints, policy metadata, usage totals, transcript items, audit items, turn ids, activity sources, summaries, and read/query options.
+  - Keep domain types pure: no imports from runtime, HTTP, SQL/SQLite, diagnostics, frontend/backend plugins, or SDK packages.
   - Include typed fields for transcript-enabled status, effective treatment, stricter-policy resolution, resume eligibility, B2BUA A-leg binding, attempt trace, attempt settings, attempt outcome, and per-attempt accounting metadata.
   - Done when package-local tests can construct records and summaries without using `any` or untyped maps for core invariants.
   - _Requirements: 1.10, 2.6, 4.1, 4.6, 4.7, 5.6, 6.1, 6.4, 6.5, 6.9, 7.1, 8.1, 9.1, 10.1, 11.1, 12.1, 12.7, 14.1, 14.8_
-  - _Boundary: SecureSession core types_
+  - _Boundary: SecureSession domain_
   - _Depends: 1.1_
 
 - [ ] 2.2 Implement concurrent-safe ID and token generation
@@ -55,19 +56,21 @@
 - [ ] 3. Implement secure-session store contracts and memory store
 
 - [ ] 3.1 Define the secure-session store interface and contract tests
-  - Add a consumer-owned store interface covering create, load by id, load by resume fingerprint, load by A-leg id, touch activity, append/update attempt trace, append transcript, add per-attempt usage, append audit, summaries, transcript reads, audit reads, and store health primitives used by manager-owned readiness checks.
+  - Add the consumer-owned store interface in `internal/core/securesession/app`, covering create, load by id, load by resume fingerprint, load by A-leg id, touch activity, append/update attempt trace, append transcript, add per-attempt usage, append audit, summaries, transcript reads, audit reads, and store health primitives used by manager-owned readiness checks.
+  - Keep the interface business-shaped and domain/app typed; do not expose `database/sql`, SQLite driver, HTTP, diagnostics, provider SDK, or transport types through the port.
   - Add reusable contract tests for uniqueness, owner/workspace persistence, A-leg lookup, B-leg attempt lookup, transcript-disabled metadata, usage summaries by session/user/workspace/backend attempt, attempt status summaries, and non-enumerating missing lookups.
   - Done when memory and future SQLite implementations can run the same contract test suite.
   - _Requirements: 2.5, 2.6, 4.6, 4.7, 5.6, 6.1, 6.5, 6.6, 6.7, 6.8, 6.9, 7.7, 8.1, 8.3, 9.4, 9.5, 9.6, 10.5, 10.7, 11.5, 11.7, 14.1, 14.6, 14.8_
-  - _Boundary: SecureSession store_
+  - _Boundary: SecureSession app store port_
   - _Depends: 2.1_
 
 - [ ] 3.2 Implement the concurrent in-memory secure-session store
-  - Implement race-safe storage for records, token fingerprints, A-leg index, turns, attempt traces, transcripts, usage records, audit records, summaries, and readiness state.
+  - Implement race-safe storage in `internal/core/securesession/adapters/memory` for records, token fingerprints, A-leg index, turns, attempt traces, transcripts, usage records, audit records, summaries, and readiness state.
+  - Return a concrete adapter type from the package constructor; do not define an adapter-side interface just because the adapter implements the app-owned port.
   - Preserve explicit empty slices for returned summaries/transcripts/audits and avoid returning `nil` lists in JSON-facing query results.
   - Done when the store contract suite passes against the in-memory implementation and `go test -race` passes for the package.
   - _Requirements: 1.8, 2.5, 4.6, 6.6, 6.7, 6.8, 7.7, 8.4, 9.2, 9.5, 10.5, 14.1, 14.8_
-  - _Boundary: SecureSession memory store_
+  - _Boundary: SecureSession memory store adapter_
   - _Depends: 3.1_
 
 - [ ] 3.3 Add store fakes for manager and runtime tests (P)
@@ -80,19 +83,20 @@
 - [ ] 4. Implement durable SQLite secure-session storage
 
 - [ ] 4.1 Add SQLite schema and migrations for secure sessions
-  - Create secure-session tables for sessions, turns, attempt traces, transcript, usage, and audit records with unique constraints on session id and token fingerprint plus indexes for owner, workspace, A-leg, B-leg, resolved backend/model, and resume lookup.
+  - Create secure-session tables in `internal/core/securesession/adapters/sqlite` for sessions, turns, attempt traces, transcript, usage, and audit records with unique constraints on session id and token fingerprint plus indexes for owner, workspace, A-leg, B-leg, resolved backend/model, and resume lookup.
   - Add migration tests for fresh database creation and idempotent reopen behavior.
   - Done when opening an empty SQLite database creates all secure-session tables and indexes without disturbing existing continuity tables.
   - _Requirements: 2.6, 6.1, 6.3, 6.5, 6.6, 6.7, 6.8, 7.7, 8.1, 8.2, 8.6, 9.4, 10.2, 11.7_
-  - _Boundary: SecureSession SQLite store_
+  - _Boundary: SecureSession SQLite store adapter_
   - _Depends: 3.1_
 
 - [ ] 4.2 Implement SQLite CRUD, query, and readiness operations
   - Implement create/load/touch/attempt trace/transcript/usage/audit/summary/readiness behavior against the SQLite schema using context-aware database calls and explicit transaction boundaries.
+  - Keep SQL and transaction handles inside the SQLite adapter; app/domain code must see only the app-owned store port and domain values.
   - Support A-leg lookup for diagnostics and resume lineage without allowing A-leg alone to authorize user-facing resume.
   - Done when the shared store contract suite passes against SQLite.
   - _Requirements: 2.6, 2.7, 5.6, 6.1, 6.5, 6.6, 6.7, 6.8, 6.9, 7.7, 8.2, 8.3, 9.4, 9.5, 10.2, 14.1, 14.6, 14.8_
-  - _Boundary: SecureSession SQLite store_
+  - _Boundary: SecureSession SQLite store adapter_
   - _Depends: 4.1_
 
 - [ ] 4.3 Add SQLite restart and concurrent update tests
@@ -100,17 +104,17 @@
   - Verify concurrent session creation and concurrent touch/update flows keep unique ids and consistent last-activity state.
   - Done when package tests cover restart survival and concurrent writes without race or uniqueness failures.
   - _Requirements: 1.5, 1.6, 2.6, 6.7, 7.2, 7.5, 10.7_
-  - _Boundary: SecureSession SQLite store_
+  - _Boundary: SecureSession SQLite store adapter_
   - _Depends: 4.2_
 
 - [ ] 5. Implement secure-session manager policy
 
 - [ ] 5.1 Implement new-session creation with B2BUA A-leg binding
-  - Create sessions with authoritative session id, resume token fingerprint, owner binding, workspace binding, policy metadata, first turn id, and a B2BUA A-leg created through the existing store seam.
+  - Create sessions with authoritative session id, resume token fingerprint, owner binding, workspace binding, policy metadata, first turn id, and a B2BUA A-leg created through an app-owned lineage port implemented by the existing store seam.
   - Add manager tests proving client-supplied ids/hints do not become authoritative and new sessions receive distinct IDs under concurrent creation.
   - Done when `BeginTurn` returns a session context containing a proxy-owned session id, raw resume token response metadata, and stored A-leg binding.
   - _Requirements: 1.1, 1.2, 1.3, 1.5, 1.8, 2.1, 3.4, 5.1, 10.1, 11.1, 12.4_
-  - _Boundary: SecureSession manager_
+  - _Boundary: SecureSession app manager_
   - _Depends: 2.2, 3.2, 3.3_
 
 - [ ] 5.2 Implement resume validation and fixation rejection
@@ -118,7 +122,7 @@
   - Reject guessed `ALegID`/`ContinuityKey`, malformed tokens, transferred tokens, missing principal, owner mismatch, expired sessions, and unavailable persisted ownership without leaking other users' session existence.
   - Done when manager tests prove every invalid resume case rejects before exposing session contents or A-leg authority.
   - _Requirements: 2.2, 2.3, 2.4, 2.7, 3.1, 3.2, 3.3, 3.6, 3.7, 6.4, 6.6, 7.3, 7.7, 12.2, 12.3_
-  - _Boundary: SecureSession manager_
+  - _Boundary: SecureSession app manager_
   - _Depends: 5.1_
 
 - [ ] 5.3 Implement workspace validation and policy metadata resolution
@@ -127,14 +131,14 @@
   - Cover unbounded resume policy by proving sessions without a maximum resume window are not rejected solely because of inactivity age.
   - Done when manager tests show workspace-denied resumes reject, no-workspace sessions expose explicit metadata, and stricter treatment wins over weaker session metadata.
   - _Requirements: 6.5, 10.1, 10.2, 10.3, 10.4, 10.6, 11.1, 11.2, 11.3, 11.5, 11.6, 11.7_
-  - _Boundary: SecureSession manager_
+  - _Boundary: SecureSession app manager_
   - _Depends: 5.2_
 
 - [ ] 5.4 Split policy metadata implementation into focused checkpoints
   - Verify policy metadata implementation is decomposed into workspace binding, redaction/full-logging/audit flags, and stricter-effective-treatment tests before coding proceeds past manager policy work.
   - Done when each policy behavior has a separate table-driven test case and no single test helper hides all policy branches.
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.6, 11.1, 11.2, 11.5, 11.6, 11.7_
-  - _Boundary: SecureSession manager validation_
+  - _Boundary: SecureSession app manager validation_
   - _Depends: 5.3_
 
 - [ ] 5.5 Implement per-session routing treatment and first-turn continuity rules
@@ -142,7 +146,7 @@
   - Add tests proving first-request routing is consumed once per session continuity context and resumed turns do not re-trigger first-request behavior.
   - Done when route planning receives effective session routing metadata without allowing clients to override protected treatment fields.
   - _Requirements: 5.4, 11.2, 11.3, 11.4, 12.6_
-  - _Boundary: SecureSession manager, routing integration_
+  - _Boundary: SecureSession app manager, routing driving adapter_
   - _Depends: 5.4_
 
 - [ ] 5.6 Implement mandatory readiness and turn outcome handling
@@ -150,26 +154,26 @@
   - Define a single manager-owned checklist for pre-output mandatory gates so executor and recorder do not duplicate gate ownership.
   - Done when tests show mandatory readiness failures reject before A-leg/B-leg execution and turn outcomes are recorded for success and failure paths.
   - _Requirements: 4.4, 4.5, 5.3, 6.2, 9.5, 12.6, 12.7_
-  - _Boundary: SecureSession manager_
+  - _Boundary: SecureSession app manager_
   - _Depends: 5.5_
 
 - [ ] 6. Integrate secure-session gating into the executor
 
 - [ ] 6.1 Add executor dependencies and disabled-mode compatibility
-  - Add optional secure-session manager and recorder dependencies to the executor while preserving legacy continuity-only behavior when secure sessions are disabled.
+  - Add optional secure-session app manager and recorder use-case dependencies to the executor while preserving legacy continuity-only behavior when secure sessions are disabled.
   - Done when existing runtime tests pass with secure sessions disabled and new tests can inject manager/recorder fakes.
   - _Requirements: 7.4, 12.6_
-  - _Boundary: Runtime executor_
+  - _Boundary: Runtime driving adapter_
   - _Depends: 5.1_
 
 - [ ] 6.2 Reorder submit preparation around principal, workspace, and secure-session gate
-  - Resolve trusted principal and workspace before secure-session authorization, then call `BeginTurn` before trusting `ALegID` or `ContinuityKey`.
+  - Resolve trusted principal and workspace before secure-session authorization, translate them into app/domain values, then call `BeginTurn` before trusting `ALegID` or `ContinuityKey`.
   - Populate `call.Session.ALegID` from the secure-session record and strip raw resume token from backend-facing call copies.
   - Keep the dependency on the manager-owned readiness checklist so pre-output mandatory gates have one owner and are not duplicated in the executor.
   - Treat backend-provided session-like headers or metadata as provider correlation data only, never as inputs that can overwrite proxy-owned session state.
   - Done when forged continuity ids without valid session authority never reach B2BUA resolution or backend opening in secure-session mode.
   - _Requirements: 1.9, 1.10, 1.11, 2.2, 2.4, 3.1, 3.3, 3.6, 3.8, 3.9, 10.2, 10.6, 12.6_
-  - _Boundary: Runtime executor_
+  - _Boundary: Runtime driving adapter_
   - _Depends: 6.1, 5.6_
 
 - [ ] 6.3 Publish authoritative execution views and denial diagnostics
@@ -177,7 +181,7 @@
   - Add tests proving invalid session requests fail before route planning/backend open and expose only protocol-safe error categories to upstream callers.
   - Done when session views include authoritative session id, A-leg id, workspace, labels, resume eligibility, and no raw token.
   - _Requirements: 1.4, 2.5, 3.5, 4.7, 10.4, 12.1, 12.7, 13.5_
-  - _Boundary: Runtime executor, execution context_
+  - _Boundary: Runtime driving adapter, execution context_
   - _Depends: 6.2_
 
 - [ ] 6.4 Bind session lineage to B2BUA attempts
@@ -185,7 +189,7 @@
   - Add runtime tests for pre-output replacement attempts and post-output committed attempts under secure-session context.
   - Done when operators can identify the backend attempt that produced surfaced output for a secure session.
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 9.6_
-  - _Boundary: Runtime executor, B2BUA lineage_
+  - _Boundary: Runtime driving adapter, B2BUA lineage adapter_
   - _Depends: 6.3_
 
 - [ ] 6.5 Capture per-attempt backend, model, route, and settings metadata
@@ -193,14 +197,14 @@
   - Include settings that affect execution behavior such as timeout, temperature, max tokens, reasoning effort, tool summary, streaming mode, and safe backend option digest where available.
   - Done when runtime tests prove manual model changes across turns and dynamic routing/failover attempts produce distinct immutable attempt trace records.
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
-  - _Boundary: Runtime executor, attempt trace_
+  - _Boundary: Runtime driving adapter, attempt trace app use case_
   - _Depends: 6.4, 3.1_
 
 - [ ] 6.6 Capture per-attempt outcome, status, and debug-safe failure details
   - Record binary success/failure, surfaced/swallowed state, HTTP status, provider status, error category, timeout classification, debug-safe reason, and end timestamp for each backend attempt.
   - Done when tests prove successful, failed, timed-out, swallowed, and surfaced attempts each have separate status records without relying on the final user-visible response alone.
   - _Requirements: 6.5, 6.7, 10.8, 14.8_
-  - _Boundary: Runtime executor, attempt trace_
+  - _Boundary: Runtime driving adapter, attempt trace app use case_
   - _Depends: 6.5_
 
 - [ ] 7. Implement transcript, usage, activity, and audit recording
@@ -209,7 +213,7 @@
   - Append accepted user messages, tool responses, request metadata, turn id, sequence numbers, transcript-enabled status, and redaction state immediately after secure-session gate success.
   - Done when tests reconstruct accepted client input order from transcript records and sessions with transcript capture disabled expose explicit metadata.
   - _Requirements: 4.1, 4.2, 4.6, 4.7, 6.2, 9.1_
-  - _Boundary: Session recorder_
+  - _Boundary: SecureSession app recorder_
   - _Depends: 6.3_
 
 - [ ] 7.2 Record post-hook stream events, usage deltas, and remote last activity
@@ -217,7 +221,7 @@
   - Associate usage, billing, cost, and cache metadata with the specific B-leg attempt that incurred it, even if the attempt is failed or swallowed.
   - Done when stream tests prove recorder output matches client-visible event order and usage summaries include session/user/workspace/backend attempt dimensions where known.
   - _Requirements: 4.2, 4.3, 4.5, 6.6, 6.7, 6.8, 6.9, 7.3, 9.1, 9.2, 9.3, 9.5, 9.6_
-  - _Boundary: Session recorder, runtime stream_
+  - _Boundary: SecureSession app recorder, runtime stream driving adapter_
   - _Depends: 7.1, 6.6_
 
 - [ ] 7.3 Split recorder stream behavior into focused checkpoints
@@ -225,14 +229,14 @@
   - Ensure user-visible usage remains protocol-compatible while operator/billing rollups include every submitted backend attempt.
   - Done when each checkpoint has a focused test and the usage summary test covers session, user, workspace, and backend attempt dimensions where known.
   - _Requirements: 4.2, 4.3, 6.8, 6.9, 9.1, 9.2, 9.5, 9.6_
-  - _Boundary: Session recorder validation_
+  - _Boundary: SecureSession app recorder validation_
   - _Depends: 7.2_
 
 - [ ] 7.4 Record provider session-like metadata only as correlation data
   - Capture backend/provider conversation ids, request ids, and session-like response headers only in explicit provider-correlation transcript or audit fields when configured.
   - Done when tests prove backend-returned session-like values appear only as non-authoritative metadata and never overwrite `SessionID`, resume token fingerprints, owner binding, workspace binding, or A-leg binding.
   - _Requirements: 1.10, 1.11, 3.8, 3.9, 4.3, 9.1_
-  - _Boundary: Session recorder, backend metadata boundary_
+  - _Boundary: SecureSession app recorder, backend metadata adapter boundary_
   - _Depends: 7.3_
 
 - [ ] 7.5 Implement audit serialization, redaction, and raw access restrictions
@@ -242,7 +246,7 @@
   - Restrict raw or sensitive payload audit records to explicitly authorized audit access while general audit records use configured redaction.
   - Done when audit tests show redacted general records, raw access denial by default, and explicit full-logging metadata.
   - _Requirements: 3.5, 6.1, 6.3, 6.4, 6.5, 6.6, 6.7, 10.1, 10.2, 10.3, 10.4, 10.6, 10.7, 10.8, 12.5_
-  - _Boundary: Session recorder, audit_
+  - _Boundary: SecureSession app recorder, audit adapter boundary_
   - _Depends: 7.4_
 
 - [ ] 7.6 Implement mandatory recorder failure semantics
@@ -250,7 +254,7 @@
   - Add tests for optional failure logging, mandatory pre-output denial, mandatory post-output surfaced failure, and no inherited-session continuation after expired/failed sessions.
   - Done when mandatory recorder failures never trigger silent B-leg replacement or reuse expired session contents.
   - _Requirements: 6.6, 9.5, 12.6_
-  - _Boundary: Session recorder, runtime stream_
+  - _Boundary: SecureSession app recorder, runtime stream driving adapter_
   - _Depends: 7.5_
 
 - [ ] 8. Implement frontend session metadata and error mapping
@@ -308,18 +312,19 @@
 - [ ] 9. Implement operator diagnostics and authorization
 
 - [ ] 9.1 Add operator authorization and redaction seams for session diagnostics
-  - Define a diagnostics authorization seam that can adapt existing shared-secret protection initially but still enforces redaction mode, raw audit denial by default, and non-enumerating unauthorized lookups.
+  - Define a diagnostics authorization seam in the diagnostics driving adapter that can adapt existing shared-secret protection initially but still enforces redaction mode, raw audit denial by default, and non-enumerating unauthorized lookups.
   - Done when unit tests show unauthorized transcript/audit access is denied without exposing session existence and authorized redacted access returns no raw payloads.
   - _Requirements: 9.3, 9.7, 13.2, 13.3, 13.7_
-  - _Boundary: Diagnostics authorization_
+  - _Boundary: Diagnostics driving adapter authorization_
   - _Depends: 7.5_
 
 - [ ] 9.2 Add secure-session diagnostics handlers
-  - Implement session summary, session detail, transcript, and by-A-leg lookup handlers using store query APIs and diagnostics authorization.
+  - Implement session summary, session detail, transcript, and by-A-leg lookup handlers using secure-session app query use cases/ports and diagnostics authorization.
+  - Keep HTTP request/response types, status codes, and redaction transport formatting out of secure-session app/domain packages.
   - Include owner, workspace, last activity, resume eligibility, policy metadata, usage totals, per-attempt backend/model/status/settings/accounting summaries, lineage summary, transcript-enabled status, and effective policy in authorized summaries.
   - Done when HTTP tests cover summary filtering by session/user/workspace, by-A-leg lookup with redaction, per-attempt summaries, and empty result behavior.
   - _Requirements: 9.5, 10.8, 11.5, 14.1, 14.2, 14.4, 14.5, 14.6, 14.8_
-  - _Boundary: Diagnostics HTTP_
+  - _Boundary: Diagnostics HTTP driving adapter_
   - _Depends: 9.1, 3.2_
 
 - [ ] 9.3 Add diagnostics non-enumeration and audit access tests
@@ -332,7 +337,7 @@
 - [ ] 10. Wire secure sessions into runtime bundle and operations
 
 - [ ] 10.1 Construct memory-backed secure-session manager in runtime bundle
-  - Open the memory secure-session store from config, construct generator/manager with a no-op recorder placeholder, and inject dependencies into the executor for early vertical-slice testing.
+  - Open the memory secure-session store adapter from config, construct generator/app manager with a no-op recorder placeholder, and inject dependencies into the executor for early vertical-slice testing.
   - Preserve disabled-mode behavior where existing continuity-only execution remains available with operator-visible warning metadata.
   - Done when runtimebundle tests prove secure-session disabled and memory-enabled configurations build expected dependencies without requiring SQLite or full recorder wiring.
   - _Requirements: 7.4, 7.5, 12.6_
@@ -340,7 +345,7 @@
   - _Depends: 3.2, 6.1_
 
 - [ ] 10.2 Wire durable stores and full recorder into runtime bundle
-  - Open SQLite secure-session store when configured, append closers, replace the no-op recorder with the full recorder, and enforce startup validation for durable/audit prerequisites.
+  - Open the SQLite secure-session store adapter when configured, append closers, replace the no-op recorder with the full app recorder, and enforce startup validation for durable/audit prerequisites.
   - Done when runtimebundle tests prove SQLite-enabled secure sessions build with durable storage and full recorder dependencies.
   - _Requirements: 7.1, 7.2, 7.3, 8.4, 9.2, 9.5_
   - _Boundary: Runtime bundle_

@@ -12,7 +12,8 @@ import (
 // A decoded Config is not self-validating: [Validate] checks core fields (plugins, continuity, logging, etc.) but does
 // not validate model_aliases. After [LoadFile], call routing.ValidateModelAliasesConfig(cfg) from package
 // internal/core/routing before wiring; composition (for example internal/infra/runtimebundle.Build) compiles
-// model_aliases via routing.NewAliasResolver.
+// model_aliases via routing.NewAliasResolver. Default route selector resolution is [EffectiveDefaultRouteSelector]
+// in this package (see effective_default_route.go).
 type Config struct {
 	Server        ServerConfig        `yaml:"server"`
 	Logging       LoggingConfig       `yaml:"logging"`

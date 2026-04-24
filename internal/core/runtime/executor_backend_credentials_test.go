@@ -46,8 +46,6 @@ func wrapCandProbe(inner execbackend.Backend) (execbackend.Backend, *candProbeBa
 	return out, p
 }
 
-func ptrInt(v int) *int { return &v }
-
 func parseBearer(r *http.Request) string {
 	h := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(h, "Bearer ") {
@@ -72,7 +70,7 @@ func TestExecutor_openAIResponses_candidateKeyStable_singleVsMultiKey(t *testing
 			APIKey:        apiKey,
 			APIKeys:       apiKeys,
 			HTTPClient:    srv.Client(),
-			SDKMaxRetries: ptrInt(0),
+			SDKMaxRetries: new(int),
 		})
 		be, probe := wrapCandProbe(inner)
 
@@ -151,7 +149,7 @@ func TestExecutor_openAIResponses_attemptLineageOmitsCredentialMaterial(t *testi
 		APIKey:        secretA,
 		APIKeys:       []string{secretA, secretB},
 		HTTPClient:    srv.Client(),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -263,7 +261,7 @@ func TestExecutor_openAIResponses_multiKeyPostOutputTruncatedStream_noThirdUpstr
 		APIKey:        "sk-429",
 		APIKeys:       []string{"sk-429", "sk-ok"},
 		HTTPClient:    testkit.IntegrationHTTPClient(srv.Client()),
-		SDKMaxRetries: ptrInt(0),
+		SDKMaxRetries: new(int),
 	})
 
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

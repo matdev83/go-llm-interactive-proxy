@@ -38,13 +38,22 @@ The design uses a hybrid pattern: existing `b2bua.Store` remains authoritative f
 - Long-term retention policy management beyond storing effective policy metadata and timestamps.
 - Raw traffic capture plugin internals, except where secure sessions reference audit artifacts or enforce mandatory audit outcomes.
 
+### Hexagonal Boundary Rules
+- `internal/core/securesession/domain` owns pure session concepts, invariants, value objects, and stable business errors. It must not import runtime, HTTP, SQLite, SQL, diagnostics, plugins, or SDK packages.
+- `internal/core/securesession/app` owns use-case orchestration: create/resume/touch/finish turns, policy sequencing, transaction intent, recorder decisions, and outbound ports consumed by those use cases.
+- `internal/core/securesession/adapters/*` owns storage and diagnostics implementations. SQLite, SQL, HTTP/admin, and other technology-specific concerns stay in adapters or runtime composition, never in domain/app contracts.
+- Runtime and frontend code are driving adapters for secure-session use cases: they translate protocol/runtime inputs into app commands and map app errors outward.
+- Outbound ports are defined where consumed in `app`; adapter packages expose concrete constructors and do not define interfaces solely because they implement them.
+
 ### Allowed Dependencies
-- `internal/core/b2bua` for A-leg/B-leg records and attempt lineage.
-- `internal/core/continuity` for existing store opening and lineage compatibility during migration.
-- `pkg/lipapi` for protocol-neutral session references, events, and canonical error categories.
-- `pkg/lipsdk/execview` and `pkg/lipsdk/workspace` for trusted principal and workspace views.
+- `internal/core/securesession/app` may depend on `internal/core/securesession/domain`.
+- `internal/core/securesession/adapters/memory` and `internal/core/securesession/adapters/sqlite` may depend on `app` port contracts and `domain` types, plus technology packages they implement.
+- `internal/core/b2bua` is accessed through app-owned lineage ports so A-leg/B-leg records and attempt sequencing remain replaceable from secure-session policy.
+- `internal/core/continuity` is used only from runtime/composition migration wiring, not from secure-session domain logic.
+- `pkg/lipapi` is used at runtime/frontend boundaries for protocol-neutral session references, events, and canonical error categories; domain types remain independent where practical.
+- `pkg/lipsdk/execview` and `pkg/lipsdk/workspace` are translated at the driving boundary into secure-session app/domain principal and workspace values.
 - Standard library cryptography only: `crypto/rand`, `crypto/hmac`, `crypto/sha256`, `crypto/subtle`, and `encoding/base64` or `encoding/hex`.
-- Existing diagnostics protection, runtime bundle wiring, and frontend error mapping patterns.
+- Existing diagnostics protection, runtime bundle wiring, and frontend error mapping patterns are used at adapter/composition boundaries.
 
 ### Revalidation Triggers
 - Any change to `lipapi.SessionRef`, canonical session error codes, or response metadata contracts.
@@ -95,7 +104,7 @@ flowchart LR
 
 **Architecture Integration**
 - Selected pattern: hybrid core component with a narrow store interface and explicit runtime integration.
-- Domain boundaries: secure sessions own user/workspace/policy/session state; B2BUA owns attempt lineage; frontends own protocol carriers and error shape.
+- Domain boundaries: secure-session domain owns pure user/workspace/policy/session invariants; secure-session app owns use-case orchestration and ports; B2BUA owns attempt lineage; adapters own protocol, storage, diagnostics, and error shape.
 - Existing patterns preserved: explicit construction, small interfaces where consumed, streaming-first execution, B2BUA no-retry-after-output invariant, protocol-neutral canonical contracts.
 - New components rationale: current continuity rows cannot safely represent owner-bound resumable sessions, transcript/audit/usage, and anti-fixation proof without overloading A-leg semantics.
 - Steering compliance: core owns shared semantics; provider SDKs stay out of core; adapters render protocol-specific wire details.
@@ -116,18 +125,25 @@ flowchart LR
 
 ```text
 internal/core/securesession/
-|-- types.go                 # Domain types: SessionID, ResumeToken, SessionRecord, PolicyMetadata, UsageTotals
-|-- ids.go                   # crypto/rand-backed ID/token generation and token fingerprinting
-|-- errors.go                # Typed session denial errors and public-safe reason mapping
-|-- store.go                 # Store interface consumed by Manager and diagnostics
-|-- memory_store.go          # Concurrent in-memory store for tests and non-durable runtime mode
-|-- manager.go               # Create/resume/touch policy, owner/workspace validation, B2BUA binding
-|-- recorder.go              # Transcript, usage, audit, and last-activity recording from accepted turns/events
-|-- diag.go                  # Query helpers for summaries/transcripts/audit references
-|-- sqlitestore/
-|   |-- store.go             # Durable secure session store implementation
-|   |-- schema.go            # SQLite schema and migrations for secure-session tables
-|   `-- store_test.go        # Durable behavior, restart, uniqueness, owner binding
+|-- domain/
+|   |-- types.go             # Pure domain types: SessionID, ResumeToken, Record, PolicyMetadata, UsageTotals
+|   |-- errors.go            # Stable domain/app denial errors without transport formatting
+|   `-- policy.go            # Pure owner/workspace/resume-policy invariants
+|-- app/
+|   |-- manager.go           # Create/resume/touch/finish-turn use cases and policy sequencing
+|   |-- recorder.go          # Transcript, usage, audit, and activity recording orchestration
+|   |-- ports.go             # Consumer-owned Store, LineageStore, Clock, Generator, and diagnostics query ports
+|   |-- ids.go               # crypto/rand-backed generator implementation behind an app-owned port
+|   `-- errors.go            # Mapping from domain/app failures to canonical session-denial categories
+|-- adapters/
+|   |-- memory/
+|   |   `-- store.go         # Concurrent in-memory store adapter for tests and non-durable runtime mode
+|   |-- sqlite/
+|   |   |-- store.go         # Durable secure session store adapter implementation
+|   |   |-- schema.go        # SQLite schema and migrations for secure-session tables
+|   |   `-- store_test.go    # Durable behavior, restart, uniqueness, owner binding
+|   `-- diag/
+|       `-- handlers.go      # Operator query HTTP/admin adapter over app query use cases
 ```
 
 ### Modified Files
@@ -139,10 +155,10 @@ internal/core/securesession/
 - `internal/core/config/validate.go` and config tests - validate durable-store/token-key/resume-window combinations.
 - `config/config.yaml` - document secure-session defaults and durable examples.
 - `internal/infra/runtimebundle/build.go` - construct secure session store/manager and inject it into the executor/runtime snapshot.
-- `internal/core/runtime/executor.go` - add optional secure session manager/recorder fields.
-- `internal/core/runtime/executor_prepare.go` - run workspace and secure-session resolution before B2BUA resume is trusted.
-- `internal/core/runtime/attempt_stream.go` - record accepted stream events, usage deltas, terminal failures, and remote last activity.
-- `internal/core/diag/session.go` - add operator session summary/transcript handlers.
+- `internal/core/runtime/executor.go` - add optional secure session app service/recorder fields.
+- `internal/core/runtime/executor_prepare.go` - translate principal/workspace/runtime inputs into secure-session app commands before B2BUA resume is trusted.
+- `internal/core/runtime/attempt_stream.go` - call recorder use cases for accepted stream events, usage deltas, terminal failures, and remote last activity.
+- `internal/core/securesession/adapters/diag/handlers.go` or `internal/core/diag/session.go` - add operator session summary/transcript driving adapter without leaking HTTP types into secure-session app/domain.
 - `internal/stdhttp/server.go` - mount secure-session diagnostics when enabled.
 - `internal/plugins/frontends/*/handler.go` - decode protocol-specific resume carriers and attach returned session metadata.
 - `internal/plugins/frontends/*/encode.go` - map session-denial categories to protocol-legal errors and metadata.
@@ -237,15 +253,16 @@ The recorder must not alter event ordering or trigger retries. It records best-e
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| Secure Session Manager | Core | Create/resume sessions and enforce owner/workspace/resume policy | 1, 2, 3, 6, 10, 11, 12 | Store (P0), B2BUA Store (P0), Principal (P0), Workspace (P1) | Service, State |
-| Secure Session Store | Core persistence | Persist session records, token fingerprints, transcripts, usage, audit refs | 2, 4, 6, 7, 8, 9, 10, 11, 13 | SQLite/memory (P0) | Service, State |
-| ID and Token Generator | Core security | Generate concurrent-safe IDs and bearer resume tokens | 1, 3 | stdlib crypto (P0) | Service |
-| Session Recorder | Core stream | Record user turns, events, last activity, usage, audit | 4, 5, 6, 8, 9 | Store (P0), B2BUA lineage (P1) | Service, Event |
-| Attempt Trace Recorder | Core routing/stream | Record per-B-leg backend/model/settings/status/accounting evidence | 5, 6, 9, 10, 14 | Routing result (P0), B2BUA store (P0), Store (P0) | Service, Event |
-| Runtime Integration | Core executor | Enforce secure session before backend attempts and inject views | 2, 3, 5, 6, 11, 12 | Manager (P0), routing executor (P0) | Service |
+| Secure Session Manager | App use case | Create/resume sessions and enforce owner/workspace/resume policy | 1, 2, 3, 6, 10, 11, 12 | App-owned ports: Store, LineageStore, Clock, Generator, PolicyResolver | Service, State |
+| Secure Session Store Port | App outbound port | Persist session records, token fingerprints, transcripts, usage, audit refs | 2, 4, 6, 7, 8, 9, 10, 11, 13 | Domain types only | Service, State |
+| Memory/SQLite Store Adapters | Driven adapters | Implement Store and query ports with in-memory or SQLite technology | 2, 4, 6, 7, 8, 9, 10, 11, 13 | app/domain plus adapter technology | Adapter |
+| ID and Token Generator | App service/port implementation | Generate concurrent-safe IDs and bearer resume tokens | 1, 3 | stdlib crypto (P0) | Service |
+| Session Recorder | App use case | Record user turns, events, last activity, usage, audit | 4, 5, 6, 8, 9 | App-owned Store/Lineage ports | Service, Event |
+| Attempt Trace Recorder | App use case | Record per-B-leg backend/model/settings/status/accounting evidence | 5, 6, 9, 10, 14 | Routing result translated by runtime, app-owned ports | Service, Event |
+| Runtime Integration | Driving adapter/core executor | Enforce secure session before backend attempts and inject views | 2, 3, 5, 6, 11, 12 | App services, routing executor | Service |
 | Frontend Session Adapter | Plugins | Decode/encode protocol-specific session carriers and errors | 1, 3, 12 | `lipapi.SessionRef` (P0) | API |
 | Backend Session Boundary | Plugins | Prevent provider session-like metadata from becoming proxy authority | 1, 3, 4, 9 | Backend response metadata (P1) | API, Event |
-| Diagnostics Query Surface | Core HTTP/admin | Provide authorized session summaries, transcript, and audit access | 8, 9, 13 | Store query APIs (P0), diag auth (P0) | API |
+| Diagnostics Query Surface | Driving adapter HTTP/admin | Provide authorized session summaries, transcript, and audit access | 8, 9, 13 | App query use cases/ports, diag auth | API |
 
 ### Core Session Layer
 
@@ -264,7 +281,7 @@ The recorder must not alter event ordering or trigger retries. It records best-e
 
 **Service Interface**
 ```go
-package securesession
+package app
 
 type Manager struct { /* constructed explicitly */ }
 
@@ -308,15 +325,17 @@ func (m *Manager) FinishTurn(ctx context.Context, sessionID SessionID, turnID st
 - Postconditions: returned `Record.ALegID` is the only B2BUA A-leg accepted for this turn.
 - Invariants: owner binding cannot change on resume; expired sessions cannot be resumed into inherited contents.
 
-#### Secure Session Store
+#### Secure Session Store Port and Adapters
 
 | Field | Detail |
 |-------|--------|
 | Intent | Durable and in-memory persistence for secure session state and query views. |
 | Requirements | 2.6, 2.7, 4.6, 6.7, 7.1, 7.2, 7.3, 8.4, 9.2, 10.7, 13.1 |
 
-**Service Interface**
+**App-Owned Port**
 ```go
+package app
+
 type Store interface {
     Create(ctx context.Context, rec CreateRecord) (Record, error)
     LoadByID(ctx context.Context, id SessionID) (Record, error)
@@ -335,9 +354,11 @@ type Store interface {
 }
 ```
 
+- Memory and SQLite live in adapter packages; neither adapter defines the interface it implements.
 - Memory implementation must be race-safe and deterministic under tests.
 - SQLite implementation must enforce unique session ids, unique token fingerprints, and owner/session indexes.
 - Store must persist enough state to reject ambiguous resumes after restart.
+- Port methods must not expose `database/sql`, SQLite driver, HTTP, diagnostics, or provider SDK types.
 - `CheckReadiness` exposes storage/audit availability only; the manager remains the owner of the mandatory pre-output readiness checklist.
 - Mandatory durability and audit readiness checks must be available before a turn opens a backend attempt so fail-closed policy can reject safely before visible output.
 
@@ -567,7 +588,7 @@ erDiagram
 
 ### Physical Data Model
 
-Initial durable implementation uses SQLite because the repository already supports SQLite continuity storage.
+Initial durable implementation uses a SQLite driven adapter because the repository already supports SQLite continuity storage. The schema is an adapter concern; domain/app code sees only app-owned ports and domain values.
 
 Recommended tables:
 - `secure_sessions(session_id primary key, resume_fingerprint unique, owner_principal_id, owner_issuer, workspace_id, a_leg_id, created_at, last_activity_at, resume_not_after, policy_json, client_hints_json)`

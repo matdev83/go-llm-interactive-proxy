@@ -2,9 +2,11 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
@@ -38,7 +40,7 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		pol = b.toolErrPol
 	}
 	for _, r := range tools {
-		dec, next, err := r.HandleToolEvent(ctx, cur, meta)
+		dec, next, err := callToolReactor(ctx, r, cur, meta)
 		if err != nil {
 			switch pol {
 			case sdk.ToolReactorErrorsFailClosed:
@@ -46,6 +48,10 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 			case sdk.ToolReactorErrorsSwallowEvent:
 				return ToolApplyResult{Emit: false, Event: lipapi.ToolEvent{}}
 			default:
+				var pe *safety.PanicError
+				if errors.As(err, &pe) {
+					logFailOpenHookPanic(ctx, "tool_reactor", r.ID(), err)
+				}
 				continue
 			}
 		}
@@ -61,4 +67,18 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		}
 	}
 	return ToolApplyResult{Emit: true, Event: cur}
+}
+
+type toolReactorResult struct {
+	dec  sdk.ToolDecision
+	next lipapi.ToolEvent
+}
+
+// callToolReactor invokes HandleToolEvent and maps a panic to *safety.PanicError like a returned error.
+func callToolReactor(ctx context.Context, r sdk.ToolReactor, cur lipapi.ToolEvent, meta sdk.ToolMeta) (dec sdk.ToolDecision, next lipapi.ToolEvent, err error) {
+	res, err := safety.CallValue(safety.BoundaryExtension, "tool_reactor", func() (toolReactorResult, error) {
+		d, n, e := r.HandleToolEvent(ctx, cur, meta)
+		return toolReactorResult{dec: d, next: n}, e
+	})
+	return res.dec, res.next, err
 }

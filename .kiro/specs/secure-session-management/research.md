@@ -30,6 +30,7 @@
 - Streaming is the primary path; non-streaming behavior is derived from the stream path.
 - Current extension seams are explicit and mostly fail-open for workspace/session-open behavior.
 - Read/query adapters are acceptable for diagnostics and operator flows, so session-summary reads can be introduced without forcing repository-shaped abstractions.
+- Hexagonal boundary discipline should treat secure-session lifecycle as a core application use case: pure session invariants in a domain package, orchestration and outbound ports in an app package, and SQLite/diagnostics/runtime/frontend concerns as adapters.
 
 ### Integration Surfaces
 
@@ -195,6 +196,10 @@
   - existing attempt lineage
   - protocol-specific error rendering at the frontend edge
   - explicit seams for query/read adapters and optional feature plugins
+- Apply hexagonal constraints during implementation:
+  - define secure-session ports in the app package that consumes them
+  - keep SQL, HTTP, SDK, plugin, and diagnostics types out of secure-session domain/app contracts
+  - let runtime/frontend/diagnostics translate into app commands instead of owning policy
 
 ---
 
