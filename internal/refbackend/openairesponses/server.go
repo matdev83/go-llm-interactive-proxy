@@ -5,6 +5,7 @@ package openairesponses
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,9 @@ import (
 )
 
 const maxBodyBytes = 10 << 20
+
+// Used with [bytes.Contains] on each POST body — package-level to avoid a per-request []byte allocation.
+var jsonBodyMarkerStreamTrue = []byte(`"stream":true`)
 
 // Config tunes the emulator handler.
 type Config struct {
@@ -69,12 +73,12 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		stream := bytes.Contains(body, []byte(`"stream":true`))
+		stream := bytes.Contains(body, jsonBodyMarkerStreamTrue)
 		if stream {
-			writeStream(w, cfg)
+			writeStream(r.Context(), w, cfg)
 			return
 		}
-		writeJSON(w, cfg)
+		writeJSON(r.Context(), w, cfg)
 	})
 }
 
@@ -93,7 +97,7 @@ func tryWriteForcedHTTPError(w http.ResponseWriter, cfg Config) bool {
 	if body == "" {
 		body = defaultForcedErrorJSON(cfg.ForcedHTTPStatus)
 	}
-	_, _ = w.Write([]byte(body))
+	_, _ = io.WriteString(w, body)
 	return true
 }
 
@@ -108,27 +112,27 @@ func defaultForcedErrorJSON(status int) string {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, cfg Config) {
+func writeJSON(ctx context.Context, w http.ResponseWriter, cfg Config) {
 	body := cfg.NonStreamJSON
 	if body == "" {
 		body = defaultNonStreamJSON
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(body)); err != nil {
-		slog.Default().Error("refbackend openairesponses: write json body", "error", err)
+	if _, err := io.WriteString(w, body); err != nil {
+		slog.ErrorContext(ctx, "refbackend openairesponses: write json body", "error", err)
 	}
 }
 
-func writeStream(w http.ResponseWriter, cfg Config) {
+func writeStream(ctx context.Context, w http.ResponseWriter, cfg Config) {
 	body := cfg.StreamSSE
 	if body == "" {
 		body = defaultStreamSSE
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(body)); err != nil {
-		slog.Default().Error("refbackend openairesponses: write sse body", "error", err)
+	if _, err := io.WriteString(w, body); err != nil {
+		slog.ErrorContext(ctx, "refbackend openairesponses: write sse body", "error", err)
 	}
 }
 

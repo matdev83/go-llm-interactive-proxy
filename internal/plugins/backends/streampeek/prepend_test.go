@@ -2,6 +2,8 @@ package streampeek_test
 
 import (
 	"context"
+	"errors"
+	"io"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
@@ -31,5 +33,20 @@ func TestNewPrependFirst_recvOrder(t *testing.T) {
 	}
 	if err := es.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNewPrependFirst_nilRest_secondRecvEOF(t *testing.T) {
+	t.Parallel()
+	first := lipapi.Event{Kind: lipapi.EventMessageStarted}
+	es := streampeek.NewPrependFirst(first, nil)
+	ctx := context.Background()
+	_, err := es.Recv(ctx)
+	if err != nil {
+		t.Fatalf("first recv: %v", err)
+	}
+	_, err = es.Recv(ctx)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("second recv: want io.EOF, got %v", err)
 	}
 }

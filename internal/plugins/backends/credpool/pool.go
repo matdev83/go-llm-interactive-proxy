@@ -2,6 +2,7 @@ package credpool
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -19,9 +20,6 @@ type Credential struct {
 	ID     string // ignored by [New]; acquire returns the assigned pool id
 	Secret string
 }
-
-// Clock supplies the current time when needed outside explicit Acquire/Snapshot now.
-type Clock func() time.Time
 
 // State is usefulness of a credential for diagnostics only.
 type State string
@@ -43,7 +41,6 @@ type CredentialStatus struct {
 type Pool struct {
 	noCopy noCopy
 	mu     sync.Mutex
-	clock  Clock
 	creds  []poolEntry
 }
 
@@ -56,12 +53,9 @@ type poolEntry struct {
 
 // New builds a pool from normalized credentials (non-empty secrets).
 // Each credential receives a stable pool-local id (c0, c1, …) independent of secrets.
-func New(credentials []Credential, clock Clock) (*Pool, error) {
+func New(credentials []Credential) (*Pool, error) {
 	if len(credentials) == 0 {
 		return nil, errEmptyCredentialList
-	}
-	if clock == nil {
-		clock = time.Now
 	}
 	out := make([]poolEntry, 0, len(credentials))
 	for i, c := range credentials {
@@ -69,10 +63,11 @@ func New(credentials []Credential, clock Clock) (*Pool, error) {
 			return nil, fmt.Errorf("credpool: empty secret at index %d", i)
 		}
 		// Pool-local stable ids; never derive from secret material.
-		id := fmt.Sprintf("c%d", i)
+		// strconv avoids fmt's interface slice on this one-shot-per-credential path.
+		id := "c" + strconv.Itoa(i)
 		out = append(out, poolEntry{id: id, secret: c.Secret})
 	}
-	return &Pool{clock: clock, creds: out}, nil
+	return &Pool{creds: out}, nil
 }
 
 // Acquire returns the first usable credential in registration order: not in
@@ -99,11 +94,16 @@ func (p *Pool) Acquire(now time.Time, exclude map[string]struct{}) (Credential, 
 }
 
 // MarkRateLimited puts the credential in cooldown until the given instant.
+// If the credential already has a cooldown that ends later than until, the existing
+// deadline is kept (never shortens an in-flight cooldown).
 func (p *Pool) MarkRateLimited(id string, until time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.creds {
 		if p.creds[i].id == id {
+			if cur := p.creds[i].cooldownUntil; cur.After(until) {
+				until = cur
+			}
 			p.creds[i].cooldownUntil = until
 			return
 		}

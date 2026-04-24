@@ -11,6 +11,7 @@ const maxNumberedAPIKeysEnv = 32
 
 // UpstreamAPIKeys carries default API key material resolved once at the composition root
 // (typically from [ResolveUpstreamAPIKeysFromEnv]) when plugin YAML leaves api_key empty.
+// Treat all string values as secrets: do not log them or include them in error text.
 type UpstreamAPIKeys struct {
 	OpenAI    []string
 	Anthropic []string
@@ -20,6 +21,7 @@ type UpstreamAPIKeys struct {
 // EffectiveAPIKeys merges YAML api_key (first), then api_keys in order: trims, drops empties,
 // de-duplicates by secret string while preserving first-seen order. When the YAML side yields
 // no credentials, defaults (typically from the environment) are used with the same normalization.
+// The returned strings are secrets; callers must not log them.
 func EffectiveAPIKeys(yamlKey string, yamlKeys []string, defaults []string) []string {
 	n := 1 + len(yamlKeys) + len(defaults)
 	seen := make(map[string]struct{}, n)

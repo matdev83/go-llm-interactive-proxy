@@ -48,7 +48,7 @@ func New(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(ID, "base_url", cfg.BaseURL); err != nil {
 		return newConfigErrorBackend(err)
 	}
-	pool, err := credpool.NewPoolFromBackendKeys(cfg.APIKey, cfg.APIKeys, nil)
+	pool, err := credpool.NewPoolFromBackendKeys(cfg.APIKey, cfg.APIKeys)
 	if err != nil {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}

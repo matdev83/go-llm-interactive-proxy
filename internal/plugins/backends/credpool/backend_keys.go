@@ -35,7 +35,7 @@ func BackendKeySecrets(apiKey string, apiKeys []string) ([]string, error) {
 }
 
 // NewPoolFromBackendKeys builds a pool from install-style API key fields.
-func NewPoolFromBackendKeys(apiKey string, apiKeys []string, clock Clock) (*Pool, error) {
+func NewPoolFromBackendKeys(apiKey string, apiKeys []string) (*Pool, error) {
 	secrets, err := BackendKeySecrets(apiKey, apiKeys)
 	if err != nil {
 		return nil, err
@@ -44,5 +44,5 @@ func NewPoolFromBackendKeys(apiKey string, apiKeys []string, clock Clock) (*Pool
 	for i, s := range secrets {
 		creds[i] = Credential{Secret: s}
 	}
-	return New(creds, clock)
+	return New(creds)
 }

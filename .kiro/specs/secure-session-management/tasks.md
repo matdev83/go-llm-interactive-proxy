@@ -5,8 +5,9 @@
 - [ ] 1.1 Extend canonical session references and session-denial errors
   - Add proxy-owned `SessionID` and raw `ResumeToken` fields to `pkg/lipapi.SessionRef` while preserving `ClientSessionID`, `ContinuityKey`, and `ALegID` as hints/correlation fields.
   - Add typed canonical session-denial errors for missing principal, invalid authority, owner mismatch, expired resume, workspace denial, policy unavailable, storage unavailable, and mandatory audit failure.
+  - Document that session-like values from clients, backends, or remote LLMs are correlation hints only unless validated by proxy-owned secure-session state.
   - Done when unit tests prove existing call validation remains compatible and new errors expose public-safe codes without raw token data.
-  - _Requirements: 1.2, 1.3, 1.4, 1.9, 3.1, 3.2, 12.1, 12.2, 12.3, 12.7_
+  - _Requirements: 1.2, 1.3, 1.4, 1.9, 1.10, 1.11, 3.1, 3.2, 12.1, 12.2, 12.3, 12.7_
   - _Boundary: Canonical contracts_
 
 - [ ] 1.2 Add secure-session configuration and validation
@@ -31,7 +32,7 @@
   - Create `internal/core/securesession` domain types for session ids, token fingerprints, principals, workspaces, client hints, policy metadata, usage totals, transcript items, audit items, turn ids, activity sources, summaries, and read/query options.
   - Include typed fields for transcript-enabled status, effective treatment, stricter-policy resolution, resume eligibility, and B2BUA A-leg binding.
   - Done when package-local tests can construct records and summaries without using `any` or untyped maps for core invariants.
-  - _Requirements: 2.6, 4.1, 4.6, 4.7, 5.6, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1, 11.7, 13.1_
+  - _Requirements: 1.10, 2.6, 4.1, 4.6, 4.7, 5.6, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1, 11.7, 13.1_
   - _Boundary: SecureSession core types_
   - _Depends: 1.1_
 
@@ -165,8 +166,9 @@
   - Resolve trusted principal and workspace before secure-session authorization, then call `BeginTurn` before trusting `ALegID` or `ContinuityKey`.
   - Populate `call.Session.ALegID` from the secure-session record and strip raw resume token from backend-facing call copies.
   - Keep the dependency on the manager-owned readiness checklist so pre-output mandatory gates have one owner and are not duplicated in the executor.
+  - Treat backend-provided session-like headers or metadata as provider correlation data only, never as inputs that can overwrite proxy-owned session state.
   - Done when forged continuity ids without valid session authority never reach B2BUA resolution or backend opening in secure-session mode.
-  - _Requirements: 1.9, 2.2, 2.4, 3.1, 3.3, 3.6, 10.2, 10.6, 12.6_
+  - _Requirements: 1.9, 1.10, 1.11, 2.2, 2.4, 3.1, 3.3, 3.6, 3.8, 3.9, 10.2, 10.6, 12.6_
   - _Boundary: Runtime executor_
   - _Depends: 6.1, 5.6_
 
@@ -209,22 +211,29 @@
   - _Boundary: Session recorder validation_
   - _Depends: 7.2_
 
-- [ ] 7.4 Implement audit serialization, redaction, and raw access restrictions
+- [ ] 7.4 Record provider session-like metadata only as correlation data
+  - Capture backend/provider conversation ids, request ids, and session-like response headers only in explicit provider-correlation transcript or audit fields when configured.
+  - Done when tests prove backend-returned session-like values appear only as non-authoritative metadata and never overwrite `SessionID`, resume token fingerprints, owner binding, workspace binding, or A-leg binding.
+  - _Requirements: 1.10, 1.11, 3.8, 3.9, 4.3, 9.1_
+  - _Boundary: Session recorder, backend metadata boundary_
+  - _Depends: 7.3_
+
+- [ ] 7.5 Implement audit serialization, redaction, and raw access restrictions
   - Serialize audit records for session contents, proxy decisions, B2BUA recovery, surfaced/swallowed attempts, redaction treatment, and full-logging metadata.
   - Record rejected fixation and forgery attempts as operator-visible security evidence without storing sensitive request contents unless policy explicitly allows it.
   - Restrict raw or sensitive payload audit records to explicitly authorized audit access while general audit records use configured redaction.
   - Done when audit tests show redacted general records, raw access denial by default, and explicit full-logging metadata.
   - _Requirements: 3.5, 9.1, 9.2, 9.3, 9.4, 9.6, 9.7, 11.5_
   - _Boundary: Session recorder, audit_
-  - _Depends: 7.3_
+  - _Depends: 7.4_
 
-- [ ] 7.5 Implement mandatory recorder failure semantics
+- [ ] 7.6 Implement mandatory recorder failure semantics
   - Surface mandatory recorder failures according to pre-output vs post-output rules: pre-output failures reject before backend open when detected; post-output failures are committed-attempt terminal failures without silent replacement.
   - Add tests for optional failure logging, mandatory pre-output denial, mandatory post-output surfaced failure, and no inherited-session continuation after expired/failed sessions.
   - Done when mandatory recorder failures never trigger silent B-leg replacement or reuse expired session contents.
   - _Requirements: 6.6, 9.5, 12.6_
   - _Boundary: Session recorder, runtime stream_
-  - _Depends: 7.4_
+  - _Depends: 7.5_
 
 - [ ] 8. Implement frontend session metadata and error mapping
 
@@ -271,6 +280,13 @@
   - _Boundary: Frontend parity validation_
   - _Depends: 8.2, 8.3, 8.4, 8.5_
 
+- [ ] 8.7 Add backend metadata trust-boundary regression tests
+  - Add a stub backend or backend adapter fixture that returns session-like headers and provider conversation ids during streaming and non-streaming responses.
+  - Done when tests prove frontend-visible or backend-returned session headers are never accepted as authoritative proxy session IDs and can only be surfaced as configured correlation metadata.
+  - _Requirements: 1.10, 1.11, 3.8, 3.9_
+  - _Boundary: Backend adapter boundary tests_
+  - _Depends: 7.4, 8.6_
+
 - [ ] 9. Implement operator diagnostics and authorization
 
 - [ ] 9.1 Add operator authorization and redaction seams for session diagnostics
@@ -278,7 +294,7 @@
   - Done when unit tests show unauthorized transcript/audit access is denied without exposing session existence and authorized redacted access returns no raw payloads.
   - _Requirements: 9.3, 9.7, 13.2, 13.3, 13.7_
   - _Boundary: Diagnostics authorization_
-  - _Depends: 7.4_
+  - _Depends: 7.5_
 
 - [ ] 9.2 Add secure-session diagnostics handlers
   - Implement session summary, session detail, transcript, and by-A-leg lookup handlers using store query APIs and diagnostics authorization.
@@ -310,7 +326,7 @@
   - Done when runtimebundle tests prove SQLite-enabled secure sessions build with durable storage and full recorder dependencies.
   - _Requirements: 7.1, 7.2, 7.3, 8.4, 9.2, 9.5_
   - _Boundary: Runtime bundle_
-  - _Depends: 4.2, 7.5, 10.1_
+  - _Depends: 4.2, 7.6, 10.1_
 
 - [ ] 10.3 Update sample configuration and operator documentation
   - Document secure-session enablement, memory vs SQLite durability, resume window behavior, token key requirements, audit/redaction settings, diagnostics paths, and non-durable limitations.
@@ -325,7 +341,7 @@
   - Done when metrics/log tests verify denial category visibility without raw session authority leakage.
   - _Requirements: 3.5, 12.7, 13.5_
   - _Boundary: Observability_
-  - _Depends: 6.3, 7.5_
+  - _Depends: 6.3, 7.6_
 
 - [ ] 11. Add end-to-end integration coverage
 
@@ -356,7 +372,7 @@
   - Done when stream tests prove no silent replacement after output and operators can identify surfaced vs swallowed attempts in session evidence.
   - _Requirements: 4.3, 4.4, 4.5, 5.2, 5.3, 5.4, 5.5, 8.2, 9.5, 9.6, 12.6_
   - _Boundary: Cross-boundary streaming integration_
-  - _Depends: 7.5, 10.2, 8.6_
+  - _Depends: 7.6, 10.2, 8.7_
 
 - [ ] 12. Add performance, concurrency, and race validation
 
@@ -372,7 +388,7 @@
   - Done when benchmark output documents bounded overhead and no unbounded allocation growth for representative event streams.
   - _Requirements: 4.2, 6.3, 8.2, 9.1_
   - _Boundary: Performance validation_
-  - _Depends: 7.5_
+  - _Depends: 7.6_
 
 - [ ] 12.3 Add SQLite concurrent resume and touch tests
   - Exercise concurrent resume, last-activity touch, usage append, and transcript append against SQLite using deterministic fake clocks.
@@ -400,6 +416,6 @@
 - [ ] 13.3 Complete requirement traceability and operator evidence review
   - Review `tasks.md`, tests, diagnostics, and docs to ensure every requirement id has implementation and validation coverage.
   - Done when all secure-session requirements are mapped to delivered code/tests and any residual limitations are documented for operators.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.11, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7_
   - _Boundary: Verification_
   - _Depends: 13.2_

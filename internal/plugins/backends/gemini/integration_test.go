@@ -237,7 +237,9 @@ func TestIntegration_multiKey429ThenSuccessOnSecondCredential(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "3600")
 			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(`{"error":{"code":429,"message":"rate","status":"RESOURCE_EXHAUSTED"}}`))
+			// google.golang.org/genai does not surface HTTP Retry-After on [genai.APIError]; real
+			// Google errors may carry google.rpc.RetryInfo in JSON details (see errors_classify.go).
+			_, _ = w.Write([]byte(`{"error":{"code":429,"message":"rate","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"3600s"}]}}`))
 			return
 		}
 		ok.ServeHTTP(w, r)

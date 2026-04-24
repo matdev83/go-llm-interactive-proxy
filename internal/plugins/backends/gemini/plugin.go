@@ -45,7 +45,7 @@ func defaultBackendCaps() lipapi.BackendCaps {
 
 // New returns a runtime backend that invokes Gemini generateContent streaming via google.golang.org/genai.
 func New(cfg Config) execbackend.Backend {
-	pool, err := credpool.NewPoolFromBackendKeys(cfg.APIKey, cfg.APIKeys, nil)
+	pool, err := credpool.NewPoolFromBackendKeys(cfg.APIKey, cfg.APIKeys)
 	if err != nil {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}

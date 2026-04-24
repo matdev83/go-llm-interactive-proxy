@@ -6,7 +6,7 @@ Secure session management gives proxy operators a reliable way to preserve multi
 ## Boundary Context (Optional)
 - **In scope**: server-owned session identity, authenticated user isolation, resume authorization, inactivity-based resume limits, B2BUA attempt correlation, usage and cost accounting records, auditable transcript serialization, workspace association, policy-derived per-session treatment flags, and operator-visible session diagnostics.
 - **Out of scope**: defining a new user authentication mechanism, provider-specific conversation history formats, billing-rate calculation logic, and implementation choices for persistence technology.
-- **Adjacent expectations**: frontend protocols must receive legal protocol-specific errors, configured auth must provide a trustworthy user identity before resumable session access is allowed, configured storage must be treated as the source of durable session, usage, and audit evidence when durability is enabled, and B2BUA continuity identifiers must remain traceable without becoming client-authoritative session ownership proofs.
+- **Adjacent expectations**: frontend protocols must receive legal protocol-specific errors, configured auth must provide a trustworthy user identity before resumable session access is allowed, configured storage must be treated as the source of durable session, usage, and audit evidence when durability is enabled, B2BUA continuity identifiers must remain traceable without becoming client-authoritative session ownership proofs, and headers or metadata received from clients or backends may support correlation but must not become authoritative session identity.
 
 ## Requirements
 
@@ -23,6 +23,8 @@ Secure session management gives proxy operators a reliable way to preserve multi
 7. The LLM Interactive Proxy shall not rely solely on timestamp precision to guarantee authoritative session identifier uniqueness.
 8. The LLM Interactive Proxy shall ensure that two active sessions never share the same authoritative session identifier.
 9. The LLM Interactive Proxy shall keep B2BUA continuity identifiers distinguishable from client-supplied session hints and from the authoritative session ownership proof.
+10. When a frontend client, backend provider, or remote LLM supplies a session identifier, header, or metadata field, the LLM Interactive Proxy shall treat that value as correlation metadata only and not as authoritative session identity.
+11. The LLM Interactive Proxy shall derive authoritative session identity and in-session handling from proxy-owned session state rather than from headers or metadata supplied by clients, backends, or remote LLMs.
 
 ### Requirement 2: User Binding and Isolation
 **Objective:** As an end user, I want my session contents isolated from other users, so that another user cannot view or resume my conversation.
@@ -47,6 +49,8 @@ Secure session management gives proxy operators a reliable way to preserve multi
 5. The LLM Interactive Proxy shall record rejected fixation or forgery attempts in operator-visible security evidence without recording sensitive request contents unless configured policy allows it.
 6. If a client knows or guesses a B2BUA continuity identifier without valid session authority, then the LLM Interactive Proxy shall reject the resume attempt without attaching the request to that continuity context.
 7. When session authority is exposed to a client for future resume, the LLM Interactive Proxy shall ensure that the authority is bound to the authenticated user and cannot be transferred to another user without rejection.
+8. If a backend response carries a session identifier or session-like header, then the LLM Interactive Proxy shall not use that value to create, replace, resume, or rebind the authoritative proxy session.
+9. The LLM Interactive Proxy shall not forward backend-supplied session identifiers into proxy-owned session state unless an explicit non-authoritative correlation field is configured for audit or diagnostics.
 
 ### Requirement 4: Session Transcript Semantics
 **Objective:** As a proxy operator, I want sessions to represent the full interleaved LLM interaction, so that replay, auditing, and policy decisions have complete context.

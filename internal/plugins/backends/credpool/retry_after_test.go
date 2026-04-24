@@ -52,11 +52,24 @@ func TestCooldownFromRetryAfter_httpDate(t *testing.T) {
 func TestCooldownFromRetryAfter_invalid(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
-	for _, v := range []string{"", " ", "-1", "not-a-number", "999999999999999999999"} {
-		_, ok := credpool.CooldownFromRetryAfter(v, now)
-		if ok {
-			t.Fatalf("expected !ok for %q", v)
-		}
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{name: "empty", value: ""},
+		{name: "whitespace_only", value: " "},
+		{name: "negative_seconds", value: "-1"},
+		{name: "not_a_number", value: "not-a-number"},
+		{name: "overflow_digits", value: "999999999999999999999"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, ok := credpool.CooldownFromRetryAfter(tc.value, now)
+			if ok {
+				t.Fatalf("expected !ok for %q", tc.value)
+			}
+		})
 	}
 }
 
@@ -97,7 +110,7 @@ func TestCooldownFromRetryAfterOrFallback(t *testing.T) {
 func TestCooldownFromRetryAfter_doesNotMutatePool(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
-	p, err := credpool.New([]credpool.Credential{{Secret: "s"}}, fixedClock(base))
+	p, err := credpool.New([]credpool.Credential{{Secret: "s"}})
 	if err != nil {
 		t.Fatal(err)
 	}

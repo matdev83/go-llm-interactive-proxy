@@ -6,56 +6,73 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 )
 
-func TestBackendKeySecrets_fromList(t *testing.T) {
+func TestBackendKeySecrets(t *testing.T) {
 	t.Parallel()
-	got, err := credpool.BackendKeySecrets("", []string{" k1 ", "", "k2"})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name      string
+		primary   string
+		list      []string
+		want      []string
+		wantError bool
+	}{
+		{
+			name:    "from_list_trims_and_skips_empty",
+			primary: "",
+			list:    []string{" k1 ", "", "k2"},
+			want:    []string{"k1", "k2"},
+		},
+		{
+			name:    "primary_fallback_when_no_list",
+			primary: "  sk  ",
+			list:    nil,
+			want:    []string{"sk"},
+		},
+		{
+			name:    "primary_then_list_order",
+			primary: "primary",
+			list:    []string{"a", "b"},
+			want:    []string{"primary", "a", "b"},
+		},
+		{
+			name:    "dedupe_primary_repeated_in_list",
+			primary: "same",
+			list:    []string{"same", "other"},
+			want:    []string{"same", "other"},
+		},
+		{
+			name:      "empty_errors_no_primary_no_list",
+			primary:   "",
+			list:      nil,
+			wantError: true,
+		},
+		{
+			name:      "empty_errors_list_only_blanks",
+			primary:   "",
+			list:      []string{"", "  "},
+			wantError: true,
+		},
 	}
-	if len(got) != 2 || got[0] != "k1" || got[1] != "k2" {
-		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestBackendKeySecrets_primaryFallback(t *testing.T) {
-	t.Parallel()
-	got, err := credpool.BackendKeySecrets("  sk  ", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0] != "sk" {
-		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestBackendKeySecrets_primaryThenListDedup(t *testing.T) {
-	t.Parallel()
-	got, err := credpool.BackendKeySecrets("primary", []string{"a", "b"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 3 || got[0] != "primary" || got[1] != "a" || got[2] != "b" {
-		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestBackendKeySecrets_dedupPrimaryRepeatedInList(t *testing.T) {
-	t.Parallel()
-	got, err := credpool.BackendKeySecrets("same", []string{"same", "other"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[0] != "same" || got[1] != "other" {
-		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestBackendKeySecrets_emptyErrors(t *testing.T) {
-	t.Parallel()
-	if _, err := credpool.BackendKeySecrets("", nil); err == nil {
-		t.Fatal("expected error")
-	}
-	if _, err := credpool.BackendKeySecrets("", []string{"", "  "}); err == nil {
-		t.Fatal("expected error")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := credpool.BackendKeySecrets(tt.primary, tt.list)
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got len=%d %#v want %#v", len(got), got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got %#v want %#v", got, tt.want)
+				}
+			}
+		})
 	}
 }

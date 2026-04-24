@@ -10,13 +10,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 )
 
-func fixedClock(t time.Time) credpool.Clock {
-	return func() time.Time { return t }
-}
-
 func TestNew_rejectsEmptySecret(t *testing.T) {
 	t.Parallel()
-	_, err := credpool.New([]credpool.Credential{{ID: "x", Secret: ""}}, fixedClock(time.Unix(0, 0)))
+	_, err := credpool.New([]credpool.Credential{{ID: "x", Secret: ""}})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -24,7 +20,7 @@ func TestNew_rejectsEmptySecret(t *testing.T) {
 
 func TestNew_rejectsEmptyCredentialList(t *testing.T) {
 	t.Parallel()
-	_, err := credpool.New(nil, fixedClock(time.Unix(0, 0)))
+	_, err := credpool.New(nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -37,7 +33,7 @@ func TestAcquire_orderedSkipsCooldownAndAuthInvalid(t *testing.T) {
 		{Secret: "alpha"},
 		{Secret: "beta"},
 		{Secret: "gamma"},
-	}, fixedClock(base))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +83,7 @@ func TestAcquire_excludeSkipsCredential(t *testing.T) {
 	p, err := credpool.New([]credpool.Credential{
 		{Secret: "a"},
 		{Secret: "b"},
-	}, fixedClock(base))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +107,7 @@ func TestAcquire_poolLocalIDsNotSecrets(t *testing.T) {
 	p, err := credpool.New([]credpool.Credential{
 		{Secret: secretA},
 		{Secret: secretB},
-	}, fixedClock(time.Unix(0, 0)))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +138,7 @@ func TestAcquire_exhaustionWhenNoneUsable(t *testing.T) {
 	p, err := credpool.New([]credpool.Credential{
 		{Secret: "x"},
 		{Secret: "y"},
-	}, fixedClock(base))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +160,7 @@ func TestAcquire_concurrentAcquireAndMark(t *testing.T) {
 	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
 	p, err := credpool.New([]credpool.Credential{
 		{Secret: "k0"}, {Secret: "k1"}, {Secret: "k2"},
-	}, fixedClock(base))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,4 +184,28 @@ func TestAcquire_concurrentAcquireAndMark(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestMarkRateLimited_keepsLaterCooldownDeadline(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
+	p, err := credpool.New([]credpool.Credential{{Secret: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c0, err := p.Acquire(base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := base.Add(10 * time.Minute)
+	short := base.Add(30 * time.Second)
+	p.MarkRateLimited(c0.ID, long)
+	p.MarkRateLimited(c0.ID, short)
+	snap := p.Snapshot(base)
+	if len(snap) != 1 {
+		t.Fatalf("snap: %#v", snap)
+	}
+	if !snap[0].CooldownUntil.Equal(long) {
+		t.Fatalf("expected longer cooldown preserved, got %v want %v", snap[0].CooldownUntil, long)
+	}
 }

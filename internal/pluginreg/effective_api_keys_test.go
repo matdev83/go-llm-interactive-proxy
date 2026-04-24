@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestEffectiveAPIKeys_yamlOnly(t *testing.T) {
+func TestEffectiveAPIKeys(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name     string
@@ -61,6 +61,20 @@ func TestEffectiveAPIKeys_yamlOnly(t *testing.T) {
 			defaults: []string{"env"},
 			want:     []string{"only"},
 		},
+		{
+			name:     "defaults_only_when_yaml_empty",
+			yamlKey:  "",
+			yamlKeys: nil,
+			defaults: []string{" d1 ", "", "d2", "d1"},
+			want:     []string{"d1", "d2"},
+		},
+		{
+			name:     "all_empty_returns_empty_slice",
+			yamlKey:  "",
+			yamlKeys: []string{"", " "},
+			defaults: []string{},
+			want:     []string{},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,22 +84,5 @@ func TestEffectiveAPIKeys_yamlOnly(t *testing.T) {
 				t.Fatalf("EffectiveAPIKeys(...) = %#v, want %#v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestEffectiveAPIKeys_defaultsOnly(t *testing.T) {
-	t.Parallel()
-	got := EffectiveAPIKeys("", nil, []string{" d1 ", "", "d2", "d1"})
-	want := []string{"d1", "d2"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v want %#v", got, want)
-	}
-}
-
-func TestEffectiveAPIKeys_allEmpty(t *testing.T) {
-	t.Parallel()
-	got := EffectiveAPIKeys("", []string{"", " "}, []string{})
-	if len(got) != 0 {
-		t.Fatalf("want empty slice, got %#v", got)
 	}
 }

@@ -28,6 +28,7 @@ The design uses a hybrid pattern: existing `b2bua.Store` remains authoritative f
 - Owner, workspace, resume-window, policy metadata, transcript, usage, audit reference, and B2BUA lineage association for sessions.
 - Session-denial error categories and the core contract that denials happen before backend attempts.
 - Operator-facing session summary and transcript/audit query contracts with authorization and redaction gates.
+- The rule that only proxy-owned secure-session state can create, resume, replace, or rebind authoritative session identity; client and backend headers are non-authoritative correlation inputs unless explicitly stored as such.
 
 ### Out of Boundary
 - Authentication provider implementations and trust decisions for identity headers.
@@ -65,6 +66,8 @@ The current code already has the right orchestration anchor points:
 - Workspace, session_open, traffic capture, and diagnostics are already explicit seams.
 
 The gap is that continuity resolution currently trusts client-supplied `ALegID` or `ContinuityKey` as enough to resume an A-leg. The design changes that ordering: secure session authority is validated first, then the stored session-to-A-leg binding drives B2BUA continuity. Client-supplied continuity identifiers remain diagnostics/correlation hints only unless validated through the secure session record.
+
+Backend-supplied session identifiers, response headers, or provider conversation ids follow the same trust rule: they may be captured as provider correlation metadata for audit, diagnostics, or troubleshooting, but they never create, replace, resume, or rebind the authoritative proxy session. Backend plugins must not write provider session headers into `Record.SessionID`, `Record.ResumeFingerprint`, or any field that controls resume authorization.
 
 ### Architecture Pattern & Boundary Map
 
@@ -214,9 +217,9 @@ The recorder must not alter event ordering or trigger retries. It records best-e
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
 | 1.1, 1.5, 1.6, 1.7, 1.8 | Unique proxy-owned IDs under concurrency | IDGenerator, Manager, Store | `Generator.NewSessionID`, `Store.Create` | New Session Creation |
-| 1.2, 1.3, 1.4, 1.9 | Client hints are not authority | Frontend adapters, Manager, SessionRef | `SessionRef`, `BeginTurn` | Resume Authorization |
+| 1.2, 1.3, 1.4, 1.9, 1.10, 1.11 | Remote and client hints are not authority | Frontend adapters, Backend adapters, Manager, SessionRef | `SessionRef`, `BeginTurn` | Resume Authorization |
 | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7 | Owner binding and isolation | Manager, Store, diagnostics | `PrincipalRef`, `Resume` | Resume Authorization |
-| 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7 | Fixation and forgery resistance | Token authority, errors, audit evidence | `ResumeToken`, `SessionError` | Resume Authorization |
+| 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9 | Fixation and forgery resistance | Token authority, errors, audit evidence, backend correlation metadata | `ResumeToken`, `SessionError` | Resume Authorization |
 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7 | Ordered transcript semantics | Recorder, Store | `AppendTranscript` | Event Recording |
 | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6 | B2BUA lineage relationship | Manager, B2BUA store, diagnostics | `SessionContext.ALegID`, `AttemptRecord` | New Session Creation, Event Recording |
 | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7 | Resume window and last activity | Manager, Recorder, Store | `TouchActivity`, `ResumePolicy` | Resume Authorization, Event Recording |
@@ -238,6 +241,7 @@ The recorder must not alter event ordering or trigger retries. It records best-e
 | Session Recorder | Core stream | Record user turns, events, last activity, usage, audit | 4, 5, 6, 8, 9 | Store (P0), B2BUA lineage (P1) | Service, Event |
 | Runtime Integration | Core executor | Enforce secure session before backend attempts and inject views | 2, 3, 5, 6, 11, 12 | Manager (P0), routing executor (P0) | Service |
 | Frontend Session Adapter | Plugins | Decode/encode protocol-specific session carriers and errors | 1, 3, 12 | `lipapi.SessionRef` (P0) | API |
+| Backend Session Boundary | Plugins | Prevent provider session-like metadata from becoming proxy authority | 1, 3, 4, 9 | Backend response metadata (P1) | API, Event |
 | Diagnostics Query Surface | Core HTTP/admin | Provide authorized session summaries, transcript, and audit access | 8, 9, 13 | Store query APIs (P0), diag auth (P0) | API |
 
 ### Core Session Layer
@@ -367,6 +371,7 @@ type Generator interface {
 - Replace or populate `call.Session.ALegID` from the returned secure session record.
 - Strip raw resume token from any call copy sent to backend plugins or traffic observers unless an explicitly authorized audit policy requires capture.
 - Build `execctx.Views.Session` from authoritative session state, not from `ClientSessionID`.
+- Ignore backend-returned session identifiers for proxy-owned session state; only record them as explicit provider correlation metadata when configured.
 
 #### Session Recorder
 
@@ -396,6 +401,18 @@ type Generator interface {
 - Preserve `ClientSessionID` as a hint only.
 - Encode new-session response metadata in protocol-legal headers or body fields per frontend conventions.
 - Map canonical session-denial errors to non-sensitive protocol errors. Wrong-owner and unknown-session cases must use a non-enumerating public message.
+
+#### Backend Adapter Session Boundaries
+
+| Field | Detail |
+|-------|--------|
+| Intent | Prevent provider or remote LLM metadata from mutating proxy-owned session authority. |
+| Requirements | 1.10, 1.11, 3.8, 3.9 |
+
+**Implementation Notes**
+- Backend adapters may expose provider conversation ids, request ids, or session-like headers only as provider correlation metadata.
+- Backend adapters must not set or overwrite `SessionID`, `ResumeToken`, token fingerprints, owner binding, workspace binding, or stored A-leg binding from backend response data.
+- Runtime/backend tests should include a stub backend that returns session-like headers and verify proxy session state remains unchanged.
 
 ##### Canonical SessionRef Extension
 ```go

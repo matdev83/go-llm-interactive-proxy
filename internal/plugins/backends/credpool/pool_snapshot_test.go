@@ -16,7 +16,7 @@ func TestErrNoUsableCredential_errorStringNeverContainsSecret(t *testing.T) {
 	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
 	p, err := credpool.New([]credpool.Credential{
 		{Secret: secret},
-	}, fixedClock(base))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestSnapshot_secretSafeAndStates(t *testing.T) {
 	p, err := credpool.New([]credpool.Credential{
 		{Secret: secret},
 		{Secret: "other-key-material"},
-	}, fixedClock(base))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -299,7 +299,7 @@ func TestHandler_onAuthorizedCredential_seesAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}

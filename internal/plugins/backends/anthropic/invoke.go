@@ -19,10 +19,11 @@ const extModelJSONKey = "anthropic.model"
 const defaultMaxTokens int64 = 4096
 
 func newSDKClientForSecret(cfg Config, apiSecret string) anthropic.Client {
-	opts := []option.RequestOption{
+	opts := make([]option.RequestOption, 0, 3)
+	opts = append(opts,
 		option.WithBaseURL(cfg.BaseURL),
 		option.WithAPIKey(apiSecret),
-	}
+	)
 	if cfg.HTTPClient != nil {
 		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
 	}
