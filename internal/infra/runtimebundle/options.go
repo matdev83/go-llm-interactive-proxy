@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -31,7 +31,7 @@ type BuildOptions struct {
 	PluginRegistry *pluginreg.Registry
 	// WireModel resolves default upstream model ids when computing the effective default route selector.
 	// When nil, Build uses pluginreg.DefaultWireModel (standard distribution).
-	WireModel routing.WireModelForBackend
+	WireModel config.WireModelForBackend
 	// HTTPAuthProviders runs in [internal/stdhttp] before frontend decode (R4). Nil or empty skips auth.
 	HTTPAuthProviders []httpauth.Provider
 	// SessionOpeners and WorkspaceResolvers are merged from enabled feature bundles (task 5.1).

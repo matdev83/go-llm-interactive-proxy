@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,8 @@ type Executor struct {
 	MaxAttempts int
 	// DefaultBackend resolves model-only selectors using routing.ApplyModelOnlyBackends (from config default_route).
 	DefaultBackend string
+	// SelectorAliases rewrites the request route selector before routing.Parse (nil or empty rules: no-op).
+	SelectorAliases *routing.AliasResolver
 	// CapsResolver, when set, supplies candidate-aware caps for negotiation; otherwise each
 	// Backend's ResolveCaps / Caps is used via [execbackend.EffectiveCaps].
 	CapsResolver capabilities.Resolver
@@ -123,7 +126,11 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		recvViewsOK = true
 	}
 	routePrefs := slices.Clone(execctx.RouteCandidatePreferences(ctx))
-	sel, err := routing.Parse(baseline.Route.Selector)
+	selStr := strings.TrimSpace(baseline.Route.Selector)
+	if e.SelectorAliases != nil {
+		selStr = e.SelectorAliases.Resolve(selStr)
+	}
+	sel, err := routing.Parse(selStr)
 	if err != nil {
 		return nil, fmt.Errorf("executor: parse route selector: %w", err)
 	}

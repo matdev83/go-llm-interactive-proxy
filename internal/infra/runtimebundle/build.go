@@ -99,7 +99,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if wireModel == nil {
 		wireModel = pluginreg.DefaultWireModel
 	}
-	effectiveRoute := routing.EffectiveDefaultRouteSelector(cfg, wireModel)
+	rawDefaultRoute := config.EffectiveDefaultRouteSelector(cfg, wireModel)
+	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: model_aliases: %w", err)
+	}
+	effectiveRoute := aliasResolver.Resolve(rawDefaultRoute)
 	defBE, err := routing.DefaultBackendFromRouteSelector(effectiveRoute)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
@@ -178,6 +183,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Backends:             backends,
 		MaxAttempts:          cfg.Routing.MaxAttempts,
 		DefaultBackend:       defBE,
+		SelectorAliases:      aliasResolver,
 		CapsResolver:         capMap,
 		Rand:                 routing.NewSeededRng(seed),
 		Now:                  nowFn,

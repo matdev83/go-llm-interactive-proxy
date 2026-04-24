@@ -8,8 +8,11 @@ import (
 )
 
 // Config contains only core-owned runtime settings and opaque plugin config payloads.
-// A decoded Config is not self-validating: use LoadFile (which calls Validate) or call Validate
-// before wiring into runtime.New or runtimebundle.Build.
+//
+// A decoded Config is not self-validating: [Validate] checks core fields (plugins, continuity, logging, etc.) but does
+// not validate model_aliases. After [LoadFile], call routing.ValidateModelAliasesConfig(cfg) from package
+// internal/core/routing before wiring; composition (for example internal/infra/runtimebundle.Build) compiles
+// model_aliases via routing.NewAliasResolver.
 type Config struct {
 	Server        ServerConfig        `yaml:"server"`
 	Logging       LoggingConfig       `yaml:"logging"`
@@ -20,6 +23,13 @@ type Config struct {
 	Continuity    ContinuityConfig    `yaml:"continuity"`
 	Hooks         HooksConfig         `yaml:"hooks"`
 	Plugins       PluginsConfig       `yaml:"plugins"`
+	ModelAliases  []ModelAliasConfig  `yaml:"model_aliases"`
+}
+
+// ModelAliasConfig is one regexp-based rewrite of an incoming route selector (see internal/core/routing/aliases.go).
+type ModelAliasConfig struct {
+	Pattern     string `yaml:"pattern"`
+	Replacement string `yaml:"replacement"`
 }
 
 // ObservabilityConfig toggles Prometheus metrics and OpenTelemetry tracing.
@@ -96,7 +106,8 @@ type LoggingConfig struct {
 	AccessLog bool `yaml:"access_log"`
 	// AccessLogSkipPaths are URL path prefixes (must start with /) for which access logs are suppressed.
 	AccessLogSkipPaths []string `yaml:"access_log_skip_paths"`
-	// AccessLogIncludeRawPath when true adds the full URL path to access logs (higher cardinality). Default false: only route_group.
+	// AccessLogIncludeRawPath when true adds the full URL path to access logs (higher cardinality).
+	// Default false: only route_group.
 	AccessLogIncludeRawPath bool `yaml:"access_log_include_raw_path"`
 }
 

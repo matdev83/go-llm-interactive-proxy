@@ -30,7 +30,9 @@ func resolveConfigPath(raw string) (string, error) {
 	return filepath.Abs(filepath.Join(wd, p))
 }
 
-// LoadFile decodes typed runtime configuration from YAML.
+// LoadFile decodes typed runtime configuration from YAML, applies defaults, and runs [Validate].
+// After a successful load, callers should run routing.ValidateModelAliasesConfig(cfg) from package
+// internal/core/routing so model_aliases regexp and replacement selectors are validated.
 func LoadFile(path string) (*Config, error) {
 	resolved, err := resolveConfigPath(path)
 	if err != nil {

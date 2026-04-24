@@ -162,7 +162,12 @@ func TestBuild_setsEffectiveDefaultRoute_defaultWireModel(t *testing.T) {
 	if b.EffectiveDefaultRoute == "" {
 		t.Fatal("EffectiveDefaultRoute should be non-empty")
 	}
-	want := routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	wantRaw := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	ar, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ar.Resolve(wantRaw)
 	if b.EffectiveDefaultRoute != want {
 		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute, want)
 	}
@@ -186,6 +191,35 @@ func TestBuild_respectsWireModelInBuildOptions(t *testing.T) {
 	}
 	if want := "openai-responses:wm-override"; b.EffectiveDefaultRoute != want {
 		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute, want)
+	}
+}
+
+func TestBuild_defaultRouteAliasExpandsBeforeDefaultBackend(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{
+			MaxAttempts:  3,
+			DefaultRoute: "friendly-name",
+		},
+		ModelAliases: []config.ModelAliasConfig{
+			{Pattern: `^friendly-name$`, Replacement: "openai-responses:gpt-4o-mini"},
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}},
+		},
+		Continuity: config.ContinuityConfig{InMemory: true},
+	}
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.EffectiveDefaultRoute != "openai-responses:gpt-4o-mini" {
+		t.Fatalf("EffectiveDefaultRoute: got %q", b.EffectiveDefaultRoute)
+	}
+	if b.Executor.DefaultBackend != "openai-responses" {
+		t.Fatalf("DefaultBackend: got %q want openai-responses", b.Executor.DefaultBackend)
 	}
 }
 

@@ -16,7 +16,7 @@ type Built struct {
 	Executor *runtime.Executor
 	Store    b2bua.Store
 	Closers  []func() error
-	// EffectiveDefaultRoute is the selector used when clients omit explicit routing (see routing.EffectiveDefaultRouteSelector).
+	// EffectiveDefaultRoute is the selector used when clients omit explicit routing (see config.EffectiveDefaultRouteSelector), after model_aliases expansion when configured.
 	// [Build] sets this from config and BuildOptions.WireModel (or pluginreg.DefaultWireModel when WireModel is nil).
 	EffectiveDefaultRoute string
 	// UpstreamHTTP is the shared outbound HTTP client passed to backends that need upstream HTTP.

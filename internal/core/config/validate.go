@@ -7,6 +7,7 @@ import (
 )
 
 // Validate checks plugin identity rules and continuity/store consistency after decoding.
+// It does not validate model_aliases; call routing.ValidateModelAliasesConfig after LoadFile, or rely on runtimebundle.Build.
 func Validate(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config: nil")

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
@@ -24,6 +25,10 @@ func main() {
 
 	cfg, err := config.LoadFile(configPath)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "bootstrap failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "bootstrap failed: %v\n", err)
 		os.Exit(1)
 	}

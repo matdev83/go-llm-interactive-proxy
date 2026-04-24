@@ -50,6 +50,14 @@ routing:
   max_attempts: 3
   default_route: "openai-responses:gpt-4o-mini"
 
+# Optional regexp rewrites of the full route selector string (incoming X-LIP-Route or default_route).
+# First matching rule wins; the replacement template must parse as a valid selector (see routing.Parse). After a
+# match, regexp capture expansion runs; the rewritten string is parsed again at request/default-route time, so a
+# capture can still yield an invalid selector even when the template alone was valid. Not recursive.
+# model_aliases:
+#   - pattern: '^gpt-4$'
+#     replacement: 'openai-responses:gpt-4o-mini'
+
 # Hook bus tuning (see docs/capability-catalogs.md and internal/plugins/features/REFERENCE_PLUGINS.md).
 hooks:
   tool_reactor_error_policy: fail_open

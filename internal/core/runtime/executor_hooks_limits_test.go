@@ -110,6 +110,68 @@ func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 	}
 }
 
+func TestExecutor_selectorAlias_opensMappedBackend(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ar, err := routing.NewAliasResolver([]routing.ModelAliasRule{
+		{Pattern: `^incoming$`, Replacement: "backendB:model-x"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var backendOpened atomic.Value
+	ex := &runtime.Executor{
+		Store:           st,
+		Bus:             hooks.New(hooks.Config{}),
+		SelectorAliases: ar,
+		Backends: map[string]execbackend.Backend{
+			"backendA": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					backendOpened.Store("A")
+					return lipapi.NewFixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+			"backendB": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					backendOpened.Store("B")
+					return lipapi.NewFixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "incoming"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := backendOpened.Load(); v != "B" {
+		t.Fatalf("want backend B, got %v", v)
+	}
+}
+
 func TestExecutor_submitHook_oversizedCall_rejectedBeforeBackendOpen(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

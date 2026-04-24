@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
@@ -66,7 +65,7 @@ func TestStandardWiring_openaiResponses_runtimeBundle_roundTrip(t *testing.T) {
 		t.Fatal("expected backend instance oai-upstream-int")
 	}
 
-	route := routing.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	route := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
 	if want := "oai-upstream-int:gpt-4o-mini"; route != want {
 		t.Fatalf("effective route %q want %q", route, want)
 	}
@@ -83,8 +82,9 @@ func TestStandardWiring_openaiResponses_runtimeBundle_roundTrip(t *testing.T) {
 		t.Fatalf("MountBundledFrontends: %v", err)
 	}
 
-	// Subtests share mux and executor wiring; do not t.Parallel them together.
+	// Subtests share mux and executor wiring; ServeHTTP on the mux is concurrency-safe.
 	t.Run("non-streaming response", func(t *testing.T) {
+		t.Parallel()
 		body := []byte(`{"model":"gpt-4o-mini","stream":false,"input":[{"role":"user","content":"ping"}]}`)
 		req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -103,6 +103,7 @@ func TestStandardWiring_openaiResponses_runtimeBundle_roundTrip(t *testing.T) {
 	})
 
 	t.Run("streaming response", func(t *testing.T) {
+		t.Parallel()
 		body := []byte(`{"model":"gpt-4o-mini","stream":true,"input":[{"role":"user","content":"ping"}]}`)
 		req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
