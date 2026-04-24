@@ -26,6 +26,7 @@ The design uses a hybrid pattern: existing `b2bua.Store` remains authoritative f
 - A core secure session lifecycle: create, resume, validate, touch activity, record transcript/usage/audit, and summarize.
 - Proxy-owned session identifiers and bearer resume proofs, including concurrency-safe generation and token hashing.
 - Owner, workspace, resume-window, policy metadata, transcript, usage, audit reference, and B2BUA lineage association for sessions.
+- Per-attempt backend/model traceability, route decisions, execution settings snapshots, outcome/status evidence, and accounting records for surfaced, swallowed, failed, and timed-out backend attempts.
 - Session-denial error categories and the core contract that denials happen before backend attempts.
 - Operator-facing session summary and transcript/audit query contracts with authorization and redaction gates.
 - The rule that only proxy-owned secure-session state can create, resume, replace, or rebind authoritative session identity; client and backend headers are non-authoritative correlation inputs unless explicitly stored as such.
@@ -222,14 +223,15 @@ The recorder must not alter event ordering or trigger retries. It records best-e
 | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9 | Fixation and forgery resistance | Token authority, errors, audit evidence, backend correlation metadata | `ResumeToken`, `SessionError` | Resume Authorization |
 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7 | Ordered transcript semantics | Recorder, Store | `AppendTranscript` | Event Recording |
 | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6 | B2BUA lineage relationship | Manager, B2BUA store, diagnostics | `SessionContext.ALegID`, `AttemptRecord` | New Session Creation, Event Recording |
-| 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7 | Resume window and last activity | Manager, Recorder, Store | `TouchActivity`, `ResumePolicy` | Resume Authorization, Event Recording |
-| 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7 | Restart-safe durable state | Store implementations, config validation | `Store`, SQLite schema | Resume Authorization |
-| 8.1, 8.2, 8.3, 8.4, 8.5 | Usage accounting | Recorder, Store, diagnostics | `AddUsage`, `UsageTotals` | Event Recording |
-| 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 | Audit and serialization | Recorder, Store, diagnostics, redaction | `AppendAudit`, `ReadAudit` | Event Recording |
-| 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7 | Workspace association | Workspace resolver, Manager, Store | `WorkspaceRef` | Resume Authorization |
-| 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7 | Policy metadata | Manager, policy snapshot, routing integration | `PolicyMetadata` | Resume Authorization |
-| 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7 | Protocol-legal feedback | SessionError, frontend encoders | `SessionError.Code` | Resume Authorization |
-| 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7 | Operator visibility | Diagnostics handlers, query store | `Summary`, `Transcript`, `AuditRef` | Operator Diagnostics |
+| 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9 | Per-attempt backend/model/status/accounting traceability | Manager, Recorder, Store, routing, diagnostics | `AttemptTrace`, `AttemptAccounting` | Backend Attempt Lifecycle |
+| 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7 | Resume window and last activity | Manager, Recorder, Store | `TouchActivity`, `ResumePolicy` | Resume Authorization, Event Recording |
+| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7 | Restart-safe durable state | Store implementations, config validation | `Store`, SQLite schema | Resume Authorization |
+| 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 | Usage accounting | Recorder, Store, diagnostics | `AddUsage`, `AttemptAccounting`, `UsageTotals` | Event Recording |
+| 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8 | Audit and serialization | Recorder, Store, diagnostics, redaction | `AppendAudit`, `ReadAudit` | Event Recording |
+| 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7 | Workspace association | Workspace resolver, Manager, Store | `WorkspaceRef` | Resume Authorization |
+| 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7 | Policy metadata | Manager, policy snapshot, routing integration | `PolicyMetadata` | Resume Authorization |
+| 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7 | Protocol-legal feedback | SessionError, frontend encoders | `SessionError.Code` | Resume Authorization |
+| 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8 | Operator visibility | Diagnostics handlers, query store | `Summary`, `Transcript`, `AuditRef`, `AttemptTrace` | Operator Diagnostics |
 
 ## Components and Interfaces
 
@@ -239,6 +241,7 @@ The recorder must not alter event ordering or trigger retries. It records best-e
 | Secure Session Store | Core persistence | Persist session records, token fingerprints, transcripts, usage, audit refs | 2, 4, 6, 7, 8, 9, 10, 11, 13 | SQLite/memory (P0) | Service, State |
 | ID and Token Generator | Core security | Generate concurrent-safe IDs and bearer resume tokens | 1, 3 | stdlib crypto (P0) | Service |
 | Session Recorder | Core stream | Record user turns, events, last activity, usage, audit | 4, 5, 6, 8, 9 | Store (P0), B2BUA lineage (P1) | Service, Event |
+| Attempt Trace Recorder | Core routing/stream | Record per-B-leg backend/model/settings/status/accounting evidence | 5, 6, 9, 10, 14 | Routing result (P0), B2BUA store (P0), Store (P0) | Service, Event |
 | Runtime Integration | Core executor | Enforce secure session before backend attempts and inject views | 2, 3, 5, 6, 11, 12 | Manager (P0), routing executor (P0) | Service |
 | Frontend Session Adapter | Plugins | Decode/encode protocol-specific session carriers and errors | 1, 3, 12 | `lipapi.SessionRef` (P0) | API |
 | Backend Session Boundary | Plugins | Prevent provider session-like metadata from becoming proxy authority | 1, 3, 4, 9 | Backend response metadata (P1) | API, Event |
@@ -320,6 +323,8 @@ type Store interface {
     LoadByResumeFingerprint(ctx context.Context, fp TokenFingerprint) (Record, error)
     LoadByALegID(ctx context.Context, aLegID string) (Record, error)
     TouchActivity(ctx context.Context, id SessionID, at time.Time, source ActivitySource) error
+    AppendAttemptTrace(ctx context.Context, trace AttemptTrace) error
+    UpdateAttemptOutcome(ctx context.Context, outcome AttemptOutcome) error
     AppendTranscript(ctx context.Context, item TranscriptItem) error
     AddUsage(ctx context.Context, delta UsageDelta) error
     AppendAudit(ctx context.Context, item AuditItem) error
@@ -335,6 +340,64 @@ type Store interface {
 - Store must persist enough state to reject ambiguous resumes after restart.
 - `CheckReadiness` exposes storage/audit availability only; the manager remains the owner of the mandatory pre-output readiness checklist.
 - Mandatory durability and audit readiness checks must be available before a turn opens a backend attempt so fail-closed policy can reject safely before visible output.
+
+#### Attempt Trace Recorder
+
+| Field | Detail |
+|-------|--------|
+| Intent | Capture backend/model/settings/status/accounting metadata for every B-leg attempt, regardless of whether the attempt is surfaced, swallowed, failed, or timed out. |
+| Requirements | 5.1, 5.2, 5.3, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 9.6, 10.8, 14.8 |
+
+**Service Interface**
+```go
+type AttemptTrace struct {
+    SessionID      SessionID
+    TurnID         string
+    ALegID         string
+    BLegID         string
+    AttemptSeq     int
+    RequestedModel string
+    RequestedAlias string
+    ResolvedBackend string
+    ResolvedModel   string
+    RouteSource     string
+    RouteReason     string
+    Settings        AttemptSettings
+    StartedAt       time.Time
+}
+
+type AttemptOutcome struct {
+    SessionID      SessionID
+    TurnID         string
+    BLegID         string
+    Success        bool
+    SurfaceState   SurfaceState
+    HTTPStatus     int
+    ProviderStatus string
+    ErrorCode      string
+    TimeoutClass   string
+    DebugReason    string
+    EndedAt        time.Time
+}
+
+type AttemptSettings struct {
+    Temperature     *float64
+    MaxTokens       *int
+    Timeout         time.Duration
+    ReasoningEffort string
+    Streaming       bool
+    ToolSummary     []string
+    BackendOptionsDigest string
+}
+```
+
+**Responsibilities & Constraints**
+- Start an `AttemptTrace` when a B-leg is opened and the routing result is known.
+- Snapshot requested model/alias separately from resolved backend/model so manual model changes and dynamic routing choices remain auditable.
+- Record settings that affect execution behavior as safe values or digests; do not store raw secrets or sensitive backend options.
+- Update attempt outcome on success, failure, timeout, surfaced output, swallowed pre-output failure, or post-output terminal failure.
+- Attach usage, billing, cost, and cache metadata to the B-leg attempt that produced or incurred it, even if no content is returned to the user.
+- Keep user-visible usage protocol-compatible while operator/billing rollups include every submitted attempt.
 
 #### ID and Token Generator
 
@@ -490,6 +553,13 @@ erDiagram
 **UsageRecord**
 - Ordered by `(SessionID, TurnID, BLegID, Sequence)`.
 - Stores known inbound tokens, outbound tokens, cached output tokens, provider dimensions, and unavailable markers.
+- Usage records are per-attempt accounting inputs. Session/user/workspace totals are rollups over all submitted B-leg attempts, including swallowed, failed, and timed-out attempts when usage or billing data is known.
+
+**AttemptTrace**
+- Ordered by `(SessionID, TurnID, AttemptSeq)` and linked to `ALegID` and `BLegID`.
+- Stores requested model, requested alias, resolved backend, resolved model, route source, route reason, execution settings snapshot, status/outcome, timing, HTTP/provider status, error category, timeout classification, and debug-safe reason.
+- Distinguishes the attempt surfaced to the user from attempts that were swallowed, failed pre-output, failed post-output, timed out, or were otherwise not surfaced.
+- Stores billing/cost/cache references or unavailable markers for each attempt independently from the final user-visible response usage.
 
 **AuditRecord**
 - Stores serialized audit event metadata and references to optional raw/redacted payload artifacts.
@@ -503,6 +573,7 @@ Recommended tables:
 - `secure_sessions(session_id primary key, resume_fingerprint unique, owner_principal_id, owner_issuer, workspace_id, a_leg_id, created_at, last_activity_at, resume_not_after, policy_json, client_hints_json)`
 - `secure_session_turns(session_id, turn_id, created_at, outcome, primary key(session_id, turn_id))`
 - `secure_session_transcript(session_id, turn_id, seq, kind, role, b_leg_id, payload_json, redaction_state, primary key(session_id, turn_id, seq))`
+- `secure_session_attempts(session_id, turn_id, a_leg_id, b_leg_id, attempt_seq, requested_model, requested_alias, resolved_backend, resolved_model, route_source, route_reason, settings_json, success, surface_state, http_status, provider_status, error_code, timeout_class, debug_reason, started_at, ended_at, primary key(session_id, turn_id, attempt_seq))`
 - `secure_session_usage(session_id, turn_id, seq, b_leg_id, input_tokens, output_tokens, cached_output_tokens, billing_json, unavailable_json)`
 - `secure_session_audit(session_id, turn_id, seq, b_leg_id, audit_kind, payload_ref, redacted_payload_ref, mandatory, created_at)`
 
@@ -510,6 +581,7 @@ Indexes:
 - `owner_principal_id, last_activity_at` for user/session summaries.
 - `workspace_id, last_activity_at` for workspace summaries.
 - `a_leg_id` for diagnostics lookup by B2BUA continuity id.
+- `b_leg_id` and `(resolved_backend, resolved_model)` for per-attempt diagnostics and accounting queries.
 - `resume_fingerprint` for resume validation.
 
 ## Error Handling
@@ -583,9 +655,10 @@ Mandatory audit or durable-storage failures discovered before backend execution 
 ```mermaid
 flowchart TD
     P1[Phase 1: config + secure session manager + memory store] --> P2[Phase 2: runtime gate + frontend errors]
-    P2 --> P3[Phase 3: SQLite store + restart tests]
-    P3 --> P4[Phase 4: transcript/usage/audit recorder]
-    P4 --> P5[Phase 5: diagnostics summaries]
+    P2 --> P3[Phase 3: per-attempt trace + accounting model]
+    P3 --> P4[Phase 4: SQLite store + restart tests]
+    P4 --> P5[Phase 5: transcript/usage/audit recorder]
+    P5 --> P6[Phase 6: diagnostics summaries]
 ```
 
 - Existing continuity-only behavior can remain available when secure sessions are disabled, but operator-visible config must state that user-bound resume is not enforced.

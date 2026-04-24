@@ -75,7 +75,21 @@ Secure session management gives proxy operators a reliable way to preserve multi
 5. The LLM Interactive Proxy shall make session lineage sufficient for operators to identify which backend attempt produced surfaced output.
 6. When session state is serialized or summarized, the LLM Interactive Proxy shall include the lineage relationship between the authoritative session, client-visible turn, A-leg, and B-leg attempts.
 
-### Requirement 6: Resume Window and Last Activity
+### Requirement 6: Per-Attempt Backend, Model, Status, and Accounting Traceability
+**Objective:** As a proxy operator, I want each backend attempt within a session turn to carry backend, model, settings, status, and usage evidence, so that audit, debugging, and billing remain accurate even when attempts fail or are swallowed.
+
+#### Acceptance Criteria
+1. When a session turn opens a backend attempt, the LLM Interactive Proxy shall record the requested model or alias, resolved backend, resolved model, route source, route reason, A-leg identifier, B-leg identifier, and attempt sequence for that attempt.
+2. When a user changes the requested model or model-affecting options between session turns, the LLM Interactive Proxy shall record the changed request metadata on the affected turn and attempts without rewriting prior attempt records.
+3. When dynamic routing, weighted routing, failover, or alias resolution selects a backend or model, the LLM Interactive Proxy shall record the resolved backend/model and routing decision metadata separately for each backend attempt.
+4. When a backend attempt uses execution settings, the LLM Interactive Proxy shall record a safe snapshot of settings that affect execution behavior, including known values such as temperature, max tokens, timeout, reasoning effort, tool settings, streaming mode, and backend-specific option summaries.
+5. When a backend attempt succeeds, fails, times out, is swallowed, or is surfaced to the user, the LLM Interactive Proxy shall record both a binary success or failure state and a detailed status containing available HTTP status, provider status, error category, timeout classification, and debug-safe reason.
+6. When a backend attempt emits usage, billing, cost, or cache metadata, the LLM Interactive Proxy shall associate that data with the specific backend attempt even if the attempt does not produce the final user-visible response.
+7. If a backend attempt fails or is swallowed after the proxy submitted work to the remote LLM, then the LLM Interactive Proxy shall preserve any known usage, billing, cost, cache, status, and settings metadata for operator accounting and audit.
+8. The LLM Interactive Proxy shall keep protocol/user-visible usage semantics separate from operator and billing accounting, so surfaced response usage can remain protocol-compatible while operator accounting includes every submitted backend attempt.
+9. If a provider does not supply usage, billing, cache, HTTP status, provider status, or setting metadata for an attempt, then the LLM Interactive Proxy shall mark the missing fields as unavailable rather than inventing values.
+
+### Requirement 7: Resume Window and Last Activity
 **Objective:** As a proxy operator, I want sessions to expire for resume after inactivity, so that stale sessions cannot be resumed indefinitely.
 
 #### Acceptance Criteria
@@ -87,7 +101,7 @@ Secure session management gives proxy operators a reliable way to preserve multi
 6. When a session is rejected because its resume window expired, the LLM Interactive Proxy shall not create a replacement session that inherits the expired session contents.
 7. Where durable session storage is enabled, the LLM Interactive Proxy shall preserve last activity time across restarts for resume-window enforcement.
 
-### Requirement 7: Durable Session State and Restart Survival
+### Requirement 8: Durable Session State and Restart Survival
 **Objective:** As a proxy operator, I want durable sessions to survive proxy restarts, so that session continuity and evidence are not lost unexpectedly.
 
 #### Acceptance Criteria
@@ -99,7 +113,7 @@ Secure session management gives proxy operators a reliable way to preserve multi
 6. When durable storage is enabled, the LLM Interactive Proxy shall persist enough data to distinguish client-supplied session hints from proxy-owned session authority after restart.
 7. If durable storage contains continuity lineage but lacks required secure-session ownership state, then the LLM Interactive Proxy shall not allow user-facing resume of that session.
 
-### Requirement 8: Usage Accounting
+### Requirement 9: Usage Accounting
 **Objective:** As a proxy operator, I want session usage accounting, so that token consumption and billing evidence can be reported per session and user.
 
 #### Acceptance Criteria
@@ -108,8 +122,9 @@ Secure session management gives proxy operators a reliable way to preserve multi
 3. If a provider does not supply a usage or billing field, then the LLM Interactive Proxy shall mark that field as unavailable rather than inventing a value.
 4. Where durable accounting is enabled, the LLM Interactive Proxy shall persist usage accounting so that it survives proxy restarts.
 5. The LLM Interactive Proxy shall support operator-visible usage summaries by session, user, workspace, and backend attempt where the relevant dimensions are known.
+6. The LLM Interactive Proxy shall derive session, user, and workspace usage totals as rollups from per-attempt accounting records rather than treating only the final surfaced response as the accounting source of truth.
 
-### Requirement 9: Auditing and Session Serialization
+### Requirement 10: Auditing and Session Serialization
 **Objective:** As a compliance operator, I want sessions to be serializable for auditing, so that session contents and proxy treatment can be reviewed after execution.
 
 #### Acceptance Criteria
@@ -120,8 +135,9 @@ Secure session management gives proxy operators a reliable way to preserve multi
 5. If audit capture fails for a session where audit capture is mandatory, then the LLM Interactive Proxy shall reject or stop processing according to configured policy and surface an informative operator-visible reason.
 6. When audit records include B2BUA recovery, the LLM Interactive Proxy shall identify swallowed and surfaced attempts without requiring raw backend payload access.
 7. If audit records contain raw or sensitive payloads, then the LLM Interactive Proxy shall restrict those records to explicitly authorized audit access.
+8. When audit records include backend attempts, the LLM Interactive Proxy shall include per-attempt backend/model, routing decision, execution settings, status, and accounting metadata subject to redaction and authorization policy.
 
-### Requirement 10: Workspace Association
+### Requirement 11: Workspace Association
 **Objective:** As a workspace user, I want sessions associated with workspaces, so that session history and policy can follow the correct project context.
 
 #### Acceptance Criteria
@@ -133,7 +149,7 @@ Secure session management gives proxy operators a reliable way to preserve multi
 6. If workspace resolution fails for a request whose session policy requires workspace verification, then the LLM Interactive Proxy shall reject the resume attempt rather than fail open.
 7. When durable session storage is enabled, the LLM Interactive Proxy shall preserve workspace association across proxy restarts.
 
-### Requirement 11: Per-Session Policy Metadata
+### Requirement 12: Per-Session Policy Metadata
 **Objective:** As a proxy operator, I want sessions to carry policy-derived treatment metadata, so that routing, logging, redaction, and advanced controls are consistent across turns.
 
 #### Acceptance Criteria
@@ -145,7 +161,7 @@ Secure session management gives proxy operators a reliable way to preserve multi
 6. When a per-session treatment setting is security-critical, the LLM Interactive Proxy shall fail closed if the setting cannot be loaded or validated during resume.
 7. If session treatment metadata conflicts with current global safety policy, then the LLM Interactive Proxy shall apply the more restrictive effective treatment.
 
-### Requirement 12: Protocol-Neutral User Feedback
+### Requirement 13: Protocol-Neutral User Feedback
 **Objective:** As an API client user, I want session errors to be clear and legal for my frontend protocol, so that clients can react predictably.
 
 #### Acceptance Criteria
@@ -157,7 +173,7 @@ Secure session management gives proxy operators a reliable way to preserve multi
 6. If a session denial happens before backend execution starts, then the LLM Interactive Proxy shall not open a backend attempt for that request.
 7. When a session denial is returned, the LLM Interactive Proxy shall record the denial category for authorized operator diagnostics.
 
-### Requirement 13: Operator Visibility and Controls
+### Requirement 14: Operator Visibility and Controls
 **Objective:** As a proxy operator, I want controlled visibility into session state, so that I can diagnose incidents without violating user isolation.
 
 #### Acceptance Criteria
@@ -168,3 +184,4 @@ Secure session management gives proxy operators a reliable way to preserve multi
 5. The LLM Interactive Proxy shall make security-relevant session events, including rejected resumes and owner mismatches, available for operator diagnostics.
 6. When an operator requests session details by B2BUA continuity identifier, the LLM Interactive Proxy shall apply the same session authorization and redaction rules as requests by authoritative session identifier.
 7. If a session lookup would reveal another user's session existence to an unauthorized requester, then the LLM Interactive Proxy shall return a non-enumerating denial.
+8. The LLM Interactive Proxy shall provide authorized operators with per-attempt summaries that include attempted backend, attempted model, requested model or alias, route source, outcome, status, timing, settings summary, usage, billing, cache, and whether the attempt was surfaced or swallowed where available.

@@ -30,9 +30,9 @@
 
 - [ ] 2.1 Define secure-session domain types
   - Create `internal/core/securesession` domain types for session ids, token fingerprints, principals, workspaces, client hints, policy metadata, usage totals, transcript items, audit items, turn ids, activity sources, summaries, and read/query options.
-  - Include typed fields for transcript-enabled status, effective treatment, stricter-policy resolution, resume eligibility, and B2BUA A-leg binding.
+  - Include typed fields for transcript-enabled status, effective treatment, stricter-policy resolution, resume eligibility, B2BUA A-leg binding, attempt trace, attempt settings, attempt outcome, and per-attempt accounting metadata.
   - Done when package-local tests can construct records and summaries without using `any` or untyped maps for core invariants.
-  - _Requirements: 1.10, 2.6, 4.1, 4.6, 4.7, 5.6, 6.1, 7.1, 8.1, 9.1, 10.1, 11.1, 11.7, 13.1_
+  - _Requirements: 1.10, 2.6, 4.1, 4.6, 4.7, 5.6, 6.1, 6.4, 6.5, 6.9, 7.1, 8.1, 9.1, 10.1, 11.1, 12.1, 12.7, 14.1, 14.8_
   - _Boundary: SecureSession core types_
   - _Depends: 1.1_
 
@@ -55,18 +55,18 @@
 - [ ] 3. Implement secure-session store contracts and memory store
 
 - [ ] 3.1 Define the secure-session store interface and contract tests
-  - Add a consumer-owned store interface covering create, load by id, load by resume fingerprint, load by A-leg id, touch activity, append transcript, add usage, append audit, summaries, transcript reads, audit reads, and store health primitives used by manager-owned readiness checks.
-  - Add reusable contract tests for uniqueness, owner/workspace persistence, A-leg lookup, transcript-disabled metadata, usage summaries by session/user/workspace/backend attempt, and non-enumerating missing lookups.
+  - Add a consumer-owned store interface covering create, load by id, load by resume fingerprint, load by A-leg id, touch activity, append/update attempt trace, append transcript, add per-attempt usage, append audit, summaries, transcript reads, audit reads, and store health primitives used by manager-owned readiness checks.
+  - Add reusable contract tests for uniqueness, owner/workspace persistence, A-leg lookup, B-leg attempt lookup, transcript-disabled metadata, usage summaries by session/user/workspace/backend attempt, attempt status summaries, and non-enumerating missing lookups.
   - Done when memory and future SQLite implementations can run the same contract test suite.
-  - _Requirements: 2.5, 2.6, 4.6, 4.7, 5.6, 6.7, 7.1, 7.3, 8.4, 8.5, 9.2, 10.5, 10.7, 13.1, 13.6_
+  - _Requirements: 2.5, 2.6, 4.6, 4.7, 5.6, 6.1, 6.5, 6.6, 6.7, 6.8, 6.9, 7.7, 8.1, 8.3, 9.4, 9.5, 9.6, 10.5, 10.7, 11.5, 11.7, 14.1, 14.6, 14.8_
   - _Boundary: SecureSession store_
   - _Depends: 2.1_
 
 - [ ] 3.2 Implement the concurrent in-memory secure-session store
-  - Implement race-safe storage for records, token fingerprints, A-leg index, turns, transcripts, usage records, audit records, summaries, and readiness state.
+  - Implement race-safe storage for records, token fingerprints, A-leg index, turns, attempt traces, transcripts, usage records, audit records, summaries, and readiness state.
   - Preserve explicit empty slices for returned summaries/transcripts/audits and avoid returning `nil` lists in JSON-facing query results.
   - Done when the store contract suite passes against the in-memory implementation and `go test -race` passes for the package.
-  - _Requirements: 1.8, 2.5, 4.6, 6.7, 7.4, 8.5, 9.2, 10.5, 13.1_
+  - _Requirements: 1.8, 2.5, 4.6, 6.6, 6.7, 6.8, 7.7, 8.4, 9.2, 9.5, 10.5, 14.1, 14.8_
   - _Boundary: SecureSession memory store_
   - _Depends: 3.1_
 
@@ -80,23 +80,23 @@
 - [ ] 4. Implement durable SQLite secure-session storage
 
 - [ ] 4.1 Add SQLite schema and migrations for secure sessions
-  - Create secure-session tables for sessions, turns, transcript, usage, and audit records with unique constraints on session id and token fingerprint plus indexes for owner, workspace, A-leg, and resume lookup.
+  - Create secure-session tables for sessions, turns, attempt traces, transcript, usage, and audit records with unique constraints on session id and token fingerprint plus indexes for owner, workspace, A-leg, B-leg, resolved backend/model, and resume lookup.
   - Add migration tests for fresh database creation and idempotent reopen behavior.
   - Done when opening an empty SQLite database creates all secure-session tables and indexes without disturbing existing continuity tables.
-  - _Requirements: 2.6, 6.7, 7.1, 7.2, 7.6, 8.4, 9.2, 10.7_
+  - _Requirements: 2.6, 6.1, 6.3, 6.5, 6.6, 6.7, 6.8, 7.7, 8.1, 8.2, 8.6, 9.4, 10.2, 11.7_
   - _Boundary: SecureSession SQLite store_
   - _Depends: 3.1_
 
 - [ ] 4.2 Implement SQLite CRUD, query, and readiness operations
-  - Implement create/load/touch/transcript/usage/audit/summary/readiness behavior against the SQLite schema using context-aware database calls and explicit transaction boundaries.
+  - Implement create/load/touch/attempt trace/transcript/usage/audit/summary/readiness behavior against the SQLite schema using context-aware database calls and explicit transaction boundaries.
   - Support A-leg lookup for diagnostics and resume lineage without allowing A-leg alone to authorize user-facing resume.
   - Done when the shared store contract suite passes against SQLite.
-  - _Requirements: 2.6, 2.7, 5.6, 6.7, 7.2, 7.3, 8.4, 8.5, 9.2, 13.1, 13.6_
+  - _Requirements: 2.6, 2.7, 5.6, 6.1, 6.5, 6.6, 6.7, 6.8, 6.9, 7.7, 8.2, 8.3, 9.4, 9.5, 10.2, 14.1, 14.6, 14.8_
   - _Boundary: SecureSession SQLite store_
   - _Depends: 4.1_
 
 - [ ] 4.3 Add SQLite restart and concurrent update tests
-  - Verify restart restores owner binding, last activity, workspace, policy metadata, token fingerprints, lineage binding, transcript metadata, and usage summaries.
+  - Verify restart restores owner binding, last activity, workspace, policy metadata, token fingerprints, lineage binding, attempt traces, transcript metadata, and usage summaries.
   - Verify concurrent session creation and concurrent touch/update flows keep unique ids and consistent last-activity state.
   - Done when package tests cover restart survival and concurrent writes without race or uniqueness failures.
   - _Requirements: 1.5, 1.6, 2.6, 6.7, 7.2, 7.5, 10.7_
@@ -188,6 +188,21 @@
   - _Boundary: Runtime executor, B2BUA lineage_
   - _Depends: 6.3_
 
+- [ ] 6.5 Capture per-attempt backend, model, route, and settings metadata
+  - Snapshot requested model or alias, resolved backend/model, route source, route reason, A-leg id, B-leg id, attempt sequence, and execution settings when a backend attempt is opened.
+  - Include settings that affect execution behavior such as timeout, temperature, max tokens, reasoning effort, tool summary, streaming mode, and safe backend option digest where available.
+  - Done when runtime tests prove manual model changes across turns and dynamic routing/failover attempts produce distinct immutable attempt trace records.
+  - _Requirements: 6.1, 6.2, 6.3, 6.4_
+  - _Boundary: Runtime executor, attempt trace_
+  - _Depends: 6.4, 3.1_
+
+- [ ] 6.6 Capture per-attempt outcome, status, and debug-safe failure details
+  - Record binary success/failure, surfaced/swallowed state, HTTP status, provider status, error category, timeout classification, debug-safe reason, and end timestamp for each backend attempt.
+  - Done when tests prove successful, failed, timed-out, swallowed, and surfaced attempts each have separate status records without relying on the final user-visible response alone.
+  - _Requirements: 6.5, 6.7, 10.8, 14.8_
+  - _Boundary: Runtime executor, attempt trace_
+  - _Depends: 6.5_
+
 - [ ] 7. Implement transcript, usage, activity, and audit recording
 
 - [ ] 7.1 Record accepted client input and turn transcript entries
@@ -199,15 +214,17 @@
 
 - [ ] 7.2 Record post-hook stream events, usage deltas, and remote last activity
   - Record remote LLM response events after response/tool hooks, preserve relative ordering, update last activity for remote events, and aggregate usage deltas with unavailable markers for absent provider data.
+  - Associate usage, billing, cost, and cache metadata with the specific B-leg attempt that incurred it, even if the attempt is failed or swallowed.
   - Done when stream tests prove recorder output matches client-visible event order and usage summaries include session/user/workspace/backend attempt dimensions where known.
-  - _Requirements: 4.2, 4.3, 4.5, 6.3, 8.1, 8.2, 8.3, 8.5_
+  - _Requirements: 4.2, 4.3, 4.5, 6.6, 6.7, 6.8, 6.9, 7.3, 9.1, 9.2, 9.3, 9.5, 9.6_
   - _Boundary: Session recorder, runtime stream_
-  - _Depends: 7.1, 6.4_
+  - _Depends: 7.1, 6.6_
 
 - [ ] 7.3 Split recorder stream behavior into focused checkpoints
   - Verify stream recording is decomposed into event-order preservation, last-activity touch, usage aggregation, and unavailable-metadata handling before audit work begins.
+  - Ensure user-visible usage remains protocol-compatible while operator/billing rollups include every submitted backend attempt.
   - Done when each checkpoint has a focused test and the usage summary test covers session, user, workspace, and backend attempt dimensions where known.
-  - _Requirements: 4.2, 4.3, 6.3, 8.1, 8.2, 8.3, 8.5_
+  - _Requirements: 4.2, 4.3, 6.8, 6.9, 9.1, 9.2, 9.5, 9.6_
   - _Boundary: Session recorder validation_
   - _Depends: 7.2_
 
@@ -220,10 +237,11 @@
 
 - [ ] 7.5 Implement audit serialization, redaction, and raw access restrictions
   - Serialize audit records for session contents, proxy decisions, B2BUA recovery, surfaced/swallowed attempts, redaction treatment, and full-logging metadata.
+  - Include per-attempt backend/model, route decision, execution settings, status, usage, billing, cost, and cache metadata in audit records subject to redaction and authorization policy.
   - Record rejected fixation and forgery attempts as operator-visible security evidence without storing sensitive request contents unless policy explicitly allows it.
   - Restrict raw or sensitive payload audit records to explicitly authorized audit access while general audit records use configured redaction.
   - Done when audit tests show redacted general records, raw access denial by default, and explicit full-logging metadata.
-  - _Requirements: 3.5, 9.1, 9.2, 9.3, 9.4, 9.6, 9.7, 11.5_
+  - _Requirements: 3.5, 6.1, 6.3, 6.4, 6.5, 6.6, 6.7, 10.1, 10.2, 10.3, 10.4, 10.6, 10.7, 10.8, 12.5_
   - _Boundary: Session recorder, audit_
   - _Depends: 7.4_
 
@@ -298,9 +316,9 @@
 
 - [ ] 9.2 Add secure-session diagnostics handlers
   - Implement session summary, session detail, transcript, and by-A-leg lookup handlers using store query APIs and diagnostics authorization.
-  - Include owner, workspace, last activity, resume eligibility, policy metadata, usage totals, lineage summary, transcript-enabled status, and effective policy in authorized summaries.
-  - Done when HTTP tests cover summary filtering by session/user/workspace, by-A-leg lookup with redaction, and empty result behavior.
-  - _Requirements: 8.5, 10.5, 13.1, 13.2, 13.4, 13.5, 13.6_
+  - Include owner, workspace, last activity, resume eligibility, policy metadata, usage totals, per-attempt backend/model/status/settings/accounting summaries, lineage summary, transcript-enabled status, and effective policy in authorized summaries.
+  - Done when HTTP tests cover summary filtering by session/user/workspace, by-A-leg lookup with redaction, per-attempt summaries, and empty result behavior.
+  - _Requirements: 9.5, 10.8, 11.5, 14.1, 14.2, 14.4, 14.5, 14.6, 14.8_
   - _Boundary: Diagnostics HTTP_
   - _Depends: 9.1, 3.2_
 
@@ -348,7 +366,7 @@
 - [ ] 11.1 Test valid session create and resume across frontend, runtime, and backend stub
   - Add composed HTTP tests that create a session, capture proxy-issued resume metadata, resume as the same principal/workspace, and verify the same stored A-leg binding and session lineage are used.
   - Done when at least one frontend path proves create/resume works end-to-end with a stub backend and no raw resume token reaches the backend.
-  - _Requirements: 1.4, 2.2, 5.1, 5.5, 6.2, 10.2, 12.4_
+  - _Requirements: 1.4, 2.2, 5.1, 5.5, 6.2, 11.2, 13.4_
   - _Boundary: Cross-boundary integration_
   - _Depends: 8.2, 10.1_
 
@@ -367,10 +385,10 @@
   - _Depends: 11.1, 4.3, 10.2_
 
 - [ ] 11.4 Test streaming lineage, usage, audit, and recorder failure behavior
-  - Add stream tests for pre-output B2BUA recovery, post-output committed failures, usage propagation, transcript ordering, audit redaction, mandatory pre-output readiness failure, and mandatory post-output recorder failure.
-  - Split test cases by behavior cluster so lineage, usage, audit, and mandatory recorder failure assertions fail independently.
-  - Done when stream tests prove no silent replacement after output and operators can identify surfaced vs swallowed attempts in session evidence.
-  - _Requirements: 4.3, 4.4, 4.5, 5.2, 5.3, 5.4, 5.5, 8.2, 9.5, 9.6, 12.6_
+  - Add stream tests for pre-output B2BUA recovery, post-output committed failures, usage propagation, transcript ordering, audit redaction, per-attempt backend/model/status/accounting, mandatory pre-output readiness failure, and mandatory post-output recorder failure.
+  - Split test cases by behavior cluster so lineage, attempt trace, usage, audit, and mandatory recorder failure assertions fail independently.
+  - Done when stream tests prove no silent replacement after output and operators can identify surfaced vs swallowed attempts plus backend/model/status/accounting evidence in session records.
+  - _Requirements: 4.3, 4.4, 4.5, 5.2, 5.3, 5.4, 5.5, 6.1, 6.3, 6.5, 6.6, 6.7, 6.8, 9.2, 9.6, 10.8, 13.6_
   - _Boundary: Cross-boundary streaming integration_
   - _Depends: 7.6, 10.2, 8.7_
 
@@ -391,9 +409,9 @@
   - _Depends: 7.6_
 
 - [ ] 12.3 Add SQLite concurrent resume and touch tests
-  - Exercise concurrent resume, last-activity touch, usage append, and transcript append against SQLite using deterministic fake clocks.
-  - Done when SQLite tests prove transaction consistency and last-activity state remains monotonic for accepted events.
-  - _Requirements: 6.2, 6.3, 6.7, 7.2, 8.4_
+  - Exercise concurrent resume, last-activity touch, attempt trace append/update, usage append, and transcript append against SQLite using deterministic fake clocks.
+  - Done when SQLite tests prove transaction consistency, attempt updates remain attached to the correct B-leg, and last-activity state remains monotonic for accepted events.
+  - _Requirements: 6.1, 6.5, 6.6, 7.2, 7.3, 7.7, 8.4, 9.4_
   - _Boundary: Durable concurrency validation_
   - _Depends: 4.3, 7.2_
 
@@ -416,6 +434,6 @@
 - [ ] 13.3 Complete requirement traceability and operator evidence review
   - Review `tasks.md`, tests, diagnostics, and docs to ensure every requirement id has implementation and validation coverage.
   - Done when all secure-session requirements are mapped to delivered code/tests and any residual limitations are documented for operators.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.11, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.11, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8_
   - _Boundary: Verification_
   - _Depends: 13.2_
