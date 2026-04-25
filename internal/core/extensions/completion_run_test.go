@@ -34,7 +34,7 @@ func TestApplyCompletionGateChain_replace(t *testing.T) {
 	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplace{}}, completion.Meta{}, orig, false, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   auxiliary.DisabledClient{},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestApplyCompletionGateChain_replaceIgnoredWhenCommitted(t *testing.T) {
 	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplace{}}, completion.Meta{}, orig, true, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   auxiliary.DisabledClient{},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func (gateFailOpenErr) Handle(context.Context, completion.Meta, completion.Buffe
 func TestApplyCompletionGateChain_handlerErrorFailOpen(t *testing.T) {
 	t.Parallel()
 	orig := []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateFailOpenErr{}}, completion.Meta{}, orig, false, completion.Services{})
+	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateFailOpenErr{}}, completion.Meta{}, orig, false, completion.Services{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func (gateFailClosedErr) Handle(context.Context, completion.Meta, completion.Buf
 func TestApplyCompletionGateChain_handlerErrorFailClosed(t *testing.T) {
 	t.Parallel()
 	orig := []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
-	_, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateFailClosedErr{}}, completion.Meta{}, orig, false, completion.Services{})
+	_, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateFailClosedErr{}}, completion.Meta{}, orig, false, completion.Services{}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -112,7 +112,7 @@ func (gateReject) Handle(context.Context, completion.Meta, completion.Buffered, 
 func TestApplyCompletionGateChain_reject(t *testing.T) {
 	t.Parallel()
 	orig := []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
-	_, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReject{}}, completion.Meta{}, orig, false, completion.Services{})
+	_, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReject{}}, completion.Meta{}, orig, false, completion.Services{}, nil)
 	if err == nil || err.Error() != "nope" {
 		t.Fatalf("got %v", err)
 	}

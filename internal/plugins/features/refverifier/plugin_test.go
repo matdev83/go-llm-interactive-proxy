@@ -39,7 +39,7 @@ func TestCompletionGate_replaceWhenAuxWired(t *testing.T) {
 		completion.Meta{TraceID: "tr1"}, orig, false, completion.Services{
 			State: state.DisabledStore{},
 			Aux:   aux,
-		})
+		}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestCompletionGate_passesWhenAuxDisabled(t *testing.T) {
 		completion.Meta{TraceID: "tr1"}, orig, false, completion.Services{
 			State: state.DisabledStore{},
 			Aux:   auxiliary.DisabledClient{},
-		})
+		}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

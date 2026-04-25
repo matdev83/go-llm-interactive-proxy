@@ -2,11 +2,13 @@ package extensions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -48,7 +50,9 @@ func RunRequestTransformStage(ctx context.Context, log *slog.Logger, obs StageMe
 		if execctx.IsSuppressedPluginID(ctx, tr.ID()) {
 			continue
 		}
-		hErr := tr.Handle(ctx, call, meta, svc)
+		hErr := safety.Call(safety.BoundaryExtension, "request_transform", func() error {
+			return tr.Handle(ctx, call, meta, svc)
+		})
 		if hErr != nil {
 			mode := tr.FailureMode()
 			if mode == sdkhooks.FailureModeUnspecified {
@@ -56,7 +60,12 @@ func RunRequestTransformStage(ctx context.Context, log *slog.Logger, obs StageMe
 			}
 			if mode == sdkhooks.FailOpen {
 				if log != nil {
-					log.WarnContext(ctx, "request_transform: handler error (fail-open)", "transform", tr.ID(), "error", hErr)
+					var pe *safety.PanicError
+					if errors.As(hErr, &pe) {
+						logFailOpenExtensionPanic(ctx, log, "request_transform", tr.ID(), hErr)
+					} else {
+						log.WarnContext(ctx, "request_transform: handler error (fail-open)", "transform", tr.ID(), "error", hErr)
+					}
 				}
 				if obs != nil {
 					obs.IncFailOpenSkip(MetricsStageRequestTransform)

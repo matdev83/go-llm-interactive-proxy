@@ -58,7 +58,7 @@ func TestApplyCompletionGateChain_auxInfluencedReplace(t *testing.T) {
 	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateUsesAux{}}, completion.Meta{}, orig, false, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   aux,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestApplyCompletionGateChain_auxDisabledPassThrough(t *testing.T) {
 	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateUsesAux{}}, completion.Meta{}, orig, false, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   auxiliary.DisabledClient{},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

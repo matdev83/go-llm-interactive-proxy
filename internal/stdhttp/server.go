@@ -35,15 +35,20 @@ type stackHTTPInput struct {
 	TraceGen *diag.TraceIDGenerator
 	Inner    http.Handler
 	HTTPProm *metrics.HTTPMetrics
+
+	// testOuterWrap, if non-nil, wraps the composed handler before the final outer recovery
+	// middleware. Used only from stdhttp tests to simulate panics above inner recovery.
+	testOuterWrap func(http.Handler) http.Handler
 }
 
-// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner: tracing
-// and metrics, then request ID, access log, recovery, transport auth, route mux). Innermost is
-// the shared [http.ServeMux] from mounting.
+// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner: final
+// outer recovery, optional OpenTelemetry HTTP, optional Prometheus, trace + request ID, access log,
+// inner recovery, transport auth, route mux). Innermost is the shared [http.ServeMux] from mounting.
 //
-// Panic containment: [RecoveryMiddleware] wraps transport auth and the mux only. Panics in access
-// logging, Prometheus metrics, or OpenTelemetry HTTP middleware still propagate to the root handler
-// (no recovery there); keep those layers minimal so request-scoped containment remains meaningful.
+// Panic containment: [RecoveryMiddleware] remains between access logging and transport auth so
+// access logs and HTTP metrics still observe inner handler panics as 5xx. [outerRecoveryMiddleware]
+// wraps the full composed stack as a last resort for panics in outer layers (access log, metrics,
+// tracing, or future outer wrappers).
 func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	cfg, log, built, traceGen, inner, httpProm := in.Cfg, in.Log, in.Built, in.TraceGen, in.Inner, in.HTTPProm
 	if built == nil {
@@ -59,7 +64,10 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	if cfg != nil && cfg.Observability.Tracing.Enabled {
 		h = tracing.HTTPMiddleware(true, h)
 	}
-	return h
+	if in.testOuterWrap != nil {
+		h = in.testOuterWrap(h)
+	}
+	return outerRecoveryMiddleware(log, h)
 }
 
 // Run is a convenience wrapper: it calls [runtimebundle.Build] with cfg, app.HookBus(), log,
@@ -246,8 +254,9 @@ func RunWithRuntime(
 	}
 
 	traceGen := diag.NewTraceIDGenerator()
-	// outer → inner: optional OpenTelemetry HTTP, optional Prometheus, trace + request ID, access
-	// log, request panic recovery, transport auth, then mux/frontend routes (R4: auth after recovery).
+	// outer → inner: final outer panic recovery, optional OpenTelemetry HTTP, optional Prometheus,
+	// trace + request ID, access log, inner request panic recovery, transport auth, then mux/frontend
+	// routes (R4: auth after inner recovery).
 	handler := stackHTTPHandler(stackHTTPInput{
 		Cfg: cfg, Log: log, Built: built, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
 	})
@@ -313,13 +322,26 @@ func RunWithRuntime(
 // warn (best-effort teardown; failures are not returned to the caller).
 func runClosers(log *slog.Logger, closers []func() error) {
 	var errs []error
+	logCtx := context.Background()
 	for i := len(closers) - 1; i >= 0; i-- {
 		if closers[i] == nil {
 			continue
 		}
-		if err := closers[i](); err != nil {
-			errs = append(errs, fmt.Errorf("closer %d: %w", i, err))
-		}
+		func(idx int) {
+			defer func() {
+				if p := recover(); p != nil {
+					pe := safety.Capture(safety.BoundaryWorker, "resource_closer", p)
+					if log != nil {
+						attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{})
+						attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+						log.LogAttrs(logCtx, slog.LevelError, "stdhttp: isolated panic in resource closer", attrs...)
+					}
+				}
+			}()
+			if err := closers[idx](); err != nil {
+				errs = append(errs, fmt.Errorf("closer %d: %w", idx, err))
+			}
+		}(i)
 	}
 	if len(errs) == 0 {
 		return

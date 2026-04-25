@@ -93,7 +93,7 @@ func (e *Executor) prepareSubmitAndALegSecure(ctx context.Context, bus *hooks.Bu
 				if e.ExtensionMetrics != nil {
 					e.ExtensionMetrics.ObserveStage(extensions.MetricsStageWorkspaceResolve, outcome, time.Since(wsStart).Seconds())
 				}
-				var mapped error = domain.ErrWorkspaceUnresolved
+				mapped := domain.ErrWorkspaceUnresolved
 				if e.SessionDenialMapper != nil {
 					mapped = e.SessionDenialMapper(domain.ErrWorkspaceUnresolved)
 				}

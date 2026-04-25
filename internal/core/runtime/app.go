@@ -8,7 +8,9 @@ import (
 	"time"
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
@@ -17,6 +19,11 @@ var ErrNilConfig = errors.New("runtime: config is required")
 
 // ErrNilLogger is returned by [New] when Options.Logger is nil.
 var ErrNilLogger = errors.New("runtime: logger is required")
+
+const (
+	lifecycleStartOp = "lifecycle_start"
+	lifecycleStopOp  = "lifecycle_stop"
+)
 
 // Options carries bootstrap-only runtime dependencies for New.
 //
@@ -111,19 +118,45 @@ func (a *App) Start(ctx context.Context) error {
 		if lc == nil {
 			continue
 		}
-		if err := lc.Start(ctx); err != nil {
+		err := safety.Call(safety.BoundaryWorker, lifecycleStartOp, func() error {
+			return lc.Start(ctx)
+		})
+		if err != nil {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			for i := len(started) - 1; i >= 0; i-- {
-				if stopErr := started[i].Stop(stopCtx); stopErr != nil {
-					a.logger.Warn("runtime: lifecycle stop after start failure", "index", i, "error", stopErr)
-				}
-			}
+			a.stopLifecyclesAfterStartFailure(ctx, stopCtx, started)
 			return fmt.Errorf("runtime: lifecycle start: %w", err)
 		}
 		started = append(started, lc)
 	}
 	return nil
+}
+
+func (a *App) stopLifecyclesAfterStartFailure(logCtx, stopCtx context.Context, started []lipplugin.Lifecycle) {
+	for i := len(started) - 1; i >= 0; i-- {
+		idx := i
+		err := safety.Call(safety.BoundaryWorker, lifecycleStopOp, func() error {
+			return started[idx].Stop(stopCtx)
+		})
+		if err != nil {
+			a.logLifecycleStopAfterStartFailure(logCtx, idx, err)
+		}
+	}
+}
+
+func (a *App) logLifecycleStopAfterStartFailure(ctx context.Context, index int, err error) {
+	if a == nil || a.logger == nil || err == nil {
+		return
+	}
+	var pe *safety.PanicError
+	if errors.As(err, &pe) && pe != nil {
+		attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{})
+		attrs = append(attrs, slog.Int("lifecycle_index", index))
+		attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+		a.logger.LogAttrs(ctx, slog.LevelError, "runtime: lifecycle stop after start failure (isolated panic)", attrs...)
+		return
+	}
+	a.logger.Warn("runtime: lifecycle stop after start failure", "index", index, "error", err)
 }
 
 // Shutdown stops plugin lifecycles in reverse registration order.
@@ -136,8 +169,27 @@ func (a *App) Shutdown(ctx context.Context) {
 		if lc == nil {
 			continue
 		}
-		if err := lc.Stop(ctx); err != nil {
-			a.logger.Warn("runtime: lifecycle stop failed", "index", i, "error", err)
+		idx := i
+		err := safety.Call(safety.BoundaryWorker, lifecycleStopOp, func() error {
+			return lc.Stop(ctx)
+		})
+		if err != nil {
+			a.logShutdownLifecycleStop(ctx, idx, err)
 		}
 	}
+}
+
+func (a *App) logShutdownLifecycleStop(ctx context.Context, index int, err error) {
+	if a == nil || a.logger == nil || err == nil {
+		return
+	}
+	var pe *safety.PanicError
+	if errors.As(err, &pe) && pe != nil {
+		attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{})
+		attrs = append(attrs, slog.Int("lifecycle_index", index))
+		attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+		a.logger.LogAttrs(ctx, slog.LevelError, "runtime: lifecycle stop failed (isolated panic)", attrs...)
+		return
+	}
+	a.logger.Warn("runtime: lifecycle stop failed", "index", index, "error", err)
 }

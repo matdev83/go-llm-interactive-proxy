@@ -11,6 +11,23 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
+func TestRecoveryMiddleware_nilNext_returns500SafeBody(t *testing.T) {
+	t.Parallel()
+	h := RecoveryMiddleware(testkit.DiscardLogger(), nil)
+	if h == nil {
+		t.Fatal("RecoveryMiddleware(nil next) must not return nil")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code=%d want %d", rec.Code, http.StatusInternalServerError)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "internal error") {
+		t.Fatalf("body=%q want internal error text", body)
+	}
+}
+
 func TestRecoveryMiddleware_panicBeforeCommit_returns500SafeBody(t *testing.T) {
 	t.Parallel()
 	h := RecoveryMiddleware(testkit.DiscardLogger(), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

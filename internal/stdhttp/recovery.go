@@ -19,8 +19,18 @@ const internalErrorMessage = "internal error"
 // and returns a safe 500 when the response is not yet committed. After [http.ResponseWriter]
 // headers are committed, it logs only and does not write a second error body.
 func RecoveryMiddleware(log *slog.Logger, next http.Handler) http.Handler {
+	return recoveryMiddleware(log, "http_handler", "stdhttp: isolated panic in request handler", next)
+}
+
+func outerRecoveryMiddleware(log *slog.Logger, next http.Handler) http.Handler {
+	return recoveryMiddleware(log, "http_outer_handler", "stdhttp: isolated panic in outer HTTP handler", next)
+}
+
+func recoveryMiddleware(log *slog.Logger, operation string, isolatedLogMsg string, next http.Handler) http.Handler {
 	if next == nil {
-		return nil
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, internalErrorMessage, http.StatusInternalServerError)
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rr := &corehttp.ResponseStatusRecorder{ResponseWriter: w}
@@ -29,15 +39,15 @@ func RecoveryMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 			if p == nil {
 				return
 			}
-			pe := safety.Capture(safety.BoundaryHTTP, "http_handler", p)
-			ctx := context.TODO()
+			pe := safety.Capture(safety.BoundaryHTTP, operation, p)
+			ctx := context.Background()
 			if r != nil {
 				ctx = r.Context()
 			}
 			if log != nil {
 				attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{})
 				attrs = diag.AppendIsolatedCrashStack(attrs, pe)
-				log.LogAttrs(ctx, slog.LevelError, "stdhttp: isolated panic in request handler", attrs...)
+				log.LogAttrs(ctx, slog.LevelError, isolatedLogMsg, attrs...)
 			}
 			if rr.Status != 0 {
 				return

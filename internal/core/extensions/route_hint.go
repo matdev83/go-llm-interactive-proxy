@@ -2,11 +2,13 @@ package extensions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
@@ -30,7 +32,9 @@ func RunRouteHintStage(ctx context.Context, log *slog.Logger, providers []routeh
 		if execctx.IsSuppressedPluginID(ctx, p.ID()) {
 			continue
 		}
-		res, err := p.Hint(ctx, meta)
+		res, err := safety.CallValue(safety.BoundaryExtension, "route_hint_provider", func() (routehint.Result, error) {
+			return p.Hint(ctx, meta)
+		})
 		if err != nil {
 			mode := p.FailureMode()
 			if mode == sdkhooks.FailureModeUnspecified {
@@ -38,7 +42,12 @@ func RunRouteHintStage(ctx context.Context, log *slog.Logger, providers []routeh
 			}
 			if mode == sdkhooks.FailOpen {
 				if log != nil {
-					log.WarnContext(ctx, "route_hinting: provider error (fail-open)", "provider", p.ID(), "error", err)
+					var pe *safety.PanicError
+					if errors.As(err, &pe) {
+						logFailOpenExtensionPanic(ctx, log, "route_hint", p.ID(), err)
+					} else {
+						log.WarnContext(ctx, "route_hinting: provider error (fail-open)", "provider", p.ID(), "error", err)
+					}
 				}
 				continue
 			}

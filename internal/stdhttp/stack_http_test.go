@@ -190,8 +190,9 @@ func TestStackHTTPHandler_recoveredPanic_combinedMetricsAccessAndSafeBody(t *tes
 		t.Fatalf("expected 5xx status class in http metrics after recovered panic, got:\n%s", md)
 	}
 
+	logDump := logBuf.String()
 	var access500 bool
-	scan := bufio.NewScanner(&logBuf)
+	scan := bufio.NewScanner(strings.NewReader(logDump))
 	for scan.Scan() {
 		line := scan.Bytes()
 		var m map[string]any
@@ -210,7 +211,18 @@ func TestStackHTTPHandler_recoveredPanic_combinedMetricsAccessAndSafeBody(t *tes
 		t.Fatal(err)
 	}
 	if !access500 {
-		t.Fatalf("expected access log with status 500, got %q", logBuf.String())
+		t.Fatalf("expected access log with status 500, got %q", logDump)
+	}
+
+	logStr := logDump
+	if !strings.Contains(logStr, `"operation":"http_handler"`) {
+		t.Fatalf("expected inner isolated panic log with operation=http_handler, got %q", logStr)
+	}
+	if strings.Contains(logStr, `"operation":"http_outer_handler"`) {
+		t.Fatalf("did not expect outer handler operation for inner mux panic, got %q", logStr)
+	}
+	if strings.Contains(logStr, `"panic_message"`) {
+		t.Fatalf("must not log panic_message, got %q", logStr)
 	}
 }
 

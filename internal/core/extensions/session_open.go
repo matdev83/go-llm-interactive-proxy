@@ -2,10 +2,12 @@ package extensions
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -34,10 +36,17 @@ func RunSessionOpenStage(ctx context.Context, log *slog.Logger, obs StageMetrics
 		if execctx.IsSuppressedPluginID(ctx, o.ID()) {
 			continue
 		}
-		r, err := o.Open(ctx, in)
+		r, err := safety.CallValue(safety.BoundaryExtension, "session_open_opener", func() (session.OpenResult, error) {
+			return o.Open(ctx, in)
+		})
 		if err != nil {
 			if log != nil {
-				log.WarnContext(ctx, "session_open: opener error (fail-open)", "opener", o.ID(), "error", err)
+				var pe *safety.PanicError
+				if errors.As(err, &pe) {
+					logFailOpenExtensionPanic(ctx, log, "session_open", o.ID(), err)
+				} else {
+					log.WarnContext(ctx, "session_open: opener error (fail-open)", "opener", o.ID(), "error", err)
+				}
 			}
 			if obs != nil {
 				obs.IncFailOpenSkip(StageSessionOpen)

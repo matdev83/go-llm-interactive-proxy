@@ -2,11 +2,13 @@ package extensions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -47,7 +49,9 @@ func RunToolCatalogFilterStage(ctx context.Context, log *slog.Logger, obs StageM
 		if execctx.IsSuppressedPluginID(ctx, f.ID()) {
 			continue
 		}
-		hErr := f.Handle(ctx, call, meta, svc)
+		hErr := safety.Call(safety.BoundaryExtension, "tool_catalog_filter", func() error {
+			return f.Handle(ctx, call, meta, svc)
+		})
 		if hErr != nil {
 			mode := f.FailureMode()
 			if mode == sdkhooks.FailureModeUnspecified {
@@ -55,7 +59,12 @@ func RunToolCatalogFilterStage(ctx context.Context, log *slog.Logger, obs StageM
 			}
 			if mode == sdkhooks.FailOpen {
 				if log != nil {
-					log.WarnContext(ctx, "tool_catalog_filter: handler error (fail-open)", "filter", f.ID(), "error", hErr)
+					var pe *safety.PanicError
+					if errors.As(hErr, &pe) {
+						logFailOpenExtensionPanic(ctx, log, "tool_catalog_filter", f.ID(), hErr)
+					} else {
+						log.WarnContext(ctx, "tool_catalog_filter: handler error (fail-open)", "filter", f.ID(), "error", hErr)
+					}
 				}
 				if obs != nil {
 					obs.IncFailOpenSkip(StageToolCatalog)

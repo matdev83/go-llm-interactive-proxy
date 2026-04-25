@@ -12,7 +12,7 @@ func TestWithSecureSessionTurnNilParent(t *testing.T) {
 		SessionID: domain.SessionID("s"),
 		TurnID:    domain.TurnID("u"),
 	}
-	ctx := WithSecureSessionTurn(nil, st)
+	ctx := WithSecureSessionTurn(nil, st) //nolint:staticcheck // SA1012: exercise nil-parent → TODO() branch
 	if ctx == nil {
 		t.Fatal("expected non-nil context when parent is nil (nil parent uses context.TODO)")
 	}

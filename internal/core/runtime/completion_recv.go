@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -108,9 +109,13 @@ func (s *retryRecvStream) completionGatedEmit(
 			svc.State = snap.State()
 			svc.Aux = snap.Aux()
 		}
+		var stageLog *slog.Logger
+		if s.executor != nil {
+			stageLog = s.executor.Log
+		}
 		committedForPanic := s.committed || gateBufHasCommittedOutput(s.gateBuf)
 		out, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() ([]lipapi.Event, error) {
-			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, s.committed, svc)
+			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, s.committed, svc, stageLog)
 		})
 		if err != nil {
 			var pe *safety.PanicError
