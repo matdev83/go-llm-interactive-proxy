@@ -21,6 +21,8 @@ Canonical order (twelve stages):
 11. `traffic_observation` — four-leg observers, redactors, privileged capture sinks.
 12. `egress_encoding` — frontend encode (core-owned).
 
+Note: `attempt_lifecycle` and `egress_encoding` are legal pipeline labels for inventory, policy, and ordering. They are not separate feature-plugin handler slices in the typed bundle; `attempt_lifecycle` is owned by the core attempt loop, and `egress_encoding` stays in frontend/transport encoding.
+
 **Failure policy** per stage is documented in design section **§17** (`FailurePolicyLabel` / `DefaultFailurePolicyForStage` in code). Treat inventory `default_failure` as the operator-visible default; stage runners may narrow further where the contract allows.
 
 ## Service facades (when to use which seam)

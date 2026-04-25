@@ -29,6 +29,8 @@ The core owns the **ordered list of legal extension stages**. Plugins attach onl
 11. Traffic observation and capture.
 12. Egress encoding.
 
+Note: `attempt_lifecycle` and `egress_encoding` are legal pipeline labels for inventory and policy. They do not imply a dedicated plugin-handler slice in the typed `FeatureBundle`; `attempt_lifecycle` is owned by the core attempt loop, and `egress_encoding` remains inside frontend/transport encoding.
+
 **Intra-stage ordering** (design section 17): for handlers within one stage, ordering is:
 
 1. Explicit stage `order` / priority (ascending),
