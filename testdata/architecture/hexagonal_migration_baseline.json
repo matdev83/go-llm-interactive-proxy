@@ -107,7 +107,9 @@
       "classification": "extract",
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/lineage",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
       ]
     }
   ]
