@@ -37,6 +37,7 @@ func TestStandardWiring_openaiResponses_runtimeBundle_roundTrip(t *testing.T) {
 	}
 
 	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true},
 		Plugins: config.PluginsConfig{

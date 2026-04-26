@@ -1,6 +1,8 @@
 package runtimebundle
 
 import (
+	crand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -17,22 +19,22 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 )
 
-// secureSessionRuntime holds app-layer store/manager and recorder constructed from
-// [config.SecureSessionConfig]. Not used when secure session is disabled.
 type secureSessionRuntime struct {
-	manager            *app.Manager
-	appStore           app.Store
-	recorder           app.GateRecording
-	recordingMandatory bool
-	closer             func() error
-
+	manager                    *app.Manager
+	appStore                   app.Store
+	recorder                   app.GateRecording
+	recordingMandatory         bool
+	closer                     func() error
 	requireWorkspaceID         bool
 	workspaceResolveFailClosed bool
 }
 
 func buildSecureSessionRuntime(cfg *config.Config, b2b b2bua.Store, log *slog.Logger, bundle *metrics.Bundle) (*secureSessionRuntime, error) {
-	if cfg == nil || !cfg.SecureSession.Enabled {
-		return nil, nil
+	if cfg == nil {
+		return nil, fmt.Errorf("runtimebundle: nil config")
+	}
+	if !cfg.SecureSessionEffectivelyEnabled() {
+		return nil, fmt.Errorf("runtimebundle: secure_session must be enabled (reject explicit enabled: false at config validation)")
 	}
 	if b2b == nil {
 		return nil, fmt.Errorf("runtimebundle: b2bua store is required for secure_session")
@@ -43,9 +45,27 @@ func buildSecureSessionRuntime(cfg *config.Config, b2b b2bua.Store, log *slog.Lo
 		wsOnErr = "fail_open"
 	}
 	failClosedWS := wsOnErr == "fail_closed"
+
+	storeName := strings.ToLower(strings.TrimSpace(ss.Store))
+	if storeName == "" {
+		storeName = "memory"
+	}
 	key := strings.TrimSpace(ss.TokenFingerprintKey)
-	if len(key) < 32 {
-		return nil, fmt.Errorf("runtimebundle: secure_session enabled requires token_fingerprint_key of at least 32 characters")
+	if storeName == "memory" {
+		if key == "" {
+			buf := make([]byte, 32)
+			if _, err := crand.Read(buf); err != nil {
+				return nil, fmt.Errorf("runtimebundle: secure_session ephemeral token_fingerprint_key: %w", err)
+			}
+			key = base64.RawURLEncoding.EncodeToString(buf)
+			if log != nil {
+				log.Info("secure_session: memory store token_fingerprint_key omitted; using ephemeral process-local key (resume proofs reset on restart)")
+			}
+		} else if len(key) < 32 {
+			return nil, fmt.Errorf("runtimebundle: secure_session.token_fingerprint_key: when set, must be at least 32 characters (memory store may omit the key for a process-local ephemeral fingerprint)")
+		}
+	} else if len(key) < 32 {
+		return nil, fmt.Errorf("runtimebundle: secure_session requires token_fingerprint_key of at least 32 characters for sqlite store")
 	}
 	fp := []byte(key)
 	gen := app.NewRandGenerator(fp)
@@ -75,11 +95,6 @@ func buildSecureSessionRuntime(cfg *config.Config, b2b b2bua.Store, log *slog.Lo
 	if bundle != nil && bundle.SecureSession != nil {
 		p := bundle.SecureSession
 		touchCB = p.RecordActivityTouchSeconds
-	}
-
-	storeName := strings.ToLower(strings.TrimSpace(ss.Store))
-	if storeName == "" {
-		storeName = "memory"
 	}
 
 	switch storeName {
@@ -159,20 +174,9 @@ func buildSecureSessionRuntime(cfg *config.Config, b2b b2bua.Store, log *slog.Lo
 }
 
 func applySecureSessionToExecutor(e *runtime.Executor, ss *secureSessionRuntime) {
-	if e == nil {
+	if e == nil || ss == nil {
 		return
 	}
-	if ss == nil {
-		e.SecureSessionEnabled = false
-		e.SecureSession = nil
-		e.SecureSessionRecorder = nil
-		e.SecureSessionRecordingMandatory = false
-		e.SessionDenialMapper = nil
-		e.SecureSessionRequireWorkspaceID = false
-		e.SecureSessionWorkspaceResolveFailClosed = false
-		return
-	}
-	e.SecureSessionEnabled = true
 	e.SecureSession = ss.manager
 	e.SecureSessionRecorder = ss.recorder
 	e.SecureSessionRecordingMandatory = ss.recordingMandatory

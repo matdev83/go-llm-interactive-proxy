@@ -119,8 +119,18 @@ type HooksConfig struct {
 	ToolReactorErrorPolicy string `yaml:"tool_reactor_error_policy"`
 }
 
+type AuthMode string
+
+const (
+	// AuthModeNoAuth permits unauthenticated local single-user traffic only on explicit loopback binds.
+	AuthModeNoAuth AuthMode = "no_auth"
+	// AuthModeExternal requires an injected or configured auth layer and may bind non-loopback interfaces.
+	AuthModeExternal AuthMode = "external"
+)
+
 type ServerConfig struct {
-	Address string `yaml:"address"`
+	Address  string   `yaml:"address"`
+	AuthMode AuthMode `yaml:"auth_mode"`
 	// MaxRequestBodyBytes caps HTTP request bodies for bundled frontends. Zero selects
 	// each handler's default limit (see internal/plugins/frontends/reqbody).
 	MaxRequestBodyBytes int64 `yaml:"max_request_body_bytes"`
@@ -220,10 +230,12 @@ type CircuitBreakerConfig struct {
 }
 
 // SecureSessionConfig controls the core-owned secure session layer (resume proofs, durable evidence, diagnostics).
-// When Enabled is false, other fields are ignored by validation except unknown enum-like strings still rejected when set.
+// When Enabled is omitted (nil), secure sessions default to on with store memory unless overridden.
+// Explicit enabled: false is rejected by validation (legacy continuity-only executor path was removed).
 type SecureSessionConfig struct {
 	// Enabled turns on secure-session validation and runtime wiring (store, tokens, audit gates).
-	Enabled bool `yaml:"enabled"`
+	// Omitted in YAML defaults to enabled; use a pointer so explicit false can be rejected at validation time.
+	Enabled *bool `yaml:"enabled"`
 	// Store is "memory" (non-durable) or "sqlite" (durable). Empty is normalized to "memory" in [LoadFile] when Enabled.
 	Store string `yaml:"store"`
 	// SQLitePath is the database file path when store is "sqlite".

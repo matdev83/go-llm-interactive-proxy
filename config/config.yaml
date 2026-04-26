@@ -1,5 +1,7 @@
 server:
-  address: ":8080"
+  # Default bind is loopback-only so single-user / no-bearer dev mode matches a non-exposed listener.
+  address: "127.0.0.1:8080"
+  # auth_mode: no_auth   # no_auth requires explicit loopback bind; use external for authenticated non-local deployments
   # max_request_body_bytes: 10485760  # optional override; omit for handler default (8 MiB)
   # Optional [http.Server] timeouts (Go duration strings). Omitted fields use stdhttp defaults:
   # read_header_timeout: 10s
@@ -69,13 +71,13 @@ continuity:
   # store: sqlite
   # sqlite_path: ./data/continuity.db
 
-# Secure sessions (proxy-owned session id + resume proofs). Disabled by default: no token key or SQLite required.
-# When enabled with store: memory, session evidence is non-durable (lost on restart) unless you use store: sqlite
-# with sqlite_path below. Continuity keys and provider conversation ids are not proof of session ownership; only
-# proxy-issued resume material authorizes a turn.
+# Secure sessions (proxy-owned session id + resume proofs) are always on; omit secure_session to use defaults
+# (memory store, loopback-friendly). Memory store session evidence is non-durable (lost on restart) unless you use
+# store: sqlite with sqlite_path below. token_fingerprint_key may be omitted for memory (ephemeral process-local key);
+# sqlite requires token_fingerprint_key (>=32 chars). Continuity keys and provider conversation ids are not proof of
+# session ownership; only proxy-issued resume material authorizes a turn.
 # Durable mode (store: sqlite) requires sqlite_path, token_fingerprint_key (>=32 chars), and (for durable audit) audit_durability: durable.
 # secure_session:
-#   enabled: false
 #   store: memory
 #   # sqlite_path: ./data/secure_session.db
 #   resume_window: 168h

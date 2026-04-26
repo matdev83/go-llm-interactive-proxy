@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -60,7 +61,11 @@ func TestReplayLineage_recvFailoverIncrementsBLegs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leg, err := st.ResolveALeg(context.Background(), "lineage-recv")
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}

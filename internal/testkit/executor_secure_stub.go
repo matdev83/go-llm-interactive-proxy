@@ -150,7 +150,6 @@ func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecut
 		Rand:                                    rng,
 		Now:                                     nowFn,
 		Backends:                                be,
-		SecureSessionEnabled:                    true,
 		SecureSession:                           mgr,
 		SecureSessionRecorder:                   opts.SecureSessionRecorder,
 		SecureSessionRecordingMandatory:         opts.SecureSessionRecordingMandatory,

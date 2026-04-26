@@ -153,7 +153,11 @@ func TestExecute_completionGate_truncatedUpstreamNoSyntheticSuccess(t *testing.T
 	if _, err := lipapi.Collect(context.Background(), stream); err == nil {
 		t.Fatal("expected truncated stream collect error")
 	}
-	leg, err := st.ResolveALeg(context.Background(), "trunc-gate")
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}

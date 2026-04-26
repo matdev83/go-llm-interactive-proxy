@@ -1,7 +1,9 @@
 package runtimebundle_test
 
 import (
+	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -9,6 +11,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"gopkg.in/yaml.v3"
 )
 
 const testSecureKey32 = "01234567890123456789012345678901"
@@ -19,13 +23,13 @@ func testRuntimeBundlePlugins() config.PluginsConfig {
 	}
 }
 
-func TestBuild_secureSessionDisabled_leavesExecutorAndBuiltWithoutSS(t *testing.T) {
+func TestBuild_secureSession_alwaysWiresManager(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		Routing:       config.RoutingConfig{MaxAttempts: 3},
-		Plugins:       testRuntimeBundlePlugins(),
-		Continuity:    config.ContinuityConfig{InMemory: true},
-		SecureSession: config.SecureSessionConfig{Enabled: false},
+		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Plugins:    testRuntimeBundlePlugins(),
+		Continuity: config.ContinuityConfig{InMemory: true},
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
@@ -34,23 +38,128 @@ func TestBuild_secureSessionDisabled_leavesExecutorAndBuiltWithoutSS(t *testing.
 		t.Fatal(err)
 	}
 	ex := b.Executor
-	if ex.SecureSessionEnabled || ex.SecureSession != nil || ex.SecureSessionRecorder != nil || ex.SessionDenialMapper != nil {
-		t.Fatalf("expected no secure-session wiring when disabled, got enabled=%v mgr=%v rec=%v mapper_set=%v",
-			ex.SecureSessionEnabled, ex.SecureSession, ex.SecureSessionRecorder, ex.SessionDenialMapper != nil)
+	if ex.SecureSession == nil || ex.SessionDenialMapper == nil {
+		t.Fatalf("expected secure-session wiring, mgr=%v mapper_set=%v", ex.SecureSession, ex.SessionDenialMapper != nil)
 	}
-	if b.SecureSessionStore != nil {
-		t.Fatalf("expected Built.SecureSessionStore nil, got %T", b.SecureSessionStore)
+	if !ex.SyntheticLocalPrincipal {
+		t.Fatal("expected synthetic local principal on loopback + memory secure session defaults")
+	}
+	if b.SecureSessionStore == nil {
+		t.Fatalf("expected Built.SecureSessionStore, got nil")
+	}
+}
+
+func TestBuild_secureSessionMemory_rejectsShortConfiguredFingerprintKey(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Plugins:    testRuntimeBundlePlugins(),
+		Continuity: config.ContinuityConfig{InMemory: true},
+		SecureSession: config.SecureSessionConfig{
+			Store:               "memory",
+			TokenFingerprintKey: "short",
+		},
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "token_fingerprint_key") {
+		t.Fatalf("want token_fingerprint_key error, got %v", err)
+	}
+}
+
+func TestBuild_nonLoopbackExplicitBindDisablesSyntheticLocalPrincipal(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Plugins:    testRuntimeBundlePlugins(),
+		Continuity: config.ContinuityConfig{InMemory: true},
+		SecureSession: config.SecureSessionConfig{
+			Enabled:             config.BoolPtr(true),
+			Store:               "memory",
+			TokenFingerprintKey: testSecureKey32,
+		},
+	}
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Executor.SyntheticLocalPrincipal {
+		t.Fatal("non-loopback bind must not enable synthetic local principal")
+	}
+	if config.IsExplicitLoopbackListenAddress("0.0.0.0:8080") {
+		t.Fatal("test precondition: fixture address must not be classified as explicit loopback")
+	}
+}
+
+func TestBuild_nonLoopback_unauthenticatedExecuteSessionDenial(t *testing.T) {
+	t.Parallel()
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	var empty yaml.Node
+	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{
+				Kind: "openai-responses", ID: "stub-be", Enabled: true, Config: empty,
+			}},
+		},
+		SecureSession: config.SecureSessionConfig{
+			Enabled:             config.BoolPtr(true),
+			Store:               "memory",
+			TokenFingerprintKey: testSecureKey32,
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Executor.SyntheticLocalPrincipal {
+		t.Fatal("non-loopback bind must not enable synthetic local principal")
+	}
+	ctx := context.Background()
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ClientSessionID: "noloop"},
+		Route:   lipapi.RouteIntent{Selector: "stub-be:gpt-4o-mini"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, err = b.Executor.Execute(ctx, call)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsSessionDenial(err) {
+		t.Fatalf("want session denial, got %T %v", err, err)
 	}
 }
 
 func TestBuild_secureSessionMemory_wiresManagerDenialMapperAndStore(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: ":0"},
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Plugins:    testRuntimeBundlePlugins(),
 		Continuity: config.ContinuityConfig{InMemory: true},
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "memory",
 			TokenFingerprintKey: testSecureKey32,
 		},
@@ -62,8 +171,11 @@ func TestBuild_secureSessionMemory_wiresManagerDenialMapperAndStore(t *testing.T
 		t.Fatal(err)
 	}
 	ex := b.Executor
-	if !ex.SecureSessionEnabled || ex.SecureSession == nil {
-		t.Fatal("expected secure session enabled with non-nil manager")
+	if ex.SecureSession == nil {
+		t.Fatal("expected secure session manager")
+	}
+	if ex.SyntheticLocalPrincipal {
+		t.Fatal("non-loopback bind must not enable synthetic local principal")
 	}
 	if ex.SecureSessionRecorder == nil {
 		t.Fatal("expected recorder wired for memory store (non-durable recording)")
@@ -87,7 +199,7 @@ func TestBuild_secureSessionSQLite_wiresRecorderAndMandatoryWhenAuditDurable(t *
 		Plugins:    testRuntimeBundlePlugins(),
 		Continuity: config.ContinuityConfig{InMemory: true},
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "sqlite",
 			SQLitePath:          dbPath,
 			TokenFingerprintKey: testSecureKey32,
@@ -110,7 +222,6 @@ func TestBuild_secureSessionSQLite_wiresRecorderAndMandatoryWhenAuditDurable(t *
 	if b.SecureSessionStore == nil {
 		t.Fatal("expected Built.SecureSessionStore")
 	}
-	// Closer: run all closers — sqlite should close without error
 	for i, c := range b.Closers {
 		if c == nil {
 			t.Fatalf("closer %d nil", i)

@@ -5,6 +5,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -63,11 +64,11 @@ func TestExecutor_weightedFirstBranch_persistsConsumed(t *testing.T) {
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
 		t.Fatal(err)
 	}
-	leg, err := st.ResolveALeg(context.Background(), "wf-first")
-	if err != nil {
-		t.Fatal(err)
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
 	}
-	got, err := st.FetchALeg(context.Background(), leg.ALegID)
+	got, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}

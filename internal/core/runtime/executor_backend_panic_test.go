@@ -121,7 +121,11 @@ func TestExecutor_openPanic_preOutput_swallowedFailoverToSecondBackend(t *testin
 	}
 	_, _ = lipapi.Collect(context.Background(), s)
 	_ = s.Close()
-	leg, err := st.ResolveALeg(context.Background(), "open-panic-failover")
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +205,11 @@ func TestExecutor_recvPanic_preOutput_failoverToSecondBackend(t *testing.T) {
 		t.Fatalf("open sequence: %v", opens)
 	}
 	_ = s.Close()
-	leg, err := st.ResolveALeg(context.Background(), "recv-panic-failover")
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}

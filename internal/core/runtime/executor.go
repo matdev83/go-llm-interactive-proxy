@@ -28,6 +28,11 @@ import (
 
 var _ lipsdk.ExecutorView = (*Executor)(nil)
 
+// secureSessionTestPrepare is a no-op in production and in packages that import runtime without compiling
+// runtime's *_test.go sources (for example tests under internal/core/runtime/failclosed). Only the
+// internal/core/runtime test binary links export_test.go, which assigns this hook in init.
+var secureSessionTestPrepare = func(*Executor) {}
+
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
 type Executor struct {
 	Store b2bua.Store
@@ -68,11 +73,11 @@ type Executor struct {
 	// CompletionBufferLimits overrides completion-gate buffering bounds (tests). Zero MaxEvents uses SDK defaults.
 	CompletionBufferLimits completion.BufferLimits
 
-	// SecureSessionEnabled gates the secure-session prepare path. When true, SecureSession must be non-nil
-	// for secure behavior; if the manager is nil, the executor treats secure sessions as disabled (legacy path).
-	SecureSessionEnabled bool
-	// SecureSession authorizes turns and records attempt traces/outcomes when SecureSessionEnabled is true.
+	// SecureSession authorizes turns via BeginTurn before submit hooks; required for all executor prepares.
 	SecureSession *app.Manager
+	// SyntheticLocalPrincipal when true supplies stable local-dev principal for unauthenticated requests
+	// (composition root: loopback listen address + non-durable memory secure-session store only).
+	SyntheticLocalPrincipal bool
 	// SecureSessionRecorder receives transcript/usage/audit activity after gate success and on stream recv.
 	SecureSessionRecorder app.GateRecording
 	// SecureSessionRecordingMandatory fail-closes prepare and treats post-output recorder failures as terminal
@@ -130,6 +135,12 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	}
 	if e.RuntimeSnapshot != nil {
 		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
+	}
+	if e.SecureSession == nil {
+		secureSessionTestPrepare(e)
+	}
+	if e.SecureSession == nil {
+		return nil, fmt.Errorf("executor: secure session manager is required")
 	}
 	ctx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
 	defer func() {

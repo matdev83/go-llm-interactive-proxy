@@ -117,6 +117,9 @@ func RunWithRuntime(
 	if cfg == nil {
 		return errors.New("stdhttp: nil config")
 	}
+	if err := validateStartupSecurity(cfg); err != nil {
+		return err
+	}
 	if app == nil {
 		return errors.New("stdhttp: nil app")
 	}
@@ -210,7 +213,7 @@ func RunWithRuntime(
 			}
 		}
 	}
-	if cfg.SecureSession.Enabled && cfg.SecureSession.DiagnosticsExposeSummaries && built.SecureSessionStore != nil {
+	if cfg.SecureSessionEffectivelyEnabled() && cfg.SecureSession.DiagnosticsExposeSummaries && built.SecureSessionStore != nil {
 		p := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
 		if p == "" {
 			releaseClosers()

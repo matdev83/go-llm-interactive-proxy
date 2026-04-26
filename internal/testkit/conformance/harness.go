@@ -57,12 +57,14 @@ func newExecutorWithBackend(tb testing.TB, backendID string, be execbackend.Back
 	if err != nil {
 		tb.Fatal(err)
 	}
-	return &runtime.Executor{
+	ex := &runtime.Executor{
 		Store:    st,
 		Bus:      hooks.New(hooks.Config{}),
 		Rand:     routing.NewSeededRng(42),
 		Backends: map[string]execbackend.Backend{backendID: be},
 	}
+	testkit.WireConformanceExecutorSecureSession(tb, ex)
+	return ex
 }
 
 // BackendFor returns the bundled [execbackend.Backend] for upstreamBaseURL (httptest origin or /v1 layout per plugin).

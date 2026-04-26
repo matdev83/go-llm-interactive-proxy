@@ -30,6 +30,11 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
+const (
+	syntheticLocalPrincipalID     = "local-dev"
+	syntheticLocalPrincipalIssuer = "lip-localhost"
+)
+
 // prepareSubmitAndALegSecure resolves principal and workspace, authorizes via secure-session BeginTurn
 // before submit hooks and extension stages, so hooks and CTP traffic see proxy-validated session
 // continuity (not client-forged ALegID / resume authority).
@@ -49,6 +54,14 @@ func (e *Executor) prepareSubmitAndALegSecure(ctx context.Context, bus *hooks.Bu
 		principal = p
 		hasPrincipal = true
 		outCtx = execview.WithPrincipal(outCtx, p)
+	}
+	if !hasPrincipal && e != nil && e.SyntheticLocalPrincipal {
+		principal = execview.PrincipalView{
+			ID:     syntheticLocalPrincipalID,
+			Claims: map[string]string{"issuer": syntheticLocalPrincipalIssuer},
+		}
+		hasPrincipal = true
+		outCtx = execview.WithPrincipal(outCtx, principal)
 	}
 	outCtx = diag.WithCallDiag(outCtx, traceID, "")
 

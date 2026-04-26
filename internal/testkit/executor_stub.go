@@ -11,6 +11,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -29,13 +33,44 @@ func stubToolPrefixEvents(call lipapi.Call) []lipapi.Event {
 	}
 }
 
+// WireConformanceExecutorSecureSession attaches an in-memory secure-session manager and
+// lipapi denial mapping for conformance harness executors (and other tests that construct
+// [*runtime.Executor] outside package runtime).
+func WireConformanceExecutorSecureSession(tb testing.TB, ex *runtime.Executor) {
+	wireStubExecutorSecureSession(tb, ex)
+}
+
+func wireStubExecutorSecureSession(tb testing.TB, ex *runtime.Executor) {
+	tb.Helper()
+	if ex.SecureSession != nil {
+		return
+	}
+	if ex.Store == nil {
+		tb.Fatal("stub executor requires store")
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	fk := SecureSessionTestFingerprintKey()
+	mgr, err := app.NewManager(memSS, app.NewRandGenerator(fk), b2bualineage.New(ex.Store), app.ManagerConfig{
+		FingerprintKey: fk,
+		StoreDurable:   true,
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	ex.SecureSession = mgr
+	if ex.SessionDenialMapper == nil {
+		ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
+	}
+	ex.SyntheticLocalPrincipal = true
+}
+
 func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []string, capture *sync.Map) *runtime.Executor {
 	t.Helper()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &runtime.Executor{
+	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(42),
@@ -64,6 +99,8 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 			},
 		},
 	}
+	wireStubExecutorSecureSession(t, ex)
+	return ex
 }
 
 func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture *sync.Map) *runtime.Executor {
@@ -72,7 +109,7 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &runtime.Executor{
+	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(42),
@@ -101,4 +138,6 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 			},
 		},
 	}
+	wireStubExecutorSecureSession(t, ex)
+	return ex
 }

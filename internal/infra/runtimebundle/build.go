@@ -61,6 +61,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		return nil, fmt.Errorf("runtimebundle: nil logger")
 	}
 	reg := opts.PluginRegistry
+	if err := validateBackendSecurityProfiles(cfg, reg); err != nil {
+		return nil, err
+	}
 
 	var bundle *metrics.Bundle
 	if cfg.Observability.Metrics.Enabled {
@@ -100,7 +103,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, err
 	}
-	if ssRun != nil && ssRun.closer != nil {
+	if ssRun.closer != nil {
 		closers = append(closers, ssRun.closer)
 	}
 
@@ -138,7 +141,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.WorkspaceResolvers) > 0 {
 		ss := cfg.SecureSession
-		failClosedWS := ss.Enabled && strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
+		failClosedWS := cfg.SecureSessionEffectivelyEnabled() && strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
 		if failClosedWS {
 			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
 		} else {
@@ -208,6 +211,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
 	}
 	applySecureSessionToExecutor(exec, ssRun)
+	ssStore := strings.TrimSpace(cfg.SecureSession.Store)
+	if ssStore == "" {
+		ssStore = "memory"
+	}
+	exec.SyntheticLocalPrincipal = cfg.SingleUserLocalMode() && strings.EqualFold(ssStore, "memory")
 	if bundle != nil {
 		exec.Metrics = bundle.ExecutorSink()
 		exec.ExtensionMetrics = bundle.ExtensionStageSink()
@@ -217,9 +225,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if len(opts.HTTPAuthProviders) > 0 {
 		httpAuth = slices.Clone(opts.HTTPAuthProviders)
 	}
-	secureSessionStore := opts.SecureSessionStore
-	if ssRun != nil {
-		secureSessionStore = ssRun.appStore
+	secureSessionStore := ssRun.appStore
+	if opts.SecureSessionStore != nil {
+		secureSessionStore = opts.SecureSessionStore
 	}
 	return &Built{
 		Executor:              exec,

@@ -77,49 +77,6 @@ func (c *countSubmitHook) Handle(context.Context, *lipapi.Call, *sdkhooks.Submit
 	return sdkhooks.SubmitDecision{}, nil
 }
 
-func TestExecutor_secureSessionDeps_managerPresentButDisabledUsesLegacyPath(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
-	preALeg := b2bua.ALegRecord{
-		ALegID:        "aleg-pre",
-		ContinuityKey: "ck-legacy",
-		CreatedAt:     now,
-		LastSeenAt:    now,
-	}
-	postALeg := b2bua.ALegRecord{
-		ALegID:        "aleg-post",
-		ContinuityKey: "ck-legacy",
-		CreatedAt:     now,
-		LastSeenAt:    now.Add(time.Minute),
-	}
-	store := newScriptedALegStore(preALeg, postALeg)
-	memSS := memory.New(memory.Options{SimulateDurable: true})
-	mgr := testSecureManager(t, memSS, store)
-	ex := &Executor{
-		Store:                store,
-		Bus:                  hooks.New(hooks.Config{}),
-		SecureSession:        mgr,
-		SecureSessionEnabled: false,
-	}
-	call := &lipapi.Call{
-		Session: lipapi.SessionRef{
-			ClientSessionID: "c1",
-			ContinuityKey:   "ck-legacy",
-		},
-		Messages: []lipapi.Message{{
-			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("x")},
-		}},
-	}
-	_, _, _, _, err := ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if store.resolveIdx != 2 {
-		t.Fatalf("legacy resolve calls: want 2 got %d", store.resolveIdx)
-	}
-}
-
 func TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg(t *testing.T) {
 	t.Parallel()
 	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -132,12 +89,11 @@ func TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg(t *t
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
 	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                b2,
-		Bus:                  hooks.New(hooks.Config{}),
-		RuntimeSnapshot:      snap,
-		SecureSession:        mgr,
-		SecureSessionEnabled: true,
-		Now:                  func() time.Time { return time.Unix(1700, 0) },
+		Store:           b2,
+		Bus:             hooks.New(hooks.Config{}),
+		RuntimeSnapshot: snap,
+		SecureSession:   mgr,
+		Now:             func() time.Time { return time.Unix(1700, 0) },
 	})
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-z"})
 	call := &lipapi.Call{
@@ -205,7 +161,6 @@ func TestExecutor_prepareSubmitAndALeg_secure_requireWorkspaceID_denies(t *testi
 		Bus:                             hooks.New(hooks.Config{}),
 		RuntimeSnapshot:                 snap,
 		SecureSession:                   mgr,
-		SecureSessionEnabled:            true,
 		SecureSessionRequireWorkspaceID: true,
 		Now:                             func() time.Time { return time.Unix(1900, 0) },
 	})
@@ -248,7 +203,6 @@ func TestExecutor_prepareSubmitAndALeg_secure_workspaceFailClosed_skipsSubmitHoo
 		Bus:                                     bus,
 		RuntimeSnapshot:                         snap,
 		SecureSession:                           mgr,
-		SecureSessionEnabled:                    true,
 		SecureSessionWorkspaceResolveFailClosed: true,
 		Now:                                     func() time.Time { return time.Unix(1950, 0) },
 	})
@@ -284,12 +238,11 @@ func TestExecutor_prepareSubmitAndALeg_secure_invalidResumeIsDenial(t *testing.T
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
 	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                b2,
-		Bus:                  hooks.New(hooks.Config{}),
-		RuntimeSnapshot:      snap,
-		SecureSession:        mgr,
-		SecureSessionEnabled: true,
-		Now:                  func() time.Time { return time.Unix(1800, 0) },
+		Store:           b2,
+		Bus:             hooks.New(hooks.Config{}),
+		RuntimeSnapshot: snap,
+		SecureSession:   mgr,
+		Now:             func() time.Time { return time.Unix(1800, 0) },
 	})
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-z"})
 	call := &lipapi.Call{
@@ -325,13 +278,12 @@ func TestExecutor_secureSession_failoverTwoOpens_memoryLatestTraceReflectsSecond
 	clock := time.Unix(2000, 0).UTC()
 	var capturedAuthoritative string
 	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                b2,
-		Bus:                  hooks.New(hooks.Config{}),
-		RuntimeSnapshot:      snap,
-		SecureSession:        mgr,
-		SecureSessionEnabled: true,
-		Now:                  func() time.Time { return clock },
-		Rand:                 routing.NewSeededRng(2),
+		Store:           b2,
+		Bus:             hooks.New(hooks.Config{}),
+		RuntimeSnapshot: snap,
+		SecureSession:   mgr,
+		Now:             func() time.Time { return clock },
+		Rand:            routing.NewSeededRng(2),
 		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -398,13 +350,12 @@ func TestExecutor_secureSession_Open_recordsOutcomeMemory(t *testing.T) {
 	})
 	var capturedAuthoritative string
 	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                b2,
-		Bus:                  hooks.New(hooks.Config{}),
-		RuntimeSnapshot:      snap,
-		SecureSession:        mgr,
-		SecureSessionEnabled: true,
-		Now:                  func() time.Time { return time.Unix(2100, 0) },
-		Rand:                 routing.NewSeededRng(3),
+		Store:           b2,
+		Bus:             hooks.New(hooks.Config{}),
+		RuntimeSnapshot: snap,
+		SecureSession:   mgr,
+		Now:             func() time.Time { return time.Unix(2100, 0) },
+		Rand:            routing.NewSeededRng(3),
 		Backends: map[string]execbackend.Backend{
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -446,6 +397,199 @@ func TestExecutor_secureSession_Open_recordsOutcomeMemory(t *testing.T) {
 	}
 	if !rec.LatestAttemptOutcome.Success || rec.LatestAttemptOutcome.SurfaceState != domain.SurfaceSurfaced {
 		t.Fatalf("outcome: %#v", rec.LatestAttemptOutcome)
+	}
+}
+
+func TestExecutor_prepareSubmitAndALeg_syntheticLocalPrincipalWhenEnabled(t *testing.T) {
+	t.Parallel()
+	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, memSS, b2)
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+	})
+	ex := setSecureSessionDenialMapper(&Executor{
+		Store:                   b2,
+		Bus:                     hooks.New(hooks.Config{}),
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: true,
+		Now:                     func() time.Time { return time.Unix(2200, 0) },
+	})
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{
+			ClientSessionID: "c1",
+			ALegID:          "forged-aleg",
+			ContinuityKey:   "forged-ck",
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, _, _, outCtx, err := ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, ok := execctx.FromContext(outCtx)
+	if !ok {
+		t.Fatal("expected views")
+	}
+	if v.Principal.ID != syntheticLocalPrincipalID {
+		t.Fatalf("principal id: want %q got %q", syntheticLocalPrincipalID, v.Principal.ID)
+	}
+	if v.Principal.Claims["issuer"] != syntheticLocalPrincipalIssuer {
+		t.Fatalf("issuer: want %q got %q", syntheticLocalPrincipalIssuer, v.Principal.Claims["issuer"])
+	}
+	if v.Session.ALegID == "" || v.Session.ALegID == "forged-aleg" {
+		t.Fatalf("unexpected aleg %q", v.Session.ALegID)
+	}
+}
+
+func TestExecutor_prepareSubmitAndALeg_missingPrincipalWithoutSynthetic(t *testing.T) {
+	t.Parallel()
+	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, memSS, b2)
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+	})
+	ex := setSecureSessionDenialMapper(&Executor{
+		Store:                   b2,
+		Bus:                     hooks.New(hooks.Config{}),
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: false,
+		Now:                     func() time.Time { return time.Unix(2210, 0) },
+	})
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ClientSessionID: "c1"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, _, _, _, err = ex.prepareSubmitAndALeg(context.Background(), ex.Bus, call)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsSessionDenial(err) {
+		t.Fatalf("want session denial got %T %v", err, err)
+	}
+}
+
+func TestExecutor_Execute_unauthenticatedSyntheticPrincipal_reachesBackend(t *testing.T) {
+	t.Parallel()
+	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, memSS, b2)
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+	})
+	var opens atomic.Int32
+	ex := setSecureSessionDenialMapper(&Executor{
+		Store:                   b2,
+		Bus:                     hooks.New(hooks.Config{}),
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: true,
+		Now:                     func() time.Time { return time.Unix(2300, 0) },
+		Rand:                    routing.NewSeededRng(1),
+		Backends: map[string]execbackend.Backend{
+			"ok": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opens.Add(1)
+					return lipapi.NewFixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	})
+	ctx := context.Background()
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ClientSessionID: "unsynth"},
+		Route:   lipapi.RouteIntent{Selector: "ok:g"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := ex.Execute(ctx, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
+		t.Fatal(err)
+	}
+	if opens.Load() != 1 {
+		t.Fatalf("backend opens: want 1 got %d", opens.Load())
+	}
+}
+
+func TestExecutor_Execute_unauthenticatedNoSynthetic_deniedWithoutBackendOpen(t *testing.T) {
+	t.Parallel()
+	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, memSS, b2)
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+	})
+	var opens atomic.Int32
+	ex := setSecureSessionDenialMapper(&Executor{
+		Store:                   b2,
+		Bus:                     hooks.New(hooks.Config{}),
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: false,
+		Now:                     func() time.Time { return time.Unix(2310, 0) },
+		Rand:                    routing.NewSeededRng(1),
+		Backends: map[string]execbackend.Backend{
+			"ok": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opens.Add(1)
+					return lipapi.NewFixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+	})
+	ctx := context.Background()
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ClientSessionID: "nosynth"},
+		Route:   lipapi.RouteIntent{Selector: "ok:g"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, err = ex.Execute(ctx, call)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsSessionDenial(err) {
+		t.Fatalf("want session denial got %T %v", err, err)
+	}
+	if opens.Load() != 0 {
+		t.Fatalf("backend opens: want 0 got %d", opens.Load())
 	}
 }
 

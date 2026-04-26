@@ -32,28 +32,29 @@ func installBackends(reg *Registry, keys UpstreamAPIKeys) error {
 	entries := []struct {
 		ID      string
 		Factory backendFactory
+		Profile BackendSecurityProfile
 	}{
 		{openairesponses.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendOpenAIResponses(n, upstream, keys)
-		}},
+		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{openailegacy.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendOpenAILegacy(n, upstream, keys)
-		}},
+		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{anthropic.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendAnthropic(n, upstream, keys)
-		}},
+		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{gemini.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendGemini(n, upstream, keys)
-		}},
+		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{bedrock.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendBedrock(n, upstream)
-		}},
+		}, BackendSecurityProfile{CredentialMode: CredentialWorkload}},
 		{acp.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendACP(n, upstream)
-		}},
+		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
 	}
 	for _, e := range entries {
-		if err := reg.RegisterBackend(e.ID, e.Factory); err != nil {
+		if err := reg.RegisterBackendWithProfile(e.ID, e.Factory, e.Profile); err != nil {
 			return err
 		}
 	}

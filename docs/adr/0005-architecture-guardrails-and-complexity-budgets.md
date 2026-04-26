@@ -6,7 +6,7 @@ Accepted (stage three runtime hardening).
 
 ## Context
 
-Stage two review ([`stage2_code_review.md`](../../.kiro/specs/go-core-reimplementation-stage-two/stage2_code_review.md)) warned that registry-driven composition is healthier than `switch` wiring, but **global mutable registries** and **hidden `init()`** registration still create long-term drift risk. Stage three adds explicit assembly (`NewRegistry` + `InstallStandardBundleOn(reg)` + `runtimebundle.Build` with `PluginRegistry`) but still needs **measurable** guardrails so the core and composition roots do not grow without review.
+Stage two review ([`stage2_code_review.md`](../../.kiro/specs/archive/go-core-reimplementation-stage-two/stage2_code_review.md)) warned that registry-driven composition is healthier than `switch` wiring, but **global mutable registries** and **hidden `init()`** registration still create long-term drift risk. Stage three adds explicit assembly (`NewRegistry` + `InstallStandardBundleOn(reg)` + `runtimebundle.Build` with `PluginRegistry`) but still needs **measurable** guardrails so the core and composition roots do not grow without review.
 
 ## Decision
 
@@ -20,7 +20,7 @@ Stage two review ([`stage2_code_review.md`](../../.kiro/specs/go-core-reimplemen
 
 3. **Core import boundary** — `internal/core` must not depend on `internal/plugins/...` (enforced by `go list` dependency tests in `internal/core/runtime`).
 
-4. **Regression checklist** — Stage-two “must-fix” items F1–F10 are tracked in [`.kiro/specs/go-core-stage-three-runtime-hardening/stage2_regression_checklist.md`](../../.kiro/specs/go-core-stage-three-runtime-hardening/stage2_regression_checklist.md) with pointers to tests and code.
+4. **Regression checklist** — Stage-two “must-fix” items F1–F10 are tracked in [`.kiro/specs/archive/go-core-stage-three-runtime-hardening/stage2_regression_checklist.md`](../../.kiro/specs/archive/go-core-stage-three-runtime-hardening/stage2_regression_checklist.md) with pointers to tests and code.
 
 ## Consequences
 

@@ -581,8 +581,8 @@ type AuthErrorRenderer interface {
 **Contracts**: Service [x] / API [ ] / Event [x] / Batch [ ] / State [ ]
 
 **Implementation Notes**
-- Integration: Called in both `prepareSubmitAndALegLegacy` and `prepareSubmitAndALegSecure` after principal/session view is known.
-- Integration: The secure path emits events only when secure sessions are already active through existing runtime configuration; otherwise the legacy path is authoritative.
+- Integration: Called from the single secure-session prepare path after principal/session view is known (`BeginTurn` has established the session view).
+- Integration: Secure-session wiring is always present on the standard executor; dedupe follows secure-session state, with continuity/B2BUA as lineage hints only.
 - Validation: Tests cover new legacy A-leg, existing A-leg, secure `BeginTurn` new/resume, and missing session identity.
 - Risks: Without durable secure sessions, dedupe is limited to what existing continuity or secure-session stores can recognize.
 

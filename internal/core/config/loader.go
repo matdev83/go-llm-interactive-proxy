@@ -51,7 +51,7 @@ func LoadFile(path string) (*Config, error) {
 	}
 
 	if cfg.Server.Address == "" {
-		cfg.Server.Address = ":8080"
+		cfg.Server.Address = "127.0.0.1:8080"
 	}
 
 	if cfg.Diagnostics.HealthPath == "" {
@@ -70,7 +70,7 @@ func LoadFile(path string) (*Config, error) {
 		cfg.Continuity.Store = "memory"
 	}
 
-	if cfg.SecureSession.Enabled && strings.TrimSpace(cfg.SecureSession.Store) == "" {
+	if cfg.SecureSessionEffectivelyEnabled() && strings.TrimSpace(cfg.SecureSession.Store) == "" {
 		cfg.SecureSession.Store = "memory"
 	}
 

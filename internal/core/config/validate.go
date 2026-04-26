@@ -56,19 +56,24 @@ func validateSecureSession(cfg *Config) error {
 		return nil
 	}
 	ss := &cfg.SecureSession
-	if !ss.Enabled {
-		return nil
+	if ss.Enabled != nil && !*ss.Enabled {
+		return fmt.Errorf("secure_session.enabled: false is no longer supported; remove the field (secure sessions default on) or set secure_session.enabled: true")
 	}
 	store := strings.ToLower(strings.TrimSpace(ss.Store))
 	if store == "" {
 		store = "memory"
+		ss.Store = "memory"
 	}
 	if store != "memory" && store != "sqlite" {
 		return fmt.Errorf("secure_session.store: want memory or sqlite, got %q", ss.Store)
 	}
 	key := strings.TrimSpace(ss.TokenFingerprintKey)
-	if len(key) < 32 {
-		return fmt.Errorf("secure_session.token_fingerprint_key: must be at least 32 characters when secure_session is enabled")
+	if store == "sqlite" {
+		if len(key) < 32 {
+			return fmt.Errorf("secure_session.token_fingerprint_key: must be at least 32 characters when store is sqlite")
+		}
+	} else if key != "" && len(key) < 32 {
+		return fmt.Errorf("secure_session.token_fingerprint_key: when set, must be at least 32 characters (memory store may omit the key for a process-local ephemeral fingerprint)")
 	}
 	rw := strings.TrimSpace(ss.ResumeWindow)
 	if rw != "" {
@@ -153,7 +158,19 @@ func validateServer(cfg *Config) error {
 	if cfg == nil {
 		return nil
 	}
+	if strings.TrimSpace(cfg.Server.Address) == "" {
+		cfg.Server.Address = "127.0.0.1:8080"
+	}
 	s := cfg.Server
+	switch cfg.EffectiveServerAuthMode() {
+	case AuthModeNoAuth:
+		if !IsExplicitLoopbackListenAddress(s.Address) {
+			return fmt.Errorf("server.auth_mode: no_auth requires server.address to be explicit loopback (127.0.0.1, ::1, or localhost), got %q", s.Address)
+		}
+	case AuthModeExternal:
+	default:
+		return fmt.Errorf("server.auth_mode: want no_auth or external, got %q", s.AuthMode)
+	}
 	if s.MaxPendingWireEvents < 0 {
 		return fmt.Errorf("server.max_pending_wire_events: must be >= 0")
 	}
@@ -307,7 +324,7 @@ func validateDiagnosticsPaths(cfg *Config) error {
 	if err := add(pp); err != nil {
 		return err
 	}
-	if cfg.SecureSession.Enabled {
+	if cfg.SecureSessionEffectivelyEnabled() {
 		ssp := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
 		if ssp != "" {
 			if !strings.HasPrefix(ssp, "/") {

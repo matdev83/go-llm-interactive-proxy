@@ -56,7 +56,7 @@ func TestSecureSessionE2E_sqliteRestart_resumeSurvivesProcessClose(t *testing.T)
 			SQLitePath: contPath,
 		},
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "sqlite",
 			SQLitePath:          ssPath,
 			TokenFingerprintKey: testSecureKey32,

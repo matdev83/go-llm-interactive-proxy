@@ -178,7 +178,11 @@ func TestExecutor_openAIResponses_attemptLineageOmitsCredentialMaterial(t *testi
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
 		t.Fatal(err)
 	}
-	leg, err := st.ResolveALeg(context.Background(), continuityKey)
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -165,7 +165,11 @@ func TestExecutor_preOutputRecoverableSwallowsAndLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leg, err := st.ResolveALeg(context.Background(), "sess-7.2")
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +384,11 @@ func TestExecutor_cancellationRecordsAttempt(t *testing.T) {
 	if atomic.LoadInt32(&opens) != 1 {
 		t.Fatalf("opens: %d", opens)
 	}
-	leg, err := st.ResolveALeg(context.Background(), "cancel-sess")
+	alegID := strings.TrimSpace(call.Session.ALegID)
+	if alegID == "" {
+		t.Fatal("expected aleg id on call after execute")
+	}
+	leg, err := st.FetchALeg(context.Background(), alegID)
 	if err != nil {
 		t.Fatal(err)
 	}

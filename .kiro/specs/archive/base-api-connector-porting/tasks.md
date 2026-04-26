@@ -1,7 +1,5 @@
 # Implementation Plan
 
-**Spec status:** All tasks below are complete; implementation is finished. This spec was **archived** on 2026-04-25 (see `spec.json`).
-
 - [x] 1. Build shared credential-pool foundation
 - [x] 1.1 Define credential selection and usefulness-state behavior
   - Add tests that prove ordered credential acquisition skips cooldown and auth-invalid credentials.

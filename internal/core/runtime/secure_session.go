@@ -25,12 +25,8 @@ func principalRefFromView(p execview.PrincipalView) domain.PrincipalRef {
 	return r
 }
 
-func (e *Executor) secureSessionActive() bool {
-	return e != nil && e.SecureSessionEnabled && e.SecureSession != nil
-}
-
 func (e *Executor) secureSessionForAttempt() *app.Manager {
-	if e == nil || !e.secureSessionActive() {
+	if e == nil || e.SecureSession == nil {
 		return nil
 	}
 	return e.SecureSession

@@ -15,20 +15,21 @@ func secureSessionBaselinePlugins() config.PluginsConfig {
 	}
 }
 
-func TestValidate_secureSession_disabledAcceptsUnsafeFields(t *testing.T) {
+func TestValidate_secureSession_explicitDisabledRejected(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             false,
+			Enabled:             config.BoolPtr(false),
 			Store:               "sqlite",
 			TokenFingerprintKey: "",
 			AuditDurability:     "durable",
 			ResumeWindow:        "not-a-duration",
 		},
 	}
-	if err := config.Validate(cfg); err != nil {
-		t.Fatalf("expected disabled secure_session to skip validation: %v", err)
+	err := config.Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "secure_session.enabled") {
+		t.Fatalf("want enabled:false rejection got %v", err)
 	}
 }
 
@@ -37,7 +38,7 @@ func TestValidate_secureSession_workspaceResolveOnError(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:                 true,
+			Enabled:                 config.BoolPtr(true),
 			Store:                   "memory",
 			TokenFingerprintKey:     strings.Repeat("k", 32),
 			WorkspaceResolveOnError: "maybe",
@@ -49,13 +50,13 @@ func TestValidate_secureSession_workspaceResolveOnError(t *testing.T) {
 	}
 }
 
-func TestValidate_secureSession_requiresLongFingerprintKey(t *testing.T) {
+func TestValidate_secureSession_requiresLongFingerprintKeyWhenSet(t *testing.T) {
 	t.Parallel()
 	for _, store := range []string{"sqlite", "memory"} {
 		cfg := &config.Config{
 			Plugins: secureSessionBaselinePlugins(),
 			SecureSession: config.SecureSessionConfig{
-				Enabled:             true,
+				Enabled:             config.BoolPtr(true),
 				Store:               store,
 				TokenFingerprintKey: "short",
 				AuditDurability:     "best_effort",
@@ -68,6 +69,21 @@ func TestValidate_secureSession_requiresLongFingerprintKey(t *testing.T) {
 	}
 }
 
+func TestValidate_secureSession_memoryEmptyTokenKeyOK(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Plugins: secureSessionBaselinePlugins(),
+		SecureSession: config.SecureSessionConfig{
+			Enabled:             config.BoolPtr(true),
+			Store:               "memory",
+			TokenFingerprintKey: "",
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidate_secureSession_resumeWindow(t *testing.T) {
 	t.Parallel()
 	t.Run("invalid parse", func(t *testing.T) {
@@ -75,7 +91,7 @@ func TestValidate_secureSession_resumeWindow(t *testing.T) {
 		cfg := &config.Config{
 			Plugins: secureSessionBaselinePlugins(),
 			SecureSession: config.SecureSessionConfig{
-				Enabled:             true,
+				Enabled:             config.BoolPtr(true),
 				Store:               "memory",
 				TokenFingerprintKey: strings.Repeat("k", 32),
 				ResumeWindow:        "not-a-duration",
@@ -91,7 +107,7 @@ func TestValidate_secureSession_resumeWindow(t *testing.T) {
 		cfg := &config.Config{
 			Plugins: secureSessionBaselinePlugins(),
 			SecureSession: config.SecureSessionConfig{
-				Enabled:             true,
+				Enabled:             config.BoolPtr(true),
 				Store:               "memory",
 				TokenFingerprintKey: strings.Repeat("k", 32),
 				ResumeWindow:        "0s",
@@ -109,7 +125,7 @@ func TestValidate_secureSession_auditDurableRequiresSQLite(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "memory",
 			TokenFingerprintKey: strings.Repeat("k", 32),
 			AuditDurability:     "durable",
@@ -126,7 +142,7 @@ func TestValidate_secureSession_strictWithMemoryBestEffortOK(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "memory",
 			TokenFingerprintKey: strings.Repeat("k", 32),
 			AuditDurability:     "best_effort",
@@ -143,7 +159,7 @@ func TestValidate_secureSession_diagnosticsExposeRequiresPrefix(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:                    true,
+			Enabled:                    config.BoolPtr(true),
 			Store:                      "memory",
 			TokenFingerprintKey:        strings.Repeat("k", 32),
 			DiagnosticsExposeSummaries: true,
@@ -164,7 +180,7 @@ func TestValidate_secureSession_diagnosticsExposeRequiresDiagnosticsSharedSecret
 			SharedSecret: "",
 		},
 		SecureSession: config.SecureSessionConfig{
-			Enabled:                    true,
+			Enabled:                    config.BoolPtr(true),
 			Store:                      "memory",
 			TokenFingerprintKey:        strings.Repeat("k", 32),
 			DiagnosticsExposeSummaries: true,
@@ -185,7 +201,7 @@ func TestValidate_secureSession_diagnosticsExposeOKWithSharedSecret(t *testing.T
 			SharedSecret: "twelve-chars-minimum-secret",
 		},
 		SecureSession: config.SecureSessionConfig{
-			Enabled:                    true,
+			Enabled:                    config.BoolPtr(true),
 			Store:                      "memory",
 			TokenFingerprintKey:        strings.Repeat("k", 32),
 			DiagnosticsExposeSummaries: true,
@@ -202,7 +218,7 @@ func TestValidate_secureSession_minimalEnabled(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "memory",
 			TokenFingerprintKey: strings.Repeat("k", 32),
 		},
@@ -217,7 +233,7 @@ func TestValidate_secureSession_sqliteRequiresPath(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "sqlite",
 			TokenFingerprintKey: strings.Repeat("k", 32),
 			SQLitePath:          "   ",
@@ -234,7 +250,7 @@ func TestValidate_secureSession_sqlitePathRejectsAmbiguousQueryChars(t *testing.
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "sqlite",
 			TokenFingerprintKey: strings.Repeat("k", 32),
 			SQLitePath:          "./data/x?bad=1",
@@ -251,7 +267,7 @@ func TestValidate_secureSession_sqliteWithPathOK(t *testing.T) {
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),
 		SecureSession: config.SecureSessionConfig{
-			Enabled:             true,
+			Enabled:             config.BoolPtr(true),
 			Store:               "sqlite",
 			TokenFingerprintKey: strings.Repeat("k", 32),
 			SQLitePath:          filepath.Join("data", "secure_sessions.db"),
@@ -262,13 +278,30 @@ func TestValidate_secureSession_sqliteWithPathOK(t *testing.T) {
 	}
 }
 
+func TestValidate_secureSession_sqliteEmptyTokenKeyRejected(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Plugins: secureSessionBaselinePlugins(),
+		SecureSession: config.SecureSessionConfig{
+			Enabled:             config.BoolPtr(true),
+			Store:               "sqlite",
+			SQLitePath:          filepath.Join(t.TempDir(), "ss.db"),
+			TokenFingerprintKey: "",
+		},
+	}
+	err := config.Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "token_fingerprint_key") {
+		t.Fatalf("want token key error, got %v", err)
+	}
+}
+
 func TestLoadFile_normalizesSecureSessionStoreWhenEnabled(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "cfg.yaml")
 	yml := `
 server:
-  address: ":0"
+  address: "127.0.0.1:0"
 continuity:
   in_memory: true
 plugins:
@@ -286,8 +319,11 @@ secure_session:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.SecureSession.Enabled {
+	if !cfg.SecureSessionEffectivelyEnabled() {
 		t.Fatal("expected enabled from fixture")
+	}
+	if cfg.SecureSession.Enabled == nil || !*cfg.SecureSession.Enabled {
+		t.Fatal("expected explicit enabled true in fixture")
 	}
 	if strings.ToLower(strings.TrimSpace(cfg.SecureSession.Store)) != "memory" {
 		t.Fatalf("store: %q", cfg.SecureSession.Store)
