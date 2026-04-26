@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -90,7 +91,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		}
 		backends[iid] = be
 	}
-	store, err := continuity.OpenStore(cfg.Continuity)
+	parent := context.Background()
+	if opts.StartupContext != nil {
+		parent = opts.StartupContext
+	}
+	store, err := continuity.OpenStoreContext(parent, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
@@ -99,8 +104,17 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		closers = append(closers, c.Close)
 	}
 
-	ssRun, err := buildSecureSessionRuntime(cfg, store, log, bundle)
+	ssRun, err := buildSecureSessionRuntime(secureSessionBuildInput{
+		StartupContext: parent,
+		Cfg:            cfg,
+		B2B:            store,
+		Log:            log,
+		Bundle:         bundle,
+	})
 	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(err, derr)
+		}
 		return nil, err
 	}
 	if ssRun.closer != nil {
@@ -114,12 +128,19 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	rawDefaultRoute := config.EffectiveDefaultRouteSelector(cfg, wireModel)
 	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
 	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(fmt.Errorf("runtimebundle: model_aliases: %w", err), derr)
+		}
 		return nil, fmt.Errorf("runtimebundle: model_aliases: %w", err)
 	}
 	effectiveRoute := aliasResolver.Resolve(rawDefaultRoute)
 	defBE, err := routing.DefaultBackendFromRouteSelector(effectiveRoute)
 	if err != nil {
-		return nil, fmt.Errorf("runtimebundle: %w", err)
+		wrapped := fmt.Errorf("runtimebundle: %w", err)
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(wrapped, derr)
+		}
+		return nil, wrapped
 	}
 	capMap := make(capabilities.MapResolver, len(backends))
 	for id, be := range backends {
@@ -241,6 +262,16 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		HTTPAuthProviders:     httpAuth,
 		SecureSessionStore:    secureSessionStore,
 	}, nil
+}
+
+func disposeClosers(closers []func() error) error {
+	var out error
+	for i := len(closers) - 1; i >= 0; i-- {
+		if err := closers[i](); err != nil {
+			out = errors.Join(out, fmt.Errorf("runtimebundle: dispose closer: %w", err))
+		}
+	}
+	return out
 }
 
 func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTracing bool) *http.Client {

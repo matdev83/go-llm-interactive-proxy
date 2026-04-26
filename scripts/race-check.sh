@@ -53,7 +53,7 @@ fi
 mkdir -p .tmp
 PRECHECK_LOG=".tmp/race-precheck.log"
 set +e
-go test -race -run '^$' -c -o .tmp/race-precheck.test ./pkg/lipsdk >"$PRECHECK_LOG" 2>&1
+go test -race -tags=precommit,integration -run '^$' -c -o .tmp/race-precheck.test ./pkg/lipsdk >"$PRECHECK_LOG" 2>&1
 PRECHECK_STATUS=$?
 set -e
 rm -f .tmp/race-precheck.test .tmp/race-precheck.test.exe 2>/dev/null || true
@@ -90,7 +90,7 @@ if [[ "$STAGED" == true ]]; then
 fi
 
 declare -a GO_ARGS
-GO_ARGS=("test" "-race" "-count=1")
+GO_ARGS=("test" "-race" "-tags=precommit,integration" "-count=1")
 GO_ARGS+=("${PACKAGES[@]}")
 
 echo "Running race detector scan: go ${GO_ARGS[*]}"

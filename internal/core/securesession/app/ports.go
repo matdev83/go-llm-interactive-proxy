@@ -31,12 +31,16 @@ type Store interface {
 	TouchActivity(ctx context.Context, id domain.SessionID, at time.Time, source domain.ActivitySource) error
 	AppendAttemptTrace(ctx context.Context, trace domain.AttemptTrace) error
 	UpdateAttemptOutcome(ctx context.Context, outcome domain.AttemptOutcome) error
+	// AppendTranscript appends a row; durable implementations allocate the next seq in the same
+	// transaction as the insert (item.Seq is ignored there). NextTranscriptSeq remains a best-effort preview.
 	AppendTranscript(ctx context.Context, item domain.TranscriptItem) error
 	// NextTranscriptSeq returns the next monotonic sequence number for a new transcript row for the session.
 	NextTranscriptSeq(ctx context.Context, id domain.SessionID) (int64, error)
 	AddUsage(ctx context.Context, delta domain.UsageDelta) error
 	// NextAuditSeq returns the next monotonic sequence number for a new audit entry for the session.
 	NextAuditSeq(ctx context.Context, id domain.SessionID) (int64, error)
+	// AppendAudit appends a row; durable implementations allocate the next seq in the same transaction
+	// as the insert (item.Seq is ignored there). NextAuditSeq remains a best-effort preview.
 	AppendAudit(ctx context.Context, item domain.AuditItem) error
 	Audit(ctx context.Context, id domain.SessionID, opts domain.ReadOptions) ([]domain.AuditItem, error)
 	Summary(ctx context.Context, query domain.SummaryQuery) ([]domain.Summary, error)

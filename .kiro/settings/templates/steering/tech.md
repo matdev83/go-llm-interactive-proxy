@@ -41,5 +41,13 @@
 
 [Important architectural choices and rationale]
 
+## Boundary and Security Posture
+
+[For Go LIP-style proxy projects: capture where protocol adapters, provider SDKs, runtime security checks, diagnostics, and extension seams belong. Keep this pattern-level, not a config catalog.]
+
+## Optional Ports and Adapters Rules
+
+[If the project benefits from hexagonal architecture, capture consumer-owned ports, adapter translation boundaries, transaction/side-effect ownership, and read/query seams. Keep it pragmatic and avoid interfaces or layers created only for symmetry.]
+
 ---
 _Document standards and patterns, not every dependency_

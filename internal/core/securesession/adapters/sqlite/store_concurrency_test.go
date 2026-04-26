@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -35,21 +36,30 @@ func TestStore_concurrentLoadByResumeFingerprint(t *testing.T) {
 
 	const readers = 128
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errs := make([]error, 0, readers)
 	wg.Add(readers)
 	for range readers {
 		go func() {
 			defer wg.Done()
 			got, err := s.LoadByResumeFingerprint(ctx, fp)
 			if err != nil {
-				t.Error(err)
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 				return
 			}
 			if got.SessionID != "sess-fp-read" {
-				t.Errorf("session id %q", got.SessionID)
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("session id %q", got.SessionID))
+				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
+	for _, err := range errs {
+		t.Error(err)
+	}
 }
 
 func TestStore_concurrentTouchActivity_monotonicFakeClock(t *testing.T) {
@@ -125,6 +135,13 @@ func TestStore_concurrentAttemptTraceOutcomeUsageTranscript(t *testing.T) {
 
 	const workers = 24
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errs := make([]error, 0, workers)
+	appendErr := func(err error) {
+		mu.Lock()
+		errs = append(errs, err)
+		mu.Unlock()
+	}
 	wg.Add(workers)
 	for i := range workers {
 		go func(i int) {
@@ -137,29 +154,31 @@ func TestStore_concurrentAttemptTraceOutcomeUsageTranscript(t *testing.T) {
 				AttemptSeq: 1, RequestedModel: "m", ResolvedBackend: "be", ResolvedModel: "rm",
 				StartedAt: t0,
 			}); err != nil {
-				t.Error(err)
+				appendErr(err)
 				return
 			}
 			if err := s.UpdateAttemptOutcome(ctx, domain.AttemptOutcome{
 				SessionID: "sess-trace-mix", TurnID: turnID, BLegID: bLeg, Success: i%2 == 0,
 				SurfaceState: domain.SurfaceSurfaced, EndedAt: t0.Add(time.Second),
 			}); err != nil {
-				t.Error(err)
+				appendErr(err)
 				return
 			}
 			if err := s.AddUsage(ctx, domain.UsageDelta{
 				SessionID: "sess-trace-mix", TurnID: turnID, BLegID: bLeg,
 				InputTokens: int64(i + 1), OutputTokens: int64(i + 2),
 			}); err != nil {
-				t.Error(err)
-				return
+				appendErr(err)
 			}
 		}(i)
 	}
 	wg.Wait()
+	for _, err := range errs {
+		t.Error(err)
+	}
 
-	// Transcript seq+append is not safe under concurrent NextTranscriptSeq without a transaction;
-	// append deterministically after the concurrent trace/outcome/usage stress.
+	// Sequential transcript writes after concurrent stress: seq is allocated inside AppendTranscript
+	// under a session row lock, so ordering stays deterministic here.
 	for i := range workers {
 		turnID := domain.TurnID("turn-" + strconv.Itoa(i))
 		t0 := time.Unix(100, int64(i))

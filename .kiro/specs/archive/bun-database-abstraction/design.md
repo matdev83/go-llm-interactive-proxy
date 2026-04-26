@@ -120,19 +120,19 @@ internal/
 │   │   ├── store.go            # Add postgres store branch
 │   │   └── bunstore/
 │   │       ├── store.go        # Bun-backed b2bua.Store implementation
-│   │       ├── schema.go       # Dialect-aware continuity DDL
+│   │       ├── 20250426000000_continuity_baseline.go # Bun migrate baseline DDL (caller filename → migration id)
 │   │       └── store_test.go   # Contract and parity tests
 │   └── securesession/
 │       ├── adapters/
 │       │   └── bunstore/
 │       │       ├── store.go    # Bun-backed app.Store implementation
-│       │       ├── schema.go   # Dialect-aware secure-session DDL
+│       │       ├── 20250426000000_securesession_baseline.go # Bun migrate baseline DDL (caller filename → migration id)
 │       │       ├── models.go   # Bun row models and scan/convert helpers
 │       │       └── store_test.go
 │       └── storecontract/
 │           └── bun_contract_test.go # Contract entry for Bun-backed store
 └── archtest/
-    └── db_abstraction_boundaries_test.go # Optional import guardrail
+    └── database_abstraction_imports_test.go # Optional import guardrail
 ```
 
 ### Modified Files

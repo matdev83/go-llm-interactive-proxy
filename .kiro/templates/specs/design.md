@@ -53,6 +53,23 @@ When modifying existing systems:
 - New components rationale: [why each is needed]
 - Steering compliance: [principles maintained]
 
+**Optional Hexagonal Lens** *(use when it clarifies ownership; delete for trivial changes)*:
+- Domain policy: [pure invariants or business rules, if any]
+- App/use-case orchestration: [workflow order, transaction intent, idempotency, side-effect sequencing]
+- Driving adapters: [HTTP/CLI/test harness decode and error mapping]
+- Driven adapters: [provider, storage, diagnostics, queue, or file-system translation]
+- Composition root: [where concrete dependencies are constructed and wired]
+- Ports/query seams: [consumer-owned interfaces or read DTOs, only where there is real substitution/read-model value]
+
+**Project Boundary Questions (Go LIP)**:
+- Core-owned or plugin-owned? [answer and rationale]
+- New canonical concept, or provider/adapter-specific behavior? [answer and rationale]
+- Streaming-first path preserved? [how non-streaming collects from stream, if applicable]
+- Provider SDK leakage avoided? [which package owns SDK/wire types]
+- No retry/failover after first client-visible output preserved? [yes/no and proof point]
+- Secure-session, diagnostics, or startup-security posture affected? [yes/no and required revalidation]
+- Extension platform seam used or extended? [stage/facade, or why no seam applies]
+
 ### Technology Stack
 
 | Layer | Choice / Version | Role in Feature | Notes |

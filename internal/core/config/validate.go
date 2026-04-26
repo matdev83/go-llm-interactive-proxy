@@ -7,7 +7,8 @@ import (
 )
 
 // Validate checks plugin identity rules and continuity/store consistency after decoding.
-// It does not validate model_aliases; call routing.ValidateModelAliasesConfig after LoadFile, or rely on runtimebundle.Build.
+// It does not validate model_aliases; call routing.ValidateModelAliasesConfig after LoadFile,
+// or rely on runtimebundle.Build.
 func Validate(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config: nil")
@@ -22,6 +23,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if err := validatePluginSlice("plugins.features", cfg.Plugins.Features); err != nil {
+		return err
+	}
+	if err := validateDatabaseConfig(cfg); err != nil {
 		return err
 	}
 	if err := validateContinuityStores(cfg); err != nil {
@@ -57,23 +61,31 @@ func validateSecureSession(cfg *Config) error {
 	}
 	ss := &cfg.SecureSession
 	if ss.Enabled != nil && !*ss.Enabled {
-		return fmt.Errorf("secure_session.enabled: false is no longer supported; remove the field (secure sessions default on) or set secure_session.enabled: true")
+		return fmt.Errorf(
+			"secure_session.enabled: false is no longer supported; remove the field " +
+				"(secure sessions default on) or set secure_session.enabled: true",
+		)
 	}
 	store := strings.ToLower(strings.TrimSpace(ss.Store))
 	if store == "" {
 		store = "memory"
 		ss.Store = "memory"
 	}
-	if store != "memory" && store != "sqlite" {
-		return fmt.Errorf("secure_session.store: want memory or sqlite, got %q", ss.Store)
+	switch store {
+	case "memory", "sqlite", "postgres":
+	default:
+		return fmt.Errorf("secure_session.store: want memory, sqlite, or postgres, got %q", ss.Store)
 	}
 	key := strings.TrimSpace(ss.TokenFingerprintKey)
-	if store == "sqlite" {
+	if store == "sqlite" || store == "postgres" {
 		if len(key) < 32 {
-			return fmt.Errorf("secure_session.token_fingerprint_key: must be at least 32 characters when store is sqlite")
+			return fmt.Errorf("secure_session.token_fingerprint_key: must be at least 32 characters when store is %s", store)
 		}
 	} else if key != "" && len(key) < 32 {
-		return fmt.Errorf("secure_session.token_fingerprint_key: when set, must be at least 32 characters (memory store may omit the key for a process-local ephemeral fingerprint)")
+		return fmt.Errorf(
+			"secure_session.token_fingerprint_key: when set, must be at least 32 characters " +
+				"(memory store may omit the key for a process-local ephemeral fingerprint)",
+		)
 	}
 	rw := strings.TrimSpace(ss.ResumeWindow)
 	if rw != "" {
@@ -93,8 +105,12 @@ func validateSecureSession(cfg *Config) error {
 		return fmt.Errorf("secure_session.audit_durability: want best_effort or durable, got %q", ss.AuditDurability)
 	}
 	if audit == "durable" {
-		if store != "sqlite" {
-			return fmt.Errorf("secure_session.audit_durability: durable requires secure_session.store: sqlite")
+		if store != "sqlite" && store != "postgres" {
+			return fmt.Errorf(
+				"secure_session.audit_durability: durable requires a durable secure_session.store "+
+					"(sqlite or postgres), not %q",
+				store,
+			)
 		}
 	}
 	if store == "sqlite" {
@@ -105,6 +121,17 @@ func validateSecureSession(cfg *Config) error {
 		if strings.ContainsAny(path, "\x00?#&") {
 			return fmt.Errorf("secure_session.sqlite_path: must not contain NUL, ?, #, or & (ambiguous with SQLite URI query)")
 		}
+	}
+	if store == "postgres" {
+		dsn := strings.TrimSpace(ss.PostgresDSN)
+		if dsn == "" {
+			return fmt.Errorf("secure_session.postgres_dsn: required when store is \"postgres\"")
+		}
+		if strings.Contains(dsn, "\x00") {
+			return fmt.Errorf("secure_session.postgres_dsn: must not contain NUL")
+		}
+	} else if d := strings.TrimSpace(ss.PostgresDSN); d != "" {
+		return fmt.Errorf("secure_session.postgres_dsn: may only be set when store is \"postgres\" (got %q)", store)
 	}
 
 	nd := strings.ToLower(strings.TrimSpace(ss.NonDurableWarning))
@@ -136,7 +163,10 @@ func validateSecureSession(cfg *Config) error {
 		// Secure-session diagnostics use [diag.WrapDiagnosticsProtect]; an empty shared secret would
 		// leave routes unauthenticated. Length when non-empty is enforced by validateDiagnosticsSecret.
 		if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
-			return fmt.Errorf("diagnostics.shared_secret: required when secure_session.diagnostics_expose_summaries is true (non-empty; at least 12 characters; same header as other protected diagnostics)")
+			return fmt.Errorf(
+				"diagnostics.shared_secret: required when secure_session.diagnostics_expose_summaries is true " +
+					"(non-empty; at least 12 characters; same header as other protected diagnostics)",
+			)
 		}
 	}
 	if !ss.DiagnosticsExposeSummaries {
@@ -149,7 +179,10 @@ func validateSecureSession(cfg *Config) error {
 		wsErr = "fail_open"
 	}
 	if wsErr != "fail_open" && wsErr != "fail_closed" {
-		return fmt.Errorf("secure_session.workspace_resolve_on_error: want fail_open or fail_closed, got %q", ss.WorkspaceResolveOnError)
+		return fmt.Errorf(
+			"secure_session.workspace_resolve_on_error: want fail_open or fail_closed, got %q",
+			ss.WorkspaceResolveOnError,
+		)
 	}
 	return nil
 }
@@ -165,7 +198,11 @@ func validateServer(cfg *Config) error {
 	switch cfg.EffectiveServerAuthMode() {
 	case AuthModeNoAuth:
 		if !IsExplicitLoopbackListenAddress(s.Address) {
-			return fmt.Errorf("server.auth_mode: no_auth requires server.address to be explicit loopback (127.0.0.1, ::1, or localhost), got %q", s.Address)
+			return fmt.Errorf(
+				"server.auth_mode: no_auth requires server.address to be explicit loopback "+
+					"(127.0.0.1, ::1, or localhost), got %q",
+				s.Address,
+			)
 		}
 	case AuthModeExternal:
 	default:
@@ -464,31 +501,77 @@ func validatePluginSlice(section string, rows []PluginConfig) error {
 }
 
 func validateContinuityStores(cfg *Config) error {
-	store := strings.ToLower(strings.TrimSpace(cfg.Continuity.Store))
-	if cfg.Continuity.InMemory {
-		store = "memory"
+	store := EffectiveContinuityStore(cfg.Continuity)
+	switch store {
+	case "memory", "sqlite", "postgres":
+	default:
+		return fmt.Errorf("continuity.store: want memory, sqlite, or postgres, got %q", cfg.Continuity.Store)
 	}
-	if store == "" {
-		store = "memory"
-	}
-	if store != "sqlite" {
+	if store == "memory" {
 		if cfg.Continuity.MaxLegs < 0 {
 			return fmt.Errorf("continuity: max_legs must be >= 0 for memory store")
 		}
+		if d := strings.TrimSpace(cfg.Continuity.PostgresDSN); d != "" {
+			return fmt.Errorf("continuity.postgres_dsn: may only be set when continuity.store is \"postgres\"")
+		}
 		return nil
 	}
-	path := strings.TrimSpace(cfg.Continuity.SQLitePath)
-	if path == "" {
-		return fmt.Errorf("continuity: sqlite_path is required when store is \"sqlite\"")
+	if d := strings.TrimSpace(cfg.Continuity.PostgresDSN); d != "" && store != "postgres" {
+		return fmt.Errorf("continuity.postgres_dsn: may only be set when continuity.store is \"postgres\"")
 	}
-	if strings.ContainsAny(path, "\x00?#&") {
-		return fmt.Errorf("continuity.sqlite_path: must not contain NUL, ?, #, or & (ambiguous with SQLite URI query)")
+	if store == "sqlite" {
+		path := strings.TrimSpace(cfg.Continuity.SQLitePath)
+		if path == "" {
+			return fmt.Errorf("continuity: sqlite_path is required when store is \"sqlite\"")
+		}
+		if strings.ContainsAny(path, "\x00?#&") {
+			return fmt.Errorf(
+				"continuity.sqlite_path: must not contain NUL, ?, #, or & " +
+					"(ambiguous with SQLite URI query)",
+			)
+		}
+		if strings.TrimSpace(cfg.Continuity.TTL) != "" {
+			return fmt.Errorf(
+				"continuity: ttl is not supported for sqlite store (memory-only); remove ttl or use store: memory",
+			)
+		}
+		if cfg.Continuity.MaxLegs != 0 {
+			return fmt.Errorf(
+				"continuity: max_legs is not supported for sqlite store (memory-only); " +
+					"remove max_legs or use store: memory",
+			)
+		}
+		return nil
+	}
+	// store == "postgres"
+	if strings.TrimSpace(cfg.Continuity.SQLitePath) != "" {
+		return fmt.Errorf("continuity.sqlite_path: may only be set when store is \"sqlite\"")
 	}
 	if strings.TrimSpace(cfg.Continuity.TTL) != "" {
-		return fmt.Errorf("continuity: ttl is not supported for sqlite store (memory-only); remove ttl or use store: memory")
+		return fmt.Errorf(
+			"continuity: ttl is not supported for postgres store (memory-only); remove ttl or use store: memory",
+		)
 	}
 	if cfg.Continuity.MaxLegs != 0 {
-		return fmt.Errorf("continuity: max_legs is not supported for sqlite store (memory-only); remove max_legs or use store: memory")
+		return fmt.Errorf(
+			"continuity: max_legs is not supported for postgres store (memory-only); " +
+				"remove max_legs or use store: memory",
+		)
+	}
+	dsn := strings.TrimSpace(cfg.Continuity.PostgresDSN)
+	if dsn == "" {
+		return fmt.Errorf("continuity.postgres_dsn: required when store is \"postgres\"")
+	}
+	if strings.Contains(dsn, "\x00") {
+		return fmt.Errorf("continuity.postgres_dsn: must not contain NUL")
 	}
 	return nil
+}
+
+func validateDatabaseConfig(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config: nil")
+	}
+	_, err := ParseDatabasePoolSettings(cfg.Database)
+	return err
 }

@@ -23,15 +23,17 @@ Naming:
 - E2E: full flows, minimal mocks, only for critical journeys
 
 ## Structure (AAA)
-```typescript
-it('does X when Y', () => {
-  // Arrange
-  const input = setup();
-  // Act
-  const result = act(input);
-  // Assert
-  expect(result).toEqual(expected);
-});
+```go
+func TestFeature_Behavior(t *testing.T) {
+	// Arrange
+	input := setup(t)
+	// Act
+	got := run(input)
+	// Assert
+	if got != want {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
 ```
 
 ## Mocking & Data
@@ -42,6 +44,10 @@ it('does X when Y', () => {
 ## Coverage
 - Target: [% overall]; higher for critical domains
 - Enforce thresholds in CI; exceptions require review rationale
+
+## Critical Behavior Contracts
+- [List behavior that must always have regression coverage: streaming order, security denial, routing/failover, persistence, etc.]
+- [List validation commands or CI gates that prove the contract.]
 
 ---
 _Focus on patterns and decisions. Tool-specific config lives elsewhere._

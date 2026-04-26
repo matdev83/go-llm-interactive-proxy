@@ -10,6 +10,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestOpenContext_rejectsNilContext(t *testing.T) {
+	t.Parallel()
+	_, err := OpenContext(nil, ":memory:")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestOpen_rejectsPathWithInvalidChars(t *testing.T) {
 	t.Parallel()
 	_, err := Open("./data/x?bad=1")

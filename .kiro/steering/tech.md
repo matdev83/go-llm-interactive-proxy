@@ -74,6 +74,18 @@ Official SDK types must not leak into `pkg/lipapi`, `pkg/lipsdk`, or `internal/c
 - Avoid complex channel topologies when a simple iterator, callback, or pump object is clearer.
 - Never retry after the first client-visible content event.
 
+## Security and startup posture
+
+Security-sensitive runtime behavior should fail closed at composition or startup boundaries:
+
+- `no_auth` is for explicit loopback single-user operation only,
+- standard HTTP startup refuses administrative/root-style execution,
+- backend factories declare credential posture so non-local deployments reject unknown or user-OAuth credentials early,
+- secure-session wiring is mandatory for the standard execution path; legacy continuity-only execution should not reappear silently,
+- diagnostics, pprof, metrics, and session summaries require deliberate exposure and shared-secret posture when enabled.
+
+Keep these checks out of protocol codecs. Config, runtimebundle, plugin registration, and stdhttp are the right enforcement zones.
+
 ## Routing and resilience patterns
 
 Routing is core-owned because it defines product behavior, not provider behavior.
@@ -86,6 +98,15 @@ Stable routing concepts:
 - bounded attempt budgets,
 - explicit pre-output vs post-output failure handling,
 - B2BUA A-leg and B-leg continuity identifiers.
+
+## Extension platform pattern
+
+Feature expansion now uses the stage-four extension platform:
+
+- the core owns the fixed legal stage list and immutable per-request runtime snapshots,
+- `pkg/lipsdk/*` packages expose narrow facades for session, workspace, request shaping, route hints, tool catalogs, auxiliary calls, completion gates, state, traffic, and transport auth,
+- hook-only plugins remain supported through compatibility bundle assembly,
+- new advanced behavior should extend the platform or add a feature plugin instead of branching executor/provider code.
 
 ## Configuration patterns
 
@@ -130,6 +151,10 @@ Default preference order:
 - define outbound seams where the core consumes them,
 - keep inbound seams concrete by default for driving adapters,
 - use interfaces for real substitution boundaries, not just mocks,
+- keep ports business-shaped or capability-shaped; do not expose HTTP, SQL, ORM, provider SDK, or queue SDK types through them,
+- let app/use-case code own workflow order and transaction intent when a capability spans multiple writes, stores, or side effects,
+- let adapters own transport/storage/provider translation, retries, and known infrastructure-to-core error mapping,
+- prefer an explicit transactor/outbox-style seam over hidden "save then publish" flows when durability and publication must line up,
 - allow dedicated query/read adapters for read-only operator and diagnostic flows,
 - avoid forcing every read through repository-style write abstractions.
 
@@ -137,3 +162,7 @@ Default preference order:
 _Initial Go steering version: 2026-04-20_
 _Updated 2026-04-23: pragmatic seam-shape rules and query/read guidance for the current architecture direction._
 _Reason: capture current technical defaults for a small-core, explicitly wired, pragmatically hexagonal Go runtime._
+_Updated 2026-04-26: added startup-security, mandatory secure-session, and stage-four extension-platform technical patterns._
+_Reason: recent runtime hardening changed the durable engineering defaults for new work._
+_Updated 2026-04-26: added optional hexagonal port, adapter, transaction, and query-flow guidance._
+_Reason: future growth benefits from explicit dependency direction without making hexagonal structure mandatory everywhere._

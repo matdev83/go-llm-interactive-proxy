@@ -20,6 +20,14 @@ server:
 #   response_header_timeout: 60s
 #   client_timeout: 120s
 
+# Optional connection pool for managed PostgreSQL (store: postgres for continuity and/or secure_session).
+# Omitted or zero values leave driver defaults. Durations are Go duration strings (e.g. 30m, 90s).
+# database:
+#   max_open_conns: 8
+#   max_idle_conns: 2
+#   conn_max_lifetime: 30m
+#   conn_max_idle_time: 2m
+
 logging:
   level: info
   format: json
@@ -67,22 +75,28 @@ hooks:
 continuity:
   in_memory: true
   store: memory
-  # For durable continuity use instead:
+  # For local durable continuity (file SQLite, existing adapter):
   # store: sqlite
   # sqlite_path: ./data/continuity.db
+  # For managed PostgreSQL (Bun-backed store; set postgres_dsn, optional top-level database pool):
+  # store: postgres
+  # postgres_dsn: "postgres://user:pass@host:5432/continuity?sslmode=disable"
 
 # Secure sessions (proxy-owned session id + resume proofs) are always on; omit secure_session to use defaults
 # (memory store, loopback-friendly). Memory store session evidence is non-durable (lost on restart) unless you use
 # store: sqlite with sqlite_path below. token_fingerprint_key may be omitted for memory (ephemeral process-local key);
 # sqlite requires token_fingerprint_key (>=32 chars). Continuity keys and provider conversation ids are not proof of
 # session ownership; only proxy-issued resume material authorizes a turn.
-# Durable mode (store: sqlite) requires sqlite_path, token_fingerprint_key (>=32 chars), and (for durable audit) audit_durability: durable.
+# Durable local mode (store: sqlite) needs sqlite_path and token_fingerprint_key (>=32 chars).
+# Managed durable (store: postgres) needs postgres_dsn and the same long token_fingerprint_key.
+# Durable audit (audit_durability: durable) requires a durable store (sqlite or postgres), not memory.
 # secure_session:
 #   store: memory
 #   # sqlite_path: ./data/secure_session.db
+#   # postgres_dsn: "postgres://user:pass@host:5432/secure_session?sslmode=disable"  # when store: postgres
 #   resume_window: 168h
 #   token_fingerprint_key: "replace-with-32+byte-secret----------------"
-#   audit_durability: best_effort   # or durable (requires store: sqlite, sqlite_path, and key above)
+#   audit_durability: best_effort   # or durable (requires store: sqlite or postgres, plus key; sqlite also needs sqlite_path)
 #   redaction_default: standard
 #   non_durable_warning: log      # silent | log | strict (memory store: operator log when "log" at startup)
 #   diagnostics_expose_summaries: false

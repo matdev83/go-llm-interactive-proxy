@@ -125,9 +125,9 @@ When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend wo
 Prefer repo-defined scripts or make targets:
 
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
-- `make test` — quality checks plus `go test -parallel=8 ./...` (omits `//go:build precommit` files unless you pass `-tags=precommit` as in `make test-precommit-extra` / `make qa`)
-- `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); used by the pre-commit gate via merged `test-staged` (see `LIP_TEST_PRECOMMIT` in `scripts/test-staged.*`); CI runs `go test -tags=precommit ./...`
-- `make qa` — quality checks, **one** full `go test -tags=precommit ./...`, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
+- `make test` — quality checks plus `go test -parallel=8 ./...` (omits `//go:build precommit` and `//go:build integration` files unless you pass `-tags=precommit`, `-tags=integration`, or both as in `make qa`)
+- `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); used by the pre-commit gate via merged `test-staged` (see `LIP_TEST_PRECOMMIT` in `scripts/test-staged.*`); CI full suite uses `go test -tags=precommit,integration ./...` (see below)
+- `make qa` — quality checks, **one** full `go test -tags=precommit,integration ./...`, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-race` — skipped on Windows (`scripts/race-check.ps1`); on Linux/macOS runs `scripts/race-check.sh`. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
 - `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.
@@ -136,11 +136,16 @@ Prefer repo-defined scripts or make targets:
 - `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
-CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit ./...` (includes `internal/testkit/conformance/...`; no separate parity step), release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint`, and `go tool govulncheck`.
+CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...` (includes `internal/testkit/conformance/...` and optional-Postgres tests, which skip unless `LIP_TEST_POSTGRES_DSN` or `LIP_MANAGED_POSTGRES_DSN` is set; no separate parity step), release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint`, and `go tool govulncheck`.
 
 ### Go build and test caching
 
 Go keeps compiled packages and test binaries in the **build cache** (`GOCACHE`, see `go env GOCACHE`); the **module download cache** is `GOMODCACHE` (`go env GOMODCACHE`). Nothing in this repo disables those defaults. GitHub Actions uses `actions/setup-go` with `cache: true` and `cache-dependency-path: go.sum` so CI restores module and build cache between runs. Race builds (`go test -race`) use separate cache entries from non-race builds. `scripts/race-check.sh` passes `-count=1` so race runs always execute tests; `make test-fast` / `test-staged.*` do not, so unchanged packages can report `(cached)` on repeat runs.
+
+### Go modules and Bun upgrades
+
+- Prefer merging Dependabot **patch** groups for routine bumps (see [`.github/dependabot.yml`](.github/dependabot.yml)).
+- When upgrading **`github.com/uptrace/bun`**, bump every direct `github.com/uptrace/bun/...` module in `go.mod` to the **same version** in one change (`bun`, `dialect/pgdialect`, `dialect/sqlitedialect`, `driver/pgdriver` today), then `go mod tidy`.
 
 ## Go engineering standards
 

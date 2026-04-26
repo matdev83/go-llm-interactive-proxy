@@ -65,9 +65,23 @@ Driven adapters are responsible for:
 - translating canonical requests into upstream/provider calls,
 - mapping upstream responses into canonical events,
 - keeping provider SDKs and wire models at the edge,
-- translating infrastructure failures into core-understandable errors.
+- translating infrastructure failures into core-understandable errors,
+- declaring credential posture metadata for startup validation where the standard bundle can enforce trust boundaries.
 
 No backend may require provider SDK types to cross into `pkg/lipapi`, `pkg/lipsdk`, or `internal/core`.
+
+## Session, identity, and secure resume contracts
+
+Session authority is proxy-owned once traffic enters the runtime:
+
+- transport authentication attaches principals at the edge through stable SDK context/view contracts,
+- frontends may pass client session hints, but must not grant authority by trusting client-provided A-leg or resume fields,
+- secure-session BeginTurn runs before backend execution and before client-visible output,
+- resume tokens and authoritative session IDs are treated as security-sensitive wire values,
+- frontends map session denials into protocol-legal, client-safe errors while preserving operator diagnostics.
+
+Any spec that changes session wire fields, principal propagation, or resume behavior must revalidate secure-session policy,
+frontend parity, diagnostics redaction, and B2BUA lineage.
 
 ## HTTP and streaming conventions
 
@@ -111,3 +125,4 @@ When updating this file:
 
 ---
 _Updated 2026-04-23: canonical contract guidance, frontend/backend ownership, pragmatic adapter rules._
+_Updated 2026-04-26: added secure session, identity propagation, and backend credential-posture rules._

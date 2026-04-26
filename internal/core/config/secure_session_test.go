@@ -52,20 +52,37 @@ func TestValidate_secureSession_workspaceResolveOnError(t *testing.T) {
 
 func TestValidate_secureSession_requiresLongFingerprintKeyWhenSet(t *testing.T) {
 	t.Parallel()
-	for _, store := range []string{"sqlite", "memory"} {
-		cfg := &config.Config{
-			Plugins: secureSessionBaselinePlugins(),
-			SecureSession: config.SecureSessionConfig{
-				Enabled:             config.BoolPtr(true),
-				Store:               store,
-				TokenFingerprintKey: "short",
-				AuditDurability:     "best_effort",
-			},
-		}
-		err := config.Validate(cfg)
-		if err == nil || !strings.Contains(err.Error(), "token_fingerprint_key") {
-			t.Fatalf("store=%q: want token_fingerprint_key error, got %v", store, err)
-		}
+	cases := []struct {
+		name      string
+		store     string
+		mutateCfg func(*config.Config)
+	}{
+		{name: "sqlite", store: "sqlite"},
+		{name: "memory", store: "memory"},
+		{name: "postgres", store: "postgres", mutateCfg: func(c *config.Config) {
+			c.SecureSession.PostgresDSN = "postgres://user:pass@127.0.0.1:1/db?sslmode=disable"
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Plugins: secureSessionBaselinePlugins(),
+				SecureSession: config.SecureSessionConfig{
+					Enabled:             config.BoolPtr(true),
+					Store:               tc.store,
+					TokenFingerprintKey: "short",
+					AuditDurability:     "best_effort",
+				},
+			}
+			if tc.mutateCfg != nil {
+				tc.mutateCfg(cfg)
+			}
+			err := config.Validate(cfg)
+			if err == nil || !strings.Contains(err.Error(), "token_fingerprint_key") {
+				t.Fatalf("want token_fingerprint_key error, got %v", err)
+			}
+		})
 	}
 }
 
@@ -120,7 +137,7 @@ func TestValidate_secureSession_resumeWindow(t *testing.T) {
 	})
 }
 
-func TestValidate_secureSession_auditDurableRequiresSQLite(t *testing.T) {
+func TestValidate_secureSession_auditDurableRequiresDurableStore(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		Plugins: secureSessionBaselinePlugins(),

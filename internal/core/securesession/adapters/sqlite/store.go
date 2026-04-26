@@ -14,7 +14,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
-	_ "modernc.org/sqlite" // register "sqlite" driver name
+	// Named import runs package init to register the "sqlite" database/sql driver.
+	libsqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // Store persists secure-session state in SQLite.
@@ -44,7 +46,16 @@ func dsnFromPath(path string) (string, error) {
 }
 
 // Open opens (creating if needed) a SQLite-backed secure-session store at path.
+// Schema migration uses [context.Background]; prefer [OpenContext] from composition roots.
 func Open(path string) (*Store, error) {
+	return OpenContext(context.Background(), path)
+}
+
+// OpenContext is like [Open] but uses ctx for schema migration I/O.
+func OpenContext(ctx context.Context, path string) (*Store, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("securesession/sqlite: nil context")
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("securesession/sqlite: empty path")
@@ -58,7 +69,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("securesession/sqlite open: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	s, err := New(db)
+	s, err := NewContext(ctx, db)
 	if err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
@@ -67,11 +78,19 @@ func Open(path string) (*Store, error) {
 
 // New returns a Store backed by db after applying secure-session migrations. Closing the store closes db.
 func New(db *sql.DB) (*Store, error) {
+	return NewContext(context.Background(), db)
+}
+
+// NewContext returns a Store backed by db after migrations, honoring ctx for migration I/O.
+func NewContext(ctx context.Context, db *sql.DB) (*Store, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("securesession/sqlite: nil context")
+	}
 	if db == nil {
 		return nil, fmt.Errorf("securesession/sqlite: nil db")
 	}
 	db.SetMaxOpenConns(1)
-	if err := migrate(context.Background(), db); err != nil {
+	if err := migrate(ctx, db); err != nil {
 		return nil, opErr("migrate", err)
 	}
 	return &Store{db: db}, nil
@@ -89,10 +108,22 @@ func mapUniqueErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := strings.ToLower(err.Error())
-	if !strings.Contains(msg, "unique constraint failed") {
+	var se *libsqlite.Error
+	if errors.As(err, &se) && se != nil && se.Code() == sqlite3.SQLITE_CONSTRAINT {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "unique") {
+			return classifySQLiteUniqueConstraint(msg)
+		}
 		return err
 	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "unique constraint failed") && !strings.Contains(msg, "unique constraint") {
+		return err
+	}
+	return classifySQLiteUniqueConstraint(msg)
+}
+
+func classifySQLiteUniqueConstraint(msg string) error {
 	if strings.Contains(msg, "resume_fingerprint") ||
 		strings.Contains(msg, "idx_lip_secure_sessions_resume_fp") ||
 		strings.Contains(msg, "lip_secure_sessions.resume_fingerprint") {
@@ -282,7 +313,10 @@ func (s *Store) TouchActivity(ctx context.Context, id domain.SessionID, at time.
 	if err != nil {
 		return opErr("touch", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("touch rows affected", err)
+	}
 	if n == 0 {
 		return domain.ErrSessionNotFound
 	}
@@ -329,7 +363,10 @@ func (s *Store) AppendAttemptTrace(ctx context.Context, trace domain.AttemptTrac
 	if err != nil {
 		return opErr("update session trace", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("update session trace rows affected", err)
+	}
 	if n == 0 {
 		return domain.ErrSessionNotFound
 	}
@@ -379,7 +416,10 @@ func (s *Store) UpdateAttemptOutcome(ctx context.Context, outcome domain.Attempt
 	if err != nil {
 		return opErr("update attempt trace outcome", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("update attempt trace outcome rows affected", err)
+	}
 	if n == 0 {
 		return domain.ErrSessionNotFound
 	}
@@ -419,22 +459,37 @@ func (s *Store) AppendTranscript(ctx context.Context, item domain.TranscriptItem
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	res, err := tx.ExecContext(ctx, `UPDATE lip_secure_sessions SET last_activity_unix = last_activity_unix WHERE session_id = ?`,
+		string(item.SessionID))
+	if err != nil {
+		return opErr("transcript lock session", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("transcript lock session rows affected", err)
+	}
+	if n == 0 {
+		return domain.ErrSessionNotFound
+	}
 	var te int
 	err = tx.QueryRowContext(ctx, `SELECT transcript_enabled FROM lip_secure_sessions WHERE session_id = ?`,
 		string(item.SessionID)).Scan(&te)
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.ErrSessionNotFound
-	}
 	if err != nil {
 		return opErr("transcript policy read", err)
 	}
 	if te == 0 {
 		return domain.ErrTranscriptDisabled
 	}
+	var nextSeq int64
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM lip_secure_transcript WHERE session_id = ?`,
+		string(item.SessionID)).Scan(&nextSeq)
+	if err != nil {
+		return opErr("transcript next seq", err)
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_transcript(
 		session_id, seq, turn_id, event_kind, payload_ref, created_at_unix
 	) VALUES(?,?,?,?,?,?)`,
-		string(item.SessionID), item.Seq, string(item.TurnID), item.EventKind, item.PayloadRef, item.CreatedAt.UnixNano(),
+		string(item.SessionID), nextSeq, string(item.TurnID), item.EventKind, item.PayloadRef, item.CreatedAt.UnixNano(),
 	)
 	if err != nil {
 		return mapUniqueErr(err)
@@ -463,7 +518,10 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 	if err != nil {
 		return opErr("usage update totals", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("usage update totals rows affected", err)
+	}
 	if n == 0 {
 		return domain.ErrSessionNotFound
 	}
@@ -533,10 +591,34 @@ func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO lip_secure_audit(
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return opErr("append audit begin", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `UPDATE lip_secure_sessions SET last_activity_unix = last_activity_unix WHERE session_id = ?`,
+		string(item.SessionID))
+	if err != nil {
+		return opErr("append audit lock session", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("append audit lock session rows affected", err)
+	}
+	if n == 0 {
+		return domain.ErrSessionNotFound
+	}
+	var nextSeq int64
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM lip_secure_audit WHERE session_id = ?`,
+		string(item.SessionID)).Scan(&nextSeq)
+	if err != nil {
+		return opErr("append audit next seq", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_audit(
 		session_id, seq, turn_id, action, result, created_at_unix
 	) VALUES(?,?,?,?,?,?)`,
-		string(item.SessionID), item.Seq, string(item.TurnID), item.Action, item.Result, item.CreatedAt.UnixNano(),
+		string(item.SessionID), nextSeq, string(item.TurnID), item.Action, item.Result, item.CreatedAt.UnixNano(),
 	)
 	if err != nil {
 		if isFKConstraintErr(err) {
@@ -544,7 +626,7 @@ func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {
 		}
 		return opErr("append audit", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func isFKConstraintErr(err error) bool {
@@ -578,7 +660,11 @@ func (s *Store) Audit(ctx context.Context, id domain.SessionID, opts domain.Read
 		return nil, opErr("audit query", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := make([]domain.AuditItem, 0, opts.Limit)
+	auditCap := opts.Limit
+	if auditCap <= 0 {
+		auditCap = 16
+	}
+	out := make([]domain.AuditItem, 0, auditCap)
 	for rows.Next() {
 		var (
 			seq                    int64
@@ -641,7 +727,11 @@ func (s *Store) Transcript(ctx context.Context, id domain.SessionID, opts domain
 		return nil, opErr("transcript query", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := make([]domain.TranscriptItem, 0, opts.Limit)
+	transcriptCap := opts.Limit
+	if transcriptCap <= 0 {
+		transcriptCap = 16
+	}
+	out := make([]domain.TranscriptItem, 0, transcriptCap)
 	for rows.Next() {
 		var seq int64
 		var turnID, kind, payload string
@@ -688,8 +778,13 @@ func (s *Store) ListAttemptEvidence(ctx context.Context, id domain.SessionID, op
 	if err != nil {
 		return nil, opErr("list attempts query", err)
 	}
-	defer func() { _ = attRows.Close() }()
-	out := make([]domain.AttemptEvidence, 0, 16)
+	attClosed := false
+	defer func() {
+		if !attClosed {
+			_ = attRows.Close()
+		}
+	}()
+	out := make([]domain.AttemptEvidence, 0, limit)
 	for attRows.Next() {
 		var turnID, aLeg, bLeg string
 		var attemptSeq int
@@ -705,7 +800,9 @@ func (s *Store) ListAttemptEvidence(ctx context.Context, id domain.SessionID, op
 		}
 		var settings domain.AttemptSettings
 		if strings.TrimSpace(settingsJ) != "" && settingsJ != "{}" {
-			_ = json.Unmarshal([]byte(settingsJ), &settings)
+			if err := json.Unmarshal([]byte(settingsJ), &settings); err != nil {
+				return nil, opErr("list attempts settings json", err)
+			}
 		}
 		tr := domain.AttemptTrace{
 			SessionID:       id,
@@ -744,6 +841,10 @@ func (s *Store) ListAttemptEvidence(ctx context.Context, id domain.SessionID, op
 	if err := attRows.Err(); err != nil {
 		return nil, opErr("list attempts rows", err)
 	}
+	if err := attRows.Close(); err != nil {
+		return nil, opErr("list attempts att close rows", err)
+	}
+	attClosed = true
 
 	usageRows, err := s.db.QueryContext(ctx, `
 		SELECT b_leg_id,

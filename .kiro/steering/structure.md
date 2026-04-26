@@ -33,16 +33,22 @@ Orchestration policy (routing, recovery, extension stages) lives in `internal/co
 ### 2. Internal core runtime
 
 `internal/core/`
-- `runtime/` - request execution pipeline and lifecycle orchestration
-- `routing/` - selector parsing, weighted choice, ordered failover, eligibility filtering
-- `continuity/` - B2BUA-like session resolution (`Manager`, `ResolveALegRecord`); the executor resolves A-legs through this package over `b2bua.Store` (memory or SQLite store implementations)
-- `stream/` - canonical event stream engine, collectors, keepalive, cancellation
-- `hooks/` - core hook bus, submit/tool policies, and request/response part validation (invoked by the executor; feature plugins implement hook kinds)
+- `runtime/` - request execution pipeline, secure-session prepare path, attempt lifecycle, and lifecycle orchestration
+- `execbackend/` - core-owned backend opening contract consumed by the executor and implemented by backend plugins
+- `execctx/` - stable per-request execution views for principals, sessions, workspace, tools, and hooks
+- `routing/` - selector parsing, model aliases, weighted choice, ordered failover, eligibility filtering, health inputs
+- `continuity/` - B2BUA-like A-leg resolution over `b2bua.Store` (memory or SQLite store implementations)
+- `securesession/` - proxy-owned session authority, resume-token policy, audit records, diagnostics adapters, store contracts
+- `extensions/` - stage-four legal extension pipeline runners, immutable request snapshots, and SDK facade assembly
+- `stream/` - canonical event stream engine, collectors, keepalive, cancellation, and stream-panic isolation
+- `hooks/` - compatibility hook bus, submit/tool policies, request/response part validation, and panic-safe hook dispatch
 - `capabilities/` - capability negotiation and downgrade validation
-- `config/` - typed config loading and validation for the runtime only
-- `http/` - shared server wiring, middleware (including optional coarse request timing), health/admin surfaces
-- `diag/` - call/trace correlation helpers used on hot streaming paths (e.g. context decoration for recv/diagnostics)
+- `config/` - typed config loading, effective defaults, startup/security validation for the runtime only
+- `http/` - shared server wiring helpers and middleware primitives
+- `diag/` - call/trace correlation, lineage views, crash attributes, and diagnostics query seams
 - `admin/` - diagnostics, backend reactivation, and operator-facing endpoints
+- `safety/` - panic isolation helpers for HTTP, backend, stream, extension, and worker boundaries
+- `traffic/` - core-side traffic observation plumbing behind SDK-facing contracts
 
 Core rules:
 - core imports `pkg/lipapi` and `pkg/lipsdk`,
@@ -53,14 +59,15 @@ Core rules:
 ### 2a. Standard distribution assembly (not “another core”)
 
 `internal/pluginreg/`
-- explicit registration for the standard distribution (`InstallStandardBundleOn(reg)` from `cmd/lipstd` / tests; per-family `*_install.go` tables)
-- registry validation helpers and default wire metadata used by routing defaults
+- explicit per-composition-root registration for the standard distribution (`NewRegistry` + `InstallStandardBundleOn(reg)`)
+- per-family `*_install.go` tables for frontends, backends, and features
+- registry validation helpers, default wire metadata used by routing defaults, and backend credential-posture metadata
 
 `internal/infra/runtimebundle/`
-- composes a runnable `Built` from config + registrations: executor, continuity store, shared upstream HTTP client, health/observer seams
+- composes a runnable `Built` from config + registrations: executor, continuity and secure-session stores, shared upstream HTTP client, health/observer seams, security policy checks
 
 `internal/stdhttp/`
-- standard HTTP surface: route mounting, `Run` / `RunWithRuntime` entrypoints consumed by `cmd/lipstd`
+- standard HTTP surface: route mounting, transport auth/principal attachment, security guard, recovery, diagnostics, `Run` / `RunWithRuntime` entrypoints consumed by `cmd/lipstd`
 
 ### 3. Official frontend plugins
 
@@ -91,12 +98,11 @@ These packages turn canonical requests into upstream calls and map upstream resp
 ### 5. Official feature plugins and hook implementations
 
 `internal/plugins/features/`
-- `routepolicy/` - advanced route strategies that extend core selectors without bloating the core
-- `observe/` - usage logging, tracing, wire taps, metrics
-- `mutate/` - request and response hook implementations
-- `toolreactors/` - future tool call reactor implementations
+- reference and bundled feature plugins are expected to consume `pkg/lipsdk` facades rather than `internal/core`
+- proof plugins should demonstrate extension seams (session open, request shaping, tool policy, workspace safety, traffic observation/capture, completion gates, auxiliary calls)
+- hook-only plugins remain valid through compatibility bundle assembly while richer seams mature
 
-Hooks are extension seams, not an excuse to reintroduce god objects.
+Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 
 ### 6. Support surfaces
 
@@ -143,6 +149,8 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 - Routing, failover, B2BUA continuity: `internal/core/routing/` and `internal/core/continuity/`
 - Stream semantics and collectors: `internal/core/stream/`
 - Config semantics for the runtime: `internal/core/config/`
+- Secure-session authority, resume policy, and session diagnostics: `internal/core/securesession/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`
+- Extension-platform stages and SDK facade assembly: `internal/core/extensions/`, `pkg/lipsdk/*`, `internal/pluginreg/`
 - Observability and supporting infra: `internal/infra/` or feature plugins
 - Reference emulators/clients for tests: `internal/refbackend/`, `internal/refclient/`
 - Repo-wide hygiene checks: `internal/qa/`
@@ -156,7 +164,9 @@ Hooks are extension seams, not an excuse to reintroduce god objects.
 - No feature plugin may depend on another concrete plugin without an explicit SDK contract.
 - Non-streaming code must not become a second execution path.
 - B2BUA continuity must stay isolated from protocol codec packages.
-- Request/response mutation logic must live behind hooks, not in the routing engine.
+- Request/response mutation logic must live behind hooks or extension stages, not in the routing engine.
+- Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
+- Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
 
 ## Naming and import conventions
 
@@ -174,6 +184,9 @@ Apply hexagonal architecture here as an ownership and dependency-direction disci
 - prefer selective seam extraction over repo-wide package churn,
 - place new seams near the consuming capability, not in generic `ports`, `interfaces`, or `services` buckets,
 - prefer concrete inbound services for driving adapters unless multiple real consumers justify an interface,
+- distinguish pure domain policy, application/use-case orchestration, and edge translation when a feature becomes complex enough to need those names,
+- keep transactions, durable writes, and outbox-style side effects explicit at the orchestration boundary; never leak driver handles into core policy,
+- use dedicated read/query adapters for operator views, diagnostics, or reporting when a write-shaped repository would hide intent,
 - allow dedicated query adapters and read DTOs for diagnostics, admin, or reporting flows when they are simpler than repository-shaped write abstractions,
 - do not create interfaces only for mocking or symmetry.
 
@@ -189,3 +202,7 @@ as long as it gives the core a real substitution boundary and keeps technology d
 _Initial Go steering version: 2026-04-20_
 _Updated 2026-04-23: pragmatic hexagonal guidance for seam placement, query adapters, and inbound concrete services._
 _Reason: reflect the current brownfield direction: preserve the working package map, tighten ownership, and avoid architecture theater._
+_Updated 2026-04-26: refreshed package map for secure sessions, extension snapshots, panic isolation, credential posture, and startup guardrails._
+_Reason: steering had drifted from the hardened Go runtime and stage-four extension-platform implementation._
+_Updated 2026-04-26: added optional hexagonal ownership prompts for domain/app/adapters, explicit transactions, and query seams._
+_Reason: future specs can benefit from ports-and-adapters discipline without requiring repo-wide restructuring._

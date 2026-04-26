@@ -30,7 +30,17 @@ func opErr(op string, err error) error {
 }
 
 // Open opens (creating if needed) a SQLite-backed store at path.
+// It is equivalent to [OpenContext] with [context.Background].
 func Open(path string) (*Store, error) {
+	return OpenContext(context.Background(), path)
+}
+
+// OpenContext opens (creating if needed) a SQLite-backed store at path, honoring ctx for
+// [database/sql.DB.PingContext] and schema migration. ctx must be non-nil.
+func OpenContext(ctx context.Context, path string) (*Store, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("sqlitestore: nil context")
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("sqlitestore: empty path")
@@ -44,7 +54,11 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("sqlitestore: open: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	s, err := New(db)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("sqlitestore: ping: %w", err)
+	}
+	s, err := NewContext(ctx, db)
 	if err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
@@ -62,12 +76,22 @@ func sqliteFileDSN(path string) (string, error) {
 }
 
 // New returns a Store backed by db after applying schema migration. Closing the store closes db.
+// Migration DDL uses [context.Background]; prefer [NewContext] from composition roots that have a request context.
 func New(db *sql.DB) (*Store, error) {
+	return NewContext(context.Background(), db)
+}
+
+// NewContext returns a Store backed by db after applying schema migration, honoring ctx for DDL.
+// ctx must be non-nil.
+func NewContext(ctx context.Context, db *sql.DB) (*Store, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("sqlitestore: nil context")
+	}
 	if db == nil {
 		return nil, fmt.Errorf("sqlitestore: nil db")
 	}
 	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
+	if err := s.migrate(ctx); err != nil {
 		return nil, opErr("new", err)
 	}
 	return s, nil
@@ -80,7 +104,7 @@ type Store struct {
 
 var _ b2bua.Store = (*Store)(nil)
 
-func (s *Store) migrate() error {
+func (s *Store) migrate(ctx context.Context) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS a_legs (
 			a_leg_id TEXT NOT NULL PRIMARY KEY,
@@ -114,7 +138,7 @@ func (s *Store) migrate() error {
 		)`,
 	}
 	for _, q := range stmts {
-		if _, err := s.db.ExecContext(context.Background(), q); err != nil {
+		if _, err := s.db.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("sqlitestore migrate: %w", err)
 		}
 	}

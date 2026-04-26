@@ -70,14 +70,24 @@ as long as it does not corrupt client-visible protocol guarantees.
 ### 6. Extensibility without core coupling
 
 Advanced behaviors belong behind explicit seams such as:
-- request submit hooks,
-- request and response part hooks,
-- tool reactors,
+- transport authentication and principal attachment,
+- session openers and workspace resolvers,
+- request submit hooks and request-wide shaping,
+- tool catalog filters and tool reactors,
+- completion gates and auxiliary requests,
 - route and traffic observers,
 - session and continuity stores,
 - state, workspace, and auxiliary service facades.
 
-The core owns when these seams run. Feature implementations stay outside core policy.
+The core owns the legal extension pipeline and ordering. Feature implementations stay outside core policy.
+
+### 7. Secure operator trust boundaries
+
+The Go version now treats session authority and startup posture as core product behavior, not optional polish:
+- proxy-owned secure sessions validate resume authority before backend execution,
+- diagnostics and privileged inventory require explicit trust boundaries,
+- local no-auth operation is constrained to loopback single-user mode,
+- startup fails closed for administrative-user and credential-posture risks.
 
 ## Primary users and use cases
 
@@ -89,15 +99,17 @@ The core owns when these seams run. Feature implementations stay outside core po
 
 ## Current product direction
 
-The Go re-implementation is not a line-by-line port of the Python codebase.
+The Go re-implementation is no longer only in bootstrap/porting mode. The current direction is to harden
+the runnable standard distribution while keeping the core small.
 Its current priorities are:
 
-- establish a small, stable, policy-owning core,
-- make plugins first-class and explicitly wired,
-- preserve the routing and continuity behavior that makes LIP distinctive,
+- preserve the small, stable, policy-owning core while adding hardening features,
+- make plugins first-class and explicitly wired through per-composition-root registries,
+- preserve the routing, continuity, secure-session, and recovery behavior that makes LIP distinctive,
 - keep canonical contracts and plugin contracts stable and minimal,
 - use idiomatic Go and official SDKs only at adapter boundaries,
-- treat streaming behavior, architecture guardrails, and contract tests as primary constraints,
+- treat streaming behavior, startup safety, architecture guardrails, and contract tests as primary constraints,
+- evolve the stage-four extension platform through typed SDK facades and reference plugins,
 - adopt hexagonal architecture pragmatically, without package churn that does not buy maintainability.
 
 ## Non-goals for the near-term core version
@@ -122,3 +134,5 @@ When updating this file:
 _Initial Go steering version: 2026-04-20_
 _Updated 2026-04-23: product identity, current direction, pragmatic hexagonal stance, core-vs-edge ownership wording._
 _Reason: steering now needs to reflect the current brownfield architecture goals, not only the original greenfield bootstrap intent._
+_Updated 2026-04-26: captured secure-session, startup-safety, and stage-four extension-platform maturity._
+_Reason: the Go runtime is now a hardened runnable distribution, not just an initial Python-port scaffold._

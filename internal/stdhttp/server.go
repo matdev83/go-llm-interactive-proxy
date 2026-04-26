@@ -146,6 +146,10 @@ func RunWithRuntime(
 		route = DefaultRouteSelector(cfg)
 	}
 	reg := built.PluginRegistry
+	logCtx := ctx
+	if logCtx == nil {
+		logCtx = context.Background()
+	}
 
 	mux := http.NewServeMux()
 
@@ -163,7 +167,7 @@ func RunWithRuntime(
 		}
 		om := cfg.Observability.Metrics.ExemplarsEnabled
 		mux.Handle(mp, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, metrics.MetricsHandler(promReg, om)))
-		log.Info("prometheus metrics mounted", "path", mp, "open_metrics", om)
+		log.InfoContext(logCtx, "prometheus metrics mounted", "path", mp, "open_metrics", om)
 	}
 
 	if cfg.Diagnostics.Enabled {
@@ -209,7 +213,7 @@ func RunWithRuntime(
 			if h := diag.PprofHandler(pp); h != nil {
 				prefix := strings.TrimSuffix(pp, "/") + "/"
 				mux.Handle(prefix, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
-				log.Info("diagnostics pprof mounted", "path", prefix)
+				log.InfoContext(logCtx, "diagnostics pprof mounted", "path", prefix)
 			}
 		}
 	}
@@ -228,7 +232,7 @@ func RunWithRuntime(
 		dh := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ssh)
 		mux.Handle("GET "+base+"/", dh)
 		mux.Handle("GET "+base, dh)
-		log.Info("secure-session diagnostics mounted", "path", base)
+		log.InfoContext(logCtx, "secure-session diagnostics mounted", "path", base)
 	}
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
 	var trafficPorts traffic.PortBundle
@@ -272,7 +276,7 @@ func RunWithRuntime(
 		WriteTimeout:      cfg.Server.EffectiveWriteTimeout(),
 		IdleTimeout:       cfg.Server.EffectiveIdleTimeout(),
 	}
-	log.Info("listening", "addr", cfg.Server.Address)
+	log.InfoContext(logCtx, "listening", "addr", cfg.Server.Address)
 
 	errCh := make(chan error, 1)
 	go func() {

@@ -14,7 +14,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -51,10 +56,14 @@ func TestClient_suppressedSubmitSkipped(t *testing.T) {
 			return ex
 		}),
 	})
+	mgr := mustSecureManager(t, st)
 	ex = &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
+		Store:                   st,
+		Bus:                     bus,
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: true,
+		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -112,10 +121,15 @@ func TestClient_Stream_auxiliaryDepthIncremented(t *testing.T) {
 			return ex
 		}),
 	})
+	lineageStore := mustMemStore(t)
+	mgr := mustSecureManager(t, lineageStore)
 	ex = &runtime.Executor{
-		Store:           mustMemStore(t),
-		Bus:             bus,
-		RuntimeSnapshot: snap,
+		Store:                   lineageStore,
+		Bus:                     bus,
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: true,
+		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -153,10 +167,15 @@ func TestClient_lineageExtension(t *testing.T) {
 		}),
 	})
 	var captured lipapi.Call
+	lineageStore := mustMemStore(t)
+	mgr := mustSecureManager(t, lineageStore)
 	ex = &runtime.Executor{
-		Store:           mustMemStore(t),
-		Bus:             bus,
-		RuntimeSnapshot: snap,
+		Store:                   lineageStore,
+		Bus:                     bus,
+		RuntimeSnapshot:         snap,
+		SecureSession:           mgr,
+		SyntheticLocalPrincipal: true,
+		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -199,4 +218,23 @@ func mustMemStore(t *testing.T) b2bua.Store {
 		t.Fatal(err)
 	}
 	return st
+}
+
+func mustSecureManager(t *testing.T, lineageStore b2bua.Store) *app.Manager {
+	t.Helper()
+	fk := testkit.SecureSessionTestFingerprintKey()
+	st := memory.New(memory.Options{SimulateDurable: true})
+	mgr, err := app.NewManager(
+		st,
+		app.NewRandGenerator(fk),
+		b2bualineage.New(lineageStore),
+		app.ManagerConfig{
+			FingerprintKey: fk,
+			StoreDurable:   true,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mgr
 }

@@ -58,6 +58,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/bunstore",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/sqlite",

@@ -10,7 +10,7 @@ import (
 
 func TestStoreContract_Memory(t *testing.T) {
 	t.Parallel()
-	storecontract.RunAll(t, func() app.Store {
+	storecontract.RunAll(t, func(*testing.T) app.Store {
 		return memory.New(memory.Options{})
 	})
 }

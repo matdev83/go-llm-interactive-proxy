@@ -55,6 +55,15 @@ Rules:
 - later turns do not accidentally re-trigger first-request behavior,
 - invalid selector annotations are rejected early.
 
+## Model alias and health policy inputs
+
+The runtime now has two important pre-planning inputs that remain core-owned:
+
+- **Model aliases** rewrite full selector strings through explicit regexp rules before parsing; invalid rules fail during startup validation.
+- **Routing health / circuit breaker** state can exclude candidates before planning or during failover, but the resulting route plan must remain observable.
+
+These inputs must not become backend-local behavior. They influence eligibility and planning, not protocol translation.
+
 ## B2BUA-like Recovery Semantics
 
 This project intentionally goes beyond simple proxying.
@@ -84,6 +93,15 @@ Lineage records should make these questions answerable:
 - Which attempt produced surfaced output?
 - Did visible output start before the failure?
 
+## Secure session interaction
+
+Secure sessions sit before routing execution as an authority and evidence layer:
+
+- client-provided session identifiers are hints until secure-session BeginTurn validates or creates proxy-owned state,
+- A-leg continuity and resume authority must not be forged from frontend wire fields,
+- session denial happens before upstream work starts and must be surfaced as a deterministic capability/security outcome,
+- secure-session recording augments, but does not replace, B2BUA attempt lineage.
+
 ## Hooks and Reserved Seams
 
 The runtime must remain ready for advanced orchestration extensions without depending on them.
@@ -93,6 +111,9 @@ Reserve stable seams for:
 - submit hooks that can annotate or reject before execution,
 - request/response part altering hooks,
 - tool reactors that may observe, swallow, rewrite, or replace tool-call flows,
+- completion gates that can make typed buffered decisions,
+- auxiliary clients for plugin-owned sub-calls with lineage,
+- traffic observers and privileged capture sinks,
 - observers that record diagnostics/metrics.
 
 These seams may influence runtime decisions through typed contracts, but the core must not know plugin-private semantics.
@@ -119,3 +140,4 @@ When updating this file:
 
 ---
 _Updated 2026-04-23: pragmatic hexagonal ownership notes for routing, observation, and orchestration seams._
+_Updated 2026-04-26: added model-alias, routing-health, secure-session, and stage-four seam guidance._

@@ -12,12 +12,14 @@ import (
 )
 
 // RunAll exercises the secure-session store port (memory, SQLite, etc.).
-func RunAll(t *testing.T, newStore func() app.Store) {
+// newStore is called from each subtest with that subtest's *testing.T so construction failures
+// and [testing.T.Cleanup] hooks are attributed to the correct subtest.
+func RunAll(t *testing.T, newStore func(*testing.T) app.Store) {
 	t.Helper()
 	ctx := context.Background()
 
 	t.Run("Create_uniqueness_sessionID", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp1, fp2 := twoFingerprints()
 		base := sampleCreate("owner-a", "ws-1", fp1, "a-leg-1", "sid-1")
 		_, err := s.Create(ctx, base)
@@ -34,7 +36,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("Create_uniqueness_fingerprint", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		r1 := sampleCreate("o1", "w1", fp, "aleg-1", "session-1")
 		_, err := s.Create(ctx, r1)
@@ -49,7 +51,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("LoadByID_owner_workspace", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("principal-x", "workspace-y", fp, "a-leg-z", "sess-own")
 		created, err := s.Create(ctx, cr)
@@ -66,7 +68,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("LoadByALegID_roundTrip", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("o", "w", fp, "a-leg-lookup", "sess-aleg")
 		created, err := s.Create(ctx, cr)
@@ -83,7 +85,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("AttemptTrace_outcome_by_BLeg", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("o", "w", fp, "a-main", "sess-trace")
 		rec, err := s.Create(ctx, cr)
@@ -115,7 +117,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("Transcript_disabled_explicit", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("o", "w", fp, "a-t", "sess-tx-off")
 		cr.Policy.TranscriptEnabled = false
@@ -134,7 +136,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("AddUsage_summary_rollups", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("owner-sum", "ws-sum", fp, "a-sum", "sess-sum")
 		rec, err := s.Create(ctx, cr)
@@ -183,7 +185,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("ListAttemptEvidence_trace_usage_outcome", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("owner-ev", "ws-ev", fp, "a-leg-ev", "sess-evidence")
 		rec, err := s.Create(ctx, cr)
@@ -228,7 +230,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("missing_lookups_non_enumerating", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		_, err := s.LoadByID(ctx, "no-such-session-id-xxxxxxxx")
 		if !errors.Is(err, domain.ErrSessionNotFound) {
 			t.Fatalf("LoadByID: %v", err)
@@ -246,7 +248,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("TouchActivity_updates_record", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		rec, err := s.Create(ctx, sampleCreate("o", "w", fp, "a-touch", "sess-touch"))
 		if err != nil {
@@ -266,7 +268,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("TouchActivity_olderTimestampIgnored", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		rec, err := s.Create(ctx, sampleCreate("o", "w", fp, "a-touch-old", "sess-touch-old"))
 		if err != nil {
@@ -289,7 +291,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("AppendTranscript_Audit_ordering", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("o", "w", fp, "a-audit", "sess-audit")
 		cr.Policy.TranscriptEnabled = true
@@ -330,7 +332,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("NextAuditSeq", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("o", "w", fp, "a-naudit", "sess-naudit")
 		rec, err := s.Create(ctx, cr)
@@ -359,7 +361,7 @@ func RunAll(t *testing.T, newStore func() app.Store) {
 	})
 
 	t.Run("NextTranscriptSeq", func(t *testing.T) {
-		s := newStore()
+		s := newStore(t)
 		fp, _ := twoFingerprints()
 		cr := sampleCreate("o", "w", fp, "a-ntr", "sess-ntr")
 		cr.Policy.TranscriptEnabled = true

@@ -8,6 +8,9 @@
 - **In scope**: {{IN_SCOPE_BEHAVIORS}}
 - **Out of scope**: {{OUT_OF_SCOPE_BEHAVIORS}}
 - **Adjacent expectations**: {{ADJACENT_SYSTEM_OR_SPEC_EXPECTATIONS}}
+- **Boundary ownership**: Core / frontend plugin / backend plugin / feature plugin / SDK / docs-only: {{BOUNDARY_OWNER}}
+- **Optional hexagonal lens**: Domain policy / app orchestration / driving adapter / driven adapter / composition root: {{OPTIONAL_HEXAGONAL_OWNERSHIP}}
+- **Revalidation triggers**: Routing / streaming / capability negotiation / secure session / diagnostics / startup security: {{REVALIDATION_TRIGGERS}}
 
 ## Requirements
 

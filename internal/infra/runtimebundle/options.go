@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -20,6 +21,10 @@ import (
 // BuildOptions configures composition-root dependencies for Build.
 // PluginRegistry is required; other fields are optional (see Build for nil defaults).
 type BuildOptions struct {
+	// StartupContext, when non-nil, is the parent context for bounded startup I/O (e.g. Postgres
+	// open and schema migrate for continuity and secure-session stores). When nil, Build uses
+	// [context.Background] as the parent. It is not stored or used for per-request paths.
+	StartupContext context.Context
 	// HTTPClient is the shared upstream HTTP client for backends that need outbound HTTP (Bedrock, ACP).
 	// When nil, Build uses httpclient.Standard().
 	HTTPClient *http.Client

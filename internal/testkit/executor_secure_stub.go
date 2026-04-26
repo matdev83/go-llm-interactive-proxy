@@ -68,7 +68,7 @@ type SecureSessionStubExecutorOptions struct {
 // mapping, B2BUA memory store, and an optional stub backend (task 11 E2E harness).
 func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecutorOptions, caps lipapi.BackendCaps, capture *sync.Map) *runtime.Executor {
 	t.Helper()
-	b2st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	lineageStore, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecut
 	mc := opts.ManagerConfig
 	mc.FingerprintKey = fk
 	mc.StoreDurable = true
-	mgr, err := app.NewManager(st, app.NewRandGenerator(fk), b2bualineage.New(b2st), mc)
+	mgr, err := app.NewManager(st, app.NewRandGenerator(fk), b2bualineage.New(lineageStore), mc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecut
 		}
 	}
 	ex := &runtime.Executor{
-		Store:                                   b2st,
+		Store:                                   lineageStore,
 		Bus:                                     bus,
 		RuntimeSnapshot:                         snap,
 		Rand:                                    rng,
