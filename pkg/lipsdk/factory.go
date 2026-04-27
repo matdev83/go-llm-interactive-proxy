@@ -32,6 +32,12 @@ type FrontendMountOptions struct {
 	MaxRequestBodyBytes int64
 	// TrafficPorts optionally emits client→proxy raw bytes after body read (design §10).
 	TrafficPorts traffic.PortBundle
+	// AuthErrorRenderer is an optional per-frontend hook for safe HTTP error bodies on transport
+	// authentication failure (R4). When nil, the standard distribution uses the default safe JSON
+	// renderer. For the standard binary, prefer [pluginreg.Registry.RegisterAuthErrorRenderer] keyed
+	// by auth wire frontend id (see stdhttp/auth DefaultFrontendIDFromRequest); [runtimebundle.BuildOptions.AuthErrorRenderersByFrontend]
+	// overrides registry entries per key. This field remains for custom mounts outside pluginreg.
+	AuthErrorRenderer AuthErrorRenderer
 }
 
 // FrontendMount registers HTTP routes for one frontend plugin instance.

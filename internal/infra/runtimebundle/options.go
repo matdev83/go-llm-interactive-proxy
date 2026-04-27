@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -38,8 +39,28 @@ type BuildOptions struct {
 	// WireModel resolves default upstream model ids when computing the effective default route selector.
 	// When nil, Build uses pluginreg.DefaultWireModel (standard distribution).
 	WireModel config.WireModelForBackend
-	// HTTPAuthProviders runs in [internal/stdhttp] before frontend decode (R4). Nil or empty skips auth.
+	// HTTPAuthProviders runs in [internal/stdhttp] before frontend decode (R4). When nil, empty,
+	// or every entry is nil, [Build] composes providers from validated config instead of using
+	// the override (so an accidental []Provider{nil} slice cannot disable authentication).
+	// When at least one entry is non-nil, [Build] uses a clone of this slice only: no config-derived
+	// auth is applied. Custom binaries must supply an equivalent policy chain; [cmd/lipstd] does
+	// not set this field unless you intentionally replace transport auth at the composition root.
 	HTTPAuthProviders []httpauth.Provider
+	// AuthEventSink implements [auth.EventSink] when auth.event_delivery is "custom"; otherwise ignored.
+	// For default/disabled delivery the dispatcher uses an internal slog sink or nil per config.
+	AuthEventSink auth.EventSink
+	// RemoteDecider is required when the effective auth handler is remote or required_level is api_key_sso.
+	// The OSS standard binary does not construct remote transports; inject at the composition root.
+	RemoteDecider auth.RemoteDecider
+	// OSIdentity supplies OS principal material for local_noop. When nil, [Build] uses the default
+	// infra [github.com/matdev83/go-llm-interactive-proxy/internal/infra/osidentity] provider.
+	OSIdentity auth.OSIdentityProvider
+	// AuthErrorRenderer is optional terminal HTTP mapping for auth failures; nil uses stdhttp defaults.
+	AuthErrorRenderer httpauth.AuthErrorRenderer
+	// AuthErrorRenderersByFrontend optional per auth-wire-frontend-id renderers (stdhttp/auth
+	// DefaultFrontendIDFromRequest vocabulary). Non-nil entries override the same key from
+	// [PluginRegistry.AuthErrorRenderers] when [Build] composes HTTP auth providers.
+	AuthErrorRenderersByFrontend map[string]httpauth.AuthErrorRenderer
 	// SessionOpeners and WorkspaceResolvers are merged from enabled feature bundles (task 5.1).
 	SessionOpeners     []session.Opener
 	WorkspaceResolvers []workspace.Resolver

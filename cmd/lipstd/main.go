@@ -53,21 +53,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	bootCtx := context.Background()
+	if err := logBootstrapAccessAuth(bootCtx, logger, cfg); err != nil {
+		os.Exit(1)
+	}
+
 	reg := pluginreg.NewRegistry()
 	apiKeys := pluginreg.ResolveUpstreamAPIKeysFromEnv()
 	if err := pluginreg.InstallStandardBundleOn(reg, apiKeys); err != nil {
-		logger.Error("plugin registration failed", "error", err)
+		logger.ErrorContext(bootCtx, "plugin registration failed", "error", err)
 		os.Exit(1)
 	}
 	if err := reg.ValidateBundledFactories(mandatoryStandardPlugins()); err != nil {
-		logger.Error("registry factory validation failed", "error", err)
+		logger.ErrorContext(bootCtx, "registry factory validation failed", "error", err)
 		os.Exit(1)
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
 	merged, err := reg.MergeFeatureSurface(regs)
 	if err != nil {
-		logger.Error("hook composition failed", "error", err)
+		logger.ErrorContext(bootCtx, "hook composition failed", "error", err)
 		os.Exit(1)
 	}
 	merged.Hooks.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
@@ -81,7 +86,7 @@ func main() {
 		Lifecycles:    merged.Lifecycles,
 	})
 	if err != nil {
-		logger.Error("runtime wiring failed", "error", err)
+		logger.ErrorContext(bootCtx, "runtime wiring failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -99,7 +104,7 @@ func main() {
 		TrafficRedactors:   merged.TrafficRedactors,
 	})
 	if err != nil {
-		logger.Error("runtime assembly failed", "error", err)
+		logger.ErrorContext(bootCtx, "runtime assembly failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -107,7 +112,7 @@ func main() {
 	defer stop()
 
 	if err := stdhttp.RunWithRuntime(ctx, cfg, app, logger, built); err != nil {
-		logger.Error("server stopped", "error", err)
+		logger.ErrorContext(ctx, "server stopped", "error", err)
 		os.Exit(1)
 	}
 }

@@ -1,3 +1,5 @@
+//go:build integration
+
 package conformance
 
 import (
@@ -183,7 +185,7 @@ func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClie
 		return b.String()
 	case "gemini":
 		cli, err := refgemini.New(ctx, refgemini.Config{
-			BaseURL:    proxyOrigin,
+			BaseURL:    GeminiConformanceBaseURL(proxyOrigin),
 			APIKey:     "fake-key",
 			HTTPClient: httpClient,
 		})

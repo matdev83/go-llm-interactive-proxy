@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -95,6 +96,11 @@ type Executor struct {
 	// SecureSessionWorkspaceResolveFailClosed when true rejects prepare if workspace resolution errors
 	// (from secure_session.workspace_resolve_on_error: fail_closed).
 	SecureSessionWorkspaceResolveFailClosed bool
+
+	// AuthEvents delivers auth and session-start audit events; nil skips executor-side emission (tests).
+	AuthEvents *auth.EventDispatcher
+	// SessionAuditPolicy labels session-start events; ignored when AuthEvents is nil.
+	SessionAuditPolicy auth.SessionAuditPolicy
 
 	rngOnce    sync.Once
 	lockedRand routing.Rng // lazy: mutex-serialized view of Rand

@@ -1,6 +1,7 @@
 package pluginreg
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -47,5 +48,35 @@ func TestRegistry_zeroValueRegisterFeature(t *testing.T) {
 		return hooks.Config{}, nil, nil
 	})); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type noopWireAuthRenderer struct{}
+
+func (noopWireAuthRenderer) RenderAuthError(ctx context.Context, in lipsdk.AuthErrorRenderInput) lipsdk.AuthErrorRenderResult {
+	_ = ctx
+	_ = in
+	return lipsdk.AuthErrorRenderResult{}
+}
+
+func TestRegistry_RegisterAuthErrorRenderer_duplicate(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry()
+	if err := r.RegisterAuthErrorRenderer("gemini", noopWireAuthRenderer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterAuthErrorRenderer("gemini", noopWireAuthRenderer{}); err == nil {
+		t.Fatal("expected duplicate registration error")
+	}
+}
+
+func TestRegistry_RegisterAuthErrorRenderer_nilSkips(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry()
+	if err := r.RegisterAuthErrorRenderer("anthropic", nil); err != nil {
+		t.Fatal(err)
+	}
+	if r.AuthErrorRenderers() != nil {
+		t.Fatalf("expected nil map, got %#v", r.AuthErrorRenderers())
 	}
 }

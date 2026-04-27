@@ -110,10 +110,16 @@ Architecture integration:
 ```text
 pkg/lipsdk/
 ├── auth/
-│   ├── model.go              # Inbound call metadata, Decision, policy levels, identity snapshots (no net/http or httprequest types)
-│   └── events.go             # AuthDecisionEvent and SessionStartEvent DTOs; error categories
+│   ├── inbound.go            # InboundCallMeta and transport-neutral request metadata
+│   ├── decision.go           # Decision, Challenge, DeviceIdentity (uses execview principal)
+│   ├── kinds.go              # Handler kinds, required levels, outcomes
+│   ├── events.go             # AuthDecisionEvent and SessionStartEvent DTOs
+│   ├── sanitize.go           # Secret redaction helpers for observability surfaces
+│   └── doc.go
+├── auth_error_render.go      # AuthErrorRenderInput/Result and AuthErrorRenderer (core-safe; transport aliases in lipsdk/transport/httpauth)
 ├── backend_security.go       # BackendCredentialMode and BackendSecurityProfile metadata
-└── contracts.go              # Registration extended with security profile or metadata accessors
+├── contracts.go              # Registration extended with backend security profile metadata
+└── transport/httpauth/       # Provider chain, AuthenticationResult, aliases of auth error render types
 
 internal/core/
 ├── accessmode/
@@ -121,31 +127,40 @@ internal/core/
 │   ├── listener.go           # Listener address parsing and loopback validation
 │   └── validate.go           # Cross-field access posture validation
 ├── auth/
-│   ├── ports.go              # Consuming ports: EventSink, RemoteDecider, Authenticator; methods use pkg/lipsdk/auth DTOs
+│   ├── ports.go              # EventSink, RemoteDecider, Authenticator, OSIdentityProvider
 │   ├── local_noop.go         # Explicit local no-op authenticator
 │   ├── local_apikey.go       # Local API-key authenticator and redacted key identity
-│   ├── policy.go             # Policy validation and effective auth handler selection
+│   ├── policy.go             # PolicyAuthenticator routes to local handlers or RemoteDecider
 │   ├── events.go             # EventDispatcher and failure policy application
-│   └── session_start.go      # Runtime session-start event helper
+│   └── session_audit.go      # SessionAuditPolicy, BuildSessionStartEvent, opaque session ref digests
 └── config/
     ├── access_auth_model.go  # Access and auth YAML config structs
     └── access_auth_validate.go # Config validation bridge for access and auth policy
 
+internal/core/runtime/
+├── session_start_emit.go     # Executor hook: emit session-start on new secure-session turns
+└── (executor_prepare*.go)    # prepareSubmitAndALeg delegates to secure prepare; session-start called from secure path
+
 internal/infra/
-└── osidentity/
-    └── current.go            # OS current-user lookup with environment fallback
+├── osidentity/
+│   └── current.go            # OS current-user lookup with environment fallback
+└── authevent/
+    └── sink.go               # Default structured-log EventSink implementation (composition root)
 
 internal/infra/runtimebundle/
-└── auth.go                   # Build auth services/providers from validated config and optional remote client
+├── auth_compose.go           # composeHTTPAuthProviders, PolicyProvider wiring, remote injection gates
+├── auth_events.go            # EventDispatcher + default sink registration helpers
+├── session_audit_policy.go   # Effective session audit labels from validated config
+└── security_policy.go        # validateBackendSecurityProfiles (multi-user OAuth-user / unknown posture)
 
 internal/stdhttp/auth/
-├── adapter.go                # Authenticator to httpauth.Provider adapter and event emission
-├── error_renderer.go         # AuthErrorRenderer contract and default safe HTTP rendering
-└── middleware.go             # Existing provider-chain middleware with minimal protocol-aware termination support
+├── adapter.go                # PolicyProvider: Authenticator to httpauth.Provider + auth events
+├── error_renderer.go         # DefaultAuthErrorRenderer and safe terminal responses
+└── middleware.go             # Provider-chain middleware with termination support
 
 internal/pluginreg/
-├── reg.go                    # Backend factory entries include security profile
-└── validate.go               # Access-mode aware backend credential posture checks
+├── reg.go                    # Backend factory entries include BackendSecurityProfile
+└── *_install.go / standard_table.go  # Bundled backends declare credential posture
 
 cmd/lipstd/
 └── main.go                   # Wires config-derived auth services into runtimebundle
@@ -159,7 +174,7 @@ cmd/lipstd/
 - `internal/infra/runtimebundle/options.go` — add optional `RemoteDecider` and `EventSink` (core ports) injection points.
 - `internal/infra/runtimebundle/build.go` — construct auth providers and pass event sinks into runtime/executor plumbing.
 - `internal/core/runtime/executor.go` — add session-start event sink fields if event emission is not held in runtime snapshot.
-- `internal/core/runtime/executor_prepare.go` — emit session-start events for legacy continuity path.
+- `internal/core/runtime/executor_prepare.go` — delegates to secure-session prepare; session-start emission is implemented alongside that path (see `session_start_emit.go`).
 - `internal/core/runtime/executor_prepare_secure.go` — emit session-start events when the secure-session path is already active; this spec does not complete secure-session runtimebundle wiring.
 - `pkg/lipsdk/contracts.go` — add backend security profile field or accessor-compatible metadata without exposing plugin-private config.
 - `internal/pluginreg/*_install.go` — declare credential posture for bundled backend factories.
@@ -675,7 +690,7 @@ No durable storage is introduced by this spec. Local API-key records are runtime
 ### Data Contracts & Integration
 
 Event schema fields:
-- Common: `trace_id`, `time`, `access_mode`, `required_level`, `handler_kind`, `frontend`, `outcome`, `reason_code`.
+- Common: `trace_id` on the event DTO (default JSON sink uses log attribute `lip_request_trace_id`), `time`, `access_mode`, `required_level`, `handler_kind`, `frontend`, `outcome`, `reason_code`.
 - Principal: `principal_id`, `display_name`, `roles`, safe claims.
 - Device: `device_id`, `key_id`, redacted `fingerprint`.
 - Session: `session_id`, `client_session_hint`, `a_leg_id`, `certainty`, `is_new`.

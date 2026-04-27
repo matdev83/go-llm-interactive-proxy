@@ -2,10 +2,12 @@ package runtimebundle_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -45,28 +47,70 @@ func buildWithProfiledBackend(t *testing.T, address string, authMode config.Auth
 			Kind: factoryID, ID: "be", Enabled: true,
 		}}},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-	})
+	opts := &runtimebundle.BuildOptions{PluginRegistry: reg}
+	if !config.IsExplicitLoopbackListenAddress(address) {
+		cfg.Access = config.AccessConfig{Mode: "multi_user"}
+		cfg.Auth = config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"}
+		opts.RemoteDecider = &testkit.StubRemoteDecider{}
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
 	return err
 }
 
-func TestBuild_oauthUserBackendRequiresSingleUserLoopback(t *testing.T) {
+func TestBuild_oauthUserBackend_allowsOnSingleUserLoopback(t *testing.T) {
 	t.Parallel()
 	if err := buildWithProfiledBackend(t, "127.0.0.1:8080", "", pluginreg.CredentialOAuthUser); err != nil {
 		t.Fatalf("loopback single-user should allow oauth_user backend: %v", err)
 	}
+}
+
+func TestBuild_oauthUserBackend_rejectsOnNonLoopbackMultiUser(t *testing.T) {
+	t.Parallel()
 	err := buildWithProfiledBackend(t, "0.0.0.0:8080", config.AuthModeExternal, pluginreg.CredentialOAuthUser)
-	if err == nil || !strings.Contains(err.Error(), "oauth_user") {
-		t.Fatalf("want oauth_user non-local rejection, got %v", err)
+	if err == nil || !errors.Is(err, runtimebundle.ErrOAuthUserDisallowedMultiUser) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrOAuthUserDisallowedMultiUser, err)
 	}
 }
 
-func TestBuild_unknownBackendCredentialModeRejectedOutsideSingleUser(t *testing.T) {
+func TestBuild_oauthUserBackendAllowedWhenSingleUserAccessExternalAuthLoopback(t *testing.T) {
+	t.Parallel()
+	factoryID := "profiled-oauth-single-user-external-loopback"
+	reg := pluginreg.NewRegistry()
+	registerProfiledBackend(t, reg, factoryID, pluginreg.CredentialOAuthUser)
+	cfg := &config.Config{
+		Access:     config.AccessConfig{Mode: "single_user"},
+		Server:     config.ServerConfig{Address: "127.0.0.1:8080", AuthMode: config.AuthModeExternal},
+		Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+			Kind: factoryID, ID: "be", Enabled: true,
+		}}},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SingleUserLocalMode() {
+		t.Fatal("precondition: SingleUserLocalMode must be false when server.auth_mode is external")
+	}
+	mode, err := cfg.EffectiveAccessMode()
+	if err != nil || mode != accessmode.ModeSingleUser {
+		t.Fatalf("EffectiveAccessMode: want single_user, got mode=%v err=%v", mode, err)
+	}
+	_, err = runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+		RemoteDecider:  &testkit.StubRemoteDecider{},
+	})
+	if err != nil {
+		t.Fatalf("single_user access with external auth on loopback must allow oauth_user backend: %v", err)
+	}
+}
+
+func TestBuild_unknownBackendCredentialMode_rejectsOnNonLoopbackMultiUser(t *testing.T) {
 	t.Parallel()
 	err := buildWithProfiledBackend(t, "0.0.0.0:8080", config.AuthModeExternal, pluginreg.CredentialUnknown)
-	if err == nil || !strings.Contains(err.Error(), "unknown credential mode") {
-		t.Fatalf("want unknown credential mode rejection, got %v", err)
+	if err == nil || !errors.Is(err, runtimebundle.ErrUnknownCredentialMultiUser) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrUnknownCredentialMultiUser, err)
 	}
 }
 
@@ -74,5 +118,13 @@ func TestBuild_staticBackendCredentialModeAllowsExternalAuth(t *testing.T) {
 	t.Parallel()
 	if err := buildWithProfiledBackend(t, "0.0.0.0:8080", config.AuthModeExternal, pluginreg.CredentialStatic); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBuild_unsupportedBackendCredentialMode_rejects(t *testing.T) {
+	t.Parallel()
+	err := buildWithProfiledBackend(t, "0.0.0.0:8080", config.AuthModeExternal, pluginreg.BackendCredentialMode("totally_bogus"))
+	if err == nil || !errors.Is(err, runtimebundle.ErrUnsupportedBackendCredentialMode) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrUnsupportedBackendCredentialMode, err)
 	}
 }

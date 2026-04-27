@@ -50,8 +50,9 @@ func LoadFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
-	if cfg.Server.Address == "" {
-		cfg.Server.Address = "127.0.0.1:8080"
+	applyDefaultServerListenAddress(&cfg)
+	if cfg.Auth.LocalAPIKeys == nil {
+		cfg.Auth.LocalAPIKeys = []AuthLocalAPIKeyRecord{}
 	}
 
 	if cfg.Diagnostics.HealthPath == "" {

@@ -30,10 +30,12 @@ func MountFrontend(mux *http.ServeMux, frontendID string, exec *runtime.Executor
 			DefaultRouteSelector: routeSelector,
 		})
 	case "gemini":
-		mux.Handle("/", &frontgemini.Handler{
+		h := &frontgemini.Handler{
 			Exec:                 exec,
 			DefaultRouteSelector: routeSelector,
-		})
+		}
+		mux.Handle("/v1beta/", h)
+		mux.Handle("/v1beta1/", h)
 	default:
 		return fmt.Errorf("unknown frontend id %q", frontendID)
 	}

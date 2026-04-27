@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -36,4 +37,7 @@ type Built struct {
 	// SecureSessionStore is optional; when non-nil with secure-session diagnostics config, stdhttp
 	// mounts operator session routes (see [BuildOptions.SecureSessionStore]).
 	SecureSessionStore app.Store
+	// AuthEventDispatcher emits auth decision and session-start events per config policy.
+	// Always non-nil after [Build]; the underlying sink may be nil when event delivery is disabled.
+	AuthEventDispatcher *auth.EventDispatcher
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -348,6 +349,9 @@ func (e *Executor) prepareSubmitAndALegSecure(ctx context.Context, bus *hooks.Bu
 		}
 	}
 	outCtx = execctx.WithViews(outCtx, views)
+	if err := e.emitSessionStartIfNeeded(outCtx, traceID, principalSnapshotForSessionAudit(principal), br, work, aLeg); err != nil {
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+	}
 	return traceID, baseline, aLeg, outCtx, nil
 }
 
@@ -381,4 +385,8 @@ func policyLabelsFromMetadata(p domain.PolicyMetadata) map[string]string {
 		out["transcript_enabled"] = "false"
 	}
 	return out
+}
+
+func principalSnapshotForSessionAudit(p execview.PrincipalView) coreauth.PrincipalSnapshot {
+	return coreauth.NewPrincipalSnapshot(p.ID, p.DisplayName)
 }

@@ -35,8 +35,13 @@ type AuthenticationResult struct {
 	// Headers is copied for TypeChallenge (and optional metadata for TypeReject).
 	Headers http.Header
 
-	// Body is optional for TypeReject.
+	// Body is optional for TypeReject and TypeChallenge.
 	Body []byte
+
+	// ContentType is optional for TypeReject and TypeChallenge. When non-empty, stdhttp
+	// sets the Content-Type response header. When empty with a non-empty Body, the default
+	// is "text/plain; charset=utf-8" (pre-1.x compatible).
+	ContentType string
 
 	// ResponseHeaders are merged on the success path when Type is TypeAnnotate.
 	// The stdhttp integration allow-lists safe response header names (cache, security

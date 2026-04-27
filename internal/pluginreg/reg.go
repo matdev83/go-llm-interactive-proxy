@@ -19,24 +19,19 @@ type FrontendMount = lipsdk.FrontendMount
 // backendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
 type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error)
 
-// BackendCredentialMode describes how a backend obtains upstream credentials.
-type BackendCredentialMode string
+// BackendCredentialMode and BackendSecurityProfile are the public plugin registration contract
+// (see [lipsdk.BackendCredentialMode], [lipsdk.BackendSecurityProfile]).
+type BackendCredentialMode = lipsdk.BackendCredentialMode
 
+type BackendSecurityProfile = lipsdk.BackendSecurityProfile
+
+// Credential posture re-exports for call sites that register through [Registry].
 const (
-	// CredentialStatic uses operator-configured static credentials such as API keys.
-	CredentialStatic BackendCredentialMode = "static"
-	// CredentialWorkload uses workload identity from the local runtime environment.
-	CredentialWorkload BackendCredentialMode = "workload"
-	// CredentialOAuthUser uses user-scoped OAuth credentials and is allowed only for loopback single-user runs.
-	CredentialOAuthUser BackendCredentialMode = "oauth_user"
-	// CredentialUnknown means the factory did not declare a credential posture.
-	CredentialUnknown BackendCredentialMode = "unknown"
+	CredentialStatic    = lipsdk.CredentialStatic
+	CredentialWorkload  = lipsdk.CredentialWorkload
+	CredentialOAuthUser = lipsdk.CredentialOAuthUser
+	CredentialUnknown   = lipsdk.CredentialUnknown
 )
-
-// BackendSecurityProfile is stable startup metadata for backend credential posture validation.
-type BackendSecurityProfile struct {
-	CredentialMode BackendCredentialMode
-}
 
 // FeatureFactory builds a versioned feature bundle from opaque plugin YAML.
 type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
@@ -46,11 +41,12 @@ type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
 // allocates internal maps (same observable behavior as [NewRegistry]). Use [NewRegistry] and
 // [InstallStandardBundleOn] to assemble isolated bundles for each composition root.
 type Registry struct {
-	mu              sync.RWMutex
-	backends        map[string]backendFactory
-	backendProfiles map[string]BackendSecurityProfile
-	frontends       map[string]FrontendMount
-	features        map[string]FeatureFactory
+	mu                 sync.RWMutex
+	backends           map[string]backendFactory
+	backendProfiles    map[string]BackendSecurityProfile
+	frontends          map[string]FrontendMount
+	features           map[string]FeatureFactory
+	authErrorRenderers map[string]lipsdk.AuthErrorRenderer
 }
 
 // NewRegistry returns an empty registry.
@@ -75,6 +71,9 @@ func (r *Registry) ensureMaps() {
 	}
 	if r.features == nil {
 		r.features = map[string]FeatureFactory{}
+	}
+	if r.authErrorRenderers == nil {
+		r.authErrorRenderers = map[string]lipsdk.AuthErrorRenderer{}
 	}
 }
 
@@ -117,6 +116,48 @@ func (r *Registry) RegisterFrontend(id string, fn FrontendMount) error {
 	}
 	r.frontends[id] = fn
 	return nil
+}
+
+// RegisterAuthErrorRenderer records an optional transport auth error renderer keyed by the auth
+// wire frontend id (same strings as stdhttp/auth [DefaultFrontendIDFromRequest], e.g. anthropic,
+// openai_compatible, gemini). Nil renderer is a no-op registration attempt (returns nil).
+// Duplicate wire ids return an error.
+func (r *Registry) RegisterAuthErrorRenderer(authWireFrontendID string, renderer lipsdk.AuthErrorRenderer) error {
+	if renderer == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureMaps()
+	id := strings.TrimSpace(authWireFrontendID)
+	if id == "" {
+		return fmt.Errorf("pluginreg: RegisterAuthErrorRenderer: empty auth wire frontend id")
+	}
+	if _, exists := r.authErrorRenderers[id]; exists {
+		return fmt.Errorf("pluginreg: duplicate auth error renderer registration: %s", id)
+	}
+	r.authErrorRenderers[id] = renderer
+	return nil
+}
+
+// AuthErrorRenderers returns a defensive copy of optional per-wire-frontend auth error renderers.
+func (r *Registry) AuthErrorRenderers() map[string]lipsdk.AuthErrorRenderer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.authErrorRenderers) == 0 {
+		return nil
+	}
+	out := make(map[string]lipsdk.AuthErrorRenderer, len(r.authErrorRenderers))
+	for k, v := range r.authErrorRenderers {
+		if v == nil {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // RegisterFeature records a feature factory on r.
