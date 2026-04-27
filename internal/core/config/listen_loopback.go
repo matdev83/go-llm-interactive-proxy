@@ -1,25 +1,15 @@
 package config
 
 import (
-	"net"
-	"strings"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 )
 
+// IsExplicitLoopbackListenAddress reports whether raw is a conservative loopback bind
+// (127/8, ::1, or localhost), not an all-interfaces or non-loopback address.
 func IsExplicitLoopbackListenAddress(raw string) bool {
-	addr := strings.TrimSpace(raw)
-	if addr == "" {
-		return false
-	}
-	host, _, err := net.SplitHostPort(addr)
+	c, err := accessmode.ClassifyListenAddress(raw)
 	if err != nil {
-		host = addr
-	}
-	host = strings.TrimSpace(host)
-	if host == "" {
 		return false
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return true
-	}
-	return strings.EqualFold(host, "localhost")
+	return c.Surface == accessmode.SurfaceLoopback
 }

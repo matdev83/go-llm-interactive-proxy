@@ -20,6 +20,8 @@ coverage.html
 # Accidental cover profile dumps at repo root (e.g. mistyped -coverprofile=c)
 /c
 /coverage
+# Root-only: e.g. -coverprofile=cover_auth (does not match package dirs)
+/cover_*
 
 # Go profiling & execution traces (see docs/alloc-profiling.md; pprof -http, go test -trace)
 # *.out above already ignores trace.out; keep suffix variants from tooling

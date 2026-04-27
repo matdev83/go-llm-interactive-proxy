@@ -18,7 +18,7 @@ help:
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag, frontend encoders)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln (local)"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
-	@echo "  make hooks-install   - git config core.hooksPath .githooks"
+	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
 	@echo "  make run             - go run ./cmd/lipstd"
 
 quality-checks:

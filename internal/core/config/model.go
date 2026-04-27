@@ -16,6 +16,8 @@ import (
 // in this package (see effective_default_route.go).
 type Config struct {
 	Server        ServerConfig        `yaml:"server"`
+	Access        AccessConfig        `yaml:"access"`
+	Auth          AuthConfig          `yaml:"auth"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Diagnostics   DiagnosticsConfig   `yaml:"diagnostics"`
 	Observability ObservabilityConfig `yaml:"observability"`

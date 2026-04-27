@@ -1,3 +1,5 @@
+//go:build integration
+
 package conformance
 
 import (
@@ -207,7 +209,7 @@ func nonStreamExpectError(tb testing.TB, frontendID, proxyOrigin string, httpCli
 		return err
 	case "gemini":
 		cli, err := refgemini.New(ctx, refgemini.Config{
-			BaseURL:    proxyOrigin,
+			BaseURL:    GeminiConformanceBaseURL(proxyOrigin),
 			APIKey:     "fake-key",
 			HTTPClient: httpClient,
 		})

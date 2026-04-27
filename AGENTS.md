@@ -131,7 +131,7 @@ Prefer repo-defined scripts or make targets:
 - `make test-race` — skipped on Windows (`scripts/race-check.ps1`); on Linux/macOS runs `scripts/race-check.sh`. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
 - `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.
-- `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`)
+- `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`; runs staged secret scan then quality gate when `.go` is staged)
 - `go test -run TestName ./path/to/pkg`
 - `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets
 - `go run ./cmd/lipstd --config ./config/config.yaml`

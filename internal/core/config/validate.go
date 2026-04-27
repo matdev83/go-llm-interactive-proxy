@@ -49,6 +49,9 @@ func Validate(cfg *Config) error {
 	if err := validateServer(cfg); err != nil {
 		return err
 	}
+	if err := validateAccessAuth(cfg); err != nil {
+		return err
+	}
 	if err := validateSecureSession(cfg); err != nil {
 		return err
 	}
@@ -191,20 +194,12 @@ func validateServer(cfg *Config) error {
 	if cfg == nil {
 		return nil
 	}
-	if strings.TrimSpace(cfg.Server.Address) == "" {
-		cfg.Server.Address = "127.0.0.1:8080"
-	}
+	applyDefaultServerListenAddress(cfg)
 	s := cfg.Server
+	// Listener posture for no_auth vs broad binds is enforced in validateAccessAuth via
+	// accessmode.ValidatePosture (combines server.auth_mode, access.mode, and listeners).
 	switch cfg.EffectiveServerAuthMode() {
-	case AuthModeNoAuth:
-		if !IsExplicitLoopbackListenAddress(s.Address) {
-			return fmt.Errorf(
-				"server.auth_mode: no_auth requires server.address to be explicit loopback "+
-					"(127.0.0.1, ::1, or localhost), got %q",
-				s.Address,
-			)
-		}
-	case AuthModeExternal:
+	case AuthModeNoAuth, AuthModeExternal:
 	default:
 		return fmt.Errorf("server.auth_mode: want no_auth or external, got %q", s.AuthMode)
 	}

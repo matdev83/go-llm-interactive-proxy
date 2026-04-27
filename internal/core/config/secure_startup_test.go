@@ -32,8 +32,10 @@ func TestValidate_noAuthRequiresExplicitLoopback(t *testing.T) {
 			}
 			err := config.Validate(cfg)
 			if tc.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "no_auth") {
-					t.Fatalf("want no_auth loopback error, got %v", err)
+				// Broad binds are rejected by validateAccessAuth / accessmode posture (default
+				// single_user), not by the legacy server.auth_mode loopback-only check.
+				if err == nil || !strings.Contains(err.Error(), "access.mode") {
+					t.Fatalf("want access.mode bind posture error, got %v", err)
 				}
 				return
 			}
@@ -44,11 +46,16 @@ func TestValidate_noAuthRequiresExplicitLoopback(t *testing.T) {
 	}
 }
 
-func TestValidate_externalAuthMayBindNonLoopback(t *testing.T) {
+func TestValidate_externalAuthBroadBindRequiresMultiUserAuth(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
+		Access:     config.AccessConfig{Mode: "multi_user"},
+		Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
 		Server:     config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal},
 		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "stub", Enabled: true}},
+		},
 	}
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)

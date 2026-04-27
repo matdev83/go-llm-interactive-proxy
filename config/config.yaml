@@ -1,7 +1,7 @@
 server:
-  # Default bind is loopback-only so single-user / no-bearer dev mode matches a non-exposed listener.
+  # Default bind is loopback-only so single-user mode never listens on all interfaces by accident.
   address: "127.0.0.1:8080"
-  # auth_mode: no_auth   # no_auth requires explicit loopback bind; use external for authenticated non-local deployments
+  # Legacy server.auth_mode (no_auth | external) still merges into effective auth for audit; prefer access + auth below.
   # max_request_body_bytes: 10485760  # optional override; omit for handler default (8 MiB)
   # Optional [http.Server] timeouts (Go duration strings). Omitted fields use stdhttp defaults:
   # read_header_timeout: 10s
@@ -9,6 +9,53 @@ server:
   # write_timeout: 120s
   # idle_timeout: 120s
   # max_pending_wire_events: 0   # cap backend adapter pending-event queues per stream; 0 = unlimited
+
+# --- Access and authentication (see internal/core/config/access_auth_model.go) ---
+# Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).
+# single_user allows only loopback binds; all-interfaces (0.0.0.0, ::, or bare :port) requires multi_user plus strong auth.
+#
+# (A) Default OSS single-user (effective when access/auth are omitted): loopback + local_noop + structured auth/session events.
+# access:
+#   mode: single_user
+# auth:
+#   handler: local_noop
+#   required_level: none
+#   event_failure_policy: best_effort
+#   # Auth/session audit events may include PII (principal display name, ids, client refs). Route logs to
+#   # retention-compliant storage; the proxy does not redact those fields beyond challenge-summary sanitization.
+#   # event_delivery: default   # structured log sink (default) | disabled | custom (custom needs BuildOptions.AuthEventSink)
+#   # fail_closed (see (B) below) denies the request if the auth-event sink errors; best_effort ignores sink errors.
+#
+# (B) Multi-user + local API keys (shared host); use loopback or non-loopback listen only with server.auth_mode: external.
+# access:
+#   mode: multi_user
+# server:
+#   address: "0.0.0.0:8080"
+#   auth_mode: external
+# auth:
+#   handler: local_api_key
+#   required_level: api_key
+#   event_failure_policy: fail_closed
+#   local_api_keys:
+#     - key_id: example-device
+#       principal_id: example-user
+#       # Each key must be >= 16 characters (Unicode code points). For multi_user on a reachable bind,
+#       # add perimeter rate limiting or WAF brute-force protection; the proxy does not throttle auth attempts.
+#       key: "replace-with-operator-secret-not-committed"
+#
+# (C) Remote auth (interface-only in OSS): select handler remote; standard binary does not create remote transport clients.
+# You must inject RemoteDecider at the composition root (see internal/infra/runtimebundle BuildOptions).
+# access:
+#   mode: multi_user
+# server:
+#   address: "127.0.0.1:8080"
+#   auth_mode: external
+# auth:
+#   handler: remote
+#   required_level: api_key_sso
+#   remote:
+#     endpoint: "https://auth.example.invalid/v1"
+#     handler: enterprise
 
 # Outbound LLM HTTP client: when trust_environment_proxy is false, HTTP_PROXY/HTTPS_PROXY are ignored.
 # Optional pool/timeouts (defaults match internal/infra/httpclient.DefaultTransportTune):

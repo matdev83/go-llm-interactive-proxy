@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -26,6 +27,84 @@ func TestMiddleware_noProviders_passthrough(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusTeapot || !saw {
 		t.Fatalf("code=%d saw=%v", rec.Code, saw)
+	}
+}
+
+func TestMiddleware_onlyNilProviders_failClosed500(t *testing.T) {
+	t.Parallel()
+	var inner bool
+	h := auth.Middleware(nil, []httpauth.Provider{nil}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		inner = true
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if inner {
+		t.Fatal("inner handler must not run")
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("want %d, got %d", http.StatusInternalServerError, rec.Code)
+	}
+}
+
+func TestMiddleware_onlyNilProviders_logsMisconfiguration(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := auth.Middleware(log, []httpauth.Provider{nil}, http.NotFoundHandler())
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(buf.String(), "all_httpauth_providers_nil") {
+		t.Fatalf("expected misconfiguration log, got %q", buf.String())
+	}
+}
+
+func TestMiddleware_nilRequest_badRequest(t *testing.T) {
+	t.Parallel()
+	p := stubProvider{res: httpauth.AuthenticationResult{
+		Type:      httpauth.TypePrincipal,
+		Principal: execview.PrincipalView{ID: "x"},
+	}}
+	h := auth.Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestMiddleware_unknownProviderResult_failClosed500(t *testing.T) {
+	t.Parallel()
+	const unknownAuthType httpauth.AuthenticationType = 99
+	p := stubProvider{res: httpauth.AuthenticationResult{Type: unknownAuthType}}
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	rec := httptest.NewRecorder()
+	auth.Middleware(log, []httpauth.Provider{p}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("inner must not run")
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("want %d, got %d", http.StatusInternalServerError, rec.Code)
+	}
+	if !strings.Contains(buf.String(), "unknown result type") {
+		t.Fatalf("expected warn log, got %q", buf.String())
+	}
+}
+
+func TestMiddleware_nilThenReal_skipsNilRunsReal(t *testing.T) {
+	t.Parallel()
+	want := execview.PrincipalView{ID: "after-nil"}
+	p := stubProvider{res: httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: want}}
+	var got string
+	h := auth.Middleware(nil, []httpauth.Provider{nil, p}, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		pg, _ := httpauth.PrincipalFromContext(r.Context())
+		got = pg.ID
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if got != "after-nil" {
+		t.Fatalf("principal %q", got)
 	}
 }
 
@@ -47,6 +126,27 @@ func TestMiddleware_principalPropagates(t *testing.T) {
 	pg, ok := httpauth.PrincipalFromContext(gotCtx)
 	if !ok || pg.ID != "alice" {
 		t.Fatalf("principal %+v ok=%v", pg, ok)
+	}
+}
+
+func TestMiddleware_frontendIDPropagatesFromPath(t *testing.T) {
+	t.Parallel()
+	p := stubProvider{res: httpauth.AuthenticationResult{
+		Type:      httpauth.TypePrincipal,
+		Principal: execview.PrincipalView{ID: "u"},
+	}}
+	var gotFe string
+	var gotOK bool
+	h := auth.Middleware(nil, []httpauth.Provider{p}, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotFe, gotOK = execview.FrontendIDFromContext(r.Context())
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if !gotOK || gotFe != "anthropic" {
+		t.Fatalf("frontend id %q ok=%v", gotFe, gotOK)
 	}
 }
 
@@ -107,6 +207,23 @@ func TestMiddleware_annotate_allowList_logsDropped(t *testing.T) {
 	}
 }
 
+func TestMiddleware_reject_contentType(t *testing.T) {
+	t.Parallel()
+	p := stubProvider{res: httpauth.AuthenticationResult{
+		Type:        httpauth.TypeReject,
+		HTTPStatus:  http.StatusUnauthorized,
+		Body:        []byte(`{"err":1}`),
+		ContentType: "application/json; charset=utf-8",
+	}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	mw := auth.Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler())
+	mw.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("content-type: %q", got)
+	}
+}
+
 func TestMiddleware_challenge(t *testing.T) {
 	t.Parallel()
 	hd := http.Header{}
@@ -117,12 +234,64 @@ func TestMiddleware_challenge(t *testing.T) {
 		Headers:    hd,
 	}}
 	rec := httptest.NewRecorder()
-	auth.Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	mw := auth.Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler())
+	mw.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("code %d", rec.Code)
 	}
 	if got := rec.Header().Get("WWW-Authenticate"); got == "" {
 		t.Fatal("missing challenge header")
+	}
+}
+
+func TestMiddleware_termination_headerAllowList(t *testing.T) {
+	t.Parallel()
+	hd := http.Header{}
+	hd.Set("WWW-Authenticate", `Bearer realm="lip"`)
+	hd.Set("Cache-Control", "no-store")
+	hd.Set("Set-Cookie", "sid=evil; Path=/")
+	hd.Set("Location", "https://evil.example/phish")
+	p := stubProvider{res: httpauth.AuthenticationResult{
+		Type:       httpauth.TypeReject,
+		HTTPStatus: http.StatusForbidden,
+		Headers:    hd,
+		Body:       []byte("no"),
+	}}
+	rec := httptest.NewRecorder()
+	auth.Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler()).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("Set-Cookie must be stripped, got %q", rec.Header().Get("Set-Cookie"))
+	}
+	if rec.Header().Get("Location") != "" {
+		t.Fatalf("Location must be stripped, got %q", rec.Header().Get("Location"))
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got == "" {
+		t.Fatal("expected WWW-Authenticate")
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control: %q", got)
+	}
+}
+
+func TestMiddleware_termination_logsDroppedHeaders(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	hd := http.Header{}
+	hd.Set("Set-Cookie", "x=1")
+	hd.Set("Location", "/elsewhere")
+	p := stubProvider{res: httpauth.AuthenticationResult{
+		Type:       httpauth.TypeChallenge,
+		HTTPStatus: http.StatusUnauthorized,
+		Headers:    hd,
+	}}
+	auth.Middleware(log, []httpauth.Provider{p}, http.NotFoundHandler()).
+		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	out := buf.String()
+	if !strings.Contains(out, "Set-Cookie") || !strings.Contains(out, "Location") {
+		t.Fatalf("expected warn logs for dropped headers, got %q", out)
 	}
 }
 
@@ -191,6 +360,19 @@ func TestEnsureContextPrincipal_nilChild_nonNil(t *testing.T) {
 	}
 	if _, ok := httpauth.PrincipalFromContext(out2); ok {
 		t.Fatalf("expected no principal")
+	}
+}
+
+func TestEnsureContextPrincipal_nilChild_preservesParentValuesWithoutCancellation(t *testing.T) {
+	t.Parallel()
+	parent, cancel := context.WithCancel(diag.WithTraceID(context.Background(), "trace-nil-child"))
+	cancel()
+	out := auth.EnsureContextPrincipal(parent, nil)
+	if got := diag.TraceID(out); got != "trace-nil-child" {
+		t.Fatalf("trace id: got %q", got)
+	}
+	if err := out.Err(); err != nil {
+		t.Fatalf("expected cancellation to be stripped, got %v", err)
 	}
 }
 

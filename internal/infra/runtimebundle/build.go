@@ -36,7 +36,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -61,8 +60,20 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if log == nil {
 		return nil, fmt.Errorf("runtimebundle: nil logger")
 	}
+	authEvents, err := buildAuthEventDispatcher(cfg, log, opts)
+	if err != nil {
+		return nil, err
+	}
 	reg := opts.PluginRegistry
 	if err := validateBackendSecurityProfiles(cfg, reg); err != nil {
+		return nil, err
+	}
+	sap, err := buildSessionAuditPolicy(cfg)
+	if err != nil {
+		return nil, err
+	}
+	httpAuth, err := resolveHTTPAuthProviders(cfg, log, opts, authEvents, sap)
+	if err != nil {
 		return nil, err
 	}
 
@@ -231,6 +242,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Log:                  log,
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
 	}
+	exec.AuthEvents = authEvents
+	exec.SessionAuditPolicy = sap
 	applySecureSessionToExecutor(exec, ssRun)
 	ssStore := strings.TrimSpace(cfg.SecureSession.Store)
 	if ssStore == "" {
@@ -241,10 +254,6 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		exec.Metrics = bundle.ExecutorSink()
 		exec.ExtensionMetrics = bundle.ExtensionStageSink()
 		exec.SecureSessionMetrics = bundle.SecureSessionMetricsSink()
-	}
-	var httpAuth []httpauth.Provider
-	if len(opts.HTTPAuthProviders) > 0 {
-		httpAuth = slices.Clone(opts.HTTPAuthProviders)
 	}
 	secureSessionStore := ssRun.appStore
 	if opts.SecureSessionStore != nil {
@@ -261,6 +270,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		RuntimeSnapshot:       snap,
 		HTTPAuthProviders:     httpAuth,
 		SecureSessionStore:    secureSessionStore,
+		AuthEventDispatcher:   authEvents,
 	}, nil
 }
 

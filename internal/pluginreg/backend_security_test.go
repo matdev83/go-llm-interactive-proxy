@@ -41,3 +41,12 @@ func TestRegisterBackend_defaultsUnknownCredentialMode(t *testing.T) {
 		t.Fatalf("credential mode: got %q", profile.CredentialMode)
 	}
 }
+
+func TestBackendSecurityProfile_unregisteredFactoryIsNotFound(t *testing.T) {
+	t.Parallel()
+	reg := NewRegistry()
+	_, ok := reg.BackendSecurityProfile("factory-never-registered")
+	if ok {
+		t.Fatal("expected no profile for factory id that was never registered")
+	}
+}

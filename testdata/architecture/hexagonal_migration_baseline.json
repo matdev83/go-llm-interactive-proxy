@@ -47,6 +47,8 @@
       "go_list_pattern": "./internal/infra/runtimebundle",
       "classification": "extract",
       "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
@@ -71,6 +73,7 @@
       "go_list_pattern": "./internal/core/runtime",
       "classification": "aligned",
       "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",

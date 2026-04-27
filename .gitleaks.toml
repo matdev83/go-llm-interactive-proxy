@@ -1,0 +1,13 @@
+# Used when `gitleaks` is installed (scripts/check-staged-secrets.*).
+# Built-in rules stay enabled; global allowlists reduce false positives in fixtures.
+
+title = "go-llm-interactive-proxy gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures and golden files (any package testdata/ segment)"
+paths = [
+  '''(^|/)testdata/''',
+]

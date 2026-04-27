@@ -1,5 +1,10 @@
 # Example: multi-key credential pool vs. multiple backend *instances*.
 #
+# Network + access: `server.address: ":8080"` binds all interfaces. That requires access.mode
+# multi_user plus strong auth (see config/config.yaml commented scenarios). This file is an
+# upstream-credential layout example only — add access/auth blocks before using it as a full
+# production config, or narrow server.address to loopback for local experiments.
+#
 # - One runtime backend `id` is one upstream deployment (same adapter + base URL + parameters).
 #   Multiple API keys for that same target go in `api_key` + `api_keys` (ordered pool), not in
 #   extra backend rows. Numbered env vars (`OPENAI_API_KEY`, `OPENAI_API_KEY_2`, …) also map to

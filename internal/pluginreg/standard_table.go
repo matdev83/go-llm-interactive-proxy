@@ -25,6 +25,7 @@ import (
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
 )
 
@@ -80,6 +81,25 @@ func installFrontends(reg *Registry) error {
 	return nil
 }
 
+// standardFrontendAuthErrorRenderers is the extension point for optional per-wire-frontend renderers
+// (auth wire ids per stdhttp/auth DefaultFrontendIDFromRequest). Entries with nil Renderer are skipped.
+var standardFrontendAuthErrorRenderers []struct {
+	WireID   string
+	Renderer lipsdk.AuthErrorRenderer
+}
+
+func installStandardFrontendAuthErrorRenderers(reg *Registry) error {
+	for _, e := range standardFrontendAuthErrorRenderers {
+		if e.Renderer == nil {
+			continue
+		}
+		if err := reg.RegisterAuthErrorRenderer(e.WireID, e.Renderer); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var standardFeatureFactories = []struct {
 	ID      string
 	Factory FeatureFactory
@@ -114,6 +134,9 @@ func InstallStandardBundleOn(reg *Registry, keys UpstreamAPIKeys) error {
 		return err
 	}
 	if err := installFrontends(reg); err != nil {
+		return err
+	}
+	if err := installStandardFrontendAuthErrorRenderers(reg); err != nil {
 		return err
 	}
 	return installFeatures(reg)
