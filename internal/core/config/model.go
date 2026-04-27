@@ -29,6 +29,7 @@ type Config struct {
 	Hooks         HooksConfig         `yaml:"hooks"`
 	Plugins       PluginsConfig       `yaml:"plugins"`
 	ModelAliases  []ModelAliasConfig  `yaml:"model_aliases"`
+	ModelCatalog  ModelCatalogConfig  `yaml:"model_catalog"`
 }
 
 // DatabaseConfig is optional connection pool tuning for managed PostgreSQL handles
@@ -285,6 +286,11 @@ type SecureSessionConfig struct {
 	// principal id (not agent digest or first-message digest), so benign client metadata drift
 	// between turns does not invalidate bearer resumes.
 	ResumeTokenBindPrincipalOnly bool `yaml:"resume_token_bind_principal_only"`
+	// SQLQueryCacheTTL is a Go duration string enabling process-local TTL caching of session existence
+	// and transcript_enabled reads in durable SQL secure-session stores. Empty disables caching.
+	SQLQueryCacheTTL string `yaml:"sql_query_cache_ttl"`
+	// SQLQueryCacheMaxEntries caps entries per logical cache when SQLQueryCacheTTL is set; zero uses a store default.
+	SQLQueryCacheMaxEntries int `yaml:"sql_query_cache_max_entries"`
 }
 
 type ContinuityConfig struct {

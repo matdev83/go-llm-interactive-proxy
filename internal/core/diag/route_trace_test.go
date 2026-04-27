@@ -1,6 +1,7 @@
 package diag
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -39,4 +40,34 @@ func TestRouteTraceBuffer_nilAppendNoPanic(t *testing.T) {
 	t.Parallel()
 	var b *RouteTraceBuffer
 	b.Append(RouteTraceEntry{TraceID: "x"})
+}
+
+func TestRouteTraceEntry_catalogJSON(t *testing.T) {
+	t.Parallel()
+	e := RouteTraceEntry{
+		TraceID:  "t1",
+		Decision: "plan_candidate",
+		Detail:   "be:m",
+		Catalog: &RouteTraceCatalog{
+			MatchKind:  "exact",
+			FactSource: "catalog",
+		},
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got RouteTraceEntry
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v body=%q", err, string(b))
+	}
+	if got.TraceID != "t1" || got.Decision != "plan_candidate" || got.Detail != "be:m" {
+		t.Fatalf("top-level fields: %#v", got)
+	}
+	if got.Catalog == nil {
+		t.Fatal("expected catalog object in JSON")
+	}
+	if got.Catalog.MatchKind != "exact" || got.Catalog.FactSource != "catalog" {
+		t.Fatalf("catalog: %#v", got.Catalog)
+	}
 }

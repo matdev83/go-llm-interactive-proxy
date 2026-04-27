@@ -59,6 +59,10 @@ type Executor struct {
 	// CapsResolver, when set, supplies candidate-aware caps for negotiation; otherwise each
 	// Backend's ResolveCaps / Caps is used via [execbackend.EffectiveCaps].
 	CapsResolver capabilities.Resolver
+	// CatalogResolver, when set, supplies catalog/override facts and narrowed effective caps for negotiation.
+	CatalogResolver CatalogResolver
+	// EligibilityResolver, when set, applies context-limit checks after successful negotiation.
+	EligibilityResolver EligibilityResolver
 	// CandidateHealth, when set, supplies unhealthy routing keys merged into planner options.
 	CandidateHealth policy.CandidateHealth
 	// RouteObserver, when set, receives coarse routing decisions (non-blocking contract).
@@ -189,6 +193,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	session := &routing.SessionRoutingState{FirstRequestConsumed: aLeg.WeightedFirstConsumed}
 	excluded := map[string]struct{}{}
 	var lastReject lipapi.NegotiationResult
+	var contextLimitExhaustion bool
 	rng := e.rng()
 	for {
 		if err := ctx.Err(); err != nil {
@@ -207,6 +212,8 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			budget:      budget,
 			isRetryPath: false,
 			lastReject:  &lastReject,
+			// Persists across failover iterations so ExpandFailover can map to ErrAllCandidatesContextLimitExceeded.
+			isContextLimitExhaustion: &contextLimitExhaustion,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("executor: plan or open attempt: %w", err)

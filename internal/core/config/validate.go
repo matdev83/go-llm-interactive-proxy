@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -53,6 +54,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if err := validateSecureSession(cfg); err != nil {
+		return err
+	}
+	if err := validateModelCatalog(cfg); err != nil {
 		return err
 	}
 	return validateRoutingHealth(cfg)
@@ -186,6 +190,18 @@ func validateSecureSession(cfg *Config) error {
 			"secure_session.workspace_resolve_on_error: want fail_open or fail_closed, got %q",
 			ss.WorkspaceResolveOnError,
 		)
+	}
+	if ttlRaw := strings.TrimSpace(ss.SQLQueryCacheTTL); ttlRaw != "" {
+		d, err := time.ParseDuration(ttlRaw)
+		if err != nil {
+			return fmt.Errorf("secure_session.sql_query_cache_ttl: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("secure_session.sql_query_cache_ttl: must be a positive duration")
+		}
+	}
+	if ss.SQLQueryCacheMaxEntries < 0 {
+		return fmt.Errorf("secure_session.sql_query_cache_max_entries: must be >= 0")
 	}
 	return nil
 }
@@ -374,6 +390,16 @@ func validateDiagnosticsPaths(cfg *Config) error {
 	}
 	if err := add(mp); err != nil {
 		return err
+	}
+	mcd := strings.TrimSpace(cfg.ModelCatalog.DiagnosticsPath)
+	if mcd != "" {
+		if !strings.HasPrefix(mcd, "/") {
+			return fmt.Errorf("model_catalog.diagnostics_path: must start with /")
+		}
+		mcd = norm(mcd)
+		if err := add(mcd); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -569,4 +595,97 @@ func validateDatabaseConfig(cfg *Config) error {
 	}
 	_, err := ParseDatabasePoolSettings(cfg.Database)
 	return err
+}
+
+func validateModelCatalog(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	mc := &cfg.ModelCatalog
+	if mc.Enabled {
+		if strings.TrimSpace(mc.CachePath) == "" {
+			return fmt.Errorf("model_catalog.cache_path: required when model_catalog.enabled is true")
+		}
+	}
+	if mc.ExternalUpdatesEnabled {
+		if strings.TrimSpace(mc.CachePath) == "" {
+			return fmt.Errorf("model_catalog.cache_path: required when model_catalog.external_updates_enabled is true")
+		}
+		su := strings.TrimSpace(mc.SourceURL)
+		if su == "" {
+			return fmt.Errorf("model_catalog.source_url: required when model_catalog.external_updates_enabled is true")
+		}
+		u, err := url.Parse(su)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("model_catalog.source_url: invalid URL")
+		}
+		if u.Scheme != "https" {
+			return fmt.Errorf("model_catalog.source_url: want https URL when model_catalog.external_updates_enabled is true")
+		}
+		ui := strings.TrimSpace(mc.UpdateInterval)
+		d, err := time.ParseDuration(ui)
+		if err != nil {
+			return fmt.Errorf("model_catalog.update_interval: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("model_catalog.update_interval: must be positive when model_catalog.external_updates_enabled is true")
+		}
+	}
+	if su := strings.TrimSpace(mc.SourceURL); su != "" {
+		u, err := url.Parse(su)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("model_catalog.source_url: invalid URL")
+		}
+	}
+	ft := strings.TrimSpace(mc.FetchTimeout)
+	if ft != "" {
+		d, err := time.ParseDuration(ft)
+		if err != nil {
+			return fmt.Errorf("model_catalog.fetch_timeout: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("model_catalog.fetch_timeout: must be a positive duration when set")
+		}
+	}
+	posLimit := func(field string, v *int64) error {
+		if v == nil {
+			return nil
+		}
+		if *v <= 0 {
+			return fmt.Errorf("model_catalog: %s must be positive when set", field)
+		}
+		return nil
+	}
+	for i, row := range mc.ModelOverrides {
+		if strings.TrimSpace(row.Model) == "" {
+			return fmt.Errorf("model_catalog.model_overrides[%d].model: required", i)
+		}
+		if err := posLimit("context_limit_tokens", row.ContextLimitTokens); err != nil {
+			return err
+		}
+		if err := posLimit("input_limit_tokens", row.InputLimitTokens); err != nil {
+			return err
+		}
+		if err := posLimit("output_limit_tokens", row.OutputLimitTokens); err != nil {
+			return err
+		}
+	}
+	for i, row := range mc.BackendModelOverrides {
+		if strings.TrimSpace(row.Backend) == "" {
+			return fmt.Errorf("model_catalog.backend_model_overrides[%d].backend: required", i)
+		}
+		if strings.TrimSpace(row.Model) == "" {
+			return fmt.Errorf("model_catalog.backend_model_overrides[%d].model: required", i)
+		}
+		if err := posLimit("context_limit_tokens", row.ContextLimitTokens); err != nil {
+			return err
+		}
+		if err := posLimit("input_limit_tokens", row.InputLimitTokens); err != nil {
+			return err
+		}
+		if err := posLimit("output_limit_tokens", row.OutputLimitTokens); err != nil {
+			return err
+		}
+	}
+	return nil
 }

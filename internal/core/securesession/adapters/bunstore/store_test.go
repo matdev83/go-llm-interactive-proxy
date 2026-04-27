@@ -26,7 +26,7 @@ func TestNew_NilBunDB(t *testing.T) {
 
 func TestNewContext_NilContext(t *testing.T) {
 	t.Parallel()
-	_, err := NewContext(nil, nil)
+	_, err := NewContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
 	if err == nil {
 		t.Fatal("expected error for nil context")
 	}
@@ -153,6 +153,11 @@ var testMemDBSeq atomic.Int64
 
 func newTestStore(t *testing.T) (*Store, func()) {
 	t.Helper()
+	return newTestStoreWithOpts(t, Options{})
+}
+
+func newTestStoreWithOpts(t *testing.T, opts Options) (*Store, func()) {
+	t.Helper()
 	id := testMemDBSeq.Add(1)
 	dsn := fmt.Sprintf("file:mem%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
 	sqlDB, err := sql.Open("sqlite", dsn)
@@ -165,12 +170,118 @@ func newTestStore(t *testing.T) (*Store, func()) {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
-	st, err := New(bunDB)
+	st, err := NewContextWithOptions(context.Background(), bunDB, opts)
 	if err != nil {
 		_ = sqlDB.Close()
 		t.Fatal(err)
 	}
 	return st, func() { _ = st.Close() }
+}
+
+func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 50 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	defer cleanup()
+	fp := domain.TokenFingerprint{}
+	fp[0] = 1
+	cr := domain.CreateRecord{
+		SessionID: "bun-append-stale", ResumeFingerprint: fp,
+		Owner:     domain.PrincipalRef{ID: "o", Issuer: "i", Tenant: "t"},
+		Workspace: domain.WorkspaceRef{ID: "w"}, ClientHints: domain.ClientHints{},
+		Policy: domain.PolicyMetadata{
+			PolicyVersion: "p", TranscriptEnabled: true, EffectiveTreatment: "strict",
+			StricterPolicyResolution: "x", RouteHint: "", RedactionProfile: "r", AuditMode: "a",
+		},
+		ALegID: "a", CreatedAt: time.Unix(1, 0),
+	}
+	if _, err := st.Create(ctx, cr); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AppendTranscript(ctx, domain.TranscriptItem{
+		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e", PayloadRef: "p", CreatedAt: time.Unix(2, 0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE lip_secure_sessions SET transcript_enabled = 0 WHERE session_id = ?`, string(cr.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AppendTranscript(ctx, domain.TranscriptItem{
+		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e2", PayloadRef: "p2", CreatedAt: time.Unix(3, 0),
+	}); err != nil {
+		t.Fatalf("expected cached policy before TTL: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	err := st.AppendTranscript(ctx, domain.TranscriptItem{
+		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e3", PayloadRef: "p3", CreatedAt: time.Unix(4, 0),
+	})
+	if !errors.Is(err, domain.ErrTranscriptDisabled) {
+		t.Fatalf("want ErrTranscriptDisabled after TTL got %v", err)
+	}
+}
+
+func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 50 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	defer cleanup()
+
+	fp := domain.TokenFingerprint{}
+	fp[1] = 2
+	cr := domain.CreateRecord{
+		SessionID: "bun-transcript-stale", ResumeFingerprint: fp,
+		Owner:     domain.PrincipalRef{ID: "o", Issuer: "i", Tenant: "t"},
+		Workspace: domain.WorkspaceRef{ID: "w"}, ClientHints: domain.ClientHints{},
+		Policy: domain.PolicyMetadata{
+			PolicyVersion: "p", TranscriptEnabled: true, EffectiveTreatment: "strict",
+			StricterPolicyResolution: "x", RouteHint: "", RedactionProfile: "r", AuditMode: "a",
+		},
+		ALegID: "a", CreatedAt: time.Unix(1, 0),
+	}
+	if _, err := st.Create(ctx, cr); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AppendTranscript(ctx, domain.TranscriptItem{
+		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e", PayloadRef: "p", CreatedAt: time.Unix(2, 0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Transcript(ctx, cr.SessionID, domain.ReadOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE lip_secure_sessions SET transcript_enabled = 0 WHERE session_id = ?`, string(cr.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+	items, err := st.Transcript(ctx, cr.SessionID, domain.ReadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want stale read to still return transcript rows got len=%d", len(items))
+	}
+	time.Sleep(500 * time.Millisecond)
+	items2, err := st.Transcript(ctx, cr.SessionID, domain.ReadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items2) != 0 {
+		t.Fatalf("want empty after TTL refresh got len=%d", len(items2))
+	}
+}
+
+func TestBunStore_transcriptEnabledCached_missingRowMapsToSessionNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: time.Hour, SQLQueryCacheMaxEntries: 64})
+	defer cleanup()
+
+	sid := domain.SessionID("no-such-session-for-policy-read")
+	for range 2 {
+		_, err := st.transcriptEnabledCached(ctx, st.db, sid)
+		if !errors.Is(err, domain.ErrSessionNotFound) {
+			t.Fatalf("got %v want ErrSessionNotFound", err)
+		}
+	}
 }
 
 func TestSummary_returnsDomainFieldsOnly(t *testing.T) {

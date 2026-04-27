@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	ssessiondiag "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
@@ -201,7 +202,7 @@ func RunWithRuntime(
 		if rt != "" {
 			traceBuf := diag.NewRouteTraceBuffer(64)
 			exec.RouteTrace = traceBuf
-			rh, err := diag.RouteTraceHandler(traceBuf)
+			rh, err := diag.RouteTraceHandler(traceBuf, log)
 			if err != nil {
 				releaseClosers()
 				return fmt.Errorf("stdhttp: route trace handler: %w", err)
@@ -234,6 +235,7 @@ func RunWithRuntime(
 		mux.Handle("GET "+base, dh)
 		log.InfoContext(logCtx, "secure-session diagnostics mounted", "path", base)
 	}
+	mountModelCatalogDiagnostics(mux, cfg, log, built, logCtx)
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
 	var trafficPorts traffic.PortBundle
 	if built.RuntimeSnapshot != nil {
@@ -322,6 +324,35 @@ func RunWithRuntime(
 		app.Shutdown(shutdownCtx)
 		releaseClosers()
 		return fmt.Errorf("stdhttp: serve: %w", err)
+	}
+}
+
+func mountModelCatalogDiagnostics(mux *http.ServeMux, cfg *config.Config, log *slog.Logger, built *runtimebundle.Built, logCtx context.Context) {
+	if mux == nil || cfg == nil {
+		return
+	}
+	path := strings.TrimSpace(cfg.ModelCatalog.DiagnosticsPath)
+	if path == "" {
+		return
+	}
+	var rt *modelcatalog.CatalogRuntime
+	if built != nil {
+		rt = built.CatalogRuntime
+	}
+	var updateInterval time.Duration
+	if d, ok := cfg.ModelCatalog.UpdateIntervalDuration(); ok {
+		updateInterval = d
+	}
+	h := NewCatalogStatusHandler(log, modelcatalog.CatalogStatusHandlerConfig{
+		Runtime:                rt,
+		UsageEnabled:           cfg.ModelCatalog.Enabled,
+		ExternalUpdatesEnabled: cfg.ModelCatalog.ExternalUpdatesEnabled,
+		UpdateInterval:         updateInterval,
+		SourceURL:              cfg.ModelCatalog.SourceURL,
+	})
+	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+	if log != nil {
+		log.InfoContext(logCtx, "model catalog diagnostics mounted", "path", path)
 	}
 }
 

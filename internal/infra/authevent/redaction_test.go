@@ -45,7 +45,6 @@ func TestSlogEventSink_challengeSummary_redactsCredentialLikeText(t *testing.T) 
 func TestSlogEventSink_redaction_fixtureSecretsAbsent(t *testing.T) {
 	t.Parallel()
 	for i, secret := range testkit.AuthLeakFixtureSecrets() {
-		secret := secret
 		t.Run(fmt.Sprintf("case_%02d", i), func(t *testing.T) {
 			t.Parallel()
 			var buf bytes.Buffer

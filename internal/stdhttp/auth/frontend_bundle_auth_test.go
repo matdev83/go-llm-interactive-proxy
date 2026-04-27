@@ -56,7 +56,6 @@ func TestBundledFrontends_authRequired_missingBearer_terminatesWithJSONAndSkipsI
 		{"gemini", "/v1beta/models/gemini-2.0-flash:generateContent"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mux := http.NewServeMux()

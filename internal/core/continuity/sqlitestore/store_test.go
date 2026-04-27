@@ -12,7 +12,7 @@ import (
 
 func TestOpenContext_rejectsNilContext(t *testing.T) {
 	t.Parallel()
-	_, err := OpenContext(nil, ":memory:")
+	_, err := OpenContext(nil, ":memory:") //nolint:staticcheck // contract: nil ctx must be rejected
 	if err == nil {
 		t.Fatal("expected error")
 	}

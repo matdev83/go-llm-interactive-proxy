@@ -40,7 +40,8 @@ func TestPkgLipsdkAuthImportClosure_staysSDKLocal(t *testing.T) {
 
 func assertGoListImportsExclude(t *testing.T, goListPattern string, forbidden []struct {
 	sub, msg string
-}) {
+},
+) {
 	t.Helper()
 	cmd := exec.Command("go", "list", "-json", "-test=false", goListPattern)
 	cmd.Dir = repoRoot(t)

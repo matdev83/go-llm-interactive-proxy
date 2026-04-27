@@ -18,27 +18,28 @@ var bunContractMemSeq atomic.Int64
 
 func TestStoreContract_BunSQLite(t *testing.T) {
 	t.Parallel()
-	storecontract.RunAll(t, func(tb *testing.T) app.Store {
+	storecontract.RunAll(t, func(t *testing.T) app.Store {
+		t.Helper()
 		id := bunContractMemSeq.Add(1)
 		dsn := fmt.Sprintf("file:memcontract%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", id)
 		sqlDB, err := sql.Open("sqlite", dsn)
 		if err != nil {
-			tb.Fatal(err)
+			t.Fatal(err)
 		}
 		sqlDB.SetMaxOpenConns(1)
 		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		if err != nil {
 			_ = sqlDB.Close()
-			tb.Fatal(err)
+			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
 		s, err := bunstore.NewContext(ctx, bunDB)
 		if err != nil {
 			_ = sqlDB.Close()
-			tb.Fatal(err)
+			t.Fatal(err)
 		}
-		tb.Cleanup(func() { _ = s.Close() })
+		t.Cleanup(func() { _ = s.Close() })
 		return s
 	})
 }

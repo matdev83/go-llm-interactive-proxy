@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -40,4 +41,6 @@ type Built struct {
 	// AuthEventDispatcher emits auth decision and session-start events per config policy.
 	// Always non-nil after [Build]; the underlying sink may be nil when event delivery is disabled.
 	AuthEventDispatcher *auth.EventDispatcher
+	// CatalogRuntime is non-nil when model_catalog.enabled or external_updates_enabled started catalog I/O.
+	CatalogRuntime *modelcatalog.CatalogRuntime
 }

@@ -149,8 +149,10 @@ internal/infra/modelcatalog/modelsdev/
 - `internal/infra/runtimebundle/build.go` - build concrete catalog source/cache adapters, core catalog runtime, override resolver, wrapped capability resolver, eligibility resolver, and closers.
 - `internal/infra/runtimebundle/built.go` - expose catalog diagnostics/status provider for HTTP wiring.
 - `internal/stdhttp/server.go` - mount catalog diagnostics path when configured.
-- `internal/core/diag` new files - add a catalog status handler or DTO adapter if diagnostics are not served directly from modelcatalog.
-- `docs/capability-catalogs.md` - update operator and maintainer rules for models.dev plus overrides.
+- `internal/stdhttp/catalog_status_handler.go` - GET JSON catalog status via `modelcatalog.BuildCatalogDiagnosticsJSON`.
+- `internal/core/diag/route_trace.go` (extended) - optional `RouteTraceCatalog` metadata on route trace entries (`RouteTraceEntry.Catalog`).
+- `internal/core/modelcatalog/ports.go` - `ActiveSnapshotProvider` seam so `CatalogResolver` reads the **current** `CatalogRuntime` snapshot on each resolve (refresh affects subsequent decisions without swapping the resolver at the bundle).
+- `docs/capability-catalogs.md` - operator and maintainer rules for models.dev plus overrides.
 
 ## System Flows
 

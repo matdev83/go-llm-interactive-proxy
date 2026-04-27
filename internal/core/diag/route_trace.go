@@ -9,11 +9,23 @@ import (
 	"sync"
 )
 
+// RouteTraceCatalog is compact, content-free model-catalog routing metadata (optional; route trace only).
+type RouteTraceCatalog struct {
+	MatchKind      string `json:"match_kind,omitempty"`
+	FactSource     string `json:"fact_source,omitempty"`
+	MatchedModelID string `json:"matched_model_id,omitempty"`
+	EstimateBasis  string `json:"estimate_basis,omitempty"`
+	Eligibility    string `json:"eligibility,omitempty"`
+	Negotiation    string `json:"negotiation,omitempty"`
+}
+
 // RouteTraceEntry is one structured routing decision snapshot.
 type RouteTraceEntry struct {
 	TraceID  string `json:"trace_id"`
 	Decision string `json:"decision"`
 	Detail   string `json:"detail"`
+	// Catalog is set for plan_candidate when model-catalog hooks produced facts for the attempt.
+	Catalog *RouteTraceCatalog `json:"catalog,omitempty"`
 }
 
 // RouteTraceBuffer keeps a bounded FIFO of recent route-plan entries (debug only).
@@ -76,9 +88,13 @@ func (b *RouteTraceBuffer) Snapshot() []RouteTraceEntry {
 }
 
 // RouteTraceHandler serves GET JSON of buffered route traces.
-func RouteTraceHandler(buf *RouteTraceBuffer) (http.Handler, error) {
+// log is the server logger (encode failures are logged at error level); nil falls back to [slog.Default].
+func RouteTraceHandler(buf *RouteTraceBuffer, log *slog.Logger) (http.Handler, error) {
 	if buf == nil {
 		return nil, errors.New("diag: RouteTraceHandler: nil buffer")
+	}
+	if log == nil {
+		log = slog.Default()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -89,7 +105,7 @@ func RouteTraceHandler(buf *RouteTraceBuffer) (http.Handler, error) {
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(true)
 		if err := enc.Encode(buf.Snapshot()); err != nil {
-			slog.Default().Error("diag: route trace encode", "err", err)
+			log.ErrorContext(r.Context(), "diag: route trace encode", "err", err)
 		}
 	}), nil
 }

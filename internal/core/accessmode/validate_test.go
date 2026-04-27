@@ -24,7 +24,6 @@ func TestValidatePosture_singleUserLoopbackOnly(t *testing.T) {
 		{"non_loopback", ListenClassification{Raw: "192.168.0.1:1", Surface: SurfaceNonLoopback}, ErrSingleUserNonLoopback},
 		{"malformed", ListenClassification{Raw: "oops", Surface: SurfaceMalformed}, ErrSingleUserMalformedAddress},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidatePosture(PostureInput{Mode: ModeSingleUser, Listen: tc.l})
@@ -99,7 +98,6 @@ func TestValidatePosture_multiUserRequiresStrongAuth(t *testing.T) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		name := name
 		tc := cases[name]
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

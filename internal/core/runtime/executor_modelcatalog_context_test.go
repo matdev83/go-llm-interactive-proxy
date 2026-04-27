@@ -1,0 +1,234 @@
+package runtime_test
+
+import (
+	"context"
+	"errors"
+	"maps"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+type contextLimitCatalogResolver struct{}
+
+func (contextLimitCatalogResolver) Resolve(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call, backend lipapi.BackendCaps) modelcatalog.EffectiveFacts {
+	_ = ctx
+	_ = call
+	input := strings.TrimSpace(cand.Primary.Model)
+	be := maps.Clone(backend)
+	switch cand.Primary.Backend {
+	case "smallctx":
+		return modelcatalog.EffectiveFacts{
+			Facts: modelcatalog.ModelFacts{
+				Source:       modelcatalog.FactSourceCatalog,
+				MatchKind:    modelcatalog.MatchExact,
+				ContextLimit: modelcatalog.LimitFact{State: modelcatalog.LimitPresent, Tokens: 20},
+			},
+			BackendCaps:   backend,
+			EffectiveCaps: be,
+			Matched:       true,
+			Match:         modelcatalog.MatchResult{Kind: modelcatalog.MatchExact, InputModel: input, MatchedID: input},
+		}
+	case "bigctx":
+		return modelcatalog.EffectiveFacts{
+			Facts: modelcatalog.ModelFacts{
+				Source:       modelcatalog.FactSourceCatalog,
+				MatchKind:    modelcatalog.MatchExact,
+				ContextLimit: modelcatalog.LimitFact{State: modelcatalog.LimitPresent, Tokens: 1_000_000},
+			},
+			BackendCaps:   backend,
+			EffectiveCaps: be,
+			Matched:       true,
+			Match:         modelcatalog.MatchResult{Kind: modelcatalog.MatchExact, InputModel: input, MatchedID: input},
+		}
+	default:
+		return modelcatalog.EffectiveFacts{
+			Facts: modelcatalog.ModelFacts{
+				Source:    modelcatalog.FactSourceBackendDeclaration,
+				MatchKind: modelcatalog.MatchNoMatch,
+			},
+			BackendCaps:   backend,
+			EffectiveCaps: be,
+			Matched:       false,
+			Match:         modelcatalog.MatchResult{Kind: modelcatalog.MatchNoMatch, InputModel: input},
+		}
+	}
+}
+
+func longUserMessage(n int) []lipapi.Message {
+	text := strings.Repeat("x", n)
+	return []lipapi.Message{{
+		Role:  lipapi.RoleUser,
+		Parts: []lipapi.Part{lipapi.TextPart(text)},
+	}}
+}
+
+func TestExecutor_contextLimit_failoverToLargerLimitBackend(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	se := modelcatalog.DefaultSizeEstimator{}
+	el := modelcatalog.NewEligibilityResolver(se)
+	var opened string
+	ex := &runtime.Executor{
+		Store:               st,
+		Bus:                 hooks.New(hooks.Config{}),
+		Rand:                routing.NewSeededRng(2),
+		CatalogResolver:     contextLimitCatalogResolver{},
+		EligibilityResolver: el,
+		Backends: map[string]execbackend.Backend{
+			"smallctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					t.Fatal("smallctx must be skipped by context limit")
+					return nil, nil
+				},
+			},
+			"bigctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opened = "bigctx"
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "smallctx:m|bigctx:m"},
+		Messages: longUserMessage(100),
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != "bigctx" {
+		t.Fatalf("opened: %q", opened)
+	}
+	_, _ = lipapi.Collect(context.Background(), s)
+	_ = s.Close()
+}
+
+func TestExecutor_contextLimit_allCandidatesExcluded_returnsSentinel(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	se := modelcatalog.DefaultSizeEstimator{}
+	el := modelcatalog.NewEligibilityResolver(se)
+	ex := &runtime.Executor{
+		Store:               st,
+		Bus:                 hooks.New(hooks.Config{}),
+		Rand:                routing.NewSeededRng(3),
+		CatalogResolver:     contextLimitCatalogResolver{},
+		EligibilityResolver: el,
+		Backends: map[string]execbackend.Backend{
+			"smallctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					t.Fatal("must not open")
+					return nil, nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "smallctx:a|smallctx:b"},
+		Messages: longUserMessage(200),
+	}
+	_, err = ex.Execute(context.Background(), call)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsAllCandidatesContextLimitExceeded(err) && !errors.Is(err, lipapi.ErrAllCandidatesContextLimitExceeded) {
+		t.Fatalf("want context limit exhaustion, got %T %v", err, err)
+	}
+}
+
+// twoPhaseLimitAfterDowngradeResolver returns a strict context limit while the call still
+// requests reasoning (pre-negotiation), and a permissive limit after ApplyNegotiatedDowngrades clears it.
+// Eligibility must use the post-downgrade re-resolve; otherwise the first-phase limit would exclude the candidate.
+type twoPhaseLimitAfterDowngradeResolver struct{}
+
+func (twoPhaseLimitAfterDowngradeResolver) Resolve(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call, backend lipapi.BackendCaps) modelcatalog.EffectiveFacts {
+	_ = ctx
+	input := strings.TrimSpace(cand.Primary.Model)
+	be := maps.Clone(backend)
+	if strings.TrimSpace(call.Options.ReasoningEffort) != "" {
+		return modelcatalog.EffectiveFacts{
+			Facts: modelcatalog.ModelFacts{
+				Source:       modelcatalog.FactSourceCatalog,
+				MatchKind:    modelcatalog.MatchExact,
+				ContextLimit: modelcatalog.LimitFact{State: modelcatalog.LimitPresent, Tokens: 10},
+			},
+			BackendCaps:   be,
+			EffectiveCaps: be,
+			Matched:       true,
+			Match:         modelcatalog.MatchResult{Kind: modelcatalog.MatchExact, InputModel: input, MatchedID: input},
+		}
+	}
+	return modelcatalog.EffectiveFacts{
+		Facts: modelcatalog.ModelFacts{
+			Source:       modelcatalog.FactSourceCatalog,
+			MatchKind:    modelcatalog.MatchExact,
+			ContextLimit: modelcatalog.LimitFact{State: modelcatalog.LimitPresent, Tokens: 1_000_000},
+		},
+		BackendCaps:   be,
+		EffectiveCaps: be,
+		Matched:       true,
+		Match:         modelcatalog.MatchResult{Kind: modelcatalog.MatchExact, InputModel: input, MatchedID: input},
+	}
+}
+
+func TestExecutor_downgrade_reResolvesCatalogFactsBeforeEligibility(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	se := modelcatalog.DefaultSizeEstimator{}
+	el := modelcatalog.NewEligibilityResolver(se)
+	var opened string
+	ex := &runtime.Executor{
+		Store:               st,
+		Bus:                 hooks.New(hooks.Config{}),
+		Rand:                routing.NewSeededRng(7),
+		CatalogResolver:     twoPhaseLimitAfterDowngradeResolver{},
+		EligibilityResolver: el,
+		Backends: map[string]execbackend.Backend{
+			"only": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opened = "only"
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "only:m"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart(strings.Repeat("x", 50))},
+		}},
+		Options: lipapi.GenerationOptions{ReasoningEffort: "high"},
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != "only" {
+		t.Fatalf("opened backend %q (eligibility must use post-downgrade catalog facts)", opened)
+	}
+	_, _ = lipapi.Collect(context.Background(), s)
+	_ = s.Close()
+}

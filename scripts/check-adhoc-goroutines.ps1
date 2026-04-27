@@ -11,6 +11,7 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 $allowed = @(
     "internal/stdhttp/server.go"
     "internal/core/stream/keepalive.go"
+    "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)

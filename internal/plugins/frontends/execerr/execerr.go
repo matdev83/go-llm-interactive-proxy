@@ -16,6 +16,9 @@ const InternalWireMessage = "internal error"
 // Callers should pass only non-nil errors from ExecutorView.Execute; the nil case exists for defensive completeness.
 const UnknownExecuteErrorMessage = "unknown error"
 
+// ContextLimitExceededWireMessage is returned for [lipapi.ErrAllCandidatesContextLimitExceeded] (HTTP 413).
+const ContextLimitExceededWireMessage = "request exceeds context limits for all configured model routes"
+
 type Kind int
 
 const (
@@ -66,6 +69,14 @@ func ClassifyExecute(err error) Outcome {
 	}
 	if lipapi.IsReject(err) {
 		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: err.Error(), Err: err}
+	}
+	if lipapi.IsAllCandidatesContextLimitExceeded(err) {
+		return Outcome{
+			Kind:    KindClientReject,
+			Status:  http.StatusRequestEntityTooLarge,
+			Message: ContextLimitExceededWireMessage,
+			Err:     err,
+		}
 	}
 	return Outcome{Kind: KindInternalError, Status: http.StatusInternalServerError, Message: InternalWireMessage, Err: err}
 }

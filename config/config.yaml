@@ -119,6 +119,26 @@ routing:
 hooks:
   tool_reactor_error_policy: fail_open
 
+# Optional models.dev snapshot catalog (disabled by default). Operator guide: docs/capability-catalogs.md
+# model_catalog:
+#   enabled: false
+#   external_updates_enabled: false
+#   # Local JSON snapshot path (required when enabled or when external_updates_enabled needs a cache).
+#   cache_path: ./data/model_catalog.json
+#   # Background refresh (only when external_updates_enabled: true):
+#   # update_interval: 1h
+#   # source_url: "https://example.com/models.json"   # HTTPS recommended; see doc "Trust and exposure"
+#   # fetch_timeout: 30s   # optional extra bound when fetch context has no deadline (defense in depth)
+#   # diagnostics_path: /debug/model_catalog   # must start with /; must not overlap diagnostics.* paths
+#   # model_overrides:
+#   #   - model: "gpt-4o"
+#   #     tools: true
+#   #     context_limit_tokens: 128000
+#   # backend_model_overrides:
+#   #   - backend: "openai-responses"
+#   #     model: "gpt-4o-mini"
+#   #     reasoning: false
+
 continuity:
   in_memory: true
   store: memory
@@ -152,6 +172,12 @@ continuity:
 #   require_workspace_id: false   # when true, reject turns with no resolved workspace id (secure-session BeginTurn)
 #   workspace_resolve_on_error: fail_open   # fail_closed: workspace resolver errors deny the request (Req 11.6)
 #   resume_token_bind_principal_only: false # when true, resume fingerprints use only principal id (stable across client hint drift)
+#   # Optional: process-local TTL cache for durable SQL stores (sqlite/postgres) reducing repeated sessionExists /
+#   # transcript_enabled reads. Empty sql_query_cache_ttl disables caching (default). Short TTL trades fewer DB round
+#   # trips for brief staleness if transcript policy or session rows are mutated out-of-band; future admin mutation
+#   # APIs must invalidate this cache when added.
+#   # sql_query_cache_ttl: 30s
+#   # sql_query_cache_max_entries: 4096   # optional cap per logical cache; omit or zero uses 4096 when ttl is set
 
 plugins:
   frontends:

@@ -11,7 +11,7 @@ import (
 
 func TestOpenStoreContext_nilContext(t *testing.T) {
 	t.Parallel()
-	_, err := continuity.OpenStoreContext(nil, &config.Config{Continuity: config.ContinuityConfig{
+	_, err := continuity.OpenStoreContext(nil, &config.Config{Continuity: config.ContinuityConfig{ //nolint:staticcheck // contract: nil ctx
 		InMemory: true,
 		Store:    "memory",
 	}})

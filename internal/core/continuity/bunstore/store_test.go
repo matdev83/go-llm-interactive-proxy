@@ -28,7 +28,7 @@ func TestNew_NilBunDB(t *testing.T) {
 
 func TestNewContext_NilContext(t *testing.T) {
 	t.Parallel()
-	_, err := NewContext(nil, nil)
+	_, err := NewContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
 	if err == nil {
 		t.Fatal("expected error for nil context")
 	}
@@ -125,7 +125,7 @@ func TestResolveALeg_UpdatesLastSeen(t *testing.T) {
 		t.Fatal(err)
 	}
 	var second b2bua.ALegRecord
-	for attempt := 0; attempt < 50; attempt++ {
+	for range 50 {
 		second, err = st.ResolveALeg(ctx, "touch")
 		if err != nil {
 			t.Fatal(err)
@@ -335,11 +335,9 @@ func TestNextBLeg_MonotonicConcurrent(t *testing.T) {
 	seqs := make([]int, 0, workers*per)
 	var mu sync.Mutex
 	var firstErr error
-	for w := 0; w < workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < per; i++ {
+	for range workers {
+		wg.Go(func() {
+			for range per {
 				bl, err := st.NextBLeg(ctx, leg.ALegID)
 				if err != nil {
 					mu.Lock()
@@ -353,7 +351,7 @@ func TestNextBLeg_MonotonicConcurrent(t *testing.T) {
 				seqs = append(seqs, bl.Seq)
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if firstErr != nil {
@@ -469,7 +467,7 @@ func TestLoadAttempts_Ordering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		bl, err := st.NextBLeg(ctx, leg.ALegID)
 		if err != nil {
 			t.Fatal(err)
