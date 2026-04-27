@@ -9,10 +9,10 @@ import (
 
 // EligibilityDecision is the routing-time outcome for context limits before backend open.
 type EligibilityDecision struct {
-	IsEligible bool `json:"eligible,omitempty"`
-	Reason     EligibilityReason
-	Facts      EffectiveFacts
-	Estimate   SizeEstimate
+	IsEligible bool              `json:"eligible"`
+	Reason     EligibilityReason `json:"reason,omitempty"`
+	Facts      EffectiveFacts    `json:"facts,omitempty"`
+	Estimate   SizeEstimate      `json:"estimate,omitempty"`
 }
 
 // EligibilityResolverImpl decides context-limit eligibility from already-resolved [EffectiveFacts]

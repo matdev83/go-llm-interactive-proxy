@@ -181,7 +181,7 @@ func newTestStoreWithOpts(t *testing.T, opts Options) (*Store, func()) {
 func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 120 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 50 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
 	defer cleanup()
 	fp := domain.TokenFingerprint{}
 	fp[0] = 1
@@ -211,10 +211,11 @@ func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("expected cached policy before TTL: %v", err)
 	}
-	time.Sleep(150 * time.Millisecond)
-	if err := st.AppendTranscript(ctx, domain.TranscriptItem{
+	time.Sleep(500 * time.Millisecond)
+	err := st.AppendTranscript(ctx, domain.TranscriptItem{
 		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e3", PayloadRef: "p3", CreatedAt: time.Unix(4, 0),
-	}); err != domain.ErrTranscriptDisabled {
+	})
+	if !errors.Is(err, domain.ErrTranscriptDisabled) {
 		t.Fatalf("want ErrTranscriptDisabled after TTL got %v", err)
 	}
 }
@@ -222,7 +223,7 @@ func TestBunStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 120 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: 50 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
 	defer cleanup()
 
 	fp := domain.TokenFingerprint{}
@@ -258,7 +259,7 @@ func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.
 	if len(items) != 1 {
 		t.Fatalf("want stale read to still return transcript rows got len=%d", len(items))
 	}
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	items2, err := st.Transcript(ctx, cr.SessionID, domain.ReadOptions{})
 	if err != nil {
 		t.Fatal(err)

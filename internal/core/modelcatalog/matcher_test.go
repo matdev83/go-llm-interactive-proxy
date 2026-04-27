@@ -121,3 +121,14 @@ func TestMatcher_Match_nilIndex(t *testing.T) {
 		t.Fatal(got.Kind)
 	}
 }
+
+func TestDefaultMatcher_emptyInputNoMatch(t *testing.T) {
+	t.Parallel()
+	idx := modelcatalog.NewSnapshotIndex(map[string]modelcatalog.ModelFacts{
+		"openai/": {Tools: modelcatalog.CapabilitySupported},
+	})
+	got := modelcatalog.DefaultMatcher{}.Match(routing.AttemptCandidate{Primary: routing.Primary{Model: "  "}}, idx)
+	if got.Kind != modelcatalog.MatchNoMatch {
+		t.Fatalf("kind = %v", got.Kind)
+	}
+}

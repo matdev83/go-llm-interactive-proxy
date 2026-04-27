@@ -342,6 +342,49 @@ model_catalog:
 	}
 }
 
+func TestLoadFile_modelCatalog_rejectsBackendModelOverrideEmptyModel(t *testing.T) {
+	t.Parallel()
+	cache := yamlPath(filepath.Join(t.TempDir(), "c.json"))
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	body := minimalLoadableYAML + `
+model_catalog:
+  enabled: true
+  cache_path: "` + cache + `"
+  backend_model_overrides:
+    - backend: "b1"
+      model: ""
+`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.LoadFile(p)
+	if err == nil || !strings.Contains(err.Error(), "model_catalog.backend_model_overrides") {
+		t.Fatalf("want backend_model_overrides error, got %v", err)
+	}
+}
+
+func TestLoadFile_modelCatalog_rejectsBackendOverrideNonPositiveContextLimit(t *testing.T) {
+	t.Parallel()
+	cache := yamlPath(filepath.Join(t.TempDir(), "c.json"))
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	body := minimalLoadableYAML + `
+model_catalog:
+  enabled: true
+  cache_path: "` + cache + `"
+  backend_model_overrides:
+    - backend: "b1"
+      model: "m1"
+      context_limit_tokens: 0
+`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.LoadFile(p)
+	if err == nil || !strings.Contains(err.Error(), "context_limit_tokens") {
+		t.Fatalf("want context_limit_tokens error, got %v", err)
+	}
+}
+
 func TestLoadFile_modelCatalog_omittedIsDisabled(t *testing.T) {
 	t.Parallel()
 	p := filepath.Join(t.TempDir(), "cfg.yaml")

@@ -69,6 +69,8 @@ func RedactSourceURL(raw string) string {
 		return "redacted:invalid"
 	}
 	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
 	return strings.TrimSpace(u.String())
 }
 

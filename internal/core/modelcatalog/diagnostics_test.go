@@ -19,6 +19,14 @@ func TestRedactSourceURL_stripsUserinfo(t *testing.T) {
 	}
 }
 
+func TestRedactSourceURL_stripsQueryFragmentAndUserinfo(t *testing.T) {
+	t.Parallel()
+	got := RedactSourceURL("https://user:secret@example.com/models.json?api_key=hidden#token")
+	if got != "https://example.com/models.json" {
+		t.Fatalf("redacted URL = %q", got)
+	}
+}
+
 func TestBuildCatalogDiagnosticsJSON_usageDisabled(t *testing.T) {
 	t.Parallel()
 	v := BuildCatalogDiagnosticsJSON(CatalogStatusHandlerConfig{UsageEnabled: false})

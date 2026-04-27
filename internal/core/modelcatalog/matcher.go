@@ -28,7 +28,7 @@ var _ Matcher = DefaultMatcher{}
 // Match implements [Matcher].
 func (DefaultMatcher) Match(candidate routing.AttemptCandidate, index *SnapshotIndex) MatchResult {
 	input := strings.TrimSpace(candidate.Primary.Model)
-	if index == nil {
+	if index == nil || input == "" {
 		return MatchResult{Kind: MatchNoMatch, InputModel: input}
 	}
 	if _, ok := index.byCatalogModelID[input]; ok {

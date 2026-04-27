@@ -123,7 +123,7 @@ func limitFromNumber(n json.Number) modelcatalog.LimitFact {
 	v, err := n.Int64()
 	if err != nil {
 		f, ferr := n.Float64()
-		if ferr != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) || f > float64(math.MaxInt64) {
+		if ferr != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) || f >= float64(math.MaxInt64) {
 			return modelcatalog.LimitFact{State: modelcatalog.LimitUnknown}
 		}
 		v = int64(f)

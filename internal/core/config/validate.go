@@ -674,6 +674,12 @@ func validateModelCatalog(cfg *Config) error {
 		if strings.TrimSpace(row.Backend) == "" {
 			return fmt.Errorf("model_catalog.backend_model_overrides[%d].backend: required", i)
 		}
+		if strings.TrimSpace(row.Model) == "" {
+			return fmt.Errorf("model_catalog.backend_model_overrides[%d].model: required", i)
+		}
+		if err := posLimit("context_limit_tokens", row.ContextLimitTokens); err != nil {
+			return err
+		}
 		if err := posLimit("input_limit_tokens", row.InputLimitTokens); err != nil {
 			return err
 		}

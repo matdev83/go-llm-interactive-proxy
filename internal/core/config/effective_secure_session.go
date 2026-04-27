@@ -19,7 +19,7 @@ func EffectiveSecureSessionSQLQueryCache(ss SecureSessionConfig) (ttl time.Durat
 		return 0, 0, false
 	}
 	me := ss.SQLQueryCacheMaxEntries
-	if me == 0 {
+	if me <= 0 {
 		me = defaultSecureSessionSQLQueryCacheMaxEntries
 	}
 	return d, uint64(me), true

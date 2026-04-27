@@ -261,10 +261,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	catalogRuntime, err := attachModelCatalog(parent, exec, &closers, cfg, upstream)
 	if err != nil {
+		wrapped := fmt.Errorf("runtimebundle: model catalog: %w", err)
 		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(err, derr)
+			return nil, errors.Join(wrapped, derr)
 		}
-		return nil, fmt.Errorf("runtimebundle: model catalog: %w", err)
+		return nil, wrapped
 	}
 	return &Built{
 		Executor:              exec,
