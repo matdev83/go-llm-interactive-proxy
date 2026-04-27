@@ -1,5 +1,30 @@
 package config
 
+import (
+	"strings"
+	"time"
+)
+
+const defaultSecureSessionSQLQueryCacheMaxEntries = 4096
+
+// EffectiveSecureSessionSQLQueryCache returns parsed TTL and capacity for durable secure-session SQL metadata caches.
+// enabled is false when sql_query_cache_ttl is empty. Max entries zero coerces to defaultSecureSessionSQLQueryCacheMaxEntries.
+func EffectiveSecureSessionSQLQueryCache(ss SecureSessionConfig) (ttl time.Duration, maxEntries uint64, enabled bool) {
+	raw := strings.TrimSpace(ss.SQLQueryCacheTTL)
+	if raw == "" {
+		return 0, 0, false
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, 0, false
+	}
+	me := ss.SQLQueryCacheMaxEntries
+	if me == 0 {
+		me = defaultSecureSessionSQLQueryCacheMaxEntries
+	}
+	return d, uint64(me), true
+}
+
 func (c *Config) SecureSessionEffectivelyEnabled() bool {
 	if c == nil {
 		return false

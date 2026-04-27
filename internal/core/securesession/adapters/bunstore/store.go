@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/uptrace/bun"
@@ -28,7 +29,8 @@ func opErr(op string, err error) error {
 
 // Store persists secure-session state using Bun.
 type Store struct {
-	db *bun.DB
+	db   *bun.DB
+	meta *sessionMetaCache
 }
 
 var (
@@ -44,6 +46,11 @@ func New(db *bun.DB) (*Store, error) {
 
 // NewContext returns a Store backed by db after applying schema, honoring ctx for migrate DDL.
 func NewContext(ctx context.Context, db *bun.DB) (*Store, error) {
+	return NewContextWithOptions(ctx, db, Options{})
+}
+
+// NewContextWithOptions returns a Store like [NewContext] with optional tuning.
+func NewContextWithOptions(ctx context.Context, db *bun.DB, opts Options) (*Store, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("securesession/bunstore: nil context")
 	}
@@ -54,6 +61,13 @@ func NewContext(ctx context.Context, db *bun.DB) (*Store, error) {
 	if err := runSecureSessionSchemaMigrate(ctx, db); err != nil {
 		return nil, opErr("new", err)
 	}
+	if opts.SQLQueryCacheTTL > 0 {
+		cap := uint64(opts.SQLQueryCacheMaxEntries)
+		if cap == 0 {
+			cap = 4096
+		}
+		s.meta = newSessionMetaCache(opts.SQLQueryCacheTTL, cap)
+	}
 	return s, nil
 }
 
@@ -63,6 +77,34 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+func (s *Store) invalidateSessionMetaCache(id domain.SessionID) {
+	if s.meta != nil {
+		s.meta.invalidate(id)
+	}
+}
+
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func (s *Store) transcriptEnabledCached(ctx context.Context, q rowQuerier, id domain.SessionID) (bool, error) {
+	if s.meta != nil {
+		if it := s.meta.transcript.Get(id); it != nil {
+			return it.Value(), nil
+		}
+	}
+	var te int
+	err := q.QueryRowContext(ctx, `SELECT transcript_enabled FROM lip_secure_sessions WHERE session_id = ?`, string(id)).Scan(&te)
+	if err != nil {
+		return false, err
+	}
+	en := te != 0
+	if s.meta != nil {
+		s.meta.transcript.Set(id, en, ttlcache.DefaultTTL)
+	}
+	return en, nil
 }
 
 func mapUniqueErr(err error) error {
@@ -204,6 +246,9 @@ func (s *Store) Create(ctx context.Context, rec domain.CreateRecord) (domain.Rec
 	if err != nil {
 		return domain.Record{}, mapUniqueErr(err)
 	}
+	if s.meta != nil {
+		s.meta.seedAfterCreate(rec.SessionID, rec.Policy.TranscriptEnabled)
+	}
 	return s.LoadByID(ctx, rec.SessionID)
 }
 
@@ -248,6 +293,7 @@ func (s *Store) TouchActivity(ctx context.Context, id domain.SessionID, at time.
 		return opErr("touch rows affected", err)
 	}
 	if n == 0 {
+		s.invalidateSessionMetaCache(id)
 		return domain.ErrSessionNotFound
 	}
 	return nil
@@ -277,6 +323,7 @@ func (s *Store) AppendAttemptTrace(ctx context.Context, trace domain.AttemptTrac
 		)
 		if err != nil {
 			if isFKConstraintErr(err) {
+				s.invalidateSessionMetaCache(trace.SessionID)
 				return domain.ErrSessionNotFound
 			}
 			return opErr("insert attempt trace", err)
@@ -293,6 +340,7 @@ func (s *Store) AppendAttemptTrace(ctx context.Context, trace domain.AttemptTrac
 			return opErr("update session trace rows affected", err)
 		}
 		if n == 0 {
+			s.invalidateSessionMetaCache(trace.SessionID)
 			return domain.ErrSessionNotFound
 		}
 		return nil
@@ -390,15 +438,14 @@ func (s *Store) AppendTranscript(ctx context.Context, item domain.TranscriptItem
 			return opErr("transcript lock session rows affected", err)
 		}
 		if n == 0 {
+			s.invalidateSessionMetaCache(item.SessionID)
 			return domain.ErrSessionNotFound
 		}
-		var te int
-		err = tx.QueryRowContext(ctx, `SELECT transcript_enabled FROM lip_secure_sessions WHERE session_id = ?`,
-			string(item.SessionID)).Scan(&te)
+		enabled, err := s.transcriptEnabledCached(ctx, tx, item.SessionID)
 		if err != nil {
 			return opErr("transcript policy read", err)
 		}
-		if te == 0 {
+		if !enabled {
 			return domain.ErrTranscriptDisabled
 		}
 		var nextSeq int64
@@ -438,6 +485,7 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 			return opErr("usage update totals rows affected", err)
 		}
 		if n == 0 {
+			s.invalidateSessionMetaCache(delta.SessionID)
 			return domain.ErrSessionNotFound
 		}
 		now := time.Now().UnixNano()
@@ -521,6 +569,7 @@ func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {
 			return opErr("append audit lock session rows affected", err)
 		}
 		if n == 0 {
+			s.invalidateSessionMetaCache(item.SessionID)
 			return domain.ErrSessionNotFound
 		}
 		var nextSeq int64
@@ -536,6 +585,7 @@ func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {
 		)
 		if err != nil {
 			if isFKConstraintErr(err) {
+				s.invalidateSessionMetaCache(item.SessionID)
 				return domain.ErrSessionNotFound
 			}
 			return opErr("append audit", err)
@@ -594,13 +644,24 @@ func (s *Store) Audit(ctx context.Context, id domain.SessionID, opts domain.Read
 }
 
 func (s *Store) sessionExists(ctx context.Context, id domain.SessionID) (bool, error) {
+	if s.meta != nil {
+		if it := s.meta.exists.Get(id); it != nil {
+			return it.Value(), nil
+		}
+	}
 	var one int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM lip_secure_sessions WHERE session_id = ?`, string(id)).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
+		if s.meta != nil {
+			s.meta.exists.Set(id, false, ttlcache.DefaultTTL)
+		}
 		return false, nil
 	}
 	if err != nil {
 		return false, opErr("session exists", err)
+	}
+	if s.meta != nil {
+		s.meta.exists.Set(id, true, ttlcache.DefaultTTL)
 	}
 	return true, nil
 }
@@ -616,11 +677,11 @@ func (s *Store) Transcript(ctx context.Context, id domain.SessionID, opts domain
 	if !ok {
 		return nil, domain.ErrSessionNotFound
 	}
-	var te int
-	if err := s.db.QueryRowContext(ctx, `SELECT transcript_enabled FROM lip_secure_sessions WHERE session_id = ?`, string(id)).Scan(&te); err != nil {
+	enabled, err := s.transcriptEnabledCached(ctx, s.db, id)
+	if err != nil {
 		return nil, opErr("transcript policy", err)
 	}
-	if te == 0 {
+	if !enabled {
 		return []domain.TranscriptItem{}, nil
 	}
 	q := `SELECT seq, turn_id, event_kind, payload_ref, created_at_unix FROM lip_secure_transcript
@@ -878,6 +939,7 @@ func (s *Store) UsageTokenTotals(ctx context.Context, id domain.SessionID) (int6
 		`SELECT usage_in, usage_out FROM lip_secure_sessions WHERE session_id = ?`, string(id),
 	).Scan(&in, &out)
 	if errors.Is(err, sql.ErrNoRows) {
+		s.invalidateSessionMetaCache(id)
 		return 0, 0, domain.ErrSessionNotFound
 	}
 	if err != nil {

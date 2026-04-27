@@ -164,7 +164,12 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		if p == "" {
 			return nil, fmt.Errorf("runtimebundle: secure_session.sqlite_path is required for store sqlite")
 		}
-		db, err := sqlite.OpenContext(startupCtx, p)
+		sqlOpts := sqlite.Options{}
+		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
+			sqlOpts.SQLQueryCacheTTL = ttl
+			sqlOpts.SQLQueryCacheMaxEntries = int(maxE)
+		}
+		db, err := sqlite.OpenContextWithOptions(startupCtx, p, sqlOpts)
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: open secure session sqlite: %w", err)
 		}
@@ -221,7 +226,12 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: secure_session: open postgres store: %w", err)
 		}
-		st, err := bunstore.NewContext(child, bunDB)
+		bunOpts := bunstore.Options{}
+		if ttl, maxE, ok := config.EffectiveSecureSessionSQLQueryCache(*ss); ok {
+			bunOpts.SQLQueryCacheTTL = ttl
+			bunOpts.SQLQueryCacheMaxEntries = int(maxE)
+		}
+		st, err := bunstore.NewContextWithOptions(child, bunDB, bunOpts)
 		if err != nil {
 			schemaErr := fmt.Errorf("runtimebundle: secure_session: prepare postgres schema: %w", err)
 			if cerr := bunDB.Close(); cerr != nil {

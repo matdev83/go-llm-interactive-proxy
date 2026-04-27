@@ -187,6 +187,18 @@ func validateSecureSession(cfg *Config) error {
 			ss.WorkspaceResolveOnError,
 		)
 	}
+	if ttlRaw := strings.TrimSpace(ss.SQLQueryCacheTTL); ttlRaw != "" {
+		d, err := time.ParseDuration(ttlRaw)
+		if err != nil {
+			return fmt.Errorf("secure_session.sql_query_cache_ttl: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("secure_session.sql_query_cache_ttl: must be a positive duration")
+		}
+	}
+	if ss.SQLQueryCacheMaxEntries < 0 {
+		return fmt.Errorf("secure_session.sql_query_cache_max_entries: must be >= 0")
+	}
 	return nil
 }
 
