@@ -97,6 +97,16 @@ func TestFrontendIDFromContext_emptyStored(t *testing.T) {
 	}
 }
 
+func TestWithFrontendID_whitespaceDoesNotClobberParent(t *testing.T) {
+	t.Parallel()
+	parent := execview.WithFrontendID(context.Background(), "openai")
+	ctx := execview.WithFrontendID(parent, "   ")
+	id, ok := execview.FrontendIDFromContext(ctx)
+	if !ok || id != "openai" {
+		t.Fatalf("whitespace id must not clear parent, got %q ok=%v", id, ok)
+	}
+}
+
 func TestWithFrontendID_nilParent_usesTODO(t *testing.T) {
 	t.Parallel()
 	ctx := execview.WithFrontendID(

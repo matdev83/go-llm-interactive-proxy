@@ -14,7 +14,7 @@ fi
 
 if command -v gitleaks >/dev/null 2>&1; then
 	echo "Running gitleaks on staged changes..."
-	if gitleaks protect --staged --verbose; then
+	if gitleaks git --pre-commit --staged --verbose; then
 		exit 0
 	fi
 	echo "gitleaks reported potential secrets. Fix or allowlist in .gitleaks.toml, then restage." >&2

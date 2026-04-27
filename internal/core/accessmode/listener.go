@@ -29,12 +29,14 @@ type ListenClassification struct {
 func ClassifyListenAddress(raw string) (ListenClassification, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return ListenClassification{Raw: raw, Surface: SurfaceMalformed}, nil
+		return ListenClassification{Raw: raw, Surface: SurfaceMalformed}, ErrMalformedListenAddress
 	}
 
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {
-		// Bare IP or hostname without a port (legacy configs); treat like host-only.
+		// Bare IP or hostname without a port (legacy configs): classify surface with empty Port.
+		// Other validation may require an explicit port (host:port) and map port-less values to
+		// [SurfaceMalformed] with [ErrMalformedListenAddress] instead of this path.
 		h := strings.TrimSpace(s)
 		if ip := net.ParseIP(h); ip != nil {
 			switch {
@@ -49,13 +51,14 @@ func ClassifyListenAddress(raw string) (ListenClassification, error) {
 		if strings.EqualFold(h, "localhost") {
 			return ListenClassification{Raw: raw, Host: h, Port: port, Surface: SurfaceLoopback}, nil
 		}
-		return ListenClassification{Raw: raw, Surface: SurfaceMalformed}, nil
+		// Legacy bare host without port is supported above for IPs/localhost; other shapes are malformed.
+		return ListenClassification{Raw: raw, Surface: SurfaceMalformed}, ErrMalformedListenAddress
 	}
 
 	host = strings.TrimSpace(host)
 	port = strings.TrimSpace(port)
 	if port == "" {
-		return ListenClassification{Raw: raw, Surface: SurfaceMalformed}, nil
+		return ListenClassification{Raw: raw, Surface: SurfaceMalformed}, ErrMalformedListenAddress
 	}
 
 	// All IPv4 interfaces or IPv6 unspecified.

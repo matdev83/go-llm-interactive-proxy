@@ -2,6 +2,7 @@ package accessmode
 
 import (
 	"errors"
+	"sort"
 	"testing"
 )
 
@@ -59,7 +60,7 @@ func TestValidatePosture_multiUserRequiresStrongAuth(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for name, tc := range map[string]struct {
+	cases := map[string]struct {
 		in   PostureInput
 		want error
 	}{
@@ -91,9 +92,20 @@ func TestValidatePosture_multiUserRequiresStrongAuth(t *testing.T) {
 			},
 			want: ErrMultiUserIncompatibleNoAuth,
 		},
-	} {
-		if err := ValidatePosture(tc.in); err == nil || !errors.Is(err, tc.want) {
-			t.Fatalf("%s: want %v, got %v", name, tc.want, err)
-		}
+	}
+	names := make([]string, 0, len(cases))
+	for n := range cases {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		name := name
+		tc := cases[name]
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidatePosture(tc.in); err == nil || !errors.Is(err, tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, err)
+			}
+		})
 	}
 }

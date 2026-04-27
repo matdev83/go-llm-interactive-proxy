@@ -35,7 +35,7 @@ func mergeAuthErrorRenderersByFrontend(reg *pluginreg.Registry, opts *BuildOptio
 			if v == nil {
 				continue
 			}
-			kk := strings.TrimSpace(k)
+			kk := strings.ToLower(strings.TrimSpace(k))
 			if kk == "" {
 				continue
 			}
@@ -47,7 +47,7 @@ func mergeAuthErrorRenderersByFrontend(reg *pluginreg.Registry, opts *BuildOptio
 			if v == nil {
 				continue
 			}
-			kk := strings.TrimSpace(k)
+			kk := strings.ToLower(strings.TrimSpace(k))
 			if kk == "" {
 				continue
 			}
@@ -113,7 +113,21 @@ func composeHTTPAuthProviders(cfg *config.Config, log *slog.Logger, opts *BuildO
 		if osIdent == nil {
 			osIdent = &osidentity.Provider{}
 		}
-		pa.Noop = coreauth.LocalNoOpAuthenticator{OS: osIdent}
+		noop := coreauth.LocalNoOpAuthenticator{OS: osIdent}
+		if log != nil {
+			noop.OnOSIdentityFallback = func(ctx context.Context, err error, hadProvider bool) {
+				if !hadProvider {
+					log.WarnContext(ctx, "auth: local_noop OS identity provider unset; using fallback principal",
+						"fallback_principal", coreauth.LocalUnknownOSPrincipalID)
+					return
+				}
+				if err != nil {
+					log.WarnContext(ctx, "auth: local_noop OS identity lookup failed; using fallback principal",
+						"error", err, "fallback_principal", coreauth.LocalUnknownOSPrincipalID)
+				}
+			}
+		}
+		pa.Noop = noop
 
 	case sdkauth.HandlerLocalAPIKey:
 		ak, err := coreauth.NewLocalAPIKeyAuthenticator(localAPIKeyRecordsForAuth(cfg.Auth.LocalAPIKeys))

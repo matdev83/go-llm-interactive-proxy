@@ -2,7 +2,6 @@ package config_test
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
@@ -40,8 +39,8 @@ func TestValidate_auth_localAPIKey_rejectsIncompleteRecord(t *testing.T) {
 		Plugins:    minimalPlugins(),
 	}
 	err := config.Validate(cfg)
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "key") {
-		t.Fatalf("want key validation error, got %v", err)
+	if err == nil || !errors.Is(err, coreauth.ErrLocalAPIKeyEmpty) {
+		t.Fatalf("want %v, got %v", coreauth.ErrLocalAPIKeyEmpty, err)
 	}
 }
 

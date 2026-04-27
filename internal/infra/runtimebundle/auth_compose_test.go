@@ -166,6 +166,52 @@ func TestBuild_registryAuthErrorRendererByFrontend_wiresPolicyProvider(t *testin
 	}
 }
 
+func TestBuild_authErrorRenderers_registryIdCaseFoldsToLower(t *testing.T) {
+	t.Parallel()
+	reg := pluginreg.NewRegistry()
+	// Intentional mixed case; merge must resolve the same key as "openai_compatible" from requests.
+	if err := reg.RegisterAuthErrorRenderer("OpenAI_Compatible", wireRendererA{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	var empty yaml.Node
+	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{
+				Kind: "openai-responses", ID: "openai-only", Enabled: true, Config: empty,
+			}},
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
+	if !ok {
+		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
+	}
+	rend, ok := pp.RendererByFrontend["openai_compatible"]
+	if !ok || rend == nil {
+		t.Fatalf("lowercase key must work after register with mixed case: %#v", pp.RendererByFrontend)
+	}
+	out := rend.RenderAuthError(context.Background(), httpauth.AuthErrorRenderInput{})
+	if string(out.Body) != "A" {
+		t.Fatalf("renderer: %q", out.Body)
+	}
+}
+
 func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()

@@ -124,9 +124,9 @@ func TestPolicyProvider_deny_doesNotReachInner(t *testing.T) {
 	if sawInner {
 		t.Fatal("inner ran")
 	}
-	if rec.Code != http.StatusUnauthorized && rec.Code != http.StatusForbidden {
-		// default renderer may map to 401
-		_ = rec.Code
+	if rec.Code != http.StatusUnauthorized {
+		// local_api_key + missing/invalid key maps to 401 via default terminal status
+		t.Fatalf("code %d want 401 (Unauthorized) for missing_api_key deny", rec.Code)
 	}
 	if len(sink.events) != 1 {
 		t.Fatalf("events: %d", len(sink.events))

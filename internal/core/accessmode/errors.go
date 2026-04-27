@@ -19,3 +19,7 @@ var (
 	ErrMultiUserUnknownRequiredLevel = errors.New("access.mode: multi_user unknown auth.required_level")
 	ErrMultiUserInternalUnknownMode  = errors.New("access.mode: internal error, unknown mode")
 )
+
+// ErrMalformedListenAddress is returned by [ClassifyListenAddress] when the address is not
+// a usable host:port bind string (e.g. empty, missing port, or unparseable).
+var ErrMalformedListenAddress = errors.New("accessmode: malformed listen address")

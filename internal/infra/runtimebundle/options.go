@@ -46,7 +46,7 @@ type BuildOptions struct {
 	// auth is applied. Custom binaries must supply an equivalent policy chain; [cmd/lipstd] does
 	// not set this field unless you intentionally replace transport auth at the composition root.
 	HTTPAuthProviders []httpauth.Provider
-	// AuthEventSink implements [auth.EventSink] when auth.event_delivery is "custom"; otherwise ignored.
+	// AuthEventSink implements [auth.EventSink] when auth.event_delivery is "custom". If set for other delivery modes, [Build] returns [ErrAuthEventSinkDisallowed].
 	// For default/disabled delivery the dispatcher uses an internal slog sink or nil per config.
 	AuthEventSink auth.EventSink
 	// RemoteDecider is required when the effective auth handler is remote or required_level is api_key_sso.

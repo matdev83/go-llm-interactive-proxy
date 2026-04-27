@@ -8,7 +8,8 @@ type InboundCallMeta struct {
 	Frontend string
 	Method   string
 	Path     string
-	// ClientAddr is a transport-level address string (e.g. host:port), not a PII field by itself.
+	// ClientAddr is a transport-level remote address (for example host:port). In some jurisdictions
+	// it may be treated as personal data; consider redaction and retention policies in logs and audits.
 	ClientAddr string
 	// AuthorizationBearer is the raw token from an HTTP Authorization header only when the scheme
 	// is Bearer; otherwise empty. Treat as secret at rest and in logs.

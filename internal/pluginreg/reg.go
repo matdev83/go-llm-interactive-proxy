@@ -52,10 +52,11 @@ type Registry struct {
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		backends:        map[string]backendFactory{},
-		backendProfiles: map[string]BackendSecurityProfile{},
-		frontends:       map[string]FrontendMount{},
-		features:        map[string]FeatureFactory{},
+		backends:             map[string]backendFactory{},
+		backendProfiles:      map[string]BackendSecurityProfile{},
+		frontends:            map[string]FrontendMount{},
+		features:             map[string]FeatureFactory{},
+		authErrorRenderers:   map[string]lipsdk.AuthErrorRenderer{},
 	}
 }
 
@@ -121,18 +122,18 @@ func (r *Registry) RegisterFrontend(id string, fn FrontendMount) error {
 // RegisterAuthErrorRenderer records an optional transport auth error renderer keyed by the auth
 // wire frontend id (same strings as stdhttp/auth [DefaultFrontendIDFromRequest], e.g. anthropic,
 // openai_compatible, gemini). Nil renderer is a no-op registration attempt (returns nil).
-// Duplicate wire ids return an error.
+// Keys are normalized to lowercase. Duplicate wire ids return an error.
 func (r *Registry) RegisterAuthErrorRenderer(authWireFrontendID string, renderer lipsdk.AuthErrorRenderer) error {
+	id := strings.ToLower(strings.TrimSpace(authWireFrontendID))
+	if id == "" {
+		return fmt.Errorf("pluginreg: RegisterAuthErrorRenderer: empty auth wire frontend id")
+	}
 	if renderer == nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureMaps()
-	id := strings.TrimSpace(authWireFrontendID)
-	if id == "" {
-		return fmt.Errorf("pluginreg: RegisterAuthErrorRenderer: empty auth wire frontend id")
-	}
 	if _, exists := r.authErrorRenderers[id]; exists {
 		return fmt.Errorf("pluginreg: duplicate auth error renderer registration: %s", id)
 	}

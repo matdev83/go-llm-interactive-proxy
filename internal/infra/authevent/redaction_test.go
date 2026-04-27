@@ -3,11 +3,13 @@ package authevent
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 )
 
@@ -42,9 +44,9 @@ func TestSlogEventSink_challengeSummary_redactsCredentialLikeText(t *testing.T) 
 
 func TestSlogEventSink_redaction_fixtureSecretsAbsent(t *testing.T) {
 	t.Parallel()
-	for _, secret := range AuthLeakFixtureSecrets {
+	for i, secret := range testkit.AuthLeakFixtureSecrets() {
 		secret := secret
-		t.Run(truncateLabel(secret), func(t *testing.T) {
+		t.Run(fmt.Sprintf("case_%02d", i), func(t *testing.T) {
 			t.Parallel()
 			var buf bytes.Buffer
 			log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -84,16 +86,9 @@ func TestSlogEventSink_redaction_fixtureSecretsAbsent(t *testing.T) {
 
 func assertNoFixtureLeak(t *testing.T, out string) {
 	t.Helper()
-	for _, s := range AuthLeakFixtureSecrets {
+	for _, s := range testkit.AuthLeakFixtureSecrets() {
 		if strings.Contains(out, s) {
 			t.Fatalf("fixture secret leaked: %q\noutput=%s", s, out)
 		}
 	}
-}
-
-func truncateLabel(s string) string {
-	if len(s) > 24 {
-		return s[:24]
-	}
-	return s
 }

@@ -22,6 +22,9 @@ func buildAuthEventDispatcher(cfg *config.Config, log *slog.Logger, opts *BuildO
 	if mode == "" {
 		mode = "default"
 	}
+	if injected != nil && mode != "custom" {
+		return nil, fmt.Errorf("%w: use auth.event_delivery: custom to wire BuildOptions.AuthEventSink (got %q)", ErrAuthEventSinkDisallowed, cfg.Auth.EventDelivery)
+	}
 	var sink coreauth.EventSink
 	switch mode {
 	case "default":

@@ -54,10 +54,11 @@ func (p *Provider) Current(ctx context.Context) (coreauth.OSIdentitySnapshot, er
 		}, nil
 	}
 	if v := strings.TrimSpace(os.Getenv("USER")); v != "" {
-		return coreauth.OSIdentitySnapshot{PrincipalID: v, FallbackUsed: false}, nil
+		// Best-effort shell/env identity (not the OS user record from os/user).
+		return coreauth.OSIdentitySnapshot{PrincipalID: v, FallbackUsed: true}, nil
 	}
 	if v := strings.TrimSpace(os.Getenv("USERNAME")); v != "" {
-		return coreauth.OSIdentitySnapshot{PrincipalID: v, FallbackUsed: false}, nil
+		return coreauth.OSIdentitySnapshot{PrincipalID: v, FallbackUsed: true}, nil
 	}
 
 	return coreauth.OSIdentitySnapshot{

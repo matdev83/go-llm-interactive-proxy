@@ -40,11 +40,11 @@ func (a PolicyAuthenticator) Authenticate(ctx context.Context, req sdkauth.Inbou
 		return a.APIKey.Authenticate(ctx, req)
 
 	case sdkauth.HandlerRemote:
-		// api_key_sso always requires a local API-key leg; do not fall through to remote-only auth.
-		if a.Required == sdkauth.LevelAPIKeySSO && a.APIKey == nil {
-			return sdkauth.Decision{Outcome: sdkauth.OutcomeDeny, ReasonCode: "api_key_sso_misconfigured"}, nil
-		}
-		if a.Required == sdkauth.LevelAPIKeySSO && a.APIKey != nil && a.Remote != nil {
+		// api_key_sso always requires a local API-key leg and a remote; do not fall through to remote-only auth.
+		if a.Required == sdkauth.LevelAPIKeySSO {
+			if a.APIKey == nil || a.Remote == nil {
+				return sdkauth.Decision{Outcome: sdkauth.OutcomeDeny, ReasonCode: "api_key_sso_misconfigured"}, nil
+			}
 			return a.authenticateAPIKeySSO(ctx, req)
 		}
 		return a.authenticateRemote(ctx, req)

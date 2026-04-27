@@ -134,6 +134,29 @@ func TestPolicyAuthenticator_remoteErrorFailClosed(t *testing.T) {
 	}
 }
 
+func TestPolicyAuthenticator_remote_apiKeySSO_withAPIKey_nilRemote_denies(t *testing.T) {
+	t.Parallel()
+	a, err := NewLocalAPIKeyAuthenticator([]LocalAPIKeyRecord{
+		{KeyID: "k", PrincipalID: "p", Key: "test-local-api-key-16"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := PolicyAuthenticator{
+		Handler:  sdkauth.HandlerRemote,
+		Required: sdkauth.LevelAPIKeySSO,
+		APIKey:   a,
+		Remote:   nil,
+	}
+	d, err := p.Authenticate(context.Background(), sdkauth.InboundCallMeta{AuthorizationBearer: "test-local-api-key-16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Outcome != sdkauth.OutcomeDeny || d.ReasonCode != "api_key_sso_misconfigured" {
+		t.Fatalf("want deny api_key_sso_misconfigured, not remote_misconfigured, got %+v", d)
+	}
+}
+
 func TestPolicyAuthenticator_remote_apiKeySSO_nilAPIKey_deniesWithoutRemote(t *testing.T) {
 	t.Parallel()
 	remoteCalled := false

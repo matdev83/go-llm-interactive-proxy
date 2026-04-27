@@ -10,9 +10,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/authevent"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	stdhttpauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	"gopkg.in/yaml.v3"
@@ -21,7 +21,7 @@ import (
 func assertNoAuthFixtureLeak(tb testing.TB, haystacks ...string) {
 	tb.Helper()
 	for _, h := range haystacks {
-		for _, s := range authevent.AuthLeakFixtureSecrets {
+		for _, s := range testkit.AuthLeakFixtureSecrets() {
 			if strings.Contains(h, s) {
 				tb.Fatalf("fixture secret leaked into output: substring of %q found in:\n%s", s, h)
 			}
@@ -31,7 +31,7 @@ func assertNoAuthFixtureLeak(tb testing.TB, haystacks ...string) {
 
 func TestBuild_authPaths_noFixtureSecretLeakageInLogsOrHTTPBodies(t *testing.T) {
 	t.Parallel()
-	secret := authevent.AuthLeakFixtureSecrets[0]
+	secret := testkit.AuthLeakFixtureSecrets()[0]
 	reg := pluginreg.NewRegistry()
 	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestBuild_authPaths_noFixtureSecretLeakageInLogsOrHTTPBodies(t *testing.T) 
 
 func TestValidate_authLocalAPIKeyRecord_errorsDoNotEchoRawSecret(t *testing.T) {
 	t.Parallel()
-	secret := authevent.AuthLeakFixtureSecrets[0]
+	secret := testkit.AuthLeakFixtureSecrets()[0]
 	cfg := &config.Config{
 		Access: config.AccessConfig{Mode: "multi_user"},
 		Auth: config.AuthConfig{

@@ -1,6 +1,7 @@
 package accessmode
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -25,8 +26,14 @@ func TestClassifyListenAddress(t *testing.T) {
 		{raw: ":::9", want: SurfaceMalformed},
 	} {
 		got, err := ClassifyListenAddress(tc.raw)
-		if err != nil && tc.want != SurfaceMalformed {
-			t.Fatalf("raw %q: unexpected err %v", tc.raw, err)
+		if tc.want == SurfaceMalformed {
+			if !errors.Is(err, ErrMalformedListenAddress) {
+				t.Fatalf("raw %q: want %v, got %v; surface %q", tc.raw, ErrMalformedListenAddress, err, got.Surface)
+			}
+		} else {
+			if err != nil {
+				t.Fatalf("raw %q: unexpected err %v", tc.raw, err)
+			}
 		}
 		if got.Surface != tc.want {
 			t.Fatalf("raw %q: want surface %q got %q (host=%q port=%q)", tc.raw, tc.want, got.Surface, got.Host, got.Port)

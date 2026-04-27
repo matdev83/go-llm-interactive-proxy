@@ -24,7 +24,7 @@ func validateAccessAuth(cfg *Config) error {
 		switch strings.ToLower(p) {
 		case "best_effort", "fail_closed":
 		default:
-			return fmt.Errorf("auth.event_failure_policy: want best_effort or fail_closed, got %q", cfg.Auth.EventFailurePolicy)
+			return fmt.Errorf("%w: want best_effort or fail_closed, got %q", ErrInvalidAuthEventFailurePolicy, cfg.Auth.EventFailurePolicy)
 		}
 	}
 	if ed := strings.TrimSpace(cfg.Auth.EventDelivery); ed != "" {
@@ -75,10 +75,8 @@ type effectiveAuthPolicyResult struct {
 	RequiredLevel string
 }
 
-// effectiveAuthPolicy maps legacy server.auth_mode and new auth.* into a single view for posture checks.
-// Empty auth.handler with no_auth (or omitted) behaves like explicit local_noop + none for validation purposes.
-// ValidateAuthLocalAPIKeyRecords checks operator API-key records for duplicates, required fields,
-// and minimum API key length (Unicode code points) enforced by internal/core/auth validation.
+// ValidateAuthLocalAPIKeyRecords converts [AuthLocalAPIKeyRecord] values to core auth records and
+// delegates to [coreauth.ValidateLocalAPIKeyRecords] (duplicates, required fields, min key runes).
 func ValidateAuthLocalAPIKeyRecords(records []AuthLocalAPIKeyRecord) error {
 	conv := make([]coreauth.LocalAPIKeyRecord, 0, len(records))
 	for _, r := range records {
@@ -91,6 +89,8 @@ func ValidateAuthLocalAPIKeyRecords(records []AuthLocalAPIKeyRecord) error {
 	return coreauth.ValidateLocalAPIKeyRecords(conv)
 }
 
+// effectiveAuthPolicy maps legacy server.auth_mode and new auth.* into a single view for posture checks.
+// Empty auth.handler with no_auth (or omitted) behaves like explicit local_noop + none for validation purposes.
 func effectiveAuthPolicy(cfg *Config) effectiveAuthPolicyResult {
 	h := strings.TrimSpace(cfg.Auth.Handler)
 	rl := strings.TrimSpace(cfg.Auth.RequiredLevel)

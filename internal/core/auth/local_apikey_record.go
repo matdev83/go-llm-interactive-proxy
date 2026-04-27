@@ -36,7 +36,7 @@ func ValidateLocalAPIKeyRecords(records []LocalAPIKeyRecord) error {
 			return fmt.Errorf("auth.local_api_keys[%d]: principal_id is required for key_id %q", i, kid)
 		}
 		if key == "" {
-			return fmt.Errorf("auth.local_api_keys[%d]: key is required for key_id %q", i, kid)
+			return fmt.Errorf("%w: index %d key_id %q", ErrLocalAPIKeyEmpty, i, kid)
 		}
 		if n := utf8.RuneCountInString(key); n < MinLocalAPIKeyRunes {
 			return fmt.Errorf(
@@ -49,7 +49,7 @@ func ValidateLocalAPIKeyRecords(records []LocalAPIKeyRecord) error {
 		}
 		seen[kid] = struct{}{}
 		if _, dup := seenSecrets[key]; dup {
-			return fmt.Errorf("auth.local_api_keys: duplicate key material for distinct key_ids is not allowed")
+			return fmt.Errorf("%w: key material reused for a different key_id is not allowed", ErrDuplicateLocalAPIKeyMaterial)
 		}
 		seenSecrets[key] = struct{}{}
 	}

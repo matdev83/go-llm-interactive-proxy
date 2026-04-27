@@ -88,7 +88,7 @@ func openAIResponsesStreamAssistantText(
 	return b.String()
 }
 
-func lipAuthMiddleware(tb testing.TB) *stdhttpauth.PolicyProvider {
+func lipAuthProvider(tb testing.TB) *stdhttpauth.PolicyProvider {
 	tb.Helper()
 	ak, err := coreauth.NewLocalAPIKeyAuthenticator([]coreauth.LocalAPIKeyRecord{
 		{KeyID: "lip", PrincipalID: "stream-test", Key: lipAuthKeyConformance},
@@ -135,7 +135,7 @@ func TestConformance_authenticatedStreaming_openAIResponses_eventTypesMatchUnaut
 	if err := MountFrontend(muxAuth, "openai-responses", exec, route); err != nil {
 		t.Fatal(err)
 	}
-	prov := lipAuthMiddleware(t)
+	prov := lipAuthProvider(t)
 	h := stdhttpauth.Middleware(nil, []httpauth.Provider{prov}, muxAuth)
 	srvAuth := httptest.NewServer(h)
 	t.Cleanup(srvAuth.Close)
@@ -196,7 +196,7 @@ func TestConformance_authenticatedText_bundledFrontends_containsParityText(t *te
 			if err := MountFrontend(muxAuth, tc.fe, exec, route); err != nil {
 				t.Fatal(err)
 			}
-			prov := lipAuthMiddleware(t)
+			prov := lipAuthProvider(t)
 			h := stdhttpauth.Middleware(nil, []httpauth.Provider{prov}, muxAuth)
 			srvAuth := httptest.NewServer(h)
 			t.Cleanup(srvAuth.Close)

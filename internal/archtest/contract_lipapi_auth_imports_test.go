@@ -21,20 +21,21 @@ func TestPkgLipapiDoesNotImportAuthSDKPackages(t *testing.T) {
 	assertGoListImportsExclude(t, "./pkg/lipapi", forbidden)
 }
 
+// lipsdkAuthImportClosureForbidden is matched against every ImportPath in `go list -deps` for
+// ./pkg/lipsdk/auth (transitive closure, same policy as the former direct-imports-only check).
+var lipsdkAuthImportClosureForbidden = []forbiddenDep{
+	{Substr: "/internal/core/", ErrMsg: "pkg/lipsdk/auth must not depend on internal/core (transitively)"},
+	{Substr: "/internal/plugins/", ErrMsg: "pkg/lipsdk/auth must not depend on internal/plugins (transitively)"},
+	{Substr: "github.com/openai/openai-go", ErrMsg: "pkg/lipsdk/auth must not depend on OpenAI Go SDK (transitively)"},
+	{Substr: "github.com/anthropics/anthropic-sdk-go", ErrMsg: "pkg/lipsdk/auth must not depend on Anthropic SDK (transitively)"},
+	{Substr: "github.com/aws/aws-sdk-go-v2", ErrMsg: "pkg/lipsdk/auth must not depend on AWS SDKs (transitively)"},
+}
+
 // TestPkgLipsdkAuthImportClosure_staysSDKLocal ensures public auth DTOs do not pull core, plugins,
 // or provider SDKs into the stable auth package (task 10.4, complements task 1.4).
 func TestPkgLipsdkAuthImportClosure_staysSDKLocal(t *testing.T) {
 	t.Parallel()
-	forbidden := []struct {
-		sub, msg string
-	}{
-		{"/internal/core/", "pkg/lipsdk/auth must not import internal/core"},
-		{"/internal/plugins/", "pkg/lipsdk/auth must not import concrete protocol plugins"},
-		{"github.com/openai/openai-go", "pkg/lipsdk/auth must not import OpenAI provider SDK"},
-		{"github.com/anthropics/anthropic-sdk-go", "pkg/lipsdk/auth must not import Anthropic SDK"},
-		{"github.com/aws/aws-sdk-go-v2", "pkg/lipsdk/auth must not import AWS SDKs"},
-	}
-	assertGoListImportsExclude(t, "./pkg/lipsdk/auth", forbidden)
+	assertDepsExcludeForbidden(t, []string{"./pkg/lipsdk/auth"}, lipsdkAuthImportClosureForbidden)
 }
 
 func assertGoListImportsExclude(t *testing.T, goListPattern string, forbidden []struct {

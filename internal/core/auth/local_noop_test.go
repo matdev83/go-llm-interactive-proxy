@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -101,6 +102,24 @@ func TestLocalNoOpAuthenticator_Authenticate_osErrorUsesUnknown(t *testing.T) {
 	}
 	if d.Principal.ID != LocalUnknownOSPrincipalID {
 		t.Fatalf("Principal.ID: got %q", d.Principal.ID)
+	}
+}
+
+func TestLocalNoOpAuthenticator_Authenticate_osErrorInvokesFallbackCallback(t *testing.T) {
+	t.Parallel()
+	var gotErr error
+	var gotHad bool
+	a := LocalNoOpAuthenticator{
+		OS: fakeOSIdentity{err: errors.New("lookup failed")},
+		OnOSIdentityFallback: func(_ context.Context, lookupErr error, hadProvider bool) {
+			gotErr, gotHad = lookupErr, hadProvider
+		},
+	}
+	if _, err := a.Authenticate(context.Background(), sdkauth.InboundCallMeta{TraceID: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !gotHad || gotErr == nil {
+		t.Fatalf("callback: err=%v hadProvider=%v", gotErr, gotHad)
 	}
 }
 

@@ -96,7 +96,7 @@ func challengeSummaryForLog(raw string) string {
 	if s == "" {
 		return ""
 	}
-	out := sdkauth.SanitizePublicChallengeSummary(s, "", 256)
+	out := sdkauth.SanitizePublicChallengeSummary(s, "", sdkauth.PublicChallengeSummaryMaxRunes)
 	if out == "" {
 		return "[redacted]"
 	}

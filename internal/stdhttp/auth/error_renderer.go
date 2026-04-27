@@ -48,7 +48,6 @@ func (DefaultAuthErrorRenderer) RenderAuthError(
 			out.Set("WWW-Authenticate", `Bearer realm="`+realm+`"`)
 		}
 	}
-	_ = typ
 	wire := authErrorWire{Error: &authErrorPayload{Code: code, Message: msg}}
 	b, err := json.Marshal(&wire)
 	if err != nil || len(b) == 0 {
@@ -124,7 +123,7 @@ func mapDecisionToHTTPStatusAndMessage(in httpauth.AuthErrorRenderInput) (int, s
 			summary := sdkauth.SanitizePublicChallengeSummary(
 				d.Challenge.Summary,
 				sdkauth.DefaultChallengeSSOSummary,
-				256,
+				sdkauth.PublicChallengeSummaryMaxRunes,
 			)
 			return st, "challenge_sso", summary
 		}

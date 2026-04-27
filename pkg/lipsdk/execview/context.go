@@ -39,12 +39,17 @@ func PrincipalFromContext(ctx context.Context) (PrincipalView, bool) {
 // WithFrontendID returns a child context carrying the auth wire frontend id (same vocabulary as
 // transport auth decision events, e.g. openai_compatible, anthropic, gemini). Transport wiring sets
 // this at the edge; the executor reads it for session-start audit without importing HTTP packages.
-// Empty id is stored as-is; callers should trim. A nil parent is treated as [context.TODO].
+// Whitespace-only ids are ignored (returns ctx unchanged) so a caller does not clobber a parent value.
+// A nil parent is treated as [context.TODO].
 func WithFrontendID(ctx context.Context, frontendID string) context.Context {
 	if ctx == nil {
 		ctx = context.TODO()
 	}
-	return context.WithValue(ctx, keyFrontendID, frontendID)
+	id := strings.TrimSpace(frontendID)
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, keyFrontendID, id)
 }
 
 // FrontendIDFromContext returns the frontend id attached with [WithFrontendID], if any.

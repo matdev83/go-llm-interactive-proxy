@@ -28,7 +28,7 @@ func (d *EventDispatcher) DispatchAuthDecision(ctx context.Context, ev sdkauth.A
 		return nil
 	}
 	ev2 := ev
-	ev2.ChallengeSummary = sdkauth.SanitizePublicChallengeSummary(ev.ChallengeSummary, "", 255)
+	ev2.ChallengeSummary = sdkauth.SanitizePublicChallengeSummary(ev.ChallengeSummary, "", sdkauth.PublicChallengeSummaryMaxRunes)
 	err := d.sink.OnAuthDecision(ctx, ev2)
 	return d.handleSinkError(err)
 }

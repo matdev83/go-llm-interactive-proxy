@@ -7,7 +7,7 @@ title = "go-llm-interactive-proxy gitleaks config"
 useDefault = true
 
 [[allowlists]]
-description = "Test fixtures and golden files"
+description = "Test fixtures and golden files (any package testdata/ segment)"
 paths = [
-  '''^testdata/''',
+  '''(^|/)testdata/''',
 ]

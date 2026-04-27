@@ -33,8 +33,8 @@ auth:
 	if cfg.Auth.EventFailurePolicy != "best_effort" {
 		t.Fatalf("auth.event_failure_policy: got %q", cfg.Auth.EventFailurePolicy)
 	}
-	if cfg.Auth.LocalAPIKeys != nil {
-		t.Fatalf("local_api_keys: want nil or empty slice, got %#v", cfg.Auth.LocalAPIKeys)
+	if len(cfg.Auth.LocalAPIKeys) != 0 {
+		t.Fatalf("local_api_keys: want empty slice, got len=%d", len(cfg.Auth.LocalAPIKeys))
 	}
 }
 

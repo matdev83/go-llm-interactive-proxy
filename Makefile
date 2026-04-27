@@ -132,4 +132,8 @@ run:
 	$(GO) run ./cmd/lipstd --config ./config/config.yaml
 
 hooks-install:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-hooks.ps1
+else
 	@bash scripts/install-hooks.sh
+endif

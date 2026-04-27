@@ -13,6 +13,10 @@ import (
 // validation permits local no-op.
 type LocalNoOpAuthenticator struct {
 	OS OSIdentityProvider
+	// OnOSIdentityFallback, if set, is called when the OS provider is nil or [OSIdentityProvider.Current] fails,
+	// before a fallback principal ([LocalUnknownOSPrincipalID]) is used. err is non-nil only when
+	// Current was invoked; hadProvider is false when OS is nil.
+	OnOSIdentityFallback func(ctx context.Context, err error, hadProvider bool)
 }
 
 // Authenticate implements [Authenticator].
@@ -24,6 +28,9 @@ func (a LocalNoOpAuthenticator) Authenticate(ctx context.Context, req sdkauth.In
 		snap, err = a.OS.Current(ctx)
 	}
 	if err != nil || a.OS == nil {
+		if a.OnOSIdentityFallback != nil {
+			a.OnOSIdentityFallback(ctx, err, a.OS != nil)
+		}
 		snap = OSIdentitySnapshot{
 			PrincipalID:  LocalUnknownOSPrincipalID,
 			DisplayName:  "",

@@ -9,12 +9,17 @@ import (
 // DefaultChallengeSSOSummary is the safe client-visible message when no custom summary is set.
 const DefaultChallengeSSOSummary = "Additional sign-in is required to use this key."
 
+// PublicChallengeSummaryMaxRunes is the default and maximum safe length for
+// [SanitizePublicChallengeSummary] when cap is non-positive. Keep call sites in sync
+// (HTTP renderers, event dispatch, audit sinks).
+const PublicChallengeSummaryMaxRunes = 256
+
 // SanitizePublicChallengeSummary bounds and filters challenge copy for HTTP responses and logs.
 // Callers should treat [Challenge.Summary] as non-secret by contract; this applies defense in depth
 // when a remote decider or policy bug places credential-like text in the summary.
 func SanitizePublicChallengeSummary(summary, fallback string, maxRunes int) string {
 	if maxRunes <= 0 {
-		maxRunes = 256
+		maxRunes = PublicChallengeSummaryMaxRunes
 	}
 	s := strings.TrimSpace(summary)
 	if s == "" {

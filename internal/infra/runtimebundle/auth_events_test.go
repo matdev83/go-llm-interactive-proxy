@@ -87,7 +87,24 @@ func TestBuild_authEventDelivery_customUsesInjectedSink(t *testing.T) {
 	}
 }
 
-func TestBuild_authEventDelivery_disabledNilSink(t *testing.T) {
+func TestBuild_authEventDelivery_defaultRejectsAuthEventSink(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		// default / empty event_delivery
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+		AuthEventSink:  &sliceSink{},
+	})
+	if err == nil || !errors.Is(err, runtimebundle.ErrAuthEventSinkDisallowed) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrAuthEventSinkDisallowed, err)
+	}
+}
+
+func TestBuild_authEventDelivery_disabledRejectsAuthEventSink(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
@@ -95,20 +112,12 @@ func TestBuild_authEventDelivery_disabledNilSink(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 		Auth:       config.AuthConfig{EventDelivery: "disabled"},
 	}
-	sink := &sliceSink{}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		AuthEventSink:  sink,
+		AuthEventSink:  &sliceSink{},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := b.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
-		t.Fatalf("dispatch: %v", err)
-	}
-	if len(sink.got) != 0 {
-		t.Fatalf("disabled mode should not call injected sink, got %#v", sink.got)
+	if err == nil || !errors.Is(err, runtimebundle.ErrAuthEventSinkDisallowed) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrAuthEventSinkDisallowed, err)
 	}
 }
 
@@ -122,15 +131,14 @@ func TestBuild_authEventFailurePolicy_failClosed(t *testing.T) {
 			EventFailurePolicy: "fail_closed",
 		},
 	}
-	errSink := &errSink{}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		AuthEventSink:  errSink,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// default delivery uses slog sink, not errSink — need custom + err sink to test policy.
+	// default delivery uses internal slog sink — use custom + err sink to test fail_closed policy.
+	errSink := &errSink{}
 	cfg2 := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},

@@ -69,8 +69,8 @@ func TestProvider_Current_USERWhenLookupFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
-	if snap.FallbackUsed {
-		t.Fatal("USER is explicit env hint")
+	if !snap.FallbackUsed {
+		t.Fatal("USER without os/user is non-authoritative; want FallbackUsed")
 	}
 	if snap.PrincipalID != "env_unix_user" {
 		t.Fatalf("PrincipalID: got %q", snap.PrincipalID)
@@ -91,8 +91,8 @@ func TestProvider_Current_USERNAMEWhenLookupFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
-	if snap.FallbackUsed {
-		t.Fatal("USERNAME is explicit env hint")
+	if !snap.FallbackUsed {
+		t.Fatal("USERNAME without os/user is non-authoritative; want FallbackUsed")
 	}
 	if snap.PrincipalID != "env_win_user" {
 		t.Fatalf("PrincipalID: got %q", snap.PrincipalID)

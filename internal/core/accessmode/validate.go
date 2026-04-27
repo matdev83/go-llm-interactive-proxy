@@ -3,6 +3,8 @@ package accessmode
 import (
 	"fmt"
 	"strings"
+
+	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 )
 
 // PostureInput carries effective access, listener, and auth policy for startup validation.
@@ -69,13 +71,13 @@ func validateMultiUserAuth(in PostureInput) error {
 	if h == "" {
 		return fmt.Errorf("%w", ErrMultiUserHandlerRequired)
 	}
-	if h == "local_noop" {
+	if h == string(sdkauth.HandlerLocalNoop) {
 		return fmt.Errorf(
 			"%w (configure auth.handler local_api_key or remote)",
 			ErrMultiUserLocalNoopDisallowed,
 		)
 	}
-	if rl == "" || rl == "none" {
+	if rl == "" || rl == string(sdkauth.LevelNone) {
 		return fmt.Errorf(
 			"%w (e.g. api_key or api_key_sso)",
 			ErrMultiUserRequiredLevelTooWeak,
@@ -83,13 +85,13 @@ func validateMultiUserAuth(in PostureInput) error {
 	}
 
 	switch h {
-	case "local_api_key", "remote":
+	case string(sdkauth.HandlerLocalAPIKey), string(sdkauth.HandlerRemote):
 	default:
 		return fmt.Errorf("%w: %q", ErrMultiUserUnknownHandler, in.Handler)
 	}
 
 	switch rl {
-	case "api_key", "api_key_sso":
+	case string(sdkauth.LevelAPIKey), string(sdkauth.LevelAPIKeySSO):
 	default:
 		return fmt.Errorf("%w: %q", ErrMultiUserUnknownRequiredLevel, in.RequiredLevel)
 	}
