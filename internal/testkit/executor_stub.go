@@ -37,6 +37,7 @@ func stubToolPrefixEvents(call lipapi.Call) []lipapi.Event {
 // lipapi denial mapping for conformance harness executors (and other tests that construct
 // [*runtime.Executor] outside package runtime).
 func WireConformanceExecutorSecureSession(tb testing.TB, ex *runtime.Executor) {
+	tb.Helper()
 	wireStubExecutorSecureSession(tb, ex)
 }
 

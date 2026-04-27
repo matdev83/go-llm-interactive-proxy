@@ -12,18 +12,19 @@ import (
 
 func TestStoreContract_SQLite(t *testing.T) {
 	t.Parallel()
-	storecontract.RunAll(t, func(tb *testing.T) app.Store {
+	storecontract.RunAll(t, func(t *testing.T) app.Store {
+		t.Helper()
 		dir, err := os.MkdirTemp("", "securesession-storecontract-")
 		if err != nil {
-			tb.Fatal(err)
+			t.Fatal(err)
 		}
-		tb.Cleanup(func() { _ = os.RemoveAll(dir) })
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 		path := filepath.Join(dir, "store.db")
 		s, err := sqlite.Open(path)
 		if err != nil {
-			tb.Fatal(err)
+			t.Fatal(err)
 		}
-		tb.Cleanup(func() { _ = s.Close() })
+		t.Cleanup(func() { _ = s.Close() })
 		return s
 	})
 }

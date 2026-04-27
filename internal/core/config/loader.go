@@ -88,6 +88,13 @@ func LoadFile(path string) (*Config, error) {
 		cfg.Observability.Metrics.Path = mp
 	}
 
+	if cfg.ModelCatalog.ModelOverrides == nil {
+		cfg.ModelCatalog.ModelOverrides = []ModelCatalogModelOverrideEntry{}
+	}
+	if cfg.ModelCatalog.BackendModelOverrides == nil {
+		cfg.ModelCatalog.BackendModelOverrides = []ModelCatalogBackendModelOverrideEntry{}
+	}
+
 	if err := Validate(&cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}

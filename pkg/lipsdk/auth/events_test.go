@@ -31,9 +31,9 @@ func eventFieldNameForbidden(name string) bool {
 
 func TestAuthDecisionEvent_fieldNamesNotSuggestingSecrets(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(AuthDecisionEvent{})
-	for i := 0; i < typ.NumField(); i++ {
-		name := typ.Field(i).Name
+	typ := reflect.TypeFor[AuthDecisionEvent]()
+	for field := range typ.Fields() {
+		name := field.Name
 		if eventFieldNameForbidden(name) {
 			t.Fatalf("field %q looks like a secret-bearing column name", name)
 		}
@@ -42,9 +42,9 @@ func TestAuthDecisionEvent_fieldNamesNotSuggestingSecrets(t *testing.T) {
 
 func TestSessionStartEvent_fieldNamesNotSuggestingSecrets(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(SessionStartEvent{})
-	for i := 0; i < typ.NumField(); i++ {
-		name := typ.Field(i).Name
+	typ := reflect.TypeFor[SessionStartEvent]()
+	for field := range typ.Fields() {
+		name := field.Name
 		if eventFieldNameForbidden(name) {
 			t.Fatalf("field %q looks like a secret-bearing column name", name)
 		}
@@ -55,10 +55,8 @@ func TestSessionStartEvent_fieldNamesNotSuggestingSecrets(t *testing.T) {
 // Event DTOs must be separate struct types to avoid representing secrets in audit events.
 func TestEventTypesDistinctFromInbound(t *testing.T) {
 	t.Parallel()
-	var in InboundCallMeta
-	var a AuthDecisionEvent
-	var s SessionStartEvent
-	if reflect.TypeOf(in) == reflect.TypeOf(a) || reflect.TypeOf(in) == reflect.TypeOf(s) {
+	inT := reflect.TypeFor[InboundCallMeta]()
+	if inT == reflect.TypeFor[AuthDecisionEvent]() || inT == reflect.TypeFor[SessionStartEvent]() {
 		t.Fatal("inbound and event DTOs must be distinct struct types")
 	}
 }

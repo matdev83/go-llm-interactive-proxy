@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,12 +10,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 )
 
+//nolint:paralleltest // serial: TTL edge cases compete poorly with t.Parallel under full-suite CPU load
 func TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.db")
-	s, err := OpenContextWithOptions(ctx, path, Options{SQLQueryCacheTTL: 120 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	const metaTTL = 500 * time.Millisecond
+	s, err := OpenContextWithOptions(ctx, path, Options{SQLQueryCacheTTL: metaTTL, SQLQueryCacheMaxEntries: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +51,7 @@ func TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("expected cached policy to allow append before TTL: %v", err)
 	}
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(metaTTL + 150*time.Millisecond)
 	if err := s.AppendTranscript(ctx, domain.TranscriptItem{
 		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e3", PayloadRef: "p3", CreatedAt: time.Unix(4, 0),
 	}); err != domain.ErrTranscriptDisabled {
@@ -57,11 +59,12 @@ func TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // serial: see TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL
 func TestStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
-	s, err := OpenContextWithOptions(ctx, filepath.Join(dir, "t.db"), Options{SQLQueryCacheTTL: 120 * time.Millisecond, SQLQueryCacheMaxEntries: 64})
+	const metaTTL = 500 * time.Millisecond
+	s, err := OpenContextWithOptions(ctx, filepath.Join(dir, "t.db"), Options{SQLQueryCacheTTL: metaTTL, SQLQueryCacheMaxEntries: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +103,7 @@ func TestStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) 
 	if len(items) != 1 {
 		t.Fatalf("want stale read to still return transcript rows got len=%d", len(items))
 	}
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(metaTTL + 150*time.Millisecond)
 	items2, err := s.Transcript(ctx, cr.SessionID, domain.ReadOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -176,5 +179,23 @@ func TestStore_noCache_appendTranscriptDisabledImmediate(t *testing.T) {
 		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e", PayloadRef: "p", CreatedAt: time.Unix(2, 0),
 	}); err != domain.ErrTranscriptDisabled {
 		t.Fatalf("want immediate disabled without cache got %v", err)
+	}
+}
+
+func TestStore_transcriptEnabledCached_missingRowMapsToSessionNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := OpenContextWithOptions(ctx, filepath.Join(t.TempDir(), "nr.db"), Options{SQLQueryCacheTTL: time.Hour, SQLQueryCacheMaxEntries: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	sid := domain.SessionID("no-such-session-for-policy-read")
+	for range 2 {
+		_, err := s.transcriptEnabledCached(ctx, s.db, sid)
+		if !errors.Is(err, domain.ErrSessionNotFound) {
+			t.Fatalf("got %v want ErrSessionNotFound", err)
+		}
 	}
 }

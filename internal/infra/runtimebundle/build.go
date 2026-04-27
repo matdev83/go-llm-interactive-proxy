@@ -259,6 +259,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts.SecureSessionStore != nil {
 		secureSessionStore = opts.SecureSessionStore
 	}
+	catalogRuntime, err := attachModelCatalog(parent, exec, &closers, cfg, upstream)
+	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(err, derr)
+		}
+		return nil, fmt.Errorf("runtimebundle: model catalog: %w", err)
+	}
 	return &Built{
 		Executor:              exec,
 		Store:                 store,
@@ -271,6 +278,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		HTTPAuthProviders:     httpAuth,
 		SecureSessionStore:    secureSessionStore,
 		AuthEventDispatcher:   authEvents,
+		CatalogRuntime:        catalogRuntime,
 	}, nil
 }
 

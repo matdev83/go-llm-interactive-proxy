@@ -143,6 +143,9 @@ func (s *Store) transcriptEnabledCached(ctx context.Context, q rowQuerier, id do
 	var te int
 	err := q.QueryRowContext(ctx, `SELECT transcript_enabled FROM lip_secure_sessions WHERE session_id = ?`, string(id)).Scan(&te)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, domain.ErrSessionNotFound
+		}
 		return false, err
 	}
 	en := te != 0
@@ -528,6 +531,9 @@ func (s *Store) AppendTranscript(ctx context.Context, item domain.TranscriptItem
 	}
 	enabled, err := s.transcriptEnabledCached(ctx, tx, item.SessionID)
 	if err != nil {
+		if errors.Is(err, domain.ErrSessionNotFound) {
+			return domain.ErrSessionNotFound
+		}
 		return opErr("transcript policy read", err)
 	}
 	if !enabled {
@@ -756,7 +762,7 @@ func (s *Store) sessionExists(ctx context.Context, id domain.SessionID) (bool, e
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, opErr("session exists", err)
 	}
 	if s.meta != nil {
 		s.meta.exists.Set(id, true, ttlcache.DefaultTTL)
@@ -777,6 +783,9 @@ func (s *Store) Transcript(ctx context.Context, id domain.SessionID, opts domain
 	}
 	enabled, err := s.transcriptEnabledCached(ctx, s.db, id)
 	if err != nil {
+		if errors.Is(err, domain.ErrSessionNotFound) {
+			return nil, domain.ErrSessionNotFound
+		}
 		return nil, opErr("transcript policy", err)
 	}
 	if !enabled {

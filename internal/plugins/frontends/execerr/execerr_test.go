@@ -2,6 +2,7 @@ package execerr_test
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -25,6 +26,35 @@ func TestClassifyExecute_reject(t *testing.T) {
 	}
 	if out.Err != err {
 		t.Fatalf("Err: want same reject pointer")
+	}
+}
+
+func TestClassifyExecute_contextLimitExceeded(t *testing.T) {
+	t.Parallel()
+	err := lipapi.ErrAllCandidatesContextLimitExceeded
+	out := execerr.ClassifyExecute(err)
+	if out.Kind != execerr.KindClientReject {
+		t.Fatalf("kind: %v", out.Kind)
+	}
+	if out.Status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status: %d", out.Status)
+	}
+	if out.Message != execerr.ContextLimitExceededWireMessage {
+		t.Fatalf("message: %q", out.Message)
+	}
+	if !lipapi.IsAllCandidatesContextLimitExceeded(out.Err) {
+		t.Fatalf("Err should wrap sentinel, got %v", out.Err)
+	}
+}
+
+func TestClassifyExecute_contextLimitExceeded_wrapped(t *testing.T) {
+	t.Parallel()
+	out := execerr.ClassifyExecute(fmt.Errorf("plan: %w", lipapi.ErrAllCandidatesContextLimitExceeded))
+	if out.Status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status: %d", out.Status)
+	}
+	if out.Message != execerr.ContextLimitExceededWireMessage {
+		t.Fatalf("message: %q", out.Message)
 	}
 }
 

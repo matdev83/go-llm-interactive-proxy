@@ -14,7 +14,7 @@ func TestInboundCallMeta_String_redactsSensitiveFields(t *testing.T) {
 		TraceID: "tr", Frontend: "fe", Method: "GET", Path: "/x",
 		ClientAddr: "127.0.0.1:9", AuthorizationBearer: secret, SessionHint: hint,
 	}
-	s := fmt.Sprintf("%s", m)
+	s := m.String()
 	if strings.Contains(s, secret) {
 		t.Fatalf("String() leaked AuthorizationBearer: %q", s)
 	}

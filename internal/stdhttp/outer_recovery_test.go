@@ -127,7 +127,7 @@ func TestStackHTTPHandler_testOuterWrap_panicBeforeCommit_outerOperationInLog(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d want 500", res.StatusCode)
 	}

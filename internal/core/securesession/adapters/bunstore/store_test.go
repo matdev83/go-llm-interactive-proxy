@@ -26,7 +26,7 @@ func TestNew_NilBunDB(t *testing.T) {
 
 func TestNewContext_NilContext(t *testing.T) {
 	t.Parallel()
-	_, err := NewContext(nil, nil)
+	_, err := NewContext(nil, nil) //nolint:staticcheck // contract: nil ctx must be rejected
 	if err == nil {
 		t.Fatal("expected error for nil context")
 	}
@@ -265,6 +265,21 @@ func TestBunStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.
 	}
 	if len(items2) != 0 {
 		t.Fatalf("want empty after TTL refresh got len=%d", len(items2))
+	}
+}
+
+func TestBunStore_transcriptEnabledCached_missingRowMapsToSessionNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, cleanup := newTestStoreWithOpts(t, Options{SQLQueryCacheTTL: time.Hour, SQLQueryCacheMaxEntries: 64})
+	defer cleanup()
+
+	sid := domain.SessionID("no-such-session-for-policy-read")
+	for range 2 {
+		_, err := st.transcriptEnabledCached(ctx, st.db, sid)
+		if !errors.Is(err, domain.ErrSessionNotFound) {
+			t.Fatalf("got %v want ErrSessionNotFound", err)
+		}
 	}
 }
 

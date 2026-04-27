@@ -58,6 +58,7 @@ func TestApplyPoolSettings_Invalid(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if aerr := ApplyPoolSettings(sqldb, tc.s); aerr == nil {
 				t.Fatal("expected error for invalid pool settings")
 			}
@@ -105,7 +106,7 @@ func TestRedactDSN_PasswordNotVisible(t *testing.T) {
 
 func TestOpenPostgres_NilContext(t *testing.T) {
 	t.Parallel()
-	_, err := OpenPostgres(nil, "postgres://u@h/db")
+	_, err := OpenPostgres(nil, "postgres://u@h/db") //nolint:staticcheck // contract: explicit nil ctx must yield ErrNilContext
 	if !errors.Is(err, ErrNilContext) {
 		t.Fatalf("expected ErrNilContext, got %v", err)
 	}

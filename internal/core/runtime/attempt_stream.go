@@ -42,7 +42,8 @@ type retryRecvStream struct {
 	excluded map[string]struct{}
 	rng      routing.Rng
 
-	lastHardReject lipapi.NegotiationResult
+	lastHardReject           lipapi.NegotiationResult
+	isContextLimitExhaustion bool
 
 	innerMu   sync.Mutex
 	inner     lipapi.EventStream
@@ -445,18 +446,19 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		}
 	}
 	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
-		ctx:         ctx,
-		bus:         s.bus,
-		traceID:     s.traceID,
-		aLegID:      s.aLegID,
-		baseline:    s.baseline,
-		sel:         s.sel,
-		session:     s.session,
-		excluded:    s.excluded,
-		rng:         s.rng,
-		budget:      s.budget,
-		isRetryPath: true,
-		lastReject:  &s.lastHardReject,
+		ctx:                      ctx,
+		bus:                      s.bus,
+		traceID:                  s.traceID,
+		aLegID:                   s.aLegID,
+		baseline:                 s.baseline,
+		sel:                      s.sel,
+		session:                  s.session,
+		excluded:                 s.excluded,
+		rng:                      s.rng,
+		budget:                   s.budget,
+		isRetryPath:              true,
+		lastReject:               &s.lastHardReject,
+		isContextLimitExhaustion: &s.isContextLimitExhaustion,
 	})
 	if err != nil {
 		return false, err
@@ -487,6 +489,8 @@ func (s *retryRecvStream) Close() error {
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
 		if s.executor != nil && s.executor.Log != nil {
+			// lipapi.EventStream.Close has no context; use Background plus call/leg ids from EnsureCallDiag so
+			// isolated-panic logs still correlate by trace_id / b_leg. Request-scoped trace fields are omitted here.
 			logCtx := diag.EnsureCallDiag(context.Background(), s.traceID, s.aLegID)
 			attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{
 				AttrOpts:   diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},

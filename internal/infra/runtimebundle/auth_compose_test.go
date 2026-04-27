@@ -246,7 +246,10 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	pp := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
+	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
+	if !ok {
+		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
+	}
 	out := pp.RendererByFrontend["openai_compatible"].RenderAuthError(context.Background(), httpauth.AuthErrorRenderInput{})
 	if string(out.Body) != "B" {
 		t.Fatalf("want opts renderer B, got %q", out.Body)

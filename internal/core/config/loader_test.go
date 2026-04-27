@@ -215,6 +215,16 @@ func TestLoadFileLoadsBootstrapConfig(t *testing.T) {
 	if cfg.Continuity.Store != "memory" {
 		t.Fatalf("continuity.store default/normalize: got %q want memory", cfg.Continuity.Store)
 	}
+	if cfg.ModelCatalog.Enabled {
+		t.Fatal("expected sample model_catalog.enabled false")
+	}
+	if cfg.ModelCatalog.ExternalUpdatesEnabled {
+		t.Fatal("expected sample model_catalog.external_updates_enabled false")
+	}
+	if len(cfg.ModelCatalog.ModelOverrides) != 0 || len(cfg.ModelCatalog.BackendModelOverrides) != 0 {
+		t.Fatalf("expected no active overrides in sample config, got model=%d backend=%d",
+			len(cfg.ModelCatalog.ModelOverrides), len(cfg.ModelCatalog.BackendModelOverrides))
+	}
 }
 
 func TestLoadFile_rejectsModelAliasInvalidPattern(t *testing.T) {

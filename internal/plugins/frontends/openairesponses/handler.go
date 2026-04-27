@@ -112,7 +112,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case execerr.KindSessionDenial:
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, execerr.OpenAIWireErrorType(out.Status), ""))
 		case execerr.KindClientReject:
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, "invalid_request_error", "unsupported_parameter"))
+			code := "unsupported_parameter"
+			if out.Status == http.StatusRequestEntityTooLarge {
+				code = ""
+			}
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, out.Message, "invalid_request_error", code))
 		default:
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, out.Status, execerr.InternalWireMessage, "api_error", ""))
 		}

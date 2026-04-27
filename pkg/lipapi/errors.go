@@ -70,6 +70,16 @@ var ErrMaxRouteAttempts = errors.New("lipapi: routing max_attempts exhausted")
 // resolved because no default backend was configured.
 var ErrUnresolvedModelOnlySelector = errors.New("lipapi: model-only route selector without default backend")
 
+// ErrAllCandidatesContextLimitExceeded is returned when every evaluated route candidate was
+// excluded before upstream open because known context limits are below the conservative
+// request-size estimate (pre-output routing only).
+var ErrAllCandidatesContextLimitExceeded = errors.New("lipapi: all route candidates excluded by context limit")
+
+// IsAllCandidatesContextLimitExceeded reports whether err is or wraps [ErrAllCandidatesContextLimitExceeded].
+func IsAllCandidatesContextLimitExceeded(err error) bool {
+	return errors.Is(err, ErrAllCandidatesContextLimitExceeded)
+}
+
 // RejectError is returned when capability negotiation deterministically rejects
 // a request before any upstream work begins.
 type RejectError struct {

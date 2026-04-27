@@ -29,6 +29,7 @@ type Config struct {
 	Hooks         HooksConfig         `yaml:"hooks"`
 	Plugins       PluginsConfig       `yaml:"plugins"`
 	ModelAliases  []ModelAliasConfig  `yaml:"model_aliases"`
+	ModelCatalog  ModelCatalogConfig  `yaml:"model_catalog"`
 }
 
 // DatabaseConfig is optional connection pool tuning for managed PostgreSQL handles

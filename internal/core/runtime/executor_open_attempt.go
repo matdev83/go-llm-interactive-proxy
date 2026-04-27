@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
@@ -38,6 +39,9 @@ type attemptOpenParams struct {
 	budget      *attemptBudget
 	isRetryPath bool
 	lastReject  *lipapi.NegotiationResult
+	// isContextLimitExhaustion, when non-nil, is set true when excluding a candidate for context-limit
+	// eligibility so a subsequent ErrNoEligibleCandidate maps to [lipapi.ErrAllCandidatesContextLimitExceeded].
+	isContextLimitExhaustion *bool
 }
 
 type attemptOpenResult struct {
@@ -63,10 +67,15 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		if noEligible && lastNegotiationReject {
 			return zero, p.lastReject.Err()
 		}
+		if noEligible && p.isContextLimitExhaustion != nil && *p.isContextLimitExhaustion {
+			return zero, lipapi.ErrAllCandidatesContextLimitExceeded
+		}
 		return zero, fmt.Errorf("executor: expand failover: %w", err)
 	}
 	c := list[0]
-	e.notePlanCandidate(p.ctx, p.traceID, c.Key)
+	if p.isContextLimitExhaustion != nil {
+		*p.isContextLimitExhaustion = false
+	}
 	attempt := lipapi.CloneCall(p.baseline)
 	if e != nil && e.MaxPendingWireEvents > 0 {
 		attempt.MaxPendingWireEvents = e.MaxPendingWireEvents
@@ -76,11 +85,13 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	if !ok {
 		return zero, fmt.Errorf("executor: unknown backend %q", c.Primary.Backend)
 	}
+	var facts modelcatalog.EffectiveFacts
 	res, negotiatePanicErr := safety.CallValue(
 		safety.BoundaryBackend,
 		"backend_capability_negotiate",
 		func() (lipapi.NegotiationResult, error) {
-			return lipapi.Negotiate(req, e.capsForAttempt(p.ctx, be, attempt, c)), nil
+			facts = e.effectiveFactsForAttempt(p.ctx, be, attempt, c)
+			return lipapi.Negotiate(req, facts.EffectiveCaps), nil
 		},
 	)
 	if negotiatePanicErr != nil {
@@ -109,6 +120,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
+		// Req 9.3 / task 6.2: same route-trace surface as context exclusions (negotiation outcome + catalog metadata).
+		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
+		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
 		p.excluded[c.Key] = struct{}{}
 		return zero, nil
 	}
@@ -122,6 +136,31 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		)
 		lipapi.ApplyNegotiatedDowngrades(&attempt, res)
 	}
+	var elig *modelcatalog.EligibilityDecision
+	eligRan := e != nil && e.EligibilityResolver != nil
+	if eligRan {
+		facts = e.effectiveFactsForAttempt(p.ctx, be, attempt, c)
+		d := e.EligibilityResolver.Check(p.ctx, c, attempt, facts)
+		elig = &d
+		if !d.IsEligible {
+			if p.isContextLimitExhaustion != nil && d.Reason == modelcatalog.EligibilityContextLimitExceeded {
+				*p.isContextLimitExhaustion = true
+			}
+			diag.LogDecision(p.ctx, e.Log, "context_limit_exclude", diag.AttrOpts{CallID: p.traceID},
+				slog.String("candidate_key", c.Key),
+				slog.String("backend", c.Primary.Backend),
+			)
+			cat := catalogRouteTraceIfEnabled(e, facts, res, elig, true)
+			e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+			p.excluded[c.Key] = struct{}{}
+			return zero, nil
+		}
+	}
+	if res.Kind == lipapi.NegotiationDowngrade && !eligRan && e != nil {
+		facts = e.effectiveFactsForAttempt(p.ctx, be, attempt, c)
+	}
+	cat := catalogRouteTraceIfEnabled(e, facts, res, elig, eligRan)
+	e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
 	if c.MarkedFirst {
 		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
 			return zero, fmt.Errorf("executor: set weighted first consumed: %w", err)

@@ -119,6 +119,26 @@ routing:
 hooks:
   tool_reactor_error_policy: fail_open
 
+# Optional models.dev snapshot catalog (disabled by default). Operator guide: docs/capability-catalogs.md
+# model_catalog:
+#   enabled: false
+#   external_updates_enabled: false
+#   # Local JSON snapshot path (required when enabled or when external_updates_enabled needs a cache).
+#   cache_path: ./data/model_catalog.json
+#   # Background refresh (only when external_updates_enabled: true):
+#   # update_interval: 1h
+#   # source_url: "https://example.com/models.json"   # HTTPS recommended; see doc "Trust and exposure"
+#   # fetch_timeout: 30s   # optional extra bound when fetch context has no deadline (defense in depth)
+#   # diagnostics_path: /debug/model_catalog   # must start with /; must not overlap diagnostics.* paths
+#   # model_overrides:
+#   #   - model: "gpt-4o"
+#   #     tools: true
+#   #     context_limit_tokens: 128000
+#   # backend_model_overrides:
+#   #   - backend: "openai-responses"
+#   #     model: "gpt-4o-mini"
+#   #     reasoning: false
+
 continuity:
   in_memory: true
   store: memory
