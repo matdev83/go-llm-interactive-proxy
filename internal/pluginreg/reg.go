@@ -52,11 +52,11 @@ type Registry struct {
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		backends:             map[string]backendFactory{},
-		backendProfiles:      map[string]BackendSecurityProfile{},
-		frontends:            map[string]FrontendMount{},
-		features:             map[string]FeatureFactory{},
-		authErrorRenderers:   map[string]lipsdk.AuthErrorRenderer{},
+		backends:           map[string]backendFactory{},
+		backendProfiles:    map[string]BackendSecurityProfile{},
+		frontends:          map[string]FrontendMount{},
+		features:           map[string]FeatureFactory{},
+		authErrorRenderers: map[string]lipsdk.AuthErrorRenderer{},
 	}
 }
 
