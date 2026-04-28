@@ -35,6 +35,3 @@ linters:
 formatters:
   enable:
     - gofumpt
-
-issues:
-  exclude-use-default: false
