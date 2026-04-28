@@ -235,7 +235,7 @@ func RunWithRuntime(
 		mux.Handle("GET "+base, dh)
 		log.InfoContext(logCtx, "secure-session diagnostics mounted", "path", base)
 	}
-	mountModelCatalogDiagnostics(mux, cfg, log, built, logCtx)
+	mountModelCatalogDiagnostics(logCtx, mux, cfg, log, built)
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
 	var trafficPorts traffic.PortBundle
 	if built.RuntimeSnapshot != nil {
@@ -327,7 +327,7 @@ func RunWithRuntime(
 	}
 }
 
-func mountModelCatalogDiagnostics(mux *http.ServeMux, cfg *config.Config, log *slog.Logger, built *runtimebundle.Built, logCtx context.Context) {
+func mountModelCatalogDiagnostics(logCtx context.Context, mux *http.ServeMux, cfg *config.Config, log *slog.Logger, built *runtimebundle.Built) {
 	if mux == nil || cfg == nil {
 		return
 	}

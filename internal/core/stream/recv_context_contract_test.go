@@ -16,6 +16,7 @@ type sdkLikeRecvBlocker struct {
 	mu          sync.Mutex
 	ch          chan struct{}
 	recvStarted chan struct{}
+	startedOnce sync.Once
 }
 
 func newSDKLikeRecvBlocker() *sdkLikeRecvBlocker {
@@ -29,11 +30,14 @@ func (s *sdkLikeRecvBlocker) Recv(ctx context.Context) (lipapi.Event, error) {
 	if ctx == nil {
 		return lipapi.Event{}, lipapi.ErrNilContext
 	}
-	select {
-	case s.recvStarted <- struct{}{}:
-	default:
+	s.startedOnce.Do(func() { close(s.recvStarted) })
+	s.mu.Lock()
+	ch := s.ch
+	s.mu.Unlock()
+	if ch == nil {
+		return lipapi.Event{}, context.Canceled
 	}
-	<-s.ch
+	<-ch
 	return lipapi.Event{}, context.Canceled
 }
 

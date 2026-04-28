@@ -45,7 +45,9 @@ const (
 )
 
 // EventSink receives non-secret auth and session events. Implementations are wired at the
-// composition root (e.g. structured logging). OnAuthDecision: do not treat [sdkauth.AuthDecisionEvent]
+// composition root (e.g. structured logging). [EventDispatcher] serializes calls per dispatcher
+// instance; sinks should still avoid long blocking work because delivery remains on request paths.
+// OnAuthDecision: do not treat [sdkauth.AuthDecisionEvent]
 // fields as proof of absence of secrets in upstream state; log only stable, operator-approved
 // attributes (the default JSON sink logs [sdkauth.AuthDecisionEvent.PrincipalSafeClaims] keys only,
 // not map values). New fields on event DTOs require explicit non-secret data classification before use;

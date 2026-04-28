@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,6 +96,30 @@ func TestEventDispatcher_failClosed_propagatesSinkError(t *testing.T) {
 	d2 := NewEventDispatcher(sink2, EventFailureFailClosed)
 	if err := d2.DispatchSessionStart(ctx, sampleSessionEvent()); !errors.Is(err, wantErr) {
 		t.Fatalf("session: expected %v, got %v", wantErr, err)
+	}
+}
+
+func TestEventDispatcher_serializesConcurrentSinkDelivery(t *testing.T) {
+	t.Parallel()
+	const calls = 64
+	sink := &fakeSink{}
+	d := NewEventDispatcher(sink, EventFailureBestEffort)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	wg.Add(calls)
+	for range calls {
+		go func() {
+			defer wg.Done()
+			if err := d.DispatchAuthDecision(ctx, sampleAuthEvent()); err != nil {
+				t.Errorf("DispatchAuthDecision: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if sink.authCalls != calls {
+		t.Fatalf("auth calls: got %d want %d", sink.authCalls, calls)
 	}
 }
 

@@ -77,6 +77,8 @@ type Executor struct {
 	ExtensionMetrics extensions.StageMetrics
 	// CompletionBufferLimits overrides completion-gate buffering bounds (tests). Zero MaxEvents uses SDK defaults.
 	CompletionBufferLimits completion.BufferLimits
+	// secureSessionMu guards lazy initialization of SecureSession in the test hook path.
+	secureSessionMu sync.Mutex
 
 	// SecureSession authorizes turns via BeginTurn before submit hooks; required for all executor prepares.
 	SecureSession *app.Manager
@@ -146,6 +148,8 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if e.RuntimeSnapshot != nil {
 		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
 	}
+	e.secureSessionMu.Lock()
+	defer e.secureSessionMu.Unlock()
 	if e.SecureSession == nil {
 		secureSessionTestPrepare(e)
 	}
