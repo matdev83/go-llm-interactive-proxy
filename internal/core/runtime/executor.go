@@ -34,6 +34,9 @@ var _ lipsdk.ExecutorView = (*Executor)(nil)
 // internal/core/runtime test binary links export_test.go, which assigns this hook in init.
 var secureSessionTestPrepare = func(*Executor) {}
 
+// secureSessionMu guards lazy initialization of Executor.SecureSession in tests.
+var secureSessionMu sync.Mutex
+
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
 type Executor struct {
 	Store b2bua.Store
@@ -146,9 +149,11 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if e.RuntimeSnapshot != nil {
 		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
 	}
+	secureSessionMu.Lock()
 	if e.SecureSession == nil {
 		secureSessionTestPrepare(e)
 	}
+	secureSessionMu.Unlock()
 	if e.SecureSession == nil {
 		return nil, fmt.Errorf("executor: secure session manager is required")
 	}
