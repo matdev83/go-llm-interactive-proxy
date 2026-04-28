@@ -11,8 +11,8 @@ import (
 type EligibilityDecision struct {
 	IsEligible bool              `json:"eligible"`
 	Reason     EligibilityReason `json:"reason,omitempty"`
-	Facts      EffectiveFacts    `json:"facts,omitempty"`
-	Estimate   SizeEstimate      `json:"estimate,omitempty"`
+	Facts      EffectiveFacts    `json:"facts,omitzero"`
+	Estimate   SizeEstimate      `json:"estimate,omitzero"`
 }
 
 // EligibilityResolverImpl decides context-limit eligibility from already-resolved [EffectiveFacts]

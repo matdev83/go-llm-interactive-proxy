@@ -108,7 +108,7 @@ func TestEventDispatcher_serializesConcurrentSinkDelivery(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(calls)
-	for i := 0; i < calls; i++ {
+	for range calls {
 		go func() {
 			defer wg.Done()
 			if err := d.DispatchAuthDecision(ctx, sampleAuthEvent()); err != nil {
