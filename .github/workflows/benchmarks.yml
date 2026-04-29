@@ -23,7 +23,7 @@ jobs:
         run: make bench 2>&1 | tee bench-out.txt
 
       - name: Upload results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-output
           path: bench-out.txt
