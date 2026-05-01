@@ -6,7 +6,7 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 | Gate | Criterion | Command |
 |------|-----------|---------|
-| Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `go test ./internal/testkit/conformance/...` |
+| Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...`; see [conformance-matrix-evidence.md](conformance-matrix-evidence.md)) |
 | Race (Req. 14.6) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); on Windows `make test-race` is a no-op (race disabled locally) |
 | Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` (see budgets) |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
@@ -15,14 +15,17 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 
 Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/specs/llm-api-parity/design.md). A protocol may be marked **parity-ready** only when every matrix row for that protocol is `implemented` or explicitly `out_of_scope`, with automated evidence at the layers named in the spec.
 
-- **Fast conformance slice:** `make parity-checks` runs `go test ./internal/testkit/conformance/...` (includes `parity_*_test.go` anchors, `TestParitySuiteSourceFilesPresent`, and `TestParityMatrixCompleteness`).
+- **Fast conformance slice:** `make parity-checks` runs `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...` (includes `parity_*_test.go` anchors, `TestParitySuiteSourceFilesPresent`, and `TestParityMatrixCompleteness` when compiled with the integration tag).
+- **Golden / parity evidence map:** [conformance-golden-coverage.md](conformance-golden-coverage.md) (migration JSON, parity file ownership, matrix context; kept in sync by `TestConformanceGoldenCoverageDocPresent`).
+- **Matrix iteration ↔ test traceability:** [conformance-matrix-evidence.md](conformance-matrix-evidence.md) (which harness exercises each FE×BE row; integration-tagged sources vs default `make test`).
+- **Specification bundle hub:** [spec-bundle-index.md](spec-bundle-index.md) — orchestration, continuity, routing, and hook-bus scenario registries (`SB-*` IDs) with precommit doc/source checks.
 - **Full release gate** remains `make release-gates` (conformance + Tier-1 fuzz).
 
 **Parity-ready checklist (before claiming a protocol row is green):**
 
 1. `design.md` row status is `implemented` or explicitly `out_of_scope` / `wire_only` with a reason.
 2. [refclient-spec-matrix.md](../.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md) and [refbackend-spec-matrix.md](../.kiro/specs/go-core-reimplementation-v1/refbackend-spec-matrix.md) cite the same tests or deferrals as `design.md` (no contradictions).
-3. `make parity-checks` passes locally; CI runs it via the **Parity checks** step in `.github/workflows/qa.yml`.
+3. `make parity-checks` passes locally; CI runs the same packages with integration conformance sources enabled via `go test -parallel=8 -tags=precommit,integration ./...` (see `.github/workflows/qa.yml`).
 
 ## Fuzz tiers
 
@@ -73,5 +76,5 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 
 ## Single entry point
 
-- `make release-gates` — conformance package tests, then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on CI (`bash scripts/race-check.sh --strict`; Windows skips race via `scripts/race-check.ps1`).
+- `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on CI (`bash scripts/race-check.sh --strict`; Windows skips race via `scripts/race-check.ps1`).
 - Full QA remains `make qa` (quality + unit tests + lint + vuln). CI also runs race, lint, and vuln as separate steps (see `.github/workflows/qa.yml`).

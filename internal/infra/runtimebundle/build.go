@@ -35,7 +35,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -173,7 +175,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.WorkspaceResolvers) > 0 {
 		ss := cfg.SecureSession
-		failClosedWS := cfg.SecureSessionEffectivelyEnabled() && strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
+		secureOn := cfg.SecureSessionEffectivelyEnabled()
+		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
+		failClosedWS := secureOn && resolveFailClosed
 		if failClosedWS {
 			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
 		} else {
@@ -187,6 +191,10 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	var catalogFilters []toolcatalog.Filter
 	if len(opts.ToolCatalogFilters) > 0 {
 		catalogFilters = slices.Clone(opts.ToolCatalogFilters)
+	}
+	var toolPolicies []toolpolicy.Policy
+	if len(opts.ToolCallPolicies) > 0 {
+		toolPolicies = slices.Clone(opts.ToolCallPolicies)
 	}
 	var reqTransforms []request.Transform
 	if len(opts.RequestTransforms) > 0 {
@@ -205,6 +213,10 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if len(opts.TrafficObservers) > 0 {
 		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
 	}
+	var usageObs usage.Observer = usage.NoopObserver{}
+	if len(opts.UsageObservers) > 0 {
+		usageObs = usage.ChainObservers(opts.UsageObservers...)
+	}
 	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
 	if len(opts.RawCaptureSinks) > 0 {
 		trafficRaw = traffic.MultiRawCapture(opts.RawCaptureSinks...)
@@ -219,10 +231,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Workspace:          ws,
 		SessionOpeners:     openers,
 		ToolCatalogFilters: catalogFilters,
+		ToolCallPolicies:   toolPolicies,
 		RequestTransforms:  reqTransforms,
 		RouteHintProviders: routeHints,
 		CompletionGates:    compGates,
 		TrafficObserver:    trafficObs,
+		UsageObserver:      usageObs,
 		RawCapture:         trafficRaw,
 		TrafficRedactors:   trafficRedactors,
 	})
@@ -318,7 +332,12 @@ func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTra
 
 // BuildExecutor wires enabled backends from configuration into a core executor with production
 // defaults. Prefer Build for a structured composition result.
-func BuildExecutor(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, reg *pluginreg.Registry) (*runtime.Executor, b2bua.Store, []func() error, error) {
+func BuildExecutor(
+	cfg *config.Config,
+	bus *hooks.Bus,
+	log *slog.Logger,
+	reg *pluginreg.Registry,
+) (*runtime.Executor, b2bua.Store, []func() error, error) {
 	b, err := Build(cfg, bus, log, &BuildOptions{PluginRegistry: reg})
 	if err != nil {
 		return nil, nil, nil, err

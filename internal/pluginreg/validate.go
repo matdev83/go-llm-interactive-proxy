@@ -38,7 +38,7 @@ func (r *Registry) ValidateBundledFactories(required []lipsdk.Requirement) error
 	return nil
 }
 
-func (r *Registry) lookupBackend(id string) (backendFactory, error) {
+func (r *Registry) lookupBackend(id string) (BackendFactory, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	fn, ok := r.backends[id]

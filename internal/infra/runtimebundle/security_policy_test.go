@@ -121,6 +121,13 @@ func TestBuild_staticBackendCredentialModeAllowsExternalAuth(t *testing.T) {
 	}
 }
 
+func TestBuild_noneBackendCredentialModeAllowsExternalAuth(t *testing.T) {
+	t.Parallel()
+	if err := buildWithProfiledBackend(t, "0.0.0.0:8080", config.AuthModeExternal, pluginreg.CredentialNone); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuild_unsupportedBackendCredentialMode_rejects(t *testing.T) {
 	t.Parallel()
 	err := buildWithProfiledBackend(t, "0.0.0.0:8080", config.AuthModeExternal, pluginreg.BackendCredentialMode("totally_bogus"))

@@ -1,3 +1,10 @@
+// Package logging builds slog handlers from validated operator logging config.
+//
+// OpenTelemetry: [WithOTELTraceAttrs] enables [otelTraceFieldsHandler], which copies trace_id
+// and span_id from the span in context onto each slog record. We do not use
+// go.opentelemetry.io/contrib/bridges/otelslog: that bridge overlaps the same correlation and
+// would risk duplicate fields if combined with this handler, without adding a capability we need
+// today (see otelslog module docs vs. our minimal JSON/text wiring).
 package logging
 
 import (
@@ -24,6 +31,9 @@ type loggerSettings struct {
 
 // WithOTELTraceAttrs wraps the handler so each record includes trace_id and span_id
 // from the OpenTelemetry span in context when tracing is enabled.
+//
+// This is the supported integration point for log–trace correlation in lipstd; do not stack
+// go.opentelemetry.io/contrib/bridges/otelslog on the same handler without removing this option.
 func WithOTELTraceAttrs(enabled bool) Option {
 	return func(s *loggerSettings) {
 		s.otelTraceAttrs = enabled

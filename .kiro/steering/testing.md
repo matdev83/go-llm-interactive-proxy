@@ -5,6 +5,22 @@
 This project treats tests as executable contracts.
 The goal is not maximum test count. The goal is to make behavior, boundaries, and regressions explicit.
 
+### Specification bundle (recoverability)
+
+Literal “reimplement the entire tree from `_test.go` files alone” is **not** a realistic bar: finite examples underdetermine implementation details (structure, naming, SDK plumbing), and stable types in [`pkg/lipapi`](../../pkg/lipapi/) and [`pkg/lipsdk`](../../pkg/lipsdk/) are co-authored with tests rather than derivable only from them.
+
+Treat **recoverability** as a **specification bundle**:
+
+1. **Tests** — executable behavior, invariants, and regressions.
+2. **Committed fixtures** — `testdata/` goldens, migration JSON, canonical event streams (especially cross-protocol translation).
+3. **Stable package contracts** — exported APIs and canonical models in `pkg/lipapi` and `pkg/lipsdk`.
+4. **Steering and parity specs** — global rules (streaming-first, no retry after first output, boundaries) and matrix ownership under `.kiro/steering/` and `.kiro/specs/` where applicable.
+5. **Scenario registry index** — [`docs/spec-bundle-index.md`](../../docs/spec-bundle-index.md) lists core **SB-** IDs (orchestration, continuity, routing, hook bus) with doc ↔ test cross-checks (`go test -tags=precommit` per package).
+
+For **which areas deserve new tests first** (without chasing coverage percentages), see [`docs/testing-coverage-priorities.md`](../../docs/testing-coverage-priorities.md).
+
+Together these bound ambiguity enough to re-implement behavior; tests in isolation do not.
+
 Core testing principles:
 - TDD by default: red -> green -> refactor.
 - Contract-first assertions: test observable behavior and protocol shape.
@@ -28,9 +44,13 @@ Use package-local tests for:
 
 ### Integration tests
 
+Matrix-shaped parity sources under `internal/testkit/conformance/` use `//go:build integration` (they do not run in default `go test ./...`); see [`docs/conformance-matrix-evidence.md`](../../docs/conformance-matrix-evidence.md).
+
 **Alignment with generic golang-testing guidance:** Community materials often require `//go:build integration` on any file named `integration_test.go`. This repository **intentionally diverges** for the current `**/integration_test.go` set: they are in-process wiring tests only (see below). Prefer named `t.Run` subtests and `t.Parallel()` where safe; use `goleak.VerifyTestMain` in packages that spin goroutines in tests (see `internal/core/runtime`, `internal/core/stream`, `internal/pluginreg`, `internal/pluginreg/standardbundle`, `internal/plugins/backends/acp`, `internal/plugins/backends/bedrock`, `internal/stdhttp` (HTTP server and client wiring in tests); `pluginreg` and `standardbundle` ignore the OpenCensus stats worker started from a dependency `init`).
 
 **Build tags:** This repo does **not** use `//go:build integration` on `integration_test.go` files. Those files are **fast, deterministic** composed tests (`httptest` + stub executor/backends, no real provider network). They belong in the default `go test ./...` / `make test` suite so every PR exercises decode/handler/refclient wiring. If we add tests that hit real networks, long-lived containers, or shared external state, gate them with `//go:build integration` **or** `testing.Short()` skips and run them in a separate CI job.
+
+The same policy applies to **integration-shaped** tests that are not named `integration_test.go` but still use composed wiring without external services—for example `internal/stdhttp/dogfood_smoke_test.go` and `internal/core/runtime/executor_local_stub_integration_test.go`. They stay in the default suite on purpose; do not add `//go:build integration` there unless the test becomes slow, non-deterministic, or env-dependent.
 
 **`integration` tag (optional PostgreSQL):** A small set of env-gated tests that call a real PostgreSQL when `LIP_TEST_POSTGRES_DSN` (or legacy `LIP_MANAGED_POSTGRES_DSN`) is set live under `//go:build integration` (for example `postgres_integration_test.go` in continuity `bunstore` and `postgres_bun_contract_test.go` in secure-session `storecontract`). They are compiled in `make qa` and CI (`-tags=precommit,integration`) but **skip** when the env var is unset, so default developer `go test ./...` stays fast and does not compile them unless `-tags=integration` is passed.
 
@@ -132,3 +152,4 @@ _Updated 2026-04-23: architecture-test guidance for pragmatic hexagonal enforcem
 _Reason: keep testing guidance aligned with the current small-core, ownership-first architecture direction._
 _Updated 2026-04-26: added secure-session, extension-platform, startup fail-closed, model-alias, and panic-isolation test priorities._
 _Reason: recent Go runtime hardening expanded the highest-risk behavior contracts._
+_Updated 2026-05-01: clarified specification bundle (tests + fixtures + stable pkg contracts + steering) vs tests-only reconstructability._

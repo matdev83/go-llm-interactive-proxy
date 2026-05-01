@@ -13,8 +13,16 @@ func validateStartupSecurity(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("stdhttp: nil config")
 	}
-	if cfg.EffectiveServerAuthMode() == config.AuthModeNoAuth && !config.IsExplicitLoopbackListenAddress(cfg.Server.Address) {
-		return fmt.Errorf("stdhttp: no_auth mode requires explicit loopback server.address, got %q", cfg.Server.Address)
+	if err := config.ValidateProtectedDiagnosticsPosture(cfg); err != nil {
+		return fmt.Errorf("stdhttp: %w", err)
+	}
+	noAuth := cfg.EffectiveServerAuthMode() == config.AuthModeNoAuth
+	loopback := config.IsExplicitLoopbackListenAddress(cfg.Server.Address)
+	if noAuth && !loopback {
+		return fmt.Errorf(
+			"stdhttp: no_auth mode requires explicit loopback server.address, got %q",
+			cfg.Server.Address,
+		)
 	}
 	isAdmin, err := runningAsAdmin()
 	if err != nil {

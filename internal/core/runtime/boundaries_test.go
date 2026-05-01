@@ -19,6 +19,10 @@ type depRule struct {
 	ErrMsg string
 }
 
+// Core production packages must not import internal/plugins/...; integration tests that need
+// concrete plugins may import them from *_test.go only (go list -deps -test=false excludes test
+// files, so those imports are not in the production dependency graph). See also
+// internal/archtest/ref_support_boundaries_test.go for composition-root reference-emulator rules.
 func TestCorePackagesDoNotDependOnConcretePluginPackages(t *testing.T) {
 	t.Parallel()
 

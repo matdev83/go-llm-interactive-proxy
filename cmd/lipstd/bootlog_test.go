@@ -83,14 +83,7 @@ func TestLogBootstrapAccessAuth_propagatesAccessModeError(t *testing.T) {
 	if err == nil || !errors.Is(err, accessmode.ErrUnknownAccessMode) {
 		t.Fatalf("want %v, got %v", accessmode.ErrUnknownAccessMode, err)
 	}
-	var sawErr bool
-	for _, r := range sink.records {
-		if r.Level == slog.LevelError && r.Message == "lipstd: resolve effective access mode" {
-			sawErr = true
-			break
-		}
-	}
-	if !sawErr {
-		t.Fatalf("expected error record, got %#v", sink.records)
+	if len(sink.records) != 0 {
+		t.Fatalf("expected no log records from logBootstrapAccessAuth on error path, got %#v", sink.records)
 	}
 }

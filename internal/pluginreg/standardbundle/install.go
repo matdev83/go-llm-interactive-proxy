@@ -1,6 +1,4 @@
-// Package standardbundle documents the explicit standard plugin bundle.
-//
-// Factory tables live in package pluginreg (standard_table.go, InstallStandardBundleOn).
+// Package standardbundle exposes explicit standard plugin bundle composition helpers.
 package standardbundle
 
 import (
@@ -16,4 +14,15 @@ func InstallOn(reg *pluginreg.Registry, keys pluginreg.UpstreamAPIKeys) error {
 		return fmt.Errorf("standardbundle: nil registry")
 	}
 	return pluginreg.InstallStandardBundleOn(reg, keys)
+}
+
+// Bundle returns the concrete standard distribution bundle without backend registrations.
+// Backends bind environment/default keys, so callers compose them with [BackendBundle].
+func Bundle() pluginreg.Bundle {
+	return pluginreg.StandardBundle()
+}
+
+// BackendBundle returns the concrete standard backend registrations with keys bound.
+func BackendBundle(keys pluginreg.UpstreamAPIKeys) pluginreg.Bundle {
+	return pluginreg.StandardBackendBundle(keys)
 }

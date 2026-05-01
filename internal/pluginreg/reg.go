@@ -16,8 +16,8 @@ import (
 // FrontendMount is the stable SDK-named contract (see pkg/lipsdk).
 type FrontendMount = lipsdk.FrontendMount
 
-// backendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
-type backendFactory func(n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error)
+// BackendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
+type BackendFactory func(n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error)
 
 // BackendCredentialMode and BackendSecurityProfile are the public plugin registration contract
 // (see [lipsdk.BackendCredentialMode], [lipsdk.BackendSecurityProfile]).
@@ -30,6 +30,7 @@ const (
 	CredentialStatic    = lipsdk.CredentialStatic
 	CredentialWorkload  = lipsdk.CredentialWorkload
 	CredentialOAuthUser = lipsdk.CredentialOAuthUser
+	CredentialNone      = lipsdk.CredentialNone
 	CredentialUnknown   = lipsdk.CredentialUnknown
 )
 
@@ -42,7 +43,7 @@ type FeatureFactory func(n yaml.Node) (lipfeature.FeatureBundle, error)
 // [InstallStandardBundleOn] to assemble isolated bundles for each composition root.
 type Registry struct {
 	mu                 sync.RWMutex
-	backends           map[string]backendFactory
+	backends           map[string]BackendFactory
 	backendProfiles    map[string]BackendSecurityProfile
 	frontends          map[string]FrontendMount
 	features           map[string]FeatureFactory
@@ -52,7 +53,7 @@ type Registry struct {
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		backends:           map[string]backendFactory{},
+		backends:           map[string]BackendFactory{},
 		backendProfiles:    map[string]BackendSecurityProfile{},
 		frontends:          map[string]FrontendMount{},
 		features:           map[string]FeatureFactory{},
@@ -62,7 +63,7 @@ func NewRegistry() *Registry {
 
 func (r *Registry) ensureMaps() {
 	if r.backends == nil {
-		r.backends = map[string]backendFactory{}
+		r.backends = map[string]BackendFactory{}
 	}
 	if r.backendProfiles == nil {
 		r.backendProfiles = map[string]BackendSecurityProfile{}
@@ -80,12 +81,12 @@ func (r *Registry) ensureMaps() {
 
 // RegisterBackend records a backend factory on r.
 // Duplicate ids return an error: the standard bundle must register each id exactly once.
-func (r *Registry) RegisterBackend(id string, fn backendFactory) error {
+func (r *Registry) RegisterBackend(id string, fn BackendFactory) error {
 	return r.RegisterBackendWithProfile(id, fn, BackendSecurityProfile{CredentialMode: CredentialUnknown})
 }
 
 // RegisterBackendWithProfile records a backend factory with credential posture metadata.
-func (r *Registry) RegisterBackendWithProfile(id string, fn backendFactory, profile BackendSecurityProfile) error {
+func (r *Registry) RegisterBackendWithProfile(id string, fn BackendFactory, profile BackendSecurityProfile) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureMaps()

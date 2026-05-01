@@ -1,0 +1,66 @@
+package extensiontrace
+
+import (
+	"context"
+	"testing"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+)
+
+func TestStartSpan_ok(t *testing.T) {
+	t.Parallel()
+	ctx, end := StartSpan(context.Background(), "lip.extension.test_span")
+	end(nil)
+	_ = ctx
+}
+
+func TestStartSpan_withErr(t *testing.T) {
+	t.Parallel()
+	_, end := StartSpan(context.Background(), "lip.extension.test_span_err")
+	end(context.Canceled)
+}
+
+func TestStartSpan_nilParent(t *testing.T) {
+	t.Parallel()
+	//nolint:staticcheck // nil parent: StartSpan must coerce to a usable context
+	ctx, end := StartSpan(nil, "lip.extension.nil_parent")
+	defer end(nil)
+	if ctx == nil {
+		t.Fatal("expected non-nil context")
+	}
+}
+
+func TestStartSpan_setsAttributes(t *testing.T) {
+	t.Parallel()
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	const spanName = "lip.extension.attr_test"
+	wantKey := attribute.Key("lip.extension.test_key")
+	_, end := StartSpan(context.Background(), spanName, attribute.String(string(wantKey), "v"))
+	end(nil)
+
+	spans := rec.Started()
+	if len(spans) != 1 {
+		t.Fatalf("started spans: got %d want 1", len(spans))
+	}
+	if spans[0].Name() != spanName {
+		t.Fatalf("span name: got %q want %q", spans[0].Name(), spanName)
+	}
+	var found bool
+	for _, a := range spans[0].Attributes() {
+		if a.Key == wantKey && a.Value.AsString() == "v" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing attribute %s on span", wantKey)
+	}
+}

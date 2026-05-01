@@ -4,16 +4,23 @@ import "testing"
 
 func TestBackendCredentialMode_stringValues(t *testing.T) {
 	t.Parallel()
-	cases := map[BackendCredentialMode]string{
-		CredentialStatic:    "static",
-		CredentialWorkload:  "workload",
-		CredentialOAuthUser: "oauth_user",
-		CredentialUnknown:   "unknown",
+	cases := []struct {
+		mode BackendCredentialMode
+		want string
+	}{
+		{CredentialStatic, "static"},
+		{CredentialWorkload, "workload"},
+		{CredentialOAuthUser, "oauth_user"},
+		{CredentialNone, "none"},
+		{CredentialUnknown, "unknown"},
 	}
-	for m, want := range cases {
-		if string(m) != want {
-			t.Fatalf("BackendCredentialMode %v: want %q", m, want)
-		}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
+			if string(tc.mode) != tc.want {
+				t.Fatalf("BackendCredentialMode %v: want %q", tc.mode, tc.want)
+			}
+		})
 	}
 }
 

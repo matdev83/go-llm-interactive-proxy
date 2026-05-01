@@ -12,7 +12,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -24,10 +26,12 @@ type MergedFeatureSurface struct {
 	SessionOpeners     []session.Opener
 	WorkspaceResolvers []workspace.Resolver
 	ToolCatalogFilters []toolcatalog.Filter
+	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficObservers   []traffic.Observer
+	UsageObservers     []usage.Observer
 	RawCaptureSinks    []traffic.RawCaptureSink
 	TrafficRedactors   []traffic.Redactor
 }
@@ -52,8 +56,8 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		}
 		bundles = append(bundles, b)
 	}
-	var submitLen, reqLen, respLen, toolLen, lifeLen, openLen, wsLen, catLen, rtxLen, rhLen, cgLen int
-	var obsLen, rawLen, redLen int
+	var submitLen, reqLen, respLen, toolLen, lifeLen, openLen, wsLen, catLen, polLen, rtxLen, rhLen, cgLen int
+	var trafficObsLen, usageObsLen, rawLen, redLen int
 	for _, b := range bundles {
 		submitLen += len(b.SubmitHooks)
 		reqLen += len(b.RequestPartHooks)
@@ -63,10 +67,12 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		openLen += len(b.SessionOpeners)
 		wsLen += len(b.WorkspaceResolvers)
 		catLen += len(b.ToolCatalogFilters)
+		polLen += len(b.ToolCallPolicies)
 		rtxLen += len(b.RequestTransforms)
 		rhLen += len(b.RouteHintProviders)
 		cgLen += len(b.CompletionGates)
-		obsLen += len(b.TrafficObservers)
+		trafficObsLen += len(b.TrafficObservers)
+		usageObsLen += len(b.UsageObservers)
 		rawLen += len(b.RawCaptureSinks)
 		redLen += len(b.TrafficRedactors)
 	}
@@ -79,10 +85,12 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 	openers := slices.Grow([]session.Opener(nil), openLen)
 	resolvers := slices.Grow([]workspace.Resolver(nil), wsLen)
 	catalog := slices.Grow([]toolcatalog.Filter(nil), catLen)
+	policies := slices.Grow([]toolpolicy.Policy(nil), polLen)
 	transforms := slices.Grow([]request.Transform(nil), rtxLen)
 	routeHints := slices.Grow([]routehint.Provider(nil), rhLen)
 	compGates := slices.Grow([]completion.Gate(nil), cgLen)
-	trafficObs := slices.Grow([]traffic.Observer(nil), obsLen)
+	trafficObs := slices.Grow([]traffic.Observer(nil), trafficObsLen)
+	usageObs := slices.Grow([]usage.Observer(nil), usageObsLen)
 	rawSinks := slices.Grow([]traffic.RawCaptureSink(nil), rawLen)
 	redactors := slices.Grow([]traffic.Redactor(nil), redLen)
 	for _, b := range bundles {
@@ -94,10 +102,12 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		openers = append(openers, b.SessionOpeners...)
 		resolvers = append(resolvers, b.WorkspaceResolvers...)
 		catalog = append(catalog, b.ToolCatalogFilters...)
+		policies = append(policies, b.ToolCallPolicies...)
 		transforms = append(transforms, b.RequestTransforms...)
 		routeHints = append(routeHints, b.RouteHintProviders...)
 		compGates = append(compGates, b.CompletionGates...)
 		trafficObs = append(trafficObs, b.TrafficObservers...)
+		usageObs = append(usageObs, b.UsageObservers...)
 		rawSinks = append(rawSinks, b.RawCaptureSinks...)
 		redactors = append(redactors, b.TrafficRedactors...)
 	}
@@ -107,10 +117,12 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		SessionOpeners:     openers,
 		WorkspaceResolvers: resolvers,
 		ToolCatalogFilters: catalog,
+		ToolCallPolicies:   policies,
 		RequestTransforms:  transforms,
 		RouteHintProviders: routeHints,
 		CompletionGates:    compGates,
 		TrafficObservers:   trafficObs,
+		UsageObservers:     usageObs,
 		RawCaptureSinks:    rawSinks,
 		TrafficRedactors:   redactors,
 	}, nil

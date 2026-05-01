@@ -32,7 +32,7 @@ func validateBackendSecurityProfiles(cfg *config.Config, reg *pluginreg.Registry
 			)
 		}
 		switch profile.CredentialMode {
-		case pluginreg.CredentialStatic, pluginreg.CredentialWorkload:
+		case pluginreg.CredentialStatic, pluginreg.CredentialWorkload, pluginreg.CredentialNone:
 			continue
 		case pluginreg.CredentialOAuthUser:
 			if multiUser {

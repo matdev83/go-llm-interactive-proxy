@@ -492,3 +492,33 @@ func TestRun_initializesTracingAndOutboundPropagation(t *testing.T) { //nolint:p
 		t.Fatalf("expected tracing.Init to install tracecontext+baggage propagator fields, got %v", fields)
 	}
 }
+
+func TestNewStandardHandler_nilContext(t *testing.T) {
+	t.Parallel()
+	cfg := &coreconfig.Config{
+		Server:     coreconfig.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3, DefaultRoute: "openai-responses:gpt-4o-mini"},
+		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
+		Plugins: coreconfig.PluginsConfig{
+			Frontends: []coreconfig.PluginConfig{{ID: "openai-responses", Enabled: false}},
+		},
+	}
+	log := testkit.DiscardLogger()
+	app, err := runtime.New(runtime.Options{Config: cfg, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := pluginreg.NewRegistry()
+	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	//nolint:staticcheck // explicit nil context: NewStandardHandler must return a clear error
+	_, _, err = NewStandardHandler(nil, cfg, app, log, built)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "stdhttp: nil context" {
+		t.Fatalf("got %q", err.Error())
+	}
+}

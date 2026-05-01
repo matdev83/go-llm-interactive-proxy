@@ -246,6 +246,22 @@ func TestValidate_rejectsDuplicateDiagnosticPaths(t *testing.T) {
 	}
 }
 
+func TestValidate_rejectsDiagnosticHTTPPathDotDotSegments(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Diagnostics: config.DiagnosticsConfig{
+			HealthPath:   "/healthz",
+			AttemptsPath: "/admin/../attempts",
+		},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "b1", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err == nil {
+		t.Fatal("expected diagnostics path .. segment error")
+	}
+}
+
 func TestValidate_rejectsOverlappingDiagnosticPathPrefix(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{

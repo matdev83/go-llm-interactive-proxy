@@ -12,7 +12,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -29,10 +31,12 @@ type RequestRuntimeSnapshot struct {
 	state              state.Store
 	aux                auxiliary.Client
 	obs                traffic.Observer
+	usageObs           usage.Observer
 	raw                traffic.RawCaptureSink
 	ws                 workspace.Resolver
 	sessionOpeners     []session.Opener
 	toolCatalogFilters []toolcatalog.Filter
+	toolCallPolicies   []toolpolicy.Policy
 	requestTransforms  []request.Transform
 	routeHintProviders []routehint.Provider
 	completionGates    []completion.Gate
@@ -45,10 +49,12 @@ type SnapshotOptions struct {
 	State              state.Store
 	Aux                auxiliary.Client
 	TrafficObserver    traffic.Observer
+	UsageObserver      usage.Observer
 	RawCapture         traffic.RawCaptureSink
 	Workspace          workspace.Resolver
 	SessionOpeners     []session.Opener
 	ToolCatalogFilters []toolcatalog.Filter
+	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
@@ -75,6 +81,10 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	if ob == nil {
 		ob = traffic.NoopObserver{}
 	}
+	uob := opts.UsageObserver
+	if uob == nil {
+		uob = usage.NoopObserver{}
+	}
 	raw := opts.RawCapture
 	if raw == nil {
 		raw = traffic.DisabledRawCapture{}
@@ -83,36 +93,25 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	if ws == nil {
 		ws = workspace.DisabledResolver{}
 	}
-	var openers []session.Opener
-	if len(opts.SessionOpeners) > 0 {
-		openers = append(openers, opts.SessionOpeners...)
-	}
-	var catalog []toolcatalog.Filter
-	if len(opts.ToolCatalogFilters) > 0 {
-		catalog = append(catalog, opts.ToolCatalogFilters...)
-	}
-	var transforms []request.Transform
-	if len(opts.RequestTransforms) > 0 {
-		transforms = append(transforms, opts.RequestTransforms...)
-	}
-	var routeHints []routehint.Provider
-	if len(opts.RouteHintProviders) > 0 {
-		routeHints = append(routeHints, opts.RouteHintProviders...)
-	}
-	var compGates []completion.Gate
-	if len(opts.CompletionGates) > 0 {
-		compGates = append(compGates, opts.CompletionGates...)
-	}
+	openers := slices.Clone(opts.SessionOpeners)
+	catalog := slices.Clone(opts.ToolCatalogFilters)
+	// Frozen execution order for the request lifetime (same contract as [toolpolicy.MaterializeSorted]).
+	policies := toolpolicy.MaterializeSorted(opts.ToolCallPolicies)
+	transforms := slices.Clone(opts.RequestTransforms)
+	routeHints := slices.Clone(opts.RouteHintProviders)
+	compGates := slices.Clone(opts.CompletionGates)
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
 	return &RequestRuntimeSnapshot{
 		hookBus:            bus,
 		state:              st,
 		aux:                ax,
 		obs:                ob,
+		usageObs:           uob,
 		raw:                raw,
 		ws:                 ws,
 		sessionOpeners:     openers,
 		toolCatalogFilters: catalog,
+		toolCallPolicies:   policies,
 		requestTransforms:  transforms,
 		routeHintProviders: routeHints,
 		completionGates:    compGates,
@@ -153,6 +152,14 @@ func (s *RequestRuntimeSnapshot) TrafficObserver() traffic.Observer {
 	return s.obs
 }
 
+// UsageObserver returns the usage observer for this snapshot.
+func (s *RequestRuntimeSnapshot) UsageObserver() usage.Observer {
+	if s == nil {
+		return nil
+	}
+	return s.usageObs
+}
+
 // RawCapture returns the privileged raw capture sink for this snapshot.
 func (s *RequestRuntimeSnapshot) RawCapture() traffic.RawCaptureSink {
 	if s == nil {
@@ -184,6 +191,26 @@ func (s *RequestRuntimeSnapshot) ToolCatalogFilters() []toolcatalog.Filter {
 		return nil
 	}
 	return slices.Clone(s.toolCatalogFilters)
+}
+
+// ToolCallPolicies returns a defensive copy of frozen tool-call policies (may be empty).
+// Mutating the returned slice does not affect the snapshot.
+func (s *RequestRuntimeSnapshot) ToolCallPolicies() []toolpolicy.Policy {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.toolCallPolicies)
+}
+
+// ToolCallPoliciesExecution returns the frozen tool-call policy slice in execution order
+// (the same ordering as [toolpolicy.MaterializeSorted]). The returned slice must not be
+// mutated; it is the snapshot's internal backing store. Prefer [RequestRuntimeSnapshot.ToolCallPolicies]
+// for a defensive copy; this accessor exists for the runtime executor hot path.
+func (s *RequestRuntimeSnapshot) ToolCallPoliciesExecution() []toolpolicy.Policy {
+	if s == nil {
+		return nil
+	}
+	return s.toolCallPolicies
 }
 
 // RequestTransforms returns a defensive copy of frozen request-wide transforms (may be empty).

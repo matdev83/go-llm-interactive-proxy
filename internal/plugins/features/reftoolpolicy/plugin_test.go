@@ -10,6 +10,7 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
 
 func TestToolCatalogFilter_dropsBlocked(t *testing.T) {
@@ -85,5 +86,55 @@ func TestToolReactor_blockByPrefix(t *testing.T) {
 	}
 	if dec != sdk.ToolSwallow || (out != lipapi.ToolEvent{}) {
 		t.Fatalf("dec %v", dec)
+	}
+}
+
+func TestToolCallPolicy_deniesBlockedEmittedTool(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{
+		BlockNames: []string{"blocked"},
+	})
+	if p.ID() != reftoolpolicy.ID+"-tool-policy" {
+		t.Fatalf("id %q", p.ID())
+	}
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolName: "blocked", ToolCallID: "tc1"}
+	err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
+		Ctx:      context.Background(),
+		Policies: toolpolicy.MaterializeSorted([]toolpolicy.Policy{p}),
+		Event:    ev,
+	})
+	if err == nil {
+		t.Fatal("want deny error")
+	}
+}
+
+func TestToolCallPolicy_allowsUnblockedTool(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{BlockNames: []string{"blocked"}})
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolName: "ok", ToolCallID: "tc1"}
+	err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
+		Ctx:      context.Background(),
+		Policies: toolpolicy.MaterializeSorted([]toolpolicy.Policy{p}),
+		Event:    ev,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestToolCallPolicy_emptyBlocksIsNoOp(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{
+		BlockNames:    []string{},
+		BlockPrefixes: []string{},
+	})
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolName: "anything", ToolCallID: "tc1"}
+	err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
+		Ctx:      context.Background(),
+		Policies: toolpolicy.MaterializeSorted([]toolpolicy.Policy{p}),
+		Event:    ev,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

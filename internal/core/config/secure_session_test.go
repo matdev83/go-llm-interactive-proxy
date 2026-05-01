@@ -192,7 +192,11 @@ func TestValidate_secureSession_diagnosticsExposeRequiresPrefix(t *testing.T) {
 func TestValidate_secureSession_diagnosticsExposeRequiresDiagnosticsSharedSecret(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		Plugins: secureSessionBaselinePlugins(),
+		Access:     config.AccessConfig{Mode: "multi_user"},
+		Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
+		Server:     config.ServerConfig{Address: "10.0.0.1:8080", AuthMode: config.AuthModeExternal},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins:    secureSessionBaselinePlugins(),
 		Diagnostics: config.DiagnosticsConfig{
 			SharedSecret: "",
 		},
@@ -207,6 +211,28 @@ func TestValidate_secureSession_diagnosticsExposeRequiresDiagnosticsSharedSecret
 	err := config.Validate(cfg)
 	if err == nil || !strings.Contains(err.Error(), "diagnostics.shared_secret") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestValidate_secureSession_diagnosticsExposeLoopbackAllowsEmptySharedSecret(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:8080"},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins:    secureSessionBaselinePlugins(),
+		Diagnostics: config.DiagnosticsConfig{
+			SharedSecret: "",
+		},
+		SecureSession: config.SecureSessionConfig{
+			Enabled:                    config.BoolPtr(true),
+			Store:                      "memory",
+			TokenFingerprintKey:        strings.Repeat("k", 32),
+			DiagnosticsExposeSummaries: true,
+			DiagnosticsPathPrefix:      "/debug/sessions",
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
 	}
 }
 

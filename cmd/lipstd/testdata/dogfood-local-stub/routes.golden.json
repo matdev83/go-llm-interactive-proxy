@@ -1,0 +1,42 @@
+{
+  "effective_default_route": "dogfood-local:stub-default",
+  "backends": [
+    {
+      "id": "openai-responses",
+      "kind": "openai-responses",
+      "enabled": false
+    },
+    {
+      "id": "openai-legacy",
+      "kind": "openai-legacy",
+      "enabled": false
+    },
+    {
+      "id": "anthropic",
+      "kind": "anthropic",
+      "enabled": false
+    },
+    {
+      "id": "gemini",
+      "kind": "gemini",
+      "enabled": false
+    },
+    {
+      "id": "bedrock",
+      "kind": "bedrock",
+      "enabled": false
+    },
+    {
+      "id": "acp",
+      "kind": "acp",
+      "enabled": false
+    },
+    {
+      "id": "dogfood-local",
+      "kind": "local-stub",
+      "enabled": true
+    }
+  ],
+  "model_aliases": [],
+  "credential_posture": "all_local_stub"
+}
