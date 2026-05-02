@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"gopkg.in/yaml.v3"
@@ -130,6 +131,10 @@ func backendBedrock(n yaml.Node, upstream *http.Client) (execbackend.Backend, er
 		AllowInsecureNonLoopback: y.AllowInsecureNonLoopback,
 		HTTPClient:               resolveUpstreamHTTP(upstream),
 	}), nil
+}
+
+func backendLocalStub(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
+	return localstub.NewFromYAML(n)
 }
 
 func backendACP(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {

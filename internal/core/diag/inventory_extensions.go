@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
 
 // FeatureRegistry is the minimal surface needed to introspect feature bundles for inventory (R14).
@@ -129,15 +130,30 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 			} else if r, ok := findFeatureRegistration(regs, pc.InstanceID()); !ok {
 				msg := "diag: feature registration row missing for inventory snapshot (extras vs config mismatch)"
 				entry.BundleError = msg
-				slog.Default().Warn("inventory extensions", "bundle_error", msg, "instance_id", entry.InstanceID, "factory_kind", entry.FactoryKind)
+				slog.Default().Warn(
+					"inventory extensions",
+					"bundle_error", msg,
+					"instance_id", entry.InstanceID,
+					"factory_kind", entry.FactoryKind,
+				)
 			} else {
 				b, err := reg.BuildFeatureBundle(r.RegistryFactoryKey(), r.Config.Node)
 				if err != nil {
 					entry.BundleError = err.Error()
-					slog.Default().Warn("inventory extensions", "bundle_error", err.Error(), "instance_id", entry.InstanceID, "factory_kind", entry.FactoryKind)
+					slog.Default().Warn(
+						"inventory extensions",
+						"bundle_error", err.Error(),
+						"instance_id", entry.InstanceID,
+						"factory_kind", entry.FactoryKind,
+					)
 				} else if vErr := b.Validate(); vErr != nil {
 					entry.BundleError = vErr.Error()
-					slog.Default().Warn("inventory extensions", "bundle_error", vErr.Error(), "instance_id", entry.InstanceID, "factory_kind", entry.FactoryKind)
+					slog.Default().Warn(
+						"inventory extensions",
+						"bundle_error", vErr.Error(),
+						"instance_id", entry.InstanceID,
+						"factory_kind", entry.FactoryKind,
+					)
 				} else {
 					entry.StageOccupancy = stageOccupancyFromBundle(b)
 					if len(b.RequestTransforms) > 0 || len(b.ToolCatalogFilters) > 0 || len(b.CompletionGates) > 0 {
@@ -262,18 +278,24 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 			Count:      n,
 		})
 	}
-	if n := len(ms.ToolReactors); n > 0 {
-		ids := make([]string, n)
-		for i := range ms.ToolReactors {
-			ids[i] = ms.ToolReactors[i].ID()
+	toolReactionIDs := make([]string, 0, len(b.ToolCallPolicies)+len(ms.ToolReactors))
+	for _, pol := range toolpolicy.MaterializeSorted(b.ToolCallPolicies) {
+		if pol == nil {
+			continue
 		}
+		toolReactionIDs = append(toolReactionIDs, "tool_policy:"+pol.ID())
+	}
+	for i := range ms.ToolReactors {
+		toolReactionIDs = append(toolReactionIDs, ms.ToolReactors[i].ID())
+	}
+	if len(toolReactionIDs) > 0 {
 		out = append(out, InventoryStageOccupancy{
 			StageID:    extensions.StageToolEventReaction,
-			HandlerIDs: ids,
-			Count:      n,
+			HandlerIDs: toolReactionIDs,
+			Count:      len(toolReactionIDs),
 		})
 	}
-	var sessionOpenIDs []string
+	sessionOpenIDs := make([]string, 0, len(b.SessionOpeners)+len(b.WorkspaceResolvers))
 	for _, o := range b.SessionOpeners {
 		if o == nil {
 			continue
@@ -310,12 +332,18 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 			})
 		}
 	}
-	var trafficIDs []string
+	trafficIDs := make([]string, 0, len(b.TrafficObservers)+len(b.UsageObservers)+len(b.RawCaptureSinks)+len(b.TrafficRedactors))
 	for i, o := range b.TrafficObservers {
 		if o == nil {
 			continue
 		}
 		trafficIDs = append(trafficIDs, fmt.Sprintf("traffic_observer:%d", i))
+	}
+	for i, o := range b.UsageObservers {
+		if o == nil {
+			continue
+		}
+		trafficIDs = append(trafficIDs, fmt.Sprintf("usage_observer:%d", i))
 	}
 	for i := range b.RawCaptureSinks {
 		if b.RawCaptureSinks[i] == nil {

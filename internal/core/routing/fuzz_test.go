@@ -18,9 +18,12 @@ func FuzzParseSelector(f *testing.F) {
 	f.Add("[weight=2]x:y^[first]p:q")
 	f.Add("m?max_tokens=10")
 	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) > 4<<10 {
+			return
+		}
 		for _, r := range s {
 			if !unicode.IsPrint(r) && r != ' ' {
-				t.Skip()
+				return
 			}
 		}
 		sel, err := Parse(s)

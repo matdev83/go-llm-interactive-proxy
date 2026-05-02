@@ -130,6 +130,56 @@ func TestApplyToolReactors_chainedRewrite(t *testing.T) {
 	}
 }
 
+func TestApplyToolReactors_rewrite_invalidCanonicalFailsClosed(t *testing.T) {
+	t.Parallel()
+	te := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "c1", ArgsDelta: "orig"}
+	badRewrite := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "", ArgsDelta: "oops"}
+	r := &stubTool{
+		id: "bad",
+		fn: func(context.Context, lipapi.ToolEvent, sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
+			return sdk.ToolRewrite, badRewrite, nil
+		},
+	}
+	b := corehooks.New(corehooks.Config{
+		ToolReactors:           []sdk.ToolReactor{r},
+		ToolReactorErrorPolicy: sdk.ToolReactorErrorsFailClosed,
+	})
+	out := b.ApplyToolReactors(context.Background(), te, sdk.ToolMeta{})
+	if out.Emit || out.Err == nil {
+		t.Fatalf("want validation error, got %#v", out)
+	}
+	var hm *lipapi.HookMutationError
+	if !errors.As(out.Err, &hm) {
+		t.Fatalf("want HookMutationError wrapped, got %v", out.Err)
+	}
+}
+
+func TestApplyToolReactors_rewrite_invalidCanonicalFailOpenPreservesCurrentEvent(t *testing.T) {
+	t.Parallel()
+	te := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "c1", ArgsDelta: "orig"}
+	invalid := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolCallID: "", ArgsDelta: "oops"}
+	bad := &stubTool{
+		id: "bad", order: 1,
+		fn: func(context.Context, lipapi.ToolEvent, sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
+			return sdk.ToolRewrite, invalid, nil
+		},
+	}
+	good := &stubTool{
+		id: "good", order: 2,
+		fn: func(_ context.Context, cur lipapi.ToolEvent, _ sdk.ToolMeta) (sdk.ToolDecision, lipapi.ToolEvent, error) {
+			if cur.ArgsDelta != "orig" || cur.ToolCallID != "c1" {
+				t.Fatalf("expected original event after invalid rewrite dropped, got %#v", cur)
+			}
+			return sdk.ToolPass, lipapi.ToolEvent{}, nil
+		},
+	}
+	b := corehooks.New(corehooks.Config{ToolReactors: []sdk.ToolReactor{bad, good}})
+	out := b.ApplyToolReactors(context.Background(), te, sdk.ToolMeta{})
+	if !out.Emit || out.Event.ArgsDelta != "orig" {
+		t.Fatalf("expected unchanged emit, got %#v", out)
+	}
+}
+
 type stubTool struct {
 	id    string
 	order int

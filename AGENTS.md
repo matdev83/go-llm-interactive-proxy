@@ -48,6 +48,7 @@ Treat these paths as the default structure unless a spec says otherwise:
 - `internal/pluginreg/`, `internal/infra/runtimebundle/`, `internal/stdhttp/` — registration tables and composition (`cmd/lipstd` → runnable HTTP server).
 - `internal/infra/` — HTTP client tuning, structured logging helpers, Prometheus/OpenTelemetry wiring, clocks, ids, and other non-codec adapters.
 - `internal/testkit/` — provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
+- `cmd/lipstd/testdata/` — operator JSON goldens for `routes` / `inventory` (see `docs/dogfood-local.md`); update when `golden_normalize_test.go` fails after intentional shape changes.
 - `internal/refbackend/`, `internal/refclient/` — spec emulators and reference SDK clients for tests only (must not appear on production wiring paths).
 - `internal/qa/`, `internal/archtest/` — repo hygiene tests and architecture import/budget guardrails.
 - `testdata/` — golden protocol payloads, event streams, selector fixtures, and migration captures.
@@ -58,7 +59,7 @@ For a fuller package-by-package map (including where to edit for a given change)
 
 ### Windows Git paths
 
-Use forward slashes in pathspecs (`internal/core/...`). On case-insensitive volumes, avoid paths that differ only by case from existing files. This clone sets `core.protectNTFS` locally to reduce accidental duplicate-path issues.
+Use forward slashes in pathspecs (`internal/core/...`). On case-insensitive volumes, avoid paths that differ only by case from existing files. This clone sets `core.protectNTFS` locally to reduce accidental duplicate-path issues. When editing under `cmd/lipstd/`, keep that forward-slash form in the editor so tooling does not open a second buffer for the same file as `cmd\lipstd\...`.
 
 ## Kiro Spec-Driven Development
 
@@ -130,6 +131,7 @@ Prefer repo-defined scripts or make targets:
 - `make qa` — quality checks, **one** full `go test -tags=precommit,integration ./...`, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-race` — skipped on Windows (`scripts/race-check.ps1`); on Linux/macOS runs `scripts/race-check.sh`. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
+- `make parity-checks` — same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...` (FE×BE matrix + parity suites; see `docs/conformance-matrix-evidence.md`); use before push when you touch cross-frontend/backend behavior.
 - `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`; runs staged secret scan then quality gate when `.go` is staged)
 - `go test -run TestName ./path/to/pkg`
@@ -191,6 +193,14 @@ Go keeps compiled packages and test binaries in the **build cache** (`GOCACHE`, 
 
 ## Testing standards
 
+Recoverability of behavior is defined by a **specification bundle** — tests, `testdata/` fixtures, stable `pkg/lipapi` / `pkg/lipsdk` contracts, and steering or parity specs — not by `_test.go` files alone. See [`.kiro/steering/testing.md`](.kiro/steering/testing.md).
+
+### Coverage discipline (risk-based, no line-percent goals)
+
+- Prefer locking **invariants** (routing, streaming, B2BUA, capability mismatch, no-retry-after-output) over broad coverage; see [`docs/testing-coverage-priorities.md`](docs/testing-coverage-priorities.md) for hotspot triage and gap hypotheses.
+- When changing **cross-protocol** or FE×BE matrix surfaces, run **`make parity-checks`** locally before merge (integration-tagged conformance under `internal/testkit/conformance`).
+- For release-grade or wide behavioral merges, prefer **`make qa`** so precommit matrices and optional integration tags run once.
+
 1. TDD is the default: write a failing test first.
 2. Tests are behavior contracts, not implementation snapshots.
 3. Run directly related tests before making claims.
@@ -224,6 +234,8 @@ High-value areas that always deserve tests:
   in tests or emulators, re-check brace matching; a single long line is better than a broken stream.
   Prefer [testdata/](./testdata/) for very large wire dumps when a fixture is easier to read than a megastring.
   (CI does not yet run `golangci-lint` `lll` repo-wide; enable and tune path excludes incrementally when ready.)
+  **External style reviews**: treat the JSON/SSE single-line exception above as intentional for those literals so
+  mechanical ~120-character wrapping does not break fragile streams.
 - **Slices in JSON and returned values**: prefer explicit empty initialization (`s := []T{}` or `make`) when
   a slice is stored, returned, or serialized, so `null` never appears in JSON for “empty list”. Short-lived
   **append-only** local buffers may use `var s []T` and `append` (idiomatic Go) when the value never escapes.

@@ -13,7 +13,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -66,10 +68,12 @@ func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
 	out.SessionOpeners = append(append([]session.Opener(nil), a.SessionOpeners...), b.SessionOpeners...)
 	out.WorkspaceResolvers = append(append([]workspace.Resolver(nil), a.WorkspaceResolvers...), b.WorkspaceResolvers...)
 	out.ToolCatalogFilters = append(append([]toolcatalog.Filter(nil), a.ToolCatalogFilters...), b.ToolCatalogFilters...)
+	out.ToolCallPolicies = append(append([]toolpolicy.Policy(nil), a.ToolCallPolicies...), b.ToolCallPolicies...)
 	out.RequestTransforms = append(append([]request.Transform(nil), a.RequestTransforms...), b.RequestTransforms...)
 	out.RouteHintProviders = slices.Concat(a.RouteHintProviders, b.RouteHintProviders)
 	out.CompletionGates = append(append([]completion.Gate(nil), a.CompletionGates...), b.CompletionGates...)
 	out.TrafficObservers = append(append([]traffic.Observer(nil), a.TrafficObservers...), b.TrafficObservers...)
+	out.UsageObservers = append(append([]usage.Observer(nil), a.UsageObservers...), b.UsageObservers...)
 	out.RawCaptureSinks = append(append([]traffic.RawCaptureSink(nil), a.RawCaptureSinks...), b.RawCaptureSinks...)
 	out.TrafficRedactors = append(append([]traffic.Redactor(nil), a.TrafficRedactors...), b.TrafficRedactors...)
 	return out
@@ -98,6 +102,9 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	}
 	if b.TrafficObservers != nil || b.RawCaptureSinks != nil || b.TrafficRedactors != nil {
 		t.Fatal("expected traffic slices nil on zero value")
+	}
+	if b.ToolCallPolicies != nil || b.UsageObservers != nil {
+		t.Fatal("expected tool policy and usage observer slices nil on zero value")
 	}
 }
 

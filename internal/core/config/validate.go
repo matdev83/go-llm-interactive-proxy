@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -42,6 +43,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if err := validateDiagnosticsSecret(cfg); err != nil {
+		return err
+	}
+	if err := ValidateProtectedDiagnosticsPosture(cfg); err != nil {
 		return err
 	}
 	if err := validateHTTPClient(cfg); err != nil {
@@ -167,14 +171,8 @@ func validateSecureSession(cfg *Config) error {
 		if !strings.HasPrefix(p, "/") {
 			return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
 		}
-		// Secure-session diagnostics use [diag.WrapDiagnosticsProtect]; an empty shared secret would
-		// leave routes unauthenticated. Length when non-empty is enforced by validateDiagnosticsSecret.
-		if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
-			return fmt.Errorf(
-				"diagnostics.shared_secret: required when secure_session.diagnostics_expose_summaries is true " +
-					"(non-empty; at least 12 characters; same header as other protected diagnostics)",
-			)
-		}
+		// Shared secret for these routes on non-loopback binds is enforced by
+		// [ValidateProtectedDiagnosticsPosture] (surface name secure_session_summaries).
 	}
 	if !ss.DiagnosticsExposeSummaries {
 		if p := strings.TrimSpace(ss.DiagnosticsPathPrefix); p != "" && !strings.HasPrefix(p, "/") {
@@ -307,6 +305,15 @@ func validateDiagnosticsSecret(cfg *Config) error {
 	return nil
 }
 
+// rejectHTTPPathDotDot rejects configured URL paths that contain a ".." segment. Such values are
+// unnecessary for mux mounts, confuse overlap validation, and are a foot-gun at HTTP boundaries.
+func rejectHTTPPathDotDot(fieldName, p string) error {
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		return fmt.Errorf("%s: must not contain .. path segments", fieldName)
+	}
+	return nil
+}
+
 func validateDiagnosticsPaths(cfg *Config) error {
 	if cfg == nil {
 		return nil
@@ -321,6 +328,9 @@ func validateDiagnosticsPaths(cfg *Config) error {
 		}
 		if !strings.HasPrefix(p, "/") {
 			return "", fmt.Errorf("diagnostics.%s: must start with /", name)
+		}
+		if err := rejectHTTPPathDotDot("diagnostics."+name, p); err != nil {
+			return "", err
 		}
 		return norm(p), nil
 	}
@@ -378,6 +388,9 @@ func validateDiagnosticsPaths(cfg *Config) error {
 			if !strings.HasPrefix(ssp, "/") {
 				return fmt.Errorf("secure_session.diagnostics_path_prefix: must start with /")
 			}
+			if err := rejectHTTPPathDotDot("secure_session.diagnostics_path_prefix", ssp); err != nil {
+				return err
+			}
 			ssp = strings.TrimSuffix(ssp, "/")
 			if err := add(ssp); err != nil {
 				return err
@@ -395,6 +408,9 @@ func validateDiagnosticsPaths(cfg *Config) error {
 	if mcd != "" {
 		if !strings.HasPrefix(mcd, "/") {
 			return fmt.Errorf("model_catalog.diagnostics_path: must start with /")
+		}
+		if err := rejectHTTPPathDotDot("model_catalog.diagnostics_path", mcd); err != nil {
+			return err
 		}
 		mcd = norm(mcd)
 		if err := add(mcd); err != nil {
@@ -415,6 +431,9 @@ func checkObservabilityMetricsPath(cfg *Config) (string, error) {
 	if !strings.HasPrefix(p, "/") {
 		return "", fmt.Errorf("observability.metrics.path: must start with /")
 	}
+	if err := rejectHTTPPathDotDot("observability.metrics.path", p); err != nil {
+		return "", err
+	}
 	return strings.TrimSuffix(p, "/"), nil
 }
 
@@ -429,6 +448,9 @@ func validateObservability(cfg *Config) error {
 		}
 		if !strings.HasPrefix(p, "/") {
 			return fmt.Errorf("observability.metrics.path: must start with /")
+		}
+		if err := rejectHTTPPathDotDot("observability.metrics.path", p); err != nil {
+			return err
 		}
 	}
 	if cfg.Observability.Tracing.Enabled {
@@ -475,6 +497,9 @@ func validateLogging(cfg *Config) error {
 		}
 		if !strings.HasPrefix(p, "/") {
 			return fmt.Errorf("logging.access_log_skip_paths[%d]: must start with /", i)
+		}
+		if err := rejectHTTPPathDotDot(fmt.Sprintf("logging.access_log_skip_paths[%d]", i), p); err != nil {
+			return err
 		}
 		cfg.Logging.AccessLogSkipPaths[i] = p
 	}
@@ -628,7 +653,10 @@ func validateModelCatalog(cfg *Config) error {
 			return fmt.Errorf("model_catalog.update_interval: %w", err)
 		}
 		if d <= 0 {
-			return fmt.Errorf("model_catalog.update_interval: must be positive when model_catalog.external_updates_enabled is true")
+			return fmt.Errorf(
+				"model_catalog.update_interval: must be positive when " +
+					"model_catalog.external_updates_enabled is true",
+			)
 		}
 	}
 	if su := strings.TrimSpace(mc.SourceURL); su != "" {

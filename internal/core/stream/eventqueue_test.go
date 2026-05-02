@@ -76,6 +76,21 @@ func TestDrainPending(t *testing.T) {
 	}
 }
 
+func TestPendingEventQueue_negativeMaxLenIsUnbounded(t *testing.T) {
+	t.Parallel()
+	// NewPendingEventQueue only enforces a cap when maxLen > 0; negative is treated as unbounded
+	// (same as 0) so misconfiguration does not spuriously return ErrPendingQueueFull.
+	q := stream.NewPendingEventQueue(-1)
+	for i := range 5 {
+		if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: string(rune('a' + i))}); err != nil {
+			t.Fatalf("push %d: %v", i, err)
+		}
+	}
+	if q.Len() != 5 {
+		t.Fatalf("Len=%d want 5", q.Len())
+	}
+}
+
 func TestPendingEventQueue_cap(t *testing.T) {
 	t.Parallel()
 	q := stream.NewPendingEventQueue(2)

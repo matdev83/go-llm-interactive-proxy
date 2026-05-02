@@ -39,7 +39,17 @@ const (
 // prepareSubmitAndALegSecure resolves principal and workspace, authorizes via secure-session BeginTurn
 // before submit hooks and extension stages, so hooks and CTP traffic see proxy-validated session
 // continuity (not client-forged ALegID / resume authority).
-func (e *Executor) prepareSubmitAndALegSecure(ctx context.Context, bus *hooks.Bus, call *lipapi.Call) (traceID string, baseline lipapi.Call, aLeg b2bua.ALegRecord, outCtx context.Context, err error) {
+func (e *Executor) prepareSubmitAndALegSecure(
+	ctx context.Context,
+	bus *hooks.Bus,
+	call *lipapi.Call,
+) (
+	traceID string,
+	baseline lipapi.Call,
+	aLeg b2bua.ALegRecord,
+	outCtx context.Context,
+	err error,
+) {
 	work := *call
 	traceID = strings.TrimSpace(work.ID)
 	if traceID == "" {
@@ -197,12 +207,21 @@ func (e *Executor) prepareSubmitAndALegSecure(ctx context.Context, bus *hooks.Bu
 
 	aLeg, err = e.Store.FetchALeg(outCtx, br.Record.ALegID)
 	if err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, fmt.Errorf("executor: fetch a-leg after secure session: %w", err)
+		return "",
+			lipapi.Call{},
+			b2bua.ALegRecord{},
+			outCtx,
+			fmt.Errorf("executor: fetch a-leg after secure session: %w", err)
 	}
 	work.Session.ContinuityKey = strings.TrimSpace(aLeg.ContinuityKey)
 	work.Session.ALegID = aLeg.ALegID
 
 	preSession.ALegID = aLeg.ALegID
+	preSession.AuthoritativeSessionID = string(br.Record.SessionID)
+	preSession.IsNew = br.IsNew
+	preSession.ResumeEligible = br.Record.ResumeEligible
+	preSession.TurnID = string(br.TurnID)
+	preSession.WorkspaceID = strings.TrimSpace(wsView.ID)
 
 	submitMeta := &sdk.SubmitMeta{TraceID: traceID, Annotations: map[string]string{}}
 	if e.Log != nil {
@@ -349,7 +368,14 @@ func (e *Executor) prepareSubmitAndALegSecure(ctx context.Context, bus *hooks.Bu
 		}
 	}
 	outCtx = execctx.WithViews(outCtx, views)
-	if err := e.emitSessionStartIfNeeded(outCtx, traceID, principalSnapshotForSessionAudit(principal), br, work, aLeg); err != nil {
+	if err := e.emitSessionStartIfNeeded(
+		outCtx,
+		traceID,
+		principalSnapshotForSessionAudit(principal),
+		br,
+		work,
+		aLeg,
+	); err != nil {
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}
 	return traceID, baseline, aLeg, outCtx, nil

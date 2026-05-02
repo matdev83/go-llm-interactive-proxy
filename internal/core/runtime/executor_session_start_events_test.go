@@ -108,6 +108,56 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_newSecureSession_emitsOnce(t
 	}
 }
 
+func TestExecutor_prepareSubmitAndALeg_sessionStart_proxySessionIDNotRawClientHint(t *testing.T) {
+	t.Parallel()
+	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, memSS, b2)
+	sink := &sessionStartSink{}
+	disp := coreauth.NewEventDispatcher(sink, coreauth.EventFailureBestEffort)
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+	})
+	ex := setSecureSessionDenialMapper(&Executor{
+		Store:              b2,
+		Bus:                hooks.New(hooks.Config{}),
+		RuntimeSnapshot:    snap,
+		SecureSession:      mgr,
+		Now:                func() time.Time { return time.Unix(3000, 0).UTC() },
+		AuthEvents:         disp,
+		SessionAuditPolicy: testSessionAuditPolicy(),
+	})
+	ctx := execview.WithFrontendID(
+		execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-a", DisplayName: "Alice"}),
+		"anthropic",
+	)
+	const clientHint = "client-controlled-hint-id"
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ClientSessionID: clientHint},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, _, _, _, err = ex.prepareSubmitAndALeg(ctx, ex.Bus, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.evs) != 1 {
+		t.Fatalf("session-start events: want 1 got %d", len(sink.evs))
+	}
+	ev := sink.evs[0]
+	if ev.SessionID == clientHint {
+		t.Fatalf("authoritative session id must not equal client session hint %q", clientHint)
+	}
+	if ev.ClientSessionRef != coreauth.OpaqueRefDigest(clientHint) {
+		t.Fatalf("client ref should be digest of hint, got %q", ev.ClientSessionRef)
+	}
+}
+
 func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeDoesNotDuplicate(t *testing.T) {
 	t.Parallel()
 	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

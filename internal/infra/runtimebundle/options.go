@@ -14,8 +14,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -46,7 +48,8 @@ type BuildOptions struct {
 	// auth is applied. Custom binaries must supply an equivalent policy chain; [cmd/lipstd] does
 	// not set this field unless you intentionally replace transport auth at the composition root.
 	HTTPAuthProviders []httpauth.Provider
-	// AuthEventSink implements [auth.EventSink] when auth.event_delivery is "custom". If set for other delivery modes, [Build] returns [ErrAuthEventSinkDisallowed].
+	// AuthEventSink implements [auth.EventSink] when auth.event_delivery is "custom". If set for
+	// other delivery modes, [Build] returns [ErrAuthEventSinkDisallowed].
 	// For default/disabled delivery the dispatcher uses an internal slog sink or nil per config.
 	AuthEventSink auth.EventSink
 	// RemoteDecider is required when the effective auth handler is remote or required_level is api_key_sso.
@@ -64,12 +67,14 @@ type BuildOptions struct {
 	// SessionOpeners and WorkspaceResolvers are merged from enabled feature bundles (task 5.1).
 	SessionOpeners     []session.Opener
 	WorkspaceResolvers []workspace.Resolver
-	// ToolCatalogFilters and RequestTransforms are merged from enabled feature bundles (tasks 7–7.1).
+	// ToolCatalogFilters, ToolCallPolicies, and RequestTransforms are merged from enabled feature bundles.
 	ToolCatalogFilters []toolcatalog.Filter
+	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficObservers   []traffic.Observer
+	UsageObservers     []usage.Observer
 	RawCaptureSinks    []traffic.RawCaptureSink
 	TrafficRedactors   []traffic.Redactor
 	// SecureSessionStore is optional; when set on Built, stdhttp may mount secure-session diagnostics.

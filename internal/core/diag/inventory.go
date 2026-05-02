@@ -1,6 +1,7 @@
 package diag
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -24,6 +25,26 @@ type PluginRow struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+// InventorySnapshotForConfig builds the same operator inventory view as [InventoryHandler] without HTTP.
+func InventorySnapshotForConfig(
+	ctx context.Context,
+	cfg *config.Config,
+	extras *InventoryExtras,
+) (InventorySnapshot, error) {
+	if cfg == nil {
+		return InventorySnapshot{}, errors.New("diag: inventory snapshot for config: nil config")
+	}
+	if ctx == nil {
+		return InventorySnapshot{}, errors.New("diag: inventory snapshot for config: nil context")
+	}
+	return InventorySnapshot{
+		Frontends:  rows(cfg.Plugins.Frontends),
+		Backends:   rows(cfg.Plugins.Backends),
+		Features:   rows(cfg.Plugins.Features),
+		Extensions: buildInventoryExtensions(ctx, cfg, extras),
+	}, nil
+}
+
 // InventoryHandler serves GET JSON describing enabled plugin rows from cfg.
 // extras may be nil; when extras.Reg is set, extension occupancy is resolved from live factories.
 func InventoryHandler(cfg *config.Config, extras *InventoryExtras) (http.Handler, error) {
@@ -35,11 +56,11 @@ func InventoryHandler(cfg *config.Config, extras *InventoryExtras) (http.Handler
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		snap := InventorySnapshot{
-			Frontends:  rows(cfg.Plugins.Frontends),
-			Backends:   rows(cfg.Plugins.Backends),
-			Features:   rows(cfg.Plugins.Features),
-			Extensions: buildInventoryExtensions(r.Context(), cfg, extras),
+		snap, err := InventorySnapshotForConfig(r.Context(), cfg, extras)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "diag: inventory snapshot", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)

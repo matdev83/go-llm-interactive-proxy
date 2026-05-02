@@ -19,11 +19,17 @@ type Transcript struct {
 
 // Row is one observed sample after redaction.
 type Row struct {
-	Leg    traffic.Leg
-	Body   []byte
-	At     time.Time
-	Trace  string
-	Redact bool
+	Leg         traffic.Leg
+	Body        []byte
+	At          time.Time
+	Trace       string
+	Redact      bool
+	AttemptSeq  int
+	BLegID      string
+	BackendID   string
+	FrontendID  string
+	SessionID   string
+	PrincipalID string
 }
 
 // NewTranscript returns an empty transcript buffer.
@@ -36,12 +42,17 @@ func (t *Transcript) OnObservation(_ context.Context, ev traffic.Observation) er
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Rows = append(t.Rows, Row{
-		Leg:   ev.Leg,
-		Body:  append([]byte(nil), ev.Body...),
-		At:    ev.RecordedAt,
-		Trace: ev.TraceID,
-		// Body is post-redaction on observation path
-		Redact: true,
+		Leg:         ev.Leg,
+		Body:        append([]byte(nil), ev.Body...),
+		At:          ev.RecordedAt,
+		Trace:       ev.TraceID,
+		Redact:      true,
+		AttemptSeq:  ev.AttemptSeq,
+		BLegID:      ev.BLegID,
+		BackendID:   ev.BackendID,
+		FrontendID:  ev.FrontendID,
+		SessionID:   ev.SessionID,
+		PrincipalID: ev.PrincipalID,
 	})
 	return nil
 }

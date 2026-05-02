@@ -13,7 +13,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 type stubSessionOpener string
@@ -174,6 +176,80 @@ func (stubTrafficRed) ID() string { return "tr-red" }
 
 func (stubTrafficRed) Redact(context.Context, sdktraffic.Leg, sdktraffic.CaptureMeta, []byte) ([]byte, error) {
 	return nil, nil
+}
+
+type stubSnapPolicy struct{}
+
+func (stubSnapPolicy) ID() string                        { return "snap-pol" }
+func (stubSnapPolicy) Order() int                        { return 0 }
+func (stubSnapPolicy) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (stubSnapPolicy) Handle(context.Context, lipapi.ToolEvent, toolpolicy.Meta, toolpolicy.Services) (toolpolicy.Decision, error) {
+	return toolpolicy.DecisionAllow, nil
+}
+
+// snapOrdPol is a minimal [toolpolicy.Policy] for snapshot ordering tests.
+type snapOrdPol struct {
+	id  string
+	ord int
+}
+
+func (p snapOrdPol) ID() string                      { return p.id }
+func (p snapOrdPol) Order() int                      { return p.ord }
+func (snapOrdPol) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (snapOrdPol) Handle(context.Context, lipapi.ToolEvent, toolpolicy.Meta, toolpolicy.Services) (toolpolicy.Decision, error) {
+	return toolpolicy.DecisionAllow, nil
+}
+
+func TestRequestRuntimeSnapshot_ToolCallPoliciesExecution_sortedAtSnapshotBuild(t *testing.T) {
+	t.Parallel()
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		ToolCallPolicies: []toolpolicy.Policy{
+			snapOrdPol{id: "zzz", ord: 10},
+			snapOrdPol{id: "aaa", ord: 0},
+		},
+	})
+	exec := snap.ToolCallPoliciesExecution()
+	if len(exec) != 2 {
+		t.Fatalf("len %d", len(exec))
+	}
+	if exec[0].ID() != "aaa" || exec[1].ID() != "zzz" {
+		t.Fatalf("order got [%s %s]", exec[0].ID(), exec[1].ID())
+	}
+	e2 := snap.ToolCallPoliciesExecution()
+	if len(e2) != 2 || &e2[0] != &exec[0] {
+		t.Fatal("expected ToolCallPoliciesExecution to reuse same backing slice")
+	}
+}
+
+func TestRequestRuntimeSnapshot_ToolCallPolicies_returnsDefensiveCopy(t *testing.T) {
+	t.Parallel()
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		ToolCallPolicies: []toolpolicy.Policy{stubSnapPolicy{}},
+	})
+	got := snap.ToolCallPolicies()
+	if len(got) != 1 {
+		t.Fatalf("len %d", len(got))
+	}
+	got[0] = nil
+	again := snap.ToolCallPolicies()
+	if len(again) != 1 {
+		t.Fatalf("after mutate len %d", len(again))
+	}
+}
+
+func TestRequestRuntimeSnapshot_UsageObserver_defaultsWhenUnsetAndCallable(t *testing.T) {
+	t.Parallel()
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{})
+	uo := snap.UsageObserver()
+	if uo == nil {
+		t.Fatal("want non-nil usage observer")
+	}
+	if err := uo.OnUsage(context.Background(), usage.Event{}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRequestRuntimeSnapshot_TrafficRedactors_returnsDefensiveCopy(t *testing.T) {

@@ -10,7 +10,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -33,12 +35,14 @@ type FeatureBundle struct {
 	WorkspaceResolvers []workspace.Resolver
 
 	ToolCatalogFilters []toolcatalog.Filter
+	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
 	RouteHintProviders []routehint.Provider
 
 	CompletionGates []completion.Gate
 
 	TrafficObservers []traffic.Observer
+	UsageObservers   []usage.Observer
 	RawCaptureSinks  []traffic.RawCaptureSink
 	TrafficRedactors []traffic.Redactor
 
@@ -53,10 +57,12 @@ func (b FeatureBundle) empty() bool {
 		len(b.SessionOpeners) == 0 &&
 		len(b.WorkspaceResolvers) == 0 &&
 		len(b.ToolCatalogFilters) == 0 &&
+		len(b.ToolCallPolicies) == 0 &&
 		len(b.RequestTransforms) == 0 &&
 		len(b.RouteHintProviders) == 0 &&
 		len(b.CompletionGates) == 0 &&
 		len(b.TrafficObservers) == 0 &&
+		len(b.UsageObservers) == 0 &&
 		len(b.RawCaptureSinks) == 0 &&
 		len(b.TrafficRedactors) == 0 &&
 		len(b.Lifecycles) == 0

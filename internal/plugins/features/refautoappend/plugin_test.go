@@ -67,6 +67,8 @@ func TestRequestTransform_noOpWhenNotNew(t *testing.T) {
 			Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}},
 		}},
 	}
+	// Session opener may upsert pending on every request; IsNew from secure-session distinguishes
+	// the first logical session request from later turns (Requirement 4.1).
 	meta := request.RequestMeta{
 		Session: session.SessionView{
 			IsNew:  false,

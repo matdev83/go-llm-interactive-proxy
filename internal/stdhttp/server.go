@@ -71,14 +71,232 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	return outerRecoveryMiddleware(log, h)
 }
 
+// preparedStandardHTTP is the mux plus outer middleware stack used by [RunWithRuntime] and
+// [NewStandardHandler] before any TCP listener is bound.
+type preparedStandardHTTP struct {
+	Handler        http.Handler
+	releaseClosers func()
+}
+
+// prepareStandardHandler mounts diagnostics, frontends, and stacks outer HTTP middleware.
+// On error it invokes resource closers for any partial setup. On success the caller must run
+// app shutdown, then releaseClosers (see [RunWithRuntime], [NewStandardHandler]).
+func prepareStandardHandler(
+	ctx context.Context,
+	cfg *config.Config,
+	app *runtime.App,
+	log *slog.Logger,
+	built *runtimebundle.Built,
+) (preparedStandardHTTP, error) {
+	var out preparedStandardHTTP
+	exec := built.Executor
+	store := built.Store
+	closers := built.Closers
+	var closersOnce sync.Once
+	releaseClosers := func() {
+		closersOnce.Do(func() {
+			runClosers(log, closers)
+		})
+	}
+	out.releaseClosers = releaseClosers
+
+	route := strings.TrimSpace(built.EffectiveDefaultRoute)
+	if route == "" {
+		route = DefaultRouteSelector(cfg)
+	}
+	reg := built.PluginRegistry
+
+	mux := http.NewServeMux()
+
+	var httpProm *metrics.HTTPMetrics
+	if cfg.Observability.Metrics.Enabled {
+		if built.Metrics == nil || built.Metrics.Registry == nil {
+			releaseClosers()
+			return out, fmt.Errorf("stdhttp: observability.metrics.enabled requires built.Metrics from runtimebundle.Build")
+		}
+		promReg := built.Metrics.Registry
+		httpProm = built.Metrics.HTTP
+		mp := strings.TrimSpace(cfg.Observability.Metrics.Path)
+		if mp == "" {
+			mp = "/metrics"
+		}
+		om := cfg.Observability.Metrics.ExemplarsEnabled
+		mux.Handle(mp, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, metrics.MetricsHandler(promReg, om)))
+		log.InfoContext(ctx, "prometheus metrics mounted", "path", mp, "open_metrics", om)
+	}
+
+	if cfg.Diagnostics.Enabled {
+		hp := cfg.Diagnostics.HealthPath
+		if hp == "" {
+			hp = "/healthz"
+		}
+		mux.Handle(hp, diag.HealthHandler())
+		ap := cfg.Diagnostics.AttemptsPath
+		if ap != "" {
+			ah, err := diag.AttemptsHandler(store)
+			if err != nil {
+				releaseClosers()
+				return out, fmt.Errorf("stdhttp: attempts handler: %w", err)
+			}
+			mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
+		}
+		ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath)
+		if ip != "" {
+			ih, err := diag.InventoryHandler(cfg, &diag.InventoryExtras{
+				Reg:           reg,
+				Registrations: app.Registrations(),
+			})
+			if err != nil {
+				releaseClosers()
+				return out, fmt.Errorf("stdhttp: inventory handler: %w", err)
+			}
+			mux.Handle(ip, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ih))
+		}
+		rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath)
+		if rt != "" {
+			traceBuf := diag.NewRouteTraceBuffer(64)
+			exec.RouteTrace = traceBuf
+			rh, err := diag.RouteTraceHandler(traceBuf, log)
+			if err != nil {
+				releaseClosers()
+				return out, fmt.Errorf("stdhttp: route trace handler: %w", err)
+			}
+			mux.Handle(rt, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, rh))
+		}
+		pp := strings.TrimSpace(cfg.Diagnostics.PprofPath)
+		if pp != "" {
+			if h := diag.PprofHandler(pp); h != nil {
+				prefix := strings.TrimSuffix(pp, "/") + "/"
+				mux.Handle(prefix, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+				log.InfoContext(ctx, "diagnostics pprof mounted", "path", prefix)
+			}
+		}
+	}
+	secureOn := cfg.SecureSessionEffectivelyEnabled()
+	exposeSummaries := cfg.SecureSession.DiagnosticsExposeSummaries
+	if secureOn && exposeSummaries && built.SecureSessionStore != nil {
+		p := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
+		if p == "" {
+			releaseClosers()
+			return out, fmt.Errorf(
+				"stdhttp: secure_session diagnostics_expose_summaries requires " +
+					"secure_session.diagnostics_path_prefix",
+			)
+		}
+		base := strings.TrimSuffix(p, "/")
+		ssh, err := ssessiondiag.NewHandler(
+			base,
+			built.SecureSessionStore,
+			cfg.SecureSession.RedactionDefault,
+			nil,
+			log,
+		)
+		if err != nil {
+			releaseClosers()
+			return out, fmt.Errorf("stdhttp: secure-session diagnostics handler: %w", err)
+		}
+		dh := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ssh)
+		mux.Handle("GET "+base+"/", dh)
+		mux.Handle("GET "+base, dh)
+		log.InfoContext(ctx, "secure-session diagnostics mounted", "path", base)
+	}
+	mountModelCatalogDiagnostics(modelCatalogDiagnosticsMount{
+		LogCtx: ctx,
+		Mux:    mux,
+		Cfg:    cfg,
+		Log:    log,
+		Built:  built,
+	})
+	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
+	var trafficPorts traffic.PortBundle
+	if built.RuntimeSnapshot != nil {
+		trafficPorts = traffic.PortBundle{
+			Raw: built.RuntimeSnapshot.RawCapture(),
+			Obs: built.RuntimeSnapshot.TrafficObserver(),
+			Red: built.RuntimeSnapshot.TrafficRedactors(),
+		}
+	}
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux:                  mux,
+		Exec:                 exec,
+		DefaultRouteSelector: route,
+		Plugins:              cfg.Plugins.Frontends,
+		MaxRequestBodyBytes:  maxBody,
+		Reg:                  reg,
+		TrafficPorts:         trafficPorts,
+	}); err != nil {
+		releaseClosers()
+		return out, fmt.Errorf("stdhttp: mount frontends: %w", err)
+	}
+	if err := app.Start(ctx); err != nil {
+		releaseClosers()
+		return out, fmt.Errorf("stdhttp: start app: %w", err)
+	}
+
+	traceGen := diag.NewTraceIDGenerator()
+	out.Handler = stackHTTPHandler(stackHTTPInput{
+		Cfg: cfg, Log: log, Built: built, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
+	})
+	return out, nil
+}
+
+// NewStandardHandler returns the same composed [http.Handler] as [RunWithRuntime] uses for client
+// requests (including [stackHTTPHandler] and bundled frontend mounts), without binding a listener.
+// The cleanup function must be called when the handler is no longer needed; it shuts down app
+// feature lifecycles then runs resource closers (same teardown ordering as serve shutdown).
+func NewStandardHandler(
+	ctx context.Context,
+	cfg *config.Config,
+	app *runtime.App,
+	log *slog.Logger,
+	built *runtimebundle.Built,
+) (http.Handler, func(context.Context), error) {
+	if cfg == nil {
+		return nil, nil, errors.New("stdhttp: nil config")
+	}
+	if ctx == nil {
+		return nil, nil, errors.New("stdhttp: nil context")
+	}
+	if err := validateStartupSecurity(cfg); err != nil {
+		return nil, nil, err
+	}
+	if app == nil {
+		return nil, nil, errors.New("stdhttp: nil app")
+	}
+	if log == nil {
+		return nil, nil, errors.New("stdhttp: nil logger")
+	}
+	if built == nil || built.Executor == nil {
+		return nil, nil, errors.New("stdhttp: nil built runtime")
+	}
+	if built.PluginRegistry == nil {
+		return nil, nil, errors.New("stdhttp: nil plugin registry in built runtime")
+	}
+	prep, err := prepareStandardHandler(ctx, cfg, app, log, built)
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func(shutdownCtx context.Context) {
+		app.Shutdown(shutdownCtx)
+		prep.releaseClosers()
+	}
+	return prep.Handler, cleanup, nil
+}
+
 // Run is a convenience wrapper: it calls [runtimebundle.Build] with cfg, app.HookBus(), log,
 // and [runtimebundle.BuildOptions.PluginRegistry] set to reg, then [RunWithRuntime].
+//
+// Tracing is initialized with [context.Background] so bootstrap completes even when the caller ctx
+// is already cancelled; shutdown still runs in this function's defer.
 //
 // Composition roots (for example the lipstd command in directory cmd/lipstd) should normally
 // call [runtimebundle.Build] once themselves—so shared [runtimebundle.BuildOptions] (custom HTTP
 // client, wire model, etc.) are explicit—and pass the resulting [*runtimebundle.Built] to
 // [RunWithRuntime]. That avoids an extra assembly pass and matches how tests exercise the server.
 func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Logger, reg *pluginreg.Registry) error {
+	if ctx == nil {
+		return errors.New("stdhttp: nil context")
+	}
 	if reg == nil {
 		return errors.New("stdhttp: nil plugin registry")
 	}
@@ -93,7 +311,7 @@ func Run(ctx context.Context, cfg *config.Config, app *runtime.App, log *slog.Lo
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		defer cancel()
 		if err := traceRes.Shutdown(shutdownCtx); err != nil {
-			log.Warn("stdhttp: tracing shutdown", "error", err)
+			log.WarnContext(ctx, "stdhttp: tracing shutdown", "error", err)
 		}
 	}()
 	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
@@ -119,7 +337,7 @@ func RunWithRuntime(
 		return errors.New("stdhttp: nil config")
 	}
 	if err := validateStartupSecurity(cfg); err != nil {
-		return err
+		return fmt.Errorf("stdhttp: validate startup security: %w", err)
 	}
 	if app == nil {
 		return errors.New("stdhttp: nil app")
@@ -133,142 +351,15 @@ func RunWithRuntime(
 	if built.PluginRegistry == nil {
 		return errors.New("stdhttp: nil plugin registry in built runtime")
 	}
-	exec := built.Executor
-	store := built.Store
-	closers := built.Closers
-	var closersOnce sync.Once
-	releaseClosers := func() {
-		closersOnce.Do(func() {
-			runClosers(log, closers)
-		})
+	if ctx == nil {
+		return errors.New("stdhttp: nil context")
 	}
-	route := strings.TrimSpace(built.EffectiveDefaultRoute)
-	if route == "" {
-		route = DefaultRouteSelector(cfg)
+	prep, err := prepareStandardHandler(ctx, cfg, app, log, built)
+	if err != nil {
+		return fmt.Errorf("stdhttp: prepare standard handler: %w", err)
 	}
-	reg := built.PluginRegistry
-	logCtx := ctx
-	if logCtx == nil {
-		logCtx = context.Background()
-	}
-
-	mux := http.NewServeMux()
-
-	var httpProm *metrics.HTTPMetrics
-	if cfg.Observability.Metrics.Enabled {
-		if built.Metrics == nil || built.Metrics.Registry == nil {
-			releaseClosers()
-			return fmt.Errorf("stdhttp: observability.metrics.enabled requires built.Metrics from runtimebundle.Build")
-		}
-		promReg := built.Metrics.Registry
-		httpProm = built.Metrics.HTTP
-		mp := strings.TrimSpace(cfg.Observability.Metrics.Path)
-		if mp == "" {
-			mp = "/metrics"
-		}
-		om := cfg.Observability.Metrics.ExemplarsEnabled
-		mux.Handle(mp, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, metrics.MetricsHandler(promReg, om)))
-		log.InfoContext(logCtx, "prometheus metrics mounted", "path", mp, "open_metrics", om)
-	}
-
-	if cfg.Diagnostics.Enabled {
-		hp := cfg.Diagnostics.HealthPath
-		if hp == "" {
-			hp = "/healthz"
-		}
-		mux.Handle(hp, diag.HealthHandler())
-		ap := cfg.Diagnostics.AttemptsPath
-		if ap != "" {
-			ah, err := diag.AttemptsHandler(store)
-			if err != nil {
-				releaseClosers()
-				return fmt.Errorf("stdhttp: attempts handler: %w", err)
-			}
-			mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
-		}
-		ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath)
-		if ip != "" {
-			ih, err := diag.InventoryHandler(cfg, &diag.InventoryExtras{
-				Reg:           reg,
-				Registrations: app.Registrations(),
-			})
-			if err != nil {
-				releaseClosers()
-				return fmt.Errorf("stdhttp: inventory handler: %w", err)
-			}
-			mux.Handle(ip, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ih))
-		}
-		rt := strings.TrimSpace(cfg.Diagnostics.RouteTracePath)
-		if rt != "" {
-			traceBuf := diag.NewRouteTraceBuffer(64)
-			exec.RouteTrace = traceBuf
-			rh, err := diag.RouteTraceHandler(traceBuf, log)
-			if err != nil {
-				releaseClosers()
-				return fmt.Errorf("stdhttp: route trace handler: %w", err)
-			}
-			mux.Handle(rt, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, rh))
-		}
-		pp := strings.TrimSpace(cfg.Diagnostics.PprofPath)
-		if pp != "" {
-			if h := diag.PprofHandler(pp); h != nil {
-				prefix := strings.TrimSuffix(pp, "/") + "/"
-				mux.Handle(prefix, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
-				log.InfoContext(logCtx, "diagnostics pprof mounted", "path", prefix)
-			}
-		}
-	}
-	if cfg.SecureSessionEffectivelyEnabled() && cfg.SecureSession.DiagnosticsExposeSummaries && built.SecureSessionStore != nil {
-		p := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
-		if p == "" {
-			releaseClosers()
-			return fmt.Errorf("stdhttp: secure_session diagnostics_expose_summaries requires secure_session.diagnostics_path_prefix")
-		}
-		base := strings.TrimSuffix(p, "/")
-		ssh, err := ssessiondiag.NewHandler(base, built.SecureSessionStore, cfg.SecureSession.RedactionDefault, nil, log)
-		if err != nil {
-			releaseClosers()
-			return fmt.Errorf("stdhttp: secure-session diagnostics handler: %w", err)
-		}
-		dh := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ssh)
-		mux.Handle("GET "+base+"/", dh)
-		mux.Handle("GET "+base, dh)
-		log.InfoContext(logCtx, "secure-session diagnostics mounted", "path", base)
-	}
-	mountModelCatalogDiagnostics(logCtx, mux, cfg, log, built)
-	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
-	var trafficPorts traffic.PortBundle
-	if built.RuntimeSnapshot != nil {
-		trafficPorts = traffic.PortBundle{
-			Raw: built.RuntimeSnapshot.RawCapture(),
-			Obs: built.RuntimeSnapshot.TrafficObserver(),
-			Red: built.RuntimeSnapshot.TrafficRedactors(),
-		}
-	}
-	if err := MountBundledFrontends(MountBundledFrontendsInput{
-		Mux:                  mux,
-		Exec:                 exec,
-		DefaultRouteSelector: route,
-		Plugins:              cfg.Plugins.Frontends,
-		MaxRequestBodyBytes:  maxBody,
-		Reg:                  reg,
-		TrafficPorts:         trafficPorts,
-	}); err != nil {
-		releaseClosers()
-		return fmt.Errorf("stdhttp: mount frontends: %w", err)
-	}
-	if err := app.Start(ctx); err != nil {
-		releaseClosers()
-		return fmt.Errorf("stdhttp: start app: %w", err)
-	}
-
-	traceGen := diag.NewTraceIDGenerator()
-	// outer → inner: final outer panic recovery, optional OpenTelemetry HTTP, optional Prometheus,
-	// trace + request ID, access log, inner request panic recovery, transport auth, then mux/frontend
-	// routes (R4: auth after inner recovery).
-	handler := stackHTTPHandler(stackHTTPInput{
-		Cfg: cfg, Log: log, Built: built, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
-	})
+	releaseClosers := prep.releaseClosers
+	handler := prep.Handler
 
 	srv := &http.Server{
 		Addr:              cfg.Server.Address,
@@ -278,7 +369,7 @@ func RunWithRuntime(
 		WriteTimeout:      cfg.Server.EffectiveWriteTimeout(),
 		IdleTimeout:       cfg.Server.EffectiveIdleTimeout(),
 	}
-	log.InfoContext(logCtx, "listening", "addr", cfg.Server.Address)
+	log.InfoContext(ctx, "listening", "addr", cfg.Server.Address)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -287,10 +378,7 @@ func RunWithRuntime(
 				if p := recover(); p != nil {
 					pe := safety.Capture(safety.BoundaryWorker, "listen_and_serve", p)
 					if log != nil {
-						logCtx := context.Background()
-						if ctx != nil {
-							logCtx = context.WithoutCancel(ctx)
-						}
+						logCtx := context.WithoutCancel(ctx)
 						attrs := diag.IsolatedCrashAttrs(logCtx, pe, diag.CrashAttrOpts{})
 						attrs = diag.AppendIsolatedCrashStack(attrs, pe)
 						log.LogAttrs(logCtx, slog.LevelError, "stdhttp: isolated panic in listenAndServe worker", attrs...)
@@ -309,13 +397,16 @@ func RunWithRuntime(
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil && log != nil {
-			log.Warn("stdhttp: http server shutdown", "error", err)
+			log.WarnContext(shutdownCtx, "stdhttp: http server shutdown", "error", err)
 		}
 		app.Shutdown(shutdownCtx)
 		releaseClosers()
 		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			app.Shutdown(shutdownCtx)
 			releaseClosers()
 			return nil
 		}
@@ -327,7 +418,18 @@ func RunWithRuntime(
 	}
 }
 
-func mountModelCatalogDiagnostics(logCtx context.Context, mux *http.ServeMux, cfg *config.Config, log *slog.Logger, built *runtimebundle.Built) {
+// modelCatalogDiagnosticsMount carries inputs for [mountModelCatalogDiagnostics].
+type modelCatalogDiagnosticsMount struct {
+	LogCtx context.Context
+	Mux    *http.ServeMux
+	Cfg    *config.Config
+	Log    *slog.Logger
+	Built  *runtimebundle.Built
+}
+
+func mountModelCatalogDiagnostics(in modelCatalogDiagnosticsMount) {
+	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	logCtx := in.LogCtx
 	if mux == nil || cfg == nil {
 		return
 	}
@@ -386,6 +488,6 @@ func runClosers(log *slog.Logger, closers []func() error) {
 	}
 	joined := errors.Join(errs...)
 	if log != nil {
-		log.Warn("stdhttp: resource closer errors", "error", joined)
+		log.WarnContext(context.Background(), "stdhttp: resource closer errors", "error", joined)
 	}
 }

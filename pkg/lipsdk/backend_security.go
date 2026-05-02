@@ -1,7 +1,8 @@
 package lipsdk
 
 // BackendCredentialMode describes how a registered backend plugin obtains upstream credentials
-// (startup metadata only; not plugin-private configuration values).
+// (startup metadata only; not plugin-private configuration values). [CredentialNone] marks
+// adapters that do not use upstream credentials.
 type BackendCredentialMode string
 
 const (
@@ -11,6 +12,8 @@ const (
 	CredentialWorkload BackendCredentialMode = "workload"
 	// CredentialOAuthUser uses user-scoped OAuth credentials; eligibility is validated against access mode.
 	CredentialOAuthUser BackendCredentialMode = "oauth_user"
+	// CredentialNone means the backend does not use upstream credentials (deterministic local adapters).
+	CredentialNone BackendCredentialMode = "none"
 	// CredentialUnknown means the factory did not declare a credential posture; validation may treat this conservatively.
 	CredentialUnknown BackendCredentialMode = "unknown"
 )

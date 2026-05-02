@@ -30,13 +30,16 @@ func TestProofReferenceFeatures_buildEmptyYAML(t *testing.T) {
 	}
 	var empty yaml.Node
 	for _, id := range proofReferenceIDs {
-		b, err := reg.BuildFeatureBundle(id, empty)
-		if err != nil {
-			t.Fatalf("%s: %v", id, err)
-		}
-		if b.SchemaVersion == 0 {
-			t.Fatalf("%s: missing schema version", id)
-		}
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			b, err := reg.BuildFeatureBundle(id, empty)
+			if err != nil {
+				t.Fatalf("%s: %v", id, err)
+			}
+			if b.SchemaVersion == 0 {
+				t.Fatalf("%s: missing schema version", id)
+			}
+		})
 	}
 }
 
@@ -80,6 +83,9 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	}
 	if len(m.TrafficObservers) < need {
 		t.Fatalf("obs: %d", len(m.TrafficObservers))
+	}
+	if len(m.UsageObservers) < need {
+		t.Fatalf("usage observers: %d", len(m.UsageObservers))
 	}
 	if len(m.RawCaptureSinks) < need {
 		t.Fatalf("raw: %d", len(m.RawCaptureSinks))

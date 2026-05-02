@@ -20,7 +20,9 @@ import (
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 // retryRecvStream wraps a backend stream and performs recv-phase failover within attempt budget.
@@ -28,6 +30,7 @@ import (
 // Concurrency: one goroutine calls Recv until completion (lipapi.EventStream). Close may run
 // concurrently with Recv blocked on the active inner stream; Close forwards to that inner stream
 // and does not clear s.inner. Recv clears inner on cancellation and recoverable-recv teardown paths.
+// Recv must not be called concurrently from multiple goroutines; the stream is not multi-Recv-safe.
 type retryRecvStream struct {
 	executor *Executor
 	bus      *hooks.Bus
@@ -151,7 +154,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 				}
 			}
-			s.emitTrafficPTC(ctx, ev)
+			pm, _ := s.recvHookMeta()
+			s.emitTrafficPTC(ctx, ev, pm)
 			return ev, nil
 		}
 		var inner lipapi.EventStream
@@ -178,9 +182,21 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		if err == nil {
-			s.emitTrafficBTP(ctx, ev)
 			pm, tm := s.recvHookMeta()
+			s.emitTrafficBTP(ctx, ev, pm)
+			s.emitUsage(ctx, ev)
 			if te, ok := lipapi.ToolEventFromEvent(ev); ok {
+				if err := s.applyToolPolicies(ctx, te, tm); err != nil {
+					s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+						ALegID:    s.aLegID,
+						BLeg:      s.bleg,
+						Cand:      s.cand,
+						Outcome:   lipapi.AttemptSurfacedFailure,
+						Reason:    attemptReasonDetail(err),
+						DetailErr: err,
+					}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+					return lipapi.Event{}, err
+				}
 				res := s.bus.ApplyToolReactors(ctx, te, tm)
 				if res.Err != nil {
 					return lipapi.Event{}, res.Err
@@ -215,7 +231,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 						s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 					}
 				}
-				s.emitTrafficPTC(ctx, out)
+				s.emitTrafficPTC(ctx, out, pm)
 				return out, nil
 			}
 			if lipapi.OutputCommitted(ev) {
@@ -238,7 +254,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 				}
 			}
-			s.emitTrafficPTC(ctx, ev)
+			s.emitTrafficPTC(ctx, ev, pm)
 			return ev, nil
 		}
 		if errors.Is(err, io.EOF) {
@@ -337,7 +353,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 }
 
-func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event) {
+func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
 	if s.executor == nil || s.executor.RuntimeSnapshot == nil {
 		return
 	}
@@ -352,7 +368,6 @@ func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event) {
 		}
 		return
 	}
-	pm, _ := s.recvHookMeta()
 	meta := sdktraffic.CaptureMeta{
 		TraceID:    pm.TraceID,
 		ALegID:     pm.ALegID,
@@ -370,7 +385,7 @@ func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event) {
 	)
 }
 
-func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event) {
+func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
 		return
 	}
@@ -388,7 +403,6 @@ func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event) {
 		}
 		return
 	}
-	pm, _ := s.recvHookMeta()
 	meta := sdktraffic.CaptureMeta{
 		TraceID:    pm.TraceID,
 		ALegID:     pm.ALegID,
@@ -502,4 +516,73 @@ func (s *retryRecvStream) Close() error {
 		return nil
 	}
 	return err
+}
+
+func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolEvent, meta sdk.ToolMeta) error {
+	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil {
+		return nil
+	}
+	policies := s.executor.RuntimeSnapshot.ToolCallPoliciesExecution()
+	if len(policies) == 0 {
+		return nil
+	}
+	polMeta := toolpolicy.Meta{
+		TraceID:    strings.TrimSpace(meta.TraceID),
+		ALegID:     strings.TrimSpace(meta.ALegID),
+		BLegID:     strings.TrimSpace(meta.BLegID),
+		AttemptSeq: meta.AttemptSeq,
+		Principal:  meta.Principal,
+		Session:    meta.Session,
+		Workspace:  meta.Workspace,
+	}
+	if v, ok := execctx.FromContext(ctx); ok {
+		polMeta.Principal = v.Principal
+		polMeta.Session = v.Session
+		polMeta.Workspace = v.Workspace
+	}
+	return extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
+		Ctx:      ctx,
+		Log:      s.executor.Log,
+		Obs:      s.executor.ExtensionMetrics,
+		Policies: policies,
+		Event:    te,
+		Meta:     polMeta,
+		Svc: toolpolicy.Services{
+			State: s.executor.RuntimeSnapshot.State(),
+			Aux:   s.executor.RuntimeSnapshot.Aux(),
+		},
+	})
+}
+
+func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
+	if s == nil || s.executor == nil || s.executor.RuntimeSnapshot == nil || ev.Kind != lipapi.EventUsageDelta {
+		return
+	}
+	obs := s.executor.RuntimeSnapshot.UsageObserver()
+	if obs == nil {
+		return
+	}
+	principalID := ""
+	if v, ok := execctx.FromContext(ctx); ok {
+		principalID = v.Principal.ID
+	}
+	model := ""
+	if s.cand.Primary.Model != "" {
+		model = s.cand.Primary.Model
+	}
+	if err := obs.OnUsage(ctx, usage.Event{
+		TraceID:      strings.TrimSpace(s.traceID),
+		ALegID:       strings.TrimSpace(s.aLegID),
+		BLegID:       strings.TrimSpace(s.bleg.BLegID),
+		PrincipalID:  strings.TrimSpace(principalID),
+		SessionID:    strings.TrimSpace(s.baseline.Session.CorrelationID()),
+		AttemptSeq:   int(s.bleg.Seq),
+		BackendID:    strings.TrimSpace(s.cand.Primary.Backend),
+		Model:        strings.TrimSpace(model),
+		InputTokens:  ev.InputTokens,
+		OutputTokens: ev.OutputTokens,
+		RecordedAt:   s.executor.now(),
+	}); err != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(ctx, "usage observer error", "error", err)
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftraffictranscript"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 func TestBundleEmit_redactsForObserverNotRaw(t *testing.T) {
@@ -43,5 +44,40 @@ func TestEmit_allFourLegs(t *testing.T) {
 	}
 	if len(obs.Rows) != 4 {
 		t.Fatalf("got %d rows", len(obs.Rows))
+	}
+}
+
+func TestTranscript_preservesAttemptAndLegCorrelation(t *testing.T) {
+	t.Parallel()
+	cfg := reftraffictranscript.DefaultConfig()
+	pb, obs, _ := reftraffictranscript.BundleForTest(cfg)
+	pb.Emit(context.Background(), traffic.LegCTP, traffic.CaptureMeta{
+		TraceID: "tr", ALegID: "a1", AttemptSeq: 0, BackendID: "", FrontendID: "fe",
+	}, "p", "t", []byte("ctp"))
+	pb.Emit(context.Background(), traffic.LegPTB, traffic.CaptureMeta{
+		TraceID: "tr", ALegID: "a1", BLegID: "b-leg-7", AttemptSeq: 1, BackendID: "openai",
+	}, "p", "t", []byte("ptb"))
+	if len(obs.Rows) != 2 {
+		t.Fatalf("rows %d", len(obs.Rows))
+	}
+	r0, r1 := obs.Rows[0], obs.Rows[1]
+	if r0.Leg != traffic.LegCTP || r0.AttemptSeq != 0 || r0.BLegID != "" || r0.BackendID != "" {
+		t.Fatalf("ctp row: %+v", r0)
+	}
+	if r1.Leg != traffic.LegPTB || r1.AttemptSeq != 1 || r1.BLegID != "b-leg-7" || r1.BackendID != "openai" {
+		t.Fatalf("ptb row: %+v", r1)
+	}
+}
+
+func TestUsageLedger_recordsEvents(t *testing.T) {
+	t.Parallel()
+	ledger := reftraffictranscript.NewUsageLedger()
+	ev := usage.Event{TraceID: "t", ALegID: "a", BLegID: "b", AttemptSeq: 2, BackendID: "openai", InputTokens: 1, OutputTokens: 2}
+	if err := ledger.OnUsage(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	evs := ledger.EventsSnapshot()
+	if len(evs) != 1 || evs[0].AttemptSeq != 2 || evs[0].BLegID != "b" {
+		t.Fatalf("%+v", evs)
 	}
 }

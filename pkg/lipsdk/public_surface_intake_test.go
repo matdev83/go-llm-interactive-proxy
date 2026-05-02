@@ -22,4 +22,5 @@ func TestPublicAuthAndBackendSecuritySurface(t *testing.T) {
 	_ = AuthErrorRenderResult{Status: 401, ContentType: "application/json; charset=utf-8"}
 	_ = AuthErrorRenderInput{Decision: auth.Decision{Outcome: auth.OutcomeDeny}}
 	_ = BackendSecurityProfile{CredentialMode: CredentialStatic}
+	_ = BackendSecurityProfile{CredentialMode: CredentialNone}
 }

@@ -33,7 +33,7 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		meta.Workspace = v.Workspace
 	}
 	cur := te
-	tools := []sdk.ToolReactor{}
+	var tools []sdk.ToolReactor
 	var pol sdk.ToolReactorErrorPolicy
 	if b != nil {
 		tools = b.tools
@@ -59,6 +59,15 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		case sdk.ToolPass:
 			// Explicit pass-through; ignore next.
 		case sdk.ToolRewrite, sdk.ToolReplace:
+			if vErr := ValidateToolEventAfterPolicy(r.ID(), &next); vErr != nil {
+				switch pol {
+				case sdk.ToolReactorErrorsFailClosed:
+					return ToolApplyResult{Err: fmt.Errorf("tool reactor %s: %w", r.ID(), vErr)}
+				default:
+					// Fail-open (default): reject invalid mutation and continue with the current event.
+					continue
+				}
+			}
 			cur = next
 		case sdk.ToolSwallow:
 			return ToolApplyResult{Emit: false, Event: lipapi.ToolEvent{}}
@@ -75,7 +84,12 @@ type toolReactorResult struct {
 }
 
 // callToolReactor invokes HandleToolEvent and maps a panic to *safety.PanicError like a returned error.
-func callToolReactor(ctx context.Context, r sdk.ToolReactor, cur lipapi.ToolEvent, meta sdk.ToolMeta) (dec sdk.ToolDecision, next lipapi.ToolEvent, err error) {
+func callToolReactor(
+	ctx context.Context,
+	r sdk.ToolReactor,
+	cur lipapi.ToolEvent,
+	meta sdk.ToolMeta,
+) (dec sdk.ToolDecision, next lipapi.ToolEvent, err error) {
 	res, err := safety.CallValue(safety.BoundaryExtension, "tool_reactor", func() (toolReactorResult, error) {
 		d, n, e := r.HandleToolEvent(ctx, cur, meta)
 		return toolReactorResult{dec: d, next: n}, e

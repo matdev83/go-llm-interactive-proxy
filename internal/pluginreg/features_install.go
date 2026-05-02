@@ -20,7 +20,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 	"gopkg.in/yaml.v3"
 )
@@ -101,6 +103,7 @@ func featureRefToolPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	return lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
 		ToolCatalogFilters: []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)},
+		ToolCallPolicies:   []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)},
 		ToolReactors:       []sdk.ToolReactor{reftoolpolicy.NewToolReactor(cfg)},
 	}, nil
 }
@@ -127,6 +130,7 @@ func featureRefTrafficTranscript(n yaml.Node) (lipfeature.FeatureBundle, error) 
 	return lipfeature.FeatureBundle{
 		SchemaVersion:    lipfeature.SchemaVersionV1,
 		TrafficObservers: []sdktraffic.Observer{reftraffictranscript.NewTranscript()},
+		UsageObservers:   []usage.Observer{reftraffictranscript.NewUsageLedger()},
 		RawCaptureSinks:  []sdktraffic.RawCaptureSink{reftraffictranscript.NewRawLog()},
 		TrafficRedactors: []sdktraffic.Redactor{reftraffictranscript.NewPatternRedactor(cfg)},
 	}, nil

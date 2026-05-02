@@ -1,6 +1,7 @@
 package pluginreg
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -8,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
@@ -29,51 +31,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func installBackends(reg *Registry, keys UpstreamAPIKeys) error {
-	entries := []struct {
-		ID      string
-		Factory backendFactory
-		Profile BackendSecurityProfile
-	}{
-		{openairesponses.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-			return backendOpenAIResponses(n, upstream, keys)
-		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{openailegacy.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-			return backendOpenAILegacy(n, upstream, keys)
-		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{anthropic.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-			return backendAnthropic(n, upstream, keys)
-		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{gemini.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-			return backendGemini(n, upstream, keys)
-		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{bedrock.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-			return backendBedrock(n, upstream)
-		}, BackendSecurityProfile{CredentialMode: CredentialWorkload}},
-		{acp.ID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-			return backendACP(n, upstream)
-		}, BackendSecurityProfile{CredentialMode: CredentialStatic}},
-	}
-	for _, e := range entries {
-		if err := reg.RegisterBackendWithProfile(e.ID, e.Factory, e.Profile); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-var standardFrontendMounts = []struct {
-	ID    string
-	Mount FrontendMount
-}{
-	{frontopenairesponses.ID, mountOpenAIResponses},
-	{frontopenailegacy.ID, mountOpenAILegacy},
-	{frontanthropic.ID, mountAnthropic},
-	{frontgemini.ID, mountGemini},
-}
-
 func installFrontends(reg *Registry) error {
-	for _, e := range standardFrontendMounts {
+	for _, e := range StandardBundle().Frontends {
 		if err := reg.RegisterFrontend(e.ID, e.Mount); err != nil {
 			return err
 		}
@@ -83,13 +42,8 @@ func installFrontends(reg *Registry) error {
 
 // standardFrontendAuthErrorRenderers is the extension point for optional per-wire-frontend renderers
 // (auth wire ids per stdhttp/auth DefaultFrontendIDFromRequest). Entries with nil Renderer are skipped.
-var standardFrontendAuthErrorRenderers []struct {
-	WireID   string
-	Renderer lipsdk.AuthErrorRenderer
-}
-
 func installStandardFrontendAuthErrorRenderers(reg *Registry) error {
-	for _, e := range standardFrontendAuthErrorRenderers {
+	for _, e := range StandardBundle().AuthErrorRenderers {
 		if e.Renderer == nil {
 			continue
 		}
@@ -100,25 +54,8 @@ func installStandardFrontendAuthErrorRenderers(reg *Registry) error {
 	return nil
 }
 
-var standardFeatureFactories = []struct {
-	ID      string
-	Factory FeatureFactory
-}{
-	{submitnoop.ID, FeatureFactoryFromHooks(featureSubmitNoop)},
-	{partsnoop.ID, FeatureFactoryFromHooks(featurePartsNoop)},
-	{toolreactornoop.ID, FeatureFactoryFromHooks(featureToolReactorNoop)},
-	{refsubmit.ID, FeatureFactoryFromHooks(featureRefSubmit)},
-	{refparts.ID, FeatureFactoryFromHooks(featureRefParts)},
-	{reftool.ID, FeatureFactoryFromHooks(featureRefTool)},
-	{refautoappend.ID, featureRefAutoappend},
-	{reftoolpolicy.ID, featureRefToolPolicy},
-	{refworkspaceguard.ID, featureRefWorkspaceGuard},
-	{reftraffictranscript.ID, featureRefTrafficTranscript},
-	{refverifier.ID, featureRefVerifier},
-}
-
 func installFeatures(reg *Registry) error {
-	for _, e := range standardFeatureFactories {
+	for _, e := range StandardBundle().Features {
 		if err := reg.RegisterFeature(e.ID, e.Factory); err != nil {
 			return err
 		}
@@ -130,7 +67,7 @@ func installFeatures(reg *Registry) error {
 // keys supplies default API key material when plugin YAML omits api_key (typically from
 // [ResolveUpstreamAPIKeysFromEnv] at process startup); tests may pass a zero value.
 func InstallStandardBundleOn(reg *Registry, keys UpstreamAPIKeys) error {
-	if err := installBackends(reg, keys); err != nil {
+	if err := InstallBundleOn(reg, StandardBackendBundle(keys)); err != nil {
 		return err
 	}
 	if err := installFrontends(reg); err != nil {
@@ -144,5 +81,120 @@ func InstallStandardBundleOn(reg *Registry, keys UpstreamAPIKeys) error {
 
 // InstallStandardBackendsOn registers only bundled backend factories on reg (minimal partial bundles).
 func InstallStandardBackendsOn(reg *Registry, keys UpstreamAPIKeys) error {
-	return installBackends(reg, keys)
+	return InstallBundleOn(reg, StandardBackendBundle(keys))
+}
+
+// FrontendRegistration is one explicit frontend contribution to a bundle.
+type FrontendRegistration struct {
+	ID    string
+	Mount FrontendMount
+}
+
+// BackendRegistration is one explicit backend contribution to a bundle.
+type BackendRegistration struct {
+	ID      string
+	Factory BackendFactory
+	Profile BackendSecurityProfile
+}
+
+// FeatureRegistration is one explicit feature contribution to a bundle.
+type FeatureRegistration struct {
+	ID      string
+	Factory FeatureFactory
+}
+
+// AuthErrorRendererRegistration binds optional transport-auth error rendering to a wire frontend id.
+type AuthErrorRendererRegistration struct {
+	WireID   string
+	Renderer lipsdk.AuthErrorRenderer
+}
+
+// Bundle is the standard distribution composition input. It is a value, not process-global registry state.
+type Bundle struct {
+	Frontends          []FrontendRegistration
+	Backends           []BackendRegistration
+	Features           []FeatureRegistration
+	AuthErrorRenderers []AuthErrorRendererRegistration
+}
+
+// StandardBundle returns the concrete standard distribution table. The standard distribution may import
+// bundled plugins here; core and SDK packages must continue to depend only on canonical/SDK contracts.
+func StandardBundle() Bundle {
+	return Bundle{
+		Frontends: []FrontendRegistration{
+			{ID: frontopenairesponses.ID, Mount: mountOpenAIResponses},
+			{ID: frontopenailegacy.ID, Mount: mountOpenAILegacy},
+			{ID: frontanthropic.ID, Mount: mountAnthropic},
+			{ID: frontgemini.ID, Mount: mountGemini},
+		},
+		Features: []FeatureRegistration{
+			{ID: submitnoop.ID, Factory: FeatureFactoryFromHooks(featureSubmitNoop)},
+			{ID: partsnoop.ID, Factory: FeatureFactoryFromHooks(featurePartsNoop)},
+			{ID: toolreactornoop.ID, Factory: FeatureFactoryFromHooks(featureToolReactorNoop)},
+			{ID: refsubmit.ID, Factory: FeatureFactoryFromHooks(featureRefSubmit)},
+			{ID: refparts.ID, Factory: FeatureFactoryFromHooks(featureRefParts)},
+			{ID: reftool.ID, Factory: FeatureFactoryFromHooks(featureRefTool)},
+			{ID: refautoappend.ID, Factory: featureRefAutoappend},
+			{ID: reftoolpolicy.ID, Factory: featureRefToolPolicy},
+			{ID: refworkspaceguard.ID, Factory: featureRefWorkspaceGuard},
+			{ID: reftraffictranscript.ID, Factory: featureRefTrafficTranscript},
+			{ID: refverifier.ID, Factory: featureRefVerifier},
+		},
+	}
+}
+
+// StandardBackendBundle returns the standard backend table with environment/default keys already bound.
+func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
+	return Bundle{Backends: []BackendRegistration{
+		{ID: openairesponses.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendOpenAIResponses(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: openailegacy.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendOpenAILegacy(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendAnthropic(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendGemini(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendBedrock(n, upstream)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialWorkload}},
+		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendACP(n, upstream)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendLocalStub(n, upstream)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
+	}}
+}
+
+// InstallBundleOn registers b on reg. Tests and alternate composition roots can pass a custom bundle
+// without mutating package-level globals.
+func InstallBundleOn(reg *Registry, b Bundle) error {
+	if reg == nil {
+		return fmt.Errorf("pluginreg: InstallBundleOn: nil registry")
+	}
+	for _, e := range b.Backends {
+		if err := reg.RegisterBackendWithProfile(e.ID, e.Factory, e.Profile); err != nil {
+			return fmt.Errorf("pluginreg: InstallBundleOn: register backend %q: %w", e.ID, err)
+		}
+	}
+	for _, e := range b.Frontends {
+		if err := reg.RegisterFrontend(e.ID, e.Mount); err != nil {
+			return fmt.Errorf("pluginreg: InstallBundleOn: register frontend %q: %w", e.ID, err)
+		}
+	}
+	for _, e := range b.AuthErrorRenderers {
+		if err := reg.RegisterAuthErrorRenderer(e.WireID, e.Renderer); err != nil {
+			return fmt.Errorf("pluginreg: InstallBundleOn: register auth error renderer %q: %w", e.WireID, err)
+		}
+	}
+	for _, e := range b.Features {
+		if err := reg.RegisterFeature(e.ID, e.Factory); err != nil {
+			return fmt.Errorf("pluginreg: InstallBundleOn: register feature %q: %w", e.ID, err)
+		}
+	}
+	return nil
 }

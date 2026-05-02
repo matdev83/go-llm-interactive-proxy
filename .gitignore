@@ -22,6 +22,9 @@ coverage.html
 /coverage
 # Root-only: e.g. -coverprofile=cover_auth (does not match package dirs)
 /cover_*
+# Ad-hoc coverage output (file or directory at repo root)
+/tmp_coverage
+tmp_coverage
 
 # Go profiling & execution traces (see docs/alloc-profiling.md; pprof -http, go test -trace)
 # *.out above already ignores trace.out; keep suffix variants from tooling
