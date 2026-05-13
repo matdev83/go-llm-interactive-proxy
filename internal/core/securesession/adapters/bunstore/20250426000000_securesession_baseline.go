@@ -26,6 +26,7 @@ func registerSecureSessionBaselineMigration() {
 			_ = db
 			return nil
 		})
+		registerSecureSessionUsageAccountingColumnsMigration()
 	})
 }
 
@@ -51,6 +52,9 @@ func secureSessionBaselineUp(ctx context.Context, db *bun.DB) error {
 		if err := upgradeAttemptTraceOutcomeColumnsSQLite(ctx, db); err != nil {
 			return err
 		}
+		if err := upgradeUsageAccountingColumns(ctx, db); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -63,6 +67,9 @@ func runSecureSessionSchemaMigrate(ctx context.Context, db *bun.DB) error {
 	}
 	if _, err := migrator.Migrate(ctx); err != nil {
 		return fmt.Errorf("bunstore: migrator migrate: %w", err)
+	}
+	if err := upgradeUsageAccountingColumns(ctx, db); err != nil {
+		return err
 	}
 	return nil
 }
@@ -173,9 +180,25 @@ func sqliteSecureSessionDDL() []string {
 			output_tokens INTEGER NOT NULL DEFAULT 0,
 			cache_read_tokens INTEGER NOT NULL DEFAULT 0,
 			cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+			non_cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+			reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+			non_reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cost_nano_units INTEGER NOT NULL DEFAULT 0,
 			cost_minor_units INTEGER NOT NULL DEFAULT 0,
 			currency TEXT NOT NULL DEFAULT '',
+			cost_source TEXT NOT NULL DEFAULT '',
+			raw_usage_json TEXT NOT NULL DEFAULT '',
 			billing_unavailable INTEGER NOT NULL DEFAULT 0,
+			request_started_at_unix INTEGER NOT NULL DEFAULT 0,
+			first_remote_event_at_unix INTEGER NOT NULL DEFAULT 0,
+			first_meaningful_token_at_unix INTEGER NOT NULL DEFAULT 0,
+			remote_completed_at_unix INTEGER NOT NULL DEFAULT 0,
+			proxy_completed_at_unix INTEGER NOT NULL DEFAULT 0,
+			ttft_millis INTEGER NOT NULL DEFAULT 0,
+			remote_duration_millis INTEGER NOT NULL DEFAULT 0,
+			completion_duration_millis INTEGER NOT NULL DEFAULT 0,
+			completion_tps_milli INTEGER NOT NULL DEFAULT 0,
 			created_at_unix INTEGER NOT NULL,
 			FOREIGN KEY(session_id) REFERENCES lip_secure_sessions(session_id) ON DELETE CASCADE
 		)`,
@@ -303,9 +326,25 @@ func postgresSecureSessionDDL() []string {
 			output_tokens BIGINT NOT NULL DEFAULT 0,
 			cache_read_tokens BIGINT NOT NULL DEFAULT 0,
 			cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+			non_cached_input_tokens BIGINT NOT NULL DEFAULT 0,
+			reasoning_tokens BIGINT NOT NULL DEFAULT 0,
+			non_reasoning_output_tokens BIGINT NOT NULL DEFAULT 0,
+			total_tokens BIGINT NOT NULL DEFAULT 0,
+			cost_nano_units BIGINT NOT NULL DEFAULT 0,
 			cost_minor_units BIGINT NOT NULL DEFAULT 0,
 			currency TEXT NOT NULL DEFAULT '',
+			cost_source TEXT NOT NULL DEFAULT '',
+			raw_usage_json TEXT NOT NULL DEFAULT '',
 			billing_unavailable INTEGER NOT NULL DEFAULT 0,
+			request_started_at_unix BIGINT NOT NULL DEFAULT 0,
+			first_remote_event_at_unix BIGINT NOT NULL DEFAULT 0,
+			first_meaningful_token_at_unix BIGINT NOT NULL DEFAULT 0,
+			remote_completed_at_unix BIGINT NOT NULL DEFAULT 0,
+			proxy_completed_at_unix BIGINT NOT NULL DEFAULT 0,
+			ttft_millis BIGINT NOT NULL DEFAULT 0,
+			remote_duration_millis BIGINT NOT NULL DEFAULT 0,
+			completion_duration_millis BIGINT NOT NULL DEFAULT 0,
+			completion_tps_milli BIGINT NOT NULL DEFAULT 0,
 			created_at_unix BIGINT NOT NULL,
 			FOREIGN KEY(session_id) REFERENCES lip_secure_sessions(session_id) ON DELETE CASCADE
 		)`,
@@ -325,6 +364,62 @@ func postgresSecureSessionDDL() []string {
 		`CREATE INDEX IF NOT EXISTS idx_lip_secure_audit_session_seq
 			ON lip_secure_audit(session_id, seq)`,
 	}
+}
+
+func upgradeUsageAccountingColumns(ctx context.Context, db *bun.DB) error {
+	var alters []string
+	switch db.Dialect().Name() {
+	case dialect.SQLite:
+		alters = []string{
+			`ALTER TABLE lip_secure_usage ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN non_cached_input_tokens INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN non_reasoning_output_tokens INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN cost_nano_units INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN cost_source TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN raw_usage_json TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN request_started_at_unix INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN first_remote_event_at_unix INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN first_meaningful_token_at_unix INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN remote_completed_at_unix INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN proxy_completed_at_unix INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN ttft_millis INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN remote_duration_millis INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN completion_duration_millis INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN completion_tps_milli INTEGER NOT NULL DEFAULT 0`,
+		}
+	case dialect.PG:
+		alters = []string{
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS reasoning_tokens BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS non_cached_input_tokens BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS non_reasoning_output_tokens BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS total_tokens BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS cost_nano_units BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS cost_source TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS raw_usage_json TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS request_started_at_unix BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS first_remote_event_at_unix BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS first_meaningful_token_at_unix BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS remote_completed_at_unix BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS proxy_completed_at_unix BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS ttft_millis BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS remote_duration_millis BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS completion_duration_millis BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_usage ADD COLUMN IF NOT EXISTS completion_tps_milli BIGINT NOT NULL DEFAULT 0`,
+		}
+	default:
+		return fmt.Errorf("bunstore: unsupported bun dialect %s", db.Dialect().Name().String())
+	}
+	for _, q := range alters {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "already exists") {
+				continue
+			}
+			return fmt.Errorf("bunstore: migrate upgrade usage: %w", err)
+		}
+	}
+	return nil
 }
 
 func upgradeAttemptTraceOutcomeColumnsSQLite(ctx context.Context, db *bun.DB) error {

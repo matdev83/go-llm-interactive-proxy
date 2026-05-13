@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -255,6 +256,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		RouteObserver:        routeObserverFor(log),
 		Log:                  log,
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
+	}
+	if len(cfg.Accounting.Pricing.Models) > 0 {
+		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
+		if err != nil {
+			return nil, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
+		}
+		exec.AccountingPriceCatalog = catalog
 	}
 	exec.AuthEvents = authEvents
 	exec.SessionAuditPolicy = sap

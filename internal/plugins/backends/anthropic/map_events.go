@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -216,11 +217,27 @@ func usageFromMessageDelta(v anthropic.MessageDeltaEvent) *lipapi.Event {
 	if u.InputTokens == 0 && u.OutputTokens == 0 {
 		return nil
 	}
-	return &lipapi.Event{
-		Kind:         lipapi.EventUsageDelta,
-		InputTokens:  safecast.IntFromInt64Clamp(u.InputTokens),
-		OutputTokens: safecast.IntFromInt64Clamp(u.OutputTokens),
+	ev := lipapi.Event{
+		Kind:             lipapi.EventUsageDelta,
+		InputTokens:      safecast.IntFromInt64Clamp(u.InputTokens),
+		OutputTokens:     safecast.IntFromInt64Clamp(u.OutputTokens),
+		CacheReadTokens:  safecast.IntFromInt64Clamp(u.CacheReadInputTokens),
+		CacheWriteTokens: safecast.IntFromInt64Clamp(u.CacheCreationInputTokens),
+		TotalTokens:      safecast.IntFromInt64Clamp(u.InputTokens + u.OutputTokens),
+		RawUsageJSON:     rawUsageJSON(u.RawJSON(), u),
 	}
+	return &ev
+}
+
+func rawUsageJSON(raw string, usage any) string {
+	if raw != "" {
+		return raw
+	}
+	b, err := json.Marshal(usage)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func (s *msgStream) Close() error {

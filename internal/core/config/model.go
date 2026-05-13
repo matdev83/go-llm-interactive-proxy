@@ -27,9 +27,30 @@ type Config struct {
 	Continuity    ContinuityConfig    `yaml:"continuity"`
 	SecureSession SecureSessionConfig `yaml:"secure_session"`
 	Hooks         HooksConfig         `yaml:"hooks"`
+	Accounting    AccountingConfig    `yaml:"accounting"`
 	Plugins       PluginsConfig       `yaml:"plugins"`
 	ModelAliases  []ModelAliasConfig  `yaml:"model_aliases"`
 	ModelCatalog  ModelCatalogConfig  `yaml:"model_catalog"`
+}
+
+type AccountingConfig struct {
+	Pricing AccountingPricingConfig `yaml:"pricing"`
+}
+
+type AccountingPricingConfig struct {
+	Currency       string                       `yaml:"currency"`
+	CatalogVersion string                       `yaml:"catalog_version"`
+	Models         []AccountingModelPriceConfig `yaml:"models"`
+}
+
+type AccountingModelPriceConfig struct {
+	Backend              string `yaml:"backend"`
+	Model                string `yaml:"model"`
+	InputPer1M           string `yaml:"input_per_1m"`
+	CachedInputPer1M     string `yaml:"cached_input_per_1m"`
+	CacheWriteInputPer1M string `yaml:"cache_write_input_per_1m"`
+	OutputPer1M          string `yaml:"output_per_1m"`
+	ReasoningOutputPer1M string `yaml:"reasoning_output_per_1m"`
 }
 
 // DatabaseConfig is optional connection pool tuning for managed PostgreSQL handles

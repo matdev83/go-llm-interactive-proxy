@@ -41,11 +41,28 @@ type StreamEventRecordInput struct {
 	InputTokens  int64
 	OutputTokens int64
 
-	CacheReadTokens    int64
-	CacheWriteTokens   int64
-	CostMinorUnits     int64
-	Currency           string
-	BillingUnavailable bool
+	CacheReadTokens          int64
+	CacheWriteTokens         int64
+	NonCachedInputTokens     int64
+	ReasoningTokens          int64
+	NonReasoningOutputTokens int64
+	TotalTokens              int64
+	CostNanoUnits            int64
+	CostMinorUnits           int64
+	Currency                 string
+	CostSource               string
+	RawUsageJSON             string
+	BillingUnavailable       bool
+
+	RequestStartedAt         time.Time
+	FirstRemoteEventAt       time.Time
+	FirstMeaningfulTokenAt   time.Time
+	RemoteCompletedAt        time.Time
+	ProxyCompletedAt         time.Time
+	TTFTMillis               int64
+	RemoteDurationMillis     int64
+	CompletionDurationMillis int64
+	CompletionTPSMilli       int64
 
 	// ProviderCorrelationJSON holds non-authoritative provider correlation (never session authority).
 	ProviderCorrelationJSON string

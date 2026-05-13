@@ -61,8 +61,26 @@ type Event struct {
 	ToolCallID   string
 	ToolName     string
 
+	// Usage fields apply to EventUsageDelta. InputTokens and OutputTokens are
+	// retained as the compatibility totals used by existing frontends.
 	InputTokens  int
 	OutputTokens int
+	// CacheReadTokens are submitted/input tokens served from a provider cache.
+	CacheReadTokens int
+	// CacheWriteTokens are submitted/input tokens written to a provider cache.
+	CacheWriteTokens int
+	// ReasoningTokens are response/output tokens used for hidden reasoning or
+	// thinking when the provider reports them separately.
+	ReasoningTokens int
+	// TotalTokens is the provider-reported total when available.
+	TotalTokens int
+	// CostNanoUnits is a high-precision per-response cost amount in Currency.
+	// One whole currency unit is 1e9 nano-units.
+	CostNanoUnits int64
+	Currency      string
+	CostSource    string
+	// RawUsageJSON stores bounded provider usage metadata for audit/backfill.
+	RawUsageJSON string
 
 	WarningCode    string
 	WarningMessage string
@@ -195,12 +213,16 @@ type Collected struct {
 	// ToolNames maps tool_call_id to the function name from EventToolCallStarted.
 	ToolNames map[string]string
 	// ToolCallOrder is the order tool_call_ids first appear (started or first args delta).
-	ToolCallOrder  []string
-	Warnings       []string
-	InputTokens    int
-	OutputTokens   int
-	TerminalError  *Event
-	FinishReceived bool
+	ToolCallOrder    []string
+	Warnings         []string
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	ReasoningTokens  int
+	TotalTokens      int
+	TerminalError    *Event
+	FinishReceived   bool
 
 	// FinishReason is copied from the terminal EventResponseFinished when set.
 	FinishReason string
@@ -396,6 +418,10 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 		case EventUsageDelta:
 			out.InputTokens += ev.InputTokens
 			out.OutputTokens += ev.OutputTokens
+			out.CacheReadTokens += ev.CacheReadTokens
+			out.CacheWriteTokens += ev.CacheWriteTokens
+			out.ReasoningTokens += ev.ReasoningTokens
+			out.TotalTokens = mergeTotalTokens(out.TotalTokens, ev.TotalTokens)
 		case EventAssistantImageRef:
 			if limits.MaxAssistantMediaParts > 0 && len(out.AssistantMedia) >= limits.MaxAssistantMediaParts {
 				return out, fmt.Errorf("%w: assistant media parts would exceed %d", ErrCollectLimitExceeded, limits.MaxAssistantMediaParts)
@@ -416,6 +442,13 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			out.AssistantMedia = append(out.AssistantMedia, p)
 		}
 	}
+}
+
+func mergeTotalTokens(cur, next int) int {
+	if next == 0 {
+		return cur
+	}
+	return next
 }
 
 func terminalError(ev Event) error {

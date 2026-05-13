@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -116,6 +117,31 @@ func TestHandleEvent_toolUseStreamFromJSON(t *testing.T) {
 	}
 }
 
+func TestUsageFromMessageDelta_usageDetails(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":11,"output_tokens":8,"cache_read_input_tokens":3,"cache_creation_input_tokens":4}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	delta, ok := u.AsAny().(anthropic.MessageDeltaEvent)
+	if !ok {
+		t.Fatalf("event type: %T", u.AsAny())
+	}
+
+	ev := usageFromMessageDelta(delta)
+	if ev == nil {
+		t.Fatal("usage event is nil")
+	}
+	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
+		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
+	}
+	assertUsageIntField(t, *ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, *ev, "CacheWriteTokens", 4)
+	assertUsageIntField(t, *ev, "TotalTokens", 19)
+	assertUsageRawJSONContains(t, *ev, "cache_read_input_tokens")
+}
+
 type errDecoderAnthropic struct{ err error }
 
 func (d *errDecoderAnthropic) Event() ssestream.Event {
@@ -155,5 +181,34 @@ func TestMsgStream_Recv_nilContext(t *testing.T) {
 	_, err := s.Recv(nil) //nolint:staticcheck // deliberate nil ctx; expect lipapi.ErrNilContext
 	if !errors.Is(err, lipapi.ErrNilContext) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func assertUsageIntField(t *testing.T, ev lipapi.Event, name string, want int64) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName(name)
+	if !field.IsValid() {
+		return
+	}
+	if got := field.Int(); got != want {
+		t.Fatalf("%s: got %d, want %d", name, got, want)
+	}
+}
+
+func assertUsageRawJSONContains(t *testing.T, ev lipapi.Event, needle string) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName("RawUsageJSON")
+	if !field.IsValid() {
+		return
+	}
+	switch field.Kind() {
+	case reflect.String:
+		if !strings.Contains(field.String(), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", field.String(), needle)
+		}
+	case reflect.Slice:
+		if !strings.Contains(string(field.Bytes()), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", string(field.Bytes()), needle)
+		}
 	}
 }

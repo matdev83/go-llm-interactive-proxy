@@ -48,18 +48,57 @@ func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.Stream
 	if b, err := json.Marshal(streamEventWire(ev)); err == nil {
 		in.EventPayloadJSON = string(b)
 	}
-	if ev.Kind == lipapi.EventUsageDelta {
+	if ev.Kind == lipapi.EventUsageDelta || ev.Kind == lipapi.EventResponseFinished {
 		in.IsUsageEvent = true
+	}
+	if ev.Kind == lipapi.EventUsageDelta {
 		in.InputTokens = int64(ev.InputTokens)
 		in.OutputTokens = int64(ev.OutputTokens)
-		if in.InputTokens == 0 && in.OutputTokens == 0 {
+		in.CacheReadTokens = int64(ev.CacheReadTokens)
+		in.CacheWriteTokens = int64(ev.CacheWriteTokens)
+		in.NonCachedInputTokens = int64(ev.InputTokens - ev.CacheReadTokens - ev.CacheWriteTokens)
+		if in.NonCachedInputTokens < 0 {
+			in.NonCachedInputTokens = 0
+		}
+		in.ReasoningTokens = int64(ev.ReasoningTokens)
+		in.NonReasoningOutputTokens = int64(ev.OutputTokens - ev.ReasoningTokens)
+		if in.NonReasoningOutputTokens < 0 {
+			in.NonReasoningOutputTokens = 0
+		}
+		in.TotalTokens = int64(ev.TotalTokens)
+		in.CostNanoUnits = ev.CostNanoUnits
+		in.Currency = strings.TrimSpace(ev.Currency)
+		in.CostSource = strings.TrimSpace(ev.CostSource)
+		in.RawUsageJSON = boundRawUsageJSON(strings.TrimSpace(ev.RawUsageJSON))
+		if in.InputTokens == 0 && in.OutputTokens == 0 && in.TotalTokens == 0 {
 			in.BillingUnavailable = true
 		}
+	}
+	if ev.Kind == lipapi.EventResponseFinished {
+		acct := s.accounting.snapshot()
+		in.RequestStartedAt = acct.RequestStartedAt
+		in.FirstRemoteEventAt = acct.FirstRemoteEventAt
+		in.FirstMeaningfulTokenAt = acct.FirstMeaningfulTokenAt
+		in.RemoteCompletedAt = acct.RemoteCompletedAt
+		in.ProxyCompletedAt = acct.ProxyCompletedAt
+		in.TTFTMillis = acct.TTFTMillis
+		in.RemoteDurationMillis = acct.RemoteDurationMillis
+		in.CompletionDurationMillis = acct.CompletionDurationMillis
+		in.CompletionTPSMilli = acct.CompletionTPSMilli
 	}
 	if pc := providerCorrelationJSON(ev); pc != "" {
 		in.ProviderCorrelationJSON = pc
 	}
 	return in
+}
+
+const maxRawUsageJSONBytes = 16 << 10
+
+func boundRawUsageJSON(s string) string {
+	if len(s) <= maxRawUsageJSONBytes {
+		return s
+	}
+	return s[:maxRawUsageJSONBytes] + `...{"truncated":true}`
 }
 
 func streamEventWire(ev lipapi.Event) map[string]any {

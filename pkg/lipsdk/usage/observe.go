@@ -7,18 +7,29 @@ import (
 
 // Event is a provider-neutral usage observation emitted from canonical usage deltas.
 type Event struct {
-	TraceID      string
-	ALegID       string
-	BLegID       string
-	PrincipalID  string
-	SessionID    string
-	AttemptSeq   int
-	BackendID    string
-	FrontendID   string
-	Model        string
-	InputTokens  int
-	OutputTokens int
-	RecordedAt   time.Time
+	TraceID     string
+	ALegID      string
+	BLegID      string
+	PrincipalID string
+	SessionID   string
+	AttemptSeq  int
+	BackendID   string
+	FrontendID  string
+	Model       string
+
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	ReasoningTokens  int
+	TotalTokens      int
+
+	CostNanoUnits int64
+	Currency      string
+	CostSource    string
+	RawUsageJSON  string
+
+	RecordedAt time.Time
 }
 
 // Observer records usage without mutating request or stream execution.

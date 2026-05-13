@@ -73,6 +73,36 @@ func TestCollect_happyPathOrderingAndAggregation(t *testing.T) {
 	}
 }
 
+func TestCollect_detailedUsageAggregation(t *testing.T) {
+	t.Parallel()
+
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{
+			Kind:             lipapi.EventUsageDelta,
+			InputTokens:      10,
+			OutputTokens:     4,
+			CacheReadTokens:  3,
+			CacheWriteTokens: 2,
+			ReasoningTokens:  1,
+			TotalTokens:      14,
+		},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 1, OutputTokens: 2, CacheReadTokens: 1, TotalTokens: 17},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	out, err := lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.InputTokens != 11 || out.OutputTokens != 6 {
+		t.Fatalf("basic usage: got in=%d out=%d", out.InputTokens, out.OutputTokens)
+	}
+	if out.CacheReadTokens != 4 || out.CacheWriteTokens != 2 || out.ReasoningTokens != 1 || out.TotalTokens != 17 {
+		t.Fatalf("detailed usage: cache_read=%d cache_write=%d reasoning=%d total=%d",
+			out.CacheReadTokens, out.CacheWriteTokens, out.ReasoningTokens, out.TotalTokens)
+	}
+}
+
 func TestCollect_errorTerminationReturnsError(t *testing.T) {
 	t.Parallel()
 

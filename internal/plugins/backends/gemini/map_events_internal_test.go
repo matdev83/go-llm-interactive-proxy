@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -173,6 +174,46 @@ func TestHandleResponse_functionCall_marshalArgsError_wrapsAndPreservesCause(t *
 	}
 }
 
+func TestUsageEvent_usageDetails(t *testing.T) {
+	t.Parallel()
+	ev := usageEvent(&genai.GenerateContentResponse{
+		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
+			PromptTokenCount:        11,
+			CandidatesTokenCount:    5,
+			TotalTokenCount:         19,
+			CachedContentTokenCount: 3,
+			ThoughtsTokenCount:      3,
+		},
+	})
+	if ev == nil {
+		t.Fatal("usage event is nil")
+	}
+	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
+		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
+	}
+	assertUsageIntField(t, *ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, *ev, "ReasoningTokens", 3)
+	assertUsageIntField(t, *ev, "TotalTokens", 19)
+	assertUsageRawJSONContains(t, *ev, "totalTokenCount")
+}
+
+func TestUsageEvent_totalTokenFallbackPreservesInput(t *testing.T) {
+	t.Parallel()
+	ev := usageEvent(&genai.GenerateContentResponse{
+		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
+			PromptTokenCount: 11,
+			TotalTokenCount:  19,
+		},
+	})
+	if ev == nil {
+		t.Fatal("usage event is nil")
+	}
+	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
+		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
+	}
+	assertUsageIntField(t, *ev, "TotalTokens", 19)
+}
+
 func TestGenaiStream_Recv_wrapsIteratorErr(t *testing.T) {
 	t.Parallel()
 	root := errors.New("root")
@@ -220,4 +261,33 @@ func TestGenaiStream_Close_idempotent_race(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func assertUsageIntField(t *testing.T, ev lipapi.Event, name string, want int64) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName(name)
+	if !field.IsValid() {
+		return
+	}
+	if got := field.Int(); got != want {
+		t.Fatalf("%s: got %d, want %d", name, got, want)
+	}
+}
+
+func assertUsageRawJSONContains(t *testing.T, ev lipapi.Event, needle string) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName("RawUsageJSON")
+	if !field.IsValid() {
+		return
+	}
+	switch field.Kind() {
+	case reflect.String:
+		if !strings.Contains(field.String(), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", field.String(), needle)
+		}
+	case reflect.Slice:
+		if !strings.Contains(string(field.Bytes()), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", string(field.Bytes()), needle)
+		}
+	}
 }

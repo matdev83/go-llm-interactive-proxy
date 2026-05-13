@@ -47,6 +47,54 @@ func TestParamsForCall_textOnly(t *testing.T) {
 	}
 }
 
+func TestParamsForCall_includesStreamUsageByDefault(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		ID: "usage-default",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	p, err := backend.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"include_usage":true`) {
+		t.Fatalf("expected include_usage true by default: %s", raw)
+	}
+}
+
+func TestParamsForCall_streamUsageCannotBeDisabledByExtension(t *testing.T) {
+	t.Parallel()
+	streamOpts, _ := json.Marshal(map[string]bool{"include_usage": false})
+	call := lipapi.Call{
+		ID: "usage-disabled",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+		Extensions: map[string]json.RawMessage{"openailegacy.stream_options": streamOpts},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}}
+	p, err := backend.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"include_usage":true`) {
+		t.Fatalf("expected include_usage to be forced on: %s", raw)
+	}
+}
+
 func TestParamsForCall_modelFromExtensions(t *testing.T) {
 	t.Parallel()
 	rawModel, _ := json.Marshal("gpt-4o-mini")
@@ -65,6 +113,27 @@ func TestParamsForCall_modelFromExtensions(t *testing.T) {
 	}
 	if string(p.Model) != "gpt-4o-mini" {
 		t.Fatalf("model: %s", p.Model)
+	}
+}
+
+func TestParamsForCall_forcesStreamUsage(t *testing.T) {
+	t.Parallel()
+	rawStreamOptions, _ := json.Marshal(map[string]bool{"include_usage": false})
+	call := lipapi.Call{
+		ID: "usage",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("x")},
+		}},
+		Extensions: map[string]json.RawMessage{"openailegacy.stream_options": rawStreamOptions},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: "openai-legacy", Model: "gpt-4o-mini"}}
+	p, err := backend.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.StreamOptions.IncludeUsage.Value {
+		t.Fatal("expected backend to force stream_options.include_usage=true")
 	}
 }
 

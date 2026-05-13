@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -314,7 +315,19 @@ func TestExecutor_usageObserverReceivesUsageDeltas(t *testing.T) {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 5},
+						{
+							Kind:             lipapi.EventUsageDelta,
+							InputTokens:      3,
+							OutputTokens:     5,
+							CacheReadTokens:  2,
+							CacheWriteTokens: 1,
+							ReasoningTokens:  4,
+							TotalTokens:      8,
+							CostNanoUnits:    9,
+							Currency:         "USD",
+							CostSource:       "estimated",
+							RawUsageJSON:     `{"usage":true}`,
+						},
 						{Kind: lipapi.EventResponseFinished},
 					}), nil
 				},
@@ -339,6 +352,12 @@ func TestExecutor_usageObserverReceivesUsageDeltas(t *testing.T) {
 	}
 	if obs.events[0].InputTokens != 3 || obs.events[0].OutputTokens != 5 || obs.events[0].BackendID != "openai" {
 		t.Fatalf("unexpected usage event: %+v", obs.events[0])
+	}
+	if obs.events[0].CacheReadTokens != 2 || obs.events[0].CacheWriteTokens != 1 ||
+		obs.events[0].ReasoningTokens != 4 || obs.events[0].TotalTokens != 8 ||
+		obs.events[0].CostNanoUnits != 9 || obs.events[0].Currency != "USD" ||
+		obs.events[0].CostSource != "estimated" || obs.events[0].RawUsageJSON != `{"usage":true}` {
+		t.Fatalf("unexpected detailed usage event: %+v", obs.events[0])
 	}
 }
 
@@ -393,5 +412,67 @@ func TestExecutor_reftraffictranscript_usageLedgerCapturesAttemptLineage(t *test
 	}
 	if ev.BackendID != "openai" {
 		t.Fatalf("BackendID: %+v", ev)
+	}
+}
+
+func TestExecutor_usageObserverReceivesEstimatedCostWhenProviderOmitsCost(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := &captureUsage{}
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{UsageObserver: obs})
+	catalog, err := accounting.NewPriceCatalog(accounting.PriceCatalogConfig{
+		Version:  "test-v1",
+		Currency: "USD",
+		Models: []accounting.ModelPriceConfig{{
+			Backend:     "openai",
+			Model:       "gpt-4",
+			InputPer1M:  "1.00",
+			OutputPer1M: "2.00",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := &runtime.Executor{
+		Store:                  st,
+		Bus:                    bus,
+		RuntimeSnapshot:        snap,
+		AccountingPriceCatalog: catalog,
+		Backends: map[string]execbackend.Backend{
+			"openai": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					return lipapi.NewFixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventUsageDelta, InputTokens: 1_000_000, OutputTokens: 1_000_000},
+						{Kind: lipapi.EventResponseFinished},
+					}), nil
+				},
+			},
+		},
+		Rand: routing.NewSeededRng(1),
+	}
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	stream, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = lipapi.Collect(context.Background(), stream)
+	if len(obs.events) != 1 {
+		t.Fatalf("usage events %d want 1", len(obs.events))
+	}
+	if obs.events[0].CostNanoUnits != 3_000_000_000 ||
+		obs.events[0].Currency != "USD" ||
+		obs.events[0].CostSource != accounting.CostSourceEstimated {
+		t.Fatalf("estimated cost: %+v", obs.events[0])
 	}
 }

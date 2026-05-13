@@ -46,3 +46,12 @@ func NewPoolFromBackendKeys(apiKey string, apiKeys []string) (*Pool, error) {
 	}
 	return New(creds)
 }
+
+// NewPoolFromCredentials builds a pool from structured credentials when present,
+// otherwise falls back to legacy api_key/api_keys fields.
+func NewPoolFromCredentials(apiKey string, apiKeys []string, credentials []Credential) (*Pool, error) {
+	if len(credentials) > 0 {
+		return New(credentials)
+	}
+	return NewPoolFromBackendKeys(apiKey, apiKeys)
+}

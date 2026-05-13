@@ -253,11 +253,12 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 	}
 	// genai reports usage as integer counts; clamp to int for [lipapi.Event] (same as other backends).
 	in := safecast.IntFromInt64Clamp(int64(u.PromptTokenCount))
-	out := safecast.IntFromInt64Clamp(int64(u.CandidatesTokenCount))
+	outputTokens := int64(u.CandidatesTokenCount) + int64(u.ThoughtsTokenCount)
+	out := safecast.IntFromInt64Clamp(outputTokens)
 	if in == 0 && out == 0 && u.TotalTokenCount == 0 {
 		return nil
 	}
-	if in == 0 && out == 0 && u.TotalTokenCount > 0 {
+	if out == 0 && u.TotalTokenCount > u.PromptTokenCount {
 		diff := int64(u.TotalTokenCount) - int64(u.PromptTokenCount)
 		if diff < 0 {
 			out = 0
@@ -265,7 +266,20 @@ func usageEvent(resp *genai.GenerateContentResponse) *lipapi.Event {
 			out = safecast.IntFromInt64Clamp(diff)
 		}
 	}
-	return &lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: in, OutputTokens: out}
+	ev := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: in, OutputTokens: out}
+	ev.CacheReadTokens = safecast.IntFromInt64Clamp(int64(u.CachedContentTokenCount))
+	ev.ReasoningTokens = safecast.IntFromInt64Clamp(int64(u.ThoughtsTokenCount))
+	ev.TotalTokens = safecast.IntFromInt64Clamp(int64(u.TotalTokenCount))
+	ev.RawUsageJSON = rawUsageJSON(u)
+	return &ev
+}
+
+func rawUsageJSON(usage any) string {
+	b, err := json.Marshal(usage)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func (s *genaiStream) Close() error {

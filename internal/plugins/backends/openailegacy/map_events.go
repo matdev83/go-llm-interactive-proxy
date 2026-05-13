@@ -2,6 +2,7 @@ package openailegacy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -186,15 +187,31 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 	}
 
 	if ch.JSON.Usage.Valid() && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.TotalTokens > 0) {
-		if err := s.pending.Push(lipapi.Event{
-			Kind:         lipapi.EventUsageDelta,
-			InputTokens:  safecast.IntFromInt64Clamp(ch.Usage.PromptTokens),
-			OutputTokens: safecast.IntFromInt64Clamp(ch.Usage.CompletionTokens),
-		}); err != nil {
+		ev := lipapi.Event{
+			Kind:            lipapi.EventUsageDelta,
+			InputTokens:     safecast.IntFromInt64Clamp(ch.Usage.PromptTokens),
+			OutputTokens:    safecast.IntFromInt64Clamp(ch.Usage.CompletionTokens),
+			CacheReadTokens: safecast.IntFromInt64Clamp(ch.Usage.PromptTokensDetails.CachedTokens),
+			ReasoningTokens: safecast.IntFromInt64Clamp(ch.Usage.CompletionTokensDetails.ReasoningTokens),
+			TotalTokens:     safecast.IntFromInt64Clamp(ch.Usage.TotalTokens),
+			RawUsageJSON:    rawUsageJSON(ch.Usage.RawJSON(), ch.Usage),
+		}
+		if err := s.pending.Push(ev); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func rawUsageJSON(raw string, usage any) string {
+	if raw != "" {
+		return raw
+	}
+	b, err := json.Marshal(usage)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func (s *chatStream) Close() error {

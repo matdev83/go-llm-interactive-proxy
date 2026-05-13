@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -116,6 +117,29 @@ func TestHandleChunk_multipleToolCallsFinishFollowsWireOrderWhenIndicesOutOfNume
 	}
 }
 
+func TestHandleChunk_usageDetails(t *testing.T) {
+	t.Parallel()
+	raw := `{"id":"cc_usage","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":8,"total_tokens":19,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":5}}}`
+	var ch openai.ChatCompletionChunk
+	if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &chatStream{}
+	if err := s.handleChunk(ch); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := findUsageEvent(t, stream.DrainPending(&s.pending))
+	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
+		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
+	}
+	assertUsageIntField(t, ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, ev, "ReasoningTokens", 5)
+	assertUsageIntField(t, ev, "TotalTokens", 19)
+	assertUsageRawJSONContains(t, ev, "total_tokens")
+}
+
 type errDecoderLegacy struct{ err error }
 
 func (d *errDecoderLegacy) Event() ssestream.Event {
@@ -146,5 +170,45 @@ func TestChatStream_Recv_wrapsSDKErr(t *testing.T) {
 	}
 	if !errors.Is(err, root) {
 		t.Fatalf("underlying: %v", err)
+	}
+}
+
+func findUsageEvent(t *testing.T, events []lipapi.Event) lipapi.Event {
+	t.Helper()
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			return ev
+		}
+	}
+	t.Fatalf("usage event not found in %+v", events)
+	return lipapi.Event{}
+}
+
+func assertUsageIntField(t *testing.T, ev lipapi.Event, name string, want int64) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName(name)
+	if !field.IsValid() {
+		return
+	}
+	if got := field.Int(); got != want {
+		t.Fatalf("%s: got %d, want %d", name, got, want)
+	}
+}
+
+func assertUsageRawJSONContains(t *testing.T, ev lipapi.Event, needle string) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName("RawUsageJSON")
+	if !field.IsValid() {
+		return
+	}
+	switch field.Kind() {
+	case reflect.String:
+		if !strings.Contains(field.String(), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", field.String(), needle)
+		}
+	case reflect.Slice:
+		if !strings.Contains(string(field.Bytes()), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", string(field.Bytes()), needle)
+		}
 	}
 }

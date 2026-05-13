@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -71,6 +73,8 @@ type retryRecvStream struct {
 	gateBuf   []lipapi.Event
 	gateDrain []lipapi.Event
 	gateLive  bool
+
+	accounting attemptAccountingTracker
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -87,6 +91,13 @@ func (s *retryRecvStream) storeInner(stream lipapi.EventStream) {
 	s.innerMu.Lock()
 	s.inner = stream
 	s.innerMu.Unlock()
+}
+
+func (s *retryRecvStream) now() time.Time {
+	if s != nil && s.executor != nil {
+		return s.executor.now()
+	}
+	return time.Now()
 }
 
 // takeAndNilInner clears s.inner and returns the previous value; the caller should Close it when non-nil.
@@ -146,6 +157,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	for {
 		if ev, ok := s.popGateDrainHead(); ok {
 			ev = s.emitGateDrained(ctx, ev)
+			s.accounting.observeClientEvent(s.now(), ev)
 			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
 				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 					return lipapi.Event{}, err
@@ -182,8 +194,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		if err == nil {
+			recvAt := s.now()
+			s.accounting.observeBackendEvent(recvAt, ev)
+			s.accounting.observeUsage(ev)
 			pm, tm := s.recvHookMeta()
 			s.emitTrafficBTP(ctx, ev, pm)
+			ev = s.enrichUsageCost(ev)
 			s.emitUsage(ctx, ev)
 			if te, ok := lipapi.ToolEventFromEvent(ev); ok {
 				if err := s.applyToolPolicies(ctx, te, tm); err != nil {
@@ -223,6 +239,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					return lipapi.Event{}, gerr
 				}
 				out = s.emitGateDrained(ctx, out)
+				s.accounting.observeClientEvent(s.now(), out)
 				if err := s.beforeEmitClientFacing(ctx, out); err != nil {
 					if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 						return lipapi.Event{}, err
@@ -237,6 +254,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if lipapi.OutputCommitted(ev) {
 				s.committed = true
 			}
+			s.accounting.observeClientEvent(s.now(), ev)
 			if ev.Kind == lipapi.EventResponseFinished {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:  s.aLegID,
@@ -351,6 +369,34 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		s.excluded[s.cand.Key] = struct{}{}
 	}
+}
+
+func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
+	if s == nil || s.executor == nil || ev.Kind != lipapi.EventUsageDelta || ev.CostNanoUnits > 0 {
+		return ev
+	}
+	model := strings.TrimSpace(s.cand.Primary.Model)
+	res := accounting.EstimateCost(accounting.CostInput{
+		Backend: strings.TrimSpace(s.cand.Primary.Backend),
+		Model:   model,
+		Usage: accounting.TokenUsage{
+			InputTokens:      int64(ev.InputTokens),
+			OutputTokens:     int64(ev.OutputTokens),
+			CacheReadTokens:  int64(ev.CacheReadTokens),
+			CacheWriteTokens: int64(ev.CacheWriteTokens),
+			ReasoningTokens:  int64(ev.ReasoningTokens),
+		},
+	}, s.executor.AccountingPriceCatalog)
+	if res.Source == accounting.CostSourceUnavailable {
+		if strings.TrimSpace(ev.CostSource) == "" {
+			ev.CostSource = accounting.CostSourceUnavailable
+		}
+		return ev
+	}
+	ev.CostNanoUnits = res.NanoUnits
+	ev.Currency = res.Currency
+	ev.CostSource = res.Source
+	return ev
 }
 
 func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
@@ -483,6 +529,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
+	s.accounting = newAttemptAccountingTracker(s.now())
 	return true, nil
 }
 
@@ -571,17 +618,25 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 		model = s.cand.Primary.Model
 	}
 	if err := obs.OnUsage(ctx, usage.Event{
-		TraceID:      strings.TrimSpace(s.traceID),
-		ALegID:       strings.TrimSpace(s.aLegID),
-		BLegID:       strings.TrimSpace(s.bleg.BLegID),
-		PrincipalID:  strings.TrimSpace(principalID),
-		SessionID:    strings.TrimSpace(s.baseline.Session.CorrelationID()),
-		AttemptSeq:   int(s.bleg.Seq),
-		BackendID:    strings.TrimSpace(s.cand.Primary.Backend),
-		Model:        strings.TrimSpace(model),
-		InputTokens:  ev.InputTokens,
-		OutputTokens: ev.OutputTokens,
-		RecordedAt:   s.executor.now(),
+		TraceID:          strings.TrimSpace(s.traceID),
+		ALegID:           strings.TrimSpace(s.aLegID),
+		BLegID:           strings.TrimSpace(s.bleg.BLegID),
+		PrincipalID:      strings.TrimSpace(principalID),
+		SessionID:        strings.TrimSpace(s.baseline.Session.CorrelationID()),
+		AttemptSeq:       int(s.bleg.Seq),
+		BackendID:        strings.TrimSpace(s.cand.Primary.Backend),
+		Model:            strings.TrimSpace(model),
+		InputTokens:      ev.InputTokens,
+		OutputTokens:     ev.OutputTokens,
+		CacheReadTokens:  ev.CacheReadTokens,
+		CacheWriteTokens: ev.CacheWriteTokens,
+		ReasoningTokens:  ev.ReasoningTokens,
+		TotalTokens:      ev.TotalTokens,
+		CostNanoUnits:    ev.CostNanoUnits,
+		Currency:         strings.TrimSpace(ev.Currency),
+		CostSource:       strings.TrimSpace(ev.CostSource),
+		RawUsageJSON:     strings.TrimSpace(ev.RawUsageJSON),
+		RecordedAt:       s.executor.now(),
 	}); err != nil && s.executor.Log != nil {
 		s.executor.Log.DebugContext(ctx, "usage observer error", "error", err)
 	}

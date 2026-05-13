@@ -17,3 +17,7 @@ func CredentialsFromConfig(apiKey string, apiKeys []string) ([]credpool.Credenti
 	}
 	return out, nil
 }
+
+func NewPoolFromCredentials(apiKey string, apiKeys []string, credentials []credpool.Credential) (*credpool.Pool, error) {
+	return credpool.NewPoolFromCredentials(apiKey, apiKeys, credentials)
+}

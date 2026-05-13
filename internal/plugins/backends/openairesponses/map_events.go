@@ -2,6 +2,7 @@ package openairesponses
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -397,11 +398,27 @@ func usageFromResponse(resp responses.Response) *lipapi.Event {
 	if u.InputTokens == 0 && u.OutputTokens == 0 && u.TotalTokens == 0 {
 		return nil
 	}
-	return &lipapi.Event{
-		Kind:         lipapi.EventUsageDelta,
-		InputTokens:  safecast.IntFromInt64Clamp(u.InputTokens),
-		OutputTokens: safecast.IntFromInt64Clamp(u.OutputTokens),
+	ev := lipapi.Event{
+		Kind:            lipapi.EventUsageDelta,
+		InputTokens:     safecast.IntFromInt64Clamp(u.InputTokens),
+		OutputTokens:    safecast.IntFromInt64Clamp(u.OutputTokens),
+		CacheReadTokens: safecast.IntFromInt64Clamp(u.InputTokensDetails.CachedTokens),
+		ReasoningTokens: safecast.IntFromInt64Clamp(u.OutputTokensDetails.ReasoningTokens),
+		TotalTokens:     safecast.IntFromInt64Clamp(u.TotalTokens),
+		RawUsageJSON:    rawUsageJSON(u.RawJSON(), u),
 	}
+	return &ev
+}
+
+func rawUsageJSON(raw string, usage any) string {
+	if raw != "" {
+		return raw
+	}
+	b, err := json.Marshal(usage)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func (s *sdkStream) Close() error {

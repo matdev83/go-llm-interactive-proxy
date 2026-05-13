@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
@@ -34,9 +35,20 @@ type acpBackendYAML struct {
 }
 
 type openAIStyleYAML struct {
-	BaseURL string   `yaml:"base_url"`
-	APIKey  string   `yaml:"api_key"`
-	APIKeys []string `yaml:"api_keys"`
+	BaseURL     string                 `yaml:"base_url"`
+	APIKey      string                 `yaml:"api_key"`
+	APIKeys     []string               `yaml:"api_keys"`
+	Credentials []hostedCredentialYAML `yaml:"credentials"`
+}
+
+type hostedCredentialYAML struct {
+	ID                string `yaml:"id"`
+	APIKey            string `yaml:"api_key"`
+	RemoteOrgID       string `yaml:"remote_org_id"`
+	RemoteProjectID   string `yaml:"remote_project_id"`
+	RemoteWorkspaceID string `yaml:"remote_workspace_id"`
+	RemoteAccountID   string `yaml:"remote_account_id"`
+	RemoteRegion      string `yaml:"remote_region"`
 }
 
 func resolveUpstreamHTTP(upstream *http.Client) *http.Client {
@@ -44,6 +56,25 @@ func resolveUpstreamHTTP(upstream *http.Client) *http.Client {
 		return upstream
 	}
 	return httpclient.Standard()
+}
+
+func hostedCredentials(rows []hostedCredentialYAML) []credpool.Credential {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]credpool.Credential, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, credpool.Credential{
+			ID:                strings.TrimSpace(row.ID),
+			Secret:            strings.TrimSpace(row.APIKey),
+			RemoteOrgID:       strings.TrimSpace(row.RemoteOrgID),
+			RemoteProjectID:   strings.TrimSpace(row.RemoteProjectID),
+			RemoteWorkspaceID: strings.TrimSpace(row.RemoteWorkspaceID),
+			RemoteAccountID:   strings.TrimSpace(row.RemoteAccountID),
+			RemoteRegion:      strings.TrimSpace(row.RemoteRegion),
+		})
+	}
+	return out
 }
 
 func backendOpenAIResponses(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
@@ -56,7 +87,7 @@ func backendOpenAIResponses(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (
 		base = "https://api.openai.com/v1"
 	}
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
-	cfg := openairesponses.Config{BaseURL: base, APIKeys: ek}
+	cfg := openairesponses.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
 		cfg.APIKey = ek[0]
 	}
@@ -73,7 +104,7 @@ func backendOpenAILegacy(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (exe
 		base = "https://api.openai.com/v1"
 	}
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
-	cfg := openailegacy.Config{BaseURL: base, APIKeys: ek}
+	cfg := openailegacy.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
 		cfg.APIKey = ek[0]
 	}
@@ -90,7 +121,7 @@ func backendAnthropic(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execba
 		base = "https://api.anthropic.com"
 	}
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Anthropic)
-	cfg := anthropic.Config{BaseURL: base, APIKeys: ek}
+	cfg := anthropic.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
 		cfg.APIKey = ek[0]
 	}
@@ -107,7 +138,7 @@ func backendGemini(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbacke
 		base = "https://generativelanguage.googleapis.com"
 	}
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Gemini)
-	cfg := gemini.Config{BaseURL: base, APIKeys: ek}
+	cfg := gemini.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
 		cfg.APIKey = ek[0]
 	}

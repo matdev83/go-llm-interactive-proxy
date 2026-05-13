@@ -248,24 +248,42 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 	row.usageIn += delta.InputTokens
 	row.usageOut += delta.OutputTokens
 	if delta.BLegID != "" {
-		ac := domain.AttemptAccounting{
-			BLegID:             delta.BLegID,
-			InputTokens:        delta.InputTokens,
-			OutputTokens:       delta.OutputTokens,
-			CacheReadTokens:    delta.CacheReadTokens,
-			CacheWriteTokens:   delta.CacheWriteTokens,
-			CostMinorUnits:     delta.CostMinorUnits,
-			Currency:           delta.Currency,
-			BillingUnavailable: delta.BillingUnavailable,
+		deltaAccounting := domain.AttemptAccounting{
+			BLegID:                   delta.BLegID,
+			InputTokens:              delta.InputTokens,
+			OutputTokens:             delta.OutputTokens,
+			CacheReadTokens:          delta.CacheReadTokens,
+			CacheWriteTokens:         delta.CacheWriteTokens,
+			NonCachedInputTokens:     delta.NonCachedInputTokens,
+			ReasoningTokens:          delta.ReasoningTokens,
+			NonReasoningOutputTokens: delta.NonReasoningOutputTokens,
+			TotalTokens:              delta.TotalTokens,
+			CostNanoUnits:            delta.CostNanoUnits,
+			CostMinorUnits:           delta.CostMinorUnits,
+			Currency:                 delta.Currency,
+			CostSource:               delta.CostSource,
+			RawUsageJSON:             delta.RawUsageJSON,
+			BillingUnavailable:       delta.BillingUnavailable,
+			RequestStartedAt:         delta.RequestStartedAt,
+			FirstRemoteEventAt:       delta.FirstRemoteEventAt,
+			FirstMeaningfulTokenAt:   delta.FirstMeaningfulTokenAt,
+			RemoteCompletedAt:        delta.RemoteCompletedAt,
+			ProxyCompletedAt:         delta.ProxyCompletedAt,
+			TTFTMillis:               delta.TTFTMillis,
+			RemoteDurationMillis:     delta.RemoteDurationMillis,
+			CompletionDurationMillis: delta.CompletionDurationMillis,
+			CompletionTPSMilli:       delta.CompletionTPSMilli,
 		}
-		row.rec.LatestAttemptAccounting = ac
+		attemptAccounting := deltaAccounting
 		for i := len(row.attempts) - 1; i >= 0; i-- {
 			ap := &row.attempts[i]
 			if ap.trace.TurnID == delta.TurnID && ap.trace.BLegID == delta.BLegID {
-				ap.accounting = ac
+				attemptAccounting = domain.MergeAttemptAccounting(ap.accounting, deltaAccounting)
+				ap.accounting = attemptAccounting
 				break
 			}
 		}
+		row.rec.LatestAttemptAccounting = domain.MergeAttemptAccounting(row.rec.LatestAttemptAccounting, deltaAccounting)
 	}
 	return nil
 }

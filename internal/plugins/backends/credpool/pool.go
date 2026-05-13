@@ -14,11 +14,17 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
-// Credential is one API key attached to a backend instance. [New] always
-// assigns pool-local opaque ids (c0, c1, …); the ID field on input is ignored.
+// Credential is one API key attached to a backend instance. ID is a non-secret
+// operator-facing identifier; when empty, [New] assigns a pool-local opaque id
+// (c0, c1, ...). IDs are never derived from secret material.
 type Credential struct {
-	ID     string // ignored by [New]; acquire returns the assigned pool id
-	Secret string
+	ID                string
+	Secret            string
+	RemoteOrgID       string
+	RemoteProjectID   string
+	RemoteWorkspaceID string
+	RemoteAccountID   string
+	RemoteRegion      string
 }
 
 // State is usefulness of a credential for diagnostics only.
@@ -32,9 +38,14 @@ const (
 
 // CredentialStatus is a secret-free view for tests and diagnostics.
 type CredentialStatus struct {
-	ID            string
-	State         State
-	CooldownUntil time.Time // zero means not in cooldown / n/a for usable
+	ID                string
+	RemoteOrgID       string
+	RemoteProjectID   string
+	RemoteWorkspaceID string
+	RemoteAccountID   string
+	RemoteRegion      string
+	State             State
+	CooldownUntil     time.Time // zero means not in cooldown / n/a for usable
 }
 
 // Pool holds ordered credentials and per-credential usefulness state.
@@ -45,27 +56,45 @@ type Pool struct {
 }
 
 type poolEntry struct {
-	id            string
-	secret        string
-	cooldownUntil time.Time // zero = no active cooldown
-	isAuthInvalid bool
+	id                string
+	secret            string
+	remoteOrgID       string
+	remoteProjectID   string
+	remoteWorkspaceID string
+	remoteAccountID   string
+	remoteRegion      string
+	cooldownUntil     time.Time // zero = no active cooldown
+	isAuthInvalid     bool
 }
 
 // New builds a pool from normalized credentials (non-empty secrets).
-// Each credential receives a stable pool-local id (c0, c1, …) independent of secrets.
 func New(credentials []Credential) (*Pool, error) {
 	if len(credentials) == 0 {
 		return nil, errEmptyCredentialList
 	}
 	out := make([]poolEntry, 0, len(credentials))
+	seenIDs := make(map[string]struct{}, len(credentials))
 	for i, c := range credentials {
 		if c.Secret == "" {
 			return nil, fmt.Errorf("credpool: empty secret at index %d", i)
 		}
-		// Pool-local stable ids; never derive from secret material.
-		// strconv avoids fmt's interface slice on this one-shot-per-credential path.
 		id := "c" + strconv.Itoa(i)
-		out = append(out, poolEntry{id: id, secret: c.Secret})
+		if c.ID != "" {
+			id = c.ID
+		}
+		if _, dup := seenIDs[id]; dup {
+			return nil, fmt.Errorf("credpool: duplicate credential id %q", id)
+		}
+		seenIDs[id] = struct{}{}
+		out = append(out, poolEntry{
+			id:                id,
+			secret:            c.Secret,
+			remoteOrgID:       c.RemoteOrgID,
+			remoteProjectID:   c.RemoteProjectID,
+			remoteWorkspaceID: c.RemoteWorkspaceID,
+			remoteAccountID:   c.RemoteAccountID,
+			remoteRegion:      c.RemoteRegion,
+		})
 	}
 	return &Pool{creds: out}, nil
 }
@@ -88,7 +117,15 @@ func (p *Pool) Acquire(now time.Time, exclude map[string]struct{}) (Credential, 
 		if !e.cooldownUntil.IsZero() && e.cooldownUntil.After(now) {
 			continue
 		}
-		return Credential{ID: e.id, Secret: e.secret}, nil
+		return Credential{
+			ID:                e.id,
+			Secret:            e.secret,
+			RemoteOrgID:       e.remoteOrgID,
+			RemoteProjectID:   e.remoteProjectID,
+			RemoteWorkspaceID: e.remoteWorkspaceID,
+			RemoteAccountID:   e.remoteAccountID,
+			RemoteRegion:      e.remoteRegion,
+		}, nil
 	}
 	return Credential{}, ErrNoUsableCredential
 }
@@ -129,7 +166,14 @@ func (p *Pool) Snapshot(now time.Time) []CredentialStatus {
 	out := make([]CredentialStatus, 0, len(p.creds))
 	for i := range p.creds {
 		e := p.creds[i]
-		st := CredentialStatus{ID: e.id}
+		st := CredentialStatus{
+			ID:                e.id,
+			RemoteOrgID:       e.remoteOrgID,
+			RemoteProjectID:   e.remoteProjectID,
+			RemoteWorkspaceID: e.remoteWorkspaceID,
+			RemoteAccountID:   e.remoteAccountID,
+			RemoteRegion:      e.remoteRegion,
+		}
 		switch {
 		case e.isAuthInvalid:
 			st.State = StateAuthInvalid

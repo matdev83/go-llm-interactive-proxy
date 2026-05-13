@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -212,6 +213,27 @@ func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	}
 }
 
+func TestUsageFromResponse_usageDetails(t *testing.T) {
+	t.Parallel()
+	raw := `{"id":"resp_usage","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","output":[],"usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":3},"output_tokens":8,"output_tokens_details":{"reasoning_tokens":5},"total_tokens":19}}`
+	var resp responses.Response
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := usageFromResponse(resp)
+	if ev == nil {
+		t.Fatal("usage event is nil")
+	}
+	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
+		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
+	}
+	assertUsageIntField(t, *ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, *ev, "ReasoningTokens", 5)
+	assertUsageIntField(t, *ev, "TotalTokens", 19)
+	assertUsageRawJSONContains(t, *ev, "total_tokens")
+}
+
 type errDecoderResponses struct{ err error }
 
 func (d *errDecoderResponses) Event() ssestream.Event {
@@ -242,5 +264,34 @@ func TestSDKStream_Recv_wrapsSDKErr(t *testing.T) {
 	}
 	if !errors.Is(err, root) {
 		t.Fatalf("underlying: %v", err)
+	}
+}
+
+func assertUsageIntField(t *testing.T, ev lipapi.Event, name string, want int64) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName(name)
+	if !field.IsValid() {
+		return
+	}
+	if got := field.Int(); got != want {
+		t.Fatalf("%s: got %d, want %d", name, got, want)
+	}
+}
+
+func assertUsageRawJSONContains(t *testing.T, ev lipapi.Event, needle string) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName("RawUsageJSON")
+	if !field.IsValid() {
+		return
+	}
+	switch field.Kind() {
+	case reflect.String:
+		if !strings.Contains(field.String(), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", field.String(), needle)
+		}
+	case reflect.Slice:
+		if !strings.Contains(string(field.Bytes()), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", string(field.Bytes()), needle)
+		}
 	}
 }

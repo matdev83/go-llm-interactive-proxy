@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -71,6 +72,8 @@ type Executor struct {
 	RouteTrace *diag.RouteTraceBuffer
 	// MaxPendingWireEvents caps backend pending event queues per stream (0 = unlimited).
 	MaxPendingWireEvents int
+	// AccountingPriceCatalog estimates cost for usage deltas when providers do not report cost.
+	AccountingPriceCatalog accounting.PriceCatalog
 	// Metrics receives coarse executor observations when non-nil.
 	Metrics MetricsSink
 	// ExtensionMetrics records extension pipeline stage timings when non-nil (Prometheus when enabled).
@@ -245,6 +248,8 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 
 			secureTurn:   secureTurn,
 			secureTurnOK: secureTurnOK,
+
+			accounting: newAttemptAccountingTracker(e.now()),
 		}
 		rs.storeInner(out.stream)
 		return rs, nil

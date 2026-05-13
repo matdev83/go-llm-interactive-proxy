@@ -40,3 +40,34 @@ api_keys:
 		}
 	}
 }
+
+func TestOpenAIStyleYAML_decodesStructuredCredentials(t *testing.T) {
+	t.Parallel()
+	raw := `
+credentials:
+  - id: prod-primary
+    api_key: sk-test
+    remote_org_id: org-1
+    remote_project_id: proj-1
+    remote_workspace_id: ws-1
+`
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &root); err != nil {
+		t.Fatal(err)
+	}
+	var y openAIStyleYAML
+	if err := config.DecodeYAMLNode(root, &y); err != nil {
+		t.Fatal(err)
+	}
+	creds := hostedCredentials(y.Credentials)
+	if len(creds) != 1 {
+		t.Fatalf("credentials len: got %d", len(creds))
+	}
+	if creds[0].ID != "prod-primary" || creds[0].Secret != "sk-test" {
+		t.Fatalf("credential identity/secret decode: %+v", creds[0])
+	}
+	if creds[0].RemoteOrgID != "org-1" || creds[0].RemoteProjectID != "proj-1" ||
+		creds[0].RemoteWorkspaceID != "ws-1" {
+		t.Fatalf("remote metadata: %+v", creds[0])
+	}
+}

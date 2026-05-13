@@ -65,11 +65,29 @@ type UsageDelta struct {
 	InputTokens  int64
 	OutputTokens int64
 
-	CacheReadTokens    int64
-	CacheWriteTokens   int64
-	CostMinorUnits     int64
-	Currency           string
-	BillingUnavailable bool
+	CacheReadTokens          int64
+	CacheWriteTokens         int64
+	NonCachedInputTokens     int64
+	ReasoningTokens          int64
+	NonReasoningOutputTokens int64
+	TotalTokens              int64
+	CostNanoUnits            int64
+	CostMinorUnits           int64
+	Currency                 string
+	CostSource               string
+	RawUsageJSON             string
+	BillingUnavailable       bool
+
+	RequestStartedAt         time.Time
+	FirstRemoteEventAt       time.Time
+	FirstMeaningfulTokenAt   time.Time
+	RemoteCompletedAt        time.Time
+	ProxyCompletedAt         time.Time
+	TTFTMillis               int64
+	RemoteDurationMillis     int64
+	CompletionDurationMillis int64
+	// CompletionTPSMilli stores tokens-per-second with milliprecision: 5000 means 5.000 TPS.
+	CompletionTPSMilli int64
 }
 
 // TranscriptItem is one ordered transcript entry.
@@ -191,14 +209,106 @@ type AttemptOutcome struct {
 
 // AttemptAccounting attaches usage/cost signals to a B-leg attempt.
 type AttemptAccounting struct {
-	BLegID             string
-	InputTokens        int64
-	OutputTokens       int64
-	CacheReadTokens    int64
-	CacheWriteTokens   int64
-	CostMinorUnits     int64
-	Currency           string
-	BillingUnavailable bool
+	BLegID                   string
+	InputTokens              int64
+	OutputTokens             int64
+	CacheReadTokens          int64
+	CacheWriteTokens         int64
+	NonCachedInputTokens     int64
+	ReasoningTokens          int64
+	NonReasoningOutputTokens int64
+	TotalTokens              int64
+	CostNanoUnits            int64
+	CostMinorUnits           int64
+	Currency                 string
+	CostSource               string
+	RawUsageJSON             string
+	BillingUnavailable       bool
+
+	RequestStartedAt         time.Time
+	FirstRemoteEventAt       time.Time
+	FirstMeaningfulTokenAt   time.Time
+	RemoteCompletedAt        time.Time
+	ProxyCompletedAt         time.Time
+	TTFTMillis               int64
+	RemoteDurationMillis     int64
+	CompletionDurationMillis int64
+	// CompletionTPSMilli stores tokens-per-second with milliprecision: 5000 means 5.000 TPS.
+	CompletionTPSMilli int64
+}
+
+// MergeAttemptAccounting overlays a usage/timing delta onto an existing attempt accounting row.
+// Numeric token and cost counters accumulate; optional timing and descriptive fields keep the
+// latest non-zero/non-empty value. A delta for a different B-leg replaces the base.
+func MergeAttemptAccounting(base, delta AttemptAccounting) AttemptAccounting {
+	if base.BLegID == "" {
+		return delta
+	}
+	if delta.BLegID == "" {
+		return base
+	}
+	if base.BLegID != delta.BLegID {
+		return delta
+	}
+	base.InputTokens += delta.InputTokens
+	base.OutputTokens += delta.OutputTokens
+	base.CacheReadTokens += delta.CacheReadTokens
+	base.CacheWriteTokens += delta.CacheWriteTokens
+	base.NonCachedInputTokens += delta.NonCachedInputTokens
+	base.ReasoningTokens += delta.ReasoningTokens
+	base.NonReasoningOutputTokens += delta.NonReasoningOutputTokens
+	base.TotalTokens = mergeAbsoluteTotal(base.TotalTokens, delta.TotalTokens)
+	if delta.CostNanoUnits != 0 {
+		base.CostNanoUnits += delta.CostNanoUnits
+	}
+	if delta.CostMinorUnits != 0 {
+		base.CostMinorUnits += delta.CostMinorUnits
+	}
+	if delta.Currency != "" {
+		base.Currency = delta.Currency
+	}
+	if delta.CostSource != "" {
+		base.CostSource = delta.CostSource
+	}
+	if delta.RawUsageJSON != "" {
+		base.RawUsageJSON = delta.RawUsageJSON
+	}
+	base.BillingUnavailable = base.BillingUnavailable || delta.BillingUnavailable
+	if !delta.RequestStartedAt.IsZero() {
+		base.RequestStartedAt = delta.RequestStartedAt
+	}
+	if !delta.FirstRemoteEventAt.IsZero() {
+		base.FirstRemoteEventAt = delta.FirstRemoteEventAt
+	}
+	if !delta.FirstMeaningfulTokenAt.IsZero() {
+		base.FirstMeaningfulTokenAt = delta.FirstMeaningfulTokenAt
+	}
+	if !delta.RemoteCompletedAt.IsZero() {
+		base.RemoteCompletedAt = delta.RemoteCompletedAt
+	}
+	if !delta.ProxyCompletedAt.IsZero() {
+		base.ProxyCompletedAt = delta.ProxyCompletedAt
+	}
+	if delta.TTFTMillis != 0 {
+		base.TTFTMillis = delta.TTFTMillis
+	}
+	if delta.RemoteDurationMillis != 0 {
+		base.RemoteDurationMillis = delta.RemoteDurationMillis
+	}
+	if delta.CompletionDurationMillis != 0 {
+		base.CompletionDurationMillis = delta.CompletionDurationMillis
+	}
+	if delta.CompletionTPSMilli != 0 {
+		base.CompletionTPSMilli = delta.CompletionTPSMilli
+	}
+	return base
+}
+
+func mergeAbsoluteTotal(cur, next int64) int64 {
+	if next == 0 {
+		return cur
+	}
+	return next
 }
 
 // AttemptEvidence joins trace, terminal outcome, and usage for operator diagnostics (Req 14.8).

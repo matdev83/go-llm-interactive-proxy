@@ -25,6 +25,9 @@ type Config struct {
 	// APIKeys is the ordered credential list for this backend instance.
 	// When non-empty, APIKey should match APIKeys[0] for SDK compatibility.
 	APIKeys []string
+	// Credentials is the structured credential list. When set, it takes precedence
+	// over APIKey/APIKeys and preserves non-secret credential IDs for diagnostics.
+	Credentials []credpool.Credential
 	// HTTPClient is optional; when nil the SDK default is used.
 	HTTPClient *http.Client
 	// SDKMaxRetries optionally sets the official SDK MaxRetries (nil = SDK default).
@@ -39,7 +42,7 @@ func New(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(ID, "base_url", cfg.BaseURL); err != nil {
 		return newConfigErrorBackend(err)
 	}
-	pool, err := openaicred.NewPool(cfg.APIKey, cfg.APIKeys)
+	pool, err := openaicred.NewPoolFromCredentials(cfg.APIKey, cfg.APIKeys, cfg.Credentials)
 	if err != nil {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}

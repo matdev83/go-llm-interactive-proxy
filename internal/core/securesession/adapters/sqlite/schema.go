@@ -117,9 +117,25 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			output_tokens INTEGER NOT NULL DEFAULT 0,
 			cache_read_tokens INTEGER NOT NULL DEFAULT 0,
 			cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+			non_cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+			reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+			non_reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cost_nano_units INTEGER NOT NULL DEFAULT 0,
 			cost_minor_units INTEGER NOT NULL DEFAULT 0,
 			currency TEXT NOT NULL DEFAULT '',
+			cost_source TEXT NOT NULL DEFAULT '',
+			raw_usage_json TEXT NOT NULL DEFAULT '',
 			billing_unavailable INTEGER NOT NULL DEFAULT 0,
+			request_started_at_unix INTEGER NOT NULL DEFAULT 0,
+			first_remote_event_at_unix INTEGER NOT NULL DEFAULT 0,
+			first_meaningful_token_at_unix INTEGER NOT NULL DEFAULT 0,
+			remote_completed_at_unix INTEGER NOT NULL DEFAULT 0,
+			proxy_completed_at_unix INTEGER NOT NULL DEFAULT 0,
+			ttft_millis INTEGER NOT NULL DEFAULT 0,
+			remote_duration_millis INTEGER NOT NULL DEFAULT 0,
+			completion_duration_millis INTEGER NOT NULL DEFAULT 0,
+			completion_tps_milli INTEGER NOT NULL DEFAULT 0,
 			created_at_unix INTEGER NOT NULL,
 			FOREIGN KEY(session_id) REFERENCES lip_secure_sessions(session_id) ON DELETE CASCADE
 		)`,
@@ -148,6 +164,9 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := upgradeAttemptTraceOutcomeColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := upgradeUsageAccountingColumns(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -170,6 +189,37 @@ func upgradeAttemptTraceOutcomeColumns(ctx context.Context, db *sql.DB) error {
 				continue
 			}
 			return fmt.Errorf("securesession/sqlite migrate upgrade attempt_traces: %w", err)
+		}
+	}
+	return nil
+}
+
+func upgradeUsageAccountingColumns(ctx context.Context, db *sql.DB) error {
+	alters := []string{
+		`ALTER TABLE lip_secure_usage ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN non_cached_input_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN non_reasoning_output_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN cost_nano_units INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN cost_source TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN raw_usage_json TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN request_started_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN first_remote_event_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN first_meaningful_token_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN remote_completed_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN proxy_completed_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN ttft_millis INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN remote_duration_millis INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN completion_duration_millis INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_usage ADD COLUMN completion_tps_milli INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, q := range alters {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "duplicate column name") {
+				continue
+			}
+			return fmt.Errorf("securesession/sqlite migrate upgrade usage: %w", err)
 		}
 	}
 	return nil

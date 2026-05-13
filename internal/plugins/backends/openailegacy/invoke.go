@@ -36,20 +36,8 @@ func resolveModel(cand routing.AttemptCandidate, call lipapi.Call) string {
 }
 
 func resolveIncludeUsage(call lipapi.Call) bool {
-	if call.Extensions == nil {
-		return false
-	}
-	raw, ok := call.Extensions[extStreamOptsJSONKey]
-	if !ok || len(raw) == 0 {
-		return false
-	}
-	var opts struct {
-		IncludeUsage bool `json:"include_usage"`
-	}
-	if json.Unmarshal(raw, &opts) != nil {
-		return false
-	}
-	return opts.IncludeUsage
+	_ = call
+	return true
 }
 
 // ParamsForCall builds an OpenAI Chat Completions create payload from a canonical call.

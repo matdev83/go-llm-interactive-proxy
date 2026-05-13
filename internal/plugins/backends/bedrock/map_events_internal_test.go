@@ -3,13 +3,18 @@ package bedrock
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 type mockConverseReader struct {
@@ -112,5 +117,73 @@ func TestConverseStream_Recv_wrapsSDKErr(t *testing.T) {
 	}
 	if !errors.Is(err, root) {
 		t.Fatalf("underlying: %v", err)
+	}
+}
+
+func TestHandleOutput_metadataUsageDetails(t *testing.T) {
+	t.Parallel()
+	s := &converseStream{pending: stream.NewPendingEventQueue(0)}
+	err := s.handleOutput(&types.ConverseStreamOutputMemberMetadata{
+		Value: types.ConverseStreamMetadataEvent{
+			Usage: &types.TokenUsage{
+				InputTokens:           aws.Int32(11),
+				OutputTokens:          aws.Int32(8),
+				TotalTokens:           aws.Int32(19),
+				CacheReadInputTokens:  aws.Int32(3),
+				CacheWriteInputTokens: aws.Int32(4),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ev := findUsageEvent(t, stream.DrainPending(&s.pending))
+	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
+		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
+	}
+	assertUsageIntField(t, ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, ev, "CacheWriteTokens", 4)
+	assertUsageIntField(t, ev, "TotalTokens", 19)
+	assertUsageRawJSONContains(t, ev, "InputTokens")
+}
+
+func findUsageEvent(t *testing.T, events []lipapi.Event) lipapi.Event {
+	t.Helper()
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			return ev
+		}
+	}
+	t.Fatalf("usage event not found in %+v", events)
+	return lipapi.Event{}
+}
+
+func assertUsageIntField(t *testing.T, ev lipapi.Event, name string, want int64) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName(name)
+	if !field.IsValid() {
+		return
+	}
+	if got := field.Int(); got != want {
+		t.Fatalf("%s: got %d, want %d", name, got, want)
+	}
+}
+
+func assertUsageRawJSONContains(t *testing.T, ev lipapi.Event, needle string) {
+	t.Helper()
+	field := reflect.ValueOf(ev).FieldByName("RawUsageJSON")
+	if !field.IsValid() {
+		return
+	}
+	switch field.Kind() {
+	case reflect.String:
+		if !strings.Contains(field.String(), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", field.String(), needle)
+		}
+	case reflect.Slice:
+		if !strings.Contains(string(field.Bytes()), needle) {
+			t.Fatalf("RawUsageJSON: %q does not contain %q", string(field.Bytes()), needle)
+		}
 	}
 }

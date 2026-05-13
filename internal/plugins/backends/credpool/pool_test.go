@@ -26,6 +26,43 @@ func TestNew_rejectsEmptyCredentialList(t *testing.T) {
 	}
 }
 
+func TestNew_preservesConfiguredCredentialIDs(t *testing.T) {
+	t.Parallel()
+	p, err := credpool.New([]credpool.Credential{
+		{ID: "primary", Secret: "a"},
+		{ID: "secondary", Secret: "b"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Acquire(time.Unix(1, 0), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "primary" || got.Secret != "a" {
+		t.Fatalf("credential: %+v", got)
+	}
+	p.MarkAuthInvalid("primary")
+	got, err = p.Acquire(time.Unix(1, 0), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "secondary" {
+		t.Fatalf("credential id: got %q want secondary", got.ID)
+	}
+}
+
+func TestNew_rejectsDuplicateConfiguredCredentialIDs(t *testing.T) {
+	t.Parallel()
+	_, err := credpool.New([]credpool.Credential{
+		{ID: "dup", Secret: "a"},
+		{ID: "dup", Secret: "b"},
+	})
+	if err == nil {
+		t.Fatal("expected duplicate id error")
+	}
+}
+
 func TestAcquire_orderedSkipsCooldownAndAuthInvalid(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)

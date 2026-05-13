@@ -497,26 +497,66 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 		now := time.Now().UnixNano()
 		_, err = tx.ExecContext(ctx, `INSERT INTO lip_secure_usage(
 		session_id, turn_id, b_leg_id, input_tokens, output_tokens,
-		cache_read_tokens, cache_write_tokens, cost_minor_units, currency, billing_unavailable, created_at_unix
-	) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		cache_read_tokens, cache_write_tokens, non_cached_input_tokens,
+		reasoning_tokens, non_reasoning_output_tokens, total_tokens,
+		cost_nano_units, cost_minor_units, currency, cost_source, raw_usage_json,
+		billing_unavailable, request_started_at_unix, first_remote_event_at_unix,
+		first_meaningful_token_at_unix, remote_completed_at_unix, proxy_completed_at_unix,
+		ttft_millis, remote_duration_millis, completion_duration_millis, completion_tps_milli,
+		created_at_unix
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(delta.SessionID), string(delta.TurnID), delta.BLegID,
 			delta.InputTokens, delta.OutputTokens,
-			delta.CacheReadTokens, delta.CacheWriteTokens, delta.CostMinorUnits, delta.Currency,
-			boolToInt(delta.BillingUnavailable), now,
+			delta.CacheReadTokens, delta.CacheWriteTokens, delta.NonCachedInputTokens,
+			delta.ReasoningTokens, delta.NonReasoningOutputTokens, delta.TotalTokens,
+			delta.CostNanoUnits, delta.CostMinorUnits, delta.Currency, delta.CostSource, delta.RawUsageJSON,
+			boolToInt(delta.BillingUnavailable), unixNanoOrZero(delta.RequestStartedAt), unixNanoOrZero(delta.FirstRemoteEventAt),
+			unixNanoOrZero(delta.FirstMeaningfulTokenAt), unixNanoOrZero(delta.RemoteCompletedAt), unixNanoOrZero(delta.ProxyCompletedAt),
+			delta.TTFTMillis, delta.RemoteDurationMillis, delta.CompletionDurationMillis, delta.CompletionTPSMilli, now,
 		)
 		if err != nil {
 			return opErr("usage insert row", err)
 		}
 		if delta.BLegID != "" {
 			acct := domain.AttemptAccounting{
-				BLegID:             delta.BLegID,
-				InputTokens:        delta.InputTokens,
-				OutputTokens:       delta.OutputTokens,
-				CacheReadTokens:    delta.CacheReadTokens,
-				CacheWriteTokens:   delta.CacheWriteTokens,
-				CostMinorUnits:     delta.CostMinorUnits,
-				Currency:           delta.Currency,
-				BillingUnavailable: delta.BillingUnavailable,
+				BLegID:                   delta.BLegID,
+				InputTokens:              delta.InputTokens,
+				OutputTokens:             delta.OutputTokens,
+				CacheReadTokens:          delta.CacheReadTokens,
+				CacheWriteTokens:         delta.CacheWriteTokens,
+				NonCachedInputTokens:     delta.NonCachedInputTokens,
+				ReasoningTokens:          delta.ReasoningTokens,
+				NonReasoningOutputTokens: delta.NonReasoningOutputTokens,
+				TotalTokens:              delta.TotalTokens,
+				CostNanoUnits:            delta.CostNanoUnits,
+				CostMinorUnits:           delta.CostMinorUnits,
+				Currency:                 delta.Currency,
+				CostSource:               delta.CostSource,
+				RawUsageJSON:             delta.RawUsageJSON,
+				BillingUnavailable:       delta.BillingUnavailable,
+				RequestStartedAt:         delta.RequestStartedAt,
+				FirstRemoteEventAt:       delta.FirstRemoteEventAt,
+				FirstMeaningfulTokenAt:   delta.FirstMeaningfulTokenAt,
+				RemoteCompletedAt:        delta.RemoteCompletedAt,
+				ProxyCompletedAt:         delta.ProxyCompletedAt,
+				TTFTMillis:               delta.TTFTMillis,
+				RemoteDurationMillis:     delta.RemoteDurationMillis,
+				CompletionDurationMillis: delta.CompletionDurationMillis,
+				CompletionTPSMilli:       delta.CompletionTPSMilli,
+			}
+			var existingJ string
+			if err := tx.QueryRowContext(ctx, `SELECT latest_attempt_accounting_json FROM lip_secure_sessions
+			WHERE session_id = ?`, string(delta.SessionID)).Scan(&existingJ); err != nil {
+				return opErr("usage accounting load", err)
+			}
+			var existing domain.AttemptAccounting
+			if strings.TrimSpace(existingJ) != "" && existingJ != "{}" {
+				if err := json.Unmarshal([]byte(existingJ), &existing); err != nil {
+					return opErr("decode existing accounting", err)
+				}
+			}
+			if existing.BLegID == acct.BLegID {
+				acct = domain.MergeAttemptAccounting(existing, acct)
 			}
 			acctJ, err := json.Marshal(acct)
 			if err != nil {
@@ -536,6 +576,20 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func unixNanoOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
+}
+
+func unixNanoTimeOrZero(ns int64) time.Time {
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 func (s *Store) NextAuditSeq(ctx context.Context, id domain.SessionID) (int64, error) {
@@ -829,9 +883,15 @@ func (s *Store) ListAttemptEvidence(ctx context.Context, id domain.SessionID, op
 		SELECT b_leg_id,
 			COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
 			COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),
-			COALESCE(SUM(cost_minor_units),0),
-			MAX(currency) AS cur,
-			MAX(billing_unavailable) AS bu
+			COALESCE(SUM(non_cached_input_tokens),0),
+			COALESCE(SUM(reasoning_tokens),0), COALESCE(SUM(non_reasoning_output_tokens),0),
+			COALESCE(MAX(total_tokens),0),
+			COALESCE(SUM(cost_nano_units),0), COALESCE(SUM(cost_minor_units),0),
+			MAX(currency) AS cur, MAX(cost_source) AS cost_source, MAX(raw_usage_json) AS raw_usage_json,
+			MAX(billing_unavailable) AS bu,
+			MAX(request_started_at_unix), MAX(first_remote_event_at_unix), MAX(first_meaningful_token_at_unix),
+			MAX(remote_completed_at_unix), MAX(proxy_completed_at_unix),
+			MAX(ttft_millis), MAX(remote_duration_millis), MAX(completion_duration_millis), MAX(completion_tps_milli)
 		FROM lip_secure_usage WHERE session_id = ? GROUP BY b_leg_id`, string(id))
 	if err != nil {
 		return nil, opErr("list attempts usage", err)
@@ -840,21 +900,44 @@ func (s *Store) ListAttemptEvidence(ctx context.Context, id domain.SessionID, op
 	byLeg := make(map[string]domain.AttemptAccounting)
 	for usageRows.Next() {
 		var b string
-		var inTok, outTok, cr, cw, cost int64
-		var cur string
+		var inTok, outTok, cr, cw, nonCached, reasoning, nonReasoning, total, costNano, costMinor int64
+		var reqAt, firstRemoteAt, firstMeaningfulAt, remoteDoneAt, proxyDoneAt int64
+		var ttft, remoteDur, completionDur, tps int64
+		var cur, costSource, rawUsage string
 		var bu int
-		if err := usageRows.Scan(&b, &inTok, &outTok, &cr, &cw, &cost, &cur, &bu); err != nil {
+		if err := usageRows.Scan(
+			&b, &inTok, &outTok, &cr, &cw, &nonCached, &reasoning, &nonReasoning, &total,
+			&costNano, &costMinor, &cur, &costSource, &rawUsage, &bu,
+			&reqAt, &firstRemoteAt, &firstMeaningfulAt, &remoteDoneAt, &proxyDoneAt,
+			&ttft, &remoteDur, &completionDur, &tps,
+		); err != nil {
 			return nil, opErr("list attempts usage scan", err)
 		}
 		byLeg[b] = domain.AttemptAccounting{
-			BLegID:             b,
-			InputTokens:        inTok,
-			OutputTokens:       outTok,
-			CacheReadTokens:    cr,
-			CacheWriteTokens:   cw,
-			CostMinorUnits:     cost,
-			Currency:           cur,
-			BillingUnavailable: bu != 0,
+			BLegID:                   b,
+			InputTokens:              inTok,
+			OutputTokens:             outTok,
+			CacheReadTokens:          cr,
+			CacheWriteTokens:         cw,
+			NonCachedInputTokens:     nonCached,
+			ReasoningTokens:          reasoning,
+			NonReasoningOutputTokens: nonReasoning,
+			TotalTokens:              total,
+			CostNanoUnits:            costNano,
+			CostMinorUnits:           costMinor,
+			Currency:                 cur,
+			CostSource:               costSource,
+			RawUsageJSON:             rawUsage,
+			BillingUnavailable:       bu != 0,
+			RequestStartedAt:         unixNanoTimeOrZero(reqAt),
+			FirstRemoteEventAt:       unixNanoTimeOrZero(firstRemoteAt),
+			FirstMeaningfulTokenAt:   unixNanoTimeOrZero(firstMeaningfulAt),
+			RemoteCompletedAt:        unixNanoTimeOrZero(remoteDoneAt),
+			ProxyCompletedAt:         unixNanoTimeOrZero(proxyDoneAt),
+			TTFTMillis:               ttft,
+			RemoteDurationMillis:     remoteDur,
+			CompletionDurationMillis: completionDur,
+			CompletionTPSMilli:       tps,
 		}
 	}
 	if err := usageRows.Err(); err != nil {

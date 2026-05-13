@@ -27,6 +27,9 @@ type Config struct {
 	// APIKeys is the ordered credential list for this backend instance.
 	// When non-empty, APIKey should match APIKeys[0] for SDK compatibility.
 	APIKeys []string
+	// Credentials is the structured credential list. When set, it takes precedence
+	// over APIKey/APIKeys and preserves non-secret credential IDs for diagnostics.
+	Credentials []credpool.Credential
 	// HTTPClient is optional; when nil the SDK default is used.
 	HTTPClient *http.Client
 }
@@ -45,7 +48,7 @@ func defaultBackendCaps() lipapi.BackendCaps {
 
 // New returns a runtime backend that invokes Gemini generateContent streaming via google.golang.org/genai.
 func New(cfg Config) execbackend.Backend {
-	pool, err := credpool.NewPoolFromBackendKeys(cfg.APIKey, cfg.APIKeys)
+	pool, err := credpool.NewPoolFromCredentials(cfg.APIKey, cfg.APIKeys, cfg.Credentials)
 	if err != nil {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}

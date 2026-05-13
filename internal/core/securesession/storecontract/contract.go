@@ -207,7 +207,14 @@ func RunAll(t *testing.T, newStore func(*testing.T) app.Store) {
 		}
 		if err := s.AddUsage(ctx, domain.UsageDelta{
 			SessionID: rec.SessionID, TurnID: "t1", BLegID: "b-ev",
-			InputTokens: 2, OutputTokens: 4, CacheReadTokens: 1,
+			InputTokens: 2, OutputTokens: 4, CacheReadTokens: 1, CacheWriteTokens: 3,
+			NonCachedInputTokens: 0, ReasoningTokens: 2, NonReasoningOutputTokens: 2,
+			TotalTokens: 6, CostNanoUnits: 42, Currency: "USD", CostSource: "estimated",
+			RawUsageJSON:     `{"provider":"test"}`,
+			RequestStartedAt: time.Unix(100, 0), FirstRemoteEventAt: time.Unix(100, int64(10*time.Millisecond)),
+			FirstMeaningfulTokenAt: time.Unix(100, int64(25*time.Millisecond)),
+			RemoteCompletedAt:      time.Unix(101, 0), ProxyCompletedAt: time.Unix(101, int64(5*time.Millisecond)),
+			TTFTMillis: 25, RemoteDurationMillis: 1000, CompletionDurationMillis: 975, CompletionTPSMilli: 4102,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -226,6 +233,96 @@ func RunAll(t *testing.T, newStore func(*testing.T) app.Store) {
 		}
 		if ev[0].Accounting.InputTokens != 2 || ev[0].Accounting.OutputTokens != 4 || ev[0].Accounting.CacheReadTokens != 1 {
 			t.Fatalf("accounting: %+v", ev[0].Accounting)
+		}
+		if ev[0].Accounting.CacheWriteTokens != 3 || ev[0].Accounting.ReasoningTokens != 2 ||
+			ev[0].Accounting.NonReasoningOutputTokens != 2 || ev[0].Accounting.TotalTokens != 6 ||
+			ev[0].Accounting.CostNanoUnits != 42 ||
+			ev[0].Accounting.Currency != "USD" || ev[0].Accounting.CostSource != "estimated" ||
+			ev[0].Accounting.RawUsageJSON != `{"provider":"test"}` {
+			t.Fatalf("accounting: %+v", ev[0].Accounting)
+		}
+		if ev[0].Accounting.TTFTMillis != 25 || ev[0].Accounting.RemoteDurationMillis != 1000 ||
+			ev[0].Accounting.CompletionDurationMillis != 975 || ev[0].Accounting.CompletionTPSMilli != 4102 {
+			t.Fatalf("accounting timing: %+v", ev[0].Accounting)
+		}
+	})
+
+	t.Run("AddUsage_finish_timing_preserves_latest_usage", func(t *testing.T) {
+		s := newStore(t)
+		fp, _ := twoFingerprints()
+		cr := sampleCreate("owner-finish", "ws-finish", fp, "a-finish", "sess-finish")
+		rec, err := s.Create(ctx, cr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AppendAttemptTrace(ctx, domain.AttemptTrace{
+			SessionID: rec.SessionID, TurnID: "t1", ALegID: cr.ALegID, BLegID: "b-finish",
+			AttemptSeq: 1, StartedAt: time.Unix(1, 0),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddUsage(ctx, domain.UsageDelta{
+			SessionID: rec.SessionID, TurnID: "t1", BLegID: "b-finish",
+			InputTokens: 7, OutputTokens: 11, CacheReadTokens: 2, CostNanoUnits: 99, Currency: "USD",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddUsage(ctx, domain.UsageDelta{
+			SessionID: rec.SessionID, TurnID: "t1", BLegID: "b-finish",
+			RequestStartedAt: time.Unix(10, 0), FirstMeaningfulTokenAt: time.Unix(10, int64(50*time.Millisecond)),
+			RemoteCompletedAt: time.Unix(11, 0), TTFTMillis: 50, CompletionTPSMilli: 11000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.LoadByID(ctx, rec.SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ac := got.LatestAttemptAccounting
+		if ac.InputTokens != 7 || ac.OutputTokens != 11 || ac.CacheReadTokens != 2 || ac.CostNanoUnits != 99 {
+			t.Fatalf("latest usage overwritten by finish row: %+v", ac)
+		}
+		if ac.TTFTMillis != 50 || ac.CompletionTPSMilli != 11000 {
+			t.Fatalf("latest timing missing: %+v", ac)
+		}
+	})
+
+	t.Run("AddUsage_total_tokens_uses_latest_provider_total", func(t *testing.T) {
+		s := newStore(t)
+		fp, _ := twoFingerprints()
+		cr := sampleCreate("owner-total", "ws-total", fp, "a-total", "sess-total")
+		rec, err := s.Create(ctx, cr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AppendAttemptTrace(ctx, domain.AttemptTrace{
+			SessionID: rec.SessionID, TurnID: "t1", ALegID: cr.ALegID, BLegID: "b-total",
+			AttemptSeq: 1, StartedAt: time.Unix(1, 0),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddUsage(ctx, domain.UsageDelta{
+			SessionID: rec.SessionID, TurnID: "t1", BLegID: "b-total",
+			InputTokens: 10, TotalTokens: 14,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddUsage(ctx, domain.UsageDelta{
+			SessionID: rec.SessionID, TurnID: "t1", BLegID: "b-total",
+			OutputTokens: 4, TotalTokens: 18,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.ListAttemptEvidence(ctx, rec.SessionID, domain.ReadOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("attempt evidence len=%d", len(got))
+		}
+		ac := got[0].Accounting
+		if ac.InputTokens != 10 || ac.OutputTokens != 4 || ac.TotalTokens != 18 {
+			t.Fatalf("accounting total should keep latest absolute total, got %+v", ac)
 		}
 	})
 

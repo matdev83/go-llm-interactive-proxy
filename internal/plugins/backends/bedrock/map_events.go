@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -181,18 +182,26 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) error {
 			// AWS ConverseStream usage uses *int32 token fields; ToInt32 returns int32, then [safecast] for int.
 			inT := 0
 			outT := 0
+			totalT := int64(aws.ToInt32(u.TotalTokens))
+			cacheReadT := int64(aws.ToInt32(u.CacheReadInputTokens))
+			cacheWriteT := int64(aws.ToInt32(u.CacheWriteInputTokens))
 			if u.InputTokens != nil {
 				inT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.InputTokens)))
 			}
 			if u.OutputTokens != nil {
 				outT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.OutputTokens)))
 			}
-			if inT > 0 || outT > 0 {
-				if err := s.pending.Push(lipapi.Event{
-					Kind:         lipapi.EventUsageDelta,
-					InputTokens:  inT,
-					OutputTokens: outT,
-				}); err != nil {
+			if inT > 0 || outT > 0 || totalT > 0 {
+				ev := lipapi.Event{
+					Kind:             lipapi.EventUsageDelta,
+					InputTokens:      inT,
+					OutputTokens:     outT,
+					CacheReadTokens:  safecast.IntFromInt64Clamp(cacheReadT),
+					CacheWriteTokens: safecast.IntFromInt64Clamp(cacheWriteT),
+					TotalTokens:      safecast.IntFromInt64Clamp(totalT),
+					RawUsageJSON:     rawUsageJSON(u),
+				}
+				if err := s.pending.Push(ev); err != nil {
 					return err
 				}
 			}
@@ -321,4 +330,12 @@ func (s *converseStream) handleBlockStop(ev types.ContentBlockStopEvent) error {
 	}
 	_ = ev
 	return nil
+}
+
+func rawUsageJSON(usage any) string {
+	b, err := json.Marshal(usage)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

@@ -67,6 +67,69 @@ func TestSchemaMigrateTwice_Idempotent_SQLite(t *testing.T) {
 	if applied != 1 {
 		t.Fatalf("expected one applied baseline migration row, got %d", applied)
 	}
+	err = st.db.NewRaw(
+		`SELECT count(*) FROM bun_securesession_migrations WHERE name = ?`, usageAccountingColumnsMigrationName,
+	).Scan(ctx, &applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected one applied usage accounting migration row, got %d", applied)
+	}
+}
+
+func TestUpgradeUsageAccountingColumns_AddsColumnsToExistingSQLite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	id := testMemDBSeq.Add(1)
+	dsn := fmt.Sprintf("file:legacy-usage-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)", id)
+	sqlDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bunDB.ExecContext(ctx, `CREATE TABLE lip_secure_usage (
+		id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		turn_id TEXT NOT NULL,
+		b_leg_id TEXT NOT NULL DEFAULT '',
+		input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+		cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+		cost_minor_units INTEGER NOT NULL DEFAULT 0,
+		currency TEXT NOT NULL DEFAULT '',
+		billing_unavailable INTEGER NOT NULL DEFAULT 0,
+		created_at_unix INTEGER NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradeUsageAccountingColumns(ctx, bunDB); err != nil {
+		t.Fatal(err)
+	}
+	needed := []string{
+		"non_cached_input_tokens",
+		"reasoning_tokens",
+		"non_reasoning_output_tokens",
+		"total_tokens",
+		"cost_nano_units",
+		"cost_source",
+		"raw_usage_json",
+		"completion_tps_milli",
+	}
+	for _, name := range needed {
+		var found int
+		if err := bunDB.NewRaw(`SELECT count(*) FROM pragma_table_info('lip_secure_usage') WHERE name = ?`, name).Scan(ctx, &found); err != nil {
+			t.Fatal(err)
+		}
+		if found != 1 {
+			t.Fatalf("expected upgraded column %s", name)
+		}
+	}
 }
 
 func TestCheckReadiness_mandatoryAudit(t *testing.T) {

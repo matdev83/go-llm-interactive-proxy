@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 )
 
 // Validate checks plugin identity rules and continuity/store consistency after decoding.
@@ -61,6 +63,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if err := validateModelCatalog(cfg); err != nil {
+		return err
+	}
+	if err := validateAccounting(cfg); err != nil {
 		return err
 	}
 	return validateRoutingHealth(cfg)
@@ -716,4 +721,35 @@ func validateModelCatalog(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+func validateAccounting(cfg *Config) error {
+	if cfg == nil || len(cfg.Accounting.Pricing.Models) == 0 {
+		return nil
+	}
+	_, err := accounting.NewPriceCatalog(AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
+	if err != nil {
+		return fmt.Errorf("accounting.pricing: %w", err)
+	}
+	return nil
+}
+
+func AccountingPriceCatalogConfig(cfg AccountingPricingConfig) accounting.PriceCatalogConfig {
+	models := make([]accounting.ModelPriceConfig, 0, len(cfg.Models))
+	for _, row := range cfg.Models {
+		models = append(models, accounting.ModelPriceConfig{
+			Backend:              row.Backend,
+			Model:                row.Model,
+			InputPer1M:           row.InputPer1M,
+			CachedInputPer1M:     row.CachedInputPer1M,
+			CacheWriteInputPer1M: row.CacheWriteInputPer1M,
+			OutputPer1M:          row.OutputPer1M,
+			ReasoningOutputPer1M: row.ReasoningOutputPer1M,
+		})
+	}
+	return accounting.PriceCatalogConfig{
+		Version:  cfg.CatalogVersion,
+		Currency: cfg.Currency,
+		Models:   models,
+	}
 }
