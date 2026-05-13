@@ -105,6 +105,10 @@ diagnostics:
 
 routing:
   max_attempts: 3
+  # Route selectors support failover (`|`), weighted branches (`^`), query defaults, and TTFT budgets.
+  # TTFT budget values are integer seconds. A leading global block caps the whole client-side A-leg wait
+  # for first output across all pre-output attempts, while per-leaf annotations cap one backend attempt:
+  #   "{ttft_timeout=60}[ttft_timeout=30]openai-responses:gpt-4o-mini^[ttft_timeout=20]gemini:gemini-2.0-flash"
   default_route: "openai-responses:gpt-4o-mini"
 
 # Optional regexp rewrites of the full route selector string (incoming X-LIP-Route or default_route).
