@@ -280,7 +280,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 }
 
 func (e *Executor) requestSizeEstimateForRouting(ctx context.Context, sel *routing.Selector, call lipapi.Call) routing.RequestSizeEstimate {
-	if !routing.SelectorHasRequestSizeConstraints(sel) || e == nil || e.RequestTokenEstimator == nil {
+	if !routing.SelectorHasRequestSizeConstraints(sel) || e.RequestTokenEstimator == nil {
 		return routing.RequestSizeEstimate{}
 	}
 	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, call)
