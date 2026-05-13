@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestExpandFailoverLeftToRightPrimaries(t *testing.T) {
@@ -104,6 +105,33 @@ func TestWeightedRequestSizeFiltersBeforeRoll(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].Key != "large:m" {
 		t.Fatalf("got %#v", out)
+	}
+}
+
+func TestExpandFailoverPreservesTTFTTimeoutMetadata(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("{ttft_timeout=60}[ttft_timeout=30]a:b|[ttft_timeout=20]c:d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandFailover(sel, PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len %d", len(out))
+	}
+	if sel.GlobalTTFTTimeout == nil || *sel.GlobalTTFTTimeout != 60*time.Second {
+		t.Fatalf("global ttft timeout: %#v", sel.GlobalTTFTTimeout)
+	}
+	if out[0].Primary.TTFTTimeout == nil || *out[0].Primary.TTFTTimeout != 30*time.Second {
+		t.Fatalf("candidate0 ttft timeout: %#v", out[0].Primary.TTFTTimeout)
+	}
+	if out[1].Primary.TTFTTimeout == nil || *out[1].Primary.TTFTTimeout != 20*time.Second {
+		t.Fatalf("candidate1 ttft timeout: %#v", out[1].Primary.TTFTTimeout)
+	}
+	if out[0].Key != "a:b" || out[1].Key != "c:d" {
+		t.Fatalf("timeout annotations must not alter candidate keys: %#v", out)
 	}
 }
 

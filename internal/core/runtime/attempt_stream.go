@@ -39,6 +39,7 @@ type retryRecvStream struct {
 	// baseline is the post-submit immutable logical client request (per-attempt state derives via CloneCall).
 	baseline lipapi.Call
 	budget   *attemptBudget
+	ttft     *ttftBudget
 
 	aLegID      string
 	traceID     string
@@ -185,9 +186,16 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				return stream.DefaultKeepaliveEvent(), nil
 			}
 		}
+		recvCtx := ctx
+		var cancelRecv context.CancelFunc = func() {}
+		ttftDeadline := ttftContextDeadline{}
+		if !s.committed && s.ttft != nil {
+			recvCtx, cancelRecv, ttftDeadline = s.ttft.scopedContext(ctx, s.now(), s.cand.Key, s.cand.Primary.TTFTTimeout)
+		}
 		ev, err := safety.CallValue(safety.BoundaryBackend, "backend_recv", func() (lipapi.Event, error) {
-			return inner.Recv(ctx)
+			return inner.Recv(recvCtx)
 		})
+		cancelRecv()
 		if err != nil {
 			var pe *safety.PanicError
 			if errors.As(err, &pe) {
@@ -254,6 +262,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			if lipapi.OutputCommitted(ev) {
 				s.committed = true
+				if s.ttft != nil {
+					s.ttft.markCommitted()
+				}
 			}
 			s.accounting.observeClientEvent(s.now(), ev)
 			if ev.Kind == lipapi.EventResponseFinished {
@@ -295,6 +306,49 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			s.finished = true
 			return lipapi.Event{}, io.EOF
+		}
+		if ttftDeadline.expired(recvCtx, err) && !s.committed {
+			ttftScope := ttftDeadline.scope
+			if ttftScope == ttftTimeoutLeaf {
+				tf := ttftFailure(ttftScope, s.cand.Key)
+				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+					ALegID:    s.aLegID,
+					BLeg:      s.bleg,
+					Cand:      s.cand,
+					Outcome:   lipapi.AttemptSwallowedFailure,
+					Reason:    ttftAttemptReason(ttftScope),
+					DetailErr: tf,
+				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+				if c := s.takeAndNilInner(); c != nil {
+					if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+						s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+							"reason", "leaf_ttft_timeout",
+							"error", cerr,
+						)
+					}
+				}
+				s.excluded[s.cand.Key] = struct{}{}
+				continue
+			}
+			tf := ttftFailure(ttftScope, s.cand.Key)
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSurfacedFailure,
+				Reason:    ttftAttemptReason(ttftScope),
+				DetailErr: tf,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			if c := s.takeAndNilInner(); c != nil {
+				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+					s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+						"reason", "global_ttft_timeout",
+						"error", cerr,
+					)
+				}
+			}
+			s.finished = true
+			return lipapi.Event{}, lipapi.ErrTTFTTimeout
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			reason := cancellationAttemptReason(ctx, err)
@@ -518,6 +572,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		excluded:                 s.excluded,
 		rng:                      s.rng,
 		budget:                   s.budget,
+		ttft:                     s.ttft,
 		isRetryPath:              true,
 		lastReject:               &s.lastHardReject,
 		isContextLimitExhaustion: &s.isContextLimitExhaustion,

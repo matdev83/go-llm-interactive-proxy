@@ -3,11 +3,13 @@ package routing
 import (
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Selector is the root AST: an ordered failover chain (left-to-right).
 type Selector struct {
-	Alternatives []FailoverAlt
+	Alternatives      []FailoverAlt
+	GlobalTTFTTimeout *time.Duration
 }
 
 // FailoverAlt is one arm of a failover selector (before the next '|').
@@ -20,10 +22,11 @@ type FailoverAlt struct {
 // Primary is a concrete backend:model (or model-only) with optional query parameters.
 type Primary struct {
 	// Backend is empty for model-only selectors. It may contain dots (e.g. openai.azure).
-	Backend string
-	Model   string
-	Params  url.Values
-	Size    RequestSizeConstraint
+	Backend     string
+	Model       string
+	Params      url.Values
+	Size        RequestSizeConstraint
+	TTFTTimeout *time.Duration
 }
 
 // RequestSizeConstraint carries per-leaf request token eligibility bounds.

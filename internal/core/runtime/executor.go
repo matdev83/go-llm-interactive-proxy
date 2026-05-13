@@ -199,6 +199,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		return nil, fmt.Errorf("executor: %w", lipapi.ErrUnresolvedModelOnlySelector)
 	}
 	budget := &attemptBudget{max: e.effectiveMaxAttempts(), used: 0}
+	ttft := newTTFTBudget(e.now(), sel)
 	session := &routing.SessionRoutingState{FirstRequestConsumed: aLeg.WeightedFirstConsumed}
 	excluded := map[string]struct{}{}
 	requestSize := e.requestSizeEstimateForRouting(ctx, sel, baseline)
@@ -221,6 +222,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			excluded:    excluded,
 			rng:         rng,
 			budget:      budget,
+			ttft:        &ttft,
 			isRetryPath: false,
 			lastReject:  &lastReject,
 			// Persists across failover iterations so ExpandFailover can map to ErrAllCandidatesContextLimitExceeded.
@@ -237,6 +239,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			bus:         bus,
 			baseline:    baseline,
 			budget:      budget,
+			ttft:        &ttft,
 			aLegID:      aLeg.ALegID,
 			traceID:     traceID,
 			sel:         sel,

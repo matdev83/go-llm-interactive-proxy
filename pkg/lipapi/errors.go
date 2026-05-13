@@ -66,6 +66,9 @@ func NewStreamError(code, message string) error {
 // ErrMaxRouteAttempts is returned when routing.max_attempts would be exceeded by another B-leg.
 var ErrMaxRouteAttempts = errors.New("lipapi: routing max_attempts exhausted")
 
+// ErrTTFTTimeout is returned when a route-level time-to-first-token budget expires before output commits.
+var ErrTTFTTimeout = errors.New("lipapi: time to first token timeout")
+
 // ErrUnresolvedModelOnlySelector is returned when a model-only route selector cannot be
 // resolved because no default backend was configured.
 var ErrUnresolvedModelOnlySelector = errors.New("lipapi: model-only route selector without default backend")

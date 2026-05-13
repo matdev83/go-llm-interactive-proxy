@@ -38,6 +38,7 @@ type attemptOpenParams struct {
 	excluded    map[string]struct{}
 	rng         routing.Rng
 	budget      *attemptBudget
+	ttft        *ttftBudget
 	isRetryPath bool
 	lastReject  *lipapi.NegotiationResult
 	// isContextLimitExhaustion, when non-nil, is set true when excluding a candidate for context-limit
@@ -211,7 +212,14 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			)
 		}
 	}
-	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(p.ctx, "lip.executor.backend_open",
+	baseOpenCtx := p.ctx
+	var cancelOpen context.CancelFunc = func() {}
+	ttftDeadline := ttftContextDeadline{}
+	if p.ttft != nil {
+		baseOpenCtx, cancelOpen, ttftDeadline = p.ttft.scopedContext(p.ctx, e.now(), c.Key, c.Primary.TTFTTimeout)
+	}
+	defer cancelOpen()
+	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(baseOpenCtx, "lip.executor.backend_open",
 		trace.WithAttributes(
 			attribute.String("lip.backend", c.Primary.Backend),
 			attribute.Int("lip.b_leg_seq", int(bleg.Seq)),
@@ -233,6 +241,31 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		e.Metrics.OnBackendOpenDuration(c.Primary.Backend, openDur)
 	}
 	if err != nil {
+		if ttftDeadline.expired(openCtx, err) {
+			ttftScope := ttftDeadline.scope
+			tf := ttftFailure(ttftScope, c.Key)
+			if ttftScope == ttftTimeoutLeaf {
+				e.recordAttemptLogged(p.ctx, recordAttemptParams{
+					ALegID:    p.aLegID,
+					BLeg:      bleg,
+					Cand:      c,
+					Outcome:   lipapi.AttemptSwallowedFailure,
+					Reason:    ttftAttemptReason(ttftScope),
+					DetailErr: tf,
+				}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
+				p.excluded[c.Key] = struct{}{}
+				return zero, nil
+			}
+			e.recordAttemptLogged(p.ctx, recordAttemptParams{
+				ALegID:    p.aLegID,
+				BLeg:      bleg,
+				Cand:      c,
+				Outcome:   lipapi.AttemptSurfacedFailure,
+				Reason:    ttftAttemptReason(ttftScope),
+				DetailErr: tf,
+			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
+			return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
+		}
 		openSpan.RecordError(err)
 		openSpan.SetStatus(codes.Error, "backend open failed")
 		if lipapi.IsRecoverablePreOutput(err) {

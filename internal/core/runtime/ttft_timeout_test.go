@@ -1,0 +1,288 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"io"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+type ttftBlockingOpenBackend struct {
+	openCanceled atomic.Bool
+}
+
+func (b *ttftBlockingOpenBackend) backend() execbackend.Backend {
+	return execbackend.Backend{
+		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+			<-ctx.Done()
+			b.openCanceled.Store(true)
+			return nil, ctx.Err()
+		},
+	}
+}
+
+type ttftImmediateBackend struct{}
+
+func (b ttftImmediateBackend) backend() execbackend.Backend {
+	return execbackend.Backend{
+		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+			return lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventTextDelta, Delta: "ok"},
+				{Kind: lipapi.EventResponseFinished},
+			}), nil
+		},
+	}
+}
+
+type ttftBlockingRecvStream struct {
+	closed atomic.Bool
+}
+
+func (s *ttftBlockingRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	<-ctx.Done()
+	return lipapi.Event{}, ctx.Err()
+}
+
+func (s *ttftBlockingRecvStream) Close() error {
+	s.closed.Store(true)
+	return nil
+}
+
+type ttftBlockingRecvBackend struct {
+	stream *ttftBlockingRecvStream
+}
+
+func (b *ttftBlockingRecvBackend) backend() execbackend.Backend {
+	b.stream = &ttftBlockingRecvStream{}
+	return execbackend.Backend{
+		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+			return b.stream, nil
+		},
+	}
+}
+
+func ttftTestExecutor(t *testing.T, backends map[string]execbackend.Backend) *Executor {
+	t.Helper()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Executor{
+		Store:    st,
+		Bus:      hooks.New(hooks.Config{}),
+		Backends: backends,
+		Rand:     routing.NewSeededRng(1),
+	}
+}
+
+func ttftTestCall(selector string) *lipapi.Call {
+	return &lipapi.Call{
+		Session:  lipapi.SessionRef{ContinuityKey: "ttft-test"},
+		Route:    lipapi.RouteIntent{Selector: selector},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	}
+}
+
+func TestExecutor_TTFTLeafOpenTimeoutFailsOver(t *testing.T) {
+	t.Parallel()
+	slow := &ttftBlockingOpenBackend{}
+	ex := ttftTestExecutor(t, map[string]execbackend.Backend{
+		"slow": slow.backend(),
+		"fast": ttftImmediateBackend{}.backend(),
+	})
+	stream, err := ex.Execute(context.Background(), ttftTestCall("[ttft_timeout=1]slow:m|fast:m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	ev, err := stream.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != lipapi.EventTextDelta || ev.Delta != "ok" {
+		t.Fatalf("first event: %#v", ev)
+	}
+	if !slow.openCanceled.Load() {
+		t.Fatal("expected slow backend open context to be canceled")
+	}
+}
+
+func TestRetryRecvStream_TTFTLeafRecvTimeoutFailsOver(t *testing.T) {
+	t.Parallel()
+	slow := &ttftBlockingRecvBackend{}
+	ex := ttftTestExecutor(t, map[string]execbackend.Backend{
+		"slow": slow.backend(),
+		"fast": ttftImmediateBackend{}.backend(),
+	})
+	stream, err := ex.Execute(context.Background(), ttftTestCall("[ttft_timeout=1]slow:m|fast:m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	ev, err := stream.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != lipapi.EventTextDelta || ev.Delta != "ok" {
+		t.Fatalf("first event: %#v", ev)
+	}
+	if slow.stream == nil || !slow.stream.closed.Load() {
+		t.Fatal("expected slow stream to be closed after leaf TTFT timeout")
+	}
+}
+
+func TestExecutor_TTFTGlobalOpenTimeoutStopsAttempts(t *testing.T) {
+	t.Parallel()
+	slow := &ttftBlockingOpenBackend{}
+	ex := ttftTestExecutor(t, map[string]execbackend.Backend{"slow": slow.backend(), "fast": ttftImmediateBackend{}.backend()})
+	_, err := ex.Execute(context.Background(), ttftTestCall("{ttft_timeout=1}slow:m|fast:m"))
+	if !errors.Is(err, lipapi.ErrTTFTTimeout) {
+		t.Fatalf("expected ErrTTFTTimeout, got %v", err)
+	}
+	if !slow.openCanceled.Load() {
+		t.Fatal("expected slow backend open context to be canceled")
+	}
+}
+
+func TestRetryRecvStream_TTFTStopsAfterCommittedOutput(t *testing.T) {
+	t.Parallel()
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "ok"}})
+	sel, err := routing.Parse("[ttft_timeout=1]slow:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ttft := newTTFTBudget(time.Now(), sel)
+	s := &retryRecvStream{
+		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
+		bus:      hooks.New(hooks.Config{}),
+		baseline: *ttftTestCall("[ttft_timeout=1]slow:m"),
+		budget:   &attemptBudget{max: 1},
+		ttft:     &ttft,
+		aLegID:   "a1",
+		traceID:  "t1",
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
+		cand:     routing.AttemptCandidate{Key: "slow:m", Primary: *sel.Alternatives[0].Primary},
+	}
+	s.storeInner(stream)
+	ev, err := s.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != lipapi.EventTextDelta {
+		t.Fatalf("event: %#v", ev)
+	}
+	if !ttft.done {
+		t.Fatal("expected committed output to mark TTFT budget done")
+	}
+	_, err = s.Recv(context.Background())
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF after committed output, got %v", err)
+	}
+}
+
+func TestTTFTContextDeadlineExpiredDoesNotMaskBackendError(t *testing.T) {
+	t.Parallel()
+	backendErr := errors.New("backend returned a real error")
+	parent := context.Background()
+	ctx, cancel := context.WithDeadline(parent, time.Now().Add(-time.Second))
+	defer cancel()
+	d := ttftContextDeadline{
+		scope:    ttftTimeoutLeaf,
+		deadline: time.Now().Add(-time.Second),
+		parent:   parent,
+	}
+	if d.expired(ctx, backendErr) {
+		t.Fatal("non-deadline backend error must not be classified as TTFT timeout")
+	}
+	if !d.expired(ctx, context.DeadlineExceeded) {
+		t.Fatal("backend deadline error should be classified as TTFT timeout")
+	}
+}
+
+func TestRetryRecvStream_TTFTLeafDoesNotSwallowParentDeadline(t *testing.T) {
+	t.Parallel()
+	leaf := 60 * time.Second
+	stream := &ttftBlockingRecvStream{}
+	sel, err := routing.Parse("[ttft_timeout=60]slow:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &retryRecvStream{
+		executor: ttftTestExecutor(t, map[string]execbackend.Backend{}),
+		bus:      hooks.New(hooks.Config{}),
+		baseline: *ttftTestCall("[ttft_timeout=60]slow:m"),
+		budget:   &attemptBudget{max: 1},
+		ttft:     &ttftBudget{start: time.Now()},
+		aLegID:   "a1",
+		traceID:  "t1",
+		sel:      sel,
+		session:  &routing.SessionRoutingState{},
+		excluded: map[string]struct{}{},
+		bleg:     b2bua.BLegRecord{BLegID: "b1", Seq: 1},
+		cand: routing.AttemptCandidate{
+			Key:     "slow:m",
+			Primary: routing.Primary{Backend: "slow", Model: "m", TTFTTimeout: &leaf},
+		},
+	}
+	s.storeInner(stream)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	_, err = s.Recv(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected parent deadline error, got %v", err)
+	}
+	if errors.Is(err, lipapi.ErrTTFTTimeout) {
+		t.Fatalf("parent deadline must not surface as TTFT timeout: %v", err)
+	}
+	if !stream.closed.Load() {
+		t.Fatal("expected stream to be closed after parent deadline")
+	}
+}
+
+func TestTTFTLeafDeadlineAnchoredPerCandidate(t *testing.T) {
+	t.Parallel()
+	start := time.Unix(100, 0)
+	leaf := time.Second
+	b := newTTFTBudget(start, nil)
+
+	first, scope, ok := b.deadline(start, "a:b", &leaf)
+	if !ok || scope != ttftTimeoutLeaf || !first.Equal(start.Add(leaf)) {
+		t.Fatalf("first deadline=%v scope=%q ok=%v", first, scope, ok)
+	}
+	second, scope, ok := b.deadline(start.Add(500*time.Millisecond), "a:b", &leaf)
+	if !ok || scope != ttftTimeoutLeaf || !second.Equal(first) {
+		t.Fatalf("second deadline=%v scope=%q ok=%v want %v", second, scope, ok, first)
+	}
+	other, scope, ok := b.deadline(start.Add(500*time.Millisecond), "c:d", &leaf)
+	if !ok || scope != ttftTimeoutLeaf || !other.Equal(start.Add(1500*time.Millisecond)) {
+		t.Fatalf("other deadline=%v scope=%q ok=%v", other, scope, ok)
+	}
+}
+
+func TestTTFTTimeoutDurationIsSeconds(t *testing.T) {
+	t.Parallel()
+	sel, err := routing.Parse("{ttft_timeout=1}[ttft_timeout=2]a:b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.GlobalTTFTTimeout == nil || *sel.GlobalTTFTTimeout != time.Second {
+		t.Fatalf("global duration: %#v", sel.GlobalTTFTTimeout)
+	}
+	if sel.Alternatives[0].Primary.TTFTTimeout == nil || *sel.Alternatives[0].Primary.TTFTTimeout != 2*time.Second {
+		t.Fatalf("leaf duration: %#v", sel.Alternatives[0].Primary.TTFTTimeout)
+	}
+}

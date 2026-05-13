@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestParsePrimaries(t *testing.T) {
@@ -225,6 +226,63 @@ func TestParseRequestSizeAnnotationsInvalid(t *testing.T) {
 		"[max_context=10][max_context=20]a:b",
 		"[min_context=10,max_context=10]a:b",
 		"[unknown=1]a:b",
+	}
+	for _, in := range cases {
+		in := in
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+			_, err := Parse(in)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, ErrInvalidSelector) {
+				t.Fatalf("expected ErrInvalidSelector, got %v", err)
+			}
+		})
+	}
+}
+
+func TestParseTTFTTimeoutAnnotations(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("{ttft_timeout=60}[ttft_timeout=30]openai:gpt-5.5^[weight=2,ttft_timeout=20]gemini:gemini-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.GlobalTTFTTimeout == nil || *sel.GlobalTTFTTimeout != 60*time.Second {
+		t.Fatalf("global ttft timeout: %#v", sel.GlobalTTFTTimeout)
+	}
+	w := sel.Alternatives[0].Weighted
+	if w == nil || len(w.Branches) != 2 {
+		t.Fatalf("weighted branches: %#v", sel.Alternatives[0])
+	}
+	if w.Branches[0].Target.TTFTTimeout == nil || *w.Branches[0].Target.TTFTTimeout != 30*time.Second {
+		t.Fatalf("branch0 ttft timeout: %#v", w.Branches[0].Target.TTFTTimeout)
+	}
+	if w.Branches[1].Weight != 2 {
+		t.Fatalf("branch1 weight: %d", w.Branches[1].Weight)
+	}
+	if w.Branches[1].Target.TTFTTimeout == nil || *w.Branches[1].Target.TTFTTimeout != 20*time.Second {
+		t.Fatalf("branch1 ttft timeout: %#v", w.Branches[1].Target.TTFTTimeout)
+	}
+}
+
+func TestParseTTFTTimeoutAnnotationsInvalid(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"{ttft_timeout=0}a:b",
+		"{ttft_timeout=-1}a:b",
+		"{ttft_timeout=abc}a:b",
+		"{ttft_timeout}a:b",
+		"{ttft_timeout=1}{ttft_timeout=2}a:b",
+		"a:b{ttft_timeout=1}",
+		"a:b{ ttft_timeout=1}",
+		"a:b{TTFT_TIMEOUT=1}",
+		"{}a:b",
+		"[ttft_timeout=0]a:b",
+		"[ttft_timeout=-1]a:b",
+		"[ttft_timeout=abc]a:b",
+		"[ttft_timeout]a:b",
+		"[ttft_timeout=1][ttft_timeout=2]a:b",
 	}
 	for _, in := range cases {
 		in := in

@@ -28,6 +28,11 @@ func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 			TestName:         "TestParseWeightedAndFirst",
 		},
 		{
+			ID:               "SB-ROUTE-parse-ttft-timeouts",
+			InvariantSummary: "Global and per-leaf TTFT timeout annotations parse into routing metadata.",
+			TestName:         "TestParseTTFTTimeoutAnnotations",
+		},
+		{
 			ID:               "SB-ROUTE-alias-exact",
 			InvariantSummary: "Model alias resolver applies exact pattern matches before routing.",
 			TestName:         "TestAliasResolver_exactMatch",
@@ -46,6 +51,11 @@ func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 			ID:               "SB-ROUTE-model-only-backends",
 			InvariantSummary: "Model-only backend hints apply to the resolved route list.",
 			TestName:         "TestApplyModelOnlyBackends",
+		},
+		{
+			ID:               "SB-ROUTE-planner-ttft-metadata",
+			InvariantSummary: "Failover expansion preserves TTFT timeout metadata without changing candidate identity.",
+			TestName:         "TestExpandFailoverPreservesTTFTTimeoutMetadata",
 		},
 	}
 }

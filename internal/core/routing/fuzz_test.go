@@ -17,6 +17,9 @@ func FuzzParseSelector(f *testing.F) {
 	f.Add("a|b|c")
 	f.Add("[weight=2]x:y^[first]p:q")
 	f.Add("m?max_tokens=10")
+	f.Add("{ttft_timeout=60}openai:gpt-4")
+	f.Add("{ttft_timeout=60}[ttft_timeout=30]openai:gpt-4^[ttft_timeout=20]gemini:model")
+	f.Add("[weight=2,ttft_timeout=30]openai:gpt-4")
 	f.Fuzz(func(t *testing.T, s string) {
 		if len(s) > 4<<10 {
 			return

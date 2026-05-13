@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrInvalidSelector reports a syntactically invalid route selector.
@@ -14,6 +15,14 @@ var ErrInvalidSelector = errors.New("routing: invalid route selector")
 // Parse parses a route selector string into an AST.
 func Parse(s string) (*Selector, error) {
 	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, fmt.Errorf("%w: empty selector", ErrInvalidSelector)
+	}
+	globals, rest, err := extractGlobalParams(s)
+	if err != nil {
+		return nil, err
+	}
+	s = strings.TrimSpace(rest)
 	if s == "" {
 		return nil, fmt.Errorf("%w: empty selector", ErrInvalidSelector)
 	}
@@ -30,7 +39,57 @@ func Parse(s string) (*Selector, error) {
 		}
 		alts = append(alts, alt)
 	}
-	return &Selector{Alternatives: alts}, nil
+	return &Selector{Alternatives: alts, GlobalTTFTTimeout: globals.ttftTimeout}, nil
+}
+
+type globalParams struct {
+	ttftTimeout *time.Duration
+}
+
+func extractGlobalParams(s string) (globalParams, string, error) {
+	var out globalParams
+	rest := strings.TrimSpace(s)
+	if !strings.HasPrefix(rest, "{") {
+		return out, rest, nil
+	}
+	idx := strings.Index(rest, "}")
+	if idx < 0 {
+		return globalParams{}, "", fmt.Errorf("%w: unclosed global parameter block", ErrInvalidSelector)
+	}
+	inside := strings.TrimSpace(rest[1:idx])
+	if inside == "" {
+		return globalParams{}, "", fmt.Errorf("%w: empty global parameter block", ErrInvalidSelector)
+	}
+	entries := strings.Split(inside, ",")
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			return globalParams{}, "", fmt.Errorf("%w: malformed global parameter list", ErrInvalidSelector)
+		}
+		key, raw, hasValue := strings.Cut(entry, "=")
+		key = strings.ToLower(strings.TrimSpace(key))
+		if hasValue {
+			raw = strings.TrimSpace(raw)
+		}
+		switch key {
+		case "ttft_timeout":
+			if out.ttftTimeout != nil {
+				return globalParams{}, "", fmt.Errorf("%w: duplicate ttft_timeout global parameter", ErrInvalidSelector)
+			}
+			d, err := parsePositiveSecondsDurationAnnotation("ttft_timeout", raw, hasValue)
+			if err != nil {
+				return globalParams{}, "", err
+			}
+			out.ttftTimeout = &d
+		default:
+			return globalParams{}, "", fmt.Errorf("%w: unsupported global parameter key %q", ErrInvalidSelector, key)
+		}
+	}
+	rest = strings.TrimSpace(rest[idx+1:])
+	if strings.HasPrefix(rest, "{") {
+		return globalParams{}, "", fmt.Errorf("%w: duplicate global parameter block", ErrInvalidSelector)
+	}
+	return out, rest, nil
 }
 
 func parseFailoverAlt(s string) (FailoverAlt, error) {
@@ -143,7 +202,7 @@ func parseWeightedBranch(s string) (WeightedBranch, error) {
 	if rest == "" {
 		return WeightedBranch{}, fmt.Errorf("%w: missing primary after annotations", ErrInvalidSelector)
 	}
-	p, err := parsePrimaryWithAnnotations(rest, ann.size)
+	p, err := parsePrimaryWithAnnotations(rest, ann)
 	if err != nil {
 		return WeightedBranch{}, err
 	}
@@ -158,10 +217,10 @@ func parsePrimary(s string) (Primary, error) {
 	if ann.weight != nil || ann.first {
 		return Primary{}, fmt.Errorf("%w: [weight] and [first] are only valid on weighted branches", ErrInvalidSelector)
 	}
-	return parsePrimaryWithAnnotations(rest, ann.size)
+	return parsePrimaryWithAnnotations(rest, ann)
 }
 
-func parsePrimaryWithAnnotations(s string, size RequestSizeConstraint) (Primary, error) {
+func parsePrimaryWithAnnotations(s string, ann prefixAnnotations) (Primary, error) {
 	raw := strings.TrimSpace(s)
 	if raw == "" {
 		return Primary{}, fmt.Errorf("%w: empty primary", ErrInvalidSelector)
@@ -179,6 +238,9 @@ func parsePrimaryWithAnnotations(s string, size RequestSizeConstraint) (Primary,
 	if path == "" {
 		return Primary{}, fmt.Errorf("%w: missing model in primary", ErrInvalidSelector)
 	}
+	if containsGlobalParamBlock(path) {
+		return Primary{}, fmt.Errorf("%w: global parameters must appear before the first leaf", ErrInvalidSelector)
+	}
 	backend, model, hasColon := strings.Cut(path, ":")
 	if !hasColon {
 		backend = ""
@@ -192,13 +254,33 @@ func parsePrimaryWithAnnotations(s string, size RequestSizeConstraint) (Primary,
 	if strings.Contains(backend, "|") || strings.Contains(model, "|") {
 		return Primary{}, fmt.Errorf("%w: unexpected '|' in primary (use failover '|' at top level)", ErrInvalidSelector)
 	}
-	return Primary{Backend: backend, Model: model, Params: vals, Size: size}, nil
+	return Primary{Backend: backend, Model: model, Params: vals, Size: ann.size, TTFTTimeout: ann.ttftTimeout}, nil
+}
+
+func containsGlobalParamBlock(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '{' || (i > 0 && s[i-1] == '$') {
+			continue
+		}
+		end := strings.IndexByte(s[i+1:], '}')
+		if end < 0 {
+			continue
+		}
+		inside := strings.TrimSpace(s[i+1 : i+1+end])
+		key, _, _ := strings.Cut(inside, "=")
+		if strings.EqualFold(strings.TrimSpace(key), "ttft_timeout") {
+			return true
+		}
+		i += end + 1
+	}
+	return false
 }
 
 type prefixAnnotations struct {
-	weight *int
-	first  bool
-	size   RequestSizeConstraint
+	weight      *int
+	first       bool
+	size        RequestSizeConstraint
+	ttftTimeout *time.Duration
 }
 
 func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
@@ -260,6 +342,15 @@ func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
 					return prefixAnnotations{}, "", err
 				}
 				ann.size.MinContextTokens = &n
+			case "ttft_timeout":
+				if ann.ttftTimeout != nil {
+					return prefixAnnotations{}, "", fmt.Errorf("%w: duplicate [ttft_timeout=N] annotation", ErrInvalidSelector)
+				}
+				d, err := parsePositiveSecondsDurationAnnotation("ttft_timeout", raw, hasValue)
+				if err != nil {
+					return prefixAnnotations{}, "", err
+				}
+				ann.ttftTimeout = &d
 			default:
 				return prefixAnnotations{}, "", fmt.Errorf("%w: unsupported annotation key %q", ErrInvalidSelector, key)
 			}
@@ -292,6 +383,17 @@ func parsePositiveInt64Annotation(key, raw string, hasValue bool) (int64, error)
 		return 0, fmt.Errorf("%w: %s must be a positive integer", ErrInvalidSelector, key)
 	}
 	return n, nil
+}
+
+func parsePositiveSecondsDurationAnnotation(key, raw string, hasValue bool) (time.Duration, error) {
+	n, err := parsePositiveInt64Annotation(key, raw, hasValue)
+	if err != nil {
+		return 0, err
+	}
+	if n > int64((1<<63-1)/time.Second) {
+		return 0, fmt.Errorf("%w: %s is too large", ErrInvalidSelector, key)
+	}
+	return time.Duration(n) * time.Second, nil
 }
 
 func splitOutsideBrackets(s string, sep byte) []string {
