@@ -90,6 +90,10 @@ func (DefaultSizeEstimator) Estimate(ctx context.Context, call lipapi.Call) Size
 	return SizeEstimate{Available: true, Units: "bytes", Input: total, Basis: EstimateBasisCanonicalUTF8}
 }
 
+func (e DefaultSizeEstimator) EstimateRequestTokens(ctx context.Context, call lipapi.Call) SizeEstimate {
+	return e.Estimate(ctx, call)
+}
+
 func estimateBasisForSessionPath(hasTools bool) string {
 	if hasTools {
 		return EstimateBasisCanonicalUTF8AndTools + "+session_bytes"

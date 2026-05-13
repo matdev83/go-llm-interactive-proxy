@@ -152,6 +152,95 @@ func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 	}
 }
 
+func TestParseRequestSizeAnnotations(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		in      string
+		wantMin int64
+		wantMax int64
+	}{
+		{name: "max context primary", in: "[max_context=4096]openai:gpt-4o-mini", wantMax: 4096},
+		{name: "min context primary", in: "[min_context=1024]anthropic:claude", wantMin: 1024},
+		{name: "combined context block", in: "[min_context=1024,max_context=8192]openai:gpt", wantMin: 1024, wantMax: 8192},
+		{name: "query params preserved", in: "[max_context=4096]openai:gpt?temperature=0.2", wantMax: 4096},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sel, err := Parse(tc.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(sel.Alternatives) != 1 || sel.Alternatives[0].Primary == nil {
+				t.Fatalf("expected primary selector, got %#v", sel)
+			}
+			size := sel.Alternatives[0].Primary.Size
+			if tc.wantMin == 0 {
+				if size.MinContextTokens != nil {
+					t.Fatalf("unexpected min context: %d", *size.MinContextTokens)
+				}
+			} else if size.MinContextTokens == nil || *size.MinContextTokens != tc.wantMin {
+				t.Fatalf("min context: got %v want %d", size.MinContextTokens, tc.wantMin)
+			}
+			if tc.wantMax == 0 {
+				if size.MaxContextTokens != nil {
+					t.Fatalf("unexpected max context: %d", *size.MaxContextTokens)
+				}
+			} else if size.MaxContextTokens == nil || *size.MaxContextTokens != tc.wantMax {
+				t.Fatalf("max context: got %v want %d", size.MaxContextTokens, tc.wantMax)
+			}
+			if sel.Alternatives[0].Primary.Params.Get("temperature") != "" && sel.Alternatives[0].Primary.Params.Get("temperature") != "0.2" {
+				t.Fatalf("unexpected params: %v", sel.Alternatives[0].Primary.Params)
+			}
+		})
+	}
+}
+
+func TestParseRequestSizeAnnotationsOnWeightedBranches(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[weight=2][max_context=4096]a:m^[weight=1][min_context=4096]b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := sel.Alternatives[0].Weighted
+	if w == nil || len(w.Branches) != 2 {
+		t.Fatalf("weighted branches: %#v", sel.Alternatives[0])
+	}
+	if w.Branches[0].Target.Size.MaxContextTokens == nil || *w.Branches[0].Target.Size.MaxContextTokens != 4096 {
+		t.Fatalf("branch0 max: %#v", w.Branches[0].Target.Size)
+	}
+	if w.Branches[1].Target.Size.MinContextTokens == nil || *w.Branches[1].Target.Size.MinContextTokens != 4096 {
+		t.Fatalf("branch1 min: %#v", w.Branches[1].Target.Size)
+	}
+}
+
+func TestParseRequestSizeAnnotationsInvalid(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"[max_context=0]a:b",
+		"[min_context=-1]a:b",
+		"[max_context=abc]a:b",
+		"[max_context]a:b",
+		"[max_context=10][max_context=20]a:b",
+		"[min_context=10,max_context=10]a:b",
+		"[unknown=1]a:b",
+	}
+	for _, in := range cases {
+		in := in
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+			_, err := Parse(in)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, ErrInvalidSelector) {
+				t.Fatalf("expected ErrInvalidSelector, got %v", err)
+			}
+		})
+	}
+}
+
 func TestParseInvalidQueryWrapsParseQueryError(t *testing.T) {
 	t.Parallel()
 	_, err := Parse("openai:gpt-4?x=%zz")

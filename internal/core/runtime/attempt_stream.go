@@ -40,12 +40,13 @@ type retryRecvStream struct {
 	baseline lipapi.Call
 	budget   *attemptBudget
 
-	aLegID   string
-	traceID  string
-	sel      *routing.Selector
-	session  *routing.SessionRoutingState
-	excluded map[string]struct{}
-	rng      routing.Rng
+	aLegID      string
+	traceID     string
+	sel         *routing.Selector
+	requestSize routing.RequestSizeEstimate
+	session     *routing.SessionRoutingState
+	excluded    map[string]struct{}
+	rng         routing.Rng
 
 	lastHardReject           lipapi.NegotiationResult
 	isContextLimitExhaustion bool
@@ -512,6 +513,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		aLegID:                   s.aLegID,
 		baseline:                 s.baseline,
 		sel:                      s.sel,
+		requestSize:              s.requestSize,
 		session:                  s.session,
 		excluded:                 s.excluded,
 		rng:                      s.rng,

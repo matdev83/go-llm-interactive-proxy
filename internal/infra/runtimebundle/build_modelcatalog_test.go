@@ -54,9 +54,12 @@ func TestBuild_modelCatalog_disabled_noRuntime(t *testing.T) {
 	if b.Executor.CatalogResolver != nil {
 		t.Fatalf("expected nil CatalogResolver")
 	}
+	if b.Executor.RequestTokenEstimator != nil {
+		t.Fatalf("expected nil RequestTokenEstimator")
+	}
 }
 
-func TestBuild_modelCatalog_enabled_wiresResolverAndCloser(t *testing.T) {
+func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
@@ -102,9 +105,11 @@ func TestBuild_modelCatalog_enabled_wiresResolverAndCloser(t *testing.T) {
 	if b.CatalogRuntime == nil {
 		t.Fatal("expected CatalogRuntime")
 	}
-	if b.Executor.CatalogResolver == nil || b.Executor.EligibilityResolver == nil {
-		t.Fatalf("expected catalog wiring on executor: cr=%v el=%v",
-			b.Executor.CatalogResolver != nil, b.Executor.EligibilityResolver != nil)
+	if b.Executor.CatalogResolver == nil || b.Executor.EligibilityResolver == nil || b.Executor.RequestTokenEstimator == nil {
+		t.Fatalf("expected catalog wiring on executor: cr=%v el=%v rte=%v",
+			b.Executor.CatalogResolver != nil,
+			b.Executor.EligibilityResolver != nil,
+			b.Executor.RequestTokenEstimator != nil)
 	}
 	if len(b.Closers) == 0 {
 		t.Fatal("expected closers")

@@ -33,6 +33,7 @@ type attemptOpenParams struct {
 	aLegID      string
 	baseline    lipapi.Call
 	sel         *routing.Selector
+	requestSize routing.RequestSizeEstimate
 	session     *routing.SessionRoutingState
 	excluded    map[string]struct{}
 	rng         routing.Rng
@@ -56,6 +57,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	list, err := routing.ExpandFailover(p.sel, routing.PlanOptions{
 		Excluded:               p.excluded,
 		Unhealthy:              e.mergePlannerHealth(),
+		RequestSize:            p.requestSize,
 		Session:                p.session,
 		PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
 		Rand:                   p.rng,
@@ -275,4 +277,12 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		slog.String("model", c.Primary.Model),
 	)
 	return attemptOpenResult{opened: true, stream: stream, bleg: bleg, cand: c}, nil
+}
+
+func (e *Executor) requestSizeEstimateForRouting(ctx context.Context, sel *routing.Selector, call lipapi.Call) routing.RequestSizeEstimate {
+	if !routing.SelectorHasRequestSizeConstraints(sel) || e == nil || e.RequestTokenEstimator == nil {
+		return routing.RequestSizeEstimate{}
+	}
+	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, call)
+	return routing.RequestSizeEstimate{Available: est.Available, Tokens: est.Input, Basis: est.Basis}
 }

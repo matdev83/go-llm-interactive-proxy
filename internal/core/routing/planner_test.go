@@ -57,6 +57,106 @@ func TestExpandFailoverSkipsUnhealthyPrimary(t *testing.T) {
 	}
 }
 
+func TestExpandFailoverRequestSizeConstraints(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		sel    string
+		tokens int64
+		want   string
+	}{
+		{name: "max excludes oversized primary", sel: "[max_context=10]a:b|c:d", tokens: 11, want: "c:d"},
+		{name: "max allows exact limit", sel: "[max_context=10]a:b|c:d", tokens: 10, want: "a:b"},
+		{name: "min excludes equal tokens", sel: "[min_context=10]a:b|c:d", tokens: 10, want: "c:d"},
+		{name: "min allows greater tokens", sel: "[min_context=10]a:b|c:d", tokens: 11, want: "a:b"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sel, err := Parse(tc.sel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := ExpandFailover(sel, PlanOptions{RequestSize: RequestSizeEstimate{Available: true, Tokens: tc.tokens}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out) == 0 || out[0].Key != tc.want {
+				t.Fatalf("got %#v want first %q", out, tc.want)
+			}
+		})
+	}
+}
+
+func TestWeightedRequestSizeFiltersBeforeRoll(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[weight=100][max_context=10]small:m^[weight=1]large:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandFailover(sel, PlanOptions{
+		Rand:        rng(0),
+		Session:     &SessionRoutingState{FirstRequestConsumed: true},
+		RequestSize: RequestSizeEstimate{Available: true, Tokens: 11},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Key != "large:m" {
+		t.Fatalf("got %#v", out)
+	}
+}
+
+func TestFirstRequestSizeIneligibleDoesNotConsumeFirst(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[first][max_context=10]small:m^[weight=1]large:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &SessionRoutingState{}
+	out, err := ExpandFailover(sel, PlanOptions{
+		Rand:        rng(0),
+		Session:     sess,
+		RequestSize: RequestSizeEstimate{Available: true, Tokens: 11},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Key != "large:m" {
+		t.Fatalf("got %#v", out)
+	}
+	if sess.FirstRequestConsumed {
+		t.Fatal("size-ineligible [first] branch must not consume first-request state")
+	}
+}
+
+func TestRequestSizeConstraintsFailOpenWhenEstimateUnavailable(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[max_context=10]a:b|c:d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandFailover(sel, PlanOptions{RequestSize: RequestSizeEstimate{Available: false, Tokens: 100}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 || out[0].Key != "a:b" {
+		t.Fatalf("got %#v", out)
+	}
+}
+
+func TestRequestSizeConstraintsAllIneligible(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[max_context=10]a:b|[min_context=20]c:d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ExpandFailover(sel, PlanOptions{RequestSize: RequestSizeEstimate{Available: true, Tokens: 15}})
+	if !errors.Is(err, ErrNoEligibleCandidate) {
+		t.Fatalf("got %v want ErrNoEligibleCandidate", err)
+	}
+}
+
 func rng(seed int64) Rng { return NewSeededRng(seed) }
 
 func TestWeightedDeterministic(t *testing.T) {

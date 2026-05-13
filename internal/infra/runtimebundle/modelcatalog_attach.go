@@ -66,6 +66,7 @@ func attachModelCatalog(
 	}
 
 	if mc.Enabled {
+		sizeEstimator := modelcatalog.DefaultSizeEstimator{}
 		ovr := modelcatalog.NewOverrideResolver(OverrideSetFromModelCatalog(mc))
 		exec.CatalogResolver = modelcatalog.NewCatalogResolver(
 			nil,
@@ -73,7 +74,8 @@ func attachModelCatalog(
 			true,
 			cat,
 		)
-		exec.EligibilityResolver = modelcatalog.NewEligibilityResolver(modelcatalog.DefaultSizeEstimator{})
+		exec.EligibilityResolver = modelcatalog.NewEligibilityResolver(sizeEstimator)
+		exec.RequestTokenEstimator = sizeEstimator
 	}
 	return cat, nil
 }

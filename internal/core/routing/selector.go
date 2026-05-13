@@ -23,6 +23,13 @@ type Primary struct {
 	Backend string
 	Model   string
 	Params  url.Values
+	Size    RequestSizeConstraint
+}
+
+// RequestSizeConstraint carries per-leaf request token eligibility bounds.
+type RequestSizeConstraint struct {
+	MinContextTokens *int64
+	MaxContextTokens *int64
 }
 
 // Weighted is a set of branches; exactly one is chosen per planning step using weights.

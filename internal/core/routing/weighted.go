@@ -41,7 +41,7 @@ func pickWeighted(w *Weighted, opt PlanOptions) (AttemptCandidate, bool, error) 
 	eligible := make([]WeightedBranch, 0, len(w.Branches))
 	for _, b := range w.Branches {
 		key := b.Target.String()
-		if excluded(key, opt.Excluded, opt.Unhealthy) {
+		if !candidateEligible(b.Target, key, opt) {
 			continue
 		}
 		eligible = append(eligible, b)

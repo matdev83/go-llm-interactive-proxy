@@ -29,7 +29,14 @@ type EligibilityResolver interface {
 	) modelcatalog.EligibilityDecision
 }
 
+// RequestTokenEstimator supplies a provider-neutral request-size estimate for routing constraints.
+// Unavailable estimates fail open in the routing planner.
+type RequestTokenEstimator interface {
+	EstimateRequestTokens(ctx context.Context, call lipapi.Call) modelcatalog.SizeEstimate
+}
+
 var (
-	_ CatalogResolver     = (*modelcatalog.CatalogResolverImpl)(nil)
-	_ EligibilityResolver = (*modelcatalog.EligibilityResolverImpl)(nil)
+	_ CatalogResolver       = (*modelcatalog.CatalogResolverImpl)(nil)
+	_ EligibilityResolver   = (*modelcatalog.EligibilityResolverImpl)(nil)
+	_ RequestTokenEstimator = modelcatalog.DefaultSizeEstimator{}
 )

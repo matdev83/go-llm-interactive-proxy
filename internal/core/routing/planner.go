@@ -21,13 +21,23 @@ type SessionRoutingState struct {
 type PlanOptions struct {
 	Excluded  map[string]struct{}
 	Unhealthy map[string]struct{}
-	Session   *SessionRoutingState
+	// RequestSize is the current request size estimate used for per-leaf min/max context filters.
+	// When unavailable, size filters fail open and do not exclude candidates.
+	RequestSize RequestSizeEstimate
+	Session     *SessionRoutingState
 	// PreferredCandidateKeys hints expand order when keys are already eligible (design §12, advisory).
 	PreferredCandidateKeys []string
 	// Rand supplies weighted-branch rolls. When nil, weighted selection uses a fixed-seeded
 	// math/rand/v2 PCG stream (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
 	Rand        Rng
 	IsRetryPath bool
+}
+
+// RequestSizeEstimate is a provider-neutral request token estimate for route planning.
+type RequestSizeEstimate struct {
+	Available bool
+	Tokens    int64
+	Basis     string
 }
 
 // Rng abstracts a uniform integer RNG for weighted picks (see [NewSeededRng], [WrapRandV2]).
@@ -57,7 +67,7 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 		switch {
 		case alt.Primary != nil:
 			c := AttemptCandidate{Primary: *alt.Primary, Key: alt.Primary.String()}
-			if excluded(c.Key, opt.Excluded, opt.Unhealthy) {
+			if !candidateEligible(c.Primary, c.Key, opt) {
 				continue
 			}
 			out = append(out, c)
@@ -124,6 +134,50 @@ func excluded(key string, ex, uh map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+func candidateEligible(p Primary, key string, opt PlanOptions) bool {
+	if excluded(key, opt.Excluded, opt.Unhealthy) {
+		return false
+	}
+	return requestSizeEligible(p.Size, opt.RequestSize)
+}
+
+func requestSizeEligible(c RequestSizeConstraint, est RequestSizeEstimate) bool {
+	if !est.Available {
+		return true
+	}
+	if c.MaxContextTokens != nil && est.Tokens > *c.MaxContextTokens {
+		return false
+	}
+	if c.MinContextTokens != nil && est.Tokens <= *c.MinContextTokens {
+		return false
+	}
+	return true
+}
+
+// SelectorHasRequestSizeConstraints reports whether any leaf has min/max context filters.
+func SelectorHasRequestSizeConstraints(sel *Selector) bool {
+	if sel == nil {
+		return false
+	}
+	for _, alt := range sel.Alternatives {
+		if alt.Primary != nil && hasRequestSizeConstraint(alt.Primary.Size) {
+			return true
+		}
+		if alt.Weighted != nil {
+			for _, b := range alt.Weighted.Branches {
+				if hasRequestSizeConstraint(b.Target.Size) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func hasRequestSizeConstraint(c RequestSizeConstraint) bool {
+	return c.MinContextTokens != nil || c.MaxContextTokens != nil
 }
 
 // ReplanWeighted picks again within the same weighted group after excluding failed candidates.

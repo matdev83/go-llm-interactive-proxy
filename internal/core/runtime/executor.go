@@ -64,6 +64,8 @@ type Executor struct {
 	CatalogResolver CatalogResolver
 	// EligibilityResolver, when set, applies context-limit checks after successful negotiation.
 	EligibilityResolver EligibilityResolver
+	// RequestTokenEstimator, when set, evaluates per-leaf min/max context routing constraints before backend open.
+	RequestTokenEstimator RequestTokenEstimator
 	// CandidateHealth, when set, supplies unhealthy routing keys merged into planner options.
 	CandidateHealth policy.CandidateHealth
 	// RouteObserver, when set, receives coarse routing decisions (non-blocking contract).
@@ -199,6 +201,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	budget := &attemptBudget{max: e.effectiveMaxAttempts(), used: 0}
 	session := &routing.SessionRoutingState{FirstRequestConsumed: aLeg.WeightedFirstConsumed}
 	excluded := map[string]struct{}{}
+	requestSize := e.requestSizeEstimateForRouting(ctx, sel, baseline)
 	var lastReject lipapi.NegotiationResult
 	var contextLimitExhaustion bool
 	rng := e.rng()
@@ -213,6 +216,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			aLegID:      aLeg.ALegID,
 			baseline:    baseline,
 			sel:         sel,
+			requestSize: requestSize,
 			session:     session,
 			excluded:    excluded,
 			rng:         rng,
@@ -229,18 +233,19 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			continue
 		}
 		rs := &retryRecvStream{
-			executor: e,
-			bus:      bus,
-			baseline: baseline,
-			budget:   budget,
-			aLegID:   aLeg.ALegID,
-			traceID:  traceID,
-			sel:      sel,
-			session:  session,
-			excluded: excluded,
-			rng:      rng,
-			bleg:     out.bleg,
-			cand:     out.cand,
+			executor:    e,
+			bus:         bus,
+			baseline:    baseline,
+			budget:      budget,
+			aLegID:      aLeg.ALegID,
+			traceID:     traceID,
+			sel:         sel,
+			requestSize: requestSize,
+			session:     session,
+			excluded:    excluded,
+			rng:         rng,
+			bleg:        out.bleg,
+			cand:        out.cand,
 
 			recvViews:   recvViews,
 			recvViewsOK: recvViewsOK,

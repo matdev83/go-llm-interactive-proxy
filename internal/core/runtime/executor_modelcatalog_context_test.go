@@ -18,6 +18,25 @@ import (
 
 type contextLimitCatalogResolver struct{}
 
+type fixedRequestTokenEstimator struct {
+	available bool
+	tokens    int64
+}
+
+type errorEventStream struct {
+	err error
+}
+
+func (e *errorEventStream) Recv(context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, e.err
+}
+
+func (e *errorEventStream) Close() error { return nil }
+
+func (f fixedRequestTokenEstimator) EstimateRequestTokens(context.Context, lipapi.Call) modelcatalog.SizeEstimate {
+	return modelcatalog.SizeEstimate{Available: f.available, Units: "tokens", Input: f.tokens, Basis: "test"}
+}
+
 func (contextLimitCatalogResolver) Resolve(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call, backend lipapi.BackendCaps) modelcatalog.EffectiveFacts {
 	_ = ctx
 	_ = call
@@ -115,6 +134,149 @@ func TestExecutor_contextLimit_failoverToLargerLimitBackend(t *testing.T) {
 	}
 	_, _ = lipapi.Collect(context.Background(), s)
 	_ = s.Close()
+}
+
+func TestExecutor_requestSizeConstraints_failoverToEligibleBackend(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opened string
+	ex := &runtime.Executor{
+		Store:                 st,
+		Bus:                   hooks.New(hooks.Config{}),
+		Rand:                  routing.NewSeededRng(2),
+		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 11},
+		Backends: map[string]execbackend.Backend{
+			"smallctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					t.Fatal("smallctx must be skipped by max_context")
+					return nil, nil
+				},
+			},
+			"bigctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opened = cand.Key
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "[max_context=10]smallctx:m|[min_context=10]bigctx:m"},
+		Messages: longUserMessage(5),
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != "bigctx:m" {
+		t.Fatalf("opened: %q", opened)
+	}
+	_, _ = lipapi.Collect(context.Background(), s)
+	_ = s.Close()
+}
+
+func TestExecutor_requestSizeConstraints_failOpenWhenEstimateUnavailable(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opened string
+	ex := &runtime.Executor{
+		Store:                 st,
+		Bus:                   hooks.New(hooks.Config{}),
+		Rand:                  routing.NewSeededRng(2),
+		RequestTokenEstimator: fixedRequestTokenEstimator{available: false, tokens: 11},
+		Backends: map[string]execbackend.Backend{
+			"smallctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opened = cand.Key
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+			"bigctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					t.Fatal("fail-open should keep first constrained branch eligible")
+					return nil, nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "[max_context=10]smallctx:m|bigctx:m"},
+		Messages: longUserMessage(5),
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != "smallctx:m" {
+		t.Fatalf("opened: %q", opened)
+	}
+	_, _ = lipapi.Collect(context.Background(), s)
+	_ = s.Close()
+}
+
+func TestExecutor_requestSizeConstraints_preservedDuringRecvReplacement(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := []string{}
+	ex := &runtime.Executor{
+		Store:                 st,
+		Bus:                   hooks.New(hooks.Config{}),
+		Rand:                  routing.NewSeededRng(2),
+		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 11},
+		Backends: map[string]execbackend.Backend{
+			"smallctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					t.Fatal("smallctx must remain skipped during recv replacement")
+					return nil, nil
+				},
+			},
+			"bigctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+					opened = append(opened, cand.Key)
+					if len(opened) == 1 {
+						return &errorEventStream{err: &lipapi.UpstreamFailure{
+							Phase:        lipapi.PhasePreOutput,
+							Recoverable:  true,
+							Reason:       "recv replacement trigger",
+							CandidateKey: cand.Key,
+						}}, nil
+					}
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "[max_context=10]smallctx:m|bigctx:m"},
+		Messages: longUserMessage(5),
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lipapi.Collect(context.Background(), s)
+	_ = s.Close()
+	if err == nil {
+		t.Fatal("expected replacement exhaustion after size-ineligible fallback")
+	}
+	if len(opened) != 1 || opened[0] != "bigctx:m" {
+		t.Fatalf("opened sequence: %#v", opened)
+	}
 }
 
 func TestExecutor_contextLimit_allCandidatesExcluded_returnsSentinel(t *testing.T) {
