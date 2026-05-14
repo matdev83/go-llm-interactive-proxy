@@ -3,6 +3,7 @@
 package sessionwire
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -60,6 +61,29 @@ func ApplyMetadata(ref *lipapi.SessionRef, meta map[string]string) {
 	if v := strings.TrimSpace(meta[MetaKeyResumeToken]); v != "" {
 		ref.ResumeToken = v
 	}
+}
+
+// ValidateMetadata checks LIP-controlled session metadata carriers before callers copy
+// them into the canonical session reference.
+func ValidateMetadata(meta map[string]string) error {
+	if len(meta) == 0 {
+		return nil
+	}
+	if err := validateMetadataCarrier(MetaKeyAuthoritativeSessionID, meta[MetaKeyAuthoritativeSessionID], lipapi.MaxAuthoritativeSessionIDBytes); err != nil {
+		return err
+	}
+	if err := validateMetadataCarrier(MetaKeyResumeToken, meta[MetaKeyResumeToken], lipapi.MaxResumeTokenBytes); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateMetadataCarrier(key, value string, max int) error {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) <= max {
+		return nil
+	}
+	return fmt.Errorf("metadata %s exceeds %d bytes", key, max)
 }
 
 // WithoutSensitiveToken replaces exact rawToken substrings in s for log-safe strings.

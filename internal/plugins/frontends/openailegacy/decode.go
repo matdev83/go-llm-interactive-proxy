@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -63,6 +64,15 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 	}
 	if len(w.Messages) == 0 {
 		return nil, errors.New("openailegacy: messages is required")
+	}
+	if err := frontendlimits.Count("messages", len(w.Messages), frontendlimits.MaxMessages); err != nil {
+		return nil, fmt.Errorf("openailegacy: %w", err)
+	}
+	if err := frontendlimits.Count("metadata", len(w.Metadata), frontendlimits.MaxMetadata); err != nil {
+		return nil, fmt.Errorf("openailegacy: %w", err)
+	}
+	if err := sessionwire.ValidateMetadata(w.Metadata); err != nil {
+		return nil, fmt.Errorf("openailegacy: %w", err)
 	}
 
 	msgs, err := parseMessages(w.Messages)
@@ -183,6 +193,9 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 		parts = append(parts, cp...)
 	}
 	if jsonpresence.IsPresentNonNullJSON(toolCalls) {
+		if err := frontendlimits.Bytes("tool_calls", len(toolCalls), frontendlimits.MaxRawJSONPayload); err != nil {
+			return nil, err
+		}
 		var rawCalls []json.RawMessage
 		if err := json.Unmarshal(toolCalls, &rawCalls); err != nil {
 			return nil, fmt.Errorf("openailegacy: tool_calls: %w", err)
@@ -195,6 +208,9 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 		}
 	}
 	if jsonpresence.IsPresentNonNullJSON(functionCall) {
+		if err := frontendlimits.Bytes("function_call", len(functionCall), frontendlimits.MaxRawJSONPayload); err != nil {
+			return nil, err
+		}
 		if !json.Valid(functionCall) {
 			return nil, errors.New("openailegacy: invalid function_call")
 		}
@@ -221,6 +237,9 @@ func parseToolMessageContent(raw json.RawMessage) (any, error) {
 		return s, nil
 	}
 	var v any
+	if err := frontendlimits.Bytes("tool message content", len(raw), frontendlimits.MaxRawJSONPayload); err != nil {
+		return nil, err
+	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, fmt.Errorf("openailegacy: tool message content json: %w", err)
 	}
@@ -267,6 +286,9 @@ func parseChatContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	var blocks []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return nil, fmt.Errorf("openailegacy: message content array: %w", err)
+	}
+	if err := frontendlimits.Count("content", len(blocks), frontendlimits.MaxParts); err != nil {
+		return nil, err
 	}
 	var parts []lipapi.Part
 	for i, blk := range blocks {
@@ -340,6 +362,9 @@ func parseChatContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) 
 		if fd == "" {
 			return lipapi.Part{}, errors.New("file part requires file_data")
 		}
+		if err := frontendlimits.StringBytes("file.file_data", fd, frontendlimits.MaxBase64Data); err != nil {
+			return lipapi.Part{}, err
+		}
 		return openaiwire.FilePartFromBase64(s.File.Filename, fd), nil
 	default:
 		return lipapi.Part{}, fmt.Errorf("openailegacy: unsupported content block type %q", typ)
@@ -353,6 +378,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, fmt.Errorf("openailegacy: tools: %w", err)
+	}
+	if err := frontendlimits.Count("tools", len(items), frontendlimits.MaxTools); err != nil {
+		return nil, err
 	}
 	out := make([]lipapi.ToolDef, 0, len(items))
 	for i, it := range items {
@@ -381,6 +409,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 		params := w.Function.Parameters
 		if len(params) == 0 {
 			params = json.RawMessage(`{}`)
+		}
+		if err := frontendlimits.Bytes("function parameters", len(params), frontendlimits.MaxToolSchema); err != nil {
+			return nil, fmt.Errorf("openailegacy: tools[%d]: %w", i, err)
 		}
 		out = append(out, lipapi.ToolDef{
 			Name:        w.Function.Name,

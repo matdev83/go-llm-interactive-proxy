@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -64,6 +65,12 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	}
 	if len(w.Input) == 0 {
 		return nil, errors.New("openairesponses: input is required")
+	}
+	if err := frontendlimits.Count("metadata", len(w.Metadata), frontendlimits.MaxMetadata); err != nil {
+		return nil, fmt.Errorf("openairesponses: %w", err)
+	}
+	if err := sessionwire.ValidateMetadata(w.Metadata); err != nil {
+		return nil, fmt.Errorf("openairesponses: %w", err)
 	}
 
 	instructions, err := parseInstructions(w.Instructions)
@@ -157,6 +164,9 @@ func parseInput(raw json.RawMessage) ([]lipapi.Message, error) {
 		if err := json.Unmarshal(raw, &items); err != nil {
 			return nil, fmt.Errorf("openairesponses: input array: %w", err)
 		}
+		if err := frontendlimits.Count("input", len(items), frontendlimits.MaxMessages); err != nil {
+			return nil, err
+		}
 		out := make([]lipapi.Message, 0, len(items))
 		for i, it := range items {
 			m, err := parseInputItem(it)
@@ -227,6 +237,9 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	}
 	argStr := "{}"
 	if jsonpresence.IsPresentNonNullJSON(v.Arguments) {
+		if err := frontendlimits.Bytes("function_call.arguments", len(v.Arguments), frontendlimits.MaxRawJSONPayload); err != nil {
+			return lipapi.Message{}, err
+		}
 		switch v.Arguments[0] {
 		case '"':
 			var s string
@@ -277,6 +290,9 @@ func parseFunctionCallOutputItem(raw json.RawMessage) (lipapi.Message, error) {
 	out := v.Output
 	if jsonpresence.IsAbsentOrJSONNull(out) {
 		return lipapi.Message{}, errors.New("openairesponses: function_call_output requires output")
+	}
+	if err := frontendlimits.Bytes("function_call_output.output", len(out), frontendlimits.MaxRawJSONPayload); err != nil {
+		return lipapi.Message{}, err
 	}
 	if out[0] == '"' {
 		var s string
@@ -340,6 +356,9 @@ func parseContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	var blocks []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return nil, fmt.Errorf("openairesponses: message content array: %w", err)
+	}
+	if err := frontendlimits.Count("content", len(blocks), frontendlimits.MaxParts); err != nil {
+		return nil, err
 	}
 	var parts []lipapi.Part
 	for i, blk := range blocks {
@@ -407,6 +426,9 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 		if strings.TrimSpace(s.FileData) == "" {
 			return lipapi.Part{}, errors.New("input_file requires file_data")
 		}
+		if err := frontendlimits.StringBytes("input_file.file_data", s.FileData, frontendlimits.MaxBase64Data); err != nil {
+			return lipapi.Part{}, err
+		}
 		return openaiwire.FilePartFromBase64(s.Filename, s.FileData), nil
 	default:
 		return lipapi.Part{}, fmt.Errorf("openairesponses: unsupported content block type %q", typ)
@@ -420,6 +442,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, fmt.Errorf("openairesponses: tools: %w", err)
+	}
+	if err := frontendlimits.Count("tools", len(items), frontendlimits.MaxTools); err != nil {
+		return nil, err
 	}
 	out := make([]lipapi.ToolDef, 0, len(items))
 	for i, it := range items {
@@ -463,6 +488,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 		}
 		if len(params) == 0 {
 			params = json.RawMessage(`{}`)
+		}
+		if err := frontendlimits.Bytes("tool parameters", len(params), frontendlimits.MaxToolSchema); err != nil {
+			return nil, fmt.Errorf("openairesponses: tools[%d]: %w", i, err)
 		}
 		out = append(out, lipapi.ToolDef{
 			Name:        name,

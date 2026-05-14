@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -68,6 +69,9 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 	if len(w.Messages) == 0 {
 		return nil, errors.New("anthropic: messages is required")
 	}
+	if err := frontendlimits.Count("messages", len(w.Messages), frontendlimits.MaxMessages); err != nil {
+		return nil, fmt.Errorf("anthropic: %w", err)
+	}
 
 	instructions, err := parseSystem(w.System)
 	if err != nil {
@@ -109,6 +113,12 @@ func DecodeMessageRequest(body []byte, opts DecodeOptions) (*DecodedMessage, err
 	if jsonpresence.IsPresentNonNullJSON(w.Metadata) {
 		var meta map[string]string
 		if jerr := json.Unmarshal(w.Metadata, &meta); jerr == nil && len(meta) > 0 {
+			if err := frontendlimits.Count("metadata", len(meta), frontendlimits.MaxMetadata); err != nil {
+				return nil, fmt.Errorf("anthropic: %w", err)
+			}
+			if err := sessionwire.ValidateMetadata(meta); err != nil {
+				return nil, fmt.Errorf("anthropic: %w", err)
+			}
 			sessionwire.ApplyMetadata(&call.Session, meta)
 		}
 	}
@@ -135,6 +145,9 @@ func parseSystem(raw json.RawMessage) ([]lipapi.Message, error) {
 	var blocks []json.RawMessage
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return nil, fmt.Errorf("anthropic: system: %w", err)
+	}
+	if err := frontendlimits.Count("system", len(blocks), frontendlimits.MaxParts); err != nil {
+		return nil, err
 	}
 	var parts []lipapi.Part
 	for i, blk := range blocks {
@@ -209,6 +222,9 @@ func parseMessageContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return nil, fmt.Errorf("anthropic: content: %w", err)
 	}
+	if err := frontendlimits.Count("content", len(blocks), frontendlimits.MaxParts); err != nil {
+		return nil, err
+	}
 	out := make([]lipapi.Part, 0, len(blocks))
 	for i, blk := range blocks {
 		p, err := parseContentBlock(blk)
@@ -261,6 +277,9 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		if data == "" {
 			return lipapi.Part{}, errors.New("anthropic: image requires base64 data")
 		}
+		if err := frontendlimits.StringBytes("image source.data", data, frontendlimits.MaxBase64Data); err != nil {
+			return lipapi.Part{}, err
+		}
 		mime := strings.TrimSpace(w.Source.MediaType)
 		if mime == "" {
 			mime = "image/png"
@@ -284,6 +303,9 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		data := strings.TrimSpace(w.Source.Data)
 		if data == "" {
 			return lipapi.Part{}, errors.New("anthropic: document requires base64 data")
+		}
+		if err := frontendlimits.StringBytes("document source.data", data, frontendlimits.MaxBase64Data); err != nil {
+			return lipapi.Part{}, err
 		}
 		mime := strings.TrimSpace(w.Source.MediaType)
 		if mime == "" {
@@ -314,6 +336,9 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		if len(input) == 0 {
 			input = json.RawMessage(`{}`)
 		}
+		if err := frontendlimits.Bytes("tool_use.input", len(input), frontendlimits.MaxRawJSONPayload); err != nil {
+			return lipapi.Part{}, err
+		}
 		return lipapi.Part{
 			Kind:       lipapi.PartJSON,
 			ToolCallID: w.ID,
@@ -334,6 +359,9 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		// Content may be a string or array of text blocks; flatten to plain text.
 		var resultText string
 		if jsonpresence.IsPresentNonNullJSON(w.Content) {
+			if err := frontendlimits.Bytes("tool_result.content", len(w.Content), frontendlimits.MaxRawJSONPayload); err != nil {
+				return lipapi.Part{}, err
+			}
 			var s string
 			if err := json.Unmarshal(w.Content, &s); err == nil {
 				resultText = s
@@ -372,6 +400,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, fmt.Errorf("anthropic: tools: %w", err)
 	}
+	if err := frontendlimits.Count("tools", len(items), frontendlimits.MaxTools); err != nil {
+		return nil, err
+	}
 	out := make([]lipapi.ToolDef, 0, len(items))
 	for i, it := range items {
 		var w struct {
@@ -388,6 +419,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 		params := w.InputSchema
 		if len(params) == 0 {
 			params = json.RawMessage(`{}`)
+		}
+		if err := frontendlimits.Bytes("input_schema", len(params), frontendlimits.MaxToolSchema); err != nil {
+			return nil, fmt.Errorf("anthropic: tools[%d]: %w", i, err)
 		}
 		out = append(out, lipapi.ToolDef{
 			Name:        w.Name,

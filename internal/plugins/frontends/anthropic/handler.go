@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -29,6 +31,7 @@ type Handler struct {
 	MaxRequestBodyBytes  int64
 	Log                  *slog.Logger
 	TrafficPorts         traffic.PortBundle
+	DecodeLimiter        *decodeqos.Limiter
 }
 
 func (h *Handler) maxBodyLimit() int64 {
@@ -58,7 +61,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := reqbody.ReadAll(w, r, h.maxBodyLimit())
+	limits := jsonguard.Limits{MaxBytes: h.maxBodyLimit()}
+	body, err := reqbody.ReadAll(w, r, limits.MaxBytes)
 	if err != nil {
 		if reqbody.TooLarge(err) {
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusRequestEntityTooLarge, "request body too large", "invalid_request_error"))
@@ -81,11 +85,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sel = strings.TrimSpace(h.DefaultRouteSelector)
 	}
 	anthVer := strings.TrimSpace(r.Header.Get(HeaderAnthropicVersion))
+	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
+	if err != nil {
+		return
+	}
+	if !ok {
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error"))
+		return
+	}
+	if _, err := jsonguard.Preflight(body, limits); err != nil {
+		releaseDecode()
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON", "invalid_request_error"))
+		return
+	}
 	decoded, err := DecodeMessageRequest(body, DecodeOptions{
 		RouteSelector:    sel,
 		AnthropicVersion: anthVer,
 		Headers:          r.Header,
 	})
+	releaseDecode()
 	if err != nil {
 		if h.Log != nil {
 			diag.LogError(ctx, h.Log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))

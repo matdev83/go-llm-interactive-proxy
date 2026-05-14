@@ -75,8 +75,8 @@ func TestApplyMetadata(t *testing.T) {
 	t.Parallel()
 	var ref lipapi.SessionRef
 	meta := map[string]string{
-		sessionwire.MetaKeyAuthoritativeSessionID: "m-sid",
-		sessionwire.MetaKeyResumeToken:            "m-tok",
+		sessionwire.MetaKeyAuthoritativeSessionID: "  m-sid  ",
+		sessionwire.MetaKeyResumeToken:            " m-tok\t",
 	}
 	sessionwire.ApplyMetadata(&ref, meta)
 	if ref.AuthoritativeSessionID != "m-sid" || ref.ResumeToken != "m-tok" {
@@ -84,15 +84,70 @@ func TestApplyMetadata(t *testing.T) {
 	}
 }
 
+func TestApplyMetadataThenHeaders_headersWin(t *testing.T) {
+	t.Parallel()
+	var ref lipapi.SessionRef
+	sessionwire.ApplyMetadata(&ref, map[string]string{
+		sessionwire.MetaKeyAuthoritativeSessionID: "meta-sid",
+		sessionwire.MetaKeyResumeToken:            "meta-tok",
+	})
+	h := http.Header{}
+	h.Set(sessionwire.HeaderAuthoritativeSessionID, " hdr-sid ")
+	h.Set(sessionwire.HeaderResumeToken, " hdr-tok ")
+	sessionwire.ApplyAuthoritativeHeaders(&ref, h)
+	if ref.AuthoritativeSessionID != "hdr-sid" || ref.ResumeToken != "hdr-tok" {
+		t.Fatalf("session: %+v", ref)
+	}
+}
+
+func TestValidateMetadata(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		meta map[string]string
+	}{
+		{
+			name: "oversized session id",
+			meta: map[string]string{sessionwire.MetaKeyAuthoritativeSessionID: strings.Repeat("s", lipapi.MaxAuthoritativeSessionIDBytes+1)},
+		},
+		{
+			name: "oversized resume token",
+			meta: map[string]string{sessionwire.MetaKeyResumeToken: strings.Repeat("r", lipapi.MaxResumeTokenBytes+1)},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if err := sessionwire.ValidateMetadata(tt.meta); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestValidateMetadata_allowsTrimmedCaps(t *testing.T) {
+	t.Parallel()
+	meta := map[string]string{
+		sessionwire.MetaKeyAuthoritativeSessionID: " " + strings.Repeat("s", lipapi.MaxAuthoritativeSessionIDBytes) + " ",
+		sessionwire.MetaKeyResumeToken:            "\t" + strings.Repeat("r", lipapi.MaxResumeTokenBytes) + "\n",
+	}
+	if err := sessionwire.ValidateMetadata(meta); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWithoutSensitiveToken(t *testing.T) {
 	t.Parallel()
 	const tok = "raw-resume-bearer"
-	msg := "failed resume for " + tok + " on trace"
+	msg := "failed resume for " + tok + " and " + tok + " on trace"
 	got := sessionwire.WithoutSensitiveToken(msg, tok)
 	if got == msg {
 		t.Fatal("expected redaction")
 	}
 	if strings.Contains(got, tok) {
 		t.Fatalf("token still present: %q", got)
+	}
+	if strings.Count(got, "[REDACTED]") != 2 {
+		t.Fatalf("redactions: %q", got)
 	}
 }

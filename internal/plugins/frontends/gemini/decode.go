@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -69,6 +70,9 @@ func DecodeGenerateContentRequest(body []byte, opts DecodeOptions) (*DecodedGene
 	if len(w.Contents) == 0 {
 		return nil, errors.New("gemini: contents is required")
 	}
+	if err := frontendlimits.Count("contents", len(w.Contents), frontendlimits.MaxMessages); err != nil {
+		return nil, fmt.Errorf("gemini: %w", err)
+	}
 
 	instructions, err := parseSystemInstruction(w.SystemInstruction)
 	if err != nil {
@@ -123,6 +127,9 @@ func parseSystemInstruction(raw json.RawMessage) ([]lipapi.Message, error) {
 	if len(wc.Parts) == 0 {
 		return nil, errors.New("gemini: systemInstruction requires parts")
 	}
+	if err := frontendlimits.Count("systemInstruction.parts", len(wc.Parts), frontendlimits.MaxParts); err != nil {
+		return nil, err
+	}
 	parts, err := parseParts(wc.Parts)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: systemInstruction: %w", err)
@@ -143,6 +150,9 @@ func parseContents(items []json.RawMessage) ([]lipapi.Message, error) {
 		}
 		if len(wc.Parts) == 0 {
 			return nil, fmt.Errorf("gemini: contents[%d]: parts is required", i)
+		}
+		if err := frontendlimits.Count("parts", len(wc.Parts), frontendlimits.MaxParts); err != nil {
+			return nil, fmt.Errorf("gemini: contents[%d]: %w", i, err)
 		}
 		parts, err := parseParts(wc.Parts)
 		if err != nil {
@@ -235,6 +245,9 @@ func parseFunctionCallPart(raw json.RawMessage) (lipapi.Part, error) {
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
+	if err := frontendlimits.Bytes("functionCall.args", len(args), frontendlimits.MaxRawJSONPayload); err != nil {
+		return lipapi.Part{}, err
+	}
 	return lipapi.Part{
 		Kind:     lipapi.PartJSON,
 		ToolName: w.Name,
@@ -256,6 +269,9 @@ func parseFunctionResponsePart(raw json.RawMessage) (lipapi.Part, error) {
 	resp := w.Response
 	if len(resp) == 0 {
 		resp = json.RawMessage(`{}`)
+	}
+	if err := frontendlimits.Bytes("functionResponse.response", len(resp), frontendlimits.MaxRawJSONPayload); err != nil {
+		return lipapi.Part{}, err
 	}
 	// Flatten response to text for canonical PartToolResult.
 	// Store the raw JSON as text so downstream can use it.
@@ -279,6 +295,9 @@ func parseInlineDataPart(raw json.RawMessage) (lipapi.Part, error) {
 	data := strings.TrimSpace(b.Data)
 	if data == "" {
 		return lipapi.Part{}, errors.New("inlineData requires data")
+	}
+	if err := frontendlimits.StringBytes("inlineData.data", data, frontendlimits.MaxBase64Data); err != nil {
+		return lipapi.Part{}, err
 	}
 	if mime == "" {
 		mime = "application/octet-stream"
@@ -321,13 +340,21 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, fmt.Errorf("tools: %w", err)
 	}
+	if err := frontendlimits.Count("tools", len(items), frontendlimits.MaxTools); err != nil {
+		return nil, err
+	}
 	out := make([]lipapi.ToolDef, 0, len(items))
+	declarations := 0
 	for i, it := range items {
 		var w struct {
 			FunctionDeclarations []json.RawMessage `json:"functionDeclarations"`
 		}
 		if err := json.Unmarshal(it, &w); err != nil {
 			return nil, fmt.Errorf("tools[%d]: %w", i, err)
+		}
+		declarations += len(w.FunctionDeclarations)
+		if err := frontendlimits.Count("functionDeclarations", declarations, frontendlimits.MaxTools); err != nil {
+			return nil, err
 		}
 		for j, fd := range w.FunctionDeclarations {
 			var fn struct {
@@ -344,6 +371,9 @@ func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 			params := fn.Parameters
 			if len(params) == 0 {
 				params = json.RawMessage(`{}`)
+			}
+			if err := frontendlimits.Bytes("functionDeclaration.parameters", len(params), frontendlimits.MaxToolSchema); err != nil {
+				return nil, fmt.Errorf("tools[%d].functionDeclarations[%d]: %w", i, j, err)
 			}
 			out = append(out, lipapi.ToolDef{
 				Name:        fn.Name,
