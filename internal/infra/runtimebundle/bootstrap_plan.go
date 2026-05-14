@@ -37,7 +37,8 @@ type BuildBootstrapInput struct {
 	Mode       BootstrapMode
 	Mandatory  []lipsdk.Requirement
 	// LogWriter receives logger output; nil means [os.Stdout].
-	LogWriter io.Writer
+	LogWriter               io.Writer
+	StreamRecoveryOverrides config.StreamRecoveryOverrides
 }
 
 // BootstrapResult is the shared output of [BuildBootstrap] for inspect and serve commands.
@@ -75,6 +76,17 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	if err != nil {
 		return out, err
 	}
+	envOverrides, err := config.StreamRecoveryOverridesFromEnv()
+	if err != nil {
+		return out, err
+	}
+	mergedOverrides := mergeStreamRecoveryOverrides(envOverrides, in.StreamRecoveryOverrides)
+	if eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, mergedOverrides); err != nil {
+		return out, err
+	} else {
+		applyEffectiveStreamRecovery(cfg, eff)
+	}
+
 	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
 		return out, err
 	}

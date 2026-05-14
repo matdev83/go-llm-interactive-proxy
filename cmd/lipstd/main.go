@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	configPath, name, err := ParseArgs(os.Args[1:], os.Stderr)
+	parsed, err := ParseArgsFull(os.Args[1:], os.Stderr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
@@ -19,10 +19,11 @@ func main() {
 	}
 
 	code := RunCommand(context.Background(), CommandOptions{
-		Name:       name,
-		ConfigPath: configPath,
-		Output:     os.Stdout,
-		ErrorOut:   os.Stderr,
+		Name:           parsed.Name,
+		ConfigPath:     parsed.ConfigPath,
+		StreamRecovery: parsed.StreamRecovery,
+		Output:         os.Stdout,
+		ErrorOut:       os.Stderr,
 	})
 	os.Exit(code)
 }

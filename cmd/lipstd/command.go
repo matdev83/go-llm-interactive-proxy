@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
@@ -22,7 +24,6 @@ func printLipstdUsage(fs *flag.FlagSet) {
 	fs.PrintDefaults()
 }
 
-// CommandName is a lipstd subcommand (first positional token matching a known name, or default serve).
 type CommandName string
 
 const (
@@ -32,15 +33,20 @@ const (
 	CommandInventory   CommandName = "inventory"
 )
 
-// CommandOptions configures [RunCommand] for the standard distribution binary.
 type CommandOptions struct {
-	Name       CommandName
-	ConfigPath string
-	Output     io.Writer
-	ErrorOut   io.Writer
+	Name           CommandName
+	ConfigPath     string
+	StreamRecovery config.StreamRecoveryOverrides
+	Output         io.Writer
+	ErrorOut       io.Writer
 }
 
-// RunCommand executes one lipstd command and returns a process exit code.
+type ParsedArgs struct {
+	ConfigPath     string
+	Name           CommandName
+	StreamRecovery config.StreamRecoveryOverrides
+}
+
 func RunCommand(ctx context.Context, opts CommandOptions) int {
 	if opts.Output == nil {
 		opts.Output = os.Stdout
@@ -85,19 +91,14 @@ func parseCommandName(args []string) (CommandName, error) {
 	}
 }
 
-// parseCLIPrefix splits argv (typically os.Args[1:]) into tokens before the first recognized
-// subcommand, the subcommand (default [CommandServe] when none appears), and tokens after it.
-//
-// A token that equals a subcommand name is not treated as the delimiter when it is the value of
-// -config or --config (e.g. lipstd --config routes check-config uses config file "routes").
 func parseCLIPrefix(argv []string) (prefixArgs []string, name CommandName, tail []string) {
 	i := 0
 	for i < len(argv) {
 		a := argv[i]
-		if a == "-config" || a == "--config" {
+		if flagTakesValue(a) {
 			prefixArgs = append(prefixArgs, a)
 			i++
-			if i < len(argv) {
+			if i < len(argv) && !hasInlineFlagValue(a) {
 				prefixArgs = append(prefixArgs, argv[i])
 				i++
 			}
@@ -114,66 +115,124 @@ func parseCLIPrefix(argv []string) (prefixArgs []string, name CommandName, tail 
 	return prefixArgs, CommandServe, []string{}
 }
 
-// ParseArgs extracts -config and the subcommand from argv (excluding the program name).
-// Global flags may appear before the subcommand; the same flags may repeat after the subcommand,
-// in which case the latter value wins (e.g. lipstd --config a serve --config b uses b).
+func flagTakesValue(a string) bool {
+	switch a {
+	case "-config", "--config", "-auto-resume", "--auto-resume", "-auto-resume-idle-timeout", "--auto-resume-idle-timeout", "-auto-resume-grace-period", "--auto-resume-grace-period":
+		return true
+	default:
+		return hasInlineFlagValue(a)
+	}
+}
+
+func hasInlineFlagValue(a string) bool {
+	return len(a) > 0 && a[0] == '-' && containsEqual(a)
+}
+
+func containsEqual(s string) bool {
+	for _, r := range s {
+		if r == '=' {
+			return true
+		}
+	}
+	return false
+}
+
 func ParseArgs(argv []string, usageOut io.Writer) (configPath string, name CommandName, err error) {
+	parsed, err := ParseArgsFull(argv, usageOut)
+	if err != nil {
+		return "", "", err
+	}
+	return parsed.ConfigPath, parsed.Name, nil
+}
+
+func ParseArgsFull(argv []string, usageOut io.Writer) (ParsedArgs, error) {
 	if usageOut == nil {
 		usageOut = io.Discard
 	}
 	prefixArgs, name, tail := parseCLIPrefix(argv)
-
-	fs := flag.NewFlagSet("lipstd", flag.ContinueOnError)
-	fs.SetOutput(usageOut)
-	defaultCfg := "./config/config.yaml"
-	fs.StringVar(&configPath, "config", defaultCfg, "path to runtime config")
-	fs.Usage = func() { printLipstdUsage(fs) }
-	if err := fs.Parse(prefixArgs); err != nil {
-		return "", "", err
+	out := ParsedArgs{ConfigPath: "./config/config.yaml", Name: name}
+	if err := parseCommandFlags("lipstd", prefixArgs, usageOut, &out); err != nil {
+		return ParsedArgs{}, err
 	}
-	if extra := fs.Args(); len(extra) > 0 {
-		return "", "", fmt.Errorf("unexpected arguments before subcommand: %v", extra)
-	}
-
 	if len(tail) > 0 {
-		fs2 := flag.NewFlagSet(string(name), flag.ContinueOnError)
-		fs2.SetOutput(usageOut)
-		fs2.StringVar(&configPath, "config", configPath, "path to runtime config")
-		fs2.Usage = func() { printLipstdUsage(fs2) }
-		if err := fs2.Parse(tail); err != nil {
-			return "", "", err
-		}
-		if extra := fs2.Args(); len(extra) > 0 {
-			return "", "", fmt.Errorf("unexpected arguments: %v", extra)
+		if err := parseCommandFlags(string(name), tail, usageOut, &out); err != nil {
+			return ParsedArgs{}, err
 		}
 	}
-	return configPath, name, nil
+	return out, nil
 }
 
-// runServeCommand wires bootstrap and blocks in stdhttp until interrupt. Full happy-path serve is
-// not exercised in the default unit suite (signal-bound); early bootstrap failures are covered by
-// [TestRunCommand_serve_bootstrapFailsOnMissingConfig], and HTTP wiring by stdhttp/dogfood tests.
+func parseCommandFlags(name string, args []string, usageOut io.Writer, out *ParsedArgs) error {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(usageOut)
+	var autoResume string
+	var idleTimeout string
+	var gracePeriod string
+	fs.StringVar(&out.ConfigPath, "config", out.ConfigPath, "path to runtime config")
+	fs.StringVar(&autoResume, "auto-resume", "", "enable stream auto-resume/recovery")
+	fs.StringVar(&idleTimeout, "auto-resume-idle-timeout", "", "auto-resume idle timeout")
+	fs.StringVar(&gracePeriod, "auto-resume-grace-period", "", "auto-resume grace period")
+	fs.Usage = func() { printLipstdUsage(fs) }
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if extra := fs.Args(); len(extra) > 0 {
+		return fmt.Errorf("unexpected arguments: %v", extra)
+	}
+	if autoResume != "" {
+		v, err := parseBoolFlag("auto-resume", autoResume)
+		if err != nil {
+			return err
+		}
+		out.StreamRecovery.CLIEnabled = &v
+	}
+	if idleTimeout != "" {
+		d, err := time.ParseDuration(idleTimeout)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("auto-resume-idle-timeout: invalid positive duration %q", idleTimeout)
+		}
+		out.StreamRecovery.CLIIdleTimeout = d
+	}
+	if gracePeriod != "" {
+		d, err := time.ParseDuration(gracePeriod)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("auto-resume-grace-period: invalid positive duration %q", gracePeriod)
+		}
+		out.StreamRecovery.CLIGracePeriod = d
+	}
+	return nil
+}
+
+func parseBoolFlag(name, raw string) (bool, error) {
+	switch raw {
+	case "true", "1", "t", "TRUE", "True":
+		return true, nil
+	case "false", "0", "f", "FALSE", "False":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s: invalid boolean %q", name, raw)
+	}
+}
+
 func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: opts.ConfigPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  mandatoryStandardPlugins(),
-		LogWriter:  opts.Output,
+		ConfigPath:              opts.ConfigPath,
+		Mode:                    runtimebundle.BootstrapServe,
+		Mandatory:               mandatoryStandardPlugins(),
+		LogWriter:               opts.Output,
+		StreamRecoveryOverrides: opts.StreamRecovery,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
 	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
-
 	if err := logBootstrapAccessAuth(ctx, res.Logger, res.Config); err != nil {
 		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", err)
 		return 1
 	}
-
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
 	if err := stdhttp.RunWithRuntime(sigCtx, res.Config, res.App, res.Logger, res.Built); err != nil {
 		res.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
@@ -182,12 +241,7 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: opts.ConfigPath,
-		Mode:       runtimebundle.BootstrapInspect,
-		Mandatory:  mandatoryStandardPlugins(),
-		LogWriter:  io.Discard,
-	})
+	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
 		return 1
@@ -198,12 +252,7 @@ func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: opts.ConfigPath,
-		Mode:       runtimebundle.BootstrapInspect,
-		Mandatory:  mandatoryStandardPlugins(),
-		LogWriter:  io.Discard,
-	})
+	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
@@ -224,12 +273,7 @@ func runRoutesCommand(ctx context.Context, opts CommandOptions) int {
 }
 
 func runInventoryCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: opts.ConfigPath,
-		Mode:       runtimebundle.BootstrapInspect,
-		Mandatory:  mandatoryStandardPlugins(),
-		LogWriter:  io.Discard,
-	})
+	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1

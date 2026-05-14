@@ -15,22 +15,23 @@ import (
 // model_aliases via routing.NewAliasResolver. Default route selector resolution is [EffectiveDefaultRouteSelector]
 // in this package (see effective_default_route.go).
 type Config struct {
-	Server        ServerConfig        `yaml:"server"`
-	Access        AccessConfig        `yaml:"access"`
-	Auth          AuthConfig          `yaml:"auth"`
-	Logging       LoggingConfig       `yaml:"logging"`
-	Diagnostics   DiagnosticsConfig   `yaml:"diagnostics"`
-	Observability ObservabilityConfig `yaml:"observability"`
-	HTTPClient    HTTPClientConfig    `yaml:"http_client"`
-	Database      DatabaseConfig      `yaml:"database"`
-	Routing       RoutingConfig       `yaml:"routing"`
-	Continuity    ContinuityConfig    `yaml:"continuity"`
-	SecureSession SecureSessionConfig `yaml:"secure_session"`
-	Hooks         HooksConfig         `yaml:"hooks"`
-	Accounting    AccountingConfig    `yaml:"accounting"`
-	Plugins       PluginsConfig       `yaml:"plugins"`
-	ModelAliases  []ModelAliasConfig  `yaml:"model_aliases"`
-	ModelCatalog  ModelCatalogConfig  `yaml:"model_catalog"`
+	Server         ServerConfig         `yaml:"server"`
+	Access         AccessConfig         `yaml:"access"`
+	Auth           AuthConfig           `yaml:"auth"`
+	Logging        LoggingConfig        `yaml:"logging"`
+	Diagnostics    DiagnosticsConfig    `yaml:"diagnostics"`
+	Observability  ObservabilityConfig  `yaml:"observability"`
+	HTTPClient     HTTPClientConfig     `yaml:"http_client"`
+	Database       DatabaseConfig       `yaml:"database"`
+	Routing        RoutingConfig        `yaml:"routing"`
+	Continuity     ContinuityConfig     `yaml:"continuity"`
+	SecureSession  SecureSessionConfig  `yaml:"secure_session"`
+	StreamRecovery StreamRecoveryConfig `yaml:"stream_recovery"`
+	Hooks          HooksConfig          `yaml:"hooks"`
+	Accounting     AccountingConfig     `yaml:"accounting"`
+	Plugins        PluginsConfig        `yaml:"plugins"`
+	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
+	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 }
 
 type AccountingConfig struct {
