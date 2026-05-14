@@ -28,7 +28,7 @@ func TestExecutor_concurrentExecute_sharedEmptyHooksBus(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					_ = ctx
 					_ = call
 					_ = cand
@@ -74,7 +74,7 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	open := func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+	open := func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 		_ = ctx
 		_ = call
 		_ = cand

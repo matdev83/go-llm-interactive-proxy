@@ -53,7 +53,7 @@ func TestExecutor_catalogNoMatch_opensWithBackendCapabilities(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"be": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opened = true
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseFinished},
@@ -118,7 +118,7 @@ func TestExecutor_sequentialExecutes_seeNewCatalogGenerations(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"be": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},

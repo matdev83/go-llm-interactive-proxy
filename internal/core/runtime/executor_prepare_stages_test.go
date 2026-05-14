@@ -59,7 +59,7 @@ func TestExecutor_toolCatalogFilter_beforeBackendOpen(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					toolsSeen = len(call.Tools)
 					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
@@ -132,7 +132,7 @@ func TestExecutor_toolPolicy_recvHydratesMetaFromExecctx(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "t"},
 						{Kind: lipapi.EventResponseFinished},
@@ -198,7 +198,7 @@ func TestExecutor_toolPolicy_deniesStreamToolCall(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "blocked"}}), nil
 				},
 			},
@@ -264,7 +264,7 @@ func TestExecutor_reftoolpolicy_proofBundle_deniesEmittedBlockedTool(t *testing.
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "blocked"}}), nil
 				},
 			},
@@ -313,7 +313,7 @@ func TestExecutor_usageObserverReceivesUsageDeltas(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{
 							Kind:             lipapi.EventUsageDelta,
@@ -377,7 +377,7 @@ func TestExecutor_reftraffictranscript_usageLedgerCapturesAttemptLineage(t *test
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 1},
 						{Kind: lipapi.EventResponseFinished},
@@ -445,7 +445,7 @@ func TestExecutor_usageObserverReceivesEstimatedCostWhenProviderOmitsCost(t *tes
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventUsageDelta, InputTokens: 1_000_000, OutputTokens: 1_000_000},
 						{Kind: lipapi.EventResponseFinished},

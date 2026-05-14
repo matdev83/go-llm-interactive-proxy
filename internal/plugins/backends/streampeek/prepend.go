@@ -15,13 +15,23 @@ type prependFirst struct {
 	sent  bool
 }
 
+type managedPrependFirst struct {
+	*prependFirst
+}
+
 var _ lipapi.EventStream = (*prependFirst)(nil)
+var _ lipapi.ManagedEventStream = (*managedPrependFirst)(nil)
 
 // NewPrependFirst returns an EventStream whose first Recv returns first without calling rest.
 // Later Recvs delegate to rest; if rest is nil, the second Recv returns io.EOF.
 // Close forwards to rest when non-nil.
 func NewPrependFirst(first lipapi.Event, rest lipapi.EventStream) lipapi.EventStream {
 	return &prependFirst{first: first, rest: rest}
+}
+
+// NewManagedPrependFirst is the backend lifecycle-preserving form of NewPrependFirst.
+func NewManagedPrependFirst(first lipapi.Event, rest lipapi.ManagedEventStream) lipapi.ManagedEventStream {
+	return &managedPrependFirst{prependFirst: &prependFirst{first: first, rest: rest}}
 }
 
 func (e *prependFirst) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -40,4 +50,15 @@ func (e *prependFirst) Close() error {
 		return nil
 	}
 	return e.rest.Close()
+}
+
+func (e *managedPrependFirst) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	if e == nil || e.rest == nil {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	}
+	rest, ok := e.rest.(lipapi.ManagedEventStream)
+	if !ok {
+		return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+	}
+	return rest.Cancel(ctx, cause)
 }

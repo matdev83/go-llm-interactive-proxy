@@ -25,7 +25,7 @@ func TestExecutor_Execute_nilSecureSessionFailsClosedWithoutRuntimeTestHook(t *t
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					panic("backend must not open when secure session is nil")
 				},
 			},

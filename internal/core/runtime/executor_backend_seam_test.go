@@ -34,7 +34,7 @@ func TestExecutor_backendSeamRegression(t *testing.T) {
 			Backends: map[string]execbackend.Backend{
 				"nope": {
 					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 						atomic.AddInt32(&opens, 1)
 						return nil, errors.New("must not open")
 					},
@@ -77,13 +77,13 @@ func TestExecutor_backendSeamRegression(t *testing.T) {
 			Backends: map[string]execbackend.Backend{
 				"bad": {
 					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 						return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
 					},
 				},
 				"ok": {
 					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 						return lipapi.NewFixedEventStream([]lipapi.Event{
 							{Kind: lipapi.EventResponseStarted},
 							{Kind: lipapi.EventMessageStarted},
@@ -123,14 +123,14 @@ func TestExecutor_backendSeamRegression(t *testing.T) {
 			Backends: map[string]execbackend.Backend{
 				"one": {
 					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 						atomic.AddInt32(&opens, 1)
 						return &deltaThenErrStream{n: 0}, nil
 					},
 				},
 				"two": {
 					Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+					Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 						atomic.AddInt32(&opens, 1)
 						return lipapi.NewFixedEventStream([]lipapi.Event{
 							{Kind: lipapi.EventResponseStarted},

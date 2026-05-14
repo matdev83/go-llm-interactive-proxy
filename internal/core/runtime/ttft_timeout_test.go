@@ -22,7 +22,7 @@ type ttftBlockingOpenBackend struct {
 func (b *ttftBlockingOpenBackend) backend() execbackend.Backend {
 	return execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			<-ctx.Done()
 			b.openCanceled.Store(true)
 			return nil, ctx.Err()
@@ -35,7 +35,7 @@ type ttftImmediateBackend struct{}
 func (b ttftImmediateBackend) backend() execbackend.Backend {
 	return execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return lipapi.NewFixedEventStream([]lipapi.Event{
 				{Kind: lipapi.EventTextDelta, Delta: "ok"},
 				{Kind: lipapi.EventResponseFinished},
@@ -58,6 +58,10 @@ func (s *ttftBlockingRecvStream) Close() error {
 	return nil
 }
 
+func (s *ttftBlockingRecvStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
 type ttftBlockingRecvBackend struct {
 	stream *ttftBlockingRecvStream
 }
@@ -66,7 +70,7 @@ func (b *ttftBlockingRecvBackend) backend() execbackend.Backend {
 	b.stream = &ttftBlockingRecvStream{}
 	return execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return b.stream, nil
 		},
 	}

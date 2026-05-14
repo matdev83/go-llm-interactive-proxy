@@ -10,6 +10,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -35,7 +36,7 @@ type msgStream struct {
 	closed       bool
 }
 
-func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], maxPending int) lipapi.EventStream {
+func newMessageStream(s *ssestream.Stream[anthropic.MessageStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
@@ -255,4 +256,8 @@ func (s *msgStream) Close() error {
 		}
 	})
 	return err
+}
+
+func (s *msgStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
 }

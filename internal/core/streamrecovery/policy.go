@@ -92,8 +92,8 @@ func (p *Policy) DecideIdle(now time.Time) Decision {
 	if p == nil || !p.cfg.Enabled || p.responseFinished {
 		return Decision{Kind: DecisionPassThrough}
 	}
-	limit := p.cfg.IdleTimeout + p.cfg.GracePeriod
-	if limit <= 0 || now.Sub(p.lastActivityAt) < limit {
+	deadline, ok := p.IdleDeadline()
+	if !ok || now.Before(deadline) {
 		return Decision{Kind: DecisionPassThrough}
 	}
 	if p.clientCommitted {
@@ -102,13 +102,24 @@ func (p *Policy) DecideIdle(now time.Time) Decision {
 	return Decision{Kind: DecisionRecoverPreOutput, Err: lipapi.RecoverablePreOutputError(context.DeadlineExceeded), Reason: "upstream idle timeout before response_finished"}
 }
 
+func (p *Policy) IdleDeadline() (time.Time, bool) {
+	if p == nil || !p.cfg.Enabled || p.responseFinished {
+		return time.Time{}, false
+	}
+	limit := p.cfg.IdleTimeout + p.cfg.GracePeriod
+	if limit <= 0 || p.lastActivityAt.IsZero() {
+		return time.Time{}, false
+	}
+	return p.lastActivityAt.Add(limit), true
+}
+
 func (p *Policy) finishPostOutput(reason string) Decision {
 	dec := Decision{
 		Kind:   DecisionFinishPostOutput,
 		Reason: reason,
 		Finish: lipapi.Event{Kind: lipapi.EventResponseFinished, FinishReason: "proxy_stream_recovered"},
 	}
-	if p.cfg.EmitWarning || p.cfg.EmitWarning == false {
+	if p.cfg.EmitWarning {
 		dec.Warning = lipapi.Event{
 			Kind:           lipapi.EventWarning,
 			WarningCode:    "proxy_stream_recovery",

@@ -29,6 +29,7 @@ type attemptAccountingTracker struct {
 	remoteCompletedAt      time.Time
 	proxyCompletedAt       time.Time
 	outputTokens           int64
+	usageObserved          bool
 }
 
 func newAttemptAccountingTracker(startedAt time.Time) attemptAccountingTracker {
@@ -63,6 +64,7 @@ func (t *attemptAccountingTracker) observeUsage(ev lipapi.Event) {
 	if t == nil || ev.Kind != lipapi.EventUsageDelta {
 		return
 	}
+	t.usageObserved = true
 	t.outputTokens += int64(ev.OutputTokens)
 }
 

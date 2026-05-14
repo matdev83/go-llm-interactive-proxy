@@ -33,7 +33,7 @@ func TestPolicyEOFBeforeClientOutputRecoversPreOutput(t *testing.T) {
 
 func TestPolicyEOFAfterClientOutputFinishesPostOutput(t *testing.T) {
 	t.Parallel()
-	p := streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true}, time.Unix(1, 0))
+	p := streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true, EmitWarning: true}, time.Unix(1, 0))
 	p.ObserveBackendEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"}, time.Unix(2, 0))
 	p.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"}, time.Unix(2, 0))
 	dec := p.DecideEOF(io.EOF, time.Unix(3, 0))
@@ -42,6 +42,23 @@ func TestPolicyEOFAfterClientOutputFinishesPostOutput(t *testing.T) {
 	}
 	if dec.Warning.Kind != lipapi.EventWarning || dec.Finish.Kind != lipapi.EventResponseFinished {
 		t.Fatalf("expected warning and finish, got %#v %#v", dec.Warning, dec.Finish)
+	}
+}
+
+func TestPolicyEOFAfterClientOutputSuppressesWarningWhenDisabled(t *testing.T) {
+	t.Parallel()
+	p := streamrecovery.NewPolicy(streamrecovery.Config{Enabled: true, EmitWarning: false}, time.Unix(1, 0))
+	p.ObserveBackendEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"}, time.Unix(2, 0))
+	p.ObserveClientEvent(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"}, time.Unix(2, 0))
+	dec := p.DecideEOF(io.EOF, time.Unix(3, 0))
+	if dec.Kind != streamrecovery.DecisionFinishPostOutput {
+		t.Fatalf("decision: got %s", dec.Kind)
+	}
+	if dec.Warning.Kind != "" {
+		t.Fatalf("expected no warning when EmitWarning=false, got %#v", dec.Warning)
+	}
+	if dec.Finish.Kind != lipapi.EventResponseFinished {
+		t.Fatalf("expected finish, got %#v", dec.Finish)
 	}
 }
 

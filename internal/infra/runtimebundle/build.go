@@ -21,9 +21,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -104,6 +106,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 			return nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
 		}
 		backends[iid] = be
+	}
+	if cfg.Accounting.StrictAuthoritative {
+		for id, be := range backends {
+			if be.FinalizeBilling == nil {
+				return nil, fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id)
+			}
+		}
 	}
 	parent := context.Background()
 	if opts.StartupContext != nil {
@@ -241,11 +250,16 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		RawCapture:         trafficRaw,
 		TrafficRedactors:   trafficRedactors,
 	})
+	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	exec = &runtime.Executor{
 		Store:                store,
 		Bus:                  bus,
 		RuntimeSnapshot:      snap,
 		Backends:             backends,
+		ALegLifecycle:        leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
 		MaxAttempts:          cfg.Routing.MaxAttempts,
 		DefaultBackend:       defBE,
 		SelectorAliases:      aliasResolver,
@@ -256,6 +270,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		RouteObserver:        routeObserverFor(log),
 		Log:                  log,
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
+		StreamRecovery:       streamRecovery,
 	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
@@ -351,4 +366,17 @@ func BuildExecutor(
 		return nil, nil, nil, err
 	}
 	return b.Executor, b.Store, b.Closers, nil
+}
+
+func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {
+	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, config.StreamRecoveryOverrides{})
+	if err != nil {
+		return streamrecovery.Config{}, fmt.Errorf("runtimebundle: stream recovery config: %w", err)
+	}
+	return streamrecovery.Config{
+		Enabled:     eff.Enabled,
+		IdleTimeout: eff.IdleTimeout,
+		GracePeriod: eff.GracePeriod,
+		EmitWarning: eff.EmitWarning,
+	}, nil
 }

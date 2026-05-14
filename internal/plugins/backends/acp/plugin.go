@@ -55,7 +55,7 @@ func New(cfg Config) execbackend.Backend {
 			ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 				return defaultBackendCaps()
 			},
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, err
 			},
 		}
@@ -72,7 +72,7 @@ func New(cfg Config) execbackend.Backend {
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return defaultBackendCaps()
 		},
-		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			_ = cand
 			if ctx == nil {
 				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)

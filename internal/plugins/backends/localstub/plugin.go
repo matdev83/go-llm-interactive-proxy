@@ -33,7 +33,7 @@ func New(cfg Config) execbackend.Backend {
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return caps
 		},
-		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {
 				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
 			}

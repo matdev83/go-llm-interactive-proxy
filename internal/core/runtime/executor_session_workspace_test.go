@@ -49,7 +49,7 @@ func TestExecutor_backendOpenContext_hasSessionLabelsAndWorkspace(t *testing.T) 
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					openCtx = ctx
 					_ = call
 					_ = cand

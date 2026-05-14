@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -35,7 +36,7 @@ type chatStream struct {
 	activeToolOrder []int64
 }
 
-func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.EventStream {
+func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
@@ -229,4 +230,8 @@ func (s *chatStream) Close() error {
 		}
 	})
 	return err
+}
+
+func (s *chatStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
 }

@@ -16,6 +16,8 @@ import (
 type ExecutorView interface {
 	// Execute requires a non-nil ctx (same as [context.Context] contract for all request paths).
 	Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error)
+	// CancelALeg explicitly cancels a proxy-owned A-leg and its active B-legs.
+	CancelALeg(ctx context.Context, req lipapi.ALegCancelRequest) error
 	// WallClock returns the optional wall clock callback used for response metadata; nil means unset.
 	WallClock() func() time.Time
 }

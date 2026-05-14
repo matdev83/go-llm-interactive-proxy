@@ -57,7 +57,7 @@ func New(cfg Config) execbackend.Backend {
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},
-		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {
 				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
 			}
@@ -85,7 +85,7 @@ func New(cfg Config) execbackend.Backend {
 				es := newGenaiStream(seq, call.MaxPendingWireEvents)
 				ev, rerr := es.Recv(ctx)
 				if rerr == nil {
-					return streampeek.NewPrependFirst(ev, es), nil
+					return streampeek.NewManagedPrependFirst(ev, es), nil
 				}
 				_ = es.Close()
 				kind, retryAfter := classifyGenaiAPIError(rerr)
@@ -113,7 +113,7 @@ func newConfigErrorBackend(err error) execbackend.Backend {
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},
-		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			return nil, err
 		},
 	}

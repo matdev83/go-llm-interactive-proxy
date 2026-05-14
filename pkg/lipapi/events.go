@@ -205,6 +205,10 @@ func (f *FixedEventStream) Recv(ctx context.Context) (Event, error) {
 
 func (f *FixedEventStream) Close() error { return nil }
 
+func (f *FixedEventStream) Cancel(context.Context, CancelCause) CancelResult {
+	return CancelResult{Mode: CancelModeCloseOnly}
+}
+
 // Collected aggregates a canonical stream for non-streaming responses.
 type Collected struct {
 	Text      strings.Builder

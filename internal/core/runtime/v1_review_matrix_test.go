@@ -40,7 +40,7 @@ func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 				},
 			},
@@ -97,7 +97,7 @@ func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return &flakyThenEOFStream{
 						first: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
 						then:  lipapi.RecoverablePreOutputError(errors.New("recv fail")),
@@ -106,7 +106,7 @@ func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 			},
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -205,7 +205,7 @@ func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.
 		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					partLens = append(partLens, len(call.Messages[0].Parts))
 					return &flakyThenEOFStream{
 						first: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
@@ -215,7 +215,7 @@ func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.
 			},
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					partLens = append(partLens, len(call.Messages[0].Parts))
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},

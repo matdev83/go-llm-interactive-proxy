@@ -26,6 +26,10 @@ func (panicExecutorView) Execute(context.Context, *lipapi.Call) (lipapi.EventStr
 
 func (panicExecutorView) WallClock() func() time.Time { return nil }
 
+func (panicExecutorView) CancelALeg(context.Context, lipapi.ALegCancelRequest) error {
+	panic("inner_must_not_run")
+}
+
 func TestBundledFrontends_authRequired_missingBearer_terminatesWithJSONAndSkipsInner(t *testing.T) {
 	t.Parallel()
 	ak, err := coreauth.NewLocalAPIKeyAuthenticator([]coreauth.LocalAPIKeyRecord{

@@ -32,7 +32,7 @@ func TestExecutor_weightedFirstBranch_persistsConsumed(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"cheap": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
@@ -42,7 +42,7 @@ func TestExecutor_weightedFirstBranch_persistsConsumed(t *testing.T) {
 			},
 			"expensive": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					t.Fatal("expensive backend must not open when [first] cheap arm succeeds")
 					return nil, errors.New("unexpected")
 				},
@@ -104,7 +104,7 @@ func TestExecutor_recordAttempt_usesWithoutCancelOnCanceledRequestCtx(t *testing
 		Backends: map[string]execbackend.Backend{
 			"slow": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					_ = call
 					_ = cand
 					return &cancelWaitStream{ctx: ctx}, nil
@@ -165,7 +165,7 @@ func TestExecutor_plan_candidate_observedAndTraced(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"openai": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},

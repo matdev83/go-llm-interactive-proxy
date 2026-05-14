@@ -48,7 +48,7 @@ type attemptOpenParams struct {
 
 type attemptOpenResult struct {
 	opened bool
-	stream lipapi.EventStream
+	stream lipapi.ManagedEventStream
 	bleg   b2bua.BLegRecord
 	cand   routing.AttemptCandidate
 }
@@ -227,7 +227,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	)
 	defer openSpan.End()
 	openStart := time.Now()
-	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.EventStream, error) {
+	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return be.Open(openCtx, openCall, c)
 	})
 	openDur := time.Since(openStart).Seconds()

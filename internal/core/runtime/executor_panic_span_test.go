@@ -34,7 +34,7 @@ func TestExecutor_executeSpan_recordsErrorWhenOpenPanicExhaustsCandidates(t *tes
 		Backends: map[string]execbackend.Backend{
 			"only": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					panic("open boom")
 				},
 			},

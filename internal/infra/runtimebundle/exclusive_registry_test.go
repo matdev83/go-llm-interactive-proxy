@@ -28,7 +28,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 		_ = upstream
 		return execbackend.Backend{
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("exclusive-registry-probe")
 			},
 		}, nil

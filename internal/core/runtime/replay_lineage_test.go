@@ -31,7 +31,7 @@ func TestReplayLineage_recvFailoverIncrementsBLegs(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return &oneThenFailStream{
 						first: lipapi.Event{Kind: lipapi.EventResponseStarted},
 						then:  lipapi.RecoverablePreOutputError(errors.New("recv")),
@@ -40,7 +40,7 @@ func TestReplayLineage_recvFailoverIncrementsBLegs(t *testing.T) {
 			},
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -101,6 +101,10 @@ func (o *oneThenFailStream) Recv(context.Context) (lipapi.Event, error) {
 }
 
 func (o *oneThenFailStream) Close() error { return nil }
+
+func (o *oneThenFailStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
 
 func TestReplayFixture_minimalRequestJSON(t *testing.T) {
 	t.Parallel()

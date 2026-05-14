@@ -1,7 +1,6 @@
 package openairesponses
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,9 +83,9 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		return nil, fmt.Errorf("openairesponses: tool_choice: %w", err)
 	}
 
-	modelRaw, err := encodeJSONStringValue(model)
+	modelRaw, err := json.Marshal(model)
 	if err != nil {
-		return nil, fmt.Errorf("openairesponses: model extension: %w", err)
+		return nil, fmt.Errorf("openairesponses: marshal model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
 
@@ -513,20 +512,6 @@ func parseToolChoice(raw json.RawMessage) (lipapi.ToolChoice, error) {
 	default:
 		return lipapi.ToolChoice{}, fmt.Errorf("openairesponses: unsupported tool_choice type %q", obj.Type)
 	}
-}
-
-func encodeJSONStringValue(s string) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(true)
-	if err := enc.Encode(s); err != nil {
-		return nil, fmt.Errorf("openairesponses: encode json string: %w", err)
-	}
-	b := buf.Bytes()
-	if n := len(b); n > 0 && b[n-1] == '\n' {
-		b = b[:n-1]
-	}
-	return b, nil
 }
 
 // ModelFromCall returns the wire model string stored during decode.

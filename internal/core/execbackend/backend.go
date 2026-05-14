@@ -16,7 +16,19 @@ type Backend struct {
 	Caps lipapi.BackendCaps
 	// ResolveCaps, when set, supplies model/candidate-aware capabilities; otherwise Caps is used.
 	ResolveCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps
-	Open        func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error)
+	Open        func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error)
+
+	BillingFinalizationSupported bool
+	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
+}
+
+type BillingFinalizationInput struct {
+	TraceID string
+	ALegID  string
+	BLegID  string
+	Backend string
+	Model   string
+	Reason  string
 }
 
 // EffectiveCaps returns the caps used for negotiation for one backend and candidate.

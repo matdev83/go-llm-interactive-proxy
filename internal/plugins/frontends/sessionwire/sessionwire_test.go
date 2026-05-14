@@ -2,6 +2,7 @@ package sessionwire_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -29,6 +30,19 @@ func TestApplyAuthoritativeHeaders_nilSafe(t *testing.T) {
 	sessionwire.ApplyAuthoritativeHeaders(nil, http.Header{})
 	var ref lipapi.SessionRef
 	sessionwire.ApplyAuthoritativeHeaders(&ref, nil)
+}
+
+func TestWriteResponseCarriers_includesALegID(t *testing.T) {
+	t.Parallel()
+	rr := httptest.NewRecorder()
+	sessionwire.WriteResponseCarriers(rr, &lipapi.Call{Session: lipapi.SessionRef{
+		ALegID:                 "a-leg-1",
+		AuthoritativeSessionID: "sid-1",
+		ResumeToken:            "resume-1",
+	}})
+	if got := rr.Header().Get(sessionwire.HeaderALegID); got != "a-leg-1" {
+		t.Fatalf("A-leg header: got %q", got)
+	}
 }
 
 func TestHTTPStatusForSessionDenial(t *testing.T) {

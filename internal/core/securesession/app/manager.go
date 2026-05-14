@@ -381,6 +381,14 @@ func (m *Manager) PreBackendMandatoryGates(ctx context.Context, pol domain.Polic
 	return m.runMandatoryPreBackendChecklist(ctx, pol)
 }
 
+// LoadByALegID returns the secure-session row owning a proxy A-leg.
+func (m *Manager) LoadByALegID(ctx context.Context, aLegID string) (domain.Record, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Record{}, err
+	}
+	return m.store.LoadByALegID(ctx, strings.TrimSpace(aLegID))
+}
+
 // RecordAttemptOpened persists immutable B-leg open metadata for secure-session diagnostics.
 func (m *Manager) RecordAttemptOpened(ctx context.Context, trace domain.AttemptTrace) error {
 	if err := ctx.Err(); err != nil {

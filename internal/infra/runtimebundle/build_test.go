@@ -50,6 +50,9 @@ func TestBuildExecutor_productionClockAndRNG(t *testing.T) {
 	if ex.Rand == nil {
 		t.Fatal("expected non-nil Rand")
 	}
+	if ex.ALegLifecycle == nil {
+		t.Fatal("expected A-leg lifecycle coordinator wired")
+	}
 	if ex.CandidateHealth == nil {
 		t.Fatal("expected CandidateHealth wired")
 	}

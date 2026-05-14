@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -98,6 +99,11 @@ func (s *promptStream) Close() error {
 		return s.body.Close()
 	}
 	return nil
+}
+
+func (s *promptStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	s.signalCancel()
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeProvider}
 }
 
 func (s *promptStream) ensureResponseStartedLocked() error {

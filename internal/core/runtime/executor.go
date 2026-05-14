@@ -18,9 +18,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -44,6 +46,9 @@ type Executor struct {
 	// see [extensions.RequestRuntimeSnapshot].
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
 	Backends        map[string]execbackend.Backend // key: routing.Primary.Backend (non-empty)
+	// ALegLifecycle coordinates cancellation and teardown for all B-legs under one A-leg.
+	// Nil is initialized lazily on first execution or explicit cancellation.
+	ALegLifecycle *leglifecycle.Coordinator
 	// Rand supplies weighted routing rolls. Typical *rand/v2.Rand-backed values are not safe for
 	// concurrent use; rng() wraps a non-nil Rand accordingly.
 	Rand routing.Rng
@@ -74,6 +79,8 @@ type Executor struct {
 	RouteTrace *diag.RouteTraceBuffer
 	// MaxPendingWireEvents caps backend pending event queues per stream (0 = unlimited).
 	MaxPendingWireEvents int
+	// StreamRecovery controls opt-in mitigation of upstream streams that end without response_finished.
+	StreamRecovery streamrecovery.Config
 	// AccountingPriceCatalog estimates cost for usage deltas when providers do not report cost.
 	AccountingPriceCatalog accounting.PriceCatalog
 	// Metrics receives coarse executor observations when non-nil.
@@ -84,6 +91,7 @@ type Executor struct {
 	CompletionBufferLimits completion.BufferLimits
 	// secureSessionMu guards lazy initialization of SecureSession in the test hook path.
 	secureSessionMu sync.Mutex
+	lifecycleMu     sync.Mutex
 
 	// SecureSession authorizes turns via BeginTurn before submit hooks; required for all executor prepares.
 	SecureSession *app.Manager
@@ -173,6 +181,8 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	if err != nil {
 		return nil, fmt.Errorf("executor: prepare submit: %w", err)
 	}
+	lifecycle := e.lifecycleCoordinator()
+	aScope := lifecycle.StartALeg(aLeg.ALegID)
 	var recvViews execctx.Views
 	recvViewsOK := false
 	if v, ok := execctx.FromContext(ctx); ok {
@@ -210,6 +220,9 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if err := aScope.Err(); err != nil {
+			return nil, err
+		}
 		out, err := e.tryPlanOpenOnce(attemptOpenParams{
 			ctx:         ctx,
 			bus:         bus,
@@ -234,6 +247,12 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		if !out.opened {
 			continue
 		}
+		if err := aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			ID:      out.bleg.BLegID,
+			Attempt: lifecycleAttempt(out.stream),
+		}); err != nil {
+			return nil, err
+		}
 		rs := &retryRecvStream{
 			executor:    e,
 			bus:         bus,
@@ -257,7 +276,9 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			secureTurn:   secureTurn,
 			secureTurnOK: secureTurnOK,
 
-			accounting: newAttemptAccountingTracker(e.now()),
+			accounting:    newAttemptAccountingTracker(e.now()),
+			recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
+			aScope:        aScope,
 		}
 		rs.storeInner(out.stream)
 		return rs, nil

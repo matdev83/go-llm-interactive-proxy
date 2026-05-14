@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -53,7 +54,7 @@ type converseStream struct {
 	activeToolID string
 }
 
-func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream, maxPending int) lipapi.EventStream {
+func newConverseStream(sdk *bedrockruntime.ConverseStreamEventStream, maxPending int) lipapi.ManagedEventStream {
 	if sdk == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
@@ -80,6 +81,10 @@ func (s *converseStream) Close() error {
 		err = s.sdk.Close()
 	})
 	return err
+}
+
+func (s *converseStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
 }
 
 func (s *converseStream) Recv(ctx context.Context) (lipapi.Event, error) {

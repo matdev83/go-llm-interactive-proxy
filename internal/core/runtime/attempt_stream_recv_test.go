@@ -65,6 +65,10 @@ func (b *blockingUntilCloseInner) Close() error {
 	return nil
 }
 
+func (b *blockingUntilCloseInner) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
 func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	t.Parallel()
 	inner := &blockingUntilCloseInner{

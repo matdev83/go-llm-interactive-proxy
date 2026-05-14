@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -34,7 +35,7 @@ func canonicalEvents(cfg Config) []lipapi.Event {
 }
 
 // eventStreamForConfig returns a fixed canonical stream or a truncated-error stream for tests.
-func eventStreamForConfig(cfg Config) lipapi.EventStream {
+func eventStreamForConfig(cfg Config) lipapi.ManagedEventStream {
 	if !cfg.StreamErrorAfterTextDelta {
 		return lipapi.NewFixedEventStream(canonicalEvents(cfg))
 	}
@@ -67,3 +68,7 @@ func (s *errorAfterPrefixStream) Recv(ctx context.Context) (lipapi.Event, error)
 }
 
 func (s *errorAfterPrefixStream) Close() error { return nil }
+
+func (s *errorAfterPrefixStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeNone}
+}

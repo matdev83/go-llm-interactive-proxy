@@ -24,13 +24,85 @@ func registerProfiledBackend(t *testing.T, reg *pluginreg.Registry, factoryID st
 	err := reg.RegisterBackendWithProfile(factoryID, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, nil
 			},
 		}, nil
 	}, pluginreg.BackendSecurityProfile{CredentialMode: mode})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+type billingBackendOptions struct {
+	Finalizer bool
+	Supported bool
+}
+
+func registerBillingBackend(t *testing.T, reg *pluginreg.Registry, factoryID string, opts billingBackendOptions) {
+	t.Helper()
+	err := reg.RegisterBackend(factoryID, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+		be := execbackend.Backend{
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+			},
+			BillingFinalizationSupported: opts.Supported,
+		}
+		if opts.Finalizer {
+			be.FinalizeBilling = func(context.Context, execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+				return lipapi.Event{Kind: lipapi.EventUsageDelta, CostSource: "provider_reported"}, nil
+			}
+		}
+		return be, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBuild_strictAuthoritativeAccountingRequiresBackendBillingFinalizer(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name      string
+		finalizer bool
+		supported bool
+		wantErr   bool
+	}{
+		{name: "missing finalizer", finalizer: false, wantErr: true},
+		{name: "flag without finalizer", supported: true, finalizer: false, wantErr: true},
+		{name: "has finalizer", finalizer: true, wantErr: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			factoryID := "billing-" + strings.ReplaceAll(t.Name(), "/", "-")
+			reg := pluginreg.NewRegistry()
+			registerBillingBackend(t, reg, factoryID, billingBackendOptions{
+				Finalizer: tt.finalizer,
+				Supported: tt.supported,
+			})
+			cfg := &config.Config{
+				Routing:    config.RoutingConfig{MaxAttempts: 3},
+				Continuity: config.ContinuityConfig{InMemory: true},
+				Accounting: config.AccountingConfig{StrictAuthoritative: true},
+				Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+					Kind: factoryID, ID: "be", Enabled: true,
+				}}},
+			}
+
+			_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+				PluginRegistry: reg,
+			})
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "strict_authoritative requires billing finalizer") {
+					t.Fatalf("Build err = %v, want strict_authoritative billing finalizer error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Build err = %v", err)
+			}
+		})
 	}
 }
 

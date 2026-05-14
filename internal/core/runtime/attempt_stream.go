@@ -13,12 +13,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -53,11 +56,12 @@ type retryRecvStream struct {
 	isContextLimitExhaustion bool
 
 	innerMu   sync.Mutex
-	inner     lipapi.EventStream
+	inner     lipapi.ManagedEventStream
 	bleg      b2bua.BLegRecord
 	cand      routing.AttemptCandidate
 	committed bool
 	finished  bool
+	endOnce   sync.Once
 
 	// recvViews / routePrefs preserve [execctx] values from prepare so Recv callers can pass a bare HTTP context.
 	recvViews   execctx.Views
@@ -77,19 +81,23 @@ type retryRecvStream struct {
 	gateLive  bool
 
 	accounting attemptAccountingTracker
+
+	recoverPolicy *streamrecovery.Policy
+	recoverDrain  []lipapi.Event
+	aScope        *leglifecycle.ALeg
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
 
 var errNilRetryRecvStream = errors.New("runtime: nil retryRecvStream")
 
-func (s *retryRecvStream) loadInner() lipapi.EventStream {
+func (s *retryRecvStream) loadInner() lipapi.ManagedEventStream {
 	s.innerMu.Lock()
 	defer s.innerMu.Unlock()
 	return s.inner
 }
 
-func (s *retryRecvStream) storeInner(stream lipapi.EventStream) {
+func (s *retryRecvStream) storeInner(stream lipapi.ManagedEventStream) {
 	s.innerMu.Lock()
 	s.inner = stream
 	s.innerMu.Unlock()
@@ -103,12 +111,84 @@ func (s *retryRecvStream) now() time.Time {
 }
 
 // takeAndNilInner clears s.inner and returns the previous value; the caller should Close it when non-nil.
-func (s *retryRecvStream) takeAndNilInner() lipapi.EventStream {
+func (s *retryRecvStream) takeAndNilInner() lipapi.ManagedEventStream {
 	s.innerMu.Lock()
 	c := s.inner
 	s.inner = nil
 	s.innerMu.Unlock()
 	return c
+}
+
+func (s *retryRecvStream) cancelAndCloseInner(
+	ctx context.Context,
+	c lipapi.ManagedEventStream,
+	cause leglifecycle.CancelCause,
+) {
+	if c == nil {
+		return
+	}
+	_ = c.Cancel(ctx, cause)
+	if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+			"reason", string(cause.Kind),
+			"error", cerr,
+		)
+	}
+}
+
+type idleContextDeadline struct {
+	active bool
+	parent context.Context
+}
+
+func (d idleContextDeadline) expired(_ context.Context, err error) bool {
+	return d.active && d.parent != nil && d.parent.Err() == nil && errors.Is(err, context.DeadlineExceeded)
+}
+
+func (s *retryRecvStream) scopedIdleContext(
+	parent context.Context,
+	parentCancel context.CancelFunc,
+	now time.Time,
+) (context.Context, context.CancelFunc, idleContextDeadline) {
+	if s == nil || s.recoverPolicy == nil || parent == nil {
+		return parent, parentCancel, idleContextDeadline{}
+	}
+	deadline, ok := s.recoverPolicy.IdleDeadline()
+	if !ok {
+		return parent, parentCancel, idleContextDeadline{}
+	}
+	if !now.Before(deadline) {
+		deadline = now
+	}
+	if parentDeadline, ok := parent.Deadline(); ok && !deadline.Before(parentDeadline) {
+		return parent, parentCancel, idleContextDeadline{}
+	}
+	ctx, cancel := context.WithDeadline(parent, deadline)
+	return ctx, func() {
+		cancel()
+		parentCancel()
+	}, idleContextDeadline{active: true, parent: parent}
+}
+
+func lifecycleAttempt(stream lipapi.EventStream) leglifecycle.BLegAttempt {
+	if stream == nil {
+		return nil
+	}
+	if managed, ok := stream.(leglifecycle.BLegAttempt); ok {
+		return managed
+	}
+	return lipapi.CloseOnlyManagedStream{Stream: stream}
+}
+
+func (s *retryRecvStream) finishALegScope() {
+	if s == nil {
+		return
+	}
+	s.endOnce.Do(func() {
+		if s.aScope != nil {
+			s.aScope.End()
+		}
+	})
 }
 
 // recvHookMeta returns identifiers for response-path hooks after B-leg allocation.
@@ -155,6 +235,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.finished {
 		return lipapi.Event{}, io.EOF
 	}
+	if len(s.recoverDrain) > 0 {
+		ev := s.recoverDrain[0]
+		s.recoverDrain = s.recoverDrain[1:]
+		if ev.Kind == lipapi.EventResponseFinished {
+			s.finished = true
+			s.finishALegScope()
+		}
+		return ev, nil
+	}
 	ctx = s.recvExecContext(ctx)
 	for {
 		if ev, ok := s.popGateDrainHead(); ok {
@@ -172,7 +261,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			s.emitTrafficPTC(ctx, ev, pm)
 			return ev, nil
 		}
-		var inner lipapi.EventStream
+		var inner lipapi.ManagedEventStream
 		for {
 			inner = s.loadInner()
 			if inner != nil {
@@ -192,6 +281,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if !s.committed && s.ttft != nil {
 			recvCtx, cancelRecv, ttftDeadline = s.ttft.scopedContext(ctx, s.now(), s.cand.Key, s.cand.Primary.TTFTTimeout)
 		}
+		recvCtx, cancelRecv, idleDeadline := s.scopedIdleContext(recvCtx, cancelRecv, s.now())
 		ev, err := safety.CallValue(safety.BoundaryBackend, "backend_recv", func() (lipapi.Event, error) {
 			return inner.Recv(recvCtx)
 		})
@@ -200,6 +290,23 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			var pe *safety.PanicError
 			if errors.As(err, &pe) {
 				err = mapStreamPanic(pe, s.committed)
+			}
+		}
+		if err != nil && s.aScope != nil {
+			if scopeErr := s.aScope.Err(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
+				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+					ALegID:    s.aLegID,
+					BLeg:      s.bleg,
+					Cand:      s.cand,
+					Outcome:   lipapi.AttemptCancelled,
+					Reason:    "a-leg canceled",
+					DetailErr: scopeErr,
+				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+				_ = s.takeAndNilInner()
+				s.persistCancellationBilling(ctx, "a-leg canceled")
+				s.finished = true
+				s.finishALegScope()
+				return lipapi.Event{}, scopeErr
 			}
 		}
 		if err == nil {
@@ -249,6 +356,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 				out = s.emitGateDrained(ctx, out)
 				s.accounting.observeClientEvent(s.now(), out)
+				if s.recoverPolicy != nil {
+					s.recoverPolicy.ObserveClientEvent(out, s.now())
+				}
 				if err := s.beforeEmitClientFacing(ctx, out); err != nil {
 					if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 						return lipapi.Event{}, err
@@ -267,6 +377,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 			}
 			s.accounting.observeClientEvent(s.now(), ev)
+			if s.recoverPolicy != nil {
+				s.recoverPolicy.ObserveClientEvent(ev, s.now())
+			}
 			if ev.Kind == lipapi.EventResponseFinished {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:  s.aLegID,
@@ -275,6 +388,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					Outcome: lipapi.AttemptSuccess,
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				s.finished = true
+				s.finishALegScope()
 			}
 			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
 				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
@@ -294,6 +408,30 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			if len(gates) > 0 && !s.gateLive && len(s.gateBuf) > 0 && !extensions.StreamFinished(s.gateBuf) {
 				s.gateBuf = nil
 			}
+			if s.recoverPolicy != nil {
+				dec := s.recoverPolicy.DecideEOF(io.EOF, s.now())
+				if dec.Kind == streamrecovery.DecisionFinishPostOutput {
+					s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+						ALegID:    s.aLegID,
+						BLeg:      s.bleg,
+						Cand:      s.cand,
+						Outcome:   lipapi.AttemptSuccess,
+						Reason:    dec.Reason,
+						DetailErr: io.EOF,
+					}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+					if dec.Warning.Kind != "" {
+						s.recoverDrain = append(s.recoverDrain, dec.Warning)
+					}
+					s.recoverDrain = append(s.recoverDrain, dec.Finish)
+					ev := s.recoverDrain[0]
+					s.recoverDrain = s.recoverDrain[1:]
+					if ev.Kind == lipapi.EventResponseFinished {
+						s.finished = true
+						s.finishALegScope()
+					}
+					return ev, nil
+				}
+			}
 			if !s.finished {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:    s.aLegID,
@@ -305,7 +443,50 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			}
 			s.finished = true
+			s.finishALegScope()
 			return lipapi.Event{}, io.EOF
+		}
+		if idleDeadline.expired(recvCtx, err) {
+			dec := s.recoverPolicy.DecideIdle(s.now())
+			if dec.Kind == streamrecovery.DecisionFinishPostOutput {
+				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+					ALegID:    s.aLegID,
+					BLeg:      s.bleg,
+					Cand:      s.cand,
+					Outcome:   lipapi.AttemptSuccess,
+					Reason:    dec.Reason,
+					DetailErr: context.DeadlineExceeded,
+				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+				if c := s.takeAndNilInner(); c != nil {
+					s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
+				}
+				if dec.Warning.Kind != "" {
+					s.recoverDrain = append(s.recoverDrain, dec.Warning)
+				}
+				s.recoverDrain = append(s.recoverDrain, dec.Finish)
+				ev := s.recoverDrain[0]
+				s.recoverDrain = s.recoverDrain[1:]
+				if ev.Kind == lipapi.EventResponseFinished {
+					s.finished = true
+					s.finishALegScope()
+				}
+				return ev, nil
+			}
+			if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
+				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+					ALegID:    s.aLegID,
+					BLeg:      s.bleg,
+					Cand:      s.cand,
+					Outcome:   lipapi.AttemptSwallowedFailure,
+					Reason:    dec.Reason,
+					DetailErr: dec.Err,
+				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+				if c := s.takeAndNilInner(); c != nil {
+					s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
+				}
+				s.excluded[s.cand.Key] = struct{}{}
+				continue
+			}
 		}
 		if ttftDeadline.expired(recvCtx, err) && !s.committed {
 			ttftScope := ttftDeadline.scope
@@ -348,6 +529,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 			}
 			s.finished = true
+			s.finishALegScope()
 			return lipapi.Event{}, lipapi.ErrTTFTTimeout
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
@@ -367,14 +549,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				DetailErr: err,
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			if c := s.takeAndNilInner(); c != nil {
-				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-					s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
-						"reason", "context_done",
-						"error", cerr,
-					)
+				if s.aScope != nil {
+					_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
+				} else {
+					s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
 				}
 			}
+			s.persistCancellationBilling(ctx, reason)
 			s.finished = true
+			s.finishALegScope()
 			return lipapi.Event{}, err
 		}
 		if s.committed || !lipapi.IsRecoverablePreOutput(err) {
@@ -424,6 +607,71 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		s.excluded[s.cand.Key] = struct{}{}
 	}
+}
+
+func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason string) {
+	if s == nil || s.accounting.usageObserved {
+		return
+	}
+	if s.finalizeBillingAfterCancel(ctx, reason) {
+		return
+	}
+	s.recordCancellationBillingMarker(ctx, reason)
+}
+
+func (s *retryRecvStream) recordCancellationBillingMarker(ctx context.Context, reason string) {
+	if s == nil || s.accounting.usageObserved {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"billing_basis": "estimated_after_a_leg_cancellation",
+		"reason":        strings.TrimSpace(reason),
+	})
+	ev := lipapi.Event{
+		Kind:         lipapi.EventUsageDelta,
+		CostSource:   accounting.CostSourceEstimated,
+		RawUsageJSON: string(raw),
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	if err := s.beforeEmitClientFacing(persistCtx, ev); err != nil && s.executor != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(persistCtx, "secure_session cancellation billing marker", "error", err)
+	}
+	s.emitUsage(persistCtx, ev)
+}
+
+func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason string) bool {
+	if s == nil || s.executor == nil || s.executor.Backends == nil {
+		return false
+	}
+	be, ok := s.executor.Backends[strings.TrimSpace(s.cand.Primary.Backend)]
+	if !ok || be.FinalizeBilling == nil {
+		return false
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	ev, err := be.FinalizeBilling(persistCtx, execbackend.BillingFinalizationInput{
+		TraceID: strings.TrimSpace(s.traceID),
+		ALegID:  strings.TrimSpace(s.aLegID),
+		BLegID:  strings.TrimSpace(s.bleg.BLegID),
+		Backend: strings.TrimSpace(s.cand.Primary.Backend),
+		Model:   strings.TrimSpace(s.cand.Primary.Model),
+		Reason:  strings.TrimSpace(reason),
+	})
+	if err != nil {
+		if s.executor.Log != nil {
+			s.executor.Log.DebugContext(persistCtx, "billing finalizer after cancellation", "error", err)
+		}
+		return false
+	}
+	if ev.Kind != lipapi.EventUsageDelta {
+		return false
+	}
+	s.accounting.observeUsage(ev)
+	if recErr := s.beforeEmitClientFacing(persistCtx, ev); recErr != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(persistCtx, "secure_session billing finalizer marker", "error", recErr)
+	}
+	s.emitUsage(persistCtx, ev)
+	return true
 }
 
 func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
@@ -560,6 +808,11 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			CandidateKey: strings.TrimSpace(s.cand.Key),
 		}
 	}
+	if s.aScope != nil {
+		if err := s.aScope.Err(); err != nil {
+			return false, err
+		}
+	}
 	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
 		ctx:                      ctx,
 		bus:                      s.bus,
@@ -583,10 +836,21 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if !out.opened {
 		return false, nil
 	}
+	if s.aScope != nil {
+		if err := s.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			ID:      out.bleg.BLegID,
+			Attempt: lifecycleAttempt(out.stream),
+		}); err != nil {
+			return false, err
+		}
+	}
 	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
 	s.accounting = newAttemptAccountingTracker(s.now())
+	if s.executor != nil {
+		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
+	}
 	return true, nil
 }
 
@@ -596,8 +860,18 @@ func (s *retryRecvStream) Close() error {
 	}
 	c := s.takeAndNilInner()
 	if c == nil {
+		s.finishALegScope()
 		return nil
 	}
+	if !s.finished {
+		if s.aScope != nil {
+			_ = s.aScope.Cancel(context.Background(), leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+			s.finishALegScope()
+			return nil
+		}
+		_ = c.Cancel(context.Background(), leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
+	}
+	s.finishALegScope()
 	err := safety.Call(safety.BoundaryBackend, "backend_stream_close", func() error {
 		return c.Close()
 	})

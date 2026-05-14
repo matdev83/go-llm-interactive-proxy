@@ -37,14 +37,14 @@ func TestExecutor_capabilityNegotiatePanic_excludesCandidateThenOpensNext(t *tes
 				ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 					panic("negotiate caps boom")
 				},
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					t.Fatal("panicaps Open must not run after capability panic")
 					return nil, errors.New("unexpected")
 				},
 			},
 			"good": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opened = cand.Primary.Backend
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
@@ -87,14 +87,14 @@ func TestExecutor_openPanic_preOutput_swallowedFailoverToSecondBackend(t *testin
 		Backends: map[string]execbackend.Backend{
 			"badopen": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens = append(opens, "badopen")
 					panic("open boom")
 				},
 			},
 			"good": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens = append(opens, "good")
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
@@ -155,6 +155,10 @@ func (recvPanicStream) Recv(context.Context) (lipapi.Event, error) {
 
 func (recvPanicStream) Close() error { return nil }
 
+func (recvPanicStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
 func TestExecutor_recvPanic_preOutput_failoverToSecondBackend(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -169,14 +173,14 @@ func TestExecutor_recvPanic_preOutput_failoverToSecondBackend(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"badrecv": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens = append(opens, "badrecv")
 					return recvPanicStream{}, nil
 				},
 			},
 			"good": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens = append(opens, "good")
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
@@ -245,6 +249,10 @@ func (d *deltaThenRecvPanicStream) Recv(context.Context) (lipapi.Event, error) {
 
 func (deltaThenRecvPanicStream) Close() error { return nil }
 
+func (deltaThenRecvPanicStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
 func TestExecutor_recvPanic_postOutput_notRecoverable(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -259,7 +267,7 @@ func TestExecutor_recvPanic_postOutput_notRecoverable(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"sole": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens++
 					return &deltaThenRecvPanicStream{}, nil
 				},
@@ -312,6 +320,10 @@ func (*finishThenClosePanicStream) Close() error {
 	panic("close boom")
 }
 
+func (*finishThenClosePanicStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
 func TestExecutor_streamClosePanic_returnsNil(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
@@ -325,7 +337,7 @@ func TestExecutor_streamClosePanic_returnsNil(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"sole": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return &finishThenClosePanicStream{}, nil
 				},
 			},
@@ -367,7 +379,7 @@ func TestExecutor_streamClosePanic_logsIsolatedCrashDiagnosticsAtDebug(t *testin
 		Backends: map[string]execbackend.Backend{
 			"sole": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return &finishThenClosePanicStream{}, nil
 				},
 			},

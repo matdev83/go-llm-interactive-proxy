@@ -223,7 +223,7 @@ func injectStubBackend(t *testing.T, b *runtimebundle.Built) {
 	}
 	b.Executor.Backends["stub"] = execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			_ = ctx
 			_ = call
 			_ = cand

@@ -39,6 +39,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 	if in.Reg == nil {
 		return fmt.Errorf("stdhttp: nil plugin registry")
 	}
+	mountALegCancel(in.Mux, in.Exec)
 	specific := []config.PluginConfig{}
 	geminiLast := []config.PluginConfig{}
 	for _, p := range in.Plugins {

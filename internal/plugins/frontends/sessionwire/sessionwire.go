@@ -13,6 +13,7 @@ import (
 const (
 	HeaderAuthoritativeSessionID = "X-LIP-Session-Id"
 	HeaderResumeToken            = "X-LIP-Resume-Token"
+	HeaderALegID                 = "X-LIP-A-Leg-Id"
 	// Metadata keys for JSON request bodies (OpenAI-style metadata maps).
 	MetaKeyAuthoritativeSessionID = "lip_session_id"
 	MetaKeyResumeToken            = "lip_resume_token"
@@ -79,5 +80,8 @@ func WriteResponseCarriers(w http.ResponseWriter, call *lipapi.Call) {
 	}
 	if tok := strings.TrimSpace(call.Session.ResumeToken); tok != "" {
 		w.Header().Set(HeaderResumeToken, tok)
+	}
+	if aLegID := strings.TrimSpace(call.Session.ALegID); aLegID != "" {
+		w.Header().Set(HeaderALegID, aLegID)
 	}
 }

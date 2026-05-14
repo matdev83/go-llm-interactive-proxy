@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -202,6 +203,24 @@ func TestPromptStream_signalCancelContextNotCanceledWithConsumer(t *testing.T) {
 	}
 	if got, _ := last.Value(ctxKey{}).(string); got != "trace" {
 		t.Fatalf("expected stream context value propagated, got %q", got)
+	}
+}
+
+func TestPromptStream_CancelInvokesProviderCancel(t *testing.T) {
+	t.Parallel()
+	spy := &unarySpyTransport{invokeCh: make(chan struct{}, 4)}
+	cli := &client{t: spy}
+	body := io.NopCloser(strings.NewReader(""))
+	s := newPromptNDJSONStream(context.Background(), body, cli, "sid", 1, "mid", mergeMapperOptions(Config{}), nil, mergeCancelProfile(Config{}), 0)
+
+	res := s.Cancel(context.Background(), leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit})
+	if res.Mode != leglifecycle.CancelModeProvider {
+		t.Fatalf("cancel mode = %s", res.Mode)
+	}
+	select {
+	case <-spy.invokeCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelSession was not invoked")
 	}
 }
 

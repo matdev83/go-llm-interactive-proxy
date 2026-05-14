@@ -78,7 +78,7 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 		Backends: map[string]execbackend.Backend{
 			"stub": {
 				Caps: caps,
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					if capture != nil {
 						capture.Store("last", call)
 					}
@@ -117,7 +117,7 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 		Backends: map[string]execbackend.Backend{
 			"stub": {
 				Caps: caps,
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					if capture != nil {
 						capture.Store("last", call)
 					}

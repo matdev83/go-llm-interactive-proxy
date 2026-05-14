@@ -66,6 +66,10 @@ The returned stream wrapper preserves the no-retry-after-output invariant. Befor
 
 On received events, the stream path applies response-part hooks, tool reactors, completion gates, secure-session recording, traffic observation, and attempt outcome recording where those handlers are configured. Frontend encoders then render canonical events into legal streaming or collected protocol responses.
 
+### 9. Client-side cancellation
+
+Frontend adapters translate protocol-specific cancel operations into `lipapi.ALegCancelRequest`; core cancellation remains A-leg based. OpenAI Responses cancel accepts the proxy response id from `/v1/responses/{response_id}/cancel` as the primary correlation carrier for normal clients; proxy-issued response ids carry the A-leg and authoritative session binding needed for core authorization. `X-LIP-A-Leg-Id` remains a LIP-private fallback for internal/test clients and older responses. Frontends must not require a private LIP header when the public protocol already carries an opaque response id issued by this proxy.
+
 ## Failure model
 
 - Bad client input fails at frontend decode or canonical validation.

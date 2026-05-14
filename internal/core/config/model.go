@@ -35,7 +35,9 @@ type Config struct {
 }
 
 type AccountingConfig struct {
-	Pricing AccountingPricingConfig `yaml:"pricing"`
+	// StrictAuthoritative rejects backend wiring unless every configured backend can provide authoritative usage.
+	StrictAuthoritative bool                    `yaml:"strict_authoritative"`
+	Pricing             AccountingPricingConfig `yaml:"pricing"`
 }
 
 type AccountingPricingConfig struct {

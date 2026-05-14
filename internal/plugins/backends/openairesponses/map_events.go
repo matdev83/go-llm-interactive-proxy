@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -38,7 +39,7 @@ type sdkStream struct {
 	toolCallFinished  map[string]bool
 }
 
-func newSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.EventStream {
+func newSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
@@ -436,4 +437,8 @@ func (s *sdkStream) Close() error {
 		}
 	})
 	return err
+}
+
+func (s *sdkStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
 }

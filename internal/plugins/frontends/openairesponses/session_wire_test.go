@@ -3,12 +3,14 @@ package openairesponses_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -74,6 +76,32 @@ func (sessionDenyExecutor) Execute(ctx context.Context, call *lipapi.Call) (lipa
 
 func (sessionDenyExecutor) WallClock() func() time.Time { return nil }
 
+func (sessionDenyExecutor) CancelALeg(context.Context, lipapi.ALegCancelRequest) error { return nil }
+
+type cancelExecutor struct {
+	canceled lipapi.ALegCancelRequest
+	err      error
+}
+
+func (e *cancelExecutor) Execute(ctx context.Context, call *lipapi.Call) (lipapi.EventStream, error) {
+	_ = ctx
+	_ = call
+	return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+}
+
+func (e *cancelExecutor) WallClock() func() time.Time { return nil }
+
+func (e *cancelExecutor) CancelALeg(ctx context.Context, req lipapi.ALegCancelRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if e.err != nil {
+		return e.err
+	}
+	e.canceled = req
+	return nil
+}
+
 func TestHandler_sessionDenial_nonEnumeratingJSON(t *testing.T) {
 	t.Parallel()
 	h := &openairesponses.Handler{
@@ -110,6 +138,86 @@ func TestHandler_sessionDenial_nonEnumeratingJSON(t *testing.T) {
 	}
 	if payload.Error.Type != "invalid_request_error" {
 		t.Fatalf("error.type: %q", payload.Error.Type)
+	}
+}
+
+func TestHandler_cancelResponseCancelsALegFromCarrier(t *testing.T) {
+	t.Parallel()
+	ex := &cancelExecutor{}
+	h := &openairesponses.Handler{Exec: ex}
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses/resp_abc/cancel", nil)
+	req.Header.Set(sessionwire.HeaderALegID, "a-leg-1")
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if ex.canceled.ALegID != "a-leg-1" {
+		t.Fatalf("canceled A-leg = %q", ex.canceled.ALegID)
+	}
+	if !strings.Contains(rr.Body.String(), `"status":"cancelled"`) {
+		t.Fatalf("cancel response body = %s", rr.Body.String())
+	}
+}
+
+func TestHandler_cancelResponseRejectsMissingResponseID(t *testing.T) {
+	t.Parallel()
+	ex := &cancelExecutor{}
+	h := &openairesponses.Handler{Exec: ex}
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses/cancel", nil)
+	req.Header.Set(sessionwire.HeaderALegID, "a-leg-1")
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if ex.canceled.ALegID != "" {
+		t.Fatalf("unexpected cancellation request: %+v", ex.canceled)
+	}
+}
+
+func TestHandler_cancelResponseErrorStatusMapping(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantType   string
+	}{
+		{name: "missing principal", err: domain.ErrMissingPrincipal, wantStatus: http.StatusUnauthorized, wantType: "authentication_error"},
+		{name: "owner mismatch", err: domain.ErrOwnerMismatch, wantStatus: http.StatusForbidden, wantType: "invalid_request_error"},
+		{name: "session not found", err: domain.ErrSessionNotFound, wantStatus: http.StatusNotFound, wantType: "invalid_request_error"},
+		{name: "internal", err: errors.New("database down"), wantStatus: http.StatusInternalServerError, wantType: "api_error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := &openairesponses.Handler{Exec: &cancelExecutor{err: tc.err}}
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses/resp_abc/cancel", nil)
+			req.Header.Set(sessionwire.HeaderALegID, "a-leg-1")
+			rr := httptest.NewRecorder()
+
+			h.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+			}
+			var payload struct {
+				Error struct {
+					Type string `json:"type"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Error.Type != tc.wantType {
+				t.Fatalf("error.type = %q want %q", payload.Error.Type, tc.wantType)
+			}
+		})
 	}
 }
 

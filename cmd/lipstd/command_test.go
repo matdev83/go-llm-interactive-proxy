@@ -353,3 +353,33 @@ func TestRunCommand_nilContext(t *testing.T) {
 		t.Fatalf("stderr: %q", errb.String())
 	}
 }
+
+func TestParseArgs_autoResumeFlagMayDisable(t *testing.T) {
+	t.Parallel()
+	var usage bytes.Buffer
+	opts, err := ParseArgsFull([]string{"--auto-resume=true", "serve", "--auto-resume=false"}, &usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Name != CommandServe {
+		t.Fatalf("name=%q", opts.Name)
+	}
+	if opts.StreamRecovery.CLIEnabled == nil || *opts.StreamRecovery.CLIEnabled {
+		t.Fatalf("expected trailing CLI false override, got %#v", opts.StreamRecovery.CLIEnabled)
+	}
+}
+
+func TestParseArgs_autoResumeDurations(t *testing.T) {
+	t.Parallel()
+	var usage bytes.Buffer
+	opts, err := ParseArgsFull([]string{"serve", "--auto-resume-idle-timeout=20s", "--auto-resume-grace-period=2s"}, &usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.StreamRecovery.CLIIdleTimeout.String() != "20s" {
+		t.Fatalf("idle timeout=%s", opts.StreamRecovery.CLIIdleTimeout)
+	}
+	if opts.StreamRecovery.CLIGracePeriod.String() != "2s" {
+		t.Fatalf("grace period=%s", opts.StreamRecovery.CLIGracePeriod)
+	}
+}

@@ -116,7 +116,7 @@ func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecut
 		be = map[string]execbackend.Backend{
 			"stub": {
 				Caps: caps,
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					if capture != nil {
 						capture.Store("last", call)
 						var n int

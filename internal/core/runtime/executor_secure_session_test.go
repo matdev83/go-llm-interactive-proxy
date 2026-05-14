@@ -287,13 +287,13 @@ func TestExecutor_secureSession_failoverTwoOpens_memoryLatestTraceReflectsSecond
 		Backends: map[string]execbackend.Backend{
 			"bad": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
 				},
 			},
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					if v, ok := execctx.FromContext(ctx); ok && v.Session.AuthoritativeSessionID != "" {
 						capturedAuthoritative = v.Session.AuthoritativeSessionID
 					}
@@ -359,7 +359,7 @@ func TestExecutor_secureSession_Open_recordsOutcomeMemory(t *testing.T) {
 		Backends: map[string]execbackend.Backend{
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					if v, ok := execctx.FromContext(ctx); ok {
 						capturedAuthoritative = v.Session.AuthoritativeSessionID
 					}
@@ -507,7 +507,7 @@ func TestExecutor_Execute_unauthenticatedSyntheticPrincipal_reachesBackend(t *te
 		Backends: map[string]execbackend.Backend{
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens.Add(1)
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
@@ -562,7 +562,7 @@ func TestExecutor_Execute_unauthenticatedNoSynthetic_deniedWithoutBackendOpen(t 
 		Backends: map[string]execbackend.Backend{
 			"ok": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 					opens.Add(1)
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},

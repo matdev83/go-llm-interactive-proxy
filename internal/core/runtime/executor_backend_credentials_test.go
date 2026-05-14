@@ -39,7 +39,7 @@ type candProbeBackend struct {
 func wrapCandProbe(inner execbackend.Backend) (execbackend.Backend, *candProbeBackend) {
 	p := &candProbeBackend{inner: inner}
 	out := inner
-	out.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+	out.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 		p.lastKey = cand.Key
 		return p.inner.Open(ctx, call, cand)
 	}

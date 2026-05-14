@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -39,7 +40,7 @@ type genaiStream struct {
 	activeToolID string
 }
 
-func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error], maxPending int) lipapi.EventStream {
+func newGenaiStream(seq iter.Seq2[*genai.GenerateContentResponse, error], maxPending int) lipapi.ManagedEventStream {
 	next, stop := iter.Pull2(seq)
 	return &genaiStream{
 		next:    next,
@@ -299,4 +300,8 @@ func (s *genaiStream) Close() error {
 		}
 	})
 	return nil
+}
+
+func (s *genaiStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
 }

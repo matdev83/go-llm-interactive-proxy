@@ -62,7 +62,7 @@ func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 			ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 				return ModelCapabilities(resolveModelID(cand, call))
 			},
-			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.EventStream, error) {
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, err
 			},
 		}
@@ -73,7 +73,7 @@ func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModelID(cand, call))
 		},
-		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.EventStream, error) {
+		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {
 				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
 			}
