@@ -45,6 +45,41 @@ func TestWriteNonStreamJSON_matchesGolden(t *testing.T) {
 	assertJSONEqual(t, want, rec.Body.Bytes())
 }
 
+func TestWriteNonStreamJSONUsesClientVisibleScopedUsage(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{
+			{InputTokens: 100, OutputTokens: 50, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable}},
+			{InputTokens: 10, OutputTokens: 5, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneClientVisible}},
+		}},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+
+	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
+	if err := openairesponses.WriteNonStreamJSON(context.Background(), rec, call, es, openairesponses.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		Usage *struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Usage == nil {
+		t.Fatal("usage is nil")
+	}
+	if got.Usage.InputTokens != 10 || got.Usage.OutputTokens != 5 {
+		t.Fatalf("usage = %+v, want client-visible 10/5", *got.Usage)
+	}
+}
+
 func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

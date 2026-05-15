@@ -56,7 +56,8 @@ func New(cfg Config) execbackend.Backend {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}
 	return execbackend.Backend{
-		Caps: defaultBackendCaps(),
+		Caps:            defaultBackendCaps(),
+		ProviderCounter: NewTokenCounter(cfg),
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},

@@ -260,8 +260,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 		case lipapi.EventUsageDelta:
-			inTok += ev.InputTokens
-			outTok += ev.OutputTokens
+			usage := lipapi.ClientVisibleUsage(ev)
+			inTok += usage.InputTokens
+			outTok += usage.OutputTokens
 		case lipapi.EventResponseFinished:
 			if inTok > 0 || outTok > 0 {
 				var u gemUsageStreamWire

@@ -26,6 +26,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -254,6 +255,14 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, err
 	}
+	tokenAccounting, accountingClosers, err := buildTokenAccountingRuntime(parent, cfg, nowFn, backends)
+	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(err, derr)
+		}
+		return nil, err
+	}
+	closers = append(closers, accountingClosers...)
 	exec = &runtime.Executor{
 		Store:                store,
 		Bus:                  bus,
@@ -271,6 +280,14 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Log:                  log,
 		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
 		StreamRecovery:       streamRecovery,
+	}
+	if tokenAccounting != nil {
+		exec.Preflight = tokenAccounting.Preflight
+		exec.StreamUsage = tokenAccounting.StreamUsage
+		exec.Ledger = tokenAccounting.Ledger
+		exec.LedgerWriteRequired = cfg.Accounting.Ledger.WritePolicy == "required"
+		exec.TokenAccountingObservability = tokenAccounting.Observability
+		exec.AdminCountService = tokenAccounting.Admin
 	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
@@ -291,6 +308,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		exec.Metrics = bundle.ExecutorSink()
 		exec.ExtensionMetrics = bundle.ExtensionStageSink()
 		exec.SecureSessionMetrics = bundle.SecureSessionMetricsSink()
+		if tokenAccounting != nil && tokenAccounting.Observability != nil {
+			tokenAccounting.Observability.SetSink(bundle.TokenAccountingObservabilitySink())
+		}
 	}
 	secureSessionStore := ssRun.appStore
 	if opts.SecureSessionStore != nil {
@@ -317,7 +337,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		SecureSessionStore:    secureSessionStore,
 		AuthEventDispatcher:   authEvents,
 		CatalogRuntime:        catalogRuntime,
+		TokenAccountingAdmin:  tokenAccountingAdmin(tokenAccounting),
 	}, nil
+}
+
+func tokenAccountingAdmin(r *tokenAccountingRuntime) *accountingapp.Service {
+	if r == nil {
+		return nil
+	}
+	return r.Admin
 }
 
 func disposeClosers(closers []func() error) error {

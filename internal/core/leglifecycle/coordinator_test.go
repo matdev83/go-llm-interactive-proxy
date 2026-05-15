@@ -65,11 +65,9 @@ func TestCoordinator_CancelALeg_isIdempotentUnderConcurrency(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 16 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_ = c.CancelALeg(context.Background(), "a-1", CancelCause{Kind: CancelExplicit})
-		}()
+		})
 	}
 	wg.Wait()
 

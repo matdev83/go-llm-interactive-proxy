@@ -13,8 +13,10 @@ const (
 	CostSourceUnavailable      = "unavailable"
 )
 
-const nanosPerUnit = int64(1_000_000_000)
-const tokensPerMillion = int64(1_000_000)
+const (
+	nanosPerUnit     = int64(1_000_000_000)
+	tokensPerMillion = int64(1_000_000)
+)
 
 type TokenUsage struct {
 	InputTokens      int64
@@ -82,14 +84,8 @@ type ModelPrice struct {
 }
 
 func DeriveTokenBreakdown(usage TokenUsage) TokenBreakdown {
-	in := usage.InputTokens - usage.CacheReadTokens - usage.CacheWriteTokens
-	if in < 0 {
-		in = 0
-	}
-	out := usage.OutputTokens - usage.ReasoningTokens
-	if out < 0 {
-		out = 0
-	}
+	in := max(usage.InputTokens-usage.CacheReadTokens-usage.CacheWriteTokens, 0)
+	out := max(usage.OutputTokens-usage.ReasoningTokens, 0)
 	return TokenBreakdown{
 		TokenUsage:               usage,
 		NonCachedInputTokens:     in,

@@ -255,8 +255,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		switch ev.Kind {
 		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
-			inTok += ev.InputTokens
-			outTok += ev.OutputTokens
+			usage := lipapi.ClientVisibleUsage(ev)
+			inTok += usage.InputTokens
+			outTok += usage.OutputTokens
 		case lipapi.EventTextDelta:
 			fullText.WriteString(ev.Delta)
 			if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{

@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -43,4 +44,6 @@ type Built struct {
 	AuthEventDispatcher *auth.EventDispatcher
 	// CatalogRuntime is non-nil when model_catalog.enabled or external_updates_enabled started catalog I/O.
 	CatalogRuntime *modelcatalog.CatalogRuntime
+	// TokenAccountingAdmin is non-nil when accounting.admin.enabled wires the operator count service.
+	TokenAccountingAdmin *accountingapp.Service
 }

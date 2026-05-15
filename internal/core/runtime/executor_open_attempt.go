@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -164,6 +165,15 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	}
 	cat := catalogRouteTraceIfEnabled(e, facts, res, elig, eligRan)
 	e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+	if decision, ok := e.runPreflight(p.ctx, p.traceID, attempt, c, facts.Facts); ok {
+		if !decision.Allowed {
+			return zero, fmt.Errorf("executor: token accounting preflight: %w", decision.Err)
+		}
+		if decision.AdjustedMaxOutputTokens != nil {
+			adjusted := *decision.AdjustedMaxOutputTokens
+			attempt.Options.MaxOutputTokens = &adjusted
+		}
+	}
 	if c.MarkedFirst {
 		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
 			return zero, fmt.Errorf("executor: set weighted first consumed: %w", err)
@@ -313,9 +323,56 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 }
 
 func (e *Executor) requestSizeEstimateForRouting(ctx context.Context, sel *routing.Selector, call lipapi.Call) routing.RequestSizeEstimate {
+	if e.Preflight != nil && routing.SelectorHasRequestSizeConstraints(sel) {
+		model := ""
+		backend := ""
+		if primary := firstSelectorPrimary(sel); primary != nil {
+			model = primary.Model
+			backend = primary.Backend
+		}
+		decision := e.Preflight.Check(ctx, accountingpreflight.Input{Backend: backend, Model: model, CallID: call.ID, Call: call})
+		if decision.Err == nil && decision.Reason != accountingpreflight.ReasonDisabled {
+			return routing.RequestSizeEstimate{Available: true, Tokens: int64(decision.Count.InputTokens) + 1, Basis: "token_accounting_preflight"}
+		}
+	}
 	if !routing.SelectorHasRequestSizeConstraints(sel) || e.RequestTokenEstimator == nil {
 		return routing.RequestSizeEstimate{}
 	}
 	est := e.RequestTokenEstimator.EstimateRequestTokens(ctx, call)
 	return routing.RequestSizeEstimate{Available: est.Available, Tokens: est.Input, Basis: est.Basis}
+}
+
+func (e *Executor) runPreflight(
+	ctx context.Context,
+	traceID string,
+	call lipapi.Call,
+	c routing.AttemptCandidate,
+	facts modelcatalog.ModelFacts,
+) (accountingpreflight.Decision, bool) {
+	if e == nil || e.Preflight == nil {
+		return accountingpreflight.Decision{}, false
+	}
+	decision := e.Preflight.Check(ctx, accountingpreflight.Input{
+		Backend:                  c.Primary.Backend,
+		Model:                    c.Primary.Model,
+		CallID:                   traceID,
+		Call:                     call,
+		RequestedMaxOutputTokens: call.Options.MaxOutputTokens,
+		Facts:                    facts,
+	})
+	return decision, true
+}
+
+func firstSelectorPrimary(sel *routing.Selector) *routing.Primary {
+	if sel == nil || len(sel.Alternatives) == 0 {
+		return nil
+	}
+	alt := sel.Alternatives[0]
+	if alt.Primary != nil {
+		return alt.Primary
+	}
+	if alt.Weighted != nil && len(alt.Weighted.Branches) > 0 {
+		return &alt.Weighted.Branches[0].Target
+	}
+	return nil
 }

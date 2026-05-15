@@ -23,6 +23,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
+	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
+	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
+	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -83,6 +88,18 @@ type Executor struct {
 	StreamRecovery streamrecovery.Config
 	// AccountingPriceCatalog estimates cost for usage deltas when providers do not report cost.
 	AccountingPriceCatalog accounting.PriceCatalog
+	// Preflight evaluates token-accounting admission checks before backend attempts.
+	Preflight *accountingpreflight.Checker
+	// StreamUsage reconstructs scoped usage from stream events and local/proxy counting.
+	StreamUsage *accountingstream.Reconstructor
+	// Ledger records token-accounting usage facts without prescribing durable storage.
+	Ledger accountingledger.Recorder
+	// LedgerWriteRequired fail-closes completed streams when ledger writes fail.
+	LedgerWriteRequired bool
+	// TokenAccountingObservability records bounded token-accounting telemetry dimensions.
+	TokenAccountingObservability *accountingobs.Stats
+	// AdminCountService serves operator token-count requests when admin counting is enabled.
+	AdminCountService *accountingapp.Service
 	// Metrics receives coarse executor observations when non-nil.
 	Metrics MetricsSink
 	// ExtensionMetrics records extension pipeline stage timings when non-nil (Prometheus when enabled).

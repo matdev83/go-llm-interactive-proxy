@@ -75,7 +75,7 @@ func loadRegexHotpathAllowlist(t *testing.T, root string) regexHotpathAllowlist 
 
 func parseRegexHotpathAllowlist(contents string) regexHotpathAllowlist {
 	allowlist := regexHotpathAllowlist{}
-	for _, line := range strings.Split(contents, "\n") {
+	for line := range strings.SplitSeq(contents, "\n") {
 		line = strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
 		if line == "" {
 			continue

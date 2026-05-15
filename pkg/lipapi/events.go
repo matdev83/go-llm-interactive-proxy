@@ -81,6 +81,10 @@ type Event struct {
 	CostSource    string
 	// RawUsageJSON stores bounded provider usage metadata for audit/backfill.
 	RawUsageJSON string
+	// Accounting annotates the compatibility usage totals on EventUsageDelta.
+	Accounting UsageAccountingMetadata
+	// UsageScopes carries per-plane usage entries for EventUsageDelta.
+	UsageScopes []ScopedUsageDelta
 
 	WarningCode    string
 	WarningMessage string
@@ -137,6 +141,12 @@ func ValidateEventEnvelope(ev *Event) error {
 	if err := validateStringField("AssistantName", ev.AssistantName, MaxRefStringBytes); err != nil {
 		return err
 	}
+	if err := ev.Accounting.validate("Accounting"); err != nil {
+		return err
+	}
+	if err := validateScopedUsage(ev.UsageScopes); err != nil {
+		return err
+	}
 	switch ev.Kind {
 	case EventAssistantImageRef, EventAssistantFileRef:
 		if strings.TrimSpace(ev.AssistantRef) == "" {
@@ -181,7 +191,10 @@ type FixedEventStream struct {
 
 // NewFixedEventStream returns a copied finite stream for tests and in-memory adapters.
 func NewFixedEventStream(events []Event) *FixedEventStream {
-	s := append([]Event(nil), events...)
+	s := make([]Event, len(events))
+	for i, ev := range events {
+		s[i] = cloneEvent(ev)
+	}
 	return &FixedEventStream{events: s}
 }
 
@@ -198,7 +211,7 @@ func (f *FixedEventStream) Recv(ctx context.Context) (Event, error) {
 	if f.pos >= len(f.events) {
 		return Event{}, io.EOF
 	}
-	e := f.events[f.pos]
+	e := cloneEvent(f.events[f.pos])
 	f.pos++
 	return e, nil
 }
@@ -420,12 +433,13 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			}
 			out.Warnings = append(out.Warnings, ev.WarningMessage)
 		case EventUsageDelta:
-			out.InputTokens += ev.InputTokens
-			out.OutputTokens += ev.OutputTokens
-			out.CacheReadTokens += ev.CacheReadTokens
-			out.CacheWriteTokens += ev.CacheWriteTokens
-			out.ReasoningTokens += ev.ReasoningTokens
-			out.TotalTokens = mergeTotalTokens(out.TotalTokens, ev.TotalTokens)
+			usage := ClientVisibleUsage(ev)
+			out.InputTokens += usage.InputTokens
+			out.OutputTokens += usage.OutputTokens
+			out.CacheReadTokens += usage.CacheReadTokens
+			out.CacheWriteTokens += usage.CacheWriteTokens
+			out.ReasoningTokens += usage.ReasoningTokens
+			out.TotalTokens = mergeTotalTokens(out.TotalTokens, usage.TotalTokens)
 		case EventAssistantImageRef:
 			if limits.MaxAssistantMediaParts > 0 && len(out.AssistantMedia) >= limits.MaxAssistantMediaParts {
 				return out, fmt.Errorf("%w: assistant media parts would exceed %d", ErrCollectLimitExceeded, limits.MaxAssistantMediaParts)
@@ -445,6 +459,25 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			}
 			out.AssistantMedia = append(out.AssistantMedia, p)
 		}
+	}
+}
+
+// ClientVisibleUsage returns the usage scope safe to expose on frontend protocols.
+// When no scoped client-visible usage is present it falls back to legacy Event totals.
+func ClientVisibleUsage(ev Event) ScopedUsageDelta {
+	for _, scope := range ev.UsageScopes {
+		if scope.Accounting.Plane == UsagePlaneClientVisible {
+			return scope
+		}
+	}
+	return ScopedUsageDelta{
+		InputTokens:      ev.InputTokens,
+		OutputTokens:     ev.OutputTokens,
+		CacheReadTokens:  ev.CacheReadTokens,
+		CacheWriteTokens: ev.CacheWriteTokens,
+		ReasoningTokens:  ev.ReasoningTokens,
+		TotalTokens:      ev.TotalTokens,
+		Accounting:       ev.Accounting,
 	}
 }
 

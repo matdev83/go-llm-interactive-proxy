@@ -77,5 +77,6 @@ __pycache__/
 # Project specific files
 .claude/
 .cursor/
+/codex-history.jsonl
 .letta/
 .opencode/

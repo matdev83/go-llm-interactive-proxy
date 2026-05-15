@@ -1,6 +1,6 @@
 module github.com/matdev83/go-llm-interactive-proxy
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.37.0
@@ -16,6 +16,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/samber/slog-formatter v1.3.0
 	github.com/samber/slog-multi v1.8.0
+	github.com/tiktoken-go/tokenizer v0.7.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
@@ -49,6 +50,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect

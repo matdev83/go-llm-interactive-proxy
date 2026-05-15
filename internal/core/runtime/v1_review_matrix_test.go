@@ -181,6 +181,10 @@ func (f *flakyThenEOFStream) Recv(ctx context.Context) (lipapi.Event, error) {
 
 func (f *flakyThenEOFStream) Close() error { return nil }
 
+func (f *flakyThenEOFStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly}
+}
+
 func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

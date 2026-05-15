@@ -2,6 +2,7 @@ package lipapi
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // Envelope size limits for Call validation. They bound how much work a single
@@ -48,6 +49,10 @@ func validateStringField(name, s string, max int) error {
 		return &ValidationError{Field: name, Message: fmt.Sprintf("exceeds %d bytes", max)}
 	}
 	return nil
+}
+
+func fieldIndex(field string, i int) string {
+	return field + "[" + strconv.Itoa(i) + "]"
 }
 
 func (c Call) validateEnvelopeSizes() error {

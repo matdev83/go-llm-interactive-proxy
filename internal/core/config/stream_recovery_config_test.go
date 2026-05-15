@@ -30,10 +30,11 @@ func TestStreamRecoveryEffectiveAutoResumeDefaultsDisabled(t *testing.T) {
 
 func TestStreamRecoveryEffectiveAutoResumePrecedenceCLIEnvConfig(t *testing.T) {
 	t.Parallel()
+	configEnabled := true
 	cfg := &config.Config{
 		StreamRecovery: config.StreamRecoveryConfig{
 			AutoResume: config.AutoResumeConfig{
-				Enabled:     boolPtr(true),
+				Enabled:     &configEnabled,
 				IdleTimeout: "30s",
 			},
 		},
@@ -72,7 +73,7 @@ func TestStreamRecoveryEnvOverridesConfigWhenCLIUnset(t *testing.T) {
 	cfg := &config.Config{
 		StreamRecovery: config.StreamRecoveryConfig{
 			AutoResume: config.AutoResumeConfig{
-				Enabled:     boolPtr(false),
+				Enabled:     new(bool),
 				IdleTimeout: "30s",
 			},
 		},
@@ -106,5 +107,3 @@ func TestStreamRecoveryInvalidDurationFailsValidation(t *testing.T) {
 		t.Fatal("expected invalid duration error")
 	}
 }
-
-func boolPtr(v bool) *bool { return &v }

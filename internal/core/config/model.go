@@ -35,9 +35,48 @@ type Config struct {
 }
 
 type AccountingConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Mode    string `yaml:"mode"`
+	// CountTimeout bounds provider/local count calls; empty selects the composition-root default.
+	CountTimeout  string                        `yaml:"count_timeout"`
+	Tokenizer     AccountingTokenizerConfig     `yaml:"tokenizer"`
+	Preflight     AccountingPreflightConfig     `yaml:"preflight"`
+	Ledger        AccountingLedgerConfig        `yaml:"ledger"`
+	Admin         AccountingAdminConfig         `yaml:"admin"`
+	Observability AccountingObservabilityConfig `yaml:"observability"`
 	// StrictAuthoritative rejects backend wiring unless every configured backend can provide authoritative usage.
 	StrictAuthoritative bool                    `yaml:"strict_authoritative"`
 	Pricing             AccountingPricingConfig `yaml:"pricing"`
+}
+
+type AccountingTokenizerConfig struct {
+	DefaultEncoding string            `yaml:"default_encoding"`
+	ModelMappings   map[string]string `yaml:"model_mappings"`
+}
+
+type AccountingPreflightConfig struct {
+	Mode                 string `yaml:"mode"`
+	MaxInputTokens       int64  `yaml:"max_input_tokens"`
+	MaxOutputTokens      int64  `yaml:"max_output_tokens"`
+	MaxContextTokens     int64  `yaml:"max_context_tokens"`
+	ClampMaxOutputTokens bool   `yaml:"clamp_max_output_tokens"`
+}
+
+type AccountingLedgerConfig struct {
+	Store       string `yaml:"store"`
+	SQLitePath  string `yaml:"sqlite_path"`
+	PostgresDSN string `yaml:"postgres_dsn"`
+	WritePolicy string `yaml:"write_policy"`
+}
+
+type AccountingAdminConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Path         string `yaml:"path"`
+	MaxBodyBytes int64  `yaml:"max_body_bytes"`
+}
+
+type AccountingObservabilityConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type AccountingPricingConfig struct {

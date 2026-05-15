@@ -4,6 +4,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -15,9 +16,11 @@ type Bundle struct {
 	// SecureSession is non-nil when metrics are enabled; secure-session begin/recorder/touch series.
 	SecureSession *SecureSessionProm
 	// ExtensionStages is non-nil when metrics are enabled; used for extension pipeline histograms/counters.
-	ExtensionStages *ExtensionStageProm
-	Upstream        *UpstreamProm
-	sink            runtime.MetricsSink
+	ExtensionStages     *ExtensionStageProm
+	Upstream            *UpstreamProm
+	TokenAccounting     *TokenAccountingProm
+	sink                runtime.MetricsSink
+	tokenAccountingSink *TokenAccountingPromSink
 }
 
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
@@ -29,14 +32,17 @@ func NewBundle(cfg *config.Config) *Bundle {
 	ss := RegisterSecureSessionProm(r)
 	ext := RegisterExtensionStageProm(r)
 	up := RegisterUpstreamProm(r, exemplars)
+	tok := RegisterTokenAccountingProm(r)
 	return &Bundle{
-		Registry:        r,
-		HTTP:            httpm,
-		Executor:        exec,
-		SecureSession:   ss,
-		ExtensionStages: ext,
-		Upstream:        up,
-		sink:            NewExecutorPromSink(exec),
+		Registry:            r,
+		HTTP:                httpm,
+		Executor:            exec,
+		SecureSession:       ss,
+		ExtensionStages:     ext,
+		Upstream:            up,
+		TokenAccounting:     tok,
+		sink:                NewExecutorPromSink(exec),
+		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 	}
 }
 
@@ -63,3 +69,15 @@ func (b *Bundle) SecureSessionMetricsSink() runtime.SecureSessionMetrics {
 	}
 	return SecureSessionMetricsSink(b.SecureSession)
 }
+
+// TokenAccountingObservabilitySink returns a Prometheus sink for bounded token-accounting observations.
+func (b *Bundle) TokenAccountingObservabilitySink() *TokenAccountingPromSink {
+	if b == nil {
+		return nil
+	}
+	return b.tokenAccountingSink
+}
+
+var _ interface {
+	Record(accountingobs.Observation)
+} = (*TokenAccountingPromSink)(nil)

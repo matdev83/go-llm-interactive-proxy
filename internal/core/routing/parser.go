@@ -60,8 +60,7 @@ func extractGlobalParams(s string) (globalParams, string, error) {
 	if inside == "" {
 		return globalParams{}, "", fmt.Errorf("%w: empty global parameter block", ErrInvalidSelector)
 	}
-	entries := strings.Split(inside, ",")
-	for _, entry := range entries {
+	for entry := range strings.SplitSeq(inside, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			return globalParams{}, "", fmt.Errorf("%w: malformed global parameter list", ErrInvalidSelector)
@@ -120,7 +119,7 @@ func hasWeightedAnnotationPrefix(s string) bool {
 			return true
 		}
 		inside := s[1:idx]
-		for _, entry := range strings.Split(inside, ",") {
+		for entry := range strings.SplitSeq(inside, ",") {
 			key := strings.TrimSpace(entry)
 			if left, _, ok := strings.Cut(key, "="); ok {
 				key = left
@@ -295,8 +294,7 @@ func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
 		if inside == "" {
 			return prefixAnnotations{}, "", fmt.Errorf("%w: empty annotation prefix", ErrInvalidSelector)
 		}
-		entries := strings.Split(inside, ",")
-		for _, entry := range entries {
+		for entry := range strings.SplitSeq(inside, ",") {
 			entry = strings.TrimSpace(entry)
 			if entry == "" {
 				return prefixAnnotations{}, "", fmt.Errorf("%w: malformed annotation list", ErrInvalidSelector)

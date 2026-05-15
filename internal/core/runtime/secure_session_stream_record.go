@@ -56,15 +56,9 @@ func buildStreamEventRecordInput(s *retryRecvStream, ev lipapi.Event) app.Stream
 		in.OutputTokens = int64(ev.OutputTokens)
 		in.CacheReadTokens = int64(ev.CacheReadTokens)
 		in.CacheWriteTokens = int64(ev.CacheWriteTokens)
-		in.NonCachedInputTokens = int64(ev.InputTokens - ev.CacheReadTokens - ev.CacheWriteTokens)
-		if in.NonCachedInputTokens < 0 {
-			in.NonCachedInputTokens = 0
-		}
+		in.NonCachedInputTokens = int64(max(ev.InputTokens-ev.CacheReadTokens-ev.CacheWriteTokens, 0))
 		in.ReasoningTokens = int64(ev.ReasoningTokens)
-		in.NonReasoningOutputTokens = int64(ev.OutputTokens - ev.ReasoningTokens)
-		if in.NonReasoningOutputTokens < 0 {
-			in.NonReasoningOutputTokens = 0
-		}
+		in.NonReasoningOutputTokens = int64(max(ev.OutputTokens-ev.ReasoningTokens, 0))
 		in.TotalTokens = int64(ev.TotalTokens)
 		in.CostNanoUnits = ev.CostNanoUnits
 		in.Currency = strings.TrimSpace(ev.Currency)

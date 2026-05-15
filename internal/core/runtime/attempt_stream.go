@@ -22,6 +22,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
+	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
+	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -37,8 +40,10 @@ import (
 // and does not clear s.inner. Recv clears inner on cancellation and recoverable-recv teardown paths.
 // Recv must not be called concurrently from multiple goroutines; the stream is not multi-Recv-safe.
 type retryRecvStream struct {
-	executor *Executor
-	bus      *hooks.Bus
+	seenEvents  []lipapi.Event
+	visibleText strings.Builder
+	executor    *Executor
+	bus         *hooks.Bus
 	// baseline is the post-submit immutable logical client request (per-attempt state derives via CloneCall).
 	baseline lipapi.Call
 	budget   *attemptBudget
@@ -82,9 +87,10 @@ type retryRecvStream struct {
 
 	accounting attemptAccountingTracker
 
-	recoverPolicy *streamrecovery.Policy
-	recoverDrain  []lipapi.Event
-	aScope        *leglifecycle.ALeg
+	recoverPolicy            *streamrecovery.Policy
+	recoverDrain             []lipapi.Event
+	tokenAccountingFinalized bool
+	aScope                   *leglifecycle.ALeg
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -238,6 +244,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if len(s.recoverDrain) > 0 {
 		ev := s.recoverDrain[0]
 		s.recoverDrain = s.recoverDrain[1:]
+		if ev.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+			if usageEv, ok, err := s.finalizeTokenAccounting(ctx, ev); err != nil {
+				return lipapi.Event{}, err
+			} else if ok {
+				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+				s.tokenAccountingFinalized = true
+				return s.emitSynthesizedUsage(ctx, usageEv)
+			}
+		}
 		if ev.Kind == lipapi.EventResponseFinished {
 			s.finished = true
 			s.finishALegScope()
@@ -249,6 +264,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if ev, ok := s.popGateDrainHead(); ok {
 			ev = s.emitGateDrained(ctx, ev)
 			s.accounting.observeClientEvent(s.now(), ev)
+			s.rememberClientEvent(ev)
 			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
 				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 					return lipapi.Event{}, err
@@ -381,6 +397,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				s.recoverPolicy.ObserveClientEvent(ev, s.now())
 			}
 			if ev.Kind == lipapi.EventResponseFinished {
+				s.rememberClientEvent(ev)
+				if usageEv, ok, err := s.finalizeTokenAccounting(ctx, ev); err != nil {
+					return lipapi.Event{}, err
+				} else if ok {
+					s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+					s.tokenAccountingFinalized = true
+					return s.emitSynthesizedUsage(ctx, usageEv)
+				}
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:  s.aLegID,
 					BLeg:    s.bleg,
@@ -389,6 +413,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				s.finished = true
 				s.finishALegScope()
+			} else {
+				s.rememberClientEvent(ev)
 			}
 			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
 				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
@@ -402,6 +428,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return ev, nil
 		}
 		if errors.Is(err, io.EOF) {
+			s.recordPartialTokenAccounting(ctx, "stream ended without response_finished", io.EOF)
 			// Truncated upstream: never run completion gates on a partial buffer (replace gates could
 			// synthesize response_finished and mask the failure).
 			gates := s.completionGatesFromContext(ctx)
@@ -578,6 +605,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				Reason:    attemptReasonDetail(surfErr),
 				DetailErr: surfErr,
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			s.recordPartialTokenAccounting(ctx, attemptReasonDetail(surfErr), surfErr)
 			return lipapi.Event{}, surfErr
 		}
 		var log *slog.Logger
@@ -597,6 +625,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			Reason:    "recoverable pre-output (recv)",
 			DetailErr: err,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		s.recordPartialTokenAccounting(ctx, "recoverable pre-output (recv)", err)
 		if c := s.takeAndNilInner(); c != nil {
 			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 				s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
@@ -847,6 +876,9 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
+	s.seenEvents = nil
+	s.visibleText.Reset()
+	s.tokenAccountingFinalized = false
 	s.accounting = newAttemptAccountingTracker(s.now())
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
@@ -971,4 +1003,252 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 	}); err != nil && s.executor.Log != nil {
 		s.executor.Log.DebugContext(ctx, "usage observer error", "error", err)
 	}
+}
+
+func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Event) (lipapi.Event, error) {
+	s.accounting.observeClientEvent(s.now(), ev)
+	if s.recoverPolicy != nil {
+		s.recoverPolicy.ObserveClientEvent(ev, s.now())
+	}
+	s.rememberClientEvent(ev)
+	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
+		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+			return lipapi.Event{}, err
+		}
+		if s.executor != nil && s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+		}
+	}
+	pm, _ := s.recvHookMeta()
+	s.emitTrafficPTC(ctx, ev, pm)
+	s.emitUsage(ctx, ev)
+	return ev, nil
+}
+
+func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish lipapi.Event) (lipapi.Event, bool, error) {
+	if s == nil || s.executor == nil || s.executor.StreamUsage == nil {
+		return lipapi.Event{}, false, nil
+	}
+	started := s.now()
+	events := append([]lipapi.Event(nil), s.seenEvents...)
+	events = append(events, finish)
+	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
+		Backend:    strings.TrimSpace(s.cand.Primary.Backend),
+		Model:      strings.TrimSpace(s.cand.Primary.Model),
+		Call:       s.baseline,
+		OutputText: s.visibleText.String(),
+		Events:     events,
+	})
+	if err != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(ctx, "token accounting stream reconstruction", "error", err)
+	}
+	if len(result.Events) == 0 {
+		return lipapi.Event{}, false, nil
+	}
+	usageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEvents))
+	duration := s.now().Sub(started)
+	if duration <= 0 {
+		duration = time.Nanosecond
+	}
+	if err := s.recordTokenAccountingLedger(ctx, result.Events, "", "", duration); err != nil {
+		if s.executor.LedgerWriteRequired {
+			return lipapi.Event{}, false, err
+		}
+	}
+	return usageEv, true, nil
+}
+
+func mergeUsageEvents(events []lipapi.Event) lipapi.Event {
+	return mergeUsageEventsForClient(events, false)
+}
+
+func mergeUsageEventsForClient(events []lipapi.Event, skipProviderBillable bool) lipapi.Event {
+	out := lipapi.Event{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{}}
+	for _, ev := range events {
+		if ev.Kind != lipapi.EventUsageDelta {
+			continue
+		}
+		if len(ev.UsageScopes) > 0 {
+			for _, scope := range ev.UsageScopes {
+				if skipProviderBillable && scope.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
+					continue
+				}
+				out.UsageScopes = append(out.UsageScopes, scope)
+			}
+			continue
+		}
+		if skipProviderBillable && ev.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
+			continue
+		}
+		out.UsageScopes = append(out.UsageScopes, lipapi.ScopedUsageDelta{
+			InputTokens:      ev.InputTokens,
+			OutputTokens:     ev.OutputTokens,
+			CacheReadTokens:  ev.CacheReadTokens,
+			CacheWriteTokens: ev.CacheWriteTokens,
+			ReasoningTokens:  ev.ReasoningTokens,
+			TotalTokens:      ev.TotalTokens,
+			Accounting:       ev.Accounting,
+		})
+	}
+	if len(out.UsageScopes) > 0 {
+		first := out.UsageScopes[0]
+		out.InputTokens = first.InputTokens
+		out.OutputTokens = first.OutputTokens
+		out.CacheReadTokens = first.CacheReadTokens
+		out.CacheWriteTokens = first.CacheWriteTokens
+		out.ReasoningTokens = first.ReasoningTokens
+		out.TotalTokens = first.TotalTokens
+		out.Accounting = first.Accounting
+	}
+	return out
+}
+
+func tokenAccountingHasProviderUsage(events []lipapi.Event) bool {
+	for _, ev := range events {
+		if ev.Kind != lipapi.EventUsageDelta {
+			continue
+		}
+		if ev.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
+			return true
+		}
+		for _, scope := range ev.UsageScopes {
+			if scope.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *retryRecvStream) recordTokenAccountingLedger(ctx context.Context, events []lipapi.Event, unavailableReason, failureReason string, duration time.Duration) error {
+	if s == nil || s.executor == nil || s.executor.Ledger == nil {
+		return nil
+	}
+	for _, ev := range events {
+		if ev.Kind != lipapi.EventUsageDelta {
+			continue
+		}
+		scopes := ev.UsageScopes
+		if len(scopes) == 0 {
+			scopes = []lipapi.ScopedUsageDelta{{
+				InputTokens:      ev.InputTokens,
+				OutputTokens:     ev.OutputTokens,
+				CacheReadTokens:  ev.CacheReadTokens,
+				CacheWriteTokens: ev.CacheWriteTokens,
+				ReasoningTokens:  ev.ReasoningTokens,
+				TotalTokens:      ev.TotalTokens,
+				Accounting:       ev.Accounting,
+			}}
+		}
+		for _, scope := range scopes {
+			if scope.Accounting.Plane == lipapi.UsagePlaneUnknown {
+				continue
+			}
+			record := accountingledger.Record{
+				RequestID:         strings.TrimSpace(s.baseline.ID),
+				AttemptID:         strings.TrimSpace(s.bleg.BLegID),
+				Backend:           strings.TrimSpace(s.cand.Primary.Backend),
+				Model:             strings.TrimSpace(s.cand.Primary.Model),
+				Plane:             scope.Accounting.Plane,
+				InputTokens:       scope.InputTokens,
+				OutputTokens:      scope.OutputTokens,
+				CacheReadTokens:   scope.CacheReadTokens,
+				CacheWriteTokens:  scope.CacheWriteTokens,
+				ReasoningTokens:   scope.ReasoningTokens,
+				TotalTokens:       scope.TotalTokens,
+				Metadata:          scope.Accounting,
+				CreatedAt:         s.now(),
+				UnavailableReason: unavailableReason,
+				FailureReason:     failureReason,
+			}
+			if record.RequestID == "" {
+				record.RequestID = strings.TrimSpace(s.traceID)
+			}
+			if err := s.executor.Ledger.Record(ctx, record); err != nil {
+				if s.executor.Log != nil {
+					s.executor.Log.DebugContext(ctx, "token accounting ledger record", "error", err)
+				}
+				s.recordTokenAccountingObservation(ctx, record, err, duration)
+				return err
+			}
+			s.recordTokenAccountingObservation(ctx, record, nil, duration)
+		}
+	}
+	return nil
+}
+
+func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reason string, err error) {
+	if s == nil || s.executor == nil || s.executor.Ledger == nil {
+		return
+	}
+	events := tokenAccountingUsageEvents(s.seenEvents)
+	if len(events) == 0 {
+		return
+	}
+	duration := s.now().Sub(s.accounting.requestStartedAt)
+	if duration <= 0 {
+		duration = time.Nanosecond
+	}
+	_ = s.recordTokenAccountingLedger(ctx, events, reason, reason, duration)
+}
+
+func (s *retryRecvStream) recordTokenAccountingObservation(ctx context.Context, record accountingledger.Record, err error, duration time.Duration) {
+	if s == nil || s.executor == nil || s.executor.TokenAccountingObservability == nil {
+		return
+	}
+	obs, err := accountingobs.NewObservation(accountingobs.Input{
+		Labels: accountingobs.Labels{
+			Backend:   record.Backend,
+			Model:     record.Model,
+			Plane:     accountingobs.Plane(record.Plane),
+			Source:    accountingobs.Source(record.Metadata.Source),
+			Authority: accountingobs.Authority(record.Metadata.Authority),
+		},
+		Status:            observationStatus(record, err),
+		UnavailableReason: record.UnavailableReason,
+		Err:               err,
+		Duration:          duration,
+		OccurredAt:        record.CreatedAt,
+	})
+	if err != nil {
+		if s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "token accounting observation", "error", err)
+		}
+		return
+	}
+	s.executor.TokenAccountingObservability.Record(obs)
+}
+
+func observationStatus(record accountingledger.Record, err error) accountingobs.Status {
+	if err != nil || record.FailureReason != "" {
+		return accountingobs.StatusUnavailable
+	}
+	return accountingobs.StatusSuccess
+}
+
+func tokenAccountingUsageEvents(events []lipapi.Event) []lipapi.Event {
+	out := []lipapi.Event{}
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
+	if s == nil {
+		return
+	}
+	if ev.Kind == lipapi.EventResponseFinished {
+		for _, seen := range s.seenEvents {
+			if seen.Kind == lipapi.EventResponseFinished {
+				return
+			}
+		}
+	}
+	if ev.Kind == lipapi.EventTextDelta {
+		s.visibleText.WriteString(ev.Delta)
+	}
+	s.seenEvents = append(s.seenEvents, ev)
 }

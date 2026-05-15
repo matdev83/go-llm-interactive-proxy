@@ -65,5 +65,8 @@ func protectedDiagnosticsSurfaces(cfg *Config) []string {
 		strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix) != "" {
 		out = append(out, "secure_session_summaries")
 	}
+	if cfg.Accounting.Admin.Enabled && strings.TrimSpace(cfg.Accounting.Admin.Path) != "" {
+		out = append(out, "token_accounting_admin")
+	}
 	return out
 }

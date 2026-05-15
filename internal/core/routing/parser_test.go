@@ -228,7 +228,6 @@ func TestParseRequestSizeAnnotationsInvalid(t *testing.T) {
 		"[unknown=1]a:b",
 	}
 	for _, in := range cases {
-		in := in
 		t.Run(in, func(t *testing.T) {
 			t.Parallel()
 			_, err := Parse(in)
@@ -285,7 +284,6 @@ func TestParseTTFTTimeoutAnnotationsInvalid(t *testing.T) {
 		"[ttft_timeout=1][ttft_timeout=2]a:b",
 	}
 	for _, in := range cases {
-		in := in
 		t.Run(in, func(t *testing.T) {
 			t.Parallel()
 			_, err := Parse(in)

@@ -203,5 +203,7 @@ func (s *httpBlockingBLeg) calls() []string {
 	}
 }
 
-var _ lipapi.EventStream = (*httpBlockingBLeg)(nil)
-var _ leglifecycle.BLegAttempt = (*httpBlockingBLeg)(nil)
+var (
+	_ lipapi.EventStream       = (*httpBlockingBLeg)(nil)
+	_ leglifecycle.BLegAttempt = (*httpBlockingBLeg)(nil)
+)

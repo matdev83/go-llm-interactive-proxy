@@ -274,12 +274,10 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 			CompletionDurationMillis: delta.CompletionDurationMillis,
 			CompletionTPSMilli:       delta.CompletionTPSMilli,
 		}
-		attemptAccounting := deltaAccounting
 		for i := len(row.attempts) - 1; i >= 0; i-- {
 			ap := &row.attempts[i]
 			if ap.trace.TurnID == delta.TurnID && ap.trace.BLegID == delta.BLegID {
-				attemptAccounting = domain.MergeAttemptAccounting(ap.accounting, deltaAccounting)
-				ap.accounting = attemptAccounting
+				ap.accounting = domain.MergeAttemptAccounting(ap.accounting, deltaAccounting)
 				break
 			}
 		}

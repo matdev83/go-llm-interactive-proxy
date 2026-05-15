@@ -171,6 +171,35 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSEUsesClientVisibleScopedUsage(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{
+			{InputTokens: 100, OutputTokens: 50, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable}},
+			{InputTokens: 10, OutputTokens: 5, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneClientVisible}},
+		}},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+
+	if err := gemini.WriteStreamSSE(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"promptTokenCount":10`) || !strings.Contains(body, `"candidatesTokenCount":5`) || !strings.Contains(body, `"totalTokenCount":15`) {
+		t.Fatalf("stream body %q does not contain client-visible usage", body)
+	}
+	if strings.Contains(body, `"promptTokenCount":100`) || strings.Contains(body, `"candidatesTokenCount":50`) {
+		t.Fatalf("stream body %q contains provider usage", body)
+	}
+}
+
 func TestWriteStreamSSE_functionCallChunk(t *testing.T) {
 	t.Parallel()
 	call := &lipapi.Call{

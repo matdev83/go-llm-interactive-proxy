@@ -81,11 +81,11 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 		return out, err
 	}
 	mergedOverrides := mergeStreamRecoveryOverrides(envOverrides, in.StreamRecoveryOverrides)
-	if eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, mergedOverrides); err != nil {
+	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, mergedOverrides)
+	if err != nil {
 		return out, err
-	} else {
-		applyEffectiveStreamRecovery(cfg, eff)
 	}
+	applyEffectiveStreamRecovery(cfg, eff)
 
 	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
 		return out, err

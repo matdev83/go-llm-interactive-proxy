@@ -50,7 +50,7 @@ func TestExecutorStreamRecovery_postOutputEOFEmitsWarningFinishNoRetry(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var kinds []lipapi.EventKind
 	for {
 		ev, err := stream.Recv(context.Background())
@@ -110,7 +110,7 @@ func TestExecutorStreamRecovery_preOutputIdleCancelsAndFailsOver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestExecutorStreamRecovery_postOutputIdleEmitsWarningFinishNoRetry(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var kinds []lipapi.EventKind
 	for {
 		ev, err := stream.Recv(context.Background())

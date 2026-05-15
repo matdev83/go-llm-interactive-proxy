@@ -153,6 +153,33 @@ continuity:
   # store: postgres
   # postgres_dsn: "postgres://user:pass@host:5432/continuity?sslmode=disable"
 
+# Token accounting records provider-billable and client-visible usage through runtime preflight,
+# stream reconstruction, ledger writes, admin dry-run counting, and metrics-safe observations.
+# accounting:
+#   enabled: true
+#   mode: provider_first          # provider_first | local_only | provider_required
+#   count_timeout: 750ms          # bounds provider/local CountCall and stream reconstruction counts
+#   tokenizer:
+#     default_encoding: cl100k_base
+#     model_mappings:
+#       gpt-4o-mini: o200k_base
+#   preflight:
+#     mode: advisory              # advisory | required
+#     max_context_tokens: 128000
+#     clamp_max_output_tokens: true
+#   ledger:
+#     store: sqlite               # memory | sqlite | postgres
+#     sqlite_path: ./data/token-accounting.db
+#     # store: postgres
+#     # postgres_dsn: "postgres://user:pass@host:5432/token_accounting?sslmode=disable"
+#     write_policy: required      # required fail-closes; best_effort observes/logs and continues
+#   admin:
+#     enabled: true
+#     path: "/admin/token-count"
+#     max_body_bytes: 1048576
+#   observability:
+#     enabled: true
+
 # Secure sessions (proxy-owned session id + resume proofs) are always on; omit secure_session to use defaults
 # (memory store, loopback-friendly). Memory store session evidence is non-durable (lost on restart) unless you use
 # store: sqlite with sqlite_path below. token_fingerprint_key may be omitted for memory (ephemeral process-local key);

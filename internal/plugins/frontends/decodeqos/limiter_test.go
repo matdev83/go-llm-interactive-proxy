@@ -11,6 +11,7 @@ func TestNewLimiter_unlimitedReturnsNil(t *testing.T) {
 
 	for _, max := range []int{0, -1} {
 		t.Run("max", func(t *testing.T) {
+			t.Parallel()
 			if got := NewLimiter(max); got != nil {
 				t.Fatalf("NewLimiter(%d) = %#v, want nil", max, got)
 			}

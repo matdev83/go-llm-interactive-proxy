@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -170,6 +171,22 @@ func prepareStandardHandler(
 				mux.Handle(prefix, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
 				log.InfoContext(ctx, "diagnostics pprof mounted", "path", prefix)
 			}
+		}
+	}
+	if cfg.Accounting.Admin.Enabled {
+		path := strings.TrimSpace(cfg.Accounting.Admin.Path)
+		if path != "" {
+			service := built.TokenAccountingAdmin
+			if service == nil && built.Executor != nil {
+				service = built.Executor.AdminCountService
+			}
+			h := adminaccounting.NewHandler(adminaccounting.Options{
+				Enabled:      true,
+				MaxBodyBytes: cfg.Accounting.Admin.MaxBodyBytes,
+				Service:      service,
+			})
+			mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
+			log.InfoContext(ctx, "token accounting admin mounted", "path", path)
 		}
 	}
 	secureOn := cfg.SecureSessionEffectivelyEnabled()

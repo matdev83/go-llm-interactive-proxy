@@ -72,6 +72,11 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/state",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
       ]
     },
@@ -98,6 +103,11 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/stream",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
       ]
     },
@@ -112,7 +122,8 @@
       "go_list_pattern": "./internal/core/execbackend",
       "classification": "aligned",
       "allowed_internal_core_imports": [
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
       ]
     },
     {

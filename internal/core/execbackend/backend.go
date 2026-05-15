@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -20,6 +21,8 @@ type Backend struct {
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
+
+	ProviderCounter accountingapp.ProviderCounter
 }
 
 type BillingFinalizationInput struct {

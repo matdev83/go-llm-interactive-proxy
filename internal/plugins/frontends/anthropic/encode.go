@@ -375,8 +375,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		case lipapi.EventResponseStarted:
 		case lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
-			inTok += ev.InputTokens
-			outTok += ev.OutputTokens
+			usage := lipapi.ClientVisibleUsage(ev)
+			inTok += usage.InputTokens
+			outTok += usage.OutputTokens
 		case lipapi.EventToolCallStarted:
 			if err := openToolBlock(ev.ToolCallID, ev.ToolName); err != nil {
 				return err

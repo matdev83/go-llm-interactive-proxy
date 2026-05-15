@@ -19,8 +19,10 @@ type managedPrependFirst struct {
 	*prependFirst
 }
 
-var _ lipapi.EventStream = (*prependFirst)(nil)
-var _ lipapi.ManagedEventStream = (*managedPrependFirst)(nil)
+var (
+	_ lipapi.EventStream        = (*prependFirst)(nil)
+	_ lipapi.ManagedEventStream = (*managedPrependFirst)(nil)
+)
 
 // NewPrependFirst returns an EventStream whose first Recv returns first without calling rest.
 // Later Recvs delegate to rest; if rest is nil, the second Recv returns io.EOF.
