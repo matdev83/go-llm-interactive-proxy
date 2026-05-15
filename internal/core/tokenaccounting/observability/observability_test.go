@@ -164,18 +164,16 @@ func TestStatsConcurrentRecordSnapshotAndSetSink(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 128; j++ {
+	for range 32 {
+		wg.Go(func() {
+			for j := range 128 {
 				stats.Record(obs)
 				_ = stats.Snapshot()
 				if j%16 == 0 {
 					stats.SetSink(noopSink{})
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

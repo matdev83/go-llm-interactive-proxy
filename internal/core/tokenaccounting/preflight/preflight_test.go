@@ -111,14 +111,14 @@ func TestCheck_configuredLimitsRejectWithoutModelCatalogFacts(t *testing.T) {
 			name:       "output tokens",
 			cfg:        preflight.Config{Enabled: true, Mode: preflight.ModeStrict, MaxOutputTokens: 8},
 			count:      app.CountResult{InputTokens: 1},
-			requested:  intPtr(9),
+			requested:  func() *int { v := 9; return &v }(),
 			wantReason: preflight.ReasonOutputLimitExceeded,
 		},
 		{
 			name:       "context tokens",
 			cfg:        preflight.Config{Enabled: true, Mode: preflight.ModeStrict, MaxContextTokens: 10},
 			count:      app.CountResult{InputTokens: 7},
-			requested:  intPtr(4),
+			requested:  func() *int { v := 4; return &v }(),
 			wantReason: preflight.ReasonContextLimitExceeded,
 		},
 	}
@@ -362,5 +362,3 @@ func testCall() lipapi.Call {
 		},
 	}
 }
-
-func intPtr(v int) *int { return &v }
