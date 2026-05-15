@@ -108,6 +108,100 @@ func TestWeightedRequestSizeFiltersBeforeRoll(t *testing.T) {
 	}
 }
 
+func TestExpandFailover_stickyBackendOverridesWeightedRollWhenEligible(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[weight=100]a:m^[weight=1]b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandFailover(sel, PlanOptions{
+		StickyBackendID: "b",
+		Rand:            rng(0),
+		Session:         &SessionRoutingState{FirstRequestConsumed: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Key != "b:m" {
+		t.Fatalf("got %#v want sticky b:m", out)
+	}
+}
+
+func TestExpandFailover_stickyBackendIgnoredWhenUnhealthyOrSizeIneligible(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		sel  string
+		opt  PlanOptions
+		want string
+	}{
+		{
+			name: "unhealthy",
+			sel:  "a:m|b:m",
+			opt:  PlanOptions{StickyBackendID: "b", Unhealthy: map[string]struct{}{"b:m": {}}},
+			want: "a:m",
+		},
+		{
+			name: "max context exceeded",
+			sel:  "a:m|[max_context=10]b:m",
+			opt:  PlanOptions{StickyBackendID: "b", RequestSize: RequestSizeEstimate{Available: true, Tokens: 11}},
+			want: "a:m",
+		},
+		{
+			name: "min context boundary excluded",
+			sel:  "a:m|[min_context=10]b:m",
+			opt:  PlanOptions{StickyBackendID: "b", RequestSize: RequestSizeEstimate{Available: true, Tokens: 10}},
+			want: "a:m",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sel, err := Parse(tc.sel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := ExpandFailover(sel, tc.opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out) == 0 || out[0].Key != tc.want {
+				t.Fatalf("got %#v want first %q", out, tc.want)
+			}
+		})
+	}
+}
+
+func TestExpandFailover_stickyBackendAbsentFallsBackToNormalPlanning(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("a:m|b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandFailover(sel, PlanOptions{StickyBackendID: "missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 || out[0].Key != "a:m" || out[1].Key != "b:m" {
+		t.Fatalf("got %#v", out)
+	}
+}
+
+func TestExpandFailover_stickyFirstBranchMarksFirst(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[first]a:m^[weight=1]b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandFailover(sel, PlanOptions{StickyBackendID: "a", Session: &SessionRoutingState{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Key != "a:m" || !out[0].MarkedFirst {
+		t.Fatalf("got %#v want sticky first branch marked", out)
+	}
+}
+
 func TestExpandFailoverPreservesTTFTTimeoutMetadata(t *testing.T) {
 	t.Parallel()
 	sel, err := Parse("{ttft_timeout=60}[ttft_timeout=30]a:b|[ttft_timeout=20]c:d")

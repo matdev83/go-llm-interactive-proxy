@@ -10,6 +10,7 @@ Stable identifiers for **core-owned** routing and executor invariants. Each ID m
 | `SB-ORCH-max-attempts` | `routing.max_attempts` stops further B-leg opens once exhausted. | `TestExecutor_maxAttemptsBlocksFurtherBLegs` |
 | `SB-ORCH-cancel-records-attempt` | Cancellation during streaming records attempt metadata. | `TestExecutor_cancellationRecordsAttempt` |
 | `SB-ORCH-weighted-first-branch` | `[first]` weighted routing persists consumed-first state on the A-leg for continuity. | `TestExecutor_weightedFirstBranch_persistsConsumed` |
+| `SB-ORCH-route-affinity` | Session/client affinity binds after committed output, reuses eligible backends, and resets unhealthy/context-ineligible bindings. | `TestExecutorSessionAffinityBindsAfterOutputCommitAndReusesBackend` |
 | `SB-ORCH-circuit-breaker` | Routing health circuit breaker can skip unhealthy candidates. | `TestExecutor_circuitBreakerSkipsAfterFailures` |
 | `SB-ORCH-backend-seam-b2bua` | Backend seam regression: pre-output recovery and no post-output failover across representative failures. | `TestExecutor_backendSeamRegression` |
 | `SB-SECURE-new-session-replaces-forged` | Secure session: BeginTurn with a new session replaces a forged A-leg id. | `TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg` |

@@ -6,6 +6,7 @@ This document summarizes semantic differences operators should expect when movin
 
 - Selectors use the same string-oriented failover syntax (`a:model|b:model`, weighted branches, `[first]` steering). `routing.max_attempts` caps **B-leg opens** (initial open plus recv-phase replacements) per logical request.
 - Model-only selectors require an explicit `default_route` / default backend resolution path; unresolved model-only selectors fail deterministically instead of surfacing as unknown-backend surprises at open time.
+- Route-wide stickiness is opt-in with global selector params, for example `{affinity=session}[weight=1]a:model^[weight=1]b:model` or `{affinity=client}...` (aliases: `{session_sticky}`, `{client_sticky}`). Sticky bindings target backend instance ids and are revalidated on every request; unhealthy, absent, or context-ineligible backends are cleared and re-selected from currently eligible candidates.
 
 ## Capabilities
 

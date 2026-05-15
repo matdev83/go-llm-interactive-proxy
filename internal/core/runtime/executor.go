@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -82,6 +83,10 @@ type Executor struct {
 	RouteObserver lipsdk.RouteObserver
 	// RouteTrace, when set, records recent routing decisions for diagnostics HTTP handlers.
 	RouteTrace *diag.RouteTraceBuffer
+	// AffinityStore persists route-wide session/client sticky backend bindings when selectors request affinity.
+	AffinityStore affinity.Store
+	// AffinityMissingIdentity controls explicit affinity when the requested identity is unavailable.
+	AffinityMissingIdentity affinity.MissingIdentityPolicy
 	// MaxPendingWireEvents caps backend pending event queues per stream (0 = unlimited).
 	MaxPendingWireEvents int
 	// StreamRecovery controls opt-in mitigation of upstream streams that end without response_finished.
@@ -230,6 +235,10 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	session := &routing.SessionRoutingState{FirstRequestConsumed: aLeg.WeightedFirstConsumed}
 	excluded := map[string]struct{}{}
 	requestSize := e.requestSizeEstimateForRouting(ctx, sel, baseline)
+	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, recvViews, recvViewsOK)
+	if err != nil {
+		return nil, fmt.Errorf("executor: affinity identity: %w", err)
+	}
 	var lastReject lipapi.NegotiationResult
 	var contextLimitExhaustion bool
 	rng := e.rng()
@@ -255,6 +264,8 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			ttft:        &ttft,
 			isRetryPath: false,
 			lastReject:  &lastReject,
+			affinityKey: affinityKey,
+			affinitySet: affinityKeyOK,
 			// Persists across failover iterations so ExpandFailover can map to ErrAllCandidatesContextLimitExceeded.
 			isContextLimitExhaustion: &contextLimitExhaustion,
 		})
@@ -285,6 +296,8 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			rng:         rng,
 			bleg:        out.bleg,
 			cand:        out.cand,
+			affinityKey: affinityKey,
+			affinitySet: affinityKeyOK,
 
 			recvViews:   recvViews,
 			recvViewsOK: recvViewsOK,

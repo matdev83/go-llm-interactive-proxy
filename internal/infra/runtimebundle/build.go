@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
+	affinitymem "github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity/memorystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
@@ -264,22 +266,24 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	closers = append(closers, accountingClosers...)
 	exec = &runtime.Executor{
-		Store:                store,
-		Bus:                  bus,
-		RuntimeSnapshot:      snap,
-		Backends:             backends,
-		ALegLifecycle:        leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
-		MaxAttempts:          cfg.Routing.MaxAttempts,
-		DefaultBackend:       defBE,
-		SelectorAliases:      aliasResolver,
-		CapsResolver:         capMap,
-		Rand:                 routing.NewSeededRng(seed),
-		Now:                  nowFn,
-		CandidateHealth:      routinghealth.CandidateHealthFromConfig(cfg, nowFn),
-		RouteObserver:        routeObserverFor(log),
-		Log:                  log,
-		MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
-		StreamRecovery:       streamRecovery,
+		Store:                   store,
+		Bus:                     bus,
+		RuntimeSnapshot:         snap,
+		Backends:                backends,
+		ALegLifecycle:           leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
+		MaxAttempts:             cfg.Routing.MaxAttempts,
+		DefaultBackend:          defBE,
+		SelectorAliases:         aliasResolver,
+		CapsResolver:            capMap,
+		Rand:                    routing.NewSeededRng(seed),
+		Now:                     nowFn,
+		CandidateHealth:         routinghealth.CandidateHealthFromConfig(cfg, nowFn),
+		RouteObserver:           routeObserverFor(log),
+		AffinityStore:           affinitymem.New(),
+		AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
+		Log:                     log,
+		MaxPendingWireEvents:    cfg.Server.MaxPendingWireEvents,
+		StreamRecovery:          streamRecovery,
 	}
 	if tokenAccounting != nil {
 		exec.Preflight = tokenAccounting.Preflight

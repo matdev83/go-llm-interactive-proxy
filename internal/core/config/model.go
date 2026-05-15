@@ -291,8 +291,14 @@ type DiagnosticsConfig struct {
 type RoutingConfig struct {
 	MaxAttempts int `yaml:"max_attempts"`
 	// DefaultRoute is the selector used when the client omits X-LIP-Route (e.g. "openai-responses:gpt-4o-mini").
-	DefaultRoute string              `yaml:"default_route"`
-	Health       RoutingHealthConfig `yaml:"health"`
+	DefaultRoute string                `yaml:"default_route"`
+	Health       RoutingHealthConfig   `yaml:"health"`
+	Affinity     RoutingAffinityConfig `yaml:"affinity"`
+}
+
+type RoutingAffinityConfig struct {
+	Store           string `yaml:"store"`
+	MissingIdentity string `yaml:"missing_identity"`
 }
 
 type RoutingHealthConfig struct {

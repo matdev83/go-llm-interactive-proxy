@@ -265,6 +265,60 @@ func TestParseTTFTTimeoutAnnotations(t *testing.T) {
 	}
 }
 
+func TestParseGlobalAffinity(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  string
+		want AffinityMode
+	}{
+		{name: "session alias", raw: "{session_sticky}a:m", want: AffinitySession},
+		{name: "client alias", raw: "{client_sticky}a:m", want: AffinityClient},
+		{name: "session explicit", raw: "{affinity=session}a:m", want: AffinitySession},
+		{name: "client explicit", raw: "{affinity=client}a:m", want: AffinityClient},
+		{name: "combined with ttft", raw: "{ttft_timeout=60,affinity=session}a:m", want: AffinitySession},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sel, err := Parse(tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sel.Affinity != tc.want {
+				t.Fatalf("affinity: got %q want %q", sel.Affinity, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseGlobalAffinityRejectsAmbiguousOrLeafScope(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"{session_sticky,client_sticky}a:m",
+		"{affinity=session,affinity=client}a:m",
+		"{affinity=tenant}a:m",
+		"{affinity}a:m",
+		"{session_sticky=true}a:m",
+		"{session_sticky=}a:m",
+		"{client_sticky=}a:m",
+		"[session_sticky]a:m",
+		"[client_sticky]a:m",
+	}
+	for _, raw := range cases {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			_, err := Parse(raw)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, ErrInvalidSelector) {
+				t.Fatalf("got %v want ErrInvalidSelector", err)
+			}
+		})
+	}
+}
+
 func TestParseTTFTTimeoutAnnotationsInvalid(t *testing.T) {
 	t.Parallel()
 	cases := []string{

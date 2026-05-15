@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -60,13 +61,16 @@ type retryRecvStream struct {
 	lastHardReject           lipapi.NegotiationResult
 	isContextLimitExhaustion bool
 
-	innerMu   sync.Mutex
-	inner     lipapi.ManagedEventStream
-	bleg      b2bua.BLegRecord
-	cand      routing.AttemptCandidate
-	committed bool
-	finished  bool
-	endOnce   sync.Once
+	innerMu            sync.Mutex
+	inner              lipapi.ManagedEventStream
+	bleg               b2bua.BLegRecord
+	cand               routing.AttemptCandidate
+	committed          bool
+	finished           bool
+	endOnce            sync.Once
+	affinityKey        affinity.Key
+	affinitySet        bool
+	affinityCommitOnce sync.Once
 
 	// recvViews / routePrefs preserve [execctx] values from prepare so Recv callers can pass a bare HTTP context.
 	recvViews   execctx.Views
@@ -263,6 +267,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	for {
 		if ev, ok := s.popGateDrainHead(); ok {
 			ev = s.emitGateDrained(ctx, ev)
+			s.markOutputCommitted(ev)
 			s.accounting.observeClientEvent(s.now(), ev)
 			s.rememberClientEvent(ev)
 			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
@@ -273,6 +278,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 				}
 			}
+			s.commitAffinityIfOutput(ctx, ev)
 			pm, _ := s.recvHookMeta()
 			s.emitTrafficPTC(ctx, ev, pm)
 			return ev, nil
@@ -371,6 +377,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					return lipapi.Event{}, gerr
 				}
 				out = s.emitGateDrained(ctx, out)
+				s.markOutputCommitted(out)
 				s.accounting.observeClientEvent(s.now(), out)
 				if s.recoverPolicy != nil {
 					s.recoverPolicy.ObserveClientEvent(out, s.now())
@@ -383,14 +390,12 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 						s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 					}
 				}
+				s.commitAffinityIfOutput(ctx, out)
 				s.emitTrafficPTC(ctx, out, pm)
 				return out, nil
 			}
 			if lipapi.OutputCommitted(ev) {
-				s.committed = true
-				if s.ttft != nil {
-					s.ttft.markCommitted()
-				}
+				s.markOutputCommitted(ev)
 			}
 			s.accounting.observeClientEvent(s.now(), ev)
 			if s.recoverPolicy != nil {
@@ -424,6 +429,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 				}
 			}
+			s.commitAffinityIfOutput(ctx, ev)
 			s.emitTrafficPTC(ctx, ev, pm)
 			return ev, nil
 		}
@@ -636,6 +642,41 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		s.excluded[s.cand.Key] = struct{}{}
 	}
+}
+
+func (s *retryRecvStream) commitAffinityIfOutput(ctx context.Context, ev lipapi.Event) {
+	if lipapi.OutputCommitted(ev) {
+		s.commitAffinity(ctx, "output_committed")
+	}
+}
+
+func (s *retryRecvStream) markOutputCommitted(ev lipapi.Event) {
+	if lipapi.OutputCommitted(ev) {
+		s.committed = true
+		if s.ttft != nil {
+			s.ttft.markCommitted()
+		}
+	}
+}
+
+func (s *retryRecvStream) commitAffinity(ctx context.Context, reason string) {
+	if s == nil || s.executor == nil || s.executor.AffinityStore == nil || !s.affinitySet || !s.affinityKey.Valid() {
+		return
+	}
+	s.affinityCommitOnce.Do(func() {
+		binding := affinity.BindingFromCandidate(s.affinityKey, s.cand, s.now(), reason)
+		if strings.TrimSpace(binding.BackendID) == "" {
+			return
+		}
+		persistCtx := context.WithoutCancel(ctx)
+		if err := s.executor.AffinityStore.Set(persistCtx, binding); err != nil {
+			if s.executor.Log != nil {
+				s.executor.Log.DebugContext(persistCtx, "affinity binding set failed", "error", err)
+			}
+			return
+		}
+		s.executor.noteRouteDecision(persistCtx, s.traceID, "affinity_bind", binding.BackendID)
+	})
 }
 
 func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason string) {
@@ -857,6 +898,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		ttft:                     s.ttft,
 		isRetryPath:              true,
 		lastReject:               &s.lastHardReject,
+		affinityKey:              s.affinityKey,
+		affinitySet:              s.affinitySet,
 		isContextLimitExhaustion: &s.isContextLimitExhaustion,
 	})
 	if err != nil {

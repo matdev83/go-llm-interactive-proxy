@@ -3,6 +3,7 @@ package routing
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrNoEligibleCandidate means every candidate in the relevant scope was excluded or unhealthy.
@@ -27,6 +28,9 @@ type PlanOptions struct {
 	Session     *SessionRoutingState
 	// PreferredCandidateKeys hints expand order when keys are already eligible (design §12, advisory).
 	PreferredCandidateKeys []string
+	// StickyBackendID forces a currently bound backend instance ahead of normal weighted/failover selection
+	// when at least one candidate for that backend is eligible in the current selector.
+	StickyBackendID string
 	// Rand supplies weighted-branch rolls. When nil, weighted selection uses a fixed-seeded
 	// math/rand/v2 PCG stream (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
 	Rand        Rng
@@ -62,6 +66,9 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 	if sel == nil {
 		return nil, fmt.Errorf("%w: nil selector", ErrInvalidSelector)
 	}
+	if c, ok := stickyCandidate(sel, opt); ok {
+		return []AttemptCandidate{c}, nil
+	}
 	out := make([]AttemptCandidate, 0, len(sel.Alternatives))
 	for _, alt := range sel.Alternatives {
 		switch {
@@ -92,6 +99,37 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 	}
 	out = reorderPreferredCandidates(out, opt.PreferredCandidateKeys)
 	return out, nil
+}
+
+func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, bool) {
+	backend := strings.TrimSpace(opt.StickyBackendID)
+	if sel == nil || backend == "" {
+		return AttemptCandidate{}, false
+	}
+	for _, alt := range sel.Alternatives {
+		switch {
+		case alt.Primary != nil:
+			if strings.TrimSpace(alt.Primary.Backend) != backend {
+				continue
+			}
+			c := AttemptCandidate{Primary: *alt.Primary, Key: alt.Primary.String()}
+			if candidateEligible(c.Primary, c.Key, opt) {
+				return c, true
+			}
+		case alt.Weighted != nil:
+			for _, b := range alt.Weighted.Branches {
+				if strings.TrimSpace(b.Target.Backend) != backend {
+					continue
+				}
+				c := AttemptCandidate{Primary: b.Target, Key: b.Target.String()}
+				if candidateEligible(c.Primary, c.Key, opt) {
+					c.MarkedFirst = b.IsFirst && !opt.IsRetryPath && opt.Session != nil && !opt.Session.FirstRequestConsumed
+					return c, true
+				}
+			}
+		}
+	}
+	return AttemptCandidate{}, false
 }
 
 func reorderPreferredCandidates(list []AttemptCandidate, preferred []string) []AttemptCandidate {

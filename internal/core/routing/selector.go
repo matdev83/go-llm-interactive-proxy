@@ -10,7 +10,18 @@ import (
 type Selector struct {
 	Alternatives      []FailoverAlt
 	GlobalTTFTTimeout *time.Duration
+	Affinity          AffinityMode
 }
+
+// AffinityMode controls route-wide backend stickiness. It is intentionally global
+// selector metadata because affinity constrains the whole planning process.
+type AffinityMode string
+
+const (
+	AffinityNone    AffinityMode = ""
+	AffinitySession AffinityMode = "session"
+	AffinityClient  AffinityMode = "client"
+)
 
 // FailoverAlt is one arm of a failover selector (before the next '|').
 // Exactly one of Primary or Weighted is non-nil.

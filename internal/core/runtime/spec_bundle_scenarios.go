@@ -43,6 +43,11 @@ func SpecBundleOrchestrationScenarios() []OrchestrationScenarioSpec {
 			TestName:         "TestExecutor_weightedFirstBranch_persistsConsumed",
 		},
 		{
+			ID:               "SB-ORCH-route-affinity",
+			InvariantSummary: "Session/client affinity binds after committed output, reuses eligible backends, and resets unhealthy/context-ineligible bindings.",
+			TestName:         "TestExecutorSessionAffinityBindsAfterOutputCommitAndReusesBackend",
+		},
+		{
 			ID:               "SB-ORCH-circuit-breaker",
 			InvariantSummary: "Routing health circuit breaker can skip unhealthy candidates.",
 			TestName:         "TestExecutor_circuitBreakerSkipsAfterFailures",

@@ -105,10 +105,18 @@ diagnostics:
 
 routing:
   max_attempts: 3
+  affinity:
+    store: memory
+    # Explicit route affinity ({affinity=session} / {affinity=client}) requires an identity by default.
+    # Use ignore only for local/single-user experiments where missing identity should disable stickiness.
+    missing_identity: fail_closed
   # Route selectors support failover (`|`), weighted branches (`^`), query defaults, and TTFT budgets.
   # TTFT budget values are integer seconds. A leading global block caps the whole client-side A-leg wait
   # for first output across all pre-output attempts, while per-leaf annotations cap one backend attempt:
   #   "{ttft_timeout=60}[ttft_timeout=30]openai-responses:gpt-4o-mini^[ttft_timeout=20]gemini:gemini-2.0-flash"
+  # Route-wide affinity lives in the same leading global block:
+  #   "{affinity=session}[weight=1]openai-a:gpt-4o-mini^[weight=1]openai-b:gpt-4o-mini"
+  # Aliases are also accepted: {session_sticky} and {client_sticky}.
   default_route: "openai-responses:gpt-4o-mini"
 
 # Optional regexp rewrites of the full route selector string (incoming X-LIP-Route or default_route).

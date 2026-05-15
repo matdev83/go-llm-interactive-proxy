@@ -29,3 +29,15 @@ func (e *Executor) notePlanCandidate(ctx context.Context, traceID, candidateKey 
 		e.RouteObserver.ObserveRouteDecision(ctx, traceID, "plan_candidate", candidateKey)
 	}
 }
+
+func (e *Executor) noteRouteDecision(ctx context.Context, traceID, decision, detail string) {
+	if e == nil {
+		return
+	}
+	if e.RouteTrace != nil {
+		e.RouteTrace.Append(diag.RouteTraceEntry{TraceID: traceID, Decision: decision, Detail: detail})
+	}
+	if e.RouteObserver != nil {
+		e.RouteObserver.ObserveRouteDecision(ctx, traceID, decision, detail)
+	}
+}

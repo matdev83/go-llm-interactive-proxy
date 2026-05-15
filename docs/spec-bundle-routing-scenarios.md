@@ -8,6 +8,7 @@ Stable identifiers for **route selector parsing**, **model alias resolution**, a
 | `SB-ROUTE-parse-failover-chain` | Failover order syntax expands backup primaries after `=>`. | `TestParseFailoverOrder` |
 | `SB-ROUTE-parse-weighted-first` | Weighted and `[first]` arms parse without ambiguity. | `TestParseWeightedAndFirst` |
 | `SB-ROUTE-parse-ttft-timeouts` | Global and per-leaf TTFT timeout annotations parse into routing metadata. | `TestParseTTFTTimeoutAnnotations` |
+| `SB-ROUTE-parse-affinity` | Global route affinity annotations parse as selector-wide metadata and leaf-scoped stickiness is rejected. | `TestParseGlobalAffinity` |
 | `SB-ROUTE-alias-exact` | Model alias resolver applies exact pattern matches before routing. | `TestAliasResolver_exactMatch` |
 | `SB-ROUTE-planner-failover-order` | Failover expansion preserves left-to-right primaries when eligible. | `TestExpandFailoverLeftToRightPrimaries` |
 | `SB-ROUTE-weighted-deterministic` | Weighted selection is deterministic for a fixed branch key and weight table. | `TestWeightedDeterministic` |

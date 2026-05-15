@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -42,6 +43,8 @@ type attemptOpenParams struct {
 	ttft        *ttftBudget
 	isRetryPath bool
 	lastReject  *lipapi.NegotiationResult
+	affinityKey affinity.Key
+	affinitySet bool
 	// isContextLimitExhaustion, when non-nil, is set true when excluding a candidate for context-limit
 	// eligibility so a subsequent ErrNoEligibleCandidate maps to [lipapi.ErrAllCandidatesContextLimitExceeded].
 	isContextLimitExhaustion *bool
@@ -56,15 +59,34 @@ type attemptOpenResult struct {
 
 func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, error) {
 	var zero attemptOpenResult
+	stickyBackendID, stickyBinding, err := e.lookupAffinityBinding(p.ctx, p.traceID, p.sel, p.affinityKey, p.affinitySet)
+	if err != nil {
+		return zero, err
+	}
 	list, err := routing.ExpandFailover(p.sel, routing.PlanOptions{
 		Excluded:               p.excluded,
 		Unhealthy:              e.mergePlannerHealth(),
 		RequestSize:            p.requestSize,
 		Session:                p.session,
 		PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
+		StickyBackendID:        stickyBackendID,
 		Rand:                   p.rng,
 		IsRetryPath:            p.isRetryPath,
 	})
+	if stickyBinding && stickyBackendID != "" && (err != nil || len(list) == 0 || list[0].Primary.Backend != stickyBackendID) {
+		e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "ineligible")
+		stickyBackendID = ""
+		stickyBinding = false
+		list, err = routing.ExpandFailover(p.sel, routing.PlanOptions{
+			Excluded:               p.excluded,
+			Unhealthy:              e.mergePlannerHealth(),
+			RequestSize:            p.requestSize,
+			Session:                p.session,
+			PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
+			Rand:                   p.rng,
+			IsRetryPath:            p.isRetryPath,
+		})
+	}
 	if err != nil {
 		noEligible := errors.Is(err, routing.ErrNoEligibleCandidate)
 		lastNegotiationReject := p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject
@@ -116,6 +138,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		return zero, negotiatePanicErr
 	}
 	if res.Kind == lipapi.NegotiationReject {
+		if stickyBinding && c.Primary.Backend == stickyBackendID {
+			e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "capability_reject")
+		}
 		if p.lastReject != nil {
 			*p.lastReject = res
 		}
@@ -147,6 +172,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		d := e.EligibilityResolver.Check(p.ctx, c, attempt, facts)
 		elig = &d
 		if !d.IsEligible {
+			if stickyBinding && c.Primary.Backend == stickyBackendID {
+				e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, string(d.Reason))
+			}
 			if p.isContextLimitExhaustion != nil && d.Reason == modelcatalog.EligibilityContextLimitExceeded {
 				*p.isContextLimitExhaustion = true
 			}
@@ -279,6 +307,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		openSpan.RecordError(err)
 		openSpan.SetStatus(codes.Error, "backend open failed")
 		if lipapi.IsRecoverablePreOutput(err) {
+			if stickyBinding && c.Primary.Backend == stickyBackendID {
+				e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "recoverable_pre_output_open")
+			}
 			e.recordAttemptLogged(p.ctx, recordAttemptParams{
 				ALegID:    p.aLegID,
 				BLeg:      bleg,
@@ -320,6 +351,35 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		slog.String("model", c.Primary.Model),
 	)
 	return attemptOpenResult{opened: true, stream: stream, bleg: bleg, cand: c}, nil
+}
+
+func (e *Executor) lookupAffinityBinding(ctx context.Context, traceID string, sel *routing.Selector, key affinity.Key, keyOK bool) (string, bool, error) {
+	if e == nil || e.AffinityStore == nil || sel == nil || sel.Affinity == routing.AffinityNone || !keyOK {
+		return "", false, nil
+	}
+	b, ok, err := e.AffinityStore.Get(ctx, key)
+	if err != nil {
+		return "", false, fmt.Errorf("executor: affinity lookup: %w", err)
+	}
+	backend := strings.TrimSpace(b.BackendID)
+	if !ok || backend == "" {
+		return "", false, nil
+	}
+	e.noteRouteDecision(ctx, traceID, "affinity_hit", backend)
+	return backend, true, nil
+}
+
+func (e *Executor) clearAffinityBinding(ctx context.Context, traceID string, key affinity.Key, keyOK bool, reason string) {
+	if e == nil || e.AffinityStore == nil || !keyOK {
+		return
+	}
+	if err := e.AffinityStore.Delete(ctx, key); err != nil {
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "affinity binding delete failed", "error", err)
+		}
+		return
+	}
+	e.noteRouteDecision(ctx, traceID, "affinity_reset", strings.TrimSpace(reason))
 }
 
 func (e *Executor) requestSizeEstimateForRouting(ctx context.Context, sel *routing.Selector, call lipapi.Call) routing.RequestSizeEstimate {

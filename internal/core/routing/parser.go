@@ -39,11 +39,12 @@ func Parse(s string) (*Selector, error) {
 		}
 		alts = append(alts, alt)
 	}
-	return &Selector{Alternatives: alts, GlobalTTFTTimeout: globals.ttftTimeout}, nil
+	return &Selector{Alternatives: alts, GlobalTTFTTimeout: globals.ttftTimeout, Affinity: globals.affinity}, nil
 }
 
 type globalParams struct {
 	ttftTimeout *time.Duration
+	affinity    AffinityMode
 }
 
 func extractGlobalParams(s string) (globalParams, string, error) {
@@ -80,6 +81,33 @@ func extractGlobalParams(s string) (globalParams, string, error) {
 				return globalParams{}, "", err
 			}
 			out.ttftTimeout = &d
+		case "affinity":
+			if out.affinity != AffinityNone {
+				return globalParams{}, "", fmt.Errorf("%w: duplicate affinity global parameter", ErrInvalidSelector)
+			}
+			if !hasValue || strings.TrimSpace(raw) == "" {
+				return globalParams{}, "", fmt.Errorf("%w: affinity must be session or client", ErrInvalidSelector)
+			}
+			switch strings.ToLower(strings.TrimSpace(raw)) {
+			case string(AffinitySession):
+				out.affinity = AffinitySession
+			case string(AffinityClient):
+				out.affinity = AffinityClient
+			default:
+				return globalParams{}, "", fmt.Errorf("%w: affinity must be session or client", ErrInvalidSelector)
+			}
+		case "session_sticky", "client_sticky":
+			if out.affinity != AffinityNone {
+				return globalParams{}, "", fmt.Errorf("%w: duplicate affinity global parameter", ErrInvalidSelector)
+			}
+			if hasValue {
+				return globalParams{}, "", fmt.Errorf("%w: %s does not take a value", ErrInvalidSelector, key)
+			}
+			if key == "session_sticky" {
+				out.affinity = AffinitySession
+			} else {
+				out.affinity = AffinityClient
+			}
 		default:
 			return globalParams{}, "", fmt.Errorf("%w: unsupported global parameter key %q", ErrInvalidSelector, key)
 		}
@@ -267,7 +295,8 @@ func containsGlobalParamBlock(s string) bool {
 		}
 		inside := strings.TrimSpace(s[i+1 : i+1+end])
 		key, _, _ := strings.Cut(inside, "=")
-		if strings.EqualFold(strings.TrimSpace(key), "ttft_timeout") {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "ttft_timeout", "affinity", "session_sticky", "client_sticky":
 			return true
 		}
 		i += end + 1

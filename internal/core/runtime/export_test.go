@@ -9,6 +9,9 @@ import (
 	"crypto/rand"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
@@ -17,6 +20,10 @@ import (
 
 func init() {
 	secureSessionTestPrepare = prepareExecutorSecureSessionForTests
+}
+
+func (e *Executor) ResolveAffinityKeyForTest(mode routing.AffinityMode, views execctx.Views, viewsOK bool) (affinity.Key, bool, error) {
+	return e.resolveAffinityKey(&routing.Selector{Affinity: mode}, views, viewsOK)
 }
 
 func prepareExecutorSecureSessionForTests(e *Executor) {

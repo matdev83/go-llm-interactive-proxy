@@ -33,6 +33,11 @@ func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 			TestName:         "TestParseTTFTTimeoutAnnotations",
 		},
 		{
+			ID:               "SB-ROUTE-parse-affinity",
+			InvariantSummary: "Global route affinity annotations parse as selector-wide metadata and leaf-scoped stickiness is rejected.",
+			TestName:         "TestParseGlobalAffinity",
+		},
+		{
 			ID:               "SB-ROUTE-alias-exact",
 			InvariantSummary: "Model alias resolver applies exact pattern matches before routing.",
 			TestName:         "TestAliasResolver_exactMatch",

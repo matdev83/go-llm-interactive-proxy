@@ -71,7 +71,10 @@ func Validate(cfg *Config) error {
 	if err := validateAccounting(cfg); err != nil {
 		return err
 	}
-	return validateRoutingHealth(cfg)
+	if err := validateRoutingHealth(cfg); err != nil {
+		return err
+	}
+	return validateRoutingAffinity(cfg)
 }
 
 func validateSecureSession(cfg *Config) error {
@@ -533,6 +536,33 @@ func validateRoutingHealth(cfg *Config) error {
 	if d <= 0 {
 		return fmt.Errorf("routing.health.circuit_breaker.open_for: must be a positive duration")
 	}
+	return nil
+}
+
+func validateRoutingAffinity(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	store := strings.ToLower(strings.TrimSpace(cfg.Routing.Affinity.Store))
+	if store == "" {
+		store = "memory"
+	}
+	switch store {
+	case "memory":
+	default:
+		return fmt.Errorf("routing.affinity.store: want memory, got %q", cfg.Routing.Affinity.Store)
+	}
+	missing := strings.ToLower(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity))
+	if missing == "" {
+		missing = "fail_closed"
+	}
+	switch missing {
+	case "ignore", "fail_closed":
+	default:
+		return fmt.Errorf("routing.affinity.missing_identity: want ignore or fail_closed, got %q", cfg.Routing.Affinity.MissingIdentity)
+	}
+	cfg.Routing.Affinity.Store = store
+	cfg.Routing.Affinity.MissingIdentity = missing
 	return nil
 }
 
