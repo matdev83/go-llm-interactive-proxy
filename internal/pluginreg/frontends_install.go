@@ -16,6 +16,7 @@ func mountOpenAIResponses(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) 
 		DefaultRouteSelector: opts.DefaultRoute,
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
+		PreRequestKeepalive:  opts.PreRequestKeepalive,
 	})
 	return nil
 }
@@ -26,6 +27,7 @@ func mountOpenAILegacy(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) err
 		DefaultRouteSelector: opts.DefaultRoute,
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
+		PreRequestKeepalive:  opts.PreRequestKeepalive,
 	})
 	return nil
 }
@@ -36,6 +38,7 @@ func mountAnthropic(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error 
 		DefaultRouteSelector: opts.DefaultRoute,
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
+		PreRequestKeepalive:  opts.PreRequestKeepalive,
 	})
 	return nil
 }
@@ -46,6 +49,7 @@ func mountGemini(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		DefaultRouteSelector: opts.DefaultRoute,
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
+		PreRequestKeepalive:  opts.PreRequestKeepalive,
 	}
 	// Register API-prefix routes only (avoid catch-all "/" shadowing unrelated paths).
 	mux.Handle("/v1beta/", h)

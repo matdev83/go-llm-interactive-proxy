@@ -21,6 +21,7 @@ const (
 	StageSubmit              = feature.StageIDSubmit
 	StageToolCatalog         = feature.StageIDToolCatalog
 	StageRequestWide         = feature.StageIDRequestWide
+	StagePreRequest          = feature.StageIDPreRequest
 	StageRouteHinting        = feature.StageIDRouteHinting
 	StageAttemptLifecycle    = feature.StageIDAttemptLifecycle
 	StageStreamEventMutation = feature.StageIDStreamEventMutation
@@ -37,7 +38,7 @@ func DefaultFailurePolicyForStage(stage string) FailurePolicy {
 		return FailurePolicyFailClosed
 	case feature.StageIDSessionOpen:
 		return FailurePolicyFailOpen
-	case feature.StageIDSubmit, feature.StageIDToolCatalog, feature.StageIDRequestWide:
+	case feature.StageIDSubmit, feature.StageIDToolCatalog, feature.StageIDRequestWide, feature.StageIDPreRequest:
 		// Pre-backend mutation: compatible with hook-bus per-hook FailureMode; stage default fail-open.
 		return FailurePolicyFailOpen
 	case feature.StageIDRouteHinting:

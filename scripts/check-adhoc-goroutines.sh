@@ -16,7 +16,7 @@ mapfile -t hits < <(
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
-	internal/stdhttp/server.go | internal/core/stream/keepalive.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go) ;;
+	internal/stdhttp/server.go | internal/core/stream/keepalive.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go) ;;
 	*) bad+=("$f") ;;
 	esac
 done

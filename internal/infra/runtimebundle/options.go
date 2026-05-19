@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -71,6 +72,7 @@ type BuildOptions struct {
 	ToolCatalogFilters []toolcatalog.Filter
 	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
+	PreRequestHandlers []prerequest.Handler
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficObservers   []traffic.Observer

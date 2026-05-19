@@ -9,6 +9,11 @@ server:
   # write_timeout: 120s
   # idle_timeout: 120s
   # max_pending_wire_events: 0   # cap backend adapter pending-event queues per stream; 0 = unlimited
+  # Optional standards-compliant hold-alive for streaming clients while pre-request admission runs.
+  # Emits HTTP 102 Processing informational responses only; final response status/body stay protocol-native.
+  # pre_request_keepalive:
+  #   enabled: false
+  #   interval: 15s
 
 # --- Access and authentication (see internal/core/config/access_auth_model.go) ---
 # Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).

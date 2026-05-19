@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
@@ -34,6 +35,59 @@ plugins:
 	}
 	if want := "single_user"; string(mode) != want {
 		t.Fatalf("EffectiveAccessMode: want %q got %q", want, mode)
+	}
+}
+
+func TestLoadFile_preRequestKeepaliveConfig(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(p, []byte(`
+server:
+  pre_request_keepalive:
+    enabled: true
+    interval: 25ms
+continuity:
+  in_memory: true
+plugins:
+  backends:
+    - id: stub
+      enabled: true
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFile(p)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	ka := cfg.Server.EffectivePreRequestKeepalive()
+	if !ka.Enabled {
+		t.Fatal("expected pre-request keepalive enabled")
+	}
+	if ka.Interval.String() != "25ms" {
+		t.Fatalf("interval: %s", ka.Interval)
+	}
+}
+
+func TestLoadFile_preRequestKeepaliveRejectsInvalidInterval(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(p, []byte(`
+server:
+  pre_request_keepalive:
+    enabled: true
+    interval: nope
+continuity:
+  in_memory: true
+plugins:
+  backends:
+    - id: stub
+      enabled: true
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.LoadFile(p)
+	if err == nil || !strings.Contains(err.Error(), "server.pre_request_keepalive.interval") {
+		t.Fatalf("expected interval validation error, got %v", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -38,6 +39,7 @@ type RequestRuntimeSnapshot struct {
 	toolCatalogFilters []toolcatalog.Filter
 	toolCallPolicies   []toolpolicy.Policy
 	requestTransforms  []request.Transform
+	preRequestHandlers []prerequest.Handler
 	routeHintProviders []routehint.Provider
 	completionGates    []completion.Gate
 	trafficRedactors   []traffic.Redactor
@@ -56,6 +58,7 @@ type SnapshotOptions struct {
 	ToolCatalogFilters []toolcatalog.Filter
 	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
+	PreRequestHandlers []prerequest.Handler
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficRedactors   []traffic.Redactor
@@ -98,6 +101,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	// Frozen execution order for the request lifetime (same contract as [toolpolicy.MaterializeSorted]).
 	policies := toolpolicy.MaterializeSorted(opts.ToolCallPolicies)
 	transforms := slices.Clone(opts.RequestTransforms)
+	preReqs := prerequest.MaterializeSorted(opts.PreRequestHandlers)
 	routeHints := slices.Clone(opts.RouteHintProviders)
 	compGates := slices.Clone(opts.CompletionGates)
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
@@ -113,6 +117,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		toolCatalogFilters: catalog,
 		toolCallPolicies:   policies,
 		requestTransforms:  transforms,
+		preRequestHandlers: preReqs,
 		routeHintProviders: routeHints,
 		completionGates:    compGates,
 		trafficRedactors:   reds,
@@ -219,6 +224,14 @@ func (s *RequestRuntimeSnapshot) RequestTransforms() []request.Transform {
 		return nil
 	}
 	return slices.Clone(s.requestTransforms)
+}
+
+// PreRequestHandlers returns a defensive copy of frozen pre-request admission handlers (may be empty).
+func (s *RequestRuntimeSnapshot) PreRequestHandlers() []prerequest.Handler {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.preRequestHandlers)
 }
 
 // RouteHintProviders returns a defensive copy of frozen route hint providers (may be empty).

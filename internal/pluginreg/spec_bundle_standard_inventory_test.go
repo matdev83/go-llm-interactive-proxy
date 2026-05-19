@@ -47,6 +47,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 
 	wantFeat := []string{
 		"parts-noop",
+		"pre-request-policy",
 		"ref-autoappend-file",
 		"ref-request-suffix",
 		"ref-submit-annotate",

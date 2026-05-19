@@ -9,8 +9,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/holdalive"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -30,6 +32,7 @@ type Handler struct {
 	Log                  *slog.Logger
 	TrafficPorts         traffic.PortBundle
 	DecodeLimiter        *decodeqos.Limiter
+	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
 }
 
 func (h *Handler) maxBodyLimit() int64 {
@@ -44,6 +47,18 @@ func (h *Handler) logWriteJSONErr(ctx context.Context, msg string, werr error) {
 		return
 	}
 	diag.LogError(ctx, h.Log, msg, diag.AttrOpts{}, werr)
+}
+
+func (h *Handler) execute(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, stream bool) (lipapi.EventStream, error) {
+	if !stream {
+		return h.Exec.Execute(ctx, call)
+	}
+	return holdalive.Wait(ctx, w, holdalive.Config{
+		Enabled:  h.PreRequestKeepalive.Enabled,
+		Interval: h.PreRequestKeepalive.Interval,
+	}, func(ctx context.Context) (lipapi.EventStream, error) {
+		return h.Exec.Execute(ctx, call)
+	})
 }
 
 // ServeHTTP implements generateContent / streamGenerateContent for the Google AI (ML dev) layout.
@@ -125,7 +140,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		SessionID: call.Session.CorrelationID(),
 	}, "http", ct, body)
 
-	es, err := h.Exec.Execute(ctx, call)
+	es, err := h.execute(ctx, w, call, stream)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
 		if out.Kind == execerr.KindInternalError && h.Log != nil && out.Err != nil {

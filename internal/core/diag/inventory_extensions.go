@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -156,7 +157,7 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 					)
 				} else {
 					entry.StageOccupancy = stageOccupancyFromBundle(b)
-					if len(b.RequestTransforms) > 0 || len(b.ToolCatalogFilters) > 0 || len(b.CompletionGates) > 0 {
+					if len(b.RequestTransforms) > 0 || len(b.PreRequestHandlers) > 0 || len(b.ToolCatalogFilters) > 0 || len(b.CompletionGates) > 0 {
 						entry.Privileges.AuxiliaryRequests = true
 					}
 					if len(b.CompletionGates) > 0 {
@@ -234,6 +235,23 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 		if len(ids) > 0 {
 			out = append(out, InventoryStageOccupancy{
 				StageID:    extensions.StageRequestWide,
+				HandlerIDs: ids,
+				Count:      len(ids),
+			})
+		}
+	}
+	if n := len(b.PreRequestHandlers); n > 0 {
+		sorted := prerequest.MaterializeSorted(b.PreRequestHandlers)
+		ids := make([]string, 0, n)
+		for _, h := range sorted {
+			if h == nil {
+				continue
+			}
+			ids = append(ids, "pre_request:"+h.ID())
+		}
+		if len(ids) > 0 {
+			out = append(out, InventoryStageOccupancy{
+				StageID:    extensions.StagePreRequest,
 				HandlerIDs: ids,
 				Count:      len(ids),
 			})

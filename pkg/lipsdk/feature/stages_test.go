@@ -10,8 +10,8 @@ import (
 func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 	t.Parallel()
 	ids := feature.LegalPipelineStageIDs()
-	if len(ids) != 12 {
-		t.Fatalf("want 12 stages, got %d", len(ids))
+	if len(ids) != 13 {
+		t.Fatalf("want 13 stages, got %d", len(ids))
 	}
 	seen := map[string]struct{}{}
 	for _, id := range ids {
@@ -24,8 +24,8 @@ func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 		}
 	}
 	desc := feature.LegalStageDescriptors()
-	if len(desc) != 12 {
-		t.Fatalf("descriptors: want 12 got %d", len(desc))
+	if len(desc) != 13 {
+		t.Fatalf("descriptors: want 13 got %d", len(desc))
 	}
 	gotDescIDs := make([]string, len(desc))
 	for i := range desc {

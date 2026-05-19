@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 )
 
 // InternalWireMessage is the stable response body for 5xx executor failures (no upstream/raw detail).
@@ -69,6 +70,14 @@ func ClassifyExecute(err error) Outcome {
 	}
 	if lipapi.IsReject(err) {
 		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: err.Error(), Err: err}
+	}
+	if prerequest.IsRejected(err) {
+		msg := "request denied"
+		var re *prerequest.RejectError
+		if errors.As(err, &re) && re != nil && re.Message != "" {
+			msg = re.Message
+		}
+		return Outcome{Kind: KindClientReject, Status: http.StatusForbidden, Message: msg, Err: err}
 	}
 	if lipapi.IsAllCandidatesContextLimitExceeded(err) {
 		return Outcome{

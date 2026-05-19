@@ -7,13 +7,15 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 )
 
-// wantLegalPipelineOrder is the canonical R2 pipeline (twelve stages). Keep aligned with ADR 0006.
+// wantLegalPipelineOrder is the canonical extension pipeline. Keep aligned with ADR 0006 plus
+// pre-request admission before route planning.
 var wantLegalPipelineOrder = []string{
 	extensions.StageTransportAuth,
 	extensions.StageSessionOpen,
 	extensions.StageSubmit,
 	extensions.StageToolCatalog,
 	extensions.StageRequestWide,
+	extensions.StagePreRequest,
 	extensions.StageRouteHinting,
 	extensions.StageAttemptLifecycle,
 	extensions.StageStreamEventMutation,

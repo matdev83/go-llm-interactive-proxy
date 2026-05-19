@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -70,6 +71,7 @@ func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
 	out.ToolCatalogFilters = append(append([]toolcatalog.Filter(nil), a.ToolCatalogFilters...), b.ToolCatalogFilters...)
 	out.ToolCallPolicies = append(append([]toolpolicy.Policy(nil), a.ToolCallPolicies...), b.ToolCallPolicies...)
 	out.RequestTransforms = append(append([]request.Transform(nil), a.RequestTransforms...), b.RequestTransforms...)
+	out.PreRequestHandlers = append(append([]prerequest.Handler(nil), a.PreRequestHandlers...), b.PreRequestHandlers...)
 	out.RouteHintProviders = slices.Concat(a.RouteHintProviders, b.RouteHintProviders)
 	out.CompletionGates = append(append([]completion.Gate(nil), a.CompletionGates...), b.CompletionGates...)
 	out.TrafficObservers = append(append([]traffic.Observer(nil), a.TrafficObservers...), b.TrafficObservers...)
@@ -94,8 +96,8 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	if b.SessionOpeners != nil || b.WorkspaceResolvers != nil {
 		t.Fatal("expected session/workspace slices nil on zero value")
 	}
-	if b.ToolCatalogFilters != nil || b.RequestTransforms != nil || b.RouteHintProviders != nil {
-		t.Fatal("expected catalog/transform/route-hint slices nil on zero value")
+	if b.ToolCatalogFilters != nil || b.RequestTransforms != nil || b.PreRequestHandlers != nil || b.RouteHintProviders != nil {
+		t.Fatal("expected catalog/transform/pre-request/route-hint slices nil on zero value")
 	}
 	if b.CompletionGates != nil {
 		t.Fatal("expected CompletionGates nil on zero value")

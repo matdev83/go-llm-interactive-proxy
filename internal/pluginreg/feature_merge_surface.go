@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -28,6 +29,7 @@ type MergedFeatureSurface struct {
 	ToolCatalogFilters []toolcatalog.Filter
 	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
+	PreRequestHandlers []prerequest.Handler
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficObservers   []traffic.Observer
@@ -56,7 +58,7 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		}
 		bundles = append(bundles, b)
 	}
-	var submitLen, reqLen, respLen, toolLen, lifeLen, openLen, wsLen, catLen, polLen, rtxLen, rhLen, cgLen int
+	var submitLen, reqLen, respLen, toolLen, lifeLen, openLen, wsLen, catLen, polLen, rtxLen, preLen, rhLen, cgLen int
 	var trafficObsLen, usageObsLen, rawLen, redLen int
 	for _, b := range bundles {
 		submitLen += len(b.SubmitHooks)
@@ -69,6 +71,7 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		catLen += len(b.ToolCatalogFilters)
 		polLen += len(b.ToolCallPolicies)
 		rtxLen += len(b.RequestTransforms)
+		preLen += len(b.PreRequestHandlers)
 		rhLen += len(b.RouteHintProviders)
 		cgLen += len(b.CompletionGates)
 		trafficObsLen += len(b.TrafficObservers)
@@ -87,6 +90,7 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 	catalog := slices.Grow([]toolcatalog.Filter(nil), catLen)
 	policies := slices.Grow([]toolpolicy.Policy(nil), polLen)
 	transforms := slices.Grow([]request.Transform(nil), rtxLen)
+	preReqs := slices.Grow([]prerequest.Handler(nil), preLen)
 	routeHints := slices.Grow([]routehint.Provider(nil), rhLen)
 	compGates := slices.Grow([]completion.Gate(nil), cgLen)
 	trafficObs := slices.Grow([]traffic.Observer(nil), trafficObsLen)
@@ -104,6 +108,7 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		catalog = append(catalog, b.ToolCatalogFilters...)
 		policies = append(policies, b.ToolCallPolicies...)
 		transforms = append(transforms, b.RequestTransforms...)
+		preReqs = append(preReqs, b.PreRequestHandlers...)
 		routeHints = append(routeHints, b.RouteHintProviders...)
 		compGates = append(compGates, b.CompletionGates...)
 		trafficObs = append(trafficObs, b.TrafficObservers...)
@@ -119,6 +124,7 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 		ToolCatalogFilters: catalog,
 		ToolCallPolicies:   policies,
 		RequestTransforms:  transforms,
+		PreRequestHandlers: preReqs,
 		RouteHintProviders: routeHints,
 		CompletionGates:    compGates,
 		TrafficObservers:   trafficObs,

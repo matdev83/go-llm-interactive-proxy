@@ -3,6 +3,7 @@ package pluginreg
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refparts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refsubmit"
@@ -144,5 +145,20 @@ func featureRefVerifier(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	return lipfeature.FeatureBundle{
 		SchemaVersion:   lipfeature.SchemaVersionV1,
 		CompletionGates: []completion.Gate{refverifier.NewCompletionGate(cfg)},
+	}, nil
+}
+
+func featurePreRequestPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := prerequestpolicy.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	handlers, err := prerequestpolicy.NewHandlers(cfg)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	return lipfeature.FeatureBundle{
+		SchemaVersion:      lipfeature.SchemaVersionV1,
+		PreRequestHandlers: handlers,
 	}, nil
 }

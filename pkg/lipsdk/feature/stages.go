@@ -8,6 +8,7 @@ const (
 	StageIDSubmit              = "submit_request"
 	StageIDToolCatalog         = "tool_catalog_filter"
 	StageIDRequestWide         = "request_wide_shaping"
+	StageIDPreRequest          = "pre_request_admission"
 	StageIDRouteHinting        = "route_hinting"
 	StageIDAttemptLifecycle    = "attempt_lifecycle"
 	StageIDStreamEventMutation = "stream_event_mutation"
@@ -43,6 +44,7 @@ var legalStageDescriptors = []StageDescriptor{
 	{ID: StageIDSubmit, MutationRole: StageRoleMutateReject, R12LayerNotes: "Submit-time whole-call mutation and rejection."},
 	{ID: StageIDToolCatalog, MutationRole: StageRoleMutate, R12LayerNotes: "Tool exposure policy before tool-use events."},
 	{ID: StageIDRequestWide, MutationRole: StageRoleMutate, R12LayerNotes: "Request-wide shaping; brownfield request-part hooks map here until a dedicated stage exists."},
+	{ID: StageIDPreRequest, MutationRole: StageRoleReject, R12LayerNotes: "Admission checks after canonical request shaping and before model route planning."},
 	{ID: StageIDRouteHinting, MutationRole: StageRoleObserve, R12LayerNotes: "Advisory hints; core-owned routing stays authoritative."},
 	{ID: StageIDAttemptLifecycle, MutationRole: StageRoleObserve, R12LayerNotes: "Attempt-scoped observers and lifecycle."},
 	{ID: StageIDStreamEventMutation, MutationRole: StageRoleMutate, R12LayerNotes: "Per-event stream mutation; distinct from completion-wide gates (R12)."},

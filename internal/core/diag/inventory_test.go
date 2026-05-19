@@ -50,11 +50,11 @@ func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 	if len(snap.Frontends) != 1 || snap.Frontends[0].ID != "openai-responses" {
 		t.Fatalf("frontends: %+v", snap.Frontends)
 	}
-	if len(snap.Extensions.LegalPipeline) != 12 {
-		t.Fatalf("extensions.legal_pipeline: want 12 got %d", len(snap.Extensions.LegalPipeline))
+	if len(snap.Extensions.LegalPipeline) != 13 {
+		t.Fatalf("extensions.legal_pipeline: want 13 got %d", len(snap.Extensions.LegalPipeline))
 	}
-	if len(snap.Extensions.Stages) != 12 {
-		t.Fatalf("extensions.stages: want 12 got %d", len(snap.Extensions.Stages))
+	if len(snap.Extensions.Stages) != 13 {
+		t.Fatalf("extensions.stages: want 13 got %d", len(snap.Extensions.Stages))
 	}
 	for _, st := range snap.Extensions.Stages {
 		if strings.TrimSpace(st.ID) == "" || strings.TrimSpace(st.DefaultFailure) == "" {
@@ -62,7 +62,7 @@ func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 		}
 	}
 	pipeline := strings.Join(snap.Extensions.LegalPipeline, " ")
-	for _, needle := range []string{"tool_catalog_filter", "completion_gating", "traffic_observation", "session_open"} {
+	for _, needle := range []string{"tool_catalog_filter", "pre_request_admission", "completion_gating", "traffic_observation", "session_open"} {
 		if !strings.Contains(pipeline, needle) {
 			t.Fatalf("legal_pipeline missing %q: %s", needle, pipeline)
 		}

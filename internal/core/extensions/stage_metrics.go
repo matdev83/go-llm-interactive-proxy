@@ -6,6 +6,7 @@ const (
 	MetricsStageWorkspaceResolve = "workspace_resolve"
 	MetricsStageToolCatalog      = "tool_catalog"
 	MetricsStageRequestTransform = "request_transform"
+	MetricsStagePreRequest       = "pre_request"
 )
 
 // StageMetrics receives extension pipeline timing and fail-open skip counts (optional on [Executor]).

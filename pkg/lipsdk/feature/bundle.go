@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -37,6 +38,7 @@ type FeatureBundle struct {
 	ToolCatalogFilters []toolcatalog.Filter
 	ToolCallPolicies   []toolpolicy.Policy
 	RequestTransforms  []request.Transform
+	PreRequestHandlers []prerequest.Handler
 	RouteHintProviders []routehint.Provider
 
 	CompletionGates []completion.Gate
@@ -59,6 +61,7 @@ func (b FeatureBundle) empty() bool {
 		len(b.ToolCatalogFilters) == 0 &&
 		len(b.ToolCallPolicies) == 0 &&
 		len(b.RequestTransforms) == 0 &&
+		len(b.PreRequestHandlers) == 0 &&
 		len(b.RouteHintProviders) == 0 &&
 		len(b.CompletionGates) == 0 &&
 		len(b.TrafficObservers) == 0 &&

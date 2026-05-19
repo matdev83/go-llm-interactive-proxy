@@ -21,6 +21,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -295,6 +296,26 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			&work,
 			reqMeta,
 			reqSvc,
+		); err != nil {
+			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		}
+		preMeta := prerequest.Meta{
+			TraceID:        traceID,
+			Annotations:    ann,
+			Principal:      principal,
+			Session:        preSession,
+			Workspace:      wsView,
+			AuxiliaryDepth: execctx.AuxiliaryDepth(outCtx),
+		}
+		preSvc := prerequest.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
+		if err := extensions.RunPreRequestStage(
+			outCtx,
+			e.Log,
+			e.ExtensionMetrics,
+			e.RuntimeSnapshot.PreRequestHandlers(),
+			&work,
+			preMeta,
+			preSvc,
 		); err != nil {
 			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 		}

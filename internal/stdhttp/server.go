@@ -23,6 +23,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
@@ -225,6 +226,7 @@ func prepareStandardHandler(
 		Built:  built,
 	})
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
+	preReqKA := cfg.Server.EffectivePreRequestKeepalive()
 	var trafficPorts traffic.PortBundle
 	if built.RuntimeSnapshot != nil {
 		trafficPorts = traffic.PortBundle{
@@ -241,6 +243,10 @@ func prepareStandardHandler(
 		MaxRequestBodyBytes:  maxBody,
 		Reg:                  reg,
 		TrafficPorts:         trafficPorts,
+		PreRequestKeepalive: lipsdk.FrontendKeepaliveConfig{
+			Enabled:  preReqKA.Enabled,
+			Interval: preReqKA.Interval,
+		},
 	}); err != nil {
 		releaseClosers()
 		return out, fmt.Errorf("stdhttp: mount frontends: %w", err)

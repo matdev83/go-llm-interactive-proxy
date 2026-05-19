@@ -13,7 +13,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -33,6 +35,82 @@ func (s *sessionMetaSpy) Handle(_ context.Context, _ *lipapi.Call, meta request.
 	}
 	s.seen = append(s.seen, meta.Session)
 	return nil
+}
+
+type prereqOrderSpy struct {
+	order *[]string
+}
+
+func (s prereqOrderSpy) ID() string                        { return "test-prereq-order" }
+func (s prereqOrderSpy) Order() int                        { return 0 }
+func (s prereqOrderSpy) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (s prereqOrderSpy) Handle(_ context.Context, call *lipapi.Call, _ prerequest.Meta, _ prerequest.Services) (prerequest.Decision, error) {
+	*s.order = append(*s.order, "pre")
+	call.Route.Selector = "set-by-pre"
+	return prerequest.Allow(), nil
+}
+
+type routeHintOrderSpy struct {
+	order *[]string
+	route string
+}
+
+func (s *routeHintOrderSpy) ID() string                        { return "test-route-hint-order" }
+func (s *routeHintOrderSpy) Order() int                        { return 0 }
+func (s *routeHintOrderSpy) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (s *routeHintOrderSpy) Hint(_ context.Context, in routehint.Input) (routehint.Result, error) {
+	*s.order = append(*s.order, "hint")
+	if in.Call != nil {
+		s.route = in.Call.Route.Selector
+	}
+	return routehint.Result{}, nil
+}
+
+func TestExecutor_prepareSubmitAndALeg_preRequestRunsBeforeRouteHint(t *testing.T) {
+	t.Parallel()
+	b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memSS := memory.New(memory.Options{SimulateDurable: true})
+	mgr := testSecureManager(t, memSS, b2)
+	var order []string
+	hint := &routeHintOrderSpy{order: &order}
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		Workspace:          workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
+		PreRequestHandlers: []prerequest.Handler{prereqOrderSpy{order: &order}},
+		RouteHintProviders: []routehint.Provider{hint},
+	})
+	ex := setSecureSessionDenialMapper(&Executor{
+		Store:              b2,
+		Bus:                bus,
+		RuntimeSnapshot:    snap,
+		SecureSession:      mgr,
+		Now:                func() time.Time { return time.Unix(4200, 0).UTC() },
+		SessionAuditPolicy: testSessionAuditPolicy(),
+	})
+	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-pre-route"})
+	call := &lipapi.Call{
+		Session: lipapi.SessionRef{ClientSessionID: "pre-route-hint"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	_, baseline, _, _, err := ex.prepareSubmitAndALeg(ctx, bus, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != 2 || order[0] != "pre" || order[1] != "hint" {
+		t.Fatalf("order: %#v", order)
+	}
+	if hint.route != "set-by-pre" {
+		t.Fatalf("route hint saw route %q", hint.route)
+	}
+	if baseline.Route.Selector != "set-by-pre" {
+		t.Fatalf("baseline route selector: %q", baseline.Route.Selector)
+	}
 }
 
 func TestExecutor_prepareSubmitAndALeg_requestMetaSession_propagatesIsNewForNewTurn(t *testing.T) {

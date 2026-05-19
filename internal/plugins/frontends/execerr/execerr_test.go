@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/execerr"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 )
 
 func TestClassifyExecute_reject(t *testing.T) {
@@ -44,6 +45,36 @@ func TestClassifyExecute_contextLimitExceeded(t *testing.T) {
 	}
 	if !lipapi.IsAllCandidatesContextLimitExceeded(out.Err) {
 		t.Fatalf("Err should wrap sentinel, got %v", out.Err)
+	}
+}
+
+func TestClassifyExecute_preRequestReject(t *testing.T) {
+	t.Parallel()
+	err := prerequest.NewRejectError("policy", "blocked by policy")
+	out := execerr.ClassifyExecute(err)
+	if out.Kind != execerr.KindClientReject {
+		t.Fatalf("kind: %v", out.Kind)
+	}
+	if out.Status != http.StatusForbidden {
+		t.Fatalf("status: %d", out.Status)
+	}
+	if out.Message != "blocked by policy" {
+		t.Fatalf("message: %q", out.Message)
+	}
+	if out.Err != err {
+		t.Fatalf("Err: want original reject")
+	}
+}
+
+func TestClassifyExecute_preRequestRejectDefaultMessage(t *testing.T) {
+	t.Parallel()
+	err := prerequest.NewRejectError("policy", "")
+	out := execerr.ClassifyExecute(err)
+	if out.Status != http.StatusForbidden {
+		t.Fatalf("status: %d", out.Status)
+	}
+	if out.Message == "" || strings.Contains(out.Message, "policy") {
+		t.Fatalf("message should be client-safe default, got %q", out.Message)
 	}
 }
 

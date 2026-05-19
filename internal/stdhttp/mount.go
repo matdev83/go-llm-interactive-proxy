@@ -20,6 +20,7 @@ type MountBundledFrontendsInput struct {
 	DefaultRouteSelector string
 	Plugins              []config.PluginConfig
 	MaxRequestBodyBytes  int64
+	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
 	Reg                  *pluginreg.Registry
 	// TrafficPorts is optional four-leg wiring for client→proxy raw observation (task 10).
 	TrafficPorts traffic.PortBundle
@@ -63,6 +64,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 				DefaultRoute:        in.DefaultRouteSelector,
 				MaxRequestBodyBytes: in.MaxRequestBodyBytes,
 				TrafficPorts:        in.TrafficPorts,
+				PreRequestKeepalive: in.PreRequestKeepalive,
 			},
 		); err != nil {
 			return err

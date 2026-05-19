@@ -37,6 +37,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -213,6 +214,10 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if len(opts.RequestTransforms) > 0 {
 		reqTransforms = slices.Clone(opts.RequestTransforms)
 	}
+	var preReqs []prerequest.Handler
+	if len(opts.PreRequestHandlers) > 0 {
+		preReqs = slices.Clone(opts.PreRequestHandlers)
+	}
 	var routeHints []routehint.Provider
 	if len(opts.RouteHintProviders) > 0 {
 		routeHints = slices.Clone(opts.RouteHintProviders)
@@ -246,6 +251,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ToolCatalogFilters: catalogFilters,
 		ToolCallPolicies:   toolPolicies,
 		RequestTransforms:  reqTransforms,
+		PreRequestHandlers: preReqs,
 		RouteHintProviders: routeHints,
 		CompletionGates:    compGates,
 		TrafficObserver:    trafficObs,

@@ -2,6 +2,7 @@ package lipsdk
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"gopkg.in/yaml.v3"
@@ -32,12 +33,21 @@ type FrontendMountOptions struct {
 	MaxRequestBodyBytes int64
 	// TrafficPorts optionally emits client→proxy raw bytes after body read (design §10).
 	TrafficPorts traffic.PortBundle
+	// PreRequestKeepalive optionally emits standards-compliant HTTP informational keepalives
+	// while streaming requests wait for pre-request admission to complete. It must not commit
+	// final response status or body bytes.
+	PreRequestKeepalive FrontendKeepaliveConfig
 	// AuthErrorRenderer is an optional per-frontend hook for safe HTTP error bodies on transport
 	// authentication failure (R4). When nil, the standard distribution uses the default safe JSON
 	// renderer. For the standard binary, prefer [pluginreg.Registry.RegisterAuthErrorRenderer] keyed
 	// by auth wire frontend id (see stdhttp/auth DefaultFrontendIDFromRequest); [runtimebundle.BuildOptions.AuthErrorRenderersByFrontend]
 	// overrides registry entries per key. This field remains for custom mounts outside pluginreg.
 	AuthErrorRenderer AuthErrorRenderer
+}
+
+type FrontendKeepaliveConfig struct {
+	Enabled  bool
+	Interval time.Duration
 }
 
 // FrontendMount registers HTTP routes for one frontend plugin instance.

@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refparts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refsubmit"
@@ -139,6 +140,7 @@ func StandardBundle() Bundle {
 			{ID: refworkspaceguard.ID, Factory: featureRefWorkspaceGuard},
 			{ID: reftraffictranscript.ID, Factory: featureRefTrafficTranscript},
 			{ID: refverifier.ID, Factory: featureRefVerifier},
+			{ID: prerequestpolicy.ID, Factory: featurePreRequestPolicy},
 		},
 	}
 }

@@ -155,6 +155,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 			ToolCatalogFilters: merged.ToolCatalogFilters,
 			ToolCallPolicies:   merged.ToolCallPolicies,
 			RequestTransforms:  merged.RequestTransforms,
+			PreRequestHandlers: merged.PreRequestHandlers,
 			RouteHintProviders: merged.RouteHintProviders,
 			CompletionGates:    merged.CompletionGates,
 			TrafficObservers:   merged.TrafficObservers,

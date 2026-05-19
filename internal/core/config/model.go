@@ -222,6 +222,19 @@ type ServerConfig struct {
 	IdleTimeout string `yaml:"idle_timeout"`
 	// MaxPendingWireEvents caps backend adapter-internal pending-event queues per stream (0 = unlimited).
 	MaxPendingWireEvents int `yaml:"max_pending_wire_events"`
+	// PreRequestKeepalive optionally emits SSE comment keepalives while streaming frontends wait for
+	// pre-request admission handlers to finish inside executor setup.
+	PreRequestKeepalive PreRequestKeepaliveConfig `yaml:"pre_request_keepalive"`
+}
+
+type PreRequestKeepaliveConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Interval string `yaml:"interval"`
+}
+
+type EffectivePreRequestKeepaliveConfig struct {
+	Enabled  bool
+	Interval time.Duration
 }
 
 const (
@@ -229,6 +242,7 @@ const (
 	defaultServerReadTimeout       = 30 * time.Second
 	defaultServerWriteTimeout      = 120 * time.Second
 	defaultServerIdleTimeout       = 120 * time.Second
+	defaultPreRequestKAInterval    = 15 * time.Second
 )
 
 func parseServerDurationOrDefault(s string, def time.Duration) time.Duration {
@@ -270,6 +284,17 @@ func (s ServerConfig) EffectiveMaxRequestBodyBytes() int64 {
 		return s.MaxRequestBodyBytes
 	}
 	return 0
+}
+
+func (s ServerConfig) EffectivePreRequestKeepalive() EffectivePreRequestKeepaliveConfig {
+	out := EffectivePreRequestKeepaliveConfig{
+		Enabled:  s.PreRequestKeepalive.Enabled,
+		Interval: defaultPreRequestKAInterval,
+	}
+	if d, err := time.ParseDuration(strings.TrimSpace(s.PreRequestKeepalive.Interval)); err == nil && d > 0 {
+		out.Interval = d
+	}
+	return out
 }
 
 type DiagnosticsConfig struct {

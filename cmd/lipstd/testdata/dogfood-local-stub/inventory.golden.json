@@ -82,6 +82,7 @@
       "submit_request",
       "tool_catalog_filter",
       "request_wide_shaping",
+      "pre_request_admission",
       "route_hinting",
       "attempt_lifecycle",
       "stream_event_mutation",
@@ -109,6 +110,10 @@
       },
       {
         "id": "request_wide_shaping",
+        "default_failure": "fail_open"
+      },
+      {
+        "id": "pre_request_admission",
         "default_failure": "fail_open"
       },
       {
