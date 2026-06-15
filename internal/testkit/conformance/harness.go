@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -111,6 +112,14 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			BaseURL:    upstreamBaseURL,
 			HTTPClient: httpClient,
 		})
+	case openrouter.ID:
+		zero := 0
+		return openrouter.New(openrouter.Config{
+			BaseURL:       upstreamBaseURL,
+			APIKey:        "sk-or-test",
+			HTTPClient:    httpClient,
+			SDKMaxRetries: &zero,
+		})
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}
@@ -152,7 +161,7 @@ func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, 
 			APIKeys:    []string{"fake-key", "fake-key-pool2"},
 			HTTPClient: httpClient,
 		})
-	case bedrock.ID, acp.ID:
+	case bedrock.ID, acp.ID, openrouter.ID:
 		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)

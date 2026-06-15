@@ -14,5 +14,12 @@ Stable identifiers for **route selector parsing**, **model alias resolution**, a
 | `SB-ROUTE-weighted-deterministic` | Weighted selection is deterministic for a fixed branch key and weight table. | `TestWeightedDeterministic` |
 | `SB-ROUTE-model-only-backends` | Model-only backend hints apply to the resolved route list. | `TestApplyModelOnlyBackends` |
 | `SB-ROUTE-planner-ttft-metadata` | Failover expansion preserves TTFT timeout metadata without changing candidate identity. | `TestExpandFailoverPreservesTTFTTimeoutMetadata` |
+| `SB-ROUTE-parse-parallel-basic` | Parallel '!' separator produces a parallel group with correct branch count and targets. | `TestParseParallelBasic` |
+| `SB-ROUTE-parse-parallel-handicap` | Per-leg [handicap=N] annotations parse into parallel branch metadata. | `TestParseParallelHandicap` |
+| `SB-ROUTE-parse-parallel-user-example` | Full user-provided parallel selector with mixed handicap and ttft_timeout annotations parses correctly. | `TestParseParallelUserExample` |
+| `SB-ROUTE-parse-parallel-failover-of-groups` | Failover '\|' of parallel groups produces separate parallel arms. | `TestParseParallelFailoverOfParallelGroups` |
+| `SB-ROUTE-parse-parallel-rejects-weighted-mix` | Parallel '!' mixed with weighted '^'/[weight]/[first] is rejected. | `TestParseParallelRejectsMixedWithWeighted` |
+| `SB-ROUTE-planner-parallel-handicap-metadata` | Failover expansion preserves handicap metadata on parallel legs. | `TestExpandFailoverParallelPreservesHandicapMetadata` |
+| `SB-ROUTE-model-only-parallel` | Model-only backend fill applies to parallel branches. | `TestApplyModelOnlyBackendsParallelBranches` |
 
 When adding or splitting tests, update `spec_bundle_scenarios.go`, this table, and keep `TestSpecBundle_routingScenarios_referenceTests` passing (`go test -tags=precommit ./internal/core/routing/...`).

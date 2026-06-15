@@ -62,5 +62,30 @@ func SpecBundleOrchestrationScenarios() []OrchestrationScenarioSpec {
 			InvariantSummary: "Secure session: BeginTurn with a new session replaces a forged A-leg id.",
 			TestName:         "TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg",
 		},
+		{
+			ID:               "SB-ORCH-parallel-race-first-token-wins",
+			InvariantSummary: "Parallel race: first non-whitespace content delta determines the winning B-leg.",
+			TestName:         "TestParallelRace_FirstNonWhitespaceTokenWins",
+		},
+		{
+			ID:               "SB-ORCH-parallel-race-handicap-scheduling",
+			InvariantSummary: "Parallel race: highest handicap starts first, short-circuits when winner found early.",
+			TestName:         "TestParallelRace_HandicapShortCircuitOnEarlyWinner",
+		},
+		{
+			ID:               "SB-ORCH-parallel-race-handicap-fast-forward",
+			InvariantSummary: "Parallel race: terminal failure of handicapped leg fast-forwards pending legs.",
+			TestName:         "TestParallelRace_HandicapFastForwardOnTerminalFailure",
+		},
+		{
+			ID:               "SB-ORCH-parallel-race-cancel-losers",
+			InvariantSummary: "Parallel race: losers receive cancel before close after winner is selected.",
+			TestName:         "TestParallelRace_CancelLosersBeforeClose",
+		},
+		{
+			ID:               "SB-ORCH-parallel-race-failover",
+			InvariantSummary: "Parallel race: when all legs in a group fail, failover to the next | arm.",
+			TestName:         "TestParallelRace_FailoverToNextArmWhenNoWinner",
+		},
 	}
 }

@@ -76,6 +76,79 @@ func TestCoordinator_CancelALeg_isIdempotentUnderConcurrency(t *testing.T) {
 	}
 }
 
+func TestCoordinator_ZeroValueCoordinator_LazyMapInit(t *testing.T) {
+	t.Parallel()
+	var c Coordinator
+	a := c.StartALeg("a-1")
+	if a == nil {
+		t.Fatal("expected StartALeg to return scope for zero-value coordinator")
+	}
+	b := &recordingBLeg{}
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: "b1", Attempt: b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CancelALeg(context.Background(), "a-1", CancelCause{Kind: CancelExplicit}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCoordinator_CancelALeg_PropagatesCancelAndCloseErrors(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: time.Second})
+	a := c.StartALeg("a-1")
+	cancelErr := errors.New("cancel failed")
+	closeErr := errors.New("close failed")
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{
+		ID: "b1",
+		Attempt: &erroringBLeg{
+			cancelErr: cancelErr,
+			closeErr:  closeErr,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := c.CancelALeg(context.Background(), "a-1", CancelCause{Kind: CancelExplicit})
+	if err == nil {
+		t.Fatal("expected cancel to surface cleanup errors")
+	}
+	if !errors.Is(err, cancelErr) {
+		t.Fatalf("expected cancel error in aggregate, got %v", err)
+	}
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("expected close error in aggregate, got %v", err)
+	}
+}
+
+func TestCoordinator_RegisterBLegAfterCancel_PropagatesCleanupErrors(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: time.Second})
+	a := c.StartALeg("a-1")
+	if err := c.CancelALeg(context.Background(), "a-1", CancelCause{Kind: CancelExplicit}); err != nil {
+		t.Fatal(err)
+	}
+	lateCancelErr := errors.New("late cancel failed")
+	lateCloseErr := errors.New("late close failed")
+	err := a.RegisterBLeg(context.Background(), BLegHandle{
+		ID: "late",
+		Attempt: &erroringBLeg{
+			cancelErr: lateCancelErr,
+			closeErr:  lateCloseErr,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected ErrALegCanceled with cleanup errors")
+	}
+	if !errors.Is(err, ErrALegCanceled) {
+		t.Fatalf("expected ErrALegCanceled, got %v", err)
+	}
+	if !errors.Is(err, lateCancelErr) {
+		t.Fatalf("expected late cancel error in aggregate, got %v", err)
+	}
+	if !errors.Is(err, lateCloseErr) {
+		t.Fatalf("expected late close error in aggregate, got %v", err)
+	}
+}
+
 type recordingBLeg struct {
 	mu       sync.Mutex
 	callsLog []string
@@ -103,4 +176,21 @@ func (r *recordingBLeg) calls() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.callsLog...)
+}
+
+type erroringBLeg struct {
+	cancelErr error
+	closeErr  error
+}
+
+func (e *erroringBLeg) Recv(context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, io.EOF
+}
+
+func (e *erroringBLeg) Cancel(context.Context, CancelCause) CancelResult {
+	return CancelResult{Mode: CancelModeProvider, Err: e.cancelErr}
+}
+
+func (e *erroringBLeg) Close() error {
+	return e.closeErr
 }

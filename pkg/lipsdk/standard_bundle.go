@@ -14,6 +14,7 @@ func StandardDistributionRequirements() []Requirement {
 		{Kind: PluginKindBackend, ID: "gemini"},
 		{Kind: PluginKindBackend, ID: "bedrock"},
 		{Kind: PluginKindBackend, ID: "acp"},
+		{Kind: PluginKindBackend, ID: "openrouter"},
 		{Kind: PluginKindFeature, ID: "submit-noop"},
 		{Kind: PluginKindFeature, ID: "parts-noop"},
 		{Kind: PluginKindFeature, ID: "tool-reactor-noop"},

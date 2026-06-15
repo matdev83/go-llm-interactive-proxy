@@ -184,11 +184,12 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
 	}
 	e.secureSessionMu.Lock()
-	defer e.secureSessionMu.Unlock()
 	if e.SecureSession == nil {
 		secureSessionTestPrepare(e)
 	}
-	if e.SecureSession == nil {
+	secureSessionReady := e.SecureSession != nil
+	e.secureSessionMu.Unlock()
+	if !secureSessionReady {
 		return nil, fmt.Errorf("executor: secure session manager is required")
 	}
 	ctx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
@@ -241,6 +242,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	}
 	var lastReject lipapi.NegotiationResult
 	var contextLimitExhaustion bool
+	var lastParallelFailure error
 	rng := e.rng()
 	for {
 		if err := ctx.Err(); err != nil {
@@ -250,22 +252,24 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			return nil, err
 		}
 		out, err := e.tryPlanOpenOnce(attemptOpenParams{
-			ctx:         ctx,
-			bus:         bus,
-			traceID:     traceID,
-			aLegID:      aLeg.ALegID,
-			baseline:    baseline,
-			sel:         sel,
-			requestSize: requestSize,
-			session:     session,
-			excluded:    excluded,
-			rng:         rng,
-			budget:      budget,
-			ttft:        &ttft,
-			isRetryPath: false,
-			lastReject:  &lastReject,
-			affinityKey: affinityKey,
-			affinitySet: affinityKeyOK,
+			ctx:                 ctx,
+			bus:                 bus,
+			traceID:             traceID,
+			aLegID:              aLeg.ALegID,
+			aScope:              aScope,
+			baseline:            baseline,
+			sel:                 sel,
+			requestSize:         requestSize,
+			session:             session,
+			excluded:            excluded,
+			rng:                 rng,
+			budget:              budget,
+			ttft:                &ttft,
+			isRetryPath:         false,
+			lastReject:          &lastReject,
+			lastParallelFailure: &lastParallelFailure,
+			affinityKey:         affinityKey,
+			affinitySet:         affinityKeyOK,
 			// Persists across failover iterations so ExpandFailover can map to ErrAllCandidatesContextLimitExceeded.
 			isContextLimitExhaustion: &contextLimitExhaustion,
 		})
@@ -275,11 +279,13 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		if !out.opened {
 			continue
 		}
-		if err := aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
-			ID:      out.bleg.BLegID,
-			Attempt: lifecycleAttempt(out.stream),
-		}); err != nil {
-			return nil, err
+		if !out.registered {
+			if err := aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+				ID:      out.bleg.BLegID,
+				Attempt: lifecycleAttempt(out.stream),
+			}); err != nil {
+				return nil, err
+			}
 		}
 		rs := &retryRecvStream{
 			executor:    e,

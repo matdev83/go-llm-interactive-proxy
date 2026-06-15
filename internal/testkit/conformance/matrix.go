@@ -23,6 +23,7 @@ func BundledBackendIDs() []string {
 		"gemini",
 		"bedrock",
 		"acp",
+		"openrouter",
 	}
 }
 

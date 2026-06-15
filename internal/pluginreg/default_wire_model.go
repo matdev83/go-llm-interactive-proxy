@@ -21,6 +21,8 @@ func DefaultWireModel(backendID string) string {
 		return "anthropic.claude-3-haiku-20240307-v1:0"
 	case "acp":
 		return "agent"
+	case "openrouter":
+		return "openai/gpt-4o-mini"
 	default:
 		return "model"
 	}

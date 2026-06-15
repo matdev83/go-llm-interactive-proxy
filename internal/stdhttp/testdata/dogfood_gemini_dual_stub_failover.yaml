@@ -53,6 +53,9 @@ plugins:
     - id: acp
       enabled: false
       config: {}
+    - id: openrouter
+      enabled: false
+      config: {}
     - kind: local-stub
       id: stub-bad
       enabled: true

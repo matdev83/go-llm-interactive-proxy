@@ -24,10 +24,23 @@ const (
 )
 
 // FailoverAlt is one arm of a failover selector (before the next '|').
-// Exactly one of Primary or Weighted is non-nil.
+// Exactly one of Primary, Weighted, or Parallel is non-nil.
 type FailoverAlt struct {
 	Primary  *Primary
 	Weighted *Weighted
+	Parallel *Parallel
+}
+
+// Parallel is a set of branches executed concurrently; the first to produce
+// a non-whitespace content delta wins. Branches are separated by '!' in the selector string.
+type Parallel struct {
+	Branches []ParallelBranch
+}
+
+// ParallelBranch is one leg of a parallel group.
+type ParallelBranch struct {
+	Target   Primary
+	Handicap time.Duration
 }
 
 // Primary is a concrete backend:model (or model-only) with optional query parameters.

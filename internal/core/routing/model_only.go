@@ -30,6 +30,12 @@ func applyModelOnlyToAlt(a *FailoverAlt, backend string) {
 				a.Weighted.Branches[j].Target.Backend = backend
 			}
 		}
+	case a.Parallel != nil:
+		for j := range a.Parallel.Branches {
+			if strings.TrimSpace(a.Parallel.Branches[j].Target.Backend) == "" {
+				a.Parallel.Branches[j].Target.Backend = backend
+			}
+		}
 	}
 }
 
@@ -44,6 +50,13 @@ func SelectorHasEmptyBackend(sel *Selector) bool {
 		}
 		if alt.Weighted != nil {
 			for _, b := range alt.Weighted.Branches {
+				if strings.TrimSpace(b.Target.Backend) == "" {
+					return true
+				}
+			}
+		}
+		if alt.Parallel != nil {
+			for _, b := range alt.Parallel.Branches {
 				if strings.TrimSpace(b.Target.Backend) == "" {
 					return true
 				}
@@ -77,6 +90,13 @@ func DefaultBackendFromRouteSelector(defaultRoute string) (string, error) {
 			b := strings.TrimSpace(alt.Weighted.Branches[0].Target.Backend)
 			if b == "" {
 				return "", fmt.Errorf("routing default_route weighted branch must name a backend")
+			}
+			return b, nil
+		}
+		if alt.Parallel != nil && len(alt.Parallel.Branches) > 0 {
+			b := strings.TrimSpace(alt.Parallel.Branches[0].Target.Backend)
+			if b == "" {
+				return "", fmt.Errorf("routing default_route parallel branch must name a backend")
 			}
 			return b, nil
 		}

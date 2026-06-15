@@ -11,6 +11,7 @@ import (
 	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -47,6 +48,14 @@ type wireCreate struct {
 	MaxOut        *int            `json:"max_output_tokens"`
 	// Metadata may include LIP session keys ([sessionwire.MetaKeyAuthoritativeSessionID]).
 	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type wireFunctionCallPart struct {
+	Type      string `json:"type"`
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // DecodeCreateRequest maps an OpenAI Responses create JSON body into a canonical call.
@@ -95,6 +104,17 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		return nil, fmt.Errorf("openairesponses: marshal model extension: %w", err)
 	}
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
+	if b, err := json.Marshal(openrouterwire.FlavorResponses); err == nil {
+		ext[openrouterwire.ExtUpstreamFlavor] = b
+	}
+
+	var rawBody map[string]json.RawMessage
+	if json.Unmarshal(body, &rawBody) == nil {
+		openrouterwire.CaptureBodyFields(rawBody, ext)
+	}
+	if opts.Headers != nil {
+		openrouterwire.CaptureHeaders(opts.Headers, ext)
+	}
 
 	call := &lipapi.Call{
 		Route:        lipapi.RouteIntent{Selector: sel},
@@ -121,7 +141,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 
 func parseInstructions(raw json.RawMessage) ([]lipapi.Message, error) {
 	if jsonpresence.IsAbsentOrJSONNull(raw) {
-		return nil, nil
+		return []lipapi.Message{}, nil
 	}
 	// String instructions -> single system message.
 	if raw[0] == '"' {
@@ -131,7 +151,7 @@ func parseInstructions(raw json.RawMessage) ([]lipapi.Message, error) {
 		}
 		s = strings.TrimSpace(s)
 		if s == "" {
-			return nil, nil
+			return []lipapi.Message{}, nil
 		}
 		return []lipapi.Message{{
 			Role:  lipapi.RoleSystem,
@@ -229,10 +249,12 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return lipapi.Message{}, fmt.Errorf("openairesponses: function_call json: %w", err)
 	}
-	if strings.TrimSpace(v.CallID) == "" {
+	callID := strings.TrimSpace(v.CallID)
+	if callID == "" {
 		return lipapi.Message{}, errors.New("openairesponses: function_call requires call_id")
 	}
-	if strings.TrimSpace(v.Name) == "" {
+	name := strings.TrimSpace(v.Name)
+	if name == "" {
 		return lipapi.Message{}, errors.New("openairesponses: function_call requires name")
 	}
 	argStr := "{}"
@@ -254,14 +276,14 @@ func parseFunctionCallInputItem(raw json.RawMessage) (lipapi.Message, error) {
 			argStr = string(v.Arguments)
 		}
 	}
-	wire := map[string]any{
-		"type":      "function_call",
-		"call_id":   strings.TrimSpace(v.CallID),
-		"name":      strings.TrimSpace(v.Name),
-		"arguments": argStr,
+	wire := wireFunctionCallPart{
+		Type:      "function_call",
+		CallID:    callID,
+		Name:      name,
+		Arguments: argStr,
 	}
 	if id := strings.TrimSpace(v.ID); id != "" {
-		wire["id"] = id
+		wire.ID = id
 	}
 	content, err := json.Marshal(wire)
 	if err != nil {
@@ -360,7 +382,7 @@ func parseContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	if err := frontendlimits.Count("content", len(blocks), frontendlimits.MaxParts); err != nil {
 		return nil, err
 	}
-	var parts []lipapi.Part
+	parts := make([]lipapi.Part, 0, len(blocks))
 	for i, blk := range blocks {
 		p, err := parseContentBlock(blk)
 		if err != nil {
@@ -437,7 +459,7 @@ func parseContentBlock(blk map[string]json.RawMessage) (lipapi.Part, error) {
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {
 	if jsonpresence.IsAbsentOrJSONNull(raw) {
-		return nil, nil
+		return []lipapi.ToolDef{}, nil
 	}
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {

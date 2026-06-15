@@ -8,8 +8,16 @@ import (
 
 func clearNumberedEnv(t *testing.T, prefix string) {
 	t.Helper()
-	for i := 2; i <= maxNumberedAPIKeysEnv; i++ {
+	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
 		t.Setenv(fmt.Sprintf("%s_%d", prefix, i), "")
+	}
+}
+
+func clearAllProviderEnv(t *testing.T) {
+	t.Helper()
+	for _, prefix := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"} {
+		t.Setenv(prefix, "")
+		clearNumberedEnv(t, prefix)
 	}
 }
 
@@ -67,6 +75,53 @@ func TestResolveUpstreamAPIKeysFromEnv_anthropicAndGemini(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Gemini, []string{"g1"}) {
 		t.Fatalf("Gemini: %#v", got.Gemini)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_openRouterBaseKey(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "or-key")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"or-key"}
+	if !reflect.DeepEqual(got.OpenRouter, want) {
+		t.Fatalf("OpenRouter keys: %#v want %#v", got.OpenRouter, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_openRouterNumberedFrom1(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY_1", "or-1")
+	t.Setenv("OPENROUTER_API_KEY_2", "or-2")
+	t.Setenv("OPENROUTER_API_KEY_3", "or-3")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"or-1", "or-2", "or-3"}
+	if !reflect.DeepEqual(got.OpenRouter, want) {
+		t.Fatalf("OpenRouter keys: %#v want %#v", got.OpenRouter, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_openRouterBaseAnd1Deduplicated(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("OPENROUTER_API_KEY", "or-base")
+	t.Setenv("OPENROUTER_API_KEY_1", "or-base")
+	t.Setenv("OPENROUTER_API_KEY_2", "or-2")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"or-base", "or-2"}
+	if !reflect.DeepEqual(got.OpenRouter, want) {
+		t.Fatalf("OpenRouter keys: %#v want %#v (should deduplicate base and _1)", got.OpenRouter, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_openRouterGapStops(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("OPENROUTER_API_KEY_1", "or-1")
+	t.Setenv("OPENROUTER_API_KEY_2", "")
+	t.Setenv("OPENROUTER_API_KEY_3", "or-3")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"or-1"}
+	if !reflect.DeepEqual(got.OpenRouter, want) {
+		t.Fatalf("OpenRouter keys: %#v want %#v (gap at _2 stops scan)", got.OpenRouter, want)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 )
 
 type attemptBudget struct {
+	mu   sync.Mutex
 	max  int
 	used int
 }
@@ -16,6 +17,8 @@ func (b *attemptBudget) tryAcquire() bool {
 	if b == nil {
 		return true
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.used >= b.max {
 		return false
 	}

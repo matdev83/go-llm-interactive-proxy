@@ -32,6 +32,11 @@
       "enabled": false
     },
     {
+      "id": "openrouter",
+      "kind": "openrouter",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "kind": "local-stub",
       "enabled": true

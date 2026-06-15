@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
 // bundledBackendFactoryIDs must stay aligned with installBackends in standard_table.go:
@@ -21,6 +22,7 @@ var bundledBackendFactoryIDs = []string{
 	gemini.ID,
 	bedrock.ID,
 	acp.ID,
+	openrouter.ID,
 	localstub.ID,
 }
 

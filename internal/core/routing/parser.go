@@ -12,6 +12,8 @@ import (
 // ErrInvalidSelector reports a syntactically invalid route selector.
 var ErrInvalidSelector = errors.New("routing: invalid route selector")
 
+const maxParallelBranches = 16
+
 // Parse parses a route selector string into an AST.
 func Parse(s string) (*Selector, error) {
 	s = strings.TrimSpace(s)
@@ -121,8 +123,21 @@ func extractGlobalParams(s string) (globalParams, string, error) {
 
 func parseFailoverAlt(s string) (FailoverAlt, error) {
 	s = strings.TrimSpace(s)
-	// Weighted if '^' separates branches at depth 0, or the arm uses bracket annotations ([weight=], [first]).
-	if hasTopLevelCaret(s) || hasWeightedAnnotationPrefix(s) {
+	hasBang := hasTopLevelBang(s)
+	hasCaret := hasTopLevelCaret(s)
+	hasWeightAnn := hasWeightedAnnotationPrefix(s)
+
+	if hasBang && (hasCaret || hasWeightAnn) {
+		return FailoverAlt{}, fmt.Errorf("%w: parallel '!' and weighted '^'/[weight]/[first] cannot be mixed in one arm", ErrInvalidSelector)
+	}
+	if hasBang {
+		p, err := parseParallel(s)
+		if err != nil {
+			return FailoverAlt{}, err
+		}
+		return FailoverAlt{Parallel: p}, nil
+	}
+	if hasCaret || hasWeightAnn {
 		w, err := parseWeighted(s)
 		if err != nil {
 			return FailoverAlt{}, err
@@ -160,6 +175,75 @@ func hasWeightedAnnotationPrefix(s string) bool {
 		s = strings.TrimSpace(s[idx+1:])
 	}
 	return false
+}
+
+func hasTopLevelBang(s string) bool {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case '!':
+			if depth == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func parseParallel(s string) (*Parallel, error) {
+	parts := splitParallelLegs(s)
+	if len(parts) > maxParallelBranches {
+		return nil, fmt.Errorf("%w: too many parallel branches (max %d)", ErrInvalidSelector, maxParallelBranches)
+	}
+	branches := make([]ParallelBranch, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("%w: empty parallel branch", ErrInvalidSelector)
+		}
+		b, err := parseParallelBranch(part)
+		if err != nil {
+			return nil, err
+		}
+		branches = append(branches, b)
+	}
+	if len(branches) == 0 {
+		return nil, fmt.Errorf("%w: no parallel branches", ErrInvalidSelector)
+	}
+	return &Parallel{Branches: branches}, nil
+}
+
+func parseParallelBranch(s string) (ParallelBranch, error) {
+	ann, rest, err := extractPrefixAnnotations(s)
+	if err != nil {
+		return ParallelBranch{}, err
+	}
+	if ann.weight != nil || ann.first {
+		return ParallelBranch{}, fmt.Errorf("%w: [weight] and [first] are not valid on parallel branches", ErrInvalidSelector)
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return ParallelBranch{}, fmt.Errorf("%w: missing primary after annotations", ErrInvalidSelector)
+	}
+	p, err := parsePrimaryWithAnnotations(rest, ann)
+	if err != nil {
+		return ParallelBranch{}, err
+	}
+	var handicap time.Duration
+	if ann.handicap != nil {
+		handicap = *ann.handicap
+	}
+	return ParallelBranch{Target: p, Handicap: handicap}, nil
+}
+
+// splitParallelLegs splits on '!' at bracket depth 0.
+// Query-embedded '!' must be percent-encoded (%21) in parallel selectors.
+func splitParallelLegs(s string) []string {
+	return splitOutsideBrackets(s, '!')
 }
 
 func hasTopLevelCaret(s string) bool {
@@ -220,6 +304,9 @@ func parseWeightedBranch(s string) (WeightedBranch, error) {
 	if err != nil {
 		return WeightedBranch{}, err
 	}
+	if ann.handicap != nil {
+		return WeightedBranch{}, fmt.Errorf("%w: [handicap] is only valid on parallel branches", ErrInvalidSelector)
+	}
 	weight := 1
 	if ann.weight != nil {
 		weight = *ann.weight
@@ -243,6 +330,9 @@ func parsePrimary(s string) (Primary, error) {
 	}
 	if ann.weight != nil || ann.first {
 		return Primary{}, fmt.Errorf("%w: [weight] and [first] are only valid on weighted branches", ErrInvalidSelector)
+	}
+	if ann.handicap != nil {
+		return Primary{}, fmt.Errorf("%w: [handicap] is only valid on parallel branches", ErrInvalidSelector)
 	}
 	return parsePrimaryWithAnnotations(rest, ann)
 }
@@ -309,6 +399,7 @@ type prefixAnnotations struct {
 	first       bool
 	size        RequestSizeConstraint
 	ttftTimeout *time.Duration
+	handicap    *time.Duration
 }
 
 func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
@@ -378,6 +469,15 @@ func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
 					return prefixAnnotations{}, "", err
 				}
 				ann.ttftTimeout = &d
+			case "handicap":
+				if ann.handicap != nil {
+					return prefixAnnotations{}, "", fmt.Errorf("%w: duplicate [handicap=N] annotation", ErrInvalidSelector)
+				}
+				d, err := parsePositiveSecondsDurationAnnotation("handicap", raw, hasValue)
+				if err != nil {
+					return prefixAnnotations{}, "", err
+				}
+				ann.handicap = &d
 			default:
 				return prefixAnnotations{}, "", fmt.Errorf("%w: unsupported annotation key %q", ErrInvalidSelector, key)
 			}

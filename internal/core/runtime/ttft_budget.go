@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -18,6 +19,7 @@ const (
 )
 
 type ttftBudget struct {
+	mu            sync.Mutex
 	start         time.Time
 	global        time.Duration
 	done          bool
@@ -33,12 +35,19 @@ func newTTFTBudget(start time.Time, sel *routing.Selector) ttftBudget {
 
 func (b *ttftBudget) markCommitted() {
 	if b != nil {
+		b.mu.Lock()
+		defer b.mu.Unlock()
 		b.done = true
 	}
 }
 
 func (b *ttftBudget) deadline(now time.Time, candidateKey string, leaf *time.Duration) (time.Time, ttftTimeoutScope, bool) {
-	if b == nil || b.done {
+	if b == nil {
+		return time.Time{}, ttftTimeoutNone, false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.done {
 		return time.Time{}, ttftTimeoutNone, false
 	}
 	var dl time.Time

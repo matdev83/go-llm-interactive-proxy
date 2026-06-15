@@ -53,6 +53,11 @@
       "enabled": false
     },
     {
+      "id": "openrouter",
+      "factory_kind": "openrouter",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "factory_kind": "local-stub",
       "enabled": true

@@ -36,6 +36,29 @@ func TestDefaultBackendFromRouteSelector(t *testing.T) {
 	}
 }
 
+func TestApplyModelOnlyBackendsParallelBranches(t *testing.T) {
+	t.Parallel()
+	sel, err := routing.Parse("gpt-4!claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routing.ApplyModelOnlyBackends(sel, "openai")
+	if routing.SelectorHasEmptyBackend(sel) {
+		t.Fatal("expected all backends filled in parallel branches")
+	}
+}
+
+func TestSelectorHasEmptyBackendParallel(t *testing.T) {
+	t.Parallel()
+	sel, err := routing.Parse("openai:gpt-4!claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !routing.SelectorHasEmptyBackend(sel) {
+		t.Fatal("model-only parallel branch should report empty backend")
+	}
+}
+
 type fixedRng struct{}
 
 func (fixedRng) Intn(n int) int { return 0 }

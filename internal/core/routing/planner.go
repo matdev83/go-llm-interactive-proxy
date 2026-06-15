@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ErrNoEligibleCandidate means every candidate in the relevant scope was excluded or unhealthy.
@@ -56,20 +57,29 @@ type AttemptCandidate struct {
 	Key string
 	// MarkedFirst is true when this candidate came from a [first]-annotated weighted branch.
 	MarkedFirst bool
+	// IsParallel is true when this candidate belongs to a parallel group (selector '!' arm).
+	IsParallel bool
+	// Handicap is the per-leg head-start delay for parallel routing (0 = no handicap).
+	Handicap time.Duration
 }
 
-// ExpandFailover resolves a parsed selector into an ordered list of candidates for the first pass:
-// one entry per failover arm (left-to-right), skipping primary arms that are excluded/unhealthy,
-// and resolving each weighted arm with pickWeighted. Arms with no eligible candidates are skipped.
-// When a [first] branch is chosen, Session.FirstRequestConsumed is set (if Session is non-nil).
-func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) {
+// AttemptGroup is one eligible failover arm after planning.
+// Single-candidate arms (primary/weighted) contain exactly one candidate; parallel arms contain one or more legs.
+type AttemptGroup struct {
+	Candidates []AttemptCandidate
+}
+
+// ExpandFailoverGroups resolves a parsed selector into ordered candidate groups (one group per eligible arm).
+// Primary/weighted arms produce one candidate group of length 1; parallel arms produce one group with all
+// eligible parallel legs.
+func ExpandFailoverGroups(sel *Selector, opt PlanOptions) ([]AttemptGroup, error) {
 	if sel == nil {
 		return nil, fmt.Errorf("%w: nil selector", ErrInvalidSelector)
 	}
 	if c, ok := stickyCandidate(sel, opt); ok {
-		return []AttemptCandidate{c}, nil
+		return []AttemptGroup{{Candidates: []AttemptCandidate{c}}}, nil
 	}
-	out := make([]AttemptCandidate, 0, len(sel.Alternatives))
+	groups := make([]AttemptGroup, 0, len(sel.Alternatives))
 	for _, alt := range sel.Alternatives {
 		switch {
 		case alt.Primary != nil:
@@ -77,7 +87,7 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 			if !candidateEligible(c.Primary, c.Key, opt) {
 				continue
 			}
-			out = append(out, c)
+			groups = append(groups, AttemptGroup{Candidates: []AttemptCandidate{c}})
 		case alt.Weighted != nil:
 			c, consumeFirst, err := pickWeighted(alt.Weighted, opt)
 			if errors.Is(err, ErrNoEligibleCandidate) {
@@ -89,15 +99,37 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 			if consumeFirst && opt.Session != nil {
 				opt.Session.FirstRequestConsumed = true
 			}
-			out = append(out, c)
+			groups = append(groups, AttemptGroup{Candidates: []AttemptCandidate{c}})
+		case alt.Parallel != nil:
+			legs := expandParallel(alt.Parallel, opt)
+			if len(legs) == 0 {
+				continue
+			}
+			legs = reorderPreferredCandidates(legs, opt.PreferredCandidateKeys)
+			groups = append(groups, AttemptGroup{Candidates: legs})
 		default:
 			return nil, fmt.Errorf("%w: invalid failover alternative", ErrInvalidSelector)
 		}
 	}
-	if len(out) == 0 {
+	if len(groups) == 0 {
 		return nil, ErrNoEligibleCandidate
 	}
-	out = reorderPreferredCandidates(out, opt.PreferredCandidateKeys)
+	return reorderPreferredGroups(groups, opt.PreferredCandidateKeys), nil
+}
+
+// ExpandFailover resolves a parsed selector into an ordered list of candidates for the first pass:
+// one entry per failover arm (left-to-right), skipping primary arms that are excluded/unhealthy,
+// and resolving each weighted arm with pickWeighted. Arms with no eligible candidates are skipped.
+// When a [first] branch is chosen, Session.FirstRequestConsumed is set (if Session is non-nil).
+func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) {
+	groups, err := ExpandFailoverGroups(sel, opt)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AttemptCandidate, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, g.Candidates...)
+	}
 	return out, nil
 }
 
@@ -127,9 +159,39 @@ func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, bool) {
 					return c, true
 				}
 			}
+		case alt.Parallel != nil:
+			for _, b := range alt.Parallel.Branches {
+				if strings.TrimSpace(b.Target.Backend) != backend {
+					continue
+				}
+				c := AttemptCandidate{Primary: b.Target, Key: b.Target.String(), IsParallel: true, Handicap: b.Handicap}
+				if candidateEligible(c.Primary, c.Key, opt) {
+					return c, true
+				}
+			}
 		}
 	}
 	return AttemptCandidate{}, false
+}
+
+func expandParallel(p *Parallel, opt PlanOptions) []AttemptCandidate {
+	if p == nil {
+		return nil
+	}
+	out := make([]AttemptCandidate, 0, len(p.Branches))
+	for _, b := range p.Branches {
+		c := AttemptCandidate{
+			Primary:    b.Target,
+			Key:        b.Target.String(),
+			IsParallel: true,
+			Handicap:   b.Handicap,
+		}
+		if !candidateEligible(c.Primary, c.Key, opt) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func reorderPreferredCandidates(list []AttemptCandidate, preferred []string) []AttemptCandidate {
@@ -156,6 +218,46 @@ func reorderPreferredCandidates(list []AttemptCandidate, preferred []string) []A
 		if _, ok := seen[c.Key]; !ok {
 			out = append(out, c)
 		}
+	}
+	return out
+}
+
+func reorderPreferredGroups(groups []AttemptGroup, preferred []string) []AttemptGroup {
+	if len(groups) <= 1 || len(preferred) == 0 {
+		return groups
+	}
+	type groupKey struct {
+		group int
+	}
+	indexByCandidate := map[string]groupKey{}
+	for gi, g := range groups {
+		for _, c := range g.Candidates {
+			if c.Key == "" {
+				continue
+			}
+			if _, exists := indexByCandidate[c.Key]; !exists {
+				indexByCandidate[c.Key] = groupKey{group: gi}
+			}
+		}
+	}
+	seenGroup := map[int]struct{}{}
+	out := make([]AttemptGroup, 0, len(groups))
+	for _, key := range preferred {
+		meta, ok := indexByCandidate[key]
+		if !ok {
+			continue
+		}
+		if _, exists := seenGroup[meta.group]; exists {
+			continue
+		}
+		out = append(out, groups[meta.group])
+		seenGroup[meta.group] = struct{}{}
+	}
+	for gi, g := range groups {
+		if _, exists := seenGroup[gi]; exists {
+			continue
+		}
+		out = append(out, g)
 	}
 	return out
 }
@@ -205,6 +307,13 @@ func SelectorHasRequestSizeConstraints(sel *Selector) bool {
 		}
 		if alt.Weighted != nil {
 			for _, b := range alt.Weighted.Branches {
+				if hasRequestSizeConstraint(b.Target.Size) {
+					return true
+				}
+			}
+		}
+		if alt.Parallel != nil {
+			for _, b := range alt.Parallel.Branches {
 				if hasRequestSizeConstraint(b.Target.Size) {
 					return true
 				}

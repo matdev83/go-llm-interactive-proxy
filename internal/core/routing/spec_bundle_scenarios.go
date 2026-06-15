@@ -62,5 +62,40 @@ func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 			InvariantSummary: "Failover expansion preserves TTFT timeout metadata without changing candidate identity.",
 			TestName:         "TestExpandFailoverPreservesTTFTTimeoutMetadata",
 		},
+		{
+			ID:               "SB-ROUTE-parse-parallel-basic",
+			InvariantSummary: "Parallel '!' separator produces a parallel group with correct branch count and targets.",
+			TestName:         "TestParseParallelBasic",
+		},
+		{
+			ID:               "SB-ROUTE-parse-parallel-handicap",
+			InvariantSummary: "Per-leg [handicap=N] annotations parse into parallel branch metadata.",
+			TestName:         "TestParseParallelHandicap",
+		},
+		{
+			ID:               "SB-ROUTE-parse-parallel-user-example",
+			InvariantSummary: "Full user-provided parallel selector with mixed handicap and ttft_timeout annotations parses correctly.",
+			TestName:         "TestParseParallelUserExample",
+		},
+		{
+			ID:               "SB-ROUTE-parse-parallel-failover-of-groups",
+			InvariantSummary: "Failover '|' of parallel groups produces separate parallel arms.",
+			TestName:         "TestParseParallelFailoverOfParallelGroups",
+		},
+		{
+			ID:               "SB-ROUTE-parse-parallel-rejects-weighted-mix",
+			InvariantSummary: "Parallel '!' mixed with weighted '^'/[weight]/[first] is rejected.",
+			TestName:         "TestParseParallelRejectsMixedWithWeighted",
+		},
+		{
+			ID:               "SB-ROUTE-planner-parallel-handicap-metadata",
+			InvariantSummary: "Failover expansion preserves handicap metadata on parallel legs.",
+			TestName:         "TestExpandFailoverParallelPreservesHandicapMetadata",
+		},
+		{
+			ID:               "SB-ROUTE-model-only-parallel",
+			InvariantSummary: "Model-only backend fill applies to parallel branches.",
+			TestName:         "TestApplyModelOnlyBackendsParallelBranches",
+		},
 	}
 }

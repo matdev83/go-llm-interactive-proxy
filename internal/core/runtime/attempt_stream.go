@@ -888,6 +888,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		bus:                      s.bus,
 		traceID:                  s.traceID,
 		aLegID:                   s.aLegID,
+		aScope:                   s.aScope,
 		baseline:                 s.baseline,
 		sel:                      s.sel,
 		requestSize:              s.requestSize,
@@ -908,7 +909,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if !out.opened {
 		return false, nil
 	}
-	if s.aScope != nil {
+	if s.aScope != nil && !out.registered {
 		if err := s.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      out.bleg.BLegID,
 			Attempt: lifecycleAttempt(out.stream),

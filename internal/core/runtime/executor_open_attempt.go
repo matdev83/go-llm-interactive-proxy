@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -33,6 +34,7 @@ type attemptOpenParams struct {
 	bus         *hooks.Bus
 	traceID     string
 	aLegID      string
+	aScope      *leglifecycle.ALeg
 	baseline    lipapi.Call
 	sel         *routing.Selector
 	requestSize routing.RequestSizeEstimate
@@ -43,18 +45,22 @@ type attemptOpenParams struct {
 	ttft        *ttftBudget
 	isRetryPath bool
 	lastReject  *lipapi.NegotiationResult
-	affinityKey affinity.Key
-	affinitySet bool
+	// lastParallelFailure carries aggregated parallel-arm failure details across failover iterations
+	// so an eventual ErrNoEligibleCandidate can surface contextual root causes.
+	lastParallelFailure *error
+	affinityKey         affinity.Key
+	affinitySet         bool
 	// isContextLimitExhaustion, when non-nil, is set true when excluding a candidate for context-limit
 	// eligibility so a subsequent ErrNoEligibleCandidate maps to [lipapi.ErrAllCandidatesContextLimitExceeded].
 	isContextLimitExhaustion *bool
 }
 
 type attemptOpenResult struct {
-	opened bool
-	stream lipapi.ManagedEventStream
-	bleg   b2bua.BLegRecord
-	cand   routing.AttemptCandidate
+	opened     bool
+	registered bool
+	stream     lipapi.ManagedEventStream
+	bleg       b2bua.BLegRecord
+	cand       routing.AttemptCandidate
 }
 
 func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, error) {
@@ -63,7 +69,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	if err != nil {
 		return zero, err
 	}
-	list, err := routing.ExpandFailover(p.sel, routing.PlanOptions{
+	groups, err := routing.ExpandFailoverGroups(p.sel, routing.PlanOptions{
 		Excluded:               p.excluded,
 		Unhealthy:              e.mergePlannerHealth(),
 		RequestSize:            p.requestSize,
@@ -73,11 +79,12 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		Rand:                   p.rng,
 		IsRetryPath:            p.isRetryPath,
 	})
-	if stickyBinding && stickyBackendID != "" && (err != nil || len(list) == 0 || list[0].Primary.Backend != stickyBackendID) {
+	if stickyBinding && stickyBackendID != "" &&
+		(err != nil || len(groups) == 0 || len(groups[0].Candidates) == 0 || groups[0].Candidates[0].Primary.Backend != stickyBackendID) {
 		e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "ineligible")
 		stickyBackendID = ""
 		stickyBinding = false
-		list, err = routing.ExpandFailover(p.sel, routing.PlanOptions{
+		groups, err = routing.ExpandFailoverGroups(p.sel, routing.PlanOptions{
 			Excluded:               p.excluded,
 			Unhealthy:              e.mergePlannerHealth(),
 			RequestSize:            p.requestSize,
@@ -89,6 +96,9 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	}
 	if err != nil {
 		noEligible := errors.Is(err, routing.ErrNoEligibleCandidate)
+		if noEligible && p.lastParallelFailure != nil && *p.lastParallelFailure != nil {
+			return zero, *p.lastParallelFailure
+		}
 		lastNegotiationReject := p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject
 		if noEligible && lastNegotiationReject {
 			return zero, p.lastReject.Err()
@@ -98,7 +108,28 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		}
 		return zero, fmt.Errorf("executor: expand failover: %w", err)
 	}
-	c := list[0]
+	candidates := groups[0].Candidates
+	if len(candidates) == 0 {
+		return zero, fmt.Errorf("executor: empty candidate group")
+	}
+	if candidates[0].IsParallel {
+		return e.tryOpenParallelGroup(p, candidates, stickyBackendID, stickyBinding)
+	}
+	c := candidates[0]
+	out, err := e.openPlannedCandidate(p, c, stickyBackendID, stickyBinding)
+	if err == nil && out.opened && p.lastParallelFailure != nil {
+		*p.lastParallelFailure = nil
+	}
+	return out, err
+}
+
+func (e *Executor) openPlannedCandidate(
+	p attemptOpenParams,
+	c routing.AttemptCandidate,
+	stickyBackendID string,
+	stickyBinding bool,
+) (attemptOpenResult, error) {
+	var zero attemptOpenResult
 	if p.isContextLimitExhaustion != nil {
 		*p.isContextLimitExhaustion = false
 	}
@@ -350,7 +381,7 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		slog.String("backend", c.Primary.Backend),
 		slog.String("model", c.Primary.Model),
 	)
-	return attemptOpenResult{opened: true, stream: stream, bleg: bleg, cand: c}, nil
+	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c}, nil
 }
 
 func (e *Executor) lookupAffinityBinding(ctx context.Context, traceID string, sel *routing.Selector, key affinity.Key, keyOK bool) (string, bool, error) {

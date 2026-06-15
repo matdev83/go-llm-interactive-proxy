@@ -13,9 +13,10 @@ const maxNumberedAPIKeysEnv = 32
 // (typically from [ResolveUpstreamAPIKeysFromEnv]) when plugin YAML leaves api_key empty.
 // Treat all string values as secrets: do not log them or include them in error text.
 type UpstreamAPIKeys struct {
-	OpenAI    []string
-	Anthropic []string
-	Gemini    []string
+	OpenAI     []string
+	Anthropic  []string
+	Gemini     []string
+	OpenRouter []string
 }
 
 // EffectiveAPIKeys merges YAML api_key (first), then api_keys in order: trims, drops empties,
@@ -55,15 +56,49 @@ func EffectiveAPIKeys(yamlKey string, yamlKeys []string, defaults []string) []st
 	return out
 }
 
-// ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY plus
-// numbered suffixes (_2, _3, …) until the first missing or empty value (contiguous from 2).
+// ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
+// OPENROUTER_API_KEY plus numbered suffixes (_1, _2, _3, …) until the first missing or
+// empty value. OpenRouter uses _1-indexed numbering for consistency with
+// OPENROUTER_API_KEY_1, _2, etc.
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
 func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 	return UpstreamAPIKeys{
-		OpenAI:    collectNumberedEnvKeys("OPENAI_API_KEY"),
-		Anthropic: collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
-		Gemini:    collectNumberedEnvKeys("GEMINI_API_KEY"),
+		OpenAI:     collectNumberedEnvKeys("OPENAI_API_KEY"),
+		Anthropic:  collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
+		Gemini:     collectNumberedEnvKeys("GEMINI_API_KEY"),
+		OpenRouter: collectOpenRouterEnvKeys(),
 	}
+}
+
+// collectOpenRouterEnvKeys reads OPENROUTER_API_KEY and numbered variants starting
+// from _1 (unlike other providers that start from _2, OpenRouter uses 1-indexed
+// numbering per the Python proxy convention).
+func collectOpenRouterEnvKeys() []string {
+	out := make([]string, 0, maxNumberedAPIKeysEnv)
+	if s := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")); s != "" {
+		out = append(out, s)
+	}
+	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
+		name := fmt.Sprintf("OPENROUTER_API_KEY_%d", i)
+		v := strings.TrimSpace(os.Getenv(name))
+		if v == "" {
+			if i == 1 {
+				continue
+			}
+			break
+		}
+		found := false
+		for _, existing := range out {
+			if existing == v {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func collectNumberedEnvKeys(prefix string) []string {

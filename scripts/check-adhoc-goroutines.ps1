@@ -11,6 +11,7 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 $allowed = @(
     "internal/stdhttp/server.go"
     "internal/core/stream/keepalive.go"
+    "internal/core/runtime/parallel_race.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
 )

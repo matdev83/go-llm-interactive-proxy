@@ -439,6 +439,7 @@ func (s *sdkStream) Close() error {
 	return err
 }
 
-func (s *sdkStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
-	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
+func (s *sdkStream) Cancel(_ context.Context, _ leglifecycle.CancelCause) leglifecycle.CancelResult {
+	err := s.Close()
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeTransport, Err: err}
 }

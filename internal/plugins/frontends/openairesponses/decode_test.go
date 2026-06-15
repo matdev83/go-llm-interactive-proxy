@@ -2,12 +2,14 @@ package openairesponses_test
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -51,6 +53,18 @@ func TestDecodeCreate_textNonStream(t *testing.T) {
 	}
 	if d.Call.Messages[0].Parts[0].Text != "ping" {
 		t.Fatalf("text %q", d.Call.Messages[0].Parts[0].Text)
+	}
+	if d.Call.Tools == nil {
+		t.Fatal("expected empty tools slice, got nil")
+	}
+	if len(d.Call.Tools) != 0 {
+		t.Fatalf("tools: %+v", d.Call.Tools)
+	}
+	if d.Call.Instructions == nil {
+		t.Fatal("expected empty instructions slice, got nil")
+	}
+	if len(d.Call.Instructions) != 0 {
+		t.Fatalf("instructions: %+v", d.Call.Instructions)
 	}
 	if err := d.Call.Validate(); err != nil {
 		t.Fatal(err)
@@ -136,6 +150,20 @@ func TestDecodeCreate_functionCallInputItem(t *testing.T) {
 	if m.Role != lipapi.RoleAssistant || len(m.Parts) != 1 || m.Parts[0].Kind != lipapi.PartJSON {
 		t.Fatalf("unexpected message: %+v", m)
 	}
+	var functionCall struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	}
+	if err := json.Unmarshal(m.Parts[0].Content, &functionCall); err != nil {
+		t.Fatalf("part json: %v", err)
+	}
+	if functionCall.Type != "function_call" || functionCall.ID != "x" || functionCall.CallID != "c" ||
+		functionCall.Name != "n" || functionCall.Arguments != "{}" {
+		t.Fatalf("function_call payload: %+v", functionCall)
+	}
 	if err := d.Call.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -183,6 +211,23 @@ func TestDecodeCreate_instructionsNonStringRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "instructions must be a JSON string") {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeCreate_emptyInstructionsYieldsEmptySlice(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","stream":false,"input":"hi","instructions":"   "}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Instructions == nil {
+		t.Fatal("expected empty instructions slice, got nil")
+	}
+	if len(d.Call.Instructions) != 0 {
+		t.Fatalf("instructions: %+v", d.Call.Instructions)
 	}
 }
 
@@ -554,5 +599,76 @@ func TestDecodeCreate_modelExtensionMatchesJSONMarshal(t *testing.T) {
 	}
 	if openairesponses.ModelFromCall(d.Call) != model {
 		t.Fatalf("ModelFromCall got %q", openairesponses.ModelFromCall(d.Call))
+	}
+}
+
+func TestDecodeCreate_openRouterBodyFieldsPassthrough(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "openai/gpt-4o-mini",
+  "input": "hi",
+  "provider": {"order":["OpenAI"]},
+  "models": ["openai/gpt-4o"],
+  "route": "fallback",
+  "plugins": [{"id":"web"}],
+  "debug": true,
+  "service_tier": "default",
+  "session_id": "sess-abc",
+  "stop_server_tools_when": "tool_call",
+  "reasoning": {"effort":"high"}
+}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "openrouter:openai/gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := d.Call.Extensions
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtProvider) == nil {
+		t.Error("missing provider extension")
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtModels) == nil {
+		t.Error("missing models extension")
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtRoute) != "fallback" {
+		t.Errorf("route: %s", ext[openrouterwire.ExtRoute])
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtPlugins) == nil {
+		t.Error("missing plugins extension")
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtDebug) == nil {
+		t.Error("missing debug extension")
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtServiceTier) != "default" {
+		t.Errorf("service_tier: %s", ext[openrouterwire.ExtServiceTier])
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtSessionID) != "sess-abc" {
+		t.Errorf("session_id: %s", ext[openrouterwire.ExtSessionID])
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtReasoning) == nil {
+		t.Error("missing reasoning extension")
+	}
+	if got := openrouterwire.GetString(ext, openrouterwire.ExtUpstreamFlavor); got != openrouterwire.FlavorResponses {
+		t.Errorf("upstream flavor: got %q want %q", got, openrouterwire.FlavorResponses)
+	}
+}
+
+func TestDecodeCreate_openRouterHeadersPassthrough(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","input":"hi"}`)
+	h := http.Header{}
+	h.Set("HTTP-Referer", "https://myapp.com")
+	h.Set("X-Title", "FallbackTitle")
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "openrouter:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := d.Call.Extensions
+	if openrouterwire.GetString(ext, openrouterwire.ExtHTTPReferer) != "https://myapp.com" {
+		t.Errorf("referer: %s", ext[openrouterwire.ExtHTTPReferer])
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "FallbackTitle" {
+		t.Errorf("title: %s", ext[openrouterwire.ExtTitle])
 	}
 }

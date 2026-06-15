@@ -14,5 +14,10 @@ Stable identifiers for **core-owned** routing and executor invariants. Each ID m
 | `SB-ORCH-circuit-breaker` | Routing health circuit breaker can skip unhealthy candidates. | `TestExecutor_circuitBreakerSkipsAfterFailures` |
 | `SB-ORCH-backend-seam-b2bua` | Backend seam regression: pre-output recovery and no post-output failover across representative failures. | `TestExecutor_backendSeamRegression` |
 | `SB-SECURE-new-session-replaces-forged` | Secure session: BeginTurn with a new session replaces a forged A-leg id. | `TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg` |
+| `SB-ORCH-parallel-race-first-token-wins` | Parallel race: first non-whitespace content delta determines the winning B-leg. | `TestParallelRace_FirstNonWhitespaceTokenWins` |
+| `SB-ORCH-parallel-race-handicap-scheduling` | Parallel race: highest handicap starts first, short-circuits when winner found early. | `TestParallelRace_HandicapShortCircuitOnEarlyWinner` |
+| `SB-ORCH-parallel-race-handicap-fast-forward` | Parallel race: terminal failure of handicapped leg fast-forwards pending legs. | `TestParallelRace_HandicapFastForwardOnTerminalFailure` |
+| `SB-ORCH-parallel-race-cancel-losers` | Parallel race: losers receive cancel before close after winner is selected. | `TestParallelRace_CancelLosersBeforeClose` |
+| `SB-ORCH-parallel-race-failover` | Parallel race: when all legs in a group fail, failover to the next \| arm. | `TestParallelRace_FailoverToNextArmWhenNoWinner` |
 
 When adding or splitting tests, update `spec_bundle_scenarios.go`, this table, and keep `TestSpecBundle_orchestrationScenarios_referenceTests` passing (`go test -tags=precommit ./internal/core/runtime/...`).

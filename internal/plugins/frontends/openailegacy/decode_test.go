@@ -2,12 +2,14 @@ package openailegacy_test
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -52,6 +54,12 @@ func TestDecodeChat_textNonStream(t *testing.T) {
 	}
 	if d.Call.Messages[0].Parts[0].Text != "ping" {
 		t.Fatalf("text %q", d.Call.Messages[0].Parts[0].Text)
+	}
+	if d.Call.Tools == nil {
+		t.Fatal("expected empty tools slice, got nil")
+	}
+	if len(d.Call.Tools) != 0 {
+		t.Fatalf("tools: %+v", d.Call.Tools)
 	}
 	if err := d.Call.Validate(); err != nil {
 		t.Fatal(err)
@@ -400,5 +408,79 @@ func TestDecodeChat_unsupportedContentBlockRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported content block type") {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeChat_openRouterBodyFieldsPassthrough(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "openai/gpt-4o-mini",
+  "messages": [{"role":"user","content":"hi"}],
+  "provider": {"order":["OpenAI"]},
+  "models": ["openai/gpt-4o","anthropic/claude-3.5-sonnet"],
+  "route": "fallback",
+  "plugins": [{"id":"web"}],
+  "debug": true,
+  "service_tier": "default",
+  "user": "user-123",
+  "response_format": {"type":"json_object"}
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "openrouter:openai/gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := d.Call.Extensions
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtProvider) == nil {
+		t.Error("missing provider extension")
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtModels) == nil {
+		t.Error("missing models extension")
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtRoute) != "fallback" {
+		t.Errorf("route: %s", ext[openrouterwire.ExtRoute])
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtPlugins) == nil {
+		t.Error("missing plugins extension")
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtDebug) == nil {
+		t.Error("missing debug extension")
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtServiceTier) != "default" {
+		t.Errorf("service_tier: %s", ext[openrouterwire.ExtServiceTier])
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtUser) != "user-123" {
+		t.Errorf("user: %s", ext[openrouterwire.ExtUser])
+	}
+	if openrouterwire.GetRaw(ext, openrouterwire.ExtResponseFormat) == nil {
+		t.Error("missing response_format extension")
+	}
+	if got := openrouterwire.GetString(ext, openrouterwire.ExtUpstreamFlavor); got != openrouterwire.FlavorChat {
+		t.Errorf("upstream flavor: got %q want %q", got, openrouterwire.FlavorChat)
+	}
+}
+
+func TestDecodeChat_openRouterHeadersPassthrough(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
+	h := http.Header{}
+	h.Set("HTTP-Referer", "https://myapp.com")
+	h.Set("X-OpenRouter-Title", "MyApp")
+	h.Set("X-OpenRouter-Categories", "ai")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "openrouter:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := d.Call.Extensions
+	if openrouterwire.GetString(ext, openrouterwire.ExtHTTPReferer) != "https://myapp.com" {
+		t.Errorf("referer: %s", ext[openrouterwire.ExtHTTPReferer])
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "MyApp" {
+		t.Errorf("title: %s", ext[openrouterwire.ExtTitle])
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtCategories) != "ai" {
+		t.Errorf("categories: %s", ext[openrouterwire.ExtCategories])
 	}
 }

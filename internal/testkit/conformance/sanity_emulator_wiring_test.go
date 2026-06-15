@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
 // Task 13.1 / 13.3: bundled frontend IDs must stay aligned with wire_clients.go and frontend_server.go
@@ -48,6 +49,7 @@ func TestSanityTask13_BundledBackendsWiredForRefParity(t *testing.T) {
 		gemini.ID:          {},
 		bedrock.ID:         {},
 		acp.ID:             {},
+		openrouter.ID:      {},
 	}
 	ids := BundledBackendIDs()
 	if len(ids) != len(wired) {

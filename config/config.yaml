@@ -256,6 +256,13 @@ plugins:
     - id: acp
       enabled: false
       config: {}
+    - id: openrouter
+      enabled: false
+      config: {}
+      # base_url: https://openrouter.ai/api/v1  # default
+      # api_key: ""          # or use OPENROUTER_API_KEY / OPENROUTER_API_KEY_N env vars
+      # static_referer: ""   # optional static HTTP-Referer for attribution
+      # static_title: ""     # optional static X-Title for app name
   features:
     - id: submit-noop
       enabled: true

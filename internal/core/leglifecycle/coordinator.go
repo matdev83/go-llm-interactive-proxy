@@ -4,6 +4,7 @@ package leglifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ const (
 	CancelExplicit    = lipapi.CancelExplicit
 	CancelClientGone  = lipapi.CancelClientGone
 	CancelContextDone = lipapi.CancelContextDone
+	CancelRaceLoser   = lipapi.CancelRaceLoser
 )
 
 type CancelCause = lipapi.CancelCause
@@ -69,12 +71,19 @@ func NewCoordinator(cfg CoordinatorConfig) *Coordinator {
 	return &Coordinator{cfg: cfg, alegs: map[string]*ALeg{}}
 }
 
+func (c *Coordinator) ensureALegsLocked() {
+	if c != nil && c.alegs == nil {
+		c.alegs = map[string]*ALeg{}
+	}
+}
+
 func (c *Coordinator) StartALeg(id string) *ALeg {
 	if c == nil {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.ensureALegsLocked()
 	if a := c.alegs[id]; a != nil {
 		return a
 	}
@@ -88,6 +97,7 @@ func (c *Coordinator) CancelALeg(ctx context.Context, id string, cause CancelCau
 		return nil
 	}
 	c.mu.Lock()
+	c.ensureALegsLocked()
 	a := c.alegs[id]
 	if a == nil {
 		a = &ALeg{id: id, coordinator: c, blegs: map[string]BLegAttempt{}}
@@ -130,7 +140,10 @@ func (a *ALeg) RegisterBLeg(ctx context.Context, h BLegHandle) error {
 	if a.canceled {
 		cause := a.cause
 		a.mu.Unlock()
-		cancelAndClose(ctx, a.cancelTimeout(), h.Attempt, cause)
+		cleanupErr := cancelAndClose(ctx, a.cancelTimeout(), h.Attempt, cause)
+		if cleanupErr != nil {
+			return errors.Join(ErrALegCanceled, cleanupErr)
+		}
 		return ErrALegCanceled
 	}
 	a.blegs[h.ID] = h.Attempt
@@ -157,8 +170,12 @@ func (a *ALeg) Cancel(ctx context.Context, cause CancelCause) error {
 		blegs = append(blegs, b)
 	}
 	a.mu.Unlock()
+	var cleanupErr error
 	for _, b := range blegs {
-		cancelAndClose(ctx, a.cancelTimeout(), b, cause)
+		cleanupErr = errors.Join(cleanupErr, cancelAndClose(ctx, a.cancelTimeout(), b, cause))
+	}
+	if cleanupErr != nil {
+		return fmt.Errorf("leglifecycle: cancel and close b-legs: %w", cleanupErr)
 	}
 	return nil
 }
@@ -189,9 +206,9 @@ func (a *ALeg) cancelTimeout() time.Duration {
 	return a.coordinator.cfg.CancelTimeout
 }
 
-func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt, cause CancelCause) {
+func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt, cause CancelCause) error {
 	if b == nil {
-		return
+		return nil
 	}
 	ctx := parent
 	cancel := func() {}
@@ -204,6 +221,12 @@ func cancelAndClose(parent context.Context, timeout time.Duration, b BLegAttempt
 		ctx = context.WithoutCancel(ctx)
 	}
 	defer cancel()
-	_ = b.Cancel(ctx, cause)
-	_ = b.Close()
+	var cleanupErr error
+	if res := b.Cancel(ctx, cause); res.Err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cancel b-leg: %w", res.Err))
+	}
+	if err := b.Close(); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("close b-leg: %w", err))
+	}
+	return cleanupErr
 }

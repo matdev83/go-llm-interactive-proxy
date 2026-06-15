@@ -35,6 +35,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"local-stub",
 		"openai-legacy",
 		"openai-responses",
+		"openrouter",
 	}
 	var gotBE []string
 	for _, e := range be.Backends {

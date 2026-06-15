@@ -12,6 +12,7 @@ const (
 	CancelExplicit    CancelKind = "explicit"
 	CancelClientGone  CancelKind = "client_gone"
 	CancelContextDone CancelKind = "context_done"
+	CancelRaceLoser   CancelKind = "race_loser"
 )
 
 // CancelCause carries low-cardinality cancellation reason metadata across core and adapters.

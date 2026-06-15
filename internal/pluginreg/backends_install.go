@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"gopkg.in/yaml.v3"
 )
 
@@ -181,4 +182,36 @@ func backendACP(n yaml.Node, upstream *http.Client) (execbackend.Backend, error)
 		BaseURL:    base,
 		HTTPClient: resolveUpstreamHTTP(upstream),
 	}), nil
+}
+
+type openRouterBackendYAML struct {
+	BaseURL       string                 `yaml:"base_url"`
+	APIKey        string                 `yaml:"api_key"`
+	APIKeys       []string               `yaml:"api_keys"`
+	Credentials   []hostedCredentialYAML `yaml:"credentials"`
+	StaticReferer string                 `yaml:"static_referer"`
+	StaticTitle   string                 `yaml:"static_title"`
+}
+
+func backendOpenRouter(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+	var y openRouterBackendYAML
+	if err := config.DecodeYAMLNode(n, &y); err != nil {
+		return execbackend.Backend{}, fmt.Errorf("openrouter backend config: %w", err)
+	}
+	base := strings.TrimSpace(y.BaseURL)
+	if base == "" {
+		base = "https://openrouter.ai/api/v1"
+	}
+	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenRouter)
+	cfg := openrouter.Config{
+		BaseURL:       base,
+		APIKeys:       ek,
+		Credentials:   hostedCredentials(y.Credentials),
+		StaticReferer: strings.TrimSpace(y.StaticReferer),
+		StaticTitle:   strings.TrimSpace(y.StaticTitle),
+	}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return openrouter.New(cfg), nil
 }

@@ -18,6 +18,7 @@ import (
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
+	refopenrouter "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openrouter"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
@@ -25,6 +26,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
 const parityText = "conformance-parity"
@@ -36,6 +38,18 @@ func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]
 	tb.Helper()
 	if backendID == acp.ID {
 		srv := httptest.NewServer(refacp.NewHandler(refacp.Config{OnRequestBody: onRequestBody}))
+		tb.Cleanup(srv.Close)
+		return srv
+	}
+	if backendID == openrouter.ID {
+		ns := strings.Replace(refopenrouter.DefaultChatNonStreamJSON, "or-ok", parityText, 1)
+		ss := strings.Replace(refopenrouter.DefaultChatStreamSSE, "or-stream-ok", parityText, 1)
+		h := refopenrouter.NewHandler(refopenrouter.Config{
+			ChatNonStreamJSON: ns,
+			ChatStreamSSE:     ss,
+			OnRequestBody:     onRequestBody,
+		})
+		srv := httptest.NewServer(h)
 		tb.Cleanup(srv.Close)
 		return srv
 	}

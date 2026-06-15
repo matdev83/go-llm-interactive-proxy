@@ -232,6 +232,7 @@ func (s *chatStream) Close() error {
 	return err
 }
 
-func (s *chatStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
-	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeCloseOnly}
+func (s *chatStream) Cancel(_ context.Context, _ leglifecycle.CancelCause) leglifecycle.CancelResult {
+	err := s.Close()
+	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeTransport, Err: err}
 }
