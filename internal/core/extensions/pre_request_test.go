@@ -124,6 +124,7 @@ func (h preReqHandler) FailureMode() sdkhooks.FailureMode {
 	}
 	return h.mode
 }
+
 func (h preReqHandler) Handle(_ context.Context, call *lipapi.Call, _ prerequest.Meta, _ prerequest.Services) (prerequest.Decision, error) {
 	if h.seen != nil {
 		*h.seen = append(*h.seen, h.id)
