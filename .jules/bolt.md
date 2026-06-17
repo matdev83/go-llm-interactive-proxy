@@ -1,0 +1,3 @@
+## 2025-06-17 - Hot-path Context Allocation Bottleneck
+**Learning:** In streaming-heavy applications like this Go LLM Proxy, repeated context enrichment (attaching metadata via `context.WithValue`) on the hot `Recv` path is a significant source of allocations. Chaining multiple context values (trace IDs, views, preferences, loggers) for every event in a stream adds up quickly.
+**Action:** Use a memoized context enrichment pattern on `EventStream` implementations. By caching the resulting child context and checking if the parent `context.Context` is identical to the last call, we can bypass expensive re-allocations and map/slice cloning when the caller reuses the same context (which is typical for a single request/stream).

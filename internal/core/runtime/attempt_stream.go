@@ -79,6 +79,10 @@ type retryRecvStream struct {
 	recvViewsOK bool
 	routePrefs  []string
 
+	cachedCtxMu sync.Mutex
+	lastParent  context.Context
+	cachedCtx   context.Context
+
 	// secureTurn preserves validated secure-session ids for attempt trace/outcome on recv paths.
 	secureTurn   execctx.SecureSessionTurn
 	secureTurnOK bool
@@ -223,8 +227,16 @@ func (s *retryRecvStream) finishALegScope() {
 	})
 }
 
-// recvHookMeta returns identifiers for response-path hooks after B-leg allocation.
+// recvExecContext attaches request metadata to parent and returns a child context.
+// It caches the result based on parent to avoid repeated allocations in Recv.
 func (s *retryRecvStream) recvExecContext(parent context.Context) context.Context {
+	s.cachedCtxMu.Lock()
+	defer s.cachedCtxMu.Unlock()
+
+	if s.lastParent == parent && s.cachedCtx != nil {
+		return s.cachedCtx
+	}
+
 	ctx := diag.EnsureCallDiag(parent, s.traceID, s.aLegID)
 	if s.recvViewsOK {
 		ctx = execctx.WithViews(ctx, s.recvViews)
@@ -238,6 +250,9 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	if s.executor != nil && s.executor.Log != nil {
 		ctx = hooks.WithDiagnosticsLogger(ctx, s.executor.Log)
 	}
+
+	s.lastParent = parent
+	s.cachedCtx = ctx
 	return ctx
 }
 
