@@ -57,8 +57,6 @@ func newRefServer(t *testing.T, cfg refbackend.Config) *httptest.Server {
 	return srv
 }
 
-func intPtr(n int) *int { return &n }
-
 // --- Chat Completions Tests ---
 
 func TestIntegration_chatCompletionsNonStream(t *testing.T) {
@@ -83,7 +81,7 @@ func TestIntegration_chatCompletionsNonStream(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -131,7 +129,7 @@ func TestIntegration_chatCompletionsStreaming(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -184,7 +182,7 @@ func TestIntegration_chatNonStreamUsage(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -228,7 +226,7 @@ func TestIntegration_chatStreamUsage(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -272,7 +270,7 @@ func TestIntegration_chatCompletionsPayloadMutation_streamOptionsStripped(t *tes
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -312,7 +310,7 @@ func TestIntegration_chatCompletionsPayloadMutation_maxTokensRemap(t *testing.T)
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -355,7 +353,7 @@ func TestIntegration_chatCompletionsExtraBody(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -395,7 +393,7 @@ func TestIntegration_responsesNonStream(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), responsesTestCall(nil), testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -447,7 +445,7 @@ func TestIntegration_responsesNonStreamUsage(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), responsesTestCall(nil), testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -507,7 +505,7 @@ func TestIntegration_authFailureRotatesCredential(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKeys:       []string{"bad-key"},
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	_, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -527,7 +525,7 @@ func TestIntegration_rateLimitClassification(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKeys:       []string{"key-1"},
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	_, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -567,7 +565,7 @@ func TestIntegration_multiKey401ThenSuccess(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKeys:       []string{"bad-key", "good-key"},
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -618,7 +616,7 @@ func TestIntegration_multiKey429ThenSuccess(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKeys:       []string{"limited-key", "good-key"},
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
@@ -647,7 +645,7 @@ func TestIntegration_flavorSelection_defaultIsChat(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
 	if err != nil {
@@ -676,7 +674,7 @@ func TestIntegration_flavorSelection_responsesWhenExtensionSet(t *testing.T) {
 	be := nvidia.New(nvidia.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "nvapi-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 	es, err := be.Open(context.Background(), call, testCandidate("nvidia/llama-3.1-nemotron-nano-8b-v1"))
 	if err != nil {

@@ -22,7 +22,7 @@ func TestHandler_chatCompletionsNonStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -44,7 +44,7 @@ func TestHandler_chatCompletionsStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "nvidia-stream-ok") {
 		t.Fatalf("body: %s", body)
@@ -66,7 +66,7 @@ func TestHandler_responsesNonStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "nvidia-ok") {
 		t.Fatalf("body: %s", body)
@@ -85,7 +85,7 @@ func TestHandler_responsesStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "nvidia-stream-ok") {
 		t.Fatalf("body: %s", body)
@@ -102,7 +102,7 @@ func TestHandler_missingBearerReturns401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -125,7 +125,7 @@ func TestHandler_forced401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -145,7 +145,7 @@ func TestHandler_forced429(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -169,7 +169,7 @@ func TestHandler_headerCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if captured.Get("X-Custom") != "custom-value" {
 		t.Fatalf("X-Custom: %q", captured.Get("X-Custom"))
@@ -191,7 +191,7 @@ func TestHandler_bodyCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !strings.Contains(captured, `"max_tokens"`) {
 		t.Fatalf("body: %s", captured)
@@ -212,7 +212,7 @@ func TestHandler_credentialCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if captured != "nvapi-secret-key" {
 		t.Fatalf("credential: %q", captured)
@@ -230,7 +230,7 @@ func TestHandler_chatStreamWithUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), `"usage"`) {
 		t.Fatalf("expected usage in stream, body: %s", body)
@@ -248,7 +248,7 @@ func TestHandler_getReturns404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -265,7 +265,7 @@ func TestHandler_unknownPathReturns404(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -282,7 +282,7 @@ func TestHandler_responsesPathNotMatchedByChatSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}

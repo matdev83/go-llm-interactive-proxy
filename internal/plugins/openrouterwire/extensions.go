@@ -111,8 +111,8 @@ func CaptureHeaders(h http.Header, ext map[string]json.RawMessage) {
 	set("X-OpenRouter-Metadata", ExtMetadataHeader)
 }
 
-// ExtraBodyExtPrefix is the extension key prefix used to pass arbitrary extra body fields
-// through the canonical call to backend adapters that support them (e.g. nvidia).
+// ExtraBodyExtPrefix is the extension key prefix used by OpenAI-compatible frontend adapters
+// to pass NVIDIA-specific extra body fields through the canonical call.
 const ExtraBodyExtPrefix = "nvidia.extra_body."
 
 const (

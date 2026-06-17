@@ -239,7 +239,7 @@ func validBackendSpec(baseURL string) BackendSpec {
 		BaseURL:           baseURL,
 		APIKey:            "sk-test",
 		RateLimitFallback: time.Millisecond,
-		SDKMaxRetries:     intPtr(0),
+		SDKMaxRetries:     new(int),
 		ResolveModel: func(cand routing.AttemptCandidate, _ lipapi.Call) string {
 			return cand.Primary.Model
 		},
@@ -286,5 +286,7 @@ func newCredentialRetryServer(t *testing.T, status int, retryAfter string, mu *s
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"chat-ns","object":"chat.completion","created":1715620000,"model":"gpt-test","choices":[{"index":0,"message":{"role":"assistant","content":"chat-ns-ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`)
 	})
-	return httptest.NewServer(h)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
 }

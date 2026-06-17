@@ -22,7 +22,7 @@ func TestHandler_chatCompletionsNonStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -44,7 +44,7 @@ func TestHandler_chatCompletionsStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "or-stream-ok") {
 		t.Fatalf("body: %s", body)
@@ -66,7 +66,7 @@ func TestHandler_responsesNonStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "or-ok") {
 		t.Fatalf("body: %s", body)
@@ -85,7 +85,7 @@ func TestHandler_responsesStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "or-stream-ok") {
 		t.Fatalf("body: %s", body)
@@ -102,7 +102,7 @@ func TestHandler_missingBearerReturns401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -122,7 +122,7 @@ func TestHandler_forced429(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
@@ -147,7 +147,7 @@ func TestHandler_headerCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if captured.Get("Http-Referer") != "https://myapp.com" {
 		t.Fatalf("HTTP-Referer: %q", captured.Get("Http-Referer"))
@@ -172,7 +172,7 @@ func TestHandler_bodyCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !strings.Contains(captured, `"provider"`) {
 		t.Fatalf("body: %s", captured)

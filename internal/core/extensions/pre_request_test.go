@@ -15,6 +15,7 @@ import (
 )
 
 func TestRunPreRequestStage_denialStopsChain(t *testing.T) {
+	t.Parallel()
 	call := validCall()
 	var seen []string
 	err := extensions.RunPreRequestStage(context.Background(), nil, nil, []prerequest.Handler{
@@ -31,6 +32,7 @@ func TestRunPreRequestStage_denialStopsChain(t *testing.T) {
 }
 
 func TestRunPreRequestStage_sortsAndMergesAnnotations(t *testing.T) {
+	t.Parallel()
 	call := validCall()
 	var seen []string
 	meta := prerequest.Meta{Annotations: map[string]string{"in": "keep"}}
@@ -51,6 +53,7 @@ func TestRunPreRequestStage_sortsAndMergesAnnotations(t *testing.T) {
 }
 
 func TestRunPreRequestStage_failOpenContinues(t *testing.T) {
+	t.Parallel()
 	call := validCall()
 	var seen []string
 	err := extensions.RunPreRequestStage(context.Background(), nil, nil, []prerequest.Handler{
@@ -66,6 +69,7 @@ func TestRunPreRequestStage_failOpenContinues(t *testing.T) {
 }
 
 func TestRunPreRequestStage_failClosedStops(t *testing.T) {
+	t.Parallel()
 	call := validCall()
 	err := extensions.RunPreRequestStage(context.Background(), nil, nil, []prerequest.Handler{
 		preReqHandler{id: "bad", order: 1, err: errors.New("boom"), mode: sdkhooks.FailClosed},
@@ -76,6 +80,7 @@ func TestRunPreRequestStage_failClosedStops(t *testing.T) {
 }
 
 func TestRunPreRequestStage_skipsAuxiliaryDepth(t *testing.T) {
+	t.Parallel()
 	call := validCall()
 	ctx := execctx.WithAuxiliaryDepth(context.Background(), 1)
 	var seen []string
@@ -91,6 +96,7 @@ func TestRunPreRequestStage_skipsAuxiliaryDepth(t *testing.T) {
 }
 
 func TestRunPreRequestStage_validatesAfterChain(t *testing.T) {
+	t.Parallel()
 	call := validCall()
 	err := extensions.RunPreRequestStage(context.Background(), nil, nil, []prerequest.Handler{
 		preReqHandler{id: "mutate-bad", order: 1, mutate: func(c *lipapi.Call) { c.Messages = nil }},

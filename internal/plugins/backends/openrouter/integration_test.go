@@ -75,7 +75,7 @@ func TestIntegration_chatCompletionsNonStream(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -123,7 +123,7 @@ func TestIntegration_chatCompletionsStreamingTransportMode(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -177,7 +177,7 @@ func TestIntegration_chatNonStreamUsage(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -260,7 +260,7 @@ func TestIntegration_responsesNonStream(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), responsesTestCall(nil), testCandidate("openai/gpt-4o-mini"))
@@ -318,7 +318,7 @@ func TestIntegration_responsesNonStreamUsage(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), responsesTestCall(nil), testCandidate("openai/gpt-4o-mini"))
@@ -381,7 +381,7 @@ func TestIntegration_chatCompletionsStream(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -422,7 +422,7 @@ func TestIntegration_flavorSelection(t *testing.T) {
 		be := openrouter.New(openrouter.Config{
 			BaseURL:       srv.URL,
 			APIKey:        "sk-test",
-			SDKMaxRetries: intPtr(0),
+			SDKMaxRetries: new(int),
 		})
 		es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
 		if err != nil {
@@ -448,7 +448,7 @@ func TestIntegration_flavorSelection(t *testing.T) {
 		be := openrouter.New(openrouter.Config{
 			BaseURL:       srv.URL,
 			APIKey:        "sk-test",
-			SDKMaxRetries: intPtr(0),
+			SDKMaxRetries: new(int),
 		})
 		es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
 		if err != nil {
@@ -474,7 +474,7 @@ func TestIntegration_flavorSelection(t *testing.T) {
 		be := openrouter.New(openrouter.Config{
 			BaseURL:       srv.URL,
 			APIKey:        "sk-test",
-			SDKMaxRetries: intPtr(0),
+			SDKMaxRetries: new(int),
 		})
 		es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
 		if err != nil {
@@ -513,7 +513,7 @@ func TestIntegration_headerPrecedence(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 		StaticReferer: "https://default.com",
 		StaticTitle:   "DefaultTitle",
 	})
@@ -544,7 +544,7 @@ func TestIntegration_authFailureRotatesCredential(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKeys:       []string{"bad-key"},
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	_, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -564,7 +564,7 @@ func TestIntegration_rateLimitClassification(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKeys:       []string{"key-1"},
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	_, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -583,7 +583,7 @@ func TestIntegration_chatStreamUsage(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -648,7 +648,7 @@ func TestIntegration_forwardsOpenRouterExtensionsBroadly(t *testing.T) {
 	be := openrouter.New(openrouter.Config{
 		BaseURL:       srv.URL,
 		APIKey:        "sk-test",
-		SDKMaxRetries: intPtr(0),
+		SDKMaxRetries: new(int),
 	})
 	es, err := be.Open(context.Background(), testCall(ext), testCandidate("openai/gpt-4o-mini"))
 	if err != nil {
@@ -726,5 +726,3 @@ func newRefServer(t *testing.T, cfg refbackend.Config) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
-
-func intPtr(n int) *int { return &n }

@@ -113,9 +113,7 @@ func (e *Executor) tryOpenParallelGroup(
 	}
 
 	for idx, entry := range entries {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					_ = safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
@@ -267,7 +265,7 @@ func (e *Executor) tryOpenParallelGroup(
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	go func() {

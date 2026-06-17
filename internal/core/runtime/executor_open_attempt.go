@@ -206,6 +206,7 @@ func (e *Executor) openPlannedCandidate(
 	transportRes := lipapi.NegotiateTransport(attempt.Invocation, transportCaps, e.effectiveTransportFallbackPolicy())
 	transportMode := transportRes.Selected
 	if transportMode == "" {
+		// Rejections may not select a concrete mode; fall back to the negotiated mode for diagnostics.
 		transportMode = transportRes.Mode
 	}
 	transportSpan.SetAttributes(

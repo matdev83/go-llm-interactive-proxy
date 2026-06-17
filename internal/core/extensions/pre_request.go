@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -80,9 +81,7 @@ func RunPreRequestStage(ctx context.Context, log *slog.Logger, obs StageMetrics,
 			if meta.Annotations == nil {
 				meta.Annotations = make(map[string]string, len(decision.Annotations))
 			}
-			for k, v := range decision.Annotations {
-				meta.Annotations[k] = v
-			}
+			maps.Copy(meta.Annotations, decision.Annotations)
 		}
 		if decision.Deny {
 			outcome = "denied"
