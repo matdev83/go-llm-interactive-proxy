@@ -44,24 +44,32 @@ func NewSuccessRefBackend(tb testing.TB, backendID string, onRequestBody func([]
 		return srv
 	}
 	if backendID == openrouter.ID {
-		ns := strings.Replace(refopenrouter.DefaultChatNonStreamJSON, "or-ok", parityText, 1)
-		ss := strings.Replace(refopenrouter.DefaultChatStreamSSE, "or-stream-ok", parityText, 1)
+		chatNS := strings.Replace(refopenrouter.DefaultChatNonStreamJSON, "or-ok", parityText, 1)
+		chatSS := strings.Replace(refopenrouter.DefaultChatStreamSSE, "or-stream-ok", parityText, 1)
+		responsesNS := strings.Replace(refopenrouter.DefaultResponsesNonStreamJSON, "or-ok", parityText, 1)
+		responsesSS := strings.Replace(refopenrouter.DefaultResponsesStreamSSE, "or-stream-ok", parityText, 1)
 		h := refopenrouter.NewHandler(refopenrouter.Config{
-			ChatNonStreamJSON: ns,
-			ChatStreamSSE:     ss,
-			OnRequestBody:     onRequestBody,
+			ChatNonStreamJSON:      chatNS,
+			ChatStreamSSE:          chatSS,
+			ResponsesNonStreamJSON: responsesNS,
+			ResponsesStreamSSE:     responsesSS,
+			OnRequestBody:          onRequestBody,
 		})
 		srv := httptest.NewServer(h)
 		tb.Cleanup(srv.Close)
 		return srv
 	}
 	if backendID == nvidia.ID {
-		ns := strings.Replace(refnvidia.DefaultChatNonStreamJSON, "nvidia-ok", parityText, 1)
-		ss := strings.Replace(refnvidia.DefaultChatStreamSSE, "nvidia-stream-ok", parityText, 1)
+		chatNS := strings.Replace(refnvidia.DefaultChatNonStreamJSON, "nvidia-ok", parityText, 1)
+		chatSS := strings.Replace(refnvidia.DefaultChatStreamSSE, "nvidia-stream-ok", parityText, 1)
+		responsesNS := strings.Replace(refnvidia.DefaultResponsesNonStreamJSON, "nvidia-ok", parityText, 1)
+		responsesSS := strings.Replace(refnvidia.DefaultResponsesStreamSSE, "nvidia-stream-ok", parityText, 1)
 		h := refnvidia.NewHandler(refnvidia.Config{
-			ChatNonStreamJSON: ns,
-			ChatStreamSSE:     ss,
-			OnRequestBody:     onRequestBody,
+			ChatNonStreamJSON:      chatNS,
+			ChatStreamSSE:          chatSS,
+			ResponsesNonStreamJSON: responsesNS,
+			ResponsesStreamSSE:     responsesSS,
+			OnRequestBody:          onRequestBody,
 		})
 		srv := httptest.NewServer(h)
 		tb.Cleanup(srv.Close)

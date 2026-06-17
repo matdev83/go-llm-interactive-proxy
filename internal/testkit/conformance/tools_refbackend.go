@@ -15,6 +15,7 @@ import (
 	refnvidia "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/nvidia"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
+	refopenrouter "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openrouter"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
@@ -22,6 +23,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
 // NewToolRefBackend wires a reference backend emulator that completes a single tool call and
@@ -119,8 +121,28 @@ func NewToolRefBackend(tb testing.TB, backendID string, onBody func([]byte)) *ht
 			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10}}` +
 			"\n\n" + "data: [DONE]\n\n"
 		srv := httptest.NewServer(refnvidia.NewHandler(refnvidia.Config{
-			ChatStreamSSE: nvidiaToolStreamSSE,
-			OnRequestBody: cfgBody,
+			ChatStreamSSE:      nvidiaToolStreamSSE,
+			ResponsesStreamSSE: openAICompatToolResponsesStreamSSE("nvidia/llama-3.1-nemotron-nano-8b-v1"),
+			OnRequestBody:      cfgBody,
+		}))
+		tb.Cleanup(srv.Close)
+		return srv
+	case openrouter.ID:
+		const openRouterToolStreamSSE = "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_or","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\""}}]},"finish_reason":null}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10,"cost":0.00014}}` +
+			"\n\n" + "data: [DONE]\n\n"
+		srv := httptest.NewServer(refopenrouter.NewHandler(refopenrouter.Config{
+			ChatStreamSSE:      openRouterToolStreamSSE,
+			ResponsesStreamSSE: openAICompatToolResponsesStreamSSE("openai/gpt-4o-mini"),
+			OnRequestBody:      cfgBody,
 		}))
 		tb.Cleanup(srv.Close)
 		return srv
@@ -128,6 +150,15 @@ func NewToolRefBackend(tb testing.TB, backendID string, onBody func([]byte)) *ht
 		tb.Fatalf("no tool refbackend for %q", backendID)
 		return nil
 	}
+}
+
+func openAICompatToolResponsesStreamSSE(model string) string {
+	return "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":0,\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"call_id\":\"call_fc\",\"name\":\"get_weather\",\"status\":\"in_progress\"}}\n\n" +
+		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":1,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"{\\\"city\\\":\"}\n\n" +
+		"event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":2,\"item_id\":\"fc_int_t\",\"output_index\":0,\"delta\":\"\\\"NYC\\\"}\"}\n\n" +
+		"event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":3,\"item_id\":\"fc_int_t\",\"output_index\":0,\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"r_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"" + model + "\",\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"total_tokens\":10,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens_details\":{\"reasoning_tokens\":0}},\"output\":[{\"type\":\"function_call\",\"id\":\"fc_int_t\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}]}}\n\n" +
+		"data: [DONE]\n\n"
 }
 
 func bedrockToolStreamWithUsage(tb testing.TB) []byte {
