@@ -3,6 +3,7 @@ package pluginreg
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -17,6 +18,7 @@ type UpstreamAPIKeys struct {
 	Anthropic  []string
 	Gemini     []string
 	OpenRouter []string
+	Nvidia     []string
 }
 
 // EffectiveAPIKeys merges YAML api_key (first), then api_keys in order: trims, drops empties,
@@ -67,6 +69,7 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 		Anthropic:  collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
 		Gemini:     collectNumberedEnvKeys("GEMINI_API_KEY"),
 		OpenRouter: collectOpenRouterEnvKeys(),
+		Nvidia:     collectNvidiaEnvKeys(),
 	}
 }
 
@@ -74,12 +77,22 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 // from _1 (unlike other providers that start from _2, OpenRouter uses 1-indexed
 // numbering per the Python proxy convention).
 func collectOpenRouterEnvKeys() []string {
+	return collect1IndexedEnvKeys("OPENROUTER_API_KEY")
+}
+
+// collectNvidiaEnvKeys reads NVIDIA_API_KEY and numbered variants starting
+// from _1 (same 1-indexed numbering as OpenRouter per Python proxy convention).
+func collectNvidiaEnvKeys() []string {
+	return collect1IndexedEnvKeys("NVIDIA_API_KEY")
+}
+
+func collect1IndexedEnvKeys(envPrefix string) []string {
 	out := make([]string, 0, maxNumberedAPIKeysEnv)
-	if s := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")); s != "" {
+	if s := strings.TrimSpace(os.Getenv(envPrefix)); s != "" {
 		out = append(out, s)
 	}
 	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
-		name := fmt.Sprintf("OPENROUTER_API_KEY_%d", i)
+		name := fmt.Sprintf("%s_%d", envPrefix, i)
 		v := strings.TrimSpace(os.Getenv(name))
 		if v == "" {
 			if i == 1 {
@@ -87,14 +100,7 @@ func collectOpenRouterEnvKeys() []string {
 			}
 			break
 		}
-		found := false
-		for _, existing := range out {
-			if existing == v {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(out, v) {
 			out = append(out, v)
 		}
 	}

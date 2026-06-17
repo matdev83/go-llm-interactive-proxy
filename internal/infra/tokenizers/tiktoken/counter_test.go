@@ -410,7 +410,7 @@ func TestCountCallImageDataURIRejectsInvalidBase64AndNonImageData(t *testing.T) 
 		t.Run(ref, func(t *testing.T) {
 			t.Parallel()
 			call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{imagePart(ref, "low")}}}}
-			_, err = counter.CountCall(context.Background(), app.CountCallInput{Model: "cl100k_base", Call: call})
+			_, err := counter.CountCall(context.Background(), app.CountCallInput{Model: "cl100k_base", Call: call})
 			if !errors.Is(err, app.ErrLocalUnavailable) {
 				t.Fatalf("CountCall() error = %v, want ErrLocalUnavailable", err)
 			}

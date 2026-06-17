@@ -33,9 +33,6 @@ func (e *Executor) lifecycleCoordinator() *leglifecycle.Coordinator {
 	if e == nil {
 		return nil
 	}
-	if e.ALegLifecycle != nil {
-		return e.ALegLifecycle
-	}
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	if e.ALegLifecycle == nil {

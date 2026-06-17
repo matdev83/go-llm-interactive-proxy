@@ -1,8 +1,7 @@
-package openrouter
+package openaicompat
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -15,11 +14,23 @@ import (
 	"github.com/openai/openai-go/v3/packages/ssestream"
 )
 
+var _ lipapi.ManagedEventStream = (*chatStream)(nil)
+
+// noCopy lets go vet's copylocks analyzer catch accidental copies of stream
+// state after first use.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
 type chatStream struct {
+	noCopy noCopy
+
 	mu        sync.Mutex
 	closeOnce sync.Once
 
-	sdk *ssestream.Stream[openai.ChatCompletionChunk]
+	provider string
+	sdk      *ssestream.Stream[openai.ChatCompletionChunk]
 
 	pending         stream.PendingEventQueue
 	sawResp         bool
@@ -27,16 +38,19 @@ type chatStream struct {
 	terminalEmitted bool
 	closed          bool
 	activeTools     map[int64]string
+	pendingToolArgs map[int64][]string
 	activeToolOrder []int64
 }
 
-func newChatStream(s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.ManagedEventStream {
+// NewChatStream maps an openai-go chat-completions stream into canonical events.
+func NewChatStream(provider string, s *ssestream.Stream[openai.ChatCompletionChunk], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
 	return &chatStream{
-		sdk:     s,
-		pending: stream.NewPendingEventQueue(maxPending),
+		provider: provider,
+		sdk:      s,
+		pending:  stream.NewPendingEventQueue(maxPending),
 	}
 }
 
@@ -67,7 +81,7 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			if err := s.sdk.Err(); err != nil {
 				s.mu.Unlock()
-				return lipapi.Event{}, fmt.Errorf("openrouter: recv chat stream: %w", err)
+				return lipapi.Event{}, fmt.Errorf("%s: recv chat stream: %w", s.provider, err)
 			}
 			if s.terminalEmitted {
 				s.mu.Unlock()
@@ -116,6 +130,18 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 			}
 		}
 
+		if reasoning := ReasoningTextFromChunkDelta(d); reasoning != "" {
+			if !s.sawMsg {
+				s.sawMsg = true
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
+			}
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: reasoning}); err != nil {
+				return err
+			}
+		}
+
 		if len(d.ToolCalls) > 0 {
 			if !s.sawMsg {
 				s.sawMsg = true
@@ -139,9 +165,26 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 					}); err != nil {
 						return err
 					}
+					for _, args := range s.pendingToolArgs[tc.Index] {
+						if err := s.pending.Push(lipapi.Event{
+							Kind:       lipapi.EventToolCallArgsDelta,
+							ToolCallID: tc.ID,
+							Delta:      args,
+						}); err != nil {
+							return err
+						}
+					}
+					delete(s.pendingToolArgs, tc.Index)
 				}
 				if tc.Function.Arguments != "" {
 					id := s.activeTools[tc.Index]
+					if id == "" {
+						if s.pendingToolArgs == nil {
+							s.pendingToolArgs = make(map[int64][]string)
+						}
+						s.pendingToolArgs[tc.Index] = append(s.pendingToolArgs[tc.Index], tc.Function.Arguments)
+						continue
+					}
 					if err := s.pending.Push(lipapi.Event{
 						Kind:       lipapi.EventToolCallArgsDelta,
 						ToolCallID: id,
@@ -177,6 +220,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 				}
 			}
 			s.activeTools = nil
+			s.pendingToolArgs = nil
 			s.activeToolOrder = nil
 		}
 	}
@@ -189,24 +233,13 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 			CacheReadTokens: safecast.IntFromInt64Clamp(ch.Usage.PromptTokensDetails.CachedTokens),
 			ReasoningTokens: safecast.IntFromInt64Clamp(ch.Usage.CompletionTokensDetails.ReasoningTokens),
 			TotalTokens:     safecast.IntFromInt64Clamp(ch.Usage.TotalTokens),
-			RawUsageJSON:    rawChatUsageJSON(ch.Usage.RawJSON(), ch.Usage),
+			RawUsageJSON:    RawChatUsageJSON(ch.Usage.RawJSON(), ch.Usage),
 		}
 		if err := s.pending.Push(ev); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func rawChatUsageJSON(raw string, usage any) string {
-	if raw != "" {
-		return raw
-	}
-	b, err := json.Marshal(usage)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
 
 func (s *chatStream) Close() error {

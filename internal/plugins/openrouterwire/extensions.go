@@ -111,6 +111,74 @@ func CaptureHeaders(h http.Header, ext map[string]json.RawMessage) {
 	set("X-OpenRouter-Metadata", ExtMetadataHeader)
 }
 
+// ExtraBodyExtPrefix is the extension key prefix used by OpenAI-compatible frontend adapters
+// to pass NVIDIA-specific extra body fields through the canonical call.
+const ExtraBodyExtPrefix = "nvidia.extra_body."
+
+const (
+	// MaxExtraBodyFields bounds provider-specific passthrough fields captured from one request body.
+	MaxExtraBodyFields = 32
+	// MaxExtraBodyFieldNameBytes bounds one provider-specific passthrough field name.
+	MaxExtraBodyFieldNameBytes = 64
+	// MaxExtraBodyFieldValueBytes bounds one provider-specific passthrough field value.
+	MaxExtraBodyFieldValueBytes = 16 << 10
+)
+
+// CaptureExtraBodyFields stores unrecognized top-level JSON body fields as extensions
+// under the ExtraBodyExtPrefix prefix. Fields present in knownKeys or in the
+// OpenRouter bodyFieldPassthrough table are skipped. Null and empty values are skipped.
+func CaptureExtraBodyFields(body map[string]json.RawMessage, ext map[string]json.RawMessage, knownKeys map[string]bool) {
+	if ext == nil {
+		return
+	}
+	captured := 0
+	for key, raw := range body {
+		if captured >= MaxExtraBodyFields {
+			return
+		}
+		if knownKeys[key] {
+			continue
+		}
+		if isPassthroughField(key) {
+			continue
+		}
+		if !ValidExtraBodyFieldName(key) || !ExtraBodyValueWithinBounds(raw) {
+			continue
+		}
+		ext[ExtraBodyExtPrefix+key] = raw
+		captured++
+	}
+}
+
+// ValidExtraBodyFieldName reports whether name is safe to pass to SDK JSON-set helpers as one top-level key.
+func ValidExtraBodyFieldName(name string) bool {
+	if name == "" || len(name) > MaxExtraBodyFieldNameBytes {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || i > 0 && c >= '0' && c <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// ExtraBodyValueWithinBounds reports whether raw is non-empty, non-null, and bounded for passthrough.
+func ExtraBodyValueWithinBounds(raw json.RawMessage) bool {
+	return len(raw) > 0 && len(raw) <= MaxExtraBodyFieldValueBytes && !bytes.Equal(raw, rawJSONNull)
+}
+
+func isPassthroughField(key string) bool {
+	for _, f := range bodyFieldPassthrough {
+		if f.jsonKey == key {
+			return true
+		}
+	}
+	return false
+}
+
 // GetString reads a JSON-quoted string from ext[key] or returns "".
 func GetString(ext map[string]json.RawMessage, key string) string {
 	raw, ok := ext[key]

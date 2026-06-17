@@ -91,6 +91,9 @@ type Executor struct {
 	MaxPendingWireEvents int
 	// StreamRecovery controls opt-in mitigation of upstream streams that end without response_finished.
 	StreamRecovery streamrecovery.Config
+	// TransportFallbackPolicy controls operation+transport matching before backend open.
+	// Zero defaults to compatibility and preserves legacy behavior for undeclared transport caps.
+	TransportFallbackPolicy lipapi.TransportFallbackPolicy
 	// AccountingPriceCatalog estimates cost for usage deltas when providers do not report cost.
 	AccountingPriceCatalog accounting.PriceCatalog
 	// Preflight evaluates token-accounting admission checks before backend attempts.
@@ -157,6 +160,22 @@ func (e *Executor) capsForAttempt(
 		return e.CapsResolver.DescribeCandidate(ctx, c, attempt)
 	}
 	return execbackend.EffectiveCaps(ctx, be, attempt, c)
+}
+
+func (e *Executor) transportCapsForAttempt(
+	ctx context.Context,
+	be execbackend.Backend,
+	attempt lipapi.Call,
+	c routing.AttemptCandidate,
+) lipapi.BackendTransportCaps {
+	return execbackend.EffectiveTransportCaps(ctx, be, attempt, c)
+}
+
+func (e *Executor) effectiveTransportFallbackPolicy() lipapi.TransportFallbackPolicy {
+	if e == nil || e.TransportFallbackPolicy == "" {
+		return lipapi.TransportFallbackCompatibility
+	}
+	return e.TransportFallbackPolicy
 }
 
 // Execute runs submit hooks, resolves the A-leg, plans routes, negotiates per attempt,
@@ -241,6 +260,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)
 	}
 	var lastReject lipapi.NegotiationResult
+	var lastTransportReject lipapi.TransportNegotiationResult
 	var contextLimitExhaustion bool
 	var lastParallelFailure error
 	rng := e.rng()
@@ -267,6 +287,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			ttft:                &ttft,
 			isRetryPath:         false,
 			lastReject:          &lastReject,
+			lastTransportReject: &lastTransportReject,
 			lastParallelFailure: &lastParallelFailure,
 			affinityKey:         affinityKey,
 			affinitySet:         affinityKeyOK,

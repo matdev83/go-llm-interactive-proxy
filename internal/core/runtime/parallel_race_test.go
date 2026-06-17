@@ -264,18 +264,18 @@ func TestParallelRace_HandicapSchedulingStartsHighFirst(t *testing.T) {
 func TestParallelRace_HandicapShortCircuitOnEarlyWinner(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	var opens int32
+	var opens atomic.Int32
 	fastBackend := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			atomic.AddInt32(&opens, 1)
+			opens.Add(1)
 			return lipapi.NewFixedEventStream(completionEvents("fast")), nil
 		},
 	}
 	slowBackend := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			atomic.AddInt32(&opens, 1)
+			opens.Add(1)
 			return lipapi.NewFixedEventStream(completionEvents("slow")), nil
 		},
 	}
@@ -299,16 +299,16 @@ func TestParallelRace_HandicapShortCircuitOnEarlyWinner(t *testing.T) {
 	if col.Text.String() != "fast" {
 		t.Fatalf("text: %q want fast", col.Text.String())
 	}
-	if atomic.LoadInt32(&opens) != 1 {
-		t.Fatalf("expected only 1 open (fast winner short-circuits), got %d", opens)
+	if opens.Load() != 1 {
+		t.Fatalf("expected only 1 open (fast winner short-circuits), got %d", opens.Load())
 	}
 }
 
 func TestParallelRace_MaxAttemptsBoundsParallelOpensDeterministically(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	var opensA int32
-	var opensB int32
+	var opensA atomic.Int32
+	var opensB atomic.Int32
 	ex := &runtime.Executor{
 		Store:       st,
 		Bus:         hooks.New(hooks.Config{}),
@@ -317,14 +317,14 @@ func TestParallelRace_MaxAttemptsBoundsParallelOpensDeterministically(t *testing
 			"a": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opensA, 1)
+					opensA.Add(1)
 					return lipapi.NewFixedEventStream(completionEvents("a")), nil
 				},
 			},
 			"b": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opensB, 1)
+					opensB.Add(1)
 					return lipapi.NewFixedEventStream(completionEvents("b")), nil
 				},
 			},
@@ -342,29 +342,29 @@ func TestParallelRace_MaxAttemptsBoundsParallelOpensDeterministically(t *testing
 	if got := col.Text.String(); got != "a" {
 		t.Fatalf("winner text: %q want a", got)
 	}
-	if atomic.LoadInt32(&opensA) != 1 {
-		t.Fatalf("backend a opens: got %d want 1", atomic.LoadInt32(&opensA))
+	if opensA.Load() != 1 {
+		t.Fatalf("backend a opens: got %d want 1", opensA.Load())
 	}
-	if atomic.LoadInt32(&opensB) != 0 {
-		t.Fatalf("backend b opens: got %d want 0", atomic.LoadInt32(&opensB))
+	if opensB.Load() != 0 {
+		t.Fatalf("backend b opens: got %d want 0", opensB.Load())
 	}
 }
 
 func TestParallelRace_HandicapFastForwardOnTerminalFailure(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	var opens int32
+	var opens atomic.Int32
 	failBackend := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			atomic.AddInt32(&opens, 1)
+			opens.Add(1)
 			return nil, errors.New("terminal failure")
 		},
 	}
 	okBackend := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			atomic.AddInt32(&opens, 1)
+			opens.Add(1)
 			return lipapi.NewFixedEventStream(completionEvents("ok")), nil
 		},
 	}
@@ -434,7 +434,7 @@ func TestParallelRace_TTFTTimeoutActuallyKillsLeg(t *testing.T) {
 		},
 		Rand: routing.NewSeededRng(1),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	s, err := ex.Execute(ctx, parallelCall("[ttft_timeout=1]stuck:model!ok:model"))
 	if err != nil {
@@ -493,14 +493,14 @@ func TestParallelRace_KeepaliveEmittedWhileWaiting(t *testing.T) {
 func TestParallelRace_CancelLosersBeforeClose(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	var cancelCalled int32
-	var loserOpened int32
+	var cancelCalled atomic.Int32
+	var loserOpened atomic.Int32
 	loserOpenedCh := make(chan struct{}, 8)
 	cancelNotified := make(chan struct{}, 8)
 	cancelableBackend := execbackend.Backend{
 		Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			atomic.AddInt32(&loserOpened, 1)
+			loserOpened.Add(1)
 			select {
 			case loserOpenedCh <- struct{}{}:
 			default:
@@ -509,7 +509,7 @@ func TestParallelRace_CancelLosersBeforeClose(t *testing.T) {
 				events: completionEvents("loser"),
 				ctx:    ctx,
 				onCancel: func() {
-					atomic.AddInt32(&cancelCalled, 1)
+					cancelCalled.Add(1)
 					select {
 					case cancelNotified <- struct{}{}:
 					default:
@@ -542,29 +542,87 @@ func TestParallelRace_CancelLosersBeforeClose(t *testing.T) {
 		},
 		Rand: routing.NewSeededRng(1),
 	}
-	s, err := ex.Execute(context.Background(), parallelCall("winner:model!loser1:model!loser2:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("winner:model!loser1:model!loser2:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if col.Text.String() != "winner" {
 		t.Fatalf("text: %q want winner", col.Text.String())
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		select {
 		case <-cancelNotified:
 		case <-time.After(2 * time.Second):
 			t.Fatalf("expected loser cancel notification %d/2", i+1)
 		}
 	}
-	if atomic.LoadInt32(&loserOpened) < 2 {
-		t.Fatalf("expected both loser legs opened, got %d", atomic.LoadInt32(&loserOpened))
+	if loserOpened.Load() < 2 {
+		t.Fatalf("expected both loser legs opened, got %d", loserOpened.Load())
 	}
-	if atomic.LoadInt32(&cancelCalled) < 2 {
-		t.Fatalf("expected Cancel on both losers, got %d", atomic.LoadInt32(&cancelCalled))
+	if cancelCalled.Load() < 2 {
+		t.Fatalf("expected Cancel on both losers, got %d", cancelCalled.Load())
+	}
+}
+
+func TestParallelRace_CloseWhileRecvBlockedIsRaceSafe(t *testing.T) {
+	t.Parallel()
+	st := parallelStore(t)
+	releaseTail := make(chan struct{})
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Backends: map[string]execbackend.Backend{
+			"winner": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					return &blockingTailStream{
+						events: []lipapi.Event{
+							{Kind: lipapi.EventResponseStarted},
+							{Kind: lipapi.EventMessageStarted},
+							{Kind: lipapi.EventTextDelta, Delta: "winner"},
+							{Kind: lipapi.EventResponseFinished},
+						},
+						releaseTail: releaseTail,
+					}, nil
+				},
+			},
+			"loser": delayedBackend(2*time.Second, completionEvents("loser")),
+		},
+		Rand: routing.NewSeededRng(1),
+	}
+	s, err := ex.Execute(t.Context(), parallelCall("winner:model!loser:model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Recv(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Recv(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if ev, err := s.Recv(t.Context()); err != nil || ev.Kind != lipapi.EventTextDelta {
+		t.Fatalf("winner text event = %+v, %v", ev, err)
+	}
+	recvDone := make(chan error, 1)
+	go func() {
+		_, err := s.Recv(t.Context())
+		recvDone <- err
+	}()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseTail)
+	select {
+	case err := <-recvDone:
+		if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "a-leg canceled") {
+			t.Fatalf("blocked recv returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("blocked recv did not finish")
 	}
 }
 
@@ -600,6 +658,34 @@ func (c *cancelTrackingStream) Cancel(_ context.Context, _ lipapi.CancelCause) l
 }
 
 func (c *cancelTrackingStream) Close() error { return nil }
+
+type blockingTailStream struct {
+	events      []lipapi.Event
+	idx         int
+	releaseTail <-chan struct{}
+}
+
+func (s *blockingTailStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.idx == len(s.events)-1 {
+		select {
+		case <-s.releaseTail:
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		}
+	}
+	if s.idx >= len(s.events) {
+		return lipapi.Event{}, io.EOF
+	}
+	ev := s.events[s.idx]
+	s.idx++
+	return ev, nil
+}
+
+func (s *blockingTailStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{}
+}
+
+func (s *blockingTailStream) Close() error { return nil }
 
 func TestParallelRace_FailoverToNextArmWhenNoWinner(t *testing.T) {
 	t.Parallel()
@@ -654,7 +740,7 @@ func TestParallelRace_AllLegFailuresSurfaceJoinedError(t *testing.T) {
 func TestParallelRace_NoFailoverAfterWinnerOutputCommitted(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	var fallbackOpens int32
+	var fallbackOpens atomic.Int32
 	fallbackOpenedCh := make(chan struct{}, 8)
 	ex := &runtime.Executor{
 		Store: st,
@@ -665,7 +751,7 @@ func TestParallelRace_NoFailoverAfterWinnerOutputCommitted(t *testing.T) {
 			"fallback": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&fallbackOpens, 1)
+					fallbackOpens.Add(1)
 					select {
 					case fallbackOpenedCh <- struct{}{}:
 					default:
@@ -692,8 +778,8 @@ func TestParallelRace_NoFailoverAfterWinnerOutputCommitted(t *testing.T) {
 		t.Fatal("unexpected failover backend open after winner output committed")
 	case <-time.After(300 * time.Millisecond):
 	}
-	if atomic.LoadInt32(&fallbackOpens) != 0 {
-		t.Fatalf("fallback backend opened %d times; want 0", atomic.LoadInt32(&fallbackOpens))
+	if fallbackOpens.Load() != 0 {
+		t.Fatalf("fallback backend opened %d times; want 0", fallbackOpens.Load())
 	}
 }
 
@@ -774,7 +860,7 @@ func TestParallelRace_FailoverArmsAreNotFlattenedIntoSingleRace(t *testing.T) {
 func TestParallelRace_RecordsLoserAttemptLineage(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	var loserOpened int32
+	var loserOpened atomic.Int32
 	openGate := make(chan struct{})
 	ex := &runtime.Executor{
 		Store: st,
@@ -790,7 +876,7 @@ func TestParallelRace_RecordsLoserAttemptLineage(t *testing.T) {
 			"loser": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&loserOpened, 1)
+					loserOpened.Add(1)
 					return &cancelTrackingStream{
 						events: completionEvents("loser"),
 						delay:  2 * time.Second,
@@ -802,7 +888,7 @@ func TestParallelRace_RecordsLoserAttemptLineage(t *testing.T) {
 	}
 	go func() {
 		for {
-			if atomic.LoadInt32(&loserOpened) > 0 {
+			if loserOpened.Load() > 0 {
 				close(openGate)
 				return
 			}

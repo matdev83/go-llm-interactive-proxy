@@ -290,6 +290,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Log:                     log,
 		MaxPendingWireEvents:    cfg.Server.MaxPendingWireEvents,
 		StreamRecovery:          streamRecovery,
+		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
 	}
 	if tokenAccounting != nil {
 		exec.Preflight = tokenAccounting.Preflight

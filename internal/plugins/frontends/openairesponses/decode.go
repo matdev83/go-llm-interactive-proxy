@@ -58,6 +58,13 @@ type wireFunctionCallPart struct {
 	Arguments string `json:"arguments"`
 }
 
+var responsesKnownBodyKeys = map[string]bool{
+	"model": true, "stream": true, "input": true, "instructions": true,
+	"tools": true, "tool_choice": true, "parallel_tool_calls": true,
+	"temperature": true, "top_p": true, "max_output_tokens": true, "metadata": true,
+	"previous_response_id": true, "store": true, "truncation": true,
+}
+
 // DecodeCreateRequest maps an OpenAI Responses create JSON body into a canonical call.
 func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error) {
 	sel := strings.TrimSpace(opts.RouteSelector)
@@ -111,6 +118,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	var rawBody map[string]json.RawMessage
 	if json.Unmarshal(body, &rawBody) == nil {
 		openrouterwire.CaptureBodyFields(rawBody, ext)
+		openrouterwire.CaptureExtraBodyFields(rawBody, ext, responsesKnownBodyKeys)
 	}
 	if opts.Headers != nil {
 		openrouterwire.CaptureHeaders(opts.Headers, ext)
@@ -123,6 +131,10 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		Tools:        tools,
 		ToolChoice:   toolChoice,
 		Extensions:   ext,
+		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationOpenAIResponses,
+			DeliveryMode: lipapi.DeliveryModeFromClientStream(w.Stream),
+		},
 		Options: lipapi.GenerationOptions{
 			Temperature:       w.Temperature,
 			TopP:              w.TopP,

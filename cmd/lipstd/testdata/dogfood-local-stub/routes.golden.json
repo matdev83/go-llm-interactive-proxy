@@ -37,6 +37,11 @@
       "enabled": false
     },
     {
+      "id": "nvidia",
+      "kind": "nvidia",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "kind": "local-stub",
       "enabled": true

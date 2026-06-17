@@ -13,11 +13,15 @@ import (
 )
 
 // Backend opens a canonical event stream for one route candidate.
+// Client operation and delivery metadata are carried on [lipapi.Call].Invocation.
 type Backend struct {
 	Caps lipapi.BackendCaps
 	// ResolveCaps, when set, supplies model/candidate-aware capabilities; otherwise Caps is used.
-	ResolveCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps
-	Open        func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error)
+	ResolveCaps   func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps
+	TransportCaps lipapi.BackendTransportCaps
+	// ResolveTransportCaps, when set, supplies model/candidate-aware transport capabilities; otherwise TransportCaps is used.
+	ResolveTransportCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendTransportCaps
+	Open                 func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error)
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
@@ -45,4 +49,17 @@ func EffectiveCaps(
 		return be.ResolveCaps(ctx, call, cand)
 	}
 	return be.Caps
+}
+
+// EffectiveTransportCaps returns the transport caps used for negotiation for one backend and candidate.
+func EffectiveTransportCaps(
+	ctx context.Context,
+	be Backend,
+	call lipapi.Call,
+	cand routing.AttemptCandidate,
+) lipapi.BackendTransportCaps {
+	if be.ResolveTransportCaps != nil {
+		return be.ResolveTransportCaps(ctx, call, cand)
+	}
+	return be.TransportCaps
 }

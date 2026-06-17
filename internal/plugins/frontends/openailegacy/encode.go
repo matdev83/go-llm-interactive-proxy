@@ -88,9 +88,40 @@ type wireLegacyToolDeltaFn struct {
 }
 
 type wireUsageLegacy struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens            int                          `json:"prompt_tokens"`
+	CompletionTokens        int                          `json:"completion_tokens"`
+	TotalTokens             int                          `json:"total_tokens"`
+	PromptTokensDetails     *wirePromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *wireCompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+}
+
+type wirePromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+type wireCompletionTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+}
+
+func wireLegacyUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok int) *wireUsageLegacy {
+	if inTok == 0 && outTok == 0 && cacheReadTok == 0 && reasoningTok == 0 && totalTok == 0 {
+		return nil
+	}
+	if totalTok == 0 {
+		totalTok = inTok + outTok
+	}
+	u := &wireUsageLegacy{
+		PromptTokens:     inTok,
+		CompletionTokens: outTok,
+		TotalTokens:      totalTok,
+	}
+	if cacheReadTok > 0 {
+		u.PromptTokensDetails = &wirePromptTokensDetails{CachedTokens: cacheReadTok}
+	}
+	if reasoningTok > 0 {
+		u.CompletionTokensDetails = &wireCompletionTokensDetails{ReasoningTokens: reasoningTok}
+	}
+	return u
 }
 
 // marshalChatAssistantContent returns JSON for Chat Completions assistant message content:
@@ -186,13 +217,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 			FinishReason: &stop,
 		}},
 	}
-	if col.InputTokens > 0 || col.OutputTokens > 0 {
-		out.Usage = &wireUsageLegacy{
-			PromptTokens:     col.InputTokens,
-			CompletionTokens: col.OutputTokens,
-			TotalTokens:      col.InputTokens + col.OutputTokens,
-		}
-	}
+	out.Usage = wireLegacyUsage(col.InputTokens, col.OutputTokens, col.CacheReadTokens, col.ReasoningTokens, col.TotalTokens)
 	sessionwire.WriteResponseCarriers(w, call)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -247,7 +272,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return err
 	}
 
-	var inTok, outTok int
+	var inTok, outTok, cacheReadTok, reasoningTok, totalTok int
 	streamToolIndex := make(map[string]int)
 	nextToolStreamIndex := 0
 	sawTool := false
@@ -267,6 +292,11 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			usage := lipapi.ClientVisibleUsage(ev)
 			inTok += usage.InputTokens
 			outTok += usage.OutputTokens
+			cacheReadTok += usage.CacheReadTokens
+			reasoningTok += usage.ReasoningTokens
+			if usage.TotalTokens > 0 {
+				totalTok = usage.TotalTokens
+			}
 		case lipapi.EventTextDelta:
 			st.choices[0].FinishReason = nil
 			st.delta = wireDelta{Content: ev.Delta}
@@ -321,15 +351,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.delta = wireDelta{}
 			st.choices[0].Delta = &st.delta
 			st.choices[0].FinishReason = &stop
-			st.chunk.Usage = nil
-			if inTok > 0 || outTok > 0 {
-				u := wireUsageLegacy{
-					PromptTokens:     inTok,
-					CompletionTokens: outTok,
-					TotalTokens:      inTok + outTok,
-				}
-				st.chunk.Usage = &u
-			}
+			st.chunk.Usage = wireLegacyUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok)
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
 				return err
 			}

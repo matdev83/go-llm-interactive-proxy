@@ -317,7 +317,6 @@ func affinityTestBackends(opens map[string]int, openErrors map[string]error, ext
 	}
 	out := make(map[string]execbackend.Backend, len(opens))
 	for id := range opens {
-		id := id
 		out[id] = execbackend.Backend{
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {

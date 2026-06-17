@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
@@ -120,6 +121,14 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			HTTPClient:    httpClient,
 			SDKMaxRetries: &zero,
 		})
+	case nvidia.ID:
+		zero := 0
+		return nvidia.New(nvidia.Config{
+			BaseURL:       upstreamBaseURL,
+			APIKey:        "nvapi-test",
+			HTTPClient:    httpClient,
+			SDKMaxRetries: &zero,
+		})
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)
 		return execbackend.Backend{}
@@ -161,7 +170,7 @@ func BackendForDualCredential(tb testing.TB, backendID, upstreamBaseURL string, 
 			APIKeys:    []string{"fake-key", "fake-key-pool2"},
 			HTTPClient: httpClient,
 		})
-	case bedrock.ID, acp.ID, openrouter.ID:
+	case bedrock.ID, acp.ID, openrouter.ID, nvidia.ID:
 		return BackendFor(tb, backendID, upstreamBaseURL, httpClient)
 	default:
 		tb.Fatalf("unknown backend id %q", backendID)

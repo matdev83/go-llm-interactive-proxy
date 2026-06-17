@@ -38,18 +38,16 @@ func TestStoreRoundTripDeleteAndCancel(t *testing.T) {
 }
 
 func TestStoreConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	s := New()
 	const n = 64
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range n {
+		wg.Go(func() {
 			key := affinity.Key{Scope: affinity.ScopeClient, ID: fmt.Sprintf("u-%d", i%8)}
 			_ = s.Set(context.Background(), affinity.Binding{Key: key, BackendID: fmt.Sprintf("be-%d", i), CandidateKey: "k"})
 			_, _, _ = s.Get(context.Background(), key)
-		}()
+		})
 	}
 	wg.Wait()
 }

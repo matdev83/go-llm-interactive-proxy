@@ -49,7 +49,7 @@ func (s *retryRecvStream) popGateDrainHead() (lipapi.Event, bool) {
 
 func (s *retryRecvStream) emitGateDrained(ctx context.Context, ev lipapi.Event) lipapi.Event {
 	if lipapi.OutputCommitted(ev) {
-		s.committed = true
+		s.markCommitted()
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
@@ -58,7 +58,7 @@ func (s *retryRecvStream) emitGateDrained(ctx context.Context, ev lipapi.Event) 
 			Cand:    s.cand,
 			Outcome: lipapi.AttemptSuccess,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-		s.finished = true
+		s.markFinished()
 	}
 	return ev
 }
@@ -113,9 +113,10 @@ func (s *retryRecvStream) completionGatedEmit(
 		if s.executor != nil {
 			stageLog = s.executor.Log
 		}
-		committedForPanic := s.committed || gateBufHasCommittedOutput(s.gateBuf)
+		committed := s.isCommitted()
+		committedForPanic := committed || gateBufHasCommittedOutput(s.gateBuf)
 		out, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() ([]lipapi.Event, error) {
-			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, s.committed, svc, stageLog)
+			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, committed, svc, stageLog)
 		})
 		if err != nil {
 			var pe *safety.PanicError

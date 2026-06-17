@@ -7,13 +7,13 @@ help:
 	@echo "Targets:"
 	@echo "  make quality-checks  - gofmt, go mod tidy (no drift), go build, go vet, guard scripts, archtest; mod verify in CI or with LIP_VERIFY_MODULE_CACHE=1"
 	@echo "  make regex-hotpath-check - forbid regexp.MustCompile in frontends/runtime (see scripts/)"
-	@echo "  make test            - quality-checks then full unit tests"
+	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
-	@echo "  make parity-checks   - conformance package tests only (-tags=integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
+	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag, frontend encoders)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln (local)"
@@ -35,7 +35,7 @@ else
 	@bash scripts/regex-hotpath-check.sh
 endif
 
-test: quality-checks test-unit
+test: quality-checks test-unit parity-checks
 
 test-fast: quality-checks
 ifeq ($(OS),Windows_NT)
@@ -92,7 +92,7 @@ test-fuzz:
 	$(GO) test -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
 
 parity-checks:
-	$(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/testkit/conformance/...
+	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
 
 release-gates:
 	$(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/testkit/conformance/...

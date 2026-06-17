@@ -15,7 +15,7 @@ func clearNumberedEnv(t *testing.T, prefix string) {
 
 func clearAllProviderEnv(t *testing.T) {
 	t.Helper()
-	for _, prefix := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"} {
+	for _, prefix := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_API_KEY"} {
 		t.Setenv(prefix, "")
 		clearNumberedEnv(t, prefix)
 	}
@@ -122,6 +122,53 @@ func TestResolveUpstreamAPIKeysFromEnv_openRouterGapStops(t *testing.T) {
 	want := []string{"or-1"}
 	if !reflect.DeepEqual(got.OpenRouter, want) {
 		t.Fatalf("OpenRouter keys: %#v want %#v (gap at _2 stops scan)", got.OpenRouter, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_nvidiaBaseKey(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("NVIDIA_API_KEY", "nvapi-key")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"nvapi-key"}
+	if !reflect.DeepEqual(got.Nvidia, want) {
+		t.Fatalf("Nvidia keys: %#v want %#v", got.Nvidia, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_nvidiaNumberedFrom1(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("NVIDIA_API_KEY", "")
+	t.Setenv("NVIDIA_API_KEY_1", "nv-1")
+	t.Setenv("NVIDIA_API_KEY_2", "nv-2")
+	t.Setenv("NVIDIA_API_KEY_3", "nv-3")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"nv-1", "nv-2", "nv-3"}
+	if !reflect.DeepEqual(got.Nvidia, want) {
+		t.Fatalf("Nvidia keys: %#v want %#v", got.Nvidia, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_nvidiaBaseAnd1Deduplicated(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("NVIDIA_API_KEY", "nv-base")
+	t.Setenv("NVIDIA_API_KEY_1", "nv-base")
+	t.Setenv("NVIDIA_API_KEY_2", "nv-2")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"nv-base", "nv-2"}
+	if !reflect.DeepEqual(got.Nvidia, want) {
+		t.Fatalf("Nvidia keys: %#v want %#v (should deduplicate base and _1)", got.Nvidia, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_nvidiaGapStops(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("NVIDIA_API_KEY_1", "nv-1")
+	t.Setenv("NVIDIA_API_KEY_2", "")
+	t.Setenv("NVIDIA_API_KEY_3", "nv-3")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"nv-1"}
+	if !reflect.DeepEqual(got.Nvidia, want) {
+		t.Fatalf("Nvidia keys: %#v want %#v (gap at _2 stops scan)", got.Nvidia, want)
 	}
 }
 

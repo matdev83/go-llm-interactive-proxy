@@ -602,8 +602,8 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 	}
 	_, _ = lipapi.Collect(context.Background(), stream)
 	dec := buf.Bytes()
-	if !bytes.Contains(dec, []byte(`"msg":"backend_stream_opened"`)) {
-		t.Fatalf("log missing backend_stream_opened: %s", string(dec))
+	if !bytes.Contains(dec, []byte(`"msg":"backend_attempt_opened"`)) {
+		t.Fatalf("log missing backend_attempt_opened: %s", string(dec))
 	}
 	var found bool
 	for line := range bytes.SplitSeq(dec, []byte("\n")) {
@@ -614,13 +614,13 @@ func TestExecutor_decisionLog_backendOpened(t *testing.T) {
 		if err := json.Unmarshal(line, &m); err != nil {
 			continue
 		}
-		if m["msg"] == "backend_stream_opened" && m["trace_id"] != nil && m["a_leg_id"] != nil {
+		if m["msg"] == "backend_attempt_opened" && m["trace_id"] != nil && m["a_leg_id"] != nil {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("no structured backend_stream_opened with trace: %s", string(dec))
+		t.Fatalf("no structured backend_attempt_opened with trace: %s", string(dec))
 	}
 }
 

@@ -33,6 +33,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"bedrock",
 		"gemini",
 		"local-stub",
+		"nvidia",
 		"openai-legacy",
 		"openai-responses",
 		"openrouter",

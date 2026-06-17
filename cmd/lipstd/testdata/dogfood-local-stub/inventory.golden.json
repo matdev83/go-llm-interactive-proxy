@@ -58,6 +58,11 @@
       "enabled": false
     },
     {
+      "id": "nvidia",
+      "factory_kind": "nvidia",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "factory_kind": "local-stub",
       "enabled": true

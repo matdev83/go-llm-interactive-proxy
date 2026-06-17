@@ -28,7 +28,7 @@ func TestStandardBundle_buildsPreRequestPolicyHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n yaml.Node
-	if err := yaml.Unmarshal([]byte(fmt.Sprintf(`
+	if err := yaml.Unmarshal(fmt.Appendf(nil, `
 prompt_dir: %q
 handlers:
   - id: compliance
@@ -36,7 +36,7 @@ handlers:
     prompt_filename: policy.md
     model_routing_string: local:policy
     deny_pattern: DENY
-`, dir)), &n); err != nil {
+`, dir), &n); err != nil {
 		t.Fatal(err)
 	}
 	reg := testRegistryWithStdBundle(t)

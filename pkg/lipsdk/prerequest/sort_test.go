@@ -9,6 +9,7 @@ import (
 )
 
 func TestMaterializeSorted(t *testing.T) {
+	t.Parallel()
 	in := []prerequest.Handler{
 		sortHandler{id: "b", order: 10},
 		sortHandler{id: "a", order: 10},

@@ -11,6 +11,14 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	backendsDir := filepath.Join(root, "internal", "plugins", "backends")
+	lifecycleDelegatedToSharedAdapter := map[string]string{
+		"openrouter": "openaicompat",
+		"nvidia":     "openaicompat",
+	}
+	skipDirs := map[string]struct{}{
+		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},
+		"openaicompat": {},
+	}
 	entries, err := os.ReadDir(backendsDir)
 	if err != nil {
 		t.Fatalf("read backends: %v", err)
@@ -20,18 +28,22 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 			continue
 		}
 		id := entry.Name()
-		if id == "credpool" || id == "openaicaps" || id == "openaicred" || id == "streampeek" || id == "checkcfg" {
+		if _, skip := skipDirs[id]; skip {
 			continue
 		}
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
-			path := filepath.Join(backendsDir, id, "lifecycle_contract_test.go")
+			lifecycleDir := id
+			if delegate, ok := lifecycleDelegatedToSharedAdapter[id]; ok {
+				lifecycleDir = delegate
+			}
+			path := filepath.Join(backendsDir, lifecycleDir, "lifecycle_contract_test.go")
 			b, err := os.ReadFile(path)
 			if err != nil {
-				t.Fatalf("official backend %q must have lifecycle_contract_test.go asserting leglifecycle.BLegAttempt: %v", id, err)
+				t.Fatalf("official backend %q must have lifecycle_contract_test.go asserting leglifecycle.BLegAttempt (dir %q): %v", id, lifecycleDir, err)
 			}
 			if !strings.Contains(string(b), "leglifecycle.BLegAttempt") {
-				t.Fatalf("official backend %q lifecycle contract test must assert leglifecycle.BLegAttempt", id)
+				t.Fatalf("official backend %q lifecycle contract test must assert leglifecycle.BLegAttempt (dir %q)", id, lifecycleDir)
 			}
 		})
 	}

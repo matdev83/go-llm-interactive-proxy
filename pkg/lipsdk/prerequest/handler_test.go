@@ -14,6 +14,7 @@ import (
 )
 
 func TestDecisionAllowAndDeny(t *testing.T) {
+	t.Parallel()
 	if !prerequest.Allow().Allowed() {
 		t.Fatal("Allow must be allowed")
 	}
@@ -27,6 +28,7 @@ func TestDecisionAllowAndDeny(t *testing.T) {
 }
 
 func TestRejectErrorWrapsRoot(t *testing.T) {
+	t.Parallel()
 	err := prerequest.NewRejectError("policy-a", "blocked")
 	if !errors.Is(err, prerequest.ErrRejected) {
 		t.Fatalf("errors.Is ErrRejected = false for %v", err)
@@ -41,6 +43,7 @@ func TestRejectErrorWrapsRoot(t *testing.T) {
 }
 
 func TestHandlerInterfaceCompileContract(t *testing.T) {
+	t.Parallel()
 	var _ prerequest.Handler = handlerFunc{}
 	meta := prerequest.Meta{
 		TraceID:        "trace",

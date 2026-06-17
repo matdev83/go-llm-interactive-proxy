@@ -33,6 +33,8 @@ Stage four (extension platform) adds the **legal extension pipeline**, brownfiel
 | Extension runtime grouped facade and narrow seams (`RequestRuntimeSnapshot`, `CompletionGatesFromContext`, `TrafficPortBundle`; hexagonal task 5.1) | [`internal/core/extensions/doc.go`](../internal/core/extensions/doc.go), [`internal/core/extensions/facade_contract_test.go`](../internal/core/extensions/facade_contract_test.go) |
 | Official feature plugins (`./internal/plugins/features/...`) must not depend on `internal/core` (SDK-only feature code; hexagonal task 5.3) | [`internal/archtest/extension_platform_boundaries_test.go`](../internal/archtest/extension_platform_boundaries_test.go) (`TestOfficialFeaturePluginsDoNotDependOnInternalCore`) |
 | Diagnostics query seam for attempt reads (`diag.AttemptLoader` + `lipapi.AttemptRecord`; hexagonal task 5.4) | [`internal/core/diag/doc.go`](../internal/core/diag/doc.go), [`internal/core/diag/attempts.go`](../internal/core/diag/attempts.go), [`internal/core/diag/attempts_test.go`](../internal/core/diag/attempts_test.go) (`TestAttemptsHandler_fakeAttemptLoaderJSON`) |
+| Vendor SDK import closure for full `internal/core/...` (not only `runtime`) | [`internal/archtest/openaicompat_boundaries_test.go`](../internal/archtest/openaicompat_boundaries_test.go) (`TestInternalCoreDoesNotDependOnVendorSDKs`) |
+| Shared OpenAI-compatible backend adapter (`openaicompat`) must not import concrete providers; `openrouter` / `nvidia` compose it | same (`TestOpenaiCompatSharedAdapterDoesNotImportConcreteProviders`, `TestConcreteOpenAICompatProvidersImportSharedAdapter`) |
 
 Circuit breaker behavior (what counts as failure, recovery) is documented in [`routing-health-circuit-breaker.md`](routing-health-circuit-breaker.md).
 

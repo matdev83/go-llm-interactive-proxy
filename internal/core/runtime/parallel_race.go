@@ -1,13 +1,15 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -66,8 +68,8 @@ func (e *Executor) tryOpenParallelGroup(
 			startDelay: maxHandicap - c.Handicap,
 		}
 	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].startDelay < entries[j].startDelay
+	slices.SortStableFunc(entries, func(a, b legEntry) int {
+		return cmp.Compare(a.startDelay, b.startDelay)
 	})
 
 	if p.budget != nil {
@@ -110,12 +112,8 @@ func (e *Executor) tryOpenParallelGroup(
 		legs[i] = parallelLeg{cand: entry.cand, delay: entry.startDelay}
 	}
 
-	for i := range entries {
-		entry := entries[i]
-		idx := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for idx, entry := range entries {
+		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					_ = safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
@@ -144,6 +142,7 @@ func (e *Executor) tryOpenParallelGroup(
 			legParams := p
 			legParams.excluded = map[string]struct{}{}
 			legParams.lastReject = nil
+			legParams.lastTransportReject = nil
 			legParams.isContextLimitExhaustion = nil
 			// Parallel legs reserve attempt-budget slots before launch to avoid racy over-open.
 			legParams.budget = nil
@@ -266,7 +265,7 @@ func (e *Executor) tryOpenParallelGroup(
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	go func() {
@@ -405,7 +404,6 @@ func (e *Executor) tryOpenParallelGroup(
 		stream: &parallelBridgeStream{
 			winner:           &legs[winner],
 			buf:              winnerBuf,
-			bufIdx:           0,
 			ctx:              ctx,
 			losersDone:       losersDone,
 			loserCleanupWait: cancelLosersTimeout,
@@ -470,41 +468,42 @@ type parallelBridgeStream struct {
 	buf              []lipapi.Event
 	bufIdx           int
 	ctx              context.Context
-	finished         bool
+	finished         atomic.Bool
 	losersDone       <-chan error
 	loserCleanupWait time.Duration
 }
 
 func (s *parallelBridgeStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	if s.finished {
+	if s.finished.Load() {
 		return lipapi.Event{}, io.EOF
 	}
-	if s.bufIdx < len(s.buf) {
-		ev := s.buf[s.bufIdx]
+	idx := s.bufIdx
+	if idx < len(s.buf) {
+		ev := s.buf[idx]
 		s.bufIdx++
 		if ev.Kind == lipapi.EventResponseFinished {
-			s.finished = true
+			s.finished.Store(true)
 		}
 		return ev, nil
 	}
 	if s.winner.stream == nil {
-		s.finished = true
+		s.finished.Store(true)
 		return lipapi.Event{}, io.EOF
 	}
 	ev, err := s.winner.stream.Recv(ctx)
 	if err != nil {
-		s.finished = true
+		s.finished.Store(true)
 		return lipapi.Event{}, err
 	}
 	if ev.Kind == lipapi.EventResponseFinished {
-		s.finished = true
+		s.finished.Store(true)
 	}
 	return ev, nil
 }
 
 func (s *parallelBridgeStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	if s.winner != nil && s.winner.stream != nil {
-		s.finished = true
+		s.finished.Store(true)
 		return s.winner.stream.Cancel(ctx, cause)
 	}
 	return lipapi.CancelResult{}

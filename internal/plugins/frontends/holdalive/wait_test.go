@@ -19,9 +19,11 @@ func (w *recordingWriter) Header() http.Header { return http.Header{} }
 func (w *recordingWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
+
 func (w *recordingWriter) WriteHeader(statusCode int) {
 	w.statuses = append(w.statuses, statusCode)
 }
+
 func (w *recordingWriter) Flush() {
 	w.flushed++
 }
