@@ -49,6 +49,15 @@ type wireCreate struct {
 	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
+var legacyKnownBodyKeys = map[string]bool{
+	"model": true, "stream": true, "messages": true, "tools": true,
+	"tool_choice": true, "temperature": true, "top_p": true, "max_tokens": true,
+	"parallel_tool_calls": true, "stream_options": true, "metadata": true,
+	"max_completion_tokens": true, "n": true, "stop": true, "presence_penalty": true,
+	"frequency_penalty": true, "logit_bias": true, "logprobs": true, "top_logprobs": true,
+	"seed": true, "suffix": true,
+}
+
 // DecodeChatRequest maps a Chat Completions JSON body into a canonical call.
 func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 	sel := strings.TrimSpace(opts.RouteSelector)
@@ -104,6 +113,7 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 	var rawBody map[string]json.RawMessage
 	if json.Unmarshal(body, &rawBody) == nil {
 		openrouterwire.CaptureBodyFields(rawBody, ext)
+		openrouterwire.CaptureExtraBodyFields(rawBody, ext, legacyKnownBodyKeys)
 	}
 	if opts.Headers != nil {
 		openrouterwire.CaptureHeaders(opts.Headers, ext)
@@ -115,6 +125,10 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 		Tools:      tools,
 		ToolChoice: toolChoice,
 		Extensions: ext,
+		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationOpenAIChatCompletions,
+			DeliveryMode: lipapi.DeliveryModeFromClientStream(w.Stream),
+		},
 		Options: lipapi.GenerationOptions{
 			Temperature:       w.Temperature,
 			TopP:              w.TopP,

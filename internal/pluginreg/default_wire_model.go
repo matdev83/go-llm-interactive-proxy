@@ -23,6 +23,8 @@ func DefaultWireModel(backendID string) string {
 		return "agent"
 	case "openrouter":
 		return "openai/gpt-4o-mini"
+	case "nvidia":
+		return "nvidia/llama-3.1-nemotron-nano-8b-v1"
 	default:
 		return "model"
 	}

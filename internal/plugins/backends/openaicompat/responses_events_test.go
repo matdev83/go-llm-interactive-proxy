@@ -1,4 +1,4 @@
-package openrouter
+package openaicompat
 
 import (
 	"encoding/json"
@@ -7,57 +7,20 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 )
 
-func TestHandleChunk_toolCallsStreamingFromJSON(t *testing.T) {
+func TestResponsesStreamFinishOnEOF_afterResponseStarted(t *testing.T) {
 	t.Parallel()
-	chunks := []string{
-		`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_ab","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}`,
-		`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\""}}]},"finish_reason":null}]}`,
-		`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}`,
-		`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
-	}
+	s := newUnitResponsesStream()
+	s.sawResp = true
 
-	s := &chatStream{pending: stream.NewPendingEventQueue(0)}
-	for i, raw := range chunks {
-		t.Run("chunk_"+string(rune('0'+i)), func(t *testing.T) {
-			var ch openai.ChatCompletionChunk
-			if err := json.Unmarshal([]byte(raw), &ch); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.handleChunk(ch); err != nil {
-				t.Fatal(err)
-			}
-		})
+	if err := s.finishOnEOF(); err != nil {
+		t.Fatal(err)
 	}
-
-	var args strings.Builder
-	sawStarted := false
-	sawFinished := false
-	for _, ev := range stream.DrainPending(&s.pending) {
-		switch ev.Kind {
-		case lipapi.EventToolCallStarted:
-			if ev.ToolCallID == "call_ab" && ev.ToolName == "get_weather" {
-				sawStarted = true
-			}
-		case lipapi.EventToolCallArgsDelta:
-			args.WriteString(ev.Delta)
-		case lipapi.EventToolCallFinished:
-			if ev.ToolCallID == "call_ab" {
-				sawFinished = true
-			}
-		}
-	}
-	if !sawStarted {
-		t.Fatal("expected ToolCallStarted for call_ab")
-	}
-	if !sawFinished {
-		t.Fatal("expected ToolCallFinished for call_ab")
-	}
-	if got := args.String(); got != `{"city":"NYC"}` {
-		t.Fatalf("concat args: %q", got)
+	events := stream.DrainPending(&s.pending)
+	if len(events) != 1 || events[0].Kind != lipapi.EventResponseFinished {
+		t.Fatalf("events = %+v", events)
 	}
 }
 
@@ -137,6 +100,37 @@ func TestHandleUnion_toolCallStream_mapsToolEvents(t *testing.T) {
 	}
 }
 
+func TestHandleUnion_outputItemDone_emitsCompleteToolCall(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+
+	raw := `{"type":"response.output_item.done","sequence_number":1,"output_index":0,"item":{"type":"function_call","id":"fc_done","call_id":"call_fc_done","status":"completed","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}}`
+	var u responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleUnion(u); err != nil {
+		t.Fatal(err)
+	}
+
+	kinds := eventKinds(stream.DrainPending(&s.pending))
+	want := []lipapi.EventKind{
+		lipapi.EventResponseStarted,
+		lipapi.EventMessageStarted,
+		lipapi.EventToolCallStarted,
+		lipapi.EventToolCallArgsDelta,
+		lipapi.EventToolCallFinished,
+	}
+	if len(kinds) != len(want) {
+		t.Fatalf("events = %v", kinds)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Fatalf("event[%d] = %v, want %v", i, kinds[i], want[i])
+		}
+	}
+}
+
 func TestHandleUnion_completed_emitsAssistantMedia(t *testing.T) {
 	t.Parallel()
 	raw := `{
@@ -196,11 +190,61 @@ func TestHandleUnion_completed_emitsAssistantMedia(t *testing.T) {
 	}
 }
 
-func newUnitResponsesStream() *responsesStream {
-	return &responsesStream{
-		pending:           stream.NewPendingEventQueue(0),
-		toolCallStarted:   map[string]bool{},
-		toolCallArgDeltas: map[string]bool{},
-		toolCallFinished:  map[string]bool{},
+func TestResponseEvents_textAndUsage(t *testing.T) {
+	t.Parallel()
+	raw := `{
+  "id": "resp_ns",
+  "object": "response",
+  "created_at": 1715620000,
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_out",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {"type": "output_text", "text": "hello"}
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 2,
+    "total_tokens": 3,
+    "output_tokens_details": {"reasoning_tokens": 4}
+  }
+}`
+	var resp responses.Response
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := ResponseEvents(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := eventKinds(events)
+	want := []lipapi.EventKind{
+		lipapi.EventResponseStarted,
+		lipapi.EventMessageStarted,
+		lipapi.EventTextDelta,
+		lipapi.EventUsageDelta,
+		lipapi.EventResponseFinished,
+	}
+	if len(kinds) != len(want) {
+		t.Fatalf("events = %v", kinds)
+	}
+	for i := range want {
+		if kinds[i] != want[i] {
+			t.Fatalf("event[%d] = %v, want %v", i, kinds[i], want[i])
+		}
+	}
+	if events[2].Delta != "hello" {
+		t.Fatalf("text delta = %q", events[2].Delta)
+	}
+	if events[3].ReasoningTokens != 4 || events[3].TotalTokens != 3 {
+		t.Fatalf("usage event: %+v", events[3])
 	}
 }

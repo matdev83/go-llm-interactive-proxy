@@ -42,8 +42,33 @@ type wireResponse struct {
 }
 
 type wireUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens         int                      `json:"input_tokens"`
+	OutputTokens        int                      `json:"output_tokens"`
+	TotalTokens         int                      `json:"total_tokens,omitempty"`
+	InputTokensDetails  *wireInputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *wireOutputTokensDetails `json:"output_tokens_details,omitempty"`
+}
+
+type wireInputTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+type wireOutputTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+}
+
+func wireResponsesUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok int) *wireUsage {
+	if inTok == 0 && outTok == 0 && cacheReadTok == 0 && reasoningTok == 0 && totalTok == 0 {
+		return nil
+	}
+	u := &wireUsage{InputTokens: inTok, OutputTokens: outTok, TotalTokens: totalTok}
+	if cacheReadTok > 0 {
+		u.InputTokensDetails = &wireInputTokensDetails{CachedTokens: cacheReadTok}
+	}
+	if reasoningTok > 0 {
+		u.OutputTokensDetails = &wireOutputTokensDetails{ReasoningTokens: reasoningTok}
+	}
+	return u
 }
 
 func fcItemID(callID string) string {
@@ -150,7 +175,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var seq int
 	nextSeq := func() int { seq++; return seq }
 
-	var inTok, outTok int
+	var inTok, outTok, cacheReadTok, reasoningTok, totalTok int
 	var fullText strings.Builder
 	var assistantMedia []lipapi.Part
 
@@ -258,6 +283,11 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			usage := lipapi.ClientVisibleUsage(ev)
 			inTok += usage.InputTokens
 			outTok += usage.OutputTokens
+			cacheReadTok += usage.CacheReadTokens
+			reasoningTok += usage.ReasoningTokens
+			if usage.TotalTokens > 0 {
+				totalTok = usage.TotalTokens
+			}
 		case lipapi.EventTextDelta:
 			fullText.WriteString(ev.Delta)
 			if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{
@@ -399,12 +429,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			completed.Response.Status = "completed"
 			completed.Response.Model = model
 			completed.Response.Output = out
-			if inTok > 0 || outTok > 0 {
-				completed.Response.Usage = &wireUsage{
-					InputTokens:  inTok,
-					OutputTokens: outTok,
-				}
-			}
+			completed.Response.Usage = wireResponsesUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok)
 			if err := flushSSE(w, fl, "response.completed", completed); err != nil {
 				return err
 			}
@@ -469,11 +494,6 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		Model:     model,
 		Output:    out,
 	}
-	if col.InputTokens > 0 || col.OutputTokens > 0 {
-		resp.Usage = &wireUsage{
-			InputTokens:  col.InputTokens,
-			OutputTokens: col.OutputTokens,
-		}
-	}
+	resp.Usage = wireResponsesUsage(col.InputTokens, col.OutputTokens, col.CacheReadTokens, col.ReasoningTokens, col.TotalTokens)
 	return resp, nil
 }

@@ -1,4 +1,4 @@
-package openrouter
+package openaicompat
 
 import "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 

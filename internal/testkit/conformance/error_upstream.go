@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 )
@@ -25,7 +26,7 @@ func NewUpstream400Server(tb testing.TB, backendID string) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		switch backendID {
-		case openairesponses.ID, openailegacy.ID:
+		case openairesponses.ID, openailegacy.ID, nvidia.ID:
 			_, _ = w.Write([]byte(`{"error":{"message":"bad","type":"invalid_request_error","param":"","code":"invalid_request_error"}}`))
 		case anthropic.ID:
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`))

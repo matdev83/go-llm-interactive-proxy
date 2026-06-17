@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
@@ -169,6 +170,9 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendOpenRouter(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendNvidia(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendLocalStub(n, upstream)

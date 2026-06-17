@@ -1,6 +1,7 @@
 package pluginreg
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
@@ -83,10 +85,7 @@ func backendOpenAIResponses(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: %w", err)
 	}
-	base := strings.TrimSpace(y.BaseURL)
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
 	cfg := openairesponses.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
@@ -100,10 +99,7 @@ func backendOpenAILegacy(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (exe
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: %w", err)
 	}
-	base := strings.TrimSpace(y.BaseURL)
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
 	cfg := openailegacy.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
@@ -117,10 +113,7 @@ func backendAnthropic(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execba
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("anthropic backend config: %w", err)
 	}
-	base := strings.TrimSpace(y.BaseURL)
-	if base == "" {
-		base = "https://api.anthropic.com"
-	}
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.anthropic.com")
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Anthropic)
 	cfg := anthropic.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
@@ -134,10 +127,7 @@ func backendGemini(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbacke
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("gemini backend config: %w", err)
 	}
-	base := strings.TrimSpace(y.BaseURL)
-	if base == "" {
-		base = "https://generativelanguage.googleapis.com"
-	}
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://generativelanguage.googleapis.com")
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Gemini)
 	cfg := gemini.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
 	if len(ek) > 0 {
@@ -184,6 +174,20 @@ func backendACP(n yaml.Node, upstream *http.Client) (execbackend.Backend, error)
 	}), nil
 }
 
+func backendNvidia(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+	var y openAIStyleYAML
+	if err := config.DecodeYAMLNode(n, &y); err != nil {
+		return execbackend.Backend{}, fmt.Errorf("nvidia backend config: %w", err)
+	}
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://integrate.api.nvidia.com/v1")
+	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Nvidia)
+	cfg := nvidia.Config{BaseURL: base, APIKeys: ek, Credentials: hostedCredentials(y.Credentials)}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return nvidia.New(cfg), nil
+}
+
 type openRouterBackendYAML struct {
 	BaseURL       string                 `yaml:"base_url"`
 	APIKey        string                 `yaml:"api_key"`
@@ -198,10 +202,7 @@ func backendOpenRouter(n yaml.Node, _ *http.Client, keys UpstreamAPIKeys) (execb
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openrouter backend config: %w", err)
 	}
-	base := strings.TrimSpace(y.BaseURL)
-	if base == "" {
-		base = "https://openrouter.ai/api/v1"
-	}
+	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://openrouter.ai/api/v1")
 	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenRouter)
 	cfg := openrouter.Config{
 		BaseURL:       base,

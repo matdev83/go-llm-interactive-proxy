@@ -1,3 +1,5 @@
+//go:build integration
+
 package openrouter_test
 
 import (
@@ -49,6 +51,305 @@ func drainStream(t *testing.T, es lipapi.ManagedEventStream) []lipapi.Event {
 	}
 	_ = es.Close()
 	return events
+}
+
+func TestIntegration_chatCompletionsNonStream(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var capturedBody string
+
+	srv := newRefServer(t, refbackend.Config{
+		OnRequestBody: func(b []byte) {
+			mu.Lock()
+			capturedBody = string(b)
+			mu.Unlock()
+		},
+	})
+
+	call := testCall(nil)
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: intPtr(0),
+	})
+
+	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := drainStream(t, es)
+
+	hasText := false
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventTextDelta && strings.Contains(ev.Delta, "or-ok") {
+			hasText = true
+		}
+	}
+	if !hasText {
+		t.Fatal("expected text delta with 'or-ok'")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Contains(capturedBody, `"stream":true`) {
+		t.Fatalf("non-streaming must not set stream:true, body=%s", capturedBody)
+	}
+}
+
+func TestIntegration_chatCompletionsStreamingTransportMode(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var capturedBody string
+
+	srv := newRefServer(t, refbackend.Config{
+		OnRequestBody: func(b []byte) {
+			mu.Lock()
+			capturedBody = string(b)
+			mu.Unlock()
+		},
+	})
+
+	call := testCall(nil)
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeStreaming,
+		TransportMode: lipapi.TransportModeStreaming,
+	}
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: intPtr(0),
+	})
+
+	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := drainStream(t, es)
+
+	hasText := false
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventTextDelta && strings.Contains(ev.Delta, "or-stream-ok") {
+			hasText = true
+		}
+	}
+	if !hasText {
+		t.Fatal("expected text delta with 'or-stream-ok'")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(capturedBody, `"stream":true`) {
+		t.Fatalf("streaming must set stream:true, body=%s", capturedBody)
+	}
+}
+
+func TestIntegration_chatNonStreamUsage(t *testing.T) {
+	t.Parallel()
+	srv := newRefServer(t, refbackend.Config{
+		ChatNonStreamJSON: `{
+  "id": "gen-or-refbackend-usage",
+  "object": "chat.completion",
+  "created": 1715620000,
+  "model": "openai/gpt-4o-mini",
+  "choices": [{"index":0,"message":{"role":"assistant","content":"or-ok"},"finish_reason":"stop"}],
+  "usage": {
+    "prompt_tokens": 3,
+    "completion_tokens": 7,
+    "total_tokens": 10,
+    "completion_tokens_details": {"reasoning_tokens": 5},
+    "cost": 0.00014
+  }
+}`,
+	})
+
+	call := testCall(nil)
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: intPtr(0),
+	})
+
+	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := drainStream(t, es)
+
+	var usage lipapi.Event
+	found := false
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			usage = ev
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected usage delta event")
+	}
+	if usage.ReasoningTokens != 5 {
+		t.Fatalf("ReasoningTokens = %d, want 5", usage.ReasoningTokens)
+	}
+	if usage.TotalTokens != 10 {
+		t.Fatalf("TotalTokens = %d, want 10", usage.TotalTokens)
+	}
+	if usage.RawUsageJSON == "" {
+		t.Fatal("expected RawUsageJSON")
+	}
+	if !strings.Contains(usage.RawUsageJSON, "reasoning_tokens") {
+		t.Fatalf("RawUsageJSON missing reasoning_tokens: %s", usage.RawUsageJSON)
+	}
+}
+
+func TestIntegration_transportCaps_chatCompletionsBothModes(t *testing.T) {
+	t.Parallel()
+	be := openrouter.New(openrouter.Config{BaseURL: "https://openrouter.ai/api/v1", APIKey: "sk-test"})
+	caps := be.TransportCaps
+	if !caps.Supports(lipapi.OperationOpenAIChatCompletions, lipapi.TransportModeStreaming) {
+		t.Fatal("expected chat completions streaming support")
+	}
+	if !caps.Supports(lipapi.OperationOpenAIChatCompletions, lipapi.TransportModeNonStreaming) {
+		t.Fatal("expected chat completions non-streaming support")
+	}
+	if !caps.Supports(lipapi.OperationOpenAIResponses, lipapi.TransportModeStreaming) {
+		t.Fatal("expected responses streaming support")
+	}
+	if !caps.Supports(lipapi.OperationOpenAIResponses, lipapi.TransportModeNonStreaming) {
+		t.Fatal("expected responses non-streaming support")
+	}
+}
+
+func responsesTestCall(ext map[string]json.RawMessage) lipapi.Call {
+	if ext == nil {
+		ext = map[string]json.RawMessage{
+			openrouterwire.ExtUpstreamFlavor: json.RawMessage(`"responses"`),
+		}
+	}
+	call := testCall(ext)
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIResponses,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	return call
+}
+
+func TestIntegration_responsesNonStream(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var capturedBody string
+
+	srv := newRefServer(t, refbackend.Config{
+		OnRequestBody: func(b []byte) {
+			mu.Lock()
+			capturedBody = string(b)
+			mu.Unlock()
+		},
+	})
+
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: intPtr(0),
+	})
+
+	es, err := be.Open(context.Background(), responsesTestCall(nil), testCandidate("openai/gpt-4o-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := drainStream(t, es)
+
+	hasText := false
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventTextDelta && strings.Contains(ev.Delta, "or-ok") {
+			hasText = true
+		}
+	}
+	if !hasText {
+		t.Fatal("expected text delta with 'or-ok'")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Contains(capturedBody, `"stream":true`) {
+		t.Fatalf("non-streaming must not set stream:true, body=%s", capturedBody)
+	}
+}
+
+func TestIntegration_responsesNonStreamUsage(t *testing.T) {
+	t.Parallel()
+	srv := newRefServer(t, refbackend.Config{
+		ResponsesNonStreamJSON: `{
+  "id": "resp_or_refbackend_usage",
+  "object": "response",
+  "created_at": 1715620000,
+  "status": "completed",
+  "model": "openai/gpt-4o-mini",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_out",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {"type": "output_text", "text": "or-ok"}
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 3,
+    "output_tokens": 7,
+    "total_tokens": 10,
+    "output_tokens_details": {"reasoning_tokens": 5}
+  }
+}`,
+	})
+
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: intPtr(0),
+	})
+
+	es, err := be.Open(context.Background(), responsesTestCall(nil), testCandidate("openai/gpt-4o-mini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := drainStream(t, es)
+
+	var usage lipapi.Event
+	found := false
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			usage = ev
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected usage delta event")
+	}
+	if usage.ReasoningTokens != 5 {
+		t.Fatalf("ReasoningTokens = %d, want 5", usage.ReasoningTokens)
+	}
+	if usage.TotalTokens != 10 {
+		t.Fatalf("TotalTokens = %d, want 10", usage.TotalTokens)
+	}
+	if usage.RawUsageJSON == "" {
+		t.Fatal("expected RawUsageJSON")
+	}
+	if !strings.Contains(usage.RawUsageJSON, "reasoning_tokens") {
+		t.Fatalf("RawUsageJSON missing reasoning_tokens: %s", usage.RawUsageJSON)
+	}
 }
 
 func TestIntegration_chatCompletionsStream(t *testing.T) {

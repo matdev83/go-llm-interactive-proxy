@@ -60,6 +60,9 @@ plugins:
     - id: openrouter
       enabled: false
       config: {}
+    - id: nvidia
+      enabled: false
+      config: {}
     - kind: local-stub
       id: dogfood-local
       enabled: true

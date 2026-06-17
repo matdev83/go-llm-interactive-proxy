@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
@@ -59,14 +60,15 @@ type retryRecvStream struct {
 	rng         routing.Rng
 
 	lastHardReject           lipapi.NegotiationResult
+	lastHardTransportReject  lipapi.TransportNegotiationResult
 	isContextLimitExhaustion bool
 
 	innerMu            sync.Mutex
 	inner              lipapi.ManagedEventStream
 	bleg               b2bua.BLegRecord
 	cand               routing.AttemptCandidate
-	committed          bool
-	finished           bool
+	committed          atomic.Bool
+	finished           atomic.Bool
 	endOnce            sync.Once
 	affinityKey        affinity.Key
 	affinitySet        bool
@@ -118,6 +120,26 @@ func (s *retryRecvStream) now() time.Time {
 		return s.executor.now()
 	}
 	return time.Now()
+}
+
+func (s *retryRecvStream) isFinished() bool {
+	return s != nil && s.finished.Load()
+}
+
+func (s *retryRecvStream) markFinished() {
+	if s != nil {
+		s.finished.Store(true)
+	}
+}
+
+func (s *retryRecvStream) isCommitted() bool {
+	return s != nil && s.committed.Load()
+}
+
+func (s *retryRecvStream) markCommitted() {
+	if s != nil {
+		s.committed.Store(true)
+	}
 }
 
 // takeAndNilInner clears s.inner and returns the previous value; the caller should Close it when non-nil.
@@ -242,7 +264,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if ctx == nil {
 		return lipapi.Event{}, lipapi.ErrNilContext
 	}
-	if s.finished {
+	if s.isFinished() {
 		return lipapi.Event{}, io.EOF
 	}
 	if len(s.recoverDrain) > 0 {
@@ -258,7 +280,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		if ev.Kind == lipapi.EventResponseFinished {
-			s.finished = true
+			s.markFinished()
 			s.finishALegScope()
 		}
 		return ev, nil
@@ -300,7 +322,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		recvCtx := ctx
 		var cancelRecv context.CancelFunc = func() {}
 		ttftDeadline := ttftContextDeadline{}
-		if !s.committed && s.ttft != nil {
+		if !s.isCommitted() && s.ttft != nil {
 			recvCtx, cancelRecv, ttftDeadline = s.ttft.scopedContext(ctx, s.now(), s.cand.Key, s.cand.Primary.TTFTTimeout)
 		}
 		recvCtx, cancelRecv, idleDeadline := s.scopedIdleContext(recvCtx, cancelRecv, s.now())
@@ -311,7 +333,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if err != nil {
 			var pe *safety.PanicError
 			if errors.As(err, &pe) {
-				err = mapStreamPanic(pe, s.committed)
+				err = mapStreamPanic(pe, s.isCommitted())
 			}
 		}
 		if err != nil && s.aScope != nil {
@@ -326,7 +348,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				_ = s.takeAndNilInner()
 				s.persistCancellationBilling(ctx, "a-leg canceled")
-				s.finished = true
+				s.markFinished()
 				s.finishALegScope()
 				return lipapi.Event{}, scopeErr
 			}
@@ -416,7 +438,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					Cand:    s.cand,
 					Outcome: lipapi.AttemptSuccess,
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-				s.finished = true
+				s.markFinished()
 				s.finishALegScope()
 			} else {
 				s.rememberClientEvent(ev)
@@ -459,13 +481,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					ev := s.recoverDrain[0]
 					s.recoverDrain = s.recoverDrain[1:]
 					if ev.Kind == lipapi.EventResponseFinished {
-						s.finished = true
+						s.markFinished()
 						s.finishALegScope()
 					}
 					return ev, nil
 				}
 			}
-			if !s.finished {
+			if !s.isFinished() {
 				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 					ALegID:    s.aLegID,
 					BLeg:      s.bleg,
@@ -475,7 +497,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					DetailErr: io.EOF,
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			}
-			s.finished = true
+			s.markFinished()
 			s.finishALegScope()
 			return lipapi.Event{}, io.EOF
 		}
@@ -500,7 +522,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				ev := s.recoverDrain[0]
 				s.recoverDrain = s.recoverDrain[1:]
 				if ev.Kind == lipapi.EventResponseFinished {
-					s.finished = true
+					s.markFinished()
 					s.finishALegScope()
 				}
 				return ev, nil
@@ -521,7 +543,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				continue
 			}
 		}
-		if ttftDeadline.expired(recvCtx, err) && !s.committed {
+		if ttftDeadline.expired(recvCtx, err) && !s.isCommitted() {
 			ttftScope := ttftDeadline.scope
 			if ttftScope == ttftTimeoutLeaf {
 				tf := ttftFailure(ttftScope, s.cand.Key)
@@ -561,7 +583,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					)
 				}
 			}
-			s.finished = true
+			s.markFinished()
 			s.finishALegScope()
 			return lipapi.Event{}, lipapi.ErrTTFTTimeout
 		}
@@ -589,13 +611,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 			}
 			s.persistCancellationBilling(ctx, reason)
-			s.finished = true
+			s.markFinished()
 			s.finishALegScope()
 			return lipapi.Event{}, err
 		}
-		if s.committed || !lipapi.IsRecoverablePreOutput(err) {
+		if s.isCommitted() || !lipapi.IsRecoverablePreOutput(err) {
 			surfErr := err
-			if s.committed && lipapi.IsRecoverablePreOutput(err) {
+			if s.isCommitted() && lipapi.IsRecoverablePreOutput(err) {
 				surfErr = &lipapi.UpstreamFailure{
 					Phase:        lipapi.PhasePostOutput,
 					Recoverable:  false,
@@ -652,7 +674,7 @@ func (s *retryRecvStream) commitAffinityIfOutput(ctx context.Context, ev lipapi.
 
 func (s *retryRecvStream) markOutputCommitted(ev lipapi.Event) {
 	if lipapi.OutputCommitted(ev) {
-		s.committed = true
+		s.markCommitted()
 		if s.ttft != nil {
 			s.ttft.markCommitted()
 		}
@@ -870,7 +892,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if s.committed && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+	if s.isCommitted() && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 		return false, &lipapi.UpstreamFailure{
 			Phase:        lipapi.PhasePostOutput,
 			Recoverable:  false,
@@ -899,6 +921,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		ttft:                     s.ttft,
 		isRetryPath:              true,
 		lastReject:               &s.lastHardReject,
+		lastTransportReject:      &s.lastHardTransportReject,
 		affinityKey:              s.affinityKey,
 		affinitySet:              s.affinitySet,
 		isContextLimitExhaustion: &s.isContextLimitExhaustion,
@@ -939,7 +962,7 @@ func (s *retryRecvStream) Close() error {
 		s.finishALegScope()
 		return nil
 	}
-	if !s.finished {
+	if !s.isFinished() {
 		if s.aScope != nil {
 			_ = s.aScope.Cancel(context.Background(), leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 			s.finishALegScope()

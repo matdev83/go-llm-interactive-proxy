@@ -37,6 +37,25 @@ func TestNewBundle_executorSink(t *testing.T) {
 	}
 	sink.OnAttemptRecorded(lipapi.AttemptSuccess, "bedrock")
 	sink.OnBackendOpenDuration("bedrock", 0.42)
+	sink.OnTransportNegotiation(lipapi.OperationOpenAIChatCompletions, lipapi.TransportModeStreaming, "accept")
+	mfs, err := b.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dump strings.Builder
+	for _, mf := range mfs {
+		dump.WriteString(mf.String())
+	}
+	for _, want := range []string{
+		"lip_executor_transport_negotiations_total",
+		"openai.chat_completions",
+		"streaming",
+		"accept",
+	} {
+		if !strings.Contains(dump.String(), want) {
+			t.Fatalf("metrics missing %q:\n%s", want, dump.String())
+		}
+	}
 }
 
 func TestTokenAccountingPromRecordsBoundedObservations(t *testing.T) {

@@ -30,21 +30,22 @@ import (
 )
 
 type attemptOpenParams struct {
-	ctx         context.Context
-	bus         *hooks.Bus
-	traceID     string
-	aLegID      string
-	aScope      *leglifecycle.ALeg
-	baseline    lipapi.Call
-	sel         *routing.Selector
-	requestSize routing.RequestSizeEstimate
-	session     *routing.SessionRoutingState
-	excluded    map[string]struct{}
-	rng         routing.Rng
-	budget      *attemptBudget
-	ttft        *ttftBudget
-	isRetryPath bool
-	lastReject  *lipapi.NegotiationResult
+	ctx                 context.Context
+	bus                 *hooks.Bus
+	traceID             string
+	aLegID              string
+	aScope              *leglifecycle.ALeg
+	baseline            lipapi.Call
+	sel                 *routing.Selector
+	requestSize         routing.RequestSizeEstimate
+	session             *routing.SessionRoutingState
+	excluded            map[string]struct{}
+	rng                 routing.Rng
+	budget              *attemptBudget
+	ttft                *ttftBudget
+	isRetryPath         bool
+	lastReject          *lipapi.NegotiationResult
+	lastTransportReject *lipapi.TransportNegotiationResult
 	// lastParallelFailure carries aggregated parallel-arm failure details across failover iterations
 	// so an eventual ErrNoEligibleCandidate can surface contextual root causes.
 	lastParallelFailure *error
@@ -100,6 +101,10 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			return zero, *p.lastParallelFailure
 		}
 		lastNegotiationReject := p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject
+		lastTransportReject := p.lastTransportReject != nil && p.lastTransportReject.Kind == lipapi.NegotiationReject
+		if noEligible && lastTransportReject {
+			return zero, p.lastTransportReject.Err()
+		}
 		if noEligible && lastNegotiationReject {
 			return zero, p.lastReject.Err()
 		}
@@ -189,6 +194,49 @@ func (e *Executor) openPlannedCandidate(
 	if p.lastReject != nil {
 		*p.lastReject = lipapi.NegotiationResult{}
 	}
+	transportCtx, transportSpan := otel.Tracer(otelScopeExecutor).Start(p.ctx, "lip.executor.transport_negotiate",
+		trace.WithAttributes(
+			attribute.String("lip.backend", c.Primary.Backend),
+			attribute.String("lip.operation", string(attempt.Invocation.Operation)),
+			attribute.String("lip.client_delivery_mode", string(attempt.Invocation.DeliveryMode)),
+		),
+	)
+	defer transportSpan.End()
+	transportCaps := e.transportCapsForAttempt(transportCtx, be, attempt, c)
+	transportRes := lipapi.NegotiateTransport(attempt.Invocation, transportCaps, e.effectiveTransportFallbackPolicy())
+	transportMode := transportRes.Selected
+	if transportMode == "" {
+		transportMode = transportRes.Mode
+	}
+	transportSpan.SetAttributes(
+		attribute.String("lip.transport_mode", string(transportMode)),
+		attribute.String("lip.transport_negotiation_kind", string(transportRes.Kind)),
+	)
+	if transportRes.Kind == lipapi.NegotiationReject {
+		transportSpan.RecordError(transportRes.Err())
+		transportSpan.SetStatus(codes.Error, "transport negotiation rejected")
+		e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Mode, "reject")
+		if stickyBinding && c.Primary.Backend == stickyBackendID {
+			e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "transport_reject")
+		}
+		if p.lastTransportReject != nil {
+			*p.lastTransportReject = transportRes
+		}
+		diag.LogDecision(p.ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
+			slog.String("decision", "exclude_candidate"),
+			slog.String("candidate_key", c.Key),
+			slog.String("backend", c.Primary.Backend),
+		)
+		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
+		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+		p.excluded[c.Key] = struct{}{}
+		return zero, nil
+	}
+	e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Selected, "accept")
+	if p.lastTransportReject != nil {
+		*p.lastTransportReject = lipapi.TransportNegotiationResult{}
+	}
+	attempt.Invocation.TransportMode = transportRes.Selected
 	if res.Kind == lipapi.NegotiationDowngrade {
 		diag.LogDecision(p.ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
@@ -376,10 +424,14 @@ func (e *Executor) openPlannedCandidate(
 			}
 		}
 	}
-	diag.LogDecision(p.ctx, e.Log, "backend_stream_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
+	diag.LogDecision(p.ctx, e.Log, "backend_attempt_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 		slog.String("candidate_key", c.Key),
 		slog.String("backend", c.Primary.Backend),
 		slog.String("model", c.Primary.Model),
+		slog.String("operation", string(openCall.Invocation.Operation)),
+		slog.String("client_delivery_mode", string(openCall.Invocation.DeliveryMode)),
+		slog.String("upstream_transport_mode", string(openCall.Invocation.TransportMode)),
+		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
 	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c}, nil
 }

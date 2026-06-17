@@ -21,7 +21,7 @@ func (s *retryRecvStream) beforeEmitClientFacing(ctx context.Context, ev lipapi.
 	in := buildStreamEventRecordInput(s, ev)
 	err := s.executor.SecureSessionRecorder.RecordPostHookStreamEvent(ctx, in)
 	if err != nil {
-		committed := s.committed || lipapi.OutputCommitted(ev)
+		committed := s.isCommitted() || lipapi.OutputCommitted(ev)
 		if s.executor != nil && s.executor.SecureSessionMetrics != nil {
 			s.executor.SecureSessionMetrics.ObserveRecorderStreamEventFailed(committed, s.executor.SecureSessionRecordingMandatory)
 		}

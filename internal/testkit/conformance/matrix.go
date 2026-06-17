@@ -24,6 +24,7 @@ func BundledBackendIDs() []string {
 		"bedrock",
 		"acp",
 		"openrouter",
+		"nvidia",
 	}
 }
 

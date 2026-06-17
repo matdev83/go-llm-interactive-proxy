@@ -80,6 +80,40 @@ func TestDecodeChat_textStream(t *testing.T) {
 	}
 }
 
+func TestDecodeChat_invocationMetadata_nonStream(t *testing.T) {
+	t.Parallel()
+	body := readGolden(t, "create_text_nonstream.json")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.Operation != lipapi.OperationOpenAIChatCompletions {
+		t.Fatalf("operation = %q, want %q", d.Call.Invocation.Operation, lipapi.OperationOpenAIChatCompletions)
+	}
+	if d.Call.Invocation.DeliveryMode != lipapi.DeliveryModeNonStreaming {
+		t.Fatalf("delivery mode = %q, want %q", d.Call.Invocation.DeliveryMode, lipapi.DeliveryModeNonStreaming)
+	}
+}
+
+func TestDecodeChat_invocationMetadata_stream(t *testing.T) {
+	t.Parallel()
+	body := readGolden(t, "create_text_stream.json")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.Operation != lipapi.OperationOpenAIChatCompletions {
+		t.Fatalf("operation = %q, want %q", d.Call.Invocation.Operation, lipapi.OperationOpenAIChatCompletions)
+	}
+	if d.Call.Invocation.DeliveryMode != lipapi.DeliveryModeStreaming {
+		t.Fatalf("delivery mode = %q, want %q", d.Call.Invocation.DeliveryMode, lipapi.DeliveryModeStreaming)
+	}
+}
+
 func TestDecodeChat_multimodal(t *testing.T) {
 	t.Parallel()
 	body := readGolden(t, "create_multimodal_nonstream.json")
@@ -482,5 +516,28 @@ func TestDecodeChat_openRouterHeadersPassthrough(t *testing.T) {
 	}
 	if openrouterwire.GetString(ext, openrouterwire.ExtCategories) != "ai" {
 		t.Errorf("categories: %s", ext[openrouterwire.ExtCategories])
+	}
+}
+
+func TestDecodeChat_extraBodyFieldsCaptured(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"nvidia/test","messages":[{"role":"user","content":"hi"}],"chat_template_kwargs":{"enable_thinking":true},"custom_number":42}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "nvidia:nvidia/test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ext := d.Call.Extensions
+	ctk := ext[openrouterwire.ExtraBodyExtPrefix+"chat_template_kwargs"]
+	if string(ctk) != `{"enable_thinking":true}` {
+		t.Errorf("chat_template_kwargs: got %s", ctk)
+	}
+	cn := ext[openrouterwire.ExtraBodyExtPrefix+"custom_number"]
+	if string(cn) != `42` {
+		t.Errorf("custom_number: got %s", cn)
+	}
+	if _, ok := ext[openrouterwire.ExtraBodyExtPrefix+"model"]; ok {
+		t.Error("known field 'model' should not be captured as extra_body")
 	}
 }

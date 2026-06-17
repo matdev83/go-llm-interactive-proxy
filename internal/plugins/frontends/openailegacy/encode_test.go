@@ -2,7 +2,6 @@ package openailegacy_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -34,7 +33,7 @@ func TestWriteNonStreamJSON_matchesGolden(t *testing.T) {
 		CompletionID: "chatcmpl_encode_golden",
 		CreatedAt:    1715620000,
 	}
-	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, opts); err != nil {
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, opts); err != nil {
 		t.Fatal(err)
 	}
 	if rec.Code != 200 {
@@ -58,7 +57,7 @@ func TestWriteNonStreamJSONUsesClientVisibleScopedUsage(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
-	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{}); err != nil {
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, openailegacy.EncodeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +95,7 @@ func TestWriteNonStreamJSON_defaultsAreDeterministic(t *testing.T) {
 		Extensions: mustModelExt(t, "gpt-4o-mini"),
 	}
 	rec := httptest.NewRecorder()
-	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{}); err != nil {
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, openailegacy.EncodeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	var v struct {
@@ -146,7 +145,7 @@ func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	opts := openailegacy.EncodeOptions{CompletionID: "chatcmpl_usage_ns", CreatedAt: 1715620000}
-	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, opts); err != nil {
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, opts); err != nil {
 		t.Fatal(err)
 	}
 	var v struct {
@@ -161,6 +160,46 @@ func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 	}
 	if v.Usage == nil || v.Usage.Prompt != 4 || v.Usage.Completion != 1 || v.Usage.Total != 5 {
 		t.Fatalf("usage %+v", v.Usage)
+	}
+}
+
+func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, CacheReadTokens: 7, ReasoningTokens: 3},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
+	rec := httptest.NewRecorder()
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, openailegacy.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Usage *struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			TotalTokens         int `json:"total_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+			CompletionTokensDetails struct {
+				ReasoningTokens int `json:"reasoning_tokens"`
+			} `json:"completion_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Usage == nil {
+		t.Fatal("usage is nil")
+	}
+	if v.Usage.PromptTokens != 0 || v.Usage.CompletionTokens != 0 || v.Usage.TotalTokens != 0 {
+		t.Fatalf("top-level usage = %+v, want zero counters", *v.Usage)
+	}
+	if v.Usage.PromptTokensDetails.CachedTokens != 7 || v.Usage.CompletionTokensDetails.ReasoningTokens != 3 {
+		t.Fatalf("usage details = %+v", *v.Usage)
 	}
 }
 
@@ -203,7 +242,7 @@ func TestWriteStreamSSE_roleContentDone(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	opts := openailegacy.EncodeOptions{CompletionID: "chatcmpl_stream_ut", CreatedAt: 1715620000}
-	if err := openailegacy.WriteStreamSSE(context.Background(), rec, call, es, opts); err != nil {
+	if err := openailegacy.WriteStreamSSE(t.Context(), rec, call, es, opts); err != nil {
 		t.Fatal(err)
 	}
 	s := rec.Body.String()
@@ -239,7 +278,7 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	opts := openailegacy.EncodeOptions{CompletionID: "chatcmpl_stream_incr", CreatedAt: 1715620000}
-	if err := openailegacy.WriteStreamSSE(context.Background(), rec, call, es, opts); err != nil {
+	if err := openailegacy.WriteStreamSSE(t.Context(), rec, call, es, opts); err != nil {
 		t.Fatal(err)
 	}
 	frames := testkit.ParseRecorderSSE(rec)
@@ -317,7 +356,7 @@ func TestWriteNonStreamJSON_toolCalls(t *testing.T) {
 		Extensions: mustModelExt(t, "gpt-4o-mini"),
 	}
 	rec := httptest.NewRecorder()
-	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{CreatedAt: 1715620000}); err != nil {
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, openailegacy.EncodeOptions{CreatedAt: 1715620000}); err != nil {
 		t.Fatal(err)
 	}
 	var v struct {
@@ -370,7 +409,7 @@ func TestWriteStreamSSE_toolCallDelta(t *testing.T) {
 		Extensions: mustModelExt(t, "gpt-4o-mini"),
 	}
 	rec := httptest.NewRecorder()
-	if err := openailegacy.WriteStreamSSE(context.Background(), rec, call, es, openailegacy.EncodeOptions{CompletionID: "cc_tool", CreatedAt: 1715620000}); err != nil {
+	if err := openailegacy.WriteStreamSSE(t.Context(), rec, call, es, openailegacy.EncodeOptions{CompletionID: "cc_tool", CreatedAt: 1715620000}); err != nil {
 		t.Fatal(err)
 	}
 	s := rec.Body.String()
@@ -394,7 +433,7 @@ func TestWriteNonStreamJSON_assistantMediaContentArray(t *testing.T) {
 		Extensions: mustModelExt(t, "gpt-4o-mini"),
 	}
 	rec := httptest.NewRecorder()
-	if err := openailegacy.WriteNonStreamJSON(context.Background(), rec, call, es, openailegacy.EncodeOptions{CreatedAt: 1}); err != nil {
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, openailegacy.EncodeOptions{CreatedAt: 1}); err != nil {
 		t.Fatal(err)
 	}
 	var v struct {

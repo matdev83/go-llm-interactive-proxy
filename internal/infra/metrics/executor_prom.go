@@ -8,8 +8,9 @@ import (
 
 // ExecutorProm holds Prometheus collectors for executor attempt and open latency.
 type ExecutorProm struct {
-	attempts *prometheus.CounterVec
-	openDur  *prometheus.HistogramVec
+	attempts           *prometheus.CounterVec
+	openDur            *prometheus.HistogramVec
+	transportDecisions *prometheus.CounterVec
 }
 
 var openAttemptBuckets = []float64{
@@ -36,8 +37,16 @@ func RegisterExecutorProm(reg prometheus.Registerer) *ExecutorProm {
 			},
 			[]string{"backend"},
 		),
+		transportDecisions: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "executor_transport_negotiations_total",
+				Help:      "Transport negotiation decisions before backend open (bounded operation, mode, and outcome labels).",
+			},
+			[]string{"operation", "mode", "outcome"},
+		),
 	}
-	reg.MustRegister(m.attempts, m.openDur)
+	reg.MustRegister(m.attempts, m.openDur, m.transportDecisions)
 	return m
 }
 
@@ -73,4 +82,27 @@ func (s *executorPromSink) OnBackendOpenDuration(backend string, seconds float64
 		b = "unknown"
 	}
 	s.p.openDur.WithLabelValues(b).Observe(seconds)
+}
+
+func (s *executorPromSink) OnTransportNegotiation(operation lipapi.Operation, mode lipapi.TransportMode, outcome string) {
+	if s == nil || s.p == nil {
+		return
+	}
+	op := string(operation)
+	if op == "" {
+		op = "unknown"
+	}
+	m := string(mode)
+	if m == "" {
+		m = "unknown"
+	}
+	o := outcome
+	switch o {
+	case "accept", "reject":
+	case "":
+		o = "unknown"
+	default:
+		o = "other"
+	}
+	s.p.transportDecisions.WithLabelValues(op, m, o).Inc()
 }

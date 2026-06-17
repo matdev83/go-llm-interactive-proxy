@@ -17,6 +17,7 @@ type UpstreamAPIKeys struct {
 	Anthropic  []string
 	Gemini     []string
 	OpenRouter []string
+	Nvidia     []string
 }
 
 // EffectiveAPIKeys merges YAML api_key (first), then api_keys in order: trims, drops empties,
@@ -67,6 +68,7 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 		Anthropic:  collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
 		Gemini:     collectNumberedEnvKeys("GEMINI_API_KEY"),
 		OpenRouter: collectOpenRouterEnvKeys(),
+		Nvidia:     collectNvidiaEnvKeys(),
 	}
 }
 
@@ -80,6 +82,36 @@ func collectOpenRouterEnvKeys() []string {
 	}
 	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
 		name := fmt.Sprintf("OPENROUTER_API_KEY_%d", i)
+		v := strings.TrimSpace(os.Getenv(name))
+		if v == "" {
+			if i == 1 {
+				continue
+			}
+			break
+		}
+		found := false
+		for _, existing := range out {
+			if existing == v {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// collectNvidiaEnvKeys reads NVIDIA_API_KEY and numbered variants starting
+// from _1 (same 1-indexed numbering as OpenRouter per Python proxy convention).
+func collectNvidiaEnvKeys() []string {
+	out := make([]string, 0, maxNumberedAPIKeysEnv)
+	if s := strings.TrimSpace(os.Getenv("NVIDIA_API_KEY")); s != "" {
+		out = append(out, s)
+	}
+	for i := 1; i <= maxNumberedAPIKeysEnv; i++ {
+		name := fmt.Sprintf("NVIDIA_API_KEY_%d", i)
 		v := strings.TrimSpace(os.Getenv(name))
 		if v == "" {
 			if i == 1 {

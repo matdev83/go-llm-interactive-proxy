@@ -63,6 +63,7 @@ type Call struct {
 	ToolChoice   ToolChoice
 	Options      GenerationOptions
 	Extensions   map[string]json.RawMessage
+	Invocation   Invocation
 
 	// MaxPendingWireEvents caps backend adapter-internal pending event queues per stream (0 = unlimited).
 	// Not client API; the core executor sets this from server config when non-zero.

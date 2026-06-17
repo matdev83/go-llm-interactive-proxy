@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
@@ -50,6 +51,7 @@ func TestSanityTask13_BundledBackendsWiredForRefParity(t *testing.T) {
 		bedrock.ID:         {},
 		acp.ID:             {},
 		openrouter.ID:      {},
+		nvidia.ID:          {},
 	}
 	ids := BundledBackendIDs()
 	if len(ids) != len(wired) {

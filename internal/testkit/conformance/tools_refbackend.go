@@ -12,12 +12,14 @@ import (
 	refanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refbedrock "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/bedrock"
 	refgemini "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/gemini"
+	refnvidia "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/nvidia"
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 )
@@ -100,6 +102,24 @@ func NewToolRefBackend(tb testing.TB, backendID string, onBody func([]byte)) *ht
 		streamBody := bedrockToolStreamWithUsage(tb)
 		srv := httptest.NewServer(refbedrock.NewHandler(refbedrock.Config{
 			StreamEvents:  streamBody,
+			OnRequestBody: cfgBody,
+		}))
+		tb.Cleanup(srv.Close)
+		return srv
+	case nvidia.ID:
+		const nvidiaToolStreamSSE = "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_nv","type":"function","function":{"name":"get_weather"}}]},"finish_reason":null}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\""}}]},"finish_reason":null}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"NYC\"}"}}]},"finish_reason":null}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` +
+			"\n\n" + "data: " +
+			`{"id":"cc_tool","object":"chat.completion.chunk","created":1715620000,"model":"nvidia/llama-3.1-nemotron-nano-8b-v1","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10}}` +
+			"\n\n" + "data: [DONE]\n\n"
+		srv := httptest.NewServer(refnvidia.NewHandler(refnvidia.Config{
+			ChatStreamSSE: nvidiaToolStreamSSE,
 			OnRequestBody: cfgBody,
 		}))
 		tb.Cleanup(srv.Close)
