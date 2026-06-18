@@ -65,6 +65,9 @@ func Validate(cfg *Config) error {
 	if err := validateModelCatalog(cfg); err != nil {
 		return err
 	}
+	if err := validateModelInventory(cfg); err != nil {
+		return err
+	}
 	if _, err := EffectiveStreamRecoveryAutoResume(cfg, StreamRecoveryOverrides{}); err != nil {
 		return err
 	}
@@ -753,6 +756,34 @@ func validateModelCatalog(cfg *Config) error {
 		if err := posLimit("output_limit_tokens", row.OutputLimitTokens); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateModelInventory(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	mi := &cfg.ModelInventory
+	if strings.TrimSpace(mi.RefreshInterval) == "" {
+		mi.RefreshInterval = DefaultModelInventoryRefreshInterval.String()
+	}
+	if strings.TrimSpace(mi.FetchTimeout) == "" {
+		mi.FetchTimeout = DefaultModelInventoryFetchTimeout.String()
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(mi.RefreshInterval))
+	if err != nil {
+		return fmt.Errorf("model_inventory.refresh_interval: %w", err)
+	}
+	if d < DefaultModelInventoryRefreshInterval {
+		return fmt.Errorf("model_inventory.refresh_interval: must be at least %s", DefaultModelInventoryRefreshInterval)
+	}
+	ft, err := time.ParseDuration(strings.TrimSpace(mi.FetchTimeout))
+	if err != nil {
+		return fmt.Errorf("model_inventory.fetch_timeout: %w", err)
+	}
+	if ft <= 0 {
+		return fmt.Errorf("model_inventory.fetch_timeout: must be a positive duration")
 	}
 	return nil
 }

@@ -125,6 +125,7 @@ func TestExecutor_catalogNarrowsCaps_firstCandidateRejected_secondOpens(t *testi
 	}
 	if rejectTrace == nil {
 		t.Fatalf("expected route trace plan_candidate with negotiation reject and catalog source, got %#v", snap)
+		return
 	}
 	if rejectTrace.Catalog.MatchKind != modelcatalog.MatchExact.String() {
 		t.Fatalf("catalog match_kind: %q", rejectTrace.Catalog.MatchKind)

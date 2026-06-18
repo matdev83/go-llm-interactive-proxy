@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,6 +33,14 @@ func New(cfg Config) execbackend.Backend {
 		Caps: caps,
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return caps
+		},
+		ModelInventory: modelinventory.StaticProvider{
+			Source: modelinventory.SourceStaticBuiltin,
+			Models: []modelinventory.Model{{
+				CanonicalID: "local-stub/stub-default",
+				NativeID:    "stub-default",
+				DisplayName: "Local Stub Default",
+			}},
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {

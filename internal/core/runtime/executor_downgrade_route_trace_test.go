@@ -106,6 +106,7 @@ func TestExecutor_downgrade_noEligibility_routeTraceUsesPostDowngradeFacts(t *te
 	}
 	if last == nil {
 		t.Fatal("expected at least one plan_candidate route trace with catalog metadata")
+		return
 	}
 	if last.Negotiation != string(lipapi.NegotiationDowngrade) {
 		t.Fatalf("negotiation in trace: %q", last.Negotiation)

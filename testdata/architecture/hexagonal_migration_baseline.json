@@ -64,6 +64,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage",

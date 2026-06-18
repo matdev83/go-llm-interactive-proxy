@@ -40,6 +40,7 @@ func TestLocalTestServerHTTPClient_hasTimeout(t *testing.T) {
 	c := LocalTestServerHTTPClient()
 	if c == nil {
 		t.Fatal("nil client")
+		return
 	}
 	if c.Timeout != localTestServerHTTPTimeout {
 		t.Fatalf("timeout: got %v want %v", c.Timeout, localTestServerHTTPTimeout)

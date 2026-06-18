@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
@@ -44,6 +45,10 @@ type Built struct {
 	AuthEventDispatcher *auth.EventDispatcher
 	// CatalogRuntime is non-nil when model_catalog.enabled or external_updates_enabled started catalog I/O.
 	CatalogRuntime *modelcatalog.CatalogRuntime
+	// ModelRegistry is the loaded backend model inventory for fast canonical model routing lookups.
+	ModelRegistry *modelregistry.Registry
+	// ModelRegistryRuntime owns cached backend model inventory refresh and live lookup publication.
+	ModelRegistryRuntime *modelregistry.Runtime
 	// TokenAccountingAdmin is non-nil when accounting.admin.enabled wires the operator count service.
 	TokenAccountingAdmin *accountingapp.Service
 }

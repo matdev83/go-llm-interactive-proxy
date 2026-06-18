@@ -132,6 +132,7 @@ func TestUsageFromMessageDelta_usageDetails(t *testing.T) {
 	ev := usageFromMessageDelta(delta)
 	if ev == nil {
 		t.Fatal("usage event is nil")
+		return
 	}
 	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
 		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)

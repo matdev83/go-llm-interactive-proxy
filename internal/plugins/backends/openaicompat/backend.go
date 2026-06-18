@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicred"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/openai/openai-go/v3/option"
 )
 
@@ -39,6 +40,7 @@ type BackendSpec struct {
 	RequestOptions func(lipapi.Call) []option.RequestOption
 	ResolveModel   func(routing.AttemptCandidate, lipapi.Call) string
 	ResolveFlavor  func(lipapi.Call) Flavor
+	Inventory      modelinventory.Provider
 }
 
 func NewBackend(spec BackendSpec) execbackend.Backend {
@@ -50,8 +52,9 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", spec.ID, err))
 	}
 	return execbackend.Backend{
-		Caps:          openaicaps.HostedFull,
-		TransportCaps: hostedTransportCaps(),
+		Caps:           openaicaps.HostedFull,
+		TransportCaps:  hostedTransportCaps(),
+		ModelInventory: spec.Inventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModel(resolveModel(spec, cand, call))
 		},
@@ -119,8 +122,9 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 
 func newConfigErrorBackend(err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps:          openaicaps.HostedFull,
-		TransportCaps: hostedTransportCaps(),
+		Caps:           openaicaps.HostedFull,
+		TransportCaps:  hostedTransportCaps(),
+		ModelInventory: modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.HostedFull
 		},

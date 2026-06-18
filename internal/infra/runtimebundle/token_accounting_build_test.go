@@ -23,7 +23,8 @@ func TestBuildWiresTokenAccountingContracts(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			ModelInventory: testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
@@ -109,7 +110,8 @@ func TestBuildTokenAccountingUsesDefaultCountTimeoutWhenOmitted(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			ModelInventory: testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
@@ -152,7 +154,8 @@ func TestBuildWiresConfiguredAccountingPreflightLimits(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			ModelInventory: testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
@@ -208,7 +211,8 @@ func TestBuildProviderRequiredFailsWithoutProviderCounter(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			ModelInventory: testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
@@ -245,9 +249,13 @@ func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
-		return execbackend.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-		}}, nil
+		return execbackend.Backend{
+			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			ModelInventory: testModelInventory(),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+			},
+		}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}

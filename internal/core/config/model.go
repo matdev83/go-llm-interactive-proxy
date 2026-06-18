@@ -32,6 +32,7 @@ type Config struct {
 	Plugins        PluginsConfig        `yaml:"plugins"`
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
+	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
 }
 
 type AccountingConfig struct {

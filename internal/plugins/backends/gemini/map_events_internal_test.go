@@ -187,6 +187,7 @@ func TestUsageEvent_usageDetails(t *testing.T) {
 	})
 	if ev == nil {
 		t.Fatal("usage event is nil")
+		return
 	}
 	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
 		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
@@ -207,6 +208,7 @@ func TestUsageEvent_totalTokenFallbackPreservesInput(t *testing.T) {
 	})
 	if ev == nil {
 		t.Fatal("usage event is nil")
+		return
 	}
 	if ev.InputTokens != 11 || ev.OutputTokens != 8 {
 		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)

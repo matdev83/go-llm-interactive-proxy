@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
 // Config configures the ACP HTTP backend connector (JSON-RPC over POST /v1/acp).
@@ -52,6 +53,14 @@ func New(cfg Config) execbackend.Backend {
 	if err != nil {
 		return execbackend.Backend{
 			Caps: defaultBackendCaps(),
+			ModelInventory: modelinventory.StaticProvider{
+				Source: modelinventory.SourceStaticBuiltin,
+				Models: []modelinventory.Model{{
+					CanonicalID: "acp/agent",
+					NativeID:    "agent",
+					DisplayName: "ACP Agent",
+				}},
+			},
 			ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 				return defaultBackendCaps()
 			},
@@ -69,6 +78,14 @@ func New(cfg Config) execbackend.Backend {
 	cancelProf := mergeCancelProfile(cfg)
 	return execbackend.Backend{
 		Caps: defaultBackendCaps(),
+		ModelInventory: modelinventory.StaticProvider{
+			Source: modelinventory.SourceStaticBuiltin,
+			Models: []modelinventory.Model{{
+				CanonicalID: "acp/agent",
+				NativeID:    "agent",
+				DisplayName: "ACP Agent",
+			}},
+		},
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return defaultBackendCaps()
 		},
