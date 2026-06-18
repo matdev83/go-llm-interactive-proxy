@@ -164,6 +164,9 @@ func TestParseRequestSizeAnnotations(t *testing.T) {
 		{name: "max context primary", in: "[max_context=4096]openai:gpt-4o-mini", wantMax: 4096},
 		{name: "min context primary", in: "[min_context=1024]anthropic:claude", wantMin: 1024},
 		{name: "combined context block", in: "[min_context=1024,max_context=8192]openai:gpt", wantMin: 1024, wantMax: 8192},
+		{name: "max context suffix primary", in: "[max_context=200K]openai:gpt-4o-mini", wantMax: 200000},
+		{name: "min context suffix primary", in: "[min_context=1M]anthropic:claude", wantMin: 1_000_000},
+		{name: "combined suffix context block", in: "[min_context=200K,max_context=250K]openai:gpt", wantMin: 200000, wantMax: 250000},
 		{name: "query params preserved", in: "[max_context=4096]openai:gpt?temperature=0.2", wantMax: 4096},
 	}
 	for _, tc := range cases {

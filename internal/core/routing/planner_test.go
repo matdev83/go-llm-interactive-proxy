@@ -70,6 +70,8 @@ func TestExpandFailoverRequestSizeConstraints(t *testing.T) {
 		{name: "max allows exact limit", sel: "[max_context=10]a:b|c:d", tokens: 10, want: "a:b"},
 		{name: "min excludes equal tokens", sel: "[min_context=10]a:b|c:d", tokens: 10, want: "c:d"},
 		{name: "min allows greater tokens", sel: "[min_context=10]a:b|c:d", tokens: 11, want: "a:b"},
+		{name: "max suffix excludes oversized primary", sel: "[max_context=200K]a:b|c:d", tokens: 200001, want: "c:d"},
+		{name: "combined suffix range allows middle tokens", sel: "[min_context=200K,max_context=250K]a:b|c:d", tokens: 225000, want: "a:b"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

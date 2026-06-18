@@ -3,6 +3,7 @@ package routing
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -446,7 +447,7 @@ func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
 				if ann.size.MaxContextTokens != nil {
 					return prefixAnnotations{}, "", fmt.Errorf("%w: duplicate [max_context=N] annotation", ErrInvalidSelector)
 				}
-				n, err := parsePositiveInt64Annotation("max_context", raw, hasValue)
+				n, err := parsePositiveTokenCountAnnotation("max_context", raw, hasValue)
 				if err != nil {
 					return prefixAnnotations{}, "", err
 				}
@@ -455,7 +456,7 @@ func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
 				if ann.size.MinContextTokens != nil {
 					return prefixAnnotations{}, "", fmt.Errorf("%w: duplicate [min_context=N] annotation", ErrInvalidSelector)
 				}
-				n, err := parsePositiveInt64Annotation("min_context", raw, hasValue)
+				n, err := parsePositiveTokenCountAnnotation("min_context", raw, hasValue)
 				if err != nil {
 					return prefixAnnotations{}, "", err
 				}
@@ -499,6 +500,34 @@ func parsePositiveIntAnnotation(key, raw string, hasValue bool) (int, error) {
 		return 0, fmt.Errorf("%w: %s is too large", ErrInvalidSelector, key)
 	}
 	return int(n), nil
+}
+
+// parsePositiveTokenCountAnnotation accepts decimal token counts with optional K/M suffixes.
+func parsePositiveTokenCountAnnotation(key, raw string, hasValue bool) (int64, error) {
+	if !hasValue || strings.TrimSpace(raw) == "" {
+		return 0, fmt.Errorf("%w: %s must be a positive token count with optional K/M suffix", ErrInvalidSelector, key)
+	}
+	s := strings.TrimSpace(raw)
+	multiplier := int64(1)
+	switch s[len(s)-1] {
+	case 'k', 'K':
+		multiplier = 1_000
+		s = strings.TrimSpace(s[:len(s)-1])
+	case 'm', 'M':
+		multiplier = 1_000_000
+		s = strings.TrimSpace(s[:len(s)-1])
+	}
+	if s == "" {
+		return 0, fmt.Errorf("%w: %s must be a positive token count with optional K/M suffix", ErrInvalidSelector, key)
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%w: %s must be a positive token count with optional K/M suffix", ErrInvalidSelector, key)
+	}
+	if n > math.MaxInt64/multiplier {
+		return 0, fmt.Errorf("%w: %s is too large", ErrInvalidSelector, key)
+	}
+	return n * multiplier, nil
 }
 
 func parsePositiveInt64Annotation(key, raw string, hasValue bool) (int64, error) {

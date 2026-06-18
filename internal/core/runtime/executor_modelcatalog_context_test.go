@@ -184,6 +184,50 @@ func TestExecutor_requestSizeConstraints_failoverToEligibleBackend(t *testing.T)
 	_ = s.Close()
 }
 
+func TestExecutor_requestSizeConstraints_supportsSuffixes(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opened string
+	ex := &runtime.Executor{
+		Store:                 st,
+		Bus:                   hooks.New(hooks.Config{}),
+		Rand:                  routing.NewSeededRng(2),
+		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 250001},
+		Backends: map[string]execbackend.Backend{
+			"smallctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					t.Fatal("smallctx must be skipped by max_context suffix")
+					return nil, nil
+				},
+			},
+			"bigctx": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					opened = cand.Key
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	call := &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "[max_context=250K]smallctx:m|bigctx:m"},
+		Messages: longUserMessage(5),
+	}
+	s, err := ex.Execute(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != "bigctx:m" {
+		t.Fatalf("opened: %q", opened)
+	}
+	_, _ = lipapi.Collect(context.Background(), s)
+	_ = s.Close()
+}
+
 func TestExecutor_requestSizeConstraints_failOpenWhenEstimateUnavailable(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
