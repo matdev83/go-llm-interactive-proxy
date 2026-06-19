@@ -30,13 +30,15 @@ func TestCredentialedBackendCandidates_selectsOnlyConfiguredRemoteBackends(t *te
 		}
 	}
 
+	skipReasons := map[string]string{}
 	for _, row := range skipped {
-		if row.ID == "anthropic" && row.Reason != "ANTHROPIC_API_KEY is not set" {
-			t.Fatalf("anthropic skip reason = %q", row.Reason)
-		}
-		if row.ID == "gemini" && row.Reason != "GEMINI_API_KEY is not set" {
-			t.Fatalf("gemini skip reason = %q", row.Reason)
-		}
+		skipReasons[row.ID] = row.Reason
+	}
+	if got := skipReasons["anthropic"]; got != "ANTHROPIC_API_KEY is not set" {
+		t.Fatalf("anthropic skip reason = %q", got)
+	}
+	if got := skipReasons["gemini"]; got != "GEMINI_API_KEY is not set" {
+		t.Fatalf("gemini skip reason = %q", got)
 	}
 }
 
@@ -53,10 +55,12 @@ func TestCredentialedBackendCandidates_skipsBedrockWithoutCompleteAWSCredentialS
 			t.Fatal("bedrock should not be selected without a complete AWS credential signal")
 		}
 	}
+	skipReasons := map[string]string{}
 	for _, row := range skipped {
-		if row.ID == "bedrock" && row.Reason == "AWS credentials and region are available" {
-			t.Fatalf("unexpected bedrock skip reason: %q", row.Reason)
-		}
+		skipReasons[row.ID] = row.Reason
+	}
+	if got := skipReasons["bedrock"]; got != "AWS credential signal is incomplete" {
+		t.Fatalf("bedrock skip reason = %q", got)
 	}
 }
 

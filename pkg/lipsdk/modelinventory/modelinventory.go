@@ -70,11 +70,19 @@ func (p StaticProvider) LoadModels(ctx context.Context) (Snapshot, error) {
 	if loadedAt.IsZero() {
 		loadedAt = time.Now()
 	}
+	models := slices.Clone(p.Models)
+	if models == nil {
+		models = []Model{}
+	}
+	warnings := slices.Clone(p.Warnings)
+	if warnings == nil {
+		warnings = []string{}
+	}
 	return Snapshot{
 		Source:   source,
 		LoadedAt: loadedAt,
-		Models:   slices.Clone(p.Models),
-		Warnings: slices.Clone(p.Warnings),
+		Models:   models,
+		Warnings: warnings,
 	}, nil
 }
 

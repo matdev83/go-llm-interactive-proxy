@@ -28,7 +28,7 @@ func (mc ModelInventoryConfig) RefreshIntervalDuration() time.Duration {
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil || d < DefaultModelInventoryRefreshInterval {
-		return 0
+		return DefaultModelInventoryRefreshInterval
 	}
 	return d
 }

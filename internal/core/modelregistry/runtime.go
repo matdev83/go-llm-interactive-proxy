@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -180,7 +181,10 @@ func (r *Runtime) refresh(ctx context.Context) error {
 	}
 	if r.cfg.Cache != nil {
 		if err := r.cfg.Cache.Save(ctx, snap); err != nil {
-			return refreshFailureError{category: RefreshFailureCache, err: err}
+			r.publish(reg, snap)
+			r.setOK()
+			r.setCacheFailure(RefreshFailureCache)
+			return nil
 		}
 	}
 	r.publish(reg, snap)
@@ -190,11 +194,30 @@ func (r *Runtime) refresh(ctx context.Context) error {
 }
 
 func (r *Runtime) publishSnapshot(snap Snapshot) error {
+	if err := r.validateSnapshotBackends(snap); err != nil {
+		return err
+	}
 	reg, err := newRegistryFromBackendModels(snap.Models)
 	if err != nil {
 		return err
 	}
 	r.publish(reg, snap)
+	return nil
+}
+
+func (r *Runtime) validateSnapshotBackends(snap Snapshot) error {
+	allowed := make(map[string]struct{}, len(r.cfg.Inventories))
+	for _, inv := range r.cfg.Inventories {
+		if id := strings.TrimSpace(inv.BackendID); id != "" {
+			allowed[id] = struct{}{}
+		}
+	}
+	for i, model := range snap.Models {
+		backendID := strings.TrimSpace(model.BackendID)
+		if _, ok := allowed[backendID]; !ok {
+			return fmt.Errorf("%w: cached model[%d] references unconfigured backend %q", ErrInvalidModel, i, backendID)
+		}
+	}
 	return nil
 }
 

@@ -20,7 +20,7 @@ func TestRuntime_StartLoadsValidCacheWithoutRemoteFetch(t *testing.T) {
 		Models: []modelregistry.BackendModel{{
 			CanonicalID: "openai/gpt-cached",
 			NativeID:    "gpt-cached",
-			BackendID:   "cached-backend",
+			BackendID:   "remote-backend",
 			Kind:        "openai-responses",
 			Source:      modelinventory.SourceRemote,
 			LoadedAt:    time.Unix(100, 0).UTC(),
@@ -44,11 +44,50 @@ func TestRuntime_StartLoadsValidCacheWithoutRemoteFetch(t *testing.T) {
 		t.Fatalf("provider calls = %d, want 0", provider.Calls())
 	}
 	got, ok := rt.Lookup("openai/gpt-cached")
-	if !ok || len(got) != 1 || got[0].BackendID != "cached-backend" {
+	if !ok || len(got) != 1 || got[0].BackendID != "remote-backend" {
 		t.Fatalf("Lookup cached = %+v, %v", got, ok)
 	}
 	if cache.saves != 0 {
 		t.Fatalf("cache saves = %d, want 0", cache.saves)
+	}
+}
+
+func TestRuntime_StartIgnoresCacheWithUnconfiguredBackendID(t *testing.T) {
+	t.Parallel()
+
+	cache := &fakeModelRegistryCache{load: modelregistry.Snapshot{
+		Generation: "stale-generation",
+		Models: []modelregistry.BackendModel{{
+			CanonicalID: "openai/gpt-stale",
+			NativeID:    "gpt-stale",
+			BackendID:   "removed-backend",
+			Kind:        "openai-responses",
+		}},
+	}}
+	provider := &countingInventoryProvider{models: []modelinventory.Model{{
+		CanonicalID: "openai/gpt-remote",
+		NativeID:    "gpt-remote",
+	}}}
+	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
+		Inventories: []modelregistry.BackendInventory{{
+			BackendID: "remote-backend",
+			Kind:      "openai-responses",
+			Provider:  provider,
+		}},
+		Cache: cache,
+	})
+
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if provider.Calls() != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.Calls())
+	}
+	if _, ok := rt.Lookup("openai/gpt-stale"); ok {
+		t.Fatal("stale cached backend should not be published")
+	}
+	if got, ok := rt.Lookup("openai/gpt-remote"); !ok || len(got) != 1 || got[0].BackendID != "remote-backend" {
+		t.Fatalf("remote lookup = %+v, %v", got, ok)
 	}
 }
 
@@ -234,7 +273,7 @@ func TestRuntime_SuccessfulRefreshClearsPriorCacheFailure(t *testing.T) {
 	}
 }
 
-func TestRuntime_CacheSaveFailureKeepsPriorRegistry(t *testing.T) {
+func TestRuntime_CacheSaveFailurePublishesRefreshedRegistry(t *testing.T) {
 	t.Parallel()
 
 	cache := &fakeModelRegistryCache{
@@ -263,14 +302,48 @@ func TestRuntime_CacheSaveFailureKeepsPriorRegistry(t *testing.T) {
 	}})
 	rt.RunRefresh(context.Background())
 
-	if got, ok := rt.Lookup("openai/gpt-before"); !ok || len(got) != 1 {
-		t.Fatalf("prior lookup = %+v, %v", got, ok)
+	if got, ok := rt.Lookup("openai/gpt-after"); !ok || len(got) != 1 {
+		t.Fatalf("refreshed lookup = %+v, %v", got, ok)
 	}
-	if _, ok := rt.Lookup("openai/gpt-after"); ok {
-		t.Fatal("cache save failure must not publish new registry")
-	}
-	if rt.LastRefreshFailure() != modelregistry.RefreshFailureCache {
+	if rt.LastRefreshFailure() != modelregistry.RefreshFailureNone {
 		t.Fatalf("LastRefreshFailure = %q", rt.LastRefreshFailure())
+	}
+	if rt.LastCacheFailure() != modelregistry.RefreshFailureCache {
+		t.Fatalf("LastCacheFailure = %q", rt.LastCacheFailure())
+	}
+}
+
+func TestRuntime_StartColdPublishesRemoteWhenCacheSaveFails(t *testing.T) {
+	t.Parallel()
+
+	cache := &fakeModelRegistryCache{
+		loadErr: modelregistry.ErrSnapshotUnavailable,
+		saveErr: errors.New("disk full"),
+	}
+	provider := &countingInventoryProvider{models: []modelinventory.Model{{
+		CanonicalID: "openai/gpt-remote",
+		NativeID:    "gpt-remote",
+	}}}
+	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
+		Inventories: []modelregistry.BackendInventory{{
+			BackendID: "backend",
+			Kind:      "openai-responses",
+			Provider:  provider,
+		}},
+		Cache: cache,
+	})
+
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := rt.Lookup("openai/gpt-remote"); !ok || len(got) != 1 {
+		t.Fatalf("remote lookup = %+v, %v", got, ok)
+	}
+	if rt.LastRefreshFailure() != modelregistry.RefreshFailureNone {
+		t.Fatalf("LastRefreshFailure = %q", rt.LastRefreshFailure())
+	}
+	if rt.LastCacheFailure() != modelregistry.RefreshFailureCache {
+		t.Fatalf("LastCacheFailure = %q", rt.LastCacheFailure())
 	}
 }
 

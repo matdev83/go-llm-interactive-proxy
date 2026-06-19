@@ -102,6 +102,16 @@ func hostedCredentials(rows []hostedCredentialYAML) []credpool.Credential {
 	return out
 }
 
+func inventoryAPIKeys(apiKey string, apiKeys []string, credentials []hostedCredentialYAML, fallback []string) []string {
+	out := EffectiveAPIKeys(apiKey, apiKeys, fallback)
+	for _, cred := range hostedCredentials(credentials) {
+		if secret := strings.TrimSpace(cred.Secret); secret != "" {
+			out = append(out, secret)
+		}
+	}
+	return out
+}
+
 func applyConfiguredModelInventory(be execbackend.Backend, y modelInventoryYAML) (execbackend.Backend, error) {
 	provider, ok, err := configuredModelInventory(y)
 	if err != nil {
@@ -115,8 +125,11 @@ func applyConfiguredModelInventory(be execbackend.Backend, y modelInventoryYAML)
 
 func configuredModelInventory(y modelInventoryYAML) (modelinventory.Provider, bool, error) {
 	source := strings.ToLower(strings.TrimSpace(y.Source))
+	path := strings.TrimSpace(y.Path)
+	if path != "" && len(y.Items) > 0 {
+		return nil, false, fmt.Errorf("backend models: specify either path or items, not both")
+	}
 	if source == "" {
-		path := strings.TrimSpace(y.Path)
 		if len(y.Items) == 0 && path == "" {
 			return nil, false, nil
 		}
@@ -188,7 +201,7 @@ func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPI
 		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
-	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
 	cfg := openairesponses.Config{
 		BaseURL:     base,
 		APIKeys:     ek,
@@ -207,7 +220,7 @@ func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKey
 		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
-	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenAI)
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
 	cfg := openailegacy.Config{
 		BaseURL:     base,
 		APIKeys:     ek,
@@ -226,7 +239,7 @@ func backendAnthropic(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) 
 		return execbackend.Backend{}, fmt.Errorf("anthropic backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.anthropic.com")
-	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Anthropic)
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Anthropic)
 	cfg := anthropic.Config{
 		BaseURL:     base,
 		APIKeys:     ek,
@@ -245,7 +258,7 @@ func backendGemini(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (ex
 		return execbackend.Backend{}, fmt.Errorf("gemini backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://generativelanguage.googleapis.com")
-	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Gemini)
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Gemini)
 	cfg := gemini.Config{
 		BaseURL:     base,
 		APIKeys:     ek,
@@ -302,7 +315,7 @@ func backendNvidia(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (ex
 		return execbackend.Backend{}, fmt.Errorf("nvidia backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://integrate.api.nvidia.com/v1")
-	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.Nvidia)
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Nvidia)
 	cfg := nvidia.Config{
 		BaseURL:     base,
 		APIKeys:     ek,
@@ -331,7 +344,7 @@ func backendOpenRouter(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys)
 		return execbackend.Backend{}, fmt.Errorf("openrouter backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://openrouter.ai/api/v1")
-	ek := EffectiveAPIKeys(y.APIKey, y.APIKeys, keys.OpenRouter)
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenRouter)
 	cfg := openrouter.Config{
 		BaseURL:       base,
 		APIKeys:       ek,

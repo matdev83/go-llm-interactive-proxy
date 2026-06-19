@@ -124,3 +124,14 @@ func TestModelInventoryConfig_FetchTimeoutDurationFallsBackForProgrammaticInvali
 		t.Fatalf("FetchTimeoutDuration() = %v, want %v", got, config.DefaultModelInventoryFetchTimeout)
 	}
 }
+
+func TestModelInventoryConfig_RefreshIntervalDurationFallsBackForProgrammaticInvalidValue(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"nope", "59m"} {
+		cfg := config.ModelInventoryConfig{RefreshInterval: value}
+		if got := cfg.RefreshIntervalDuration(); got != config.DefaultModelInventoryRefreshInterval {
+			t.Fatalf("RefreshIntervalDuration(%q) = %v, want %v", value, got, config.DefaultModelInventoryRefreshInterval)
+		}
+	}
+}

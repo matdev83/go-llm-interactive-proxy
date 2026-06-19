@@ -59,6 +59,9 @@ func Build(ctx context.Context, inventories []BackendInventory) (*Registry, erro
 		}
 		backendID := strings.TrimSpace(inv.BackendID)
 		kind := strings.TrimSpace(inv.Kind)
+		if backendID == "" || kind == "" {
+			return nil, fmt.Errorf("%w at inventory[%d]", ErrInvalidModel, i)
+		}
 		if inv.Provider == nil {
 			return nil, fmt.Errorf("%w for backend %q", ErrMissingProvider, backendID)
 		}

@@ -109,6 +109,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
+	closers := []func() error{}
 	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
@@ -132,19 +133,24 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, fmt.Errorf("runtimebundle: model registry: %w", err)
 	}
+	closers = append(closers, modelRegistryClosers...)
 	if cfg.Accounting.StrictAuthoritative {
 		for id, be := range backends {
 			if be.FinalizeBilling == nil {
+				if derr := disposeClosers(closers); derr != nil {
+					return nil, errors.Join(fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id), derr)
+				}
 				return nil, fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id)
 			}
 		}
 	}
 	store, err := continuity.OpenStoreContext(parent, cfg)
 	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(fmt.Errorf("runtimebundle: %w", err), derr)
+		}
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
-	closers := []func() error{}
-	closers = append(closers, modelRegistryClosers...)
 	if c, ok := store.(interface{ Close() error }); ok {
 		closers = append(closers, c.Close)
 	}

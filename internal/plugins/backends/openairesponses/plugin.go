@@ -54,6 +54,7 @@ func New(cfg Config) execbackend.Backend {
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,
 			APIKeys:         cfg.APIKeys,
+			Credentials:     credentialSecrets(cfg.Credentials),
 			HTTPClient:      cfg.HTTPClient,
 			CanonicalPrefix: "openai",
 		},
@@ -105,6 +106,17 @@ func New(cfg Config) execbackend.Backend {
 			}
 		},
 	}
+}
+
+func credentialSecrets(credentials []credpool.Credential) []string {
+	if len(credentials) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(credentials))
+	for _, cred := range credentials {
+		out = append(out, cred.Secret)
+	}
+	return out
 }
 
 func newConfigErrorBackend(err error) execbackend.Backend {

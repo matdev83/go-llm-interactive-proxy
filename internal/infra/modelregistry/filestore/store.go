@@ -37,6 +37,9 @@ func (s *Store) Load(ctx context.Context) (modelregistry.Snapshot, error) {
 	if err := json.Unmarshal(b, &snap); err != nil {
 		return modelregistry.Snapshot{}, fmt.Errorf("modelregistry cache decode: %w", err)
 	}
+	if snap.Models == nil {
+		snap.Models = []modelregistry.BackendModel{}
+	}
 	return snap, nil
 }
 
@@ -50,6 +53,9 @@ func (s *Store) Save(ctx context.Context, snap modelregistry.Snapshot) error {
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("modelregistry cache mkdir: %w", err)
+	}
+	if snap.Models == nil {
+		snap.Models = []modelregistry.BackendModel{}
 	}
 	b, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {

@@ -3,6 +3,7 @@ package modeldiscover
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -17,13 +18,14 @@ type OpenAICompatibleModelsProvider struct {
 	BaseURL           string
 	APIKey            string
 	APIKeys           []string
+	Credentials       []string
 	HTTPClient        *http.Client
 	CanonicalPrefix   string
 	PreserveVendorIDs bool
 }
 
 func (p OpenAICompatibleModelsProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
-	key, err := firstSecret(p.APIKey, p.APIKeys)
+	key, err := firstSecret(p.APIKey, p.APIKeys, p.Credentials)
 	if err != nil {
 		return modelinventory.Snapshot{}, err
 	}
@@ -115,7 +117,7 @@ func (p GeminiModelsProvider) LoadModels(ctx context.Context) (modelinventory.Sn
 		} `json:"models"`
 	}
 	if err := getJSON(ctx, p.HTTPClient, endpoint, nil, &payload); err != nil {
-		return modelinventory.Snapshot{}, err
+		return modelinventory.Snapshot{}, redactURLQueryError(err, "key")
 	}
 	models := make([]modelinventory.Model, 0, len(payload.Models))
 	for _, row := range payload.Models {
@@ -132,16 +134,40 @@ func (p GeminiModelsProvider) LoadModels(ctx context.Context) (modelinventory.Sn
 	return snapshot(models)
 }
 
-func firstSecret(key string, keys []string) (string, error) {
+func firstSecret(key string, keySets ...[]string) (string, error) {
 	if s := strings.TrimSpace(key); s != "" {
 		return s, nil
 	}
-	for _, key := range keys {
-		if s := strings.TrimSpace(key); s != "" {
-			return s, nil
+	for _, keys := range keySets {
+		for _, key := range keys {
+			if s := strings.TrimSpace(key); s != "" {
+				return s, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("model discovery: no API credentials")
+}
+
+func redactURLQueryError(err error, queryKeys ...string) error {
+	if err == nil {
+		return nil
+	}
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	cp := *urlErr
+	if u, parseErr := url.Parse(cp.URL); parseErr == nil {
+		q := u.Query()
+		for _, key := range queryKeys {
+			if q.Has(key) {
+				q.Set(key, "REDACTED")
+			}
+		}
+		u.RawQuery = q.Encode()
+		cp.URL = u.String()
+	}
+	return &cp
 }
 
 func getJSON(ctx context.Context, client *http.Client, endpoint string, headers map[string]string, out any) error {
@@ -180,6 +206,7 @@ func snapshot(models []modelinventory.Model) (modelinventory.Snapshot, error) {
 		Source:   modelinventory.SourceRemote,
 		LoadedAt: time.Now(),
 		Models:   slices.Clone(models),
+		Warnings: []string{},
 	}, nil
 }
 
