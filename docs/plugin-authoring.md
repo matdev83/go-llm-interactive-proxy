@@ -59,6 +59,23 @@ plugins:
 
 A plugin should reject invalid config at startup rather than fail during the first request.
 
+## Backend model inventory
+
+Backend plugins must expose `execbackend.Backend.ModelInventory` with a `pkg/lipsdk/modelinventory.Provider`.
+The core model registry uses this provider at startup and during background refresh to answer fast routing
+lookups for canonical model IDs such as `openai/gpt-5`.
+
+Backend authors should choose one inventory source:
+
+- Remote provider API, such as a `/models` endpoint or provider SDK list operation.
+- Backend-specific static config file. File inventories should use an `items:` list; `models:` is accepted as
+  a compatibility alias when `items:` is absent.
+- Inline static config for fixed local/test backends.
+
+Static providers should use `modelinventory.StaticProvider`, which also marks the inventory as non-refreshable.
+Dynamic providers must respect `context.Context`; the runtime applies `model_inventory.fetch_timeout` per backend
+inventory fetch.
+
 ## Testing expectations
 
 Every feature plugin should have:

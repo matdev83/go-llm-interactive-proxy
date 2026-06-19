@@ -10,8 +10,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
 // Config configures the Gemini generateContent backend connector (official genai SDK).
@@ -54,6 +56,12 @@ func New(cfg Config) execbackend.Backend {
 	}
 	return execbackend.Backend{
 		Caps: defaultBackendCaps(),
+		ModelInventory: modeldiscover.GeminiModelsProvider{
+			BaseURL:    cfg.BaseURL,
+			APIKey:     cfg.APIKey,
+			APIKeys:    cfg.APIKeys,
+			HTTPClient: cfg.HTTPClient,
+		},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},
@@ -109,7 +117,8 @@ func New(cfg Config) execbackend.Backend {
 
 func newConfigErrorBackend(err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps: defaultBackendCaps(),
+		Caps:           defaultBackendCaps(),
+		ModelInventory: modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},

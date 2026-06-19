@@ -11,10 +11,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/checkcfg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicaps"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicred"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
 // Config configures the legacy OpenAI Chat Completions backend connector (official SDK).
@@ -48,6 +50,14 @@ func New(cfg Config) execbackend.Backend {
 	}
 	return execbackend.Backend{
 		Caps: openaicaps.HostedFull,
+		ModelInventory: modeldiscover.OpenAICompatibleModelsProvider{
+			BaseURL:         cfg.BaseURL,
+			APIKey:          cfg.APIKey,
+			APIKeys:         cfg.APIKeys,
+			Credentials:     credentialSecrets(cfg.Credentials),
+			HTTPClient:      cfg.HTTPClient,
+			CanonicalPrefix: "openai",
+		},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModel(resolveModel(cand, call))
 		},
@@ -98,9 +108,21 @@ func New(cfg Config) execbackend.Backend {
 	}
 }
 
+func credentialSecrets(credentials []credpool.Credential) []string {
+	if len(credentials) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(credentials))
+	for _, cred := range credentials {
+		out = append(out, cred.Secret)
+	}
+	return out
+}
+
 func newConfigErrorBackend(err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps: openaicaps.HostedFull,
+		Caps:           openaicaps.HostedFull,
+		ModelInventory: modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModel(resolveModel(cand, call))
 		},

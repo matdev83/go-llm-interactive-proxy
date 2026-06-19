@@ -38,7 +38,7 @@ func TestBuild_defaultComposedLocalNoop_principalNotEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -80,7 +80,7 @@ func TestBuild_minimalSingleUser_HTTPAuthProviders_nonEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -132,7 +132,7 @@ func TestBuild_registryAuthErrorRendererByFrontend_wiresPolicyProvider(t *testin
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -177,7 +177,7 @@ func TestBuild_authErrorRenderers_registryIdCaseFoldsToLower(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -222,7 +222,7 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -263,7 +263,7 @@ func TestBuild_remoteAuthPolicyRequiresRemoteDecider(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -296,7 +296,7 @@ func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -349,7 +349,7 @@ func TestBuild_multiUserLocalAPIKey_middlewareAllowsValidBearer(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -406,7 +406,7 @@ func TestBuild_multiUserLocalAPIKey_middlewareDeniesWithoutBearer(t *testing.T) 
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -451,7 +451,7 @@ func TestBuild_HTTPAuthProvidersOnlyNil_fallsBackToComposedAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -504,7 +504,7 @@ func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -551,7 +551,7 @@ func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -593,7 +593,7 @@ func TestBuild_remoteStub_challengeTerminates(t *testing.T) {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{

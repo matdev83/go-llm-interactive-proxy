@@ -60,6 +60,7 @@ func TestStageOccupancyFromBundle_toolPoliciesSortedBeforeReactorsStablePrefixes
 	}
 	if reaction == nil {
 		t.Fatal("missing tool_event_reaction occupancy")
+		return
 	}
 	want := []string{"tool_policy:a", "tool_policy:z", "react"}
 	if len(reaction.HandlerIDs) != len(want) {
@@ -104,6 +105,7 @@ func TestStageOccupancyFromBundle_trafficObservationTrafficAndUsageObserverIndic
 	}
 	if trafficOcc == nil {
 		t.Fatal("missing traffic_observation occupancy")
+		return
 	}
 	want := []string{"traffic_observer:0", "traffic_observer:2", "usage_observer:0", "usage_observer:1"}
 	if len(trafficOcc.HandlerIDs) != len(want) {

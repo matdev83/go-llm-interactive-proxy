@@ -1,6 +1,6 @@
 # Capability catalogs
 
-This document covers two separate mechanisms: **plugin-local hosted-model catalogs** (OpenAI) and the optional **models.dev snapshot catalog** wired through `model_catalog` in configuration.
+This document covers three separate mechanisms: **plugin-local hosted-model catalogs** (OpenAI), **backend model inventory** wired through `model_inventory`, and the optional **models.dev snapshot catalog** wired through `model_catalog` in configuration.
 
 ## OpenAI hosted-model catalog (plugin-local)
 
@@ -12,6 +12,21 @@ Rules:
 - Expand `ForHostedModel` when a new **hosted** model family changes tool, vision, or streaming support.
 - Add or extend a **unit test** in `internal/plugins/backends/openaicaps/caps_catalog_test.go` for each new branch so catalog drift fails CI.
 - Non-OpenAI providers keep per-backend `ResolveCaps` in their plugin package (`internal/plugins/backends/<id>`).
+
+## Backend model inventory (`model_inventory`)
+
+Backend model inventory answers: "which configured backend instances expose canonical model `vendor/model`?" It is used for fast routing-time lookup and is separate from capability facts in `model_catalog`.
+
+Operator rules:
+
+- The active registry is immutable and process-local. Request-time lookup does not read files and does not call remote providers.
+- Every enabled backend instance must expose a `pkg/lipsdk/modelinventory.Provider`. Third-party backend
+  plugins should load remote inventory from their provider API or expose a static file/inline inventory.
+- At startup, the runtime loads `model_inventory.cache_path` first when set. A valid cache avoids an immediate remote model-list call.
+- If no valid cache is available, startup calls each enabled backend inventory provider once. Startup fails only when no valid cache exists and discovery cannot produce a valid registry.
+- Background refresh defaults to `1h` and has a minimum of `1h`. A failed refresh keeps the latest successful registry active.
+- Static backend YAML inventories (`models.source: inline` or `models.source: file`) participate in the same registry and do not require remote enumeration.
+- `model_inventory.fetch_timeout` defaults to `30s` and is applied per backend inventory fetch during startup and background refresh.
 
 ## Models.dev snapshot catalog (`model_catalog`)
 

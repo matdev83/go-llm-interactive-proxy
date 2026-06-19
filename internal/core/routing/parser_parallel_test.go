@@ -44,6 +44,7 @@ func TestParseParallelHandicap(t *testing.T) {
 	p := sel.Alternatives[0].Parallel
 	if p == nil {
 		t.Fatal("expected parallel group")
+		return
 	}
 	if len(p.Branches) != 3 {
 		t.Fatalf("branches: %d", len(p.Branches))
@@ -68,6 +69,7 @@ func TestParseParallelTTFTTimeout(t *testing.T) {
 	p := sel.Alternatives[0].Parallel
 	if p == nil {
 		t.Fatal("expected parallel")
+		return
 	}
 	if p.Branches[0].Target.TTFTTimeout == nil || *p.Branches[0].Target.TTFTTimeout != 10*time.Second {
 		t.Fatalf("branch0 ttft: %v", p.Branches[0].Target.TTFTTimeout)
@@ -96,6 +98,7 @@ func TestParseParallelUserExample(t *testing.T) {
 	p := sel.Alternatives[0].Parallel
 	if p == nil {
 		t.Fatal("expected parallel group")
+		return
 	}
 	if len(p.Branches) != 5 {
 		t.Fatalf("branches: %d want 5", len(p.Branches))
@@ -219,6 +222,7 @@ func TestParseParallelQueryBangPreserved(t *testing.T) {
 	p := sel.Alternatives[0].Parallel
 	if p == nil {
 		t.Fatal("expected parallel group")
+		return
 	}
 	if len(p.Branches) != 2 {
 		t.Fatalf("branches: %d want 2", len(p.Branches))
@@ -237,6 +241,7 @@ func TestParseParallelPreservesQueryParams(t *testing.T) {
 	p := sel.Alternatives[0].Parallel
 	if p == nil {
 		t.Fatal("expected parallel")
+		return
 	}
 	if p.Branches[0].Target.Params.Get("temperature") != "0.3" {
 		t.Fatalf("branch0 temp: %v", p.Branches[0].Target.Params)

@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
 // Backend opens a canonical event stream for one route candidate.
@@ -22,6 +23,7 @@ type Backend struct {
 	// ResolveTransportCaps, when set, supplies model/candidate-aware transport capabilities; otherwise TransportCaps is used.
 	ResolveTransportCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendTransportCaps
 	Open                 func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error)
+	ModelInventory       modelinventory.Provider
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)

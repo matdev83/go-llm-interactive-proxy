@@ -30,7 +30,14 @@ func TestStandardWiring_openaiResponses_runtimeBundle_roundTrip(t *testing.T) {
 
 	reg := testRegistryWithStdBundle(t)
 
-	backYAML := fmt.Sprintf("base_url: %q\napi_key: %q\n", srv.URL+"/v1", "sk-test")
+	backYAML := fmt.Sprintf(`base_url: %q
+api_key: %q
+models:
+  source: inline
+  items:
+    - canonical_id: openai/gpt-4o-mini
+      native_id: gpt-4o-mini
+`, srv.URL+"/v1", "sk-test")
 	var backNode yaml.Node
 	if err := yaml.Unmarshal([]byte(backYAML), &backNode); err != nil {
 		t.Fatalf("backend yaml: %v", err)

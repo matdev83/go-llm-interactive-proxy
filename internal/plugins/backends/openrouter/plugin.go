@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -46,6 +47,15 @@ func New(cfg Config) execbackend.Backend {
 			return buildRequestOptions(call, cfg)
 		},
 		ResolveModel: resolveModel,
+		Inventory: modeldiscover.OpenAICompatibleModelsProvider{
+			BaseURL:           cfg.BaseURL,
+			APIKey:            cfg.APIKey,
+			APIKeys:           cfg.APIKeys,
+			Credentials:       credentialSecrets(cfg.Credentials),
+			HTTPClient:        cfg.HTTPClient,
+			CanonicalPrefix:   "openrouter",
+			PreserveVendorIDs: true,
+		},
 		ResolveFlavor: func(call lipapi.Call) openaicompat.Flavor {
 			if resolveFlavor(call) == openrouterwire.FlavorResponses {
 				return openaicompat.FlavorResponses
@@ -53,4 +63,15 @@ func New(cfg Config) execbackend.Backend {
 			return openaicompat.FlavorChat
 		},
 	})
+}
+
+func credentialSecrets(credentials []credpool.Credential) []string {
+	if len(credentials) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(credentials))
+	for _, cred := range credentials {
+		out = append(out, cred.Secret)
+	}
+	return out
 }

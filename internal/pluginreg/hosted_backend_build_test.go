@@ -1,6 +1,10 @@
 package pluginreg
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
@@ -70,4 +74,50 @@ func TestBuildBackend_openAIResponses_envDefaultsWhenYAMLHasNoKeys(t *testing.T)
 	if b.Open == nil {
 		t.Fatal("expected backend Open")
 	}
+}
+
+func TestBuildBackend_openAIResponses_modelInventoryUsesUpstreamHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	reg := NewRegistry()
+	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "http://model.test/v1/models" {
+			t.Fatalf("url = %q", r.URL.String())
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"gpt-4o-mini"}]}`)),
+		}, nil
+	})}
+	raw := `base_url: http://model.test/v1
+api_key: test-key
+`
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
+		t.Fatal(err)
+	}
+	b, err := reg.BuildBackend(openairesponses.ID, node, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := b.ModelInventory.LoadModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Models) != 1 || snap.Models[0].CanonicalID != "openai/gpt-4o-mini" {
+		t.Fatalf("Models = %+v", snap.Models)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

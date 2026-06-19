@@ -169,6 +169,7 @@ func RunAll(t *testing.T, newStore func(*testing.T) app.Store) {
 		}
 		if found == nil {
 			t.Fatalf("summary missing session: %#v", sums)
+			return
 		}
 		if found.AttemptCount < 1 {
 			t.Fatalf("attempt count: got %d", found.AttemptCount)

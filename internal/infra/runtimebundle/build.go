@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
@@ -24,6 +25,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
@@ -32,11 +34,13 @@ import (
 	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	modelregistryfile "github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelregistry/filestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
@@ -98,7 +102,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	upstream = wrapUpstreamClient(upstream, bundle, opts.OutboundTracing)
 
+	parent := context.Background()
+	if opts.StartupContext != nil {
+		parent = opts.StartupContext
+	}
+
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
+	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
+	closers := []func() error{}
+	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
 			continue
@@ -110,23 +122,35 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 			return nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
 		}
 		backends[iid] = be
+		inventories = append(inventories, modelregistry.BackendInventory{
+			BackendID:    iid,
+			Kind:         fid,
+			Provider:     be.ModelInventory,
+			FetchTimeout: modelInventoryFetchTimeout,
+		})
 	}
+	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
+	if err != nil {
+		return nil, fmt.Errorf("runtimebundle: model registry: %w", err)
+	}
+	closers = append(closers, modelRegistryClosers...)
 	if cfg.Accounting.StrictAuthoritative {
 		for id, be := range backends {
 			if be.FinalizeBilling == nil {
+				if derr := disposeClosers(closers); derr != nil {
+					return nil, errors.Join(fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id), derr)
+				}
 				return nil, fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id)
 			}
 		}
 	}
-	parent := context.Background()
-	if opts.StartupContext != nil {
-		parent = opts.StartupContext
-	}
 	store, err := continuity.OpenStoreContext(parent, cfg)
 	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(fmt.Errorf("runtimebundle: %w", err), derr)
+		}
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
-	closers := []func() error{}
 	if c, ok := store.(interface{ Close() error }); ok {
 		closers = append(closers, c.Close)
 	}
@@ -348,6 +372,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		SecureSessionStore:    secureSessionStore,
 		AuthEventDispatcher:   authEvents,
 		CatalogRuntime:        catalogRuntime,
+		ModelRegistry:         modelRegistry,
+		ModelRegistryRuntime:  modelRegistryRuntime,
 		TokenAccountingAdmin:  tokenAccountingAdmin(tokenAccounting),
 	}, nil
 }
@@ -390,6 +416,56 @@ func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTra
 	c := *client
 	c.Transport = wrapped
 	return &c
+}
+
+func startModelRegistryRuntime(
+	parent context.Context,
+	cfg *config.Config,
+	inventories []modelregistry.BackendInventory,
+) (*modelregistry.Runtime, *modelregistry.Registry, []func() error, error) {
+	var cache modelregistry.Cache
+	if path := strings.TrimSpace(cfg.ModelInventory.CachePath); path != "" {
+		cache = modelregistryfile.New(path)
+	}
+	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
+		Inventories: inventories,
+		Cache:       cache,
+	})
+	if err := rt.Start(parent); err != nil {
+		return nil, nil, nil, err
+	}
+	reg := rt.ActiveRegistry()
+	if reg == nil {
+		return nil, nil, nil, modelregistry.ErrSnapshotUnavailable
+	}
+	closers := []func() error{}
+	if cfg.ModelInventory.EffectiveRefreshEnabled() && hasRefreshableModelInventory(inventories) {
+		interval := cfg.ModelInventory.RefreshIntervalDuration()
+		if interval > 0 {
+			refreshCtx, refreshCancel := context.WithCancel(parent)
+			var refreshWG sync.WaitGroup
+			runModelRegistryRefreshLoop(refreshCtx, rt, interval, &refreshWG)
+			closers = append(closers, func() error {
+				refreshCancel()
+				refreshWG.Wait()
+				return nil
+			})
+		}
+	}
+	return rt, reg, closers, nil
+}
+
+func hasRefreshableModelInventory(inventories []modelregistry.BackendInventory) bool {
+	for _, inv := range inventories {
+		if inv.Provider == nil {
+			continue
+		}
+		if static, ok := inv.Provider.(modelinventory.StaticInventory); ok && static.StaticInventory() {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // BuildExecutor wires enabled backends from configuration into a core executor with production

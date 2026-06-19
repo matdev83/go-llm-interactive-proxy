@@ -156,6 +156,14 @@ hooks:
 #   #     model: "gpt-4o-mini"
 #   #     reasoning: false
 
+# Backend model inventory cache and refresh for routing-time vendor/model lookups.
+# This is separate from model_catalog: it records which configured backend instances expose which models.
+# model_inventory:
+#   cache_path: ./data/backend_model_inventory.json
+#   refresh_enabled: true
+#   refresh_interval: 1h  # minimum 1h; failed refresh keeps the last successful inventory
+#   fetch_timeout: 30s   # per-backend startup/refresh inventory fetch timeout
+
 continuity:
   in_memory: true
   store: memory

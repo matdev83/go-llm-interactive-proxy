@@ -17,7 +17,8 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	}
 	skipDirs := map[string]struct{}{
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},
-		"openaicompat": {},
+		"modeldiscover": {},
+		"openaicompat":  {},
 	}
 	entries, err := os.ReadDir(backendsDir)
 	if err != nil {

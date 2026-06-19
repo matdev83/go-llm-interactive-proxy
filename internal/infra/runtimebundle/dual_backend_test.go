@@ -19,7 +19,7 @@ func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	}
 
 	var empty yaml.Node
-	if err := yaml.Unmarshal([]byte("{}"), &empty); err != nil {
+	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
