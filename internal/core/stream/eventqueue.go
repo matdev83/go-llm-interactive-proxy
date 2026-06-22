@@ -93,7 +93,9 @@ func (q *PendingEventQueue) compactIfNeeded() {
 		q.head = 0
 		return
 	}
+	oldLen := len(q.buf)
 	copy(q.buf[:alive], q.buf[q.head:])
+	clear(q.buf[alive:oldLen])
 	q.buf = q.buf[:alive]
 	q.head = 0
 }
