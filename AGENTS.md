@@ -19,6 +19,13 @@ Non-negotiable product traits:
 - streaming-first execution,
 - core-owned routing, failover, and B2BUA-like continuity handling.
 
+## General rules
+
+- Follow TDD approach. Interface changes and tests must come first. Code changes follow. Not the other way.
+- While creating code or making fixes *ALWAYS* create extensive set of tests and run them and make sure the code is passing them before reporting back to the user.
+- Thrieve for simplicity. Create smallest possible set of changes which satisfies requirements and user's request.
+- Ask questions is user intention is not fully clear. Don't guess.
+
 ## Architecture guardrails
 
 1. The core owns orchestration, not provider semantics.
