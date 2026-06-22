@@ -84,14 +84,16 @@ func (q *PendingEventQueue) compactIfNeeded() {
 	if q.head < 64 && q.head <= alive {
 		return
 	}
-	if alive <= cap(q.buf)/2 && cap(q.buf) > 32 {
-		copy(q.buf[:alive], q.buf[q.head:])
-		q.buf = q.buf[:alive]
+	// Reallocate only when shrinking significantly to avoid memory retention,
+	// otherwise slide elements down to avoid allocation overhead.
+	if cap(q.buf) > 1024 && alive < cap(q.buf)/4 {
+		next := make([]lipapi.Event, alive, alive*2)
+		copy(next, q.buf[q.head:])
+		q.buf = next
 		q.head = 0
 		return
 	}
-	next := make([]lipapi.Event, alive, alive+alive/4)
-	copy(next, q.buf[q.head:])
-	q.buf = next
+	copy(q.buf[:alive], q.buf[q.head:])
+	q.buf = q.buf[:alive]
 	q.head = 0
 }
