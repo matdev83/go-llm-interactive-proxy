@@ -17,6 +17,7 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"lmstudio":     "openaicompat",
 		"openrouter":   "openaicompat",
 		"nvidia":       "openaicompat",
+		"vllm":         "openaicompat",
 	}
 	skipDirs := map[string]struct{}{
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},

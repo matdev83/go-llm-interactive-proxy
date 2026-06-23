@@ -307,6 +307,15 @@ plugins:
       #   catalog: true
       #   catalog_url: https://models.dev/api.json
       #   timeout: 15s
+    - id: vllm
+      enabled: false
+      config: {}
+      # base_url: http://localhost:8000/v1  # default local vLLM OpenAI-compatible root
+      # api_key: ""          # optional reverse-proxy auth; default installs use dummy credential
+      # discovery:
+      #   catalog: true
+      #   catalog_url: https://models.dev/api.json
+      #   timeout: 15s
   features:
     - id: submit-noop
       enabled: true

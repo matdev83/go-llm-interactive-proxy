@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
@@ -355,6 +356,51 @@ func backendLmstudio(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (exe
 		cfg.APIKey = ek[0]
 	}
 	return applyConfiguredModelInventory(lmstudio.New(cfg), y.Models)
+}
+
+type vllmDiscoveryYAML struct {
+	Catalog    *bool  `yaml:"catalog"`
+	CatalogURL string `yaml:"catalog_url"`
+	Timeout    string `yaml:"timeout"`
+}
+
+type vllmBackendYAML struct {
+	BaseURL     string                 `yaml:"base_url"`
+	APIKey      string                 `yaml:"api_key"`
+	APIKeys     []string               `yaml:"api_keys"`
+	Credentials []hostedCredentialYAML `yaml:"credentials"`
+	Discovery   vllmDiscoveryYAML      `yaml:"discovery"`
+	Models      modelInventoryYAML     `yaml:"models"`
+}
+
+func backendVllm(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
+	var y vllmBackendYAML
+	if err := config.DecodeYAMLNode(n, &y); err != nil {
+		return execbackend.Backend{}, fmt.Errorf("vllm backend config: %w", err)
+	}
+	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, nil)
+	discovery := vllm.DiscoveryConfig{
+		Catalog:    y.Discovery.Catalog,
+		CatalogURL: strings.TrimSpace(y.Discovery.CatalogURL),
+	}
+	if timeout := strings.TrimSpace(y.Discovery.Timeout); timeout != "" {
+		d, err := time.ParseDuration(timeout)
+		if err != nil {
+			return execbackend.Backend{}, fmt.Errorf("vllm discovery timeout: %w", err)
+		}
+		discovery.Timeout = d
+	}
+	cfg := vllm.Config{
+		BaseURL:     strings.TrimSpace(y.BaseURL),
+		APIKeys:     ek,
+		Credentials: hostedCredentials(y.Credentials),
+		HTTPClient:  resolveUpstreamHTTP(upstream),
+		Discovery:   discovery,
+	}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return applyConfiguredModelInventory(vllm.New(cfg), y.Models)
 }
 
 func backendNvidia(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {

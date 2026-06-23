@@ -72,6 +72,9 @@ plugins:
     - id: lmstudio
       enabled: false
       config: {}
+    - id: vllm
+      enabled: false
+      config: {}
     - kind: local-stub
       id: dogfood-local
       enabled: true

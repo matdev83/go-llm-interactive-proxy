@@ -57,6 +57,11 @@
       "enabled": false
     },
     {
+      "id": "vllm",
+      "kind": "vllm",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "kind": "local-stub",
       "enabled": true

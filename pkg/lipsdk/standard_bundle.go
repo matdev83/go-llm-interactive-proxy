@@ -19,6 +19,7 @@ func StandardDistributionRequirements() []Requirement {
 		{Kind: PluginKindBackend, ID: "ollama"},
 		{Kind: PluginKindBackend, ID: "ollama-cloud"},
 		{Kind: PluginKindBackend, ID: "lmstudio"},
+		{Kind: PluginKindBackend, ID: "vllm"},
 		{Kind: PluginKindFeature, ID: "submit-noop"},
 		{Kind: PluginKindFeature, ID: "parts-noop"},
 		{Kind: PluginKindFeature, ID: "tool-reactor-noop"},

@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
@@ -184,6 +185,9 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
 		{ID: lmstudio.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendLmstudio(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
+		{ID: vllm.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendVllm(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
 		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendLocalStub(n, upstream)
