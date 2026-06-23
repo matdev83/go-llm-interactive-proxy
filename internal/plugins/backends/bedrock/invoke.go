@@ -178,28 +178,9 @@ func ConverseStreamInputForCall(call *lipapi.Call, cand routing.AttemptCandidate
 	return in, nil
 }
 
-func joinInstructionText(insts []lipapi.Message) string {
-	var b strings.Builder
-	for _, m := range insts {
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartText {
-				continue
-			}
-			if strings.TrimSpace(p.Text) == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(p.Text)
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
 func buildSystemBlocks(call *lipapi.Call) ([]types.SystemContentBlock, error) {
 	var out []types.SystemContentBlock
-	if t := joinInstructionText(call.Instructions); t != "" {
+	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		out = append(out, &types.SystemContentBlockMemberText{Value: t})
 	}
 	for _, m := range call.Messages {
@@ -351,7 +332,7 @@ func userPartsToContentBlocks(parts []lipapi.Part) ([]types.ContentBlock, error)
 func imageBlockFromPart(p lipapi.Part) (types.ContentBlock, error) {
 	ref := p.ImageRef
 	if strings.HasPrefix(ref, "data:") {
-		mime, b64, ok := stripDataURLBase64(ref)
+		mime, b64, ok := lipapi.StripDataURLBase64(ref)
 		if !ok {
 			return nil, fmt.Errorf("bedrock: invalid data URL in image part")
 		}
@@ -378,7 +359,7 @@ func documentBlockFromPart(p lipapi.Part) (types.ContentBlock, error) {
 	if !strings.HasPrefix(ref, "data:") {
 		return nil, fmt.Errorf("bedrock: file part requires a data URL, got %q", ref)
 	}
-	mime, b64, ok := stripDataURLBase64(ref)
+	mime, b64, ok := lipapi.StripDataURLBase64(ref)
 	if !ok {
 		return nil, fmt.Errorf("bedrock: invalid data URL in file part")
 	}
@@ -418,23 +399,6 @@ func imageFormatFromMIME(mime string) types.ImageFormat {
 	default:
 		return types.ImageFormatPng
 	}
-}
-
-func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	rest, ok := strings.CutPrefix(dataURL, "data:")
-	if !ok {
-		return "", "", false
-	}
-	mime, enc, found := strings.Cut(rest, ";")
-	if !found {
-		return "", "", false
-	}
-	const prefix = "base64,"
-	encBody, ok := strings.CutPrefix(enc, prefix)
-	if !ok {
-		return "", "", false
-	}
-	return mime, encBody, true
 }
 
 func buildToolConfig(call *lipapi.Call) (*types.ToolConfiguration, error) {

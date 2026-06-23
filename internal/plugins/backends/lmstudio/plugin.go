@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/openai/openai-go/v3/option"
 )
 
 const rateLimitFallback = 60 * time.Second
@@ -30,15 +29,12 @@ func New(cfg Config) execbackend.Backend {
 		HTTPClient:        cfg.HTTPClient,
 		SDKMaxRetries:     cfg.SDKMaxRetries,
 		RateLimitFallback: rateLimitFallback,
-		RequestOptions: func(call lipapi.Call) []option.RequestOption {
-			return requestOptions(call)
-		},
-		ResolveModel: resolveModel,
+		ResolveModel:      resolveModel,
 		Inventory: modeldiscover.CatalogAwareOpenAICompatibleModelsProvider{
 			BaseURL:           cfg.BaseURL,
 			APIKey:            apiKey,
 			APIKeys:           apiKeys,
-			Credentials:       credentialSecrets(credentials),
+			Credentials:       credpool.Secrets(credentials),
 			HTTPClient:        cfg.HTTPClient,
 			CanonicalPrefix:   ID,
 			PreserveVendorIDs: true,
@@ -80,19 +76,4 @@ func chatOnlyTransportCaps() lipapi.BackendTransportCaps {
 			Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
 		},
 	)
-}
-
-func requestOptions(call lipapi.Call) []option.RequestOption {
-	return nil
-}
-
-func credentialSecrets(credentials []credpool.Credential) []string {
-	if len(credentials) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(credentials))
-	for _, cred := range credentials {
-		out = append(out, cred.Secret)
-	}
-	return out
 }

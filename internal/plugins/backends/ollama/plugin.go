@@ -42,7 +42,7 @@ func newBackend(id string, cfg Config, mode backendMode) execbackend.Backend {
 		NativeRoot:  nativeRoot,
 		APIKey:      apiKey,
 		APIKeys:     apiKeys,
-		Credentials: credentialSecrets(credentials),
+		Credentials: credpool.Secrets(credentials),
 		HTTPClient:  cfg.HTTPClient,
 		Discovery:   cfg.Discovery,
 		Mode:        mode,
@@ -169,15 +169,4 @@ func buildTransportCaps(responsesEnabled bool) lipapi.BackendTransportCaps {
 		})
 	}
 	return lipapi.NewBackendTransportCaps(entries...)
-}
-
-func credentialSecrets(credentials []credpool.Credential) []string {
-	if len(credentials) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(credentials))
-	for _, cred := range credentials {
-		out = append(out, cred.Secret)
-	}
-	return out
 }

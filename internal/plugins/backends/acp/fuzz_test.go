@@ -14,7 +14,7 @@ func FuzzParseNDJSONLine(f *testing.F) {
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		raw = testkit.CapBytes(raw, 1<<20)
 		line := string(raw)
-		_, _ = parseNDJSONLine(context.Background(), defaultSessionUpdateMapperOptions(), line, 1)
+		_, _ = parseNDJSONLine(context.Background(), SessionUpdateMapperOptions{}, line, 1)
 	})
 }
 
@@ -26,7 +26,7 @@ func FuzzMapSessionUpdateToEvents(f *testing.F) {
 		if err := json.Unmarshal(raw, &upd); err != nil {
 			return
 		}
-		_, _ = mapSessionUpdateToEvents(context.Background(), defaultSessionUpdateMapperOptions(), upd)
+		_, _ = mapSessionUpdateToEvents(context.Background(), SessionUpdateMapperOptions{}, upd)
 	})
 }
 

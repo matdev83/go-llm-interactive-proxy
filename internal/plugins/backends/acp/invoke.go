@@ -39,7 +39,7 @@ func promptBlocksForCall(call *lipapi.Call) ([]map[string]any, error) {
 		return nil, fmt.Errorf("acp: nil call")
 	}
 	blocks := []map[string]any{}
-	if t := joinInstructionText(call.Instructions); t != "" {
+	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": t})
 	}
 	for _, m := range call.Messages {
@@ -73,22 +73,6 @@ func promptBlocksForCall(call *lipapi.Call) ([]map[string]any, error) {
 		return nil, fmt.Errorf("acp: empty prompt after mapping")
 	}
 	return blocks, nil
-}
-
-func joinInstructionText(insts []lipapi.Message) string {
-	var b strings.Builder
-	for _, m := range insts {
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartText || strings.TrimSpace(p.Text) == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(p.Text)
-		}
-	}
-	return strings.TrimSpace(b.String())
 }
 
 func userPartsToPromptBlocks(parts []lipapi.Part) ([]map[string]any, error) {

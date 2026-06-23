@@ -198,14 +198,6 @@ func (p *inventoryProvider) loadCloudModels(ctx context.Context) ([]modelinvento
 	return models, nil
 }
 
-func cloudModelName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" || strings.HasSuffix(name, "-cloud") {
-		return name
-	}
-	return name + "-cloud"
-}
-
 func cloudInventoryModelName(name string) string {
 	return strings.TrimSuffix(strings.TrimSpace(name), "-cloud")
 }

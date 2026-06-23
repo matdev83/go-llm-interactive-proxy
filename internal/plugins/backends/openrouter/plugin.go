@@ -51,7 +51,7 @@ func New(cfg Config) execbackend.Backend {
 			BaseURL:           cfg.BaseURL,
 			APIKey:            cfg.APIKey,
 			APIKeys:           cfg.APIKeys,
-			Credentials:       credentialSecrets(cfg.Credentials),
+			Credentials:       credpool.Secrets(cfg.Credentials),
 			HTTPClient:        cfg.HTTPClient,
 			CanonicalPrefix:   "openrouter",
 			PreserveVendorIDs: true,
@@ -63,15 +63,4 @@ func New(cfg Config) execbackend.Backend {
 			return openaicompat.FlavorChat
 		},
 	})
-}
-
-func credentialSecrets(credentials []credpool.Credential) []string {
-	if len(credentials) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(credentials))
-	for _, cred := range credentials {
-		out = append(out, cred.Secret)
-	}
-	return out
 }

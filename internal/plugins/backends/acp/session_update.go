@@ -29,30 +29,8 @@ type SessionUpdateMapperOptions struct {
 	ToolSink             ToolUpdateSink
 }
 
-func defaultSessionUpdateMapperOptions() SessionUpdateMapperOptions {
-	return SessionUpdateMapperOptions{}
-}
-
 func mergeMapperOptions(cfg Config) SessionUpdateMapperOptions {
-	def := SessionUpdateMapperOptions{}
-	u := cfg.SessionUpdate
-	out := SessionUpdateMapperOptions{
-		DisableAgentThought:  u.DisableAgentThought,
-		DisablePlanReasoning: u.DisablePlanReasoning,
-		ToolSink:             u.ToolSink,
-	}
-	if out.ToolSink == nil {
-		out.ToolSink = def.ToolSink
-	}
-	return out
-}
-
-func (o SessionUpdateMapperOptions) emitThought() bool {
-	return !o.DisableAgentThought
-}
-
-func (o SessionUpdateMapperOptions) planAsReasoning() bool {
-	return !o.DisablePlanReasoning
+	return cfg.SessionUpdate
 }
 
 func textFromACPContent(content map[string]any) string {
@@ -90,7 +68,7 @@ func mapSessionUpdateToEvents(ctx context.Context, o SessionUpdateMapperOptions,
 		return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: text}}, nil
 
 	case acpAgentThoughtChunk:
-		if !o.emitThought() {
+		if o.DisableAgentThought {
 			return nil, nil
 		}
 		text := textFromACPContent(content)
@@ -104,7 +82,7 @@ func mapSessionUpdateToEvents(ctx context.Context, o SessionUpdateMapperOptions,
 		if line == "" {
 			return nil, nil
 		}
-		if o.planAsReasoning() {
+		if !o.DisablePlanReasoning {
 			return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: line}}, nil
 		}
 		return []lipapi.Event{{Kind: lipapi.EventWarning, WarningCode: "acp_plan", WarningMessage: strings.TrimSpace(line)}}, nil
@@ -114,7 +92,7 @@ func mapSessionUpdateToEvents(ctx context.Context, o SessionUpdateMapperOptions,
 		if line == "" {
 			return nil, nil
 		}
-		if o.planAsReasoning() {
+		if !o.DisablePlanReasoning {
 			return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: line}}, nil
 		}
 		return []lipapi.Event{{Kind: lipapi.EventWarning, WarningCode: "acp_mode", WarningMessage: strings.TrimSpace(line)}}, nil

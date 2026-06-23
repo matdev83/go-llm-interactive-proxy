@@ -102,7 +102,7 @@ func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (Stre
 
 func buildSystemInstruction(call *lipapi.Call) *genai.Content {
 	var texts []string
-	if t := joinInstructionText(call.Instructions); t != "" {
+	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		texts = append(texts, t)
 	}
 	for _, m := range call.Messages {
@@ -120,25 +120,6 @@ func buildSystemInstruction(call *lipapi.Call) *genai.Content {
 		return nil
 	}
 	return &genai.Content{Parts: []*genai.Part{genai.NewPartFromText(strings.Join(texts, "\n\n"))}}
-}
-
-func joinInstructionText(insts []lipapi.Message) string {
-	var b strings.Builder
-	for _, m := range insts {
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartText {
-				continue
-			}
-			if strings.TrimSpace(p.Text) == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(p.Text)
-		}
-	}
-	return strings.TrimSpace(b.String())
 }
 
 func buildContents(call *lipapi.Call) ([]*genai.Content, error) {
@@ -243,7 +224,7 @@ func assistantPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
 func imagePartFromCanonical(p lipapi.Part) (*genai.Part, error) {
 	ref := p.ImageRef
 	if strings.HasPrefix(ref, "data:") {
-		mime, b64, ok := stripDataURLBase64(ref)
+		mime, b64, ok := lipapi.StripDataURLBase64(ref)
 		if !ok {
 			return nil, fmt.Errorf("gemini: invalid data URL in image part")
 		}
@@ -269,7 +250,7 @@ func filePartFromCanonical(p lipapi.Part) (*genai.Part, error) {
 	if !strings.HasPrefix(ref, "data:") {
 		return nil, fmt.Errorf("gemini: file part requires a data URL, got %q", ref)
 	}
-	mime, b64, ok := stripDataURLBase64(ref)
+	mime, b64, ok := lipapi.StripDataURLBase64(ref)
 	if !ok {
 		return nil, fmt.Errorf("gemini: invalid data URL in file part")
 	}
@@ -291,23 +272,6 @@ func pickImageMediaType(fromDataURL, fromPart string) string {
 		return s
 	}
 	return fromDataURL
-}
-
-func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	rest, ok := strings.CutPrefix(dataURL, "data:")
-	if !ok {
-		return "", "", false
-	}
-	mime, enc, found := strings.Cut(rest, ";")
-	if !found {
-		return "", "", false
-	}
-	const prefix = "base64,"
-	encBody, ok := strings.CutPrefix(enc, prefix)
-	if !ok {
-		return "", "", false
-	}
-	return mime, encBody, true
 }
 
 func buildTools(tools []lipapi.ToolDef) ([]*genai.Tool, error) {

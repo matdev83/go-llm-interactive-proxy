@@ -100,28 +100,9 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.
 	return p, nil
 }
 
-func joinInstructionText(insts []lipapi.Message) string {
-	var b strings.Builder
-	for _, m := range insts {
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartText {
-				continue
-			}
-			if strings.TrimSpace(p.Text) == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteString("\n\n")
-			}
-			b.WriteString(p.Text)
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
 func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
 	var out []anthropic.TextBlockParam
-	if t := joinInstructionText(call.Instructions); t != "" {
+	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		out = append(out, anthropic.TextBlockParam{Text: t})
 	}
 	for _, m := range call.Messages {
@@ -236,7 +217,7 @@ func userPartsToBlocks(parts []lipapi.Part) ([]anthropic.ContentBlockParamUnion,
 func imageBlockFromPart(p lipapi.Part) (anthropic.ContentBlockParamUnion, error) {
 	ref := p.ImageRef
 	if strings.HasPrefix(ref, "data:") {
-		mime, b64, ok := stripDataURLBase64(ref)
+		mime, b64, ok := lipapi.StripDataURLBase64(ref)
 		if !ok {
 			return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: invalid data URL in image part")
 		}
@@ -264,7 +245,7 @@ func documentBlockFromPart(p lipapi.Part) (anthropic.ContentBlockParamUnion, err
 	if !strings.HasPrefix(ref, "data:") {
 		return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: file part requires a data URL, got %q", ref)
 	}
-	mime, b64, ok := stripDataURLBase64(ref)
+	mime, b64, ok := lipapi.StripDataURLBase64(ref)
 	if !ok {
 		return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: invalid data URL in file part")
 	}
@@ -273,23 +254,6 @@ func documentBlockFromPart(p lipapi.Part) (anthropic.ContentBlockParamUnion, err
 	return anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{
 		Data: b64,
 	}), nil
-}
-
-func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
-	rest, ok := strings.CutPrefix(dataURL, "data:")
-	if !ok {
-		return "", "", false
-	}
-	mime, enc, found := strings.Cut(rest, ";")
-	if !found {
-		return "", "", false
-	}
-	const prefix = "base64,"
-	encBody, ok := strings.CutPrefix(enc, prefix)
-	if !ok {
-		return "", "", false
-	}
-	return mime, encBody, true
 }
 
 func buildTools(tools []lipapi.ToolDef) ([]anthropic.ToolUnionParam, error) {

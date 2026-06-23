@@ -67,11 +67,14 @@ func mergeHandshakeProfile(cfg Config, call *lipapi.Call) HandshakeProfile {
 	if raw, ok := ext[extAuthenticateParamsJSONKey]; ok && len(raw) > 0 && json.Valid(raw) {
 		p.AuthenticateParams = raw
 	}
-	cwd := strings.TrimSpace(firstNonEmpty(
-		jsonStringExt(ext, extCwdJSONKey),
-		jsonStringExt(ext, extWorkspaceJSONKey),
-		strings.TrimSpace(p.SessionNewCwd),
-	))
+	cwdFromExt := jsonStringExt(ext, extCwdJSONKey)
+	if cwdFromExt == "" {
+		cwdFromExt = jsonStringExt(ext, extWorkspaceJSONKey)
+	}
+	if cwdFromExt == "" {
+		cwdFromExt = strings.TrimSpace(p.SessionNewCwd)
+	}
+	cwd := strings.TrimSpace(cwdFromExt)
 	if cwd != "" {
 		p.SessionNewCwd = cwd
 	}
@@ -82,16 +85,6 @@ func mergeHandshakeProfile(cfg Config, call *lipapi.Call) HandshakeProfile {
 		p.SessionNewCwd = "/"
 	}
 	return p
-}
-
-func firstNonEmpty(a, b, c string) string {
-	if a != "" {
-		return a
-	}
-	if b != "" {
-		return b
-	}
-	return c
 }
 
 func jsonStringExt(ext map[string]json.RawMessage, key string) string {
