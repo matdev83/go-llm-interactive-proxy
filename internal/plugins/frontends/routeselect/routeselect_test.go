@@ -27,9 +27,15 @@ func TestInlineOrDefault(t *testing.T) {
 		},
 		{
 			name:         "unknown prefix",
-			model:        "stub:claude-3-5-sonnet",
+			model:        "xyz:claude-3-5-sonnet",
 			defaultRoute: "openai-legacy:gpt-4o",
 			want:         "openai-legacy:gpt-4o",
+		},
+		{
+			name:         "test stub prefix",
+			model:        "stub:claude-3-5-sonnet",
+			defaultRoute: "openai-legacy:gpt-4o",
+			want:         "stub:claude-3-5-sonnet",
 		},
 		{
 			name:         "no prefix",

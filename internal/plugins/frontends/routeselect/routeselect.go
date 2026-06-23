@@ -19,6 +19,8 @@ var inlineRoutePrefixes = map[string]struct{}{
 	"openai-legacy":    {},
 	"openai-responses": {},
 	"openrouter":       {},
+	// Test frontends use stub route selectors with executor stubs outside the production backend registry.
+	"stub": {},
 }
 
 // InlineOrDefault returns model when it has a known backend prefix before the colon delimiter.
