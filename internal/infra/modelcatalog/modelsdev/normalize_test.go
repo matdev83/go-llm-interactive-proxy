@@ -1,6 +1,7 @@
 package modelsdev_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -39,6 +40,20 @@ func TestParseSnapshot_validMinimal(t *testing.T) {
 	}
 	if f.ContextLimit.State != modelcatalog.LimitUnknown {
 		t.Fatalf("context limit: got %+v", f.ContextLimit)
+	}
+}
+
+func TestParseModelIDs(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"openai":{"id":"openai","models":[{"id":"gpt-oss:120b"}]},"google":{"id":"google","models":[{"id":"gemma3:4b"}]}}`)
+	ids, err := modelsdev.ParseModelIDs(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"google/gemma3:4b", "openai/gpt-oss:120b"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ids = %+v, want %+v", ids, want)
 	}
 }
 

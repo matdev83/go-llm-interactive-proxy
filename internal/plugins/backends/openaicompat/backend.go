@@ -45,16 +45,17 @@ type BackendSpec struct {
 
 func NewBackend(spec BackendSpec) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(spec.ID, "base_url", spec.BaseURL); err != nil {
-		return newConfigErrorBackend(err)
+		return newConfigErrorBackend(spec.ID, err)
 	}
 	pool, err := openaicred.NewPoolFromCredentials(spec.APIKey, spec.APIKeys, spec.Credentials)
 	if err != nil {
-		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", spec.ID, err))
+		return newConfigErrorBackend(spec.ID, fmt.Errorf("%s: credentials: %w", spec.ID, err))
 	}
 	return execbackend.Backend{
-		Caps:           openaicaps.HostedFull,
-		TransportCaps:  hostedTransportCaps(),
-		ModelInventory: spec.Inventory,
+		Caps:            openaicaps.HostedFull,
+		TransportCaps:   hostedTransportCaps(),
+		BackendPrefixes: []string{spec.ID},
+		ModelInventory:  spec.Inventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModel(resolveModel(spec, cand, call))
 		},
@@ -120,11 +121,12 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 	}
 }
 
-func newConfigErrorBackend(err error) execbackend.Backend {
+func newConfigErrorBackend(id string, err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps:           openaicaps.HostedFull,
-		TransportCaps:  hostedTransportCaps(),
-		ModelInventory: modelinventory.ErrorProvider{Err: err},
+		Caps:            openaicaps.HostedFull,
+		TransportCaps:   hostedTransportCaps(),
+		BackendPrefixes: []string{id},
+		ModelInventory:  modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.HostedFull
 		},

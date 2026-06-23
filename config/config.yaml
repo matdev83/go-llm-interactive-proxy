@@ -276,6 +276,28 @@ plugins:
       config: {}
       # base_url: https://integrate.api.nvidia.com/v1  # default
       # api_key: ""          # or use NVIDIA_API_KEY / NVIDIA_API_KEY_N env vars
+    - id: ollama
+      enabled: false
+      config: {}
+      # base_url: http://localhost:11434/v1  # default local Ollama OpenAI-compatible root
+      # responses_api: auto  # auto | enabled | disabled (auto probes /api/version for >= 0.13.3)
+      # api_key: ""          # optional reverse-proxy auth; default installs use dummy credential
+      # discovery:
+      #   enabled: true
+      #   local_models: true
+      #   capabilities: true
+      #   timeout: 15s
+    - id: ollama-cloud
+      enabled: false
+      config: {}
+      # base_url: http://localhost:11434/v1  # local Ollama app proxying cloud models
+      # responses_api: auto
+      # discovery:
+      #   enabled: true
+      #   cloud_models: true
+      #   capabilities: true
+      #   cloud_models_url: https://ollama.com/api/tags
+      #   timeout: 15s
   features:
     - id: submit-noop
       enabled: true

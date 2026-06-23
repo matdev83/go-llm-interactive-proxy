@@ -24,6 +24,10 @@ type Backend struct {
 	ResolveTransportCaps func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendTransportCaps
 	Open                 func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error)
 	ModelInventory       modelinventory.Provider
+	// BackendPrefixes names this connector kind for model-inventory discovery. Prefixes may be
+	// shared by instances of the same backend kind, but different backend kinds must not claim the
+	// same prefix. Canonical model IDs must not use the qualifier form "<prefix>:<canonical-id>".
+	BackendPrefixes []string
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)

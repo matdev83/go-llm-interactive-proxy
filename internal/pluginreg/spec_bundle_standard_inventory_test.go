@@ -34,6 +34,8 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"gemini",
 		"local-stub",
 		"nvidia",
+		"ollama",
+		"ollama-cloud",
 		"openai-legacy",
 		"openai-responses",
 		"openrouter",

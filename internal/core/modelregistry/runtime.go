@@ -197,7 +197,11 @@ func (r *Runtime) publishSnapshot(snap Snapshot) error {
 	if err := r.validateSnapshotBackends(snap); err != nil {
 		return err
 	}
-	reg, err := newRegistryFromBackendModels(snap.Models)
+	registeredPrefixes, err := validateInventoryPrefixes(r.cfg.Inventories)
+	if err != nil {
+		return err
+	}
+	reg, err := newRegistryFromBackendModels(snap.Models, registeredPrefixes)
 	if err != nil {
 		return err
 	}

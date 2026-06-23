@@ -55,7 +55,8 @@ func New(cfg Config) execbackend.Backend {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}
 	return execbackend.Backend{
-		Caps: defaultBackendCaps(),
+		Caps:            defaultBackendCaps(),
+		BackendPrefixes: []string{ID},
 		ModelInventory: modeldiscover.GeminiModelsProvider{
 			BaseURL:    cfg.BaseURL,
 			APIKey:     cfg.APIKey,
@@ -117,8 +118,9 @@ func New(cfg Config) execbackend.Backend {
 
 func newConfigErrorBackend(err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps:           defaultBackendCaps(),
-		ModelInventory: modelinventory.ErrorProvider{Err: err},
+		Caps:            defaultBackendCaps(),
+		BackendPrefixes: []string{ID},
+		ModelInventory:  modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},

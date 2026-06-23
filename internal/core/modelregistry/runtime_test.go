@@ -29,9 +29,10 @@ func TestRuntime_StartLoadsValidCacheWithoutRemoteFetch(t *testing.T) {
 	provider := &countingInventoryProvider{err: errors.New("remote must not be called")}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "remote-backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "remote-backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 		Now:   func() time.Time { return time.Unix(200, 0).UTC() },
@@ -70,9 +71,10 @@ func TestRuntime_StartIgnoresCacheWithUnconfiguredBackendID(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "remote-backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "remote-backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 	})
@@ -91,6 +93,46 @@ func TestRuntime_StartIgnoresCacheWithUnconfiguredBackendID(t *testing.T) {
 	}
 }
 
+func TestRuntime_StartIgnoresCacheWithQualifiedCanonicalID(t *testing.T) {
+	t.Parallel()
+
+	cache := &fakeModelRegistryCache{load: modelregistry.Snapshot{
+		Generation: "qualified-cache",
+		Models: []modelregistry.BackendModel{{
+			CanonicalID: "ollama:google/gemma4",
+			NativeID:    "google/gemma4",
+			BackendID:   "ollama-local",
+			Kind:        "ollama",
+		}},
+	}}
+	provider := &countingInventoryProvider{models: []modelinventory.Model{{
+		CanonicalID: "google/gemma4",
+		NativeID:    "gemma4:latest",
+	}}}
+	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
+		Inventories: []modelregistry.BackendInventory{{
+			BackendID:       "ollama-local",
+			Kind:            "ollama",
+			BackendPrefixes: []string{"ollama"},
+			Provider:        provider,
+		}},
+		Cache: cache,
+	})
+
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if provider.Calls() != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.Calls())
+	}
+	if _, ok := rt.Lookup("ollama:google/gemma4"); ok {
+		t.Fatal("qualified cached canonical id should not be published")
+	}
+	if got, ok := rt.Lookup("google/gemma4"); !ok || len(got) != 1 || got[0].NativeID != "gemma4:latest" {
+		t.Fatalf("remote lookup = %+v, %v", got, ok)
+	}
+}
+
 func TestRuntime_StartColdLoadsRemoteAndSavesCache(t *testing.T) {
 	t.Parallel()
 
@@ -102,9 +144,10 @@ func TestRuntime_StartColdLoadsRemoteAndSavesCache(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "remote-backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "remote-backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 		Now:   func() time.Time { return time.Unix(300, 0).UTC() },
@@ -134,9 +177,10 @@ func TestRuntime_RefreshFailureKeepsPriorSuccessfulRegistry(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: &fakeModelRegistryCache{loadErr: modelregistry.ErrSnapshotUnavailable},
 		Now:   func() time.Time { return time.Unix(400, 0).UTC() },
@@ -178,9 +222,10 @@ func TestRuntime_StartInvalidCacheFallsBackToRemote(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "remote-backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "remote-backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 	})
@@ -216,9 +261,10 @@ func TestRuntime_StartCacheLoadErrorFallsBackToRemoteAndReportsCacheFailure(t *t
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "remote-backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "remote-backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 	})
@@ -247,9 +293,10 @@ func TestRuntime_SuccessfulRefreshClearsPriorCacheFailure(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "remote-backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "remote-backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 	})
@@ -285,9 +332,10 @@ func TestRuntime_CacheSaveFailurePublishesRefreshedRegistry(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 	})
@@ -326,9 +374,10 @@ func TestRuntime_StartColdPublishesRemoteWhenCacheSaveFails(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: cache,
 	})
@@ -356,9 +405,10 @@ func TestRuntime_DiagnosticsReportsActiveRegistryAndFailure(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: &fakeModelRegistryCache{loadErr: modelregistry.ErrSnapshotUnavailable},
 		Now:   func() time.Time { return time.Unix(700, 0).UTC() },
@@ -393,9 +443,10 @@ func TestRuntime_ConcurrentLookupDuringRefresh(t *testing.T) {
 	}}}
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: []modelregistry.BackendInventory{{
-			BackendID: "backend",
-			Kind:      "openai-responses",
-			Provider:  provider,
+			BackendID:       "backend",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
 		}},
 		Cache: &fakeModelRegistryCache{loadErr: modelregistry.ErrSnapshotUnavailable},
 	})

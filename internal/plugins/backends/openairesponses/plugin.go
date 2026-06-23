@@ -49,7 +49,8 @@ func New(cfg Config) execbackend.Backend {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}
 	return execbackend.Backend{
-		Caps: openaicaps.HostedFull,
+		Caps:            openaicaps.HostedFull,
+		BackendPrefixes: []string{ID},
 		ModelInventory: modeldiscover.OpenAICompatibleModelsProvider{
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,
@@ -121,8 +122,9 @@ func credentialSecrets(credentials []credpool.Credential) []string {
 
 func newConfigErrorBackend(err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps:           openaicaps.HostedFull,
-		ModelInventory: modelinventory.ErrorProvider{Err: err},
+		Caps:            openaicaps.HostedFull,
+		BackendPrefixes: []string{ID},
+		ModelInventory:  modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModel(resolveModel(cand, call))
 		},

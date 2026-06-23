@@ -123,10 +123,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		}
 		backends[iid] = be
 		inventories = append(inventories, modelregistry.BackendInventory{
-			BackendID:    iid,
-			Kind:         fid,
-			Provider:     be.ModelInventory,
-			FetchTimeout: modelInventoryFetchTimeout,
+			BackendID:       iid,
+			Kind:            fid,
+			BackendPrefixes: be.BackendPrefixes,
+			Provider:        be.ModelInventory,
+			FetchTimeout:    modelInventoryFetchTimeout,
 		})
 	}
 	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
