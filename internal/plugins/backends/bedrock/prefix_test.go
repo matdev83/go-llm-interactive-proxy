@@ -8,6 +8,8 @@ import (
 func TestNewWithContext_exposesInventoryPrefix(t *testing.T) {
 	t.Parallel()
 
+	// Use a canceled context to exercise the construction error path and ensure
+	// BackendPrefixes is set even when the Bedrock runtime client is unavailable.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

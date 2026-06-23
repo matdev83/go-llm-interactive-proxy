@@ -280,7 +280,7 @@ try {
     Stop-Process -Id $script:proc.Id -Force
     $script:proc.WaitForExit(5000) | Out-Null
   }
-  if (-not $ok -and $script:proc -and $script:proc.ExitCode -ne 0 -and $script:proc.ExitCode -ne $null) {
+  if (-not $ok -and $script:proc -and $script:proc.ExitCode -ne 0 -and $null -ne $script:proc.ExitCode) {
     Write-Host "lipstd stdout: $stdoutPath"
     Write-Host "lipstd stderr: $stderrPath"
   }

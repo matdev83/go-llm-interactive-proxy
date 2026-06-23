@@ -57,6 +57,37 @@ func TestParseModelIDs(t *testing.T) {
 	}
 }
 
+func TestParseModelIDs_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     []byte
+		want    []string
+		wantErr bool
+	}{
+		{name: "empty", raw: nil, wantErr: true},
+		{name: "null root", raw: []byte("null"), wantErr: true},
+		{name: "empty object", raw: []byte("{}"), want: []string{}},
+		{name: "provider without models", raw: []byte(`{"openai":{"id":"openai"}}`), want: []string{}},
+		{name: "empty model ids skipped", raw: []byte(`{"openai":{"id":"openai","models":[{"id":""}]}}`), want: []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := modelsdev.ParseModelIDs(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseModelIDs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("ParseModelIDs() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseSnapshot_richMapping(t *testing.T) {
 	t.Parallel()
 	raw := []byte(`{

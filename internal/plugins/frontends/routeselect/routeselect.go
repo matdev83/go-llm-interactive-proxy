@@ -1,3 +1,5 @@
+// Package routeselect derives explicit route selectors from model identifiers.
+// Route selectors use "backend-prefix:model" to route requests to a backend family.
 package routeselect
 
 import (
@@ -17,10 +19,10 @@ var inlineRoutePrefixes = map[string]struct{}{
 	"openai-legacy":    {},
 	"openai-responses": {},
 	"openrouter":       {},
-	"stub":             {},
 }
 
-// InlineOrDefault returns model when it has a known route prefix, otherwise defaultRoute.
+// InlineOrDefault returns model when it has a known backend prefix before the colon delimiter.
+// Otherwise it returns defaultRoute with surrounding whitespace removed.
 func InlineOrDefault(model, defaultRoute string) string {
 	model = strings.TrimSpace(model)
 	prefix, _, ok := strings.Cut(model, ":")
@@ -32,7 +34,8 @@ func InlineOrDefault(model, defaultRoute string) string {
 	return strings.TrimSpace(defaultRoute)
 }
 
-// FromModelOrDefault parses model from JSON body and returns it if it has an inline route prefix, otherwise defaultRoute.
+// FromModelOrDefault parses body for a model field and returns it when it carries a known inline route prefix.
+// If decoding fails or the model has no known prefix, it returns defaultRoute with surrounding whitespace removed.
 func FromModelOrDefault(body []byte, defaultRoute string) string {
 	var req struct {
 		Model string `json:"model"`

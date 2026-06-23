@@ -309,7 +309,9 @@ func (p *inventoryProvider) probeCapabilities(ctx context.Context, models []mode
 		}
 	}
 	p.capsMu.Lock()
-	p.capsByID = capsByID
+	for id, caps := range capsByID {
+		p.capsByID[id] = caps
+	}
 	p.capsMu.Unlock()
 }
 

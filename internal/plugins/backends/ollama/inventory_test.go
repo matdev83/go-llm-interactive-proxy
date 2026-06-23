@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,9 +28,9 @@ func TestInventory_localModeEnumeratesLocalOnly(t *testing.T) {
 	}))
 	t.Cleanup(local.Close)
 
-	var cloudHits int
+	var cloudHits atomic.Int32
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cloudHits++
+		cloudHits.Add(1)
 		_, _ = w.Write([]byte(`{"models":[{"name":"deepseek-v3.2"}]}`))
 	}))
 	t.Cleanup(cloud.Close)
@@ -51,8 +52,8 @@ func TestInventory_localModeEnumeratesLocalOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cloudHits != 0 {
-		t.Fatalf("cloud discovery invoked %d times", cloudHits)
+	if cloudHits.Load() != 0 {
+		t.Fatalf("cloud discovery invoked %d times", cloudHits.Load())
 	}
 	if len(snap.Models) != 2 {
 		t.Fatalf("models = %+v", snap.Models)
@@ -81,9 +82,9 @@ func TestInventory_localIgnoresCloudToggle(t *testing.T) {
 	}))
 	t.Cleanup(local.Close)
 
-	var cloudHits int
+	var cloudHits atomic.Int32
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cloudHits++
+		cloudHits.Add(1)
 		_, _ = w.Write([]byte(`{"models":[{"name":"deepseek-v3.2"}]}`))
 	}))
 	t.Cleanup(cloud.Close)
@@ -107,8 +108,8 @@ func TestInventory_localIgnoresCloudToggle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cloudHits != 0 {
-		t.Fatalf("cloud discovery invoked %d times", cloudHits)
+	if cloudHits.Load() != 0 {
+		t.Fatalf("cloud discovery invoked %d times", cloudHits.Load())
 	}
 	if len(snap.Models) != 1 || snap.Models[0].NativeID != "llama3:latest" {
 		t.Fatalf("models = %+v", snap.Models)
@@ -121,10 +122,10 @@ func TestInventory_localIgnoresCloudToggle(t *testing.T) {
 func TestInventory_cloudModeEnumeratesCloudOnly(t *testing.T) {
 	t.Parallel()
 
-	var localHits int
+	var localHits atomic.Int32
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
-			localHits++
+			localHits.Add(1)
 		}
 		http.NotFound(w, r)
 	}))
@@ -152,8 +153,8 @@ func TestInventory_cloudModeEnumeratesCloudOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if localHits != 0 {
-		t.Fatalf("local discovery invoked %d times", localHits)
+	if localHits.Load() != 0 {
+		t.Fatalf("local discovery invoked %d times", localHits.Load())
 	}
 	if len(snap.Models) != 2 {
 		t.Fatalf("models = %+v", snap.Models)
@@ -176,10 +177,10 @@ func TestInventory_cloudModeEnumeratesCloudOnly(t *testing.T) {
 func TestInventory_cloudIgnoresLocalToggle(t *testing.T) {
 	t.Parallel()
 
-	var localHits int
+	var localHits atomic.Int32
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
-			localHits++
+			localHits.Add(1)
 		}
 		http.NotFound(w, r)
 	}))
@@ -209,8 +210,8 @@ func TestInventory_cloudIgnoresLocalToggle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if localHits != 0 {
-		t.Fatalf("local discovery invoked %d times", localHits)
+	if localHits.Load() != 0 {
+		t.Fatalf("local discovery invoked %d times", localHits.Load())
 	}
 	if len(snap.Models) != 1 || snap.Models[0].NativeID != "deepseek-v3.2" {
 		t.Fatalf("models = %+v", snap.Models)

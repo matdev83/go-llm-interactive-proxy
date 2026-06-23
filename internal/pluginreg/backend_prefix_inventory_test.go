@@ -17,9 +17,6 @@ func TestStandardBackends_exposeInventoryPrefixes(t *testing.T) {
 	}
 
 	for _, id := range standardBackendFactoryIDs(t) {
-		if id == "bedrock" {
-			continue
-		}
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 

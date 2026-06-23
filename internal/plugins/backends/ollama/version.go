@@ -17,7 +17,7 @@ const minResponsesVersion = "0.13.3"
 func NativeRootFromBaseURL(baseURL string) string {
 	u := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if strings.HasSuffix(strings.ToLower(u), "/v1") {
-		return strings.TrimSuffix(u, "/v1")
+		return u[:len(u)-3]
 	}
 	return u
 }
@@ -31,9 +31,6 @@ func ParseSemver(raw string) (Semver, error) {
 		raw = raw[:idx]
 	}
 	parts := strings.Split(raw, ".")
-	if len(parts) == 0 {
-		return Semver{}, fmt.Errorf("ollama: invalid version %q", raw)
-	}
 	for len(parts) < 3 {
 		parts = append(parts, "0")
 	}
