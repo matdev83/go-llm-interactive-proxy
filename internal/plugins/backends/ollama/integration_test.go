@@ -22,8 +22,6 @@ func testCandidate(model string) routing.AttemptCandidate {
 	return routing.AttemptCandidate{Primary: routing.Primary{Model: model}}
 }
 
-func boolPtr(v bool) *bool { return &v }
-
 func testCall(ext map[string]json.RawMessage) lipapi.Call {
 	return lipapi.Call{
 		Messages: []lipapi.Message{{
@@ -560,8 +558,8 @@ func TestIntegration_cloudInventoryAdvertisesWithoutCloudSuffix(t *testing.T) {
 		HTTPClient: srv.Client(),
 		Discovery: ollama.DiscoveryConfig{
 			CloudURL:     cloud.URL,
-			Catalog:      boolPtr(false),
-			Capabilities: boolPtr(false),
+			Catalog:      new(false),
+			Capabilities: new(false),
 		},
 	})
 
