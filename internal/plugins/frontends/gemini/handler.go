@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/holdalive"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -94,9 +95,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
-	if sel == "" {
-		sel = strings.TrimSpace(h.DefaultRouteSelector)
-	}
 	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
 	if err != nil {
 		return
@@ -109,6 +107,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		releaseDecode()
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON"))
 		return
+	}
+	if sel == "" {
+		sel = routeselect.InlineOrDefault(model, h.DefaultRouteSelector)
 	}
 	decoded, err := DecodeGenerateContentRequest(body, DecodeOptions{
 		RouteSelector: sel,

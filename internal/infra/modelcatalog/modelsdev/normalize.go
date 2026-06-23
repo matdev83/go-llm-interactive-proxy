@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -67,6 +68,46 @@ func ParseSnapshot(raw []byte, fetchedAt time.Time) (modelcatalog.Snapshot, erro
 		Index:       idx,
 		WirePayload: bytes.Clone(raw),
 	}, nil
+}
+
+// ParseModelIDs decodes a models.dev-style provider map and returns sorted canonical provider/model IDs.
+func ParseModelIDs(raw []byte) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, errors.New("modelsdev: empty payload")
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("modelsdev: decode root: %w", err)
+	}
+	if root == nil {
+		return nil, errors.New("modelsdev: unsupported schema: null root")
+	}
+	ids := []string{}
+	for providerKey, providerRaw := range root {
+		providerKey = strings.TrimSpace(providerKey)
+		if providerKey == "" {
+			continue
+		}
+		var wp wireProvider
+		if err := json.Unmarshal(providerRaw, &wp); err != nil {
+			return nil, fmt.Errorf("modelsdev: provider %q: %w", providerKey, err)
+		}
+		if len(wp.Models) == 0 || string(wp.Models) == "null" {
+			continue
+		}
+		var models []wireModel
+		if err := json.Unmarshal(wp.Models, &models); err != nil {
+			return nil, fmt.Errorf("modelsdev: provider %q models: %w", providerKey, err)
+		}
+		for _, wm := range models {
+			mid := strings.TrimSpace(wm.ID)
+			if mid != "" {
+				ids = append(ids, providerKey+"/"+mid)
+			}
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
 }
 
 func normalizeModelFacts(wm wireModel) modelcatalog.ModelFacts {

@@ -63,6 +63,16 @@
       "enabled": false
     },
     {
+      "id": "ollama",
+      "factory_kind": "ollama",
+      "enabled": false
+    },
+    {
+      "id": "ollama-cloud",
+      "factory_kind": "ollama-cloud",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "factory_kind": "local-stub",
       "enabled": true

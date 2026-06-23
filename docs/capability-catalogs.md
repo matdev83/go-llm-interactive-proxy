@@ -20,8 +20,11 @@ Backend model inventory answers: "which configured backend instances expose cano
 Operator rules:
 
 - The active registry is immutable and process-local. Request-time lookup does not read files and does not call remote providers.
-- Every enabled backend instance must expose a `pkg/lipsdk/modelinventory.Provider`. Third-party backend
-  plugins should load remote inventory from their provider API or expose a static file/inline inventory.
+- Every enabled backend instance must expose a `pkg/lipsdk/modelinventory.Provider` and at least one
+  `execbackend.Backend.BackendPrefixes` entry. Prefixes are validated before discovery and must be unique
+  across backend connector kinds; multiple instances of the same kind may reuse that kind's prefix.
+  Canonical inventory ids must not use the qualifier form
+  `<backend-prefix>:<canonical-id>` (for example `ollama:google/gemma4`).
 - At startup, the runtime loads `model_inventory.cache_path` first when set. A valid cache avoids an immediate remote model-list call.
 - If no valid cache is available, startup calls each enabled backend inventory provider once. Startup fails only when no valid cache exists and discovery cannot produce a valid registry.
 - Background refresh defaults to `1h` and has a minimum of `1h`. A failed refresh keeps the latest successful registry active.

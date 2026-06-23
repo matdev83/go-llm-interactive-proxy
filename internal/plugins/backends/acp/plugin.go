@@ -52,8 +52,9 @@ func New(cfg Config) execbackend.Backend {
 	cli, err := newClient(cfg.BaseURL, cfg.HTTPClient, cfg.Log)
 	if err != nil {
 		return execbackend.Backend{
-			Caps:           defaultBackendCaps(),
-			ModelInventory: modelinventory.ErrorProvider{Err: err},
+			Caps:            defaultBackendCaps(),
+			BackendPrefixes: []string{ID},
+			ModelInventory:  modelinventory.ErrorProvider{Err: err},
 			ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 				return defaultBackendCaps()
 			},
@@ -70,7 +71,8 @@ func New(cfg Config) execbackend.Backend {
 	mapper := mergeMapperOptions(cfg)
 	cancelProf := mergeCancelProfile(cfg)
 	return execbackend.Backend{
-		Caps: defaultBackendCaps(),
+		Caps:            defaultBackendCaps(),
+		BackendPrefixes: []string{ID},
 		ModelInventory: modelinventory.StaticProvider{
 			Source: modelinventory.SourceStaticBuiltin,
 			Models: []modelinventory.Model{{

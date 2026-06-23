@@ -13,17 +13,20 @@ import (
 )
 
 var (
-	ErrNilContext         = errors.New("modelregistry: nil context")
-	ErrMissingProvider    = errors.New("modelregistry: missing inventory provider")
-	ErrInvalidModel       = errors.New("modelregistry: invalid model")
-	ErrInvalidCanonicalID = errors.New("modelregistry: invalid canonical model id")
+	ErrNilContext             = errors.New("modelregistry: nil context")
+	ErrMissingProvider        = errors.New("modelregistry: missing inventory provider")
+	ErrMissingBackendPrefix   = errors.New("modelregistry: missing backend prefix")
+	ErrDuplicateBackendPrefix = errors.New("modelregistry: duplicate backend prefix")
+	ErrInvalidModel           = errors.New("modelregistry: invalid model")
+	ErrInvalidCanonicalID     = errors.New("modelregistry: invalid canonical model id")
 )
 
 type BackendInventory struct {
-	BackendID    string
-	Kind         string
-	Provider     modelinventory.Provider
-	FetchTimeout time.Duration
+	BackendID       string
+	Kind            string
+	BackendPrefixes []string
+	Provider        modelinventory.Provider
+	FetchTimeout    time.Duration
 }
 
 type BackendModel struct {
@@ -50,6 +53,10 @@ type Registry struct {
 func Build(ctx context.Context, inventories []BackendInventory) (*Registry, error) {
 	if ctx == nil {
 		return nil, ErrNilContext
+	}
+	registeredPrefixes, err := validateInventoryPrefixes(inventories)
+	if err != nil {
+		return nil, err
 	}
 	byCanonical := make(map[string][]BackendModel)
 	all := []BackendModel{}
@@ -86,6 +93,9 @@ func Build(ctx context.Context, inventories []BackendInventory) (*Registry, erro
 			if !validCanonicalID(canonical) {
 				return nil, fmt.Errorf("%w %q for backend %q model[%d]", ErrInvalidCanonicalID, canonical, backendID, j)
 			}
+			if canonicalUsesRegisteredPrefixQualifier(canonical, registeredPrefixes) {
+				return nil, fmt.Errorf("%w %q for backend %q model[%d]", ErrInvalidCanonicalID, canonical, backendID, j)
+			}
 			row := BackendModel{
 				CanonicalID: canonical,
 				NativeID:    native,
@@ -108,7 +118,7 @@ func Build(ctx context.Context, inventories []BackendInventory) (*Registry, erro
 			all:         []BackendModel{},
 		}, nil
 	}
-	return newRegistryFromBackendModels(all)
+	return newRegistryFromBackendModels(all, registeredPrefixes)
 }
 
 func (r *Registry) Lookup(canonicalID string) ([]BackendModel, bool) {
@@ -137,7 +147,70 @@ func validCanonicalID(id string) bool {
 	return strings.TrimSpace(left) != "" && strings.TrimSpace(right) != "" && !strings.Contains(right, "/")
 }
 
-func newRegistryFromBackendModels(models []BackendModel) (*Registry, error) {
+type prefixOwner struct {
+	backendID string
+	kind      string
+}
+
+func validateInventoryPrefixes(inventories []BackendInventory) (map[string]struct{}, error) {
+	owners := make(map[string]prefixOwner)
+	registered := make(map[string]struct{})
+	for i, inv := range inventories {
+		backendID := strings.TrimSpace(inv.BackendID)
+		kind := strings.TrimSpace(inv.Kind)
+		valid := normalizeBackendPrefixes(inv.BackendPrefixes)
+		if len(valid) == 0 {
+			if backendID == "" {
+				backendID = fmt.Sprintf("inventory[%d]", i)
+			}
+			return nil, fmt.Errorf("%w for backend %q at inventory[%d]", ErrMissingBackendPrefix, backendID, i)
+		}
+		for _, prefix := range valid {
+			if prev, ok := owners[prefix]; ok {
+				if prev.kind != kind {
+					return nil, fmt.Errorf("%w %q claimed by backend %q (kind %q) and backend %q (kind %q)", ErrDuplicateBackendPrefix, prefix, prev.backendID, prev.kind, backendID, kind)
+				}
+				continue
+			}
+			owners[prefix] = prefixOwner{backendID: backendID, kind: kind}
+			registered[prefix] = struct{}{}
+		}
+	}
+	return registered, nil
+}
+
+func normalizeBackendPrefixes(prefixes []string) []string {
+	out := []string{}
+	seen := make(map[string]struct{}, len(prefixes))
+	for _, raw := range prefixes {
+		prefix := strings.TrimSpace(raw)
+		if prefix == "" || strings.Contains(prefix, "/") || strings.Contains(prefix, ":") {
+			continue
+		}
+		if _, ok := seen[prefix]; ok {
+			continue
+		}
+		seen[prefix] = struct{}{}
+		out = append(out, prefix)
+	}
+	return out
+}
+
+func canonicalUsesRegisteredPrefixQualifier(canonical string, registeredPrefixes map[string]struct{}) bool {
+	prefix, rest, ok := strings.Cut(canonical, ":")
+	if !ok {
+		return false
+	}
+	prefix = strings.TrimSpace(prefix)
+	rest = strings.TrimSpace(rest)
+	if prefix == "" || rest == "" {
+		return false
+	}
+	_, registered := registeredPrefixes[prefix]
+	return registered
+}
+
+func newRegistryFromBackendModels(models []BackendModel, registeredPrefixes map[string]struct{}) (*Registry, error) {
 	byCanonical := make(map[string][]BackendModel)
 	all := make([]BackendModel, 0, len(models))
 	for i, m := range models {
@@ -149,6 +222,9 @@ func newRegistryFromBackendModels(models []BackendModel) (*Registry, error) {
 			return nil, fmt.Errorf("%w at model[%d]", ErrInvalidModel, i)
 		}
 		if !validCanonicalID(canonical) {
+			return nil, fmt.Errorf("%w %q at model[%d]", ErrInvalidCanonicalID, canonical, i)
+		}
+		if canonicalUsesRegisteredPrefixQualifier(canonical, registeredPrefixes) {
 			return nil, fmt.Errorf("%w %q at model[%d]", ErrInvalidCanonicalID, canonical, i)
 		}
 		row := BackendModel{

@@ -60,6 +60,12 @@ plugins:
     - id: nvidia
       enabled: false
       config: {}
+    - id: ollama
+      enabled: false
+      config: {}
+    - id: ollama-cloud
+      enabled: false
+      config: {}
     - kind: local-stub
       id: stub-oal
       enabled: true

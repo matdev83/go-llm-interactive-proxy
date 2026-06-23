@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
@@ -174,6 +175,12 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendNvidia(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendOllama(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
+		{ID: ollama.CloudID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendOllamaCloud(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
 		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendLocalStub(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},

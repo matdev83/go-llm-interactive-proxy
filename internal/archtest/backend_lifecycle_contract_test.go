@@ -12,8 +12,10 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	root := repoRoot(t)
 	backendsDir := filepath.Join(root, "internal", "plugins", "backends")
 	lifecycleDelegatedToSharedAdapter := map[string]string{
-		"openrouter": "openaicompat",
-		"nvidia":     "openaicompat",
+		"ollama":       "openaicompat",
+		"ollama-cloud": "openaicompat",
+		"openrouter":   "openaicompat",
+		"nvidia":       "openaicompat",
 	}
 	skipDirs := map[string]struct{}{
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},

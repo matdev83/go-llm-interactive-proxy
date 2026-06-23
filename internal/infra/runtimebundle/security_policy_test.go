@@ -23,8 +23,9 @@ func registerProfiledBackend(t *testing.T, reg *pluginreg.Registry, factoryID st
 	t.Helper()
 	err := reg.RegisterBackendWithProfile(factoryID, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: testModelInventory(),
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{factoryID},
+			ModelInventory:  testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, nil
 			},
@@ -44,8 +45,9 @@ func registerBillingBackend(t *testing.T, reg *pluginreg.Registry, factoryID str
 	t.Helper()
 	err := reg.RegisterBackend(factoryID, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		be := execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: testModelInventory(),
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{factoryID},
+			ModelInventory:  testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},

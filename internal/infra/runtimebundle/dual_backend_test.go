@@ -17,7 +17,6 @@ func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-
 	var empty yaml.Node
 	if err := yaml.Unmarshal([]byte(testOpenAIBackendYAML()), &empty); err != nil {
 		t.Fatal(err)

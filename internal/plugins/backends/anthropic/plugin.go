@@ -59,6 +59,7 @@ func New(cfg Config) execbackend.Backend {
 	}
 	return execbackend.Backend{
 		Caps:            defaultBackendCaps(),
+		BackendPrefixes: []string{ID},
 		ProviderCounter: NewTokenCounter(cfg),
 		ModelInventory: modeldiscover.AnthropicModelsProvider{
 			BaseURL:    cfg.BaseURL,
@@ -118,8 +119,9 @@ func New(cfg Config) execbackend.Backend {
 
 func newConfigErrorBackend(err error) execbackend.Backend {
 	return execbackend.Backend{
-		Caps:           defaultBackendCaps(),
-		ModelInventory: modelinventory.ErrorProvider{Err: err},
+		Caps:            defaultBackendCaps(),
+		BackendPrefixes: []string{ID},
+		ModelInventory:  modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},

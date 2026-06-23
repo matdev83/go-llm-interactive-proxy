@@ -61,7 +61,12 @@ A plugin should reject invalid config at startup rather than fail during the fir
 
 ## Backend model inventory
 
-Backend plugins must expose `execbackend.Backend.ModelInventory` with a `pkg/lipsdk/modelinventory.Provider`.
+Backend plugins must expose `execbackend.Backend.ModelInventory` with a `pkg/lipsdk/modelinventory.Provider`
+and at least one `execbackend.Backend.BackendPrefixes` entry. Prefixes must match the backend factory id
+(for example `openai-responses`, `ollama`, `ollama-cloud`) and must be unique across backend connector
+kinds at runtime. Multiple instances of the same connector kind may reuse that kind's prefix.
+Canonical model IDs must use the `vendor/model` form; do not publish
+inventory rows whose canonical id uses a backend prefix qualifier such as `ollama:google/gemma4`.
 The core model registry uses this provider at startup and during background refresh to answer fast routing
 lookups for canonical model IDs such as `openai/gpt-5`.
 

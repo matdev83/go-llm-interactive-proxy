@@ -91,9 +91,9 @@ func (t *attemptAccountingTracker) snapshot() attemptAccountingSnapshot {
 	if !out.FirstMeaningfulTokenAt.IsZero() && !out.RemoteCompletedAt.IsZero() {
 		d := out.RemoteCompletedAt.Sub(out.FirstMeaningfulTokenAt)
 		out.CompletionDurationMillis = millis(d)
-		if d > 0 && out.OutputTokens > 0 {
+		if out.CompletionDurationMillis > 0 && out.OutputTokens > 0 {
 			// Store milli-TPS so integer accounting keeps three decimal places without floats.
-			out.CompletionTPSMilli = out.OutputTokens * 1000 * 1000 / int64(d/time.Millisecond)
+			out.CompletionTPSMilli = out.OutputTokens * 1000 * 1000 / out.CompletionDurationMillis
 		}
 	}
 	return out

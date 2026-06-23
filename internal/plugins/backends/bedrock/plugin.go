@@ -58,8 +58,9 @@ func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 	if err != nil {
 		// Surface construction errors at Open time via a backend that always fails.
 		return execbackend.Backend{
-			Caps:           defaultBackendCaps(),
-			ModelInventory: newFoundationModelsProvider(loadCtx, cfg),
+			Caps:            defaultBackendCaps(),
+			BackendPrefixes: []string{ID},
+			ModelInventory:  newFoundationModelsProvider(loadCtx, cfg),
 			ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 				return ModelCapabilities(resolveModelID(cand, call))
 			},
@@ -70,8 +71,9 @@ func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
 	}
 	client := cli
 	return execbackend.Backend{
-		Caps:           defaultBackendCaps(),
-		ModelInventory: newFoundationModelsProvider(loadCtx, cfg),
+		Caps:            defaultBackendCaps(),
+		BackendPrefixes: []string{ID},
+		ModelInventory:  newFoundationModelsProvider(loadCtx, cfg),
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModelID(cand, call))
 		},

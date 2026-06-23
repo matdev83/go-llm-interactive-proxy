@@ -50,3 +50,21 @@ func TestAttemptAccountingTracker_completionTPSUsesOutputTokensFromMeaningfulTok
 		t.Fatalf("CompletionDurationMillis: got %d want 2000", got.CompletionDurationMillis)
 	}
 }
+
+func TestAttemptAccountingTracker_subMillisecondCompletionDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	start := time.Unix(300, 0)
+	tr := newAttemptAccountingTracker(start)
+	tr.observeClientEvent(start.Add(time.Second), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "x"})
+	tr.observeUsage(lipapi.Event{Kind: lipapi.EventUsageDelta, OutputTokens: 1})
+	tr.observeClientEvent(start.Add(time.Second+500*time.Microsecond), lipapi.Event{Kind: lipapi.EventResponseFinished})
+
+	got := tr.snapshot()
+	if got.CompletionDurationMillis != 0 {
+		t.Fatalf("CompletionDurationMillis: got %d want 0", got.CompletionDurationMillis)
+	}
+	if got.CompletionTPSMilli != 0 {
+		t.Fatalf("CompletionTPSMilli: got %d want 0", got.CompletionTPSMilli)
+	}
+}

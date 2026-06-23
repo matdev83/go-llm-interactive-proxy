@@ -31,7 +31,8 @@ func TestBuild_requiresModelInventoryForEnabledBackends(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-no-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-no-inventory"},
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("not used")
 			},
@@ -54,7 +55,8 @@ func TestBuild_exposesModelRegistryForFastLookup(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory"},
 			ModelInventory: modelinventory.StaticProvider{Models: []modelinventory.Model{
 				{CanonicalID: "openai/gpt-4o", NativeID: "gpt-4o"},
 			}},
@@ -104,8 +106,9 @@ func TestBuild_modelRegistryLoadsCacheWithoutRemoteInventoryCall(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: provider,
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory"},
+			ModelInventory:  provider,
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("not used")
 			},
@@ -147,8 +150,9 @@ func TestBuild_modelRegistryColdStartSavesCache(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: provider,
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory"},
+			ModelInventory:  provider,
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("not used")
 			},
@@ -182,8 +186,9 @@ func TestBuild_modelRegistryColdStartFailsWhenCacheAndRemoteUnavailable(t *testi
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: modelinventory.ErrorProvider{Err: errors.New("remote unavailable")},
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory"},
+			ModelInventory:  modelinventory.ErrorProvider{Err: errors.New("remote unavailable")},
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("not used")
 			},
@@ -208,8 +213,9 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: testModelInventory(),
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory"},
+			ModelInventory:  testModelInventory(),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("not used")
 			},
@@ -248,8 +254,9 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend("test-error-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps:           lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-			ModelInventory: modelinventory.ErrorProvider{Err: errors.New("backend construction failed")},
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-error-inventory"},
+			ModelInventory:  modelinventory.ErrorProvider{Err: errors.New("backend construction failed")},
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				return nil, errors.New("not used")
 			},
@@ -285,10 +292,10 @@ func TestBuild_modelRegistryFetchTimeoutAppliesPerBackend(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory-a", delayedBackendFactory("vendor/a", 20*time.Millisecond)); err != nil {
+	if err := reg.RegisterBackend("test-inventory-a", delayedBackendFactory("test-inventory-a", "vendor/a", 20*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterBackend("test-inventory-b", delayedBackendFactory("vendor/b", 20*time.Millisecond)); err != nil {
+	if err := reg.RegisterBackend("test-inventory-b", delayedBackendFactory("test-inventory-b", "vendor/b", 20*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -371,10 +378,11 @@ type runtimeBundleCountingInventory struct {
 	models []modelinventory.Model
 }
 
-func delayedBackendFactory(modelID string, delay time.Duration) pluginreg.BackendFactory {
+func delayedBackendFactory(prefix, modelID string, delay time.Duration) pluginreg.BackendFactory {
 	return func(yaml.Node, *http.Client) (execbackend.Backend, error) {
 		return execbackend.Backend{
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{prefix},
 			ModelInventory: delayedRuntimeBundleInventory{
 				modelID: modelID,
 				delay:   delay,

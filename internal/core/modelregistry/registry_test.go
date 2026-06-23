@@ -16,15 +16,17 @@ func TestRegistry_LookupByCanonicalIDPreservesBackendOrder(t *testing.T) {
 
 	reg, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
 		{
-			BackendID: "openrouter",
-			Kind:      "openrouter",
+			BackendID:       "openrouter",
+			Kind:            "openrouter",
+			BackendPrefixes: []string{"openrouter"},
 			Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
 				{CanonicalID: "openai/gpt-4o", NativeID: "openai/gpt-4o"},
 			}},
 		},
 		{
-			BackendID: "openai-direct",
-			Kind:      "openai-responses",
+			BackendID:       "openai-direct",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
 			Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
 				{CanonicalID: "openai/gpt-4o", NativeID: "gpt-4o"},
 			}},
@@ -54,18 +56,20 @@ func TestBuildAppliesFetchTimeoutPerBackend(t *testing.T) {
 
 	reg, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
 		{
-			BackendID:    "first",
-			Kind:         "test",
-			FetchTimeout: 50 * time.Millisecond,
+			BackendID:       "first",
+			Kind:            "test",
+			BackendPrefixes: []string{"test-first"},
+			FetchTimeout:    50 * time.Millisecond,
 			Provider: delayedInventoryProvider{
 				delay:  25 * time.Millisecond,
 				models: []modelinventory.Model{{CanonicalID: "vendor/first", NativeID: "first"}},
 			},
 		},
 		{
-			BackendID:    "second",
-			Kind:         "test",
-			FetchTimeout: 50 * time.Millisecond,
+			BackendID:       "second",
+			Kind:            "test",
+			BackendPrefixes: []string{"test-second"},
+			FetchTimeout:    50 * time.Millisecond,
 			Provider: delayedInventoryProvider{
 				delay:  25 * time.Millisecond,
 				models: []modelinventory.Model{{CanonicalID: "vendor/second", NativeID: "second"}},
@@ -84,9 +88,10 @@ func TestBuildPerBackendFetchTimeoutCancelsSlowBackend(t *testing.T) {
 	t.Parallel()
 
 	_, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{{
-		BackendID:    "slow",
-		Kind:         "test",
-		FetchTimeout: 10 * time.Millisecond,
+		BackendID:       "slow",
+		Kind:            "test",
+		BackendPrefixes: []string{"test-slow"},
+		FetchTimeout:    10 * time.Millisecond,
 		Provider: delayedInventoryProvider{
 			delay:  100 * time.Millisecond,
 			models: []modelinventory.Model{{CanonicalID: "vendor/slow", NativeID: "slow"}},
@@ -102,8 +107,9 @@ func TestRegistry_LookupReturnsDefensiveCopy(t *testing.T) {
 
 	reg, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
 		{
-			BackendID: "openai",
-			Kind:      "openai-responses",
+			BackendID:       "openai",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
 			Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
 				{CanonicalID: "openai/gpt-4o", NativeID: "gpt-4o"},
 			}},
@@ -133,8 +139,9 @@ func TestRegistry_ConcurrentLookup(t *testing.T) {
 
 	reg, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
 		{
-			BackendID: "openai",
-			Kind:      "openai-responses",
+			BackendID:       "openai",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
 			Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
 				{CanonicalID: "openai/gpt-4o", NativeID: "gpt-4o"},
 				{CanonicalID: "openai/gpt-4.1", NativeID: "gpt-4.1"},
@@ -171,26 +178,40 @@ func TestBuildRejectsInvalidInventory(t *testing.T) {
 		{
 			name: "nil provider",
 			in: []modelregistry.BackendInventory{{
-				BackendID: "openai",
-				Kind:      "openai-responses",
+				BackendID:       "openai",
+				Kind:            "openai-responses",
+				BackendPrefixes: []string{"openai-responses"},
 			}},
 			want: modelregistry.ErrMissingProvider,
 		},
 		{
-			name: "model without canonical id",
+			name: "missing backend prefix",
 			in: []modelregistry.BackendInventory{{
 				BackendID: "openai",
 				Kind:      "openai-responses",
-				Provider:  modelinventory.StaticProvider{Models: []modelinventory.Model{{NativeID: "gpt-4o"}}},
+				Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
+					{CanonicalID: "openai/gpt-4o", NativeID: "gpt-4o"},
+				}},
+			}},
+			want: modelregistry.ErrMissingBackendPrefix,
+		},
+		{
+			name: "model without canonical id",
+			in: []modelregistry.BackendInventory{{
+				BackendID:       "openai",
+				Kind:            "openai-responses",
+				BackendPrefixes: []string{"openai-responses"},
+				Provider:        modelinventory.StaticProvider{Models: []modelinventory.Model{{NativeID: "gpt-4o"}}},
 			}},
 			want: modelregistry.ErrInvalidModel,
 		},
 		{
 			name: "canonical id without vendor",
 			in: []modelregistry.BackendInventory{{
-				BackendID: "openai",
-				Kind:      "openai-responses",
-				Provider:  modelinventory.StaticProvider{Models: []modelinventory.Model{{CanonicalID: "gpt-4o", NativeID: "gpt-4o"}}},
+				BackendID:       "openai",
+				Kind:            "openai-responses",
+				BackendPrefixes: []string{"openai-responses"},
+				Provider:        modelinventory.StaticProvider{Models: []modelinventory.Model{{CanonicalID: "gpt-4o", NativeID: "gpt-4o"}}},
 			}},
 			want: modelregistry.ErrInvalidCanonicalID,
 		},

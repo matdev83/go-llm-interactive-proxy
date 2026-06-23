@@ -378,3 +378,39 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 		t.Fatalf("route selector %q", call.Route.Selector)
 	}
 }
+
+func TestIntegration_modelRouteSelectorUsedWhenHeaderAbsent(t *testing.T) {
+	t.Parallel()
+	var capture sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &capture)
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route"}
+	mux := http.NewServeMux()
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := srv.URL + "/v1beta/models/stub:model-from-path:generateContent"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, u,
+		strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"x"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := testkit.IntegrationHTTPClient(nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	v, ok := capture.Load("last")
+	if !ok {
+		t.Fatal("expected captured call")
+	}
+	call := testkit.MustLIPCall(t, v)
+	if call.Route.Selector != "stub:model-from-path" {
+		t.Fatalf("route selector %q", call.Route.Selector)
+	}
+}

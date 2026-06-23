@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/holdalive"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/jsonguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -131,9 +132,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
-	if sel == "" {
-		sel = strings.TrimSpace(h.DefaultRouteSelector)
-	}
 	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
 	if err != nil {
 		return
@@ -152,6 +150,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"",
 		))
 		return
+	}
+	if sel == "" {
+		sel = routeselect.FromModelOrDefault(body, h.DefaultRouteSelector)
 	}
 	decoded, err := DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
 	releaseDecode()

@@ -30,7 +30,8 @@ func New(cfg Config) execbackend.Backend {
 		caps[lipapi.CapabilityTools] = struct{}{}
 	}
 	return execbackend.Backend{
-		Caps: caps,
+		Caps:            caps,
+		BackendPrefixes: []string{ID},
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return caps
 		},
