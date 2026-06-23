@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -309,9 +310,7 @@ func (p *inventoryProvider) probeCapabilities(ctx context.Context, models []mode
 		}
 	}
 	p.capsMu.Lock()
-	for id, caps := range capsByID {
-		p.capsByID[id] = caps
-	}
+	maps.Copy(p.capsByID, capsByID)
 	p.capsMu.Unlock()
 }
 
