@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
@@ -180,6 +181,9 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
 		{ID: ollama.CloudID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendOllamaCloud(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
+		{ID: lmstudio.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendLmstudio(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
 		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendLocalStub(n, upstream)

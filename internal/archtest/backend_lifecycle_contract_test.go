@@ -14,6 +14,7 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	lifecycleDelegatedToSharedAdapter := map[string]string{
 		"ollama":       "openaicompat",
 		"ollama-cloud": "openaicompat",
+		"lmstudio":     "openaicompat",
 		"openrouter":   "openaicompat",
 		"nvidia":       "openaicompat",
 	}

@@ -298,6 +298,15 @@ plugins:
       #   capabilities: true
       #   cloud_models_url: https://ollama.com/api/tags
       #   timeout: 15s
+    - id: lmstudio
+      enabled: false
+      config: {}
+      # base_url: http://localhost:1234/v1  # default local LM Studio OpenAI-compatible root
+      # api_key: ""          # optional reverse-proxy auth; default installs use dummy credential
+      # discovery:
+      #   catalog: true
+      #   catalog_url: https://models.dev/api.json
+      #   timeout: 15s
   features:
     - id: submit-noop
       enabled: true

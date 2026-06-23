@@ -32,6 +32,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"anthropic",
 		"bedrock",
 		"gemini",
+		"lmstudio",
 		"local-stub",
 		"nvidia",
 		"ollama",

@@ -73,6 +73,11 @@
       "enabled": false
     },
     {
+      "id": "lmstudio",
+      "factory_kind": "lmstudio",
+      "enabled": false
+    },
+    {
       "id": "dogfood-local",
       "factory_kind": "local-stub",
       "enabled": true
