@@ -327,7 +327,7 @@ plugins:
       #   timeout: 15s
     # Custom compatible backends let operators add API-compatible providers without code.
     # Use kind to select the generic factory; id remains the runtime route backend instance.
-    # backend_prefix must be unique and cannot use standard connector prefixes such as nvidia/openrouter/anthropic.
+    # backend_prefix must be unique, cannot contain / or :, and cannot use standard connector prefixes such as nvidia/openrouter/anthropic.
     # api_key_env_var_root reads ROOT, ROOT_2, ROOT_3, ... using the standard static key convention.
     # - id: provider123
     #   kind: custom-openai-legacy-compatible

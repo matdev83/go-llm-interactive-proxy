@@ -43,10 +43,14 @@ func TestBuildBackend_customOpenAILegacyCompatible_usesBackendPrefixAndChatTrans
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
-			t.Fatalf("path = %q, want /v1/models", r.URL.Path)
+			t.Errorf("path = %q, want /v1/models", r.URL.Path)
+			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer yaml-key" {
-			t.Fatalf("Authorization = %q", got)
+			t.Errorf("Authorization = %q", got)
+			http.Error(w, "unexpected authorization", http.StatusUnauthorized)
+			return
 		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"openai/gpt-4o-mini"}]}`))
 	}))
@@ -100,10 +104,14 @@ func TestBuildBackend_customOpenAIResponsesCompatible_usesBackendPrefixAndRespon
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
-			t.Fatalf("path = %q, want /v1/models", r.URL.Path)
+			t.Errorf("path = %q, want /v1/models", r.URL.Path)
+			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer yaml-key" {
-			t.Fatalf("Authorization = %q", got)
+			t.Errorf("Authorization = %q", got)
+			http.Error(w, "unexpected authorization", http.StatusUnauthorized)
+			return
 		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4.1"}]}`))
 	}))
@@ -190,10 +198,14 @@ func TestBuildBackend_customAnthropicCompatible_usesBackendPrefixAndRemoteDiscov
 
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
-			t.Fatalf("path = %q, want /v1/models", r.URL.Path)
+			t.Errorf("path = %q, want /v1/models", r.URL.Path)
+			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
 		}
 		if got := r.Header.Get("x-api-key"); got != "yaml-key" {
-			t.Fatalf("x-api-key = %q", got)
+			t.Errorf("x-api-key = %q", got)
+			http.Error(w, "unexpected api key", http.StatusUnauthorized)
+			return
 		}
 		body := `{"data":[{"id":"claude-sonnet-4-20250514","display_name":"Claude Sonnet 4"}]}`
 		_, _ = w.Write([]byte(body))
