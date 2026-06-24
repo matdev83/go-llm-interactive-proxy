@@ -34,20 +34,9 @@ func TestOpenContinuityStore_nilConfig(t *testing.T) {
 	}
 }
 
-func TestOpenContinuityStoreShort_nilConfig(t *testing.T) {
-	t.Parallel()
-	_, err := runtimebundle.OpenContinuityStoreShort(nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "nil config") {
-		t.Fatalf("error: %v", err)
-	}
-}
-
 func TestOpenContinuityStore_sqlite_requiresPath(t *testing.T) {
 	t.Parallel()
-	_, err := runtimebundle.OpenContinuityStoreShort(&config.Config{Continuity: config.ContinuityConfig{
+	_, err := runtimebundle.OpenContinuityStore(context.Background(), &config.Config{Continuity: config.ContinuityConfig{
 		InMemory: false,
 		Store:    "sqlite",
 	}})
@@ -61,7 +50,7 @@ func TestOpenContinuityStore_sqlite_requiresPath(t *testing.T) {
 
 func TestOpenContinuityStore_memory_rejectsNegativeMaxLegs(t *testing.T) {
 	t.Parallel()
-	_, err := runtimebundle.OpenContinuityStoreShort(&config.Config{Continuity: config.ContinuityConfig{
+	_, err := runtimebundle.OpenContinuityStore(context.Background(), &config.Config{Continuity: config.ContinuityConfig{
 		InMemory: true,
 		MaxLegs:  -1,
 	}})
@@ -87,12 +76,12 @@ func TestOpenContinuityStore_memory_happyPath(t *testing.T) {
 	if store == nil {
 		t.Fatal("nil store")
 	}
-	store2, err := runtimebundle.OpenContinuityStoreShort(&config.Config{Continuity: cfg})
+	store2, err := runtimebundle.OpenContinuityStore(context.Background(), &config.Config{Continuity: cfg})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if store2 == nil {
-		t.Fatal("nil store from OpenContinuityStoreShort")
+		t.Fatal("nil store from OpenContinuityStore")
 	}
 }
 
@@ -100,7 +89,7 @@ func TestOpenContinuityStore_postgres_doesNotLeakPasswordInError(t *testing.T) {
 	t.Parallel()
 	const secret = "SECRET_PASSWORD_XY"
 	dsn := "postgres://user:" + secret + "@127.0.0.1:1/nosuchdb?sslmode=disable"
-	_, err := runtimebundle.OpenContinuityStoreShort(&config.Config{
+	_, err := runtimebundle.OpenContinuityStore(context.Background(), &config.Config{
 		Continuity: config.ContinuityConfig{
 			InMemory:    false,
 			Store:       "postgres",
@@ -122,19 +111,22 @@ func TestOpenContinuityStore_postgres_doesNotLeakPasswordInError(t *testing.T) {
 
 func TestNewMemoryContinuityStore_inMemoryFalse(t *testing.T) {
 	t.Parallel()
-	_, err := runtimebundle.NewMemoryContinuityStore(config.ContinuityConfig{InMemory: false})
-	if err == nil {
-		t.Fatal("expected error")
+	store, err := runtimebundle.NewMemoryContinuityStore(config.ContinuityConfig{InMemory: false})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "in_memory=false") {
-		t.Fatalf("error: %v", err)
+	if store == nil {
+		t.Fatal("nil store")
 	}
 }
 
 func TestNewMemoryContinuityStore_zeroContinuityConfig(t *testing.T) {
 	t.Parallel()
-	_, err := runtimebundle.NewMemoryContinuityStore(config.ContinuityConfig{})
-	if err == nil {
-		t.Fatal("expected error when InMemory is false (Go zero value)")
+	store, err := runtimebundle.NewMemoryContinuityStore(config.ContinuityConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store == nil {
+		t.Fatal("nil store")
 	}
 }

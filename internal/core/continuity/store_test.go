@@ -42,6 +42,9 @@ func TestNewMemoryStoreFromConfig_negativeTTL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+	if !strings.Contains(err.Error(), "continuity.ttl") {
+		t.Fatalf("error: %v", err)
+	}
 }
 
 func TestNewMemoryStoreFromConfig_rejectsNegativeMaxLegs(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
 
-// GeminiFrontendID is the factory ID for the Gemini frontend plugin. It is used
+// geminiFrontendID is the factory ID for the Gemini frontend plugin. It is used
 // to defer Gemini route registration (broad /v1beta/ prefixes) after narrower
 // protocol handlers. Sync tests in mount_constants_test.go verify alignment
 // with the canonical value in the gemini package.
-const GeminiFrontendID = "gemini"
+const geminiFrontendID = "gemini"
 
 // MountBundledFrontendsInput carries wiring for [MountBundledFrontends].
 type MountBundledFrontendsInput struct {
@@ -52,7 +52,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 		if !p.Enabled {
 			continue
 		}
-		if p.FactoryID() == GeminiFrontendID {
+		if p.FactoryID() == geminiFrontendID {
 			geminiLast = append(geminiLast, p)
 			continue
 		}

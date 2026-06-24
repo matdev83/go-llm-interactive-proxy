@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/bunstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/sqlitestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -34,10 +34,7 @@ func OpenContinuityStore(ctx context.Context, cfg *config.Config) (b2bua.Store, 
 		}
 		return sqlitestore.OpenContext(ctx, path)
 	case "memory":
-		if !cc.InMemory {
-			return nil, fmt.Errorf("continuity: in_memory=false is not valid when store is \"memory\"")
-		}
-		return newMemoryStoreFromContinuity(cc)
+		return continuity.NewMemoryStoreFromConfig(cc)
 	case "postgres":
 		poolCfg, err := config.ParseDatabasePoolSettings(cfg.Database)
 		if err != nil {
@@ -74,33 +71,8 @@ func OpenContinuityStore(ctx context.Context, cfg *config.Config) (b2bua.Store, 
 	}
 }
 
-// OpenContinuityStoreShort is equivalent to [OpenContinuityStore] with [context.Background].
-func OpenContinuityStoreShort(cfg *config.Config) (b2bua.Store, error) {
-	return OpenContinuityStore(context.Background(), cfg)
-}
-
 // NewMemoryContinuityStore creates an in-memory continuity store from the given config section.
 func NewMemoryContinuityStore(cfg config.ContinuityConfig) (b2bua.Store, error) {
-	return OpenContinuityStore(context.Background(), &config.Config{Continuity: cfg})
-}
-
-func newMemoryStoreFromContinuity(cfg config.ContinuityConfig) (b2bua.Store, error) {
-	opts := b2bua.MemoryStoreOptions{}
-	if s := strings.TrimSpace(cfg.TTL); s != "" {
-		d, err := time.ParseDuration(s)
-		if err != nil {
-			return nil, fmt.Errorf("continuity.ttl: %w", err)
-		}
-		if d < 0 {
-			return nil, fmt.Errorf("continuity.ttl must be non-negative")
-		}
-		opts.TTL = d
-	}
-	if cfg.MaxLegs < 0 {
-		return nil, fmt.Errorf("continuity: max_legs must be >= 0")
-	}
-	if cfg.MaxLegs != 0 {
-		opts.MaxLegs = cfg.MaxLegs
-	}
-	return b2bua.NewMemoryStore(opts)
+	cfg.InMemory = true
+	return continuity.NewMemoryStoreFromConfig(cfg)
 }

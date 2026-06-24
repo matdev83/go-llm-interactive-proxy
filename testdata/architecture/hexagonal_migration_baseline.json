@@ -57,6 +57,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/bunstore",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity/sqlitestore",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",

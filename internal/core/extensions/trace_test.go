@@ -2,25 +2,38 @@ package extensions
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
+var tracerProviderMu sync.Mutex
+
 func TestStartSpan_ok(t *testing.T) {
 	t.Parallel()
-	ctx, end := startSpan(context.Background(), "lip.extension.test_span")
-	end(nil)
-	_ = ctx
+	span := recordStartSpan(t, "lip.extension.test_span", nil)
+	if span.Status().Code != codes.Ok {
+		t.Fatalf("status code = %v, want %v", span.Status().Code, codes.Ok)
+	}
 }
 
 func TestStartSpan_withErr(t *testing.T) {
 	t.Parallel()
-	_, end := startSpan(context.Background(), "lip.extension.test_span_err")
-	end(context.Canceled)
+	span := recordStartSpan(t, "lip.extension.test_span_err", context.Canceled)
+	if span.Status().Code != codes.Error {
+		t.Fatalf("status code = %v, want %v", span.Status().Code, codes.Error)
+	}
+	if span.Status().Description != context.Canceled.Error() {
+		t.Fatalf("status description = %q, want %q", span.Status().Description, context.Canceled.Error())
+	}
+	if !spanHasExceptionMessage(span, context.Canceled.Error()) {
+		t.Fatalf("missing recorded error event for %q", context.Canceled.Error())
+	}
 }
 
 func TestStartSpan_nilParent(t *testing.T) {
@@ -35,29 +48,12 @@ func TestStartSpan_nilParent(t *testing.T) {
 
 func TestStartSpan_setsAttributes(t *testing.T) {
 	t.Parallel()
-	rec := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
-	prev := otel.GetTracerProvider()
-	otel.SetTracerProvider(tp)
-	t.Cleanup(func() { otel.SetTracerProvider(prev) })
-
 	const spanName = "lip.extension.attr_test"
 	wantKey := attribute.Key("lip.extension.test_key")
-	_, end := startSpan(context.Background(), spanName, attribute.String(string(wantKey), "v"))
-	end(nil)
+	span := recordStartSpan(t, spanName, nil, attribute.String(string(wantKey), "v"))
 
-	var target sdktrace.ReadWriteSpan
-	for _, s := range rec.Started() {
-		if s.Name() == spanName {
-			target = s
-			break
-		}
-	}
-	if target == nil {
-		t.Fatalf("span %q not found among %d started spans", spanName, len(rec.Started()))
-	}
 	var found bool
-	for _, a := range target.Attributes() {
+	for _, a := range span.Attributes() {
 		if a.Key == wantKey && a.Value.AsString() == "v" {
 			found = true
 			break
@@ -66,4 +62,38 @@ func TestStartSpan_setsAttributes(t *testing.T) {
 	if !found {
 		t.Fatalf("missing attribute %s on span", wantKey)
 	}
+}
+
+func recordStartSpan(t *testing.T, spanName string, err error, attrs ...attribute.KeyValue) sdktrace.ReadOnlySpan {
+	t.Helper()
+	tracerProviderMu.Lock()
+	defer tracerProviderMu.Unlock()
+
+	rec := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	defer otel.SetTracerProvider(prev)
+
+	_, end := startSpan(context.Background(), spanName, attrs...)
+	end(err)
+
+	for _, s := range rec.Ended() {
+		if s.Name() == spanName {
+			return s
+		}
+	}
+	t.Fatalf("span %q not found among %d ended spans", spanName, len(rec.Ended()))
+	return nil
+}
+
+func spanHasExceptionMessage(span sdktrace.ReadOnlySpan, want string) bool {
+	for _, event := range span.Events() {
+		for _, attr := range event.Attributes {
+			if string(attr.Key) == "exception.message" && attr.Value.AsString() == want {
+				return true
+			}
+		}
+	}
+	return false
 }

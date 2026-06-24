@@ -14,8 +14,8 @@ import (
 
 func TestGeminiFrontendID_matchesCanonical(t *testing.T) {
 	t.Parallel()
-	if stdhttp.GeminiFrontendID != gemini.ID {
-		t.Fatalf("stdhttp.GeminiFrontendID = %q, want gemini.ID = %q", stdhttp.GeminiFrontendID, gemini.ID)
+	if stdhttp.ExportGeminiFrontendID() != gemini.ID {
+		t.Fatalf("stdhttp Gemini frontend ID = %q, want gemini.ID = %q", stdhttp.ExportGeminiFrontendID(), gemini.ID)
 	}
 }
 

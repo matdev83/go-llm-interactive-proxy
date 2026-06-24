@@ -5,3 +5,4 @@ package stdhttp
 
 func ExportHeaderAuthoritativeSessionID() string { return headerAuthoritativeSessionID }
 func ExportHeaderResumeToken() string            { return headerResumeToken }
+func ExportGeminiFrontendID() string             { return geminiFrontendID }
