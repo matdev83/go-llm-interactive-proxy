@@ -257,6 +257,30 @@ func backendAnthropic(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) 
 	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
 }
 
+func backendCustomAnthropicCompatible(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+	y, err := decodeCustomCompatibleBackendYAML(n)
+	if err != nil {
+		return execbackend.Backend{}, fmt.Errorf("%s backend config: %w", CustomAnthropicCompatibleID, err)
+	}
+	prefix := strings.TrimSpace(y.BackendPrefix)
+	if err := validateCustomBackendPrefix(prefix); err != nil {
+		return execbackend.Backend{}, err
+	}
+	base := strings.TrimSpace(y.BaseURL)
+	ek := resolveCustomCompatibleAPIKeys(y)
+	cfg := anthropic.Config{
+		BaseURL:       base,
+		BackendPrefix: prefix,
+		APIKeys:       ek,
+		Credentials:   hostedCredentials(y.Credentials),
+		HTTPClient:    resolveUpstreamHTTP(upstream),
+	}
+	if len(ek) > 0 {
+		cfg.APIKey = ek[0]
+	}
+	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
+}
+
 func backendGemini(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {

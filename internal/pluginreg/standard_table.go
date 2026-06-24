@@ -196,6 +196,15 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
 			return backendLocalStub(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
+		{ID: CustomOpenAILegacyCompatibleID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendCustomOpenAILegacyCompatible(n, upstream)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: CustomOpenAIResponsesCompatibleID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendCustomOpenAIResponsesCompatible(n, upstream)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: CustomAnthropicCompatibleID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+			return backendCustomAnthropicCompatible(n, upstream)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 	}}
 }
 
