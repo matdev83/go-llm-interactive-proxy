@@ -85,6 +85,52 @@ Stub examples keep diagnostics disabled or loopback-safe where possible. If you 
 
 Hosted provider setups belong in [`config/config.yaml`](../config/config.yaml) and env-driven keys (`OPENAI_API_KEY`, etc.). Treat any live smoke as **optional** and **environment-gated**; do not assume CI or maintainers have credentials.
 
+### vLLM CPU smoke (WSL, no GPU keys)
+
+Proven maintainer path for exercising the **vLLM** OpenAI-compatible backend without hosted API keys: run a tiny CPU model in **WSL**, then drive [`scripts/vllm-text-smoke.ps1`](../scripts/vllm-text-smoke.ps1) from Windows PowerShell. The script defaults to `http://localhost:8000/v1`; pass **`-VllmBaseUrl`** when vLLM listens elsewhere. The script requires a non-empty proxy response by default; use `-ExpectedResponsePattern` only with models that reliably follow the exact smoke prompt.
+
+**1. Start vLLM in WSL** (example venv `~/venvs/vllm-cpu`; model `facebook/opt-125m`; port **18000**):
+
+```bash
+python3 -m venv ~/venvs/vllm-cpu
+source ~/venvs/vllm-cpu/bin/activate
+pip install --upgrade pip
+pip install uv
+uv pip install vllm \
+  --extra-index-url https://wheels.vllm.ai/nightly/cpu \
+  --index-strategy first-index \
+  --torch-backend cpu
+
+cat > /tmp/vllm-chat-template.jinja <<'EOF'
+{% for message in messages %}{% if message['role'] == 'user' %}User: {{ message['content'] }}
+{% elif message['role'] == 'assistant' %}Assistant: {{ message['content'] }}
+{% elif message['role'] == 'system' %}System: {{ message['content'] }}
+{% endif %}{% endfor %}Assistant:
+EOF
+
+vllm serve facebook/opt-125m \
+  --host 0.0.0.0 \
+  --port 18000 \
+  --api-key vllm \
+  --dtype float \
+  --max-model-len 128 \
+  --served-model-name opt-125m \
+  --chat-template /tmp/vllm-chat-template.jinja
+```
+
+The explicit chat template is required for **`/v1/chat/completions`** smoke (including the script's direct preflight and proxy path). Without it, chat requests against base models such as `opt-125m` typically fail with a missing chat-template error.
+
+**2. Run the smoke script from the repository root (Windows PowerShell):**
+
+```powershell
+.\scripts\vllm-text-smoke.ps1 `
+  -VllmBaseUrl http://127.0.0.1:18000/v1 `
+  -VllmApiKey vllm `
+  -Model opt-125m
+```
+
+WSL2 forwards `127.0.0.1:18000` on Windows to the listener in WSL. On success the script prints `vllm-text-smoke: PASS` and removes its temp config/logs directory; on failure it leaves logs under `%TEMP%\lip-vllm-smoke-*` for inspection.
+
 ## Maintainer integration gate (spec task 5.2)
 
 After doc or wiring changes, run repository quality checks and the stage-focused test list from `.kiro/specs/go-stage-five-dogfood-alpha-extension-proof/tasks.md` task **5.2**:

@@ -1,8 +1,12 @@
+# End-to-end text smoke against a running vLLM OpenAI-compatible server and lipstd.
+# Default base URL is localhost:8000/v1; override -VllmBaseUrl for other hosts/ports
+# (for example WSL CPU vLLM on http://127.0.0.1:18000/v1; see docs/dogfood-local.md).
 param(
   [string]$Model = "",
   [string]$VllmBaseUrl = "http://localhost:8000/v1",
   [string]$VllmApiKey = "vllm",
   [string]$ProxyAddress = "",
+  [string]$ExpectedResponsePattern = "",
   [switch]$SkipDirectVllmPreflight,
   [int]$StartupTimeoutSeconds = 30,
   [int]$RequestTimeoutSeconds = 120
@@ -93,6 +97,8 @@ function Wait-ProxyReady {
 if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
   $ProxyAddress = New-FreeLoopbackAddress
 }
+
+Write-Host "vllm base url: $VllmBaseUrl"
 
 $vllmHeaders = @{
   "Authorization" = "Bearer $VllmApiKey"
@@ -238,7 +244,7 @@ try {
   if ([string]::IsNullOrWhiteSpace($text)) {
     throw "proxy returned an empty assistant message"
   }
-  if ($text -notmatch "(?i)LIP VLLM TEXT SMOKE OK") {
+  if (-not [string]::IsNullOrWhiteSpace($ExpectedResponsePattern) -and $text -notmatch $ExpectedResponsePattern) {
     throw "unexpected assistant response: $text"
   }
 
@@ -254,5 +260,8 @@ try {
   if (-not $ok -and $script:proc -and $script:proc.ExitCode -ne 0 -and $null -ne $script:proc.ExitCode) {
     Write-Host "lipstd stdout: $stdoutPath"
     Write-Host "lipstd stderr: $stderrPath"
+  }
+  if ($ok -and (Test-Path -LiteralPath $tmpDir)) {
+    Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
