@@ -1,10 +1,11 @@
 package lmstudio
 
 import (
-	"net/http"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaifamily"
 )
 
 const (
@@ -14,45 +15,34 @@ const (
 	defaultDiscoveryTimeout = 15 * time.Second
 )
 
-type DiscoveryConfig struct {
-	Catalog    *bool
-	CatalogURL string
-	Timeout    time.Duration
-}
+type (
+	Config          = openaifamily.Config
+	DiscoveryConfig = openaifamily.DiscoveryConfig
+)
 
-type Config struct {
-	BaseURL       string
-	APIKey        string
-	APIKeys       []string
-	Credentials   []credpool.Credential
-	HTTPClient    *http.Client
-	SDKMaxRetries *int
-	Discovery     DiscoveryConfig
+var profile = openaifamily.Profile{
+	ID:                      ID,
+	DefaultBaseURL:          defaultBaseURL,
+	DefaultDummyCredential:  defaultDummyCredential,
+	DefaultCatalogURL:       defaultCatalogURL,
+	DefaultDiscoveryTimeout: defaultDiscoveryTimeout,
+	Transport:               openaifamily.TransportChatOnly,
+	ModelResolution:         openaifamily.ModelResolutionStripBackendPrefix,
+	Inventory:               openaifamily.InventoryCatalogAware,
 }
 
 func ApplyDefaults(cfg Config) Config {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = defaultBaseURL
-	}
-	if cfg.Discovery.CatalogURL == "" {
-		cfg.Discovery.CatalogURL = defaultCatalogURL
-	}
-	if cfg.Discovery.Timeout == 0 {
-		cfg.Discovery.Timeout = defaultDiscoveryTimeout
-	}
-	return cfg
+	return openaifamily.ApplyDefaults(profile, cfg)
 }
 
 func DiscoveryCatalog(d DiscoveryConfig) bool {
-	if d.Catalog == nil {
-		return true
-	}
-	return *d.Catalog
+	return openaifamily.DiscoveryCatalog(d)
 }
 
 func EffectiveCredentials(cfg Config) (apiKey string, apiKeys []string, credentials []credpool.Credential) {
-	if cfg.APIKey == "" && len(cfg.APIKeys) == 0 && len(cfg.Credentials) == 0 {
-		return defaultDummyCredential, nil, nil
-	}
-	return cfg.APIKey, cfg.APIKeys, cfg.Credentials
+	return openaifamily.EffectiveCredentials(profile, cfg)
+}
+
+func New(cfg Config) execbackend.Backend {
+	return openaifamily.New(profile, cfg)
 }

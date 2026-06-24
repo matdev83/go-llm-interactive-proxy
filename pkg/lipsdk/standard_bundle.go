@@ -18,6 +18,7 @@ func StandardDistributionRequirements() []Requirement {
 		{Kind: PluginKindBackend, ID: "nvidia"},
 		{Kind: PluginKindBackend, ID: "ollama"},
 		{Kind: PluginKindBackend, ID: "ollama-cloud"},
+		{Kind: PluginKindBackend, ID: "llamacpp"},
 		{Kind: PluginKindBackend, ID: "lmstudio"},
 		{Kind: PluginKindBackend, ID: "vllm"},
 		{Kind: PluginKindFeature, ID: "submit-noop"},

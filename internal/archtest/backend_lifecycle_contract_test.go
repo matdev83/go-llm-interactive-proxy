@@ -14,6 +14,7 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	lifecycleDelegatedToSharedAdapter := map[string]string{
 		"ollama":       "openaicompat",
 		"ollama-cloud": "openaicompat",
+		"llamacpp":     "openaicompat",
 		"lmstudio":     "openaicompat",
 		"openrouter":   "openaicompat",
 		"nvidia":       "openaicompat",
@@ -23,6 +24,7 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},
 		"modeldiscover": {},
 		"openaicompat":  {},
+		"openaifamily":  {},
 	}
 	entries, err := os.ReadDir(backendsDir)
 	if err != nil {

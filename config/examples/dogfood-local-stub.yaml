@@ -69,6 +69,9 @@ plugins:
     - id: ollama-cloud
       enabled: false
       config: {}
+    - id: llamacpp
+      enabled: false
+      config: {}
     - id: lmstudio
       enabled: false
       config: {}

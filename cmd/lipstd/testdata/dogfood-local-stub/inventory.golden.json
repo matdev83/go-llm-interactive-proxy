@@ -73,6 +73,11 @@
       "enabled": false
     },
     {
+      "id": "llamacpp",
+      "factory_kind": "llamacpp",
+      "enabled": false
+    },
+    {
       "id": "lmstudio",
       "factory_kind": "lmstudio",
       "enabled": false

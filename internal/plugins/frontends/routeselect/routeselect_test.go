@@ -26,6 +26,12 @@ func TestInlineOrDefault(t *testing.T) {
 			want:         "ollama-cloud:google/gemma3:4b",
 		},
 		{
+			name:         "llamacpp prefix with local model",
+			model:        "llamacpp:local-model",
+			defaultRoute: "openai-legacy:gpt-4o",
+			want:         "llamacpp:local-model",
+		},
+		{
 			name:         "unknown prefix",
 			model:        "xyz:claude-3-5-sonnet",
 			defaultRoute: "openai-legacy:gpt-4o",

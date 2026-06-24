@@ -2,15 +2,10 @@ package nvidia
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/openai/openai-go/v3/option"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaifamily"
 )
 
 // Config configures the NVIDIA NIM backend connector.
@@ -27,37 +22,22 @@ type Config struct {
 	SDKMaxRetries *int
 }
 
-const rateLimitFallback = 60 * time.Second
+var profile = openaifamily.Profile{
+	ID:              ID,
+	Transport:       openaifamily.TransportChatAndResponses,
+	ModelResolution: openaifamily.ModelResolutionDirect,
+	Inventory:       openaifamily.InventoryOpenAICompatible,
+	RequestOptions:  requestOptions,
+}
 
 // New returns a runtime backend that invokes NVIDIA NIM via the openai-go SDK.
 func New(cfg Config) execbackend.Backend {
-	return openaicompat.NewBackend(openaicompat.BackendSpec{
-		ID:                ID,
-		BaseURL:           cfg.BaseURL,
-		APIKey:            cfg.APIKey,
-		APIKeys:           cfg.APIKeys,
-		Credentials:       cfg.Credentials,
-		HTTPClient:        cfg.HTTPClient,
-		SDKMaxRetries:     cfg.SDKMaxRetries,
-		RateLimitFallback: rateLimitFallback,
-		RequestOptions: func(call lipapi.Call) []option.RequestOption {
-			return requestOptions(call)
-		},
-		ResolveModel: resolveModel,
-		Inventory: modeldiscover.OpenAICompatibleModelsProvider{
-			BaseURL:           cfg.BaseURL,
-			APIKey:            cfg.APIKey,
-			APIKeys:           cfg.APIKeys,
-			Credentials:       credpool.Secrets(cfg.Credentials),
-			HTTPClient:        cfg.HTTPClient,
-			CanonicalPrefix:   "nvidia",
-			PreserveVendorIDs: true,
-		},
-		ResolveFlavor: func(call lipapi.Call) openaicompat.Flavor {
-			if resolveFlavor(call) == openrouterwire.FlavorResponses {
-				return openaicompat.FlavorResponses
-			}
-			return openaicompat.FlavorChat
-		},
+	return openaifamily.New(profile, openaifamily.Config{
+		BaseURL:       cfg.BaseURL,
+		APIKey:        cfg.APIKey,
+		APIKeys:       cfg.APIKeys,
+		Credentials:   cfg.Credentials,
+		HTTPClient:    cfg.HTTPClient,
+		SDKMaxRetries: cfg.SDKMaxRetries,
 	})
 }

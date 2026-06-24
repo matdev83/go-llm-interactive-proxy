@@ -12,6 +12,7 @@ var inlineRoutePrefixes = map[string]struct{}{
 	"anthropic":        {},
 	"bedrock":          {},
 	"gemini":           {},
+	"llamacpp":         {},
 	"local-stub":       {},
 	"nvidia":           {},
 	"ollama":           {},

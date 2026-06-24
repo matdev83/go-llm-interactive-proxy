@@ -52,6 +52,11 @@
       "enabled": false
     },
     {
+      "id": "llamacpp",
+      "kind": "llamacpp",
+      "enabled": false
+    },
+    {
       "id": "lmstudio",
       "kind": "lmstudio",
       "enabled": false

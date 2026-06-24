@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
@@ -313,92 +314,38 @@ func backendACP(n yaml.Node, upstream *http.Client) (execbackend.Backend, error)
 	}), y.Models)
 }
 
-type lmstudioDiscoveryYAML struct {
-	Catalog    *bool  `yaml:"catalog"`
-	CatalogURL string `yaml:"catalog_url"`
-	Timeout    string `yaml:"timeout"`
-}
-
-type lmstudioBackendYAML struct {
-	BaseURL     string                 `yaml:"base_url"`
-	APIKey      string                 `yaml:"api_key"`
-	APIKeys     []string               `yaml:"api_keys"`
-	Credentials []hostedCredentialYAML `yaml:"credentials"`
-	Discovery   lmstudioDiscoveryYAML  `yaml:"discovery"`
-	Models      modelInventoryYAML     `yaml:"models"`
+func backendLlamacpp(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
+	var y openAIFamilyBackendYAML
+	if err := config.DecodeYAMLNode(n, &y); err != nil {
+		return execbackend.Backend{}, fmt.Errorf("llamacpp backend config: %w", err)
+	}
+	cfg, err := openAIFamilyConfigFromYAML("llamacpp", y, upstream)
+	if err != nil {
+		return execbackend.Backend{}, err
+	}
+	return applyConfiguredModelInventory(llamacpp.New(cfg), y.Models)
 }
 
 func backendLmstudio(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y lmstudioBackendYAML
+	var y openAIFamilyBackendYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("lmstudio backend config: %w", err)
 	}
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, nil)
-	discovery := lmstudio.DiscoveryConfig{
-		Catalog:    y.Discovery.Catalog,
-		CatalogURL: strings.TrimSpace(y.Discovery.CatalogURL),
-	}
-	if timeout := strings.TrimSpace(y.Discovery.Timeout); timeout != "" {
-		d, err := time.ParseDuration(timeout)
-		if err != nil {
-			return execbackend.Backend{}, fmt.Errorf("lmstudio discovery timeout: %w", err)
-		}
-		discovery.Timeout = d
-	}
-	cfg := lmstudio.Config{
-		BaseURL:     strings.TrimSpace(y.BaseURL),
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-		Discovery:   discovery,
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
+	cfg, err := openAIFamilyConfigFromYAML("lmstudio", y, upstream)
+	if err != nil {
+		return execbackend.Backend{}, err
 	}
 	return applyConfiguredModelInventory(lmstudio.New(cfg), y.Models)
 }
 
-type vllmDiscoveryYAML struct {
-	Catalog    *bool  `yaml:"catalog"`
-	CatalogURL string `yaml:"catalog_url"`
-	Timeout    string `yaml:"timeout"`
-}
-
-type vllmBackendYAML struct {
-	BaseURL     string                 `yaml:"base_url"`
-	APIKey      string                 `yaml:"api_key"`
-	APIKeys     []string               `yaml:"api_keys"`
-	Credentials []hostedCredentialYAML `yaml:"credentials"`
-	Discovery   vllmDiscoveryYAML      `yaml:"discovery"`
-	Models      modelInventoryYAML     `yaml:"models"`
-}
-
 func backendVllm(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y vllmBackendYAML
+	var y openAIFamilyBackendYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("vllm backend config: %w", err)
 	}
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, nil)
-	discovery := vllm.DiscoveryConfig{
-		Catalog:    y.Discovery.Catalog,
-		CatalogURL: strings.TrimSpace(y.Discovery.CatalogURL),
-	}
-	if timeout := strings.TrimSpace(y.Discovery.Timeout); timeout != "" {
-		d, err := time.ParseDuration(timeout)
-		if err != nil {
-			return execbackend.Backend{}, fmt.Errorf("vllm discovery timeout: %w", err)
-		}
-		discovery.Timeout = d
-	}
-	cfg := vllm.Config{
-		BaseURL:     strings.TrimSpace(y.BaseURL),
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-		Discovery:   discovery,
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
+	cfg, err := openAIFamilyConfigFromYAML("vllm", y, upstream)
+	if err != nil {
+		return execbackend.Backend{}, err
 	}
 	return applyConfiguredModelInventory(vllm.New(cfg), y.Models)
 }
