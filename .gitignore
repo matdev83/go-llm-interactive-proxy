@@ -80,3 +80,6 @@ __pycache__/
 /codex-history.jsonl
 .letta/
 .opencode/
+ 
+ # Local architecture/dev scratchpad (private, not for sharing)
+.dev/

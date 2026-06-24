@@ -9,8 +9,10 @@ import (
 	"github.com/openai/openai-go/v3/option"
 )
 
-const defaultCatalogURL = "https://models.dev/api.json"
-const defaultDiscoveryTimeout = 15 * time.Second
+const (
+	defaultCatalogURL       = "https://models.dev/api.json"
+	defaultDiscoveryTimeout = 15 * time.Second
+)
 
 type DiscoveryConfig struct {
 	Catalog    *bool

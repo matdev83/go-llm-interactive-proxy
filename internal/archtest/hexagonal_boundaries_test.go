@@ -1,6 +1,10 @@
 package archtest
 
 import (
+	"bytes"
+	"encoding/json"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -19,4 +23,54 @@ func TestInternalCoreProductionClosureExcludesCompositionHelpers(t *testing.T) {
 			ErrMsg: "internal/core must not depend on runtimebundle (assembly outside core)",
 		},
 	})
+}
+
+// TestInternalCoreProductionExcludesInfra enforces that no internal/core/...
+// package imports internal/infra/... at the production-code level (test-only
+// imports are acceptable). This catches boundary leaks like the former
+// core/continuity -> infra/db and core/extensions -> infra/extensiontrace edges.
+func TestInternalCoreProductionExcludesInfra(t *testing.T) {
+	t.Parallel()
+	assertDepsExcludeForbidden(t, []string{"./internal/core/..."}, []forbiddenDep{
+		{
+			Substr: "/internal/infra/",
+			ErrMsg: "internal/core must not depend on internal/infra (hex: core imports point inward only)",
+		},
+	})
+}
+
+// TestStdHTTPProductionExcludesConcreteFrontends enforces that
+// internal/stdhttp does not directly import any internal/plugins/frontends/...
+// package at the production-code level. Concrete plugins are wired through
+// pluginreg; test-only imports for alignment checks are acceptable.
+// Uses direct imports (not transitive deps) because stdhttp legitimately
+// depends on pluginreg which transitively reaches frontend packages.
+func TestStdHTTPProductionExcludesConcreteFrontends(t *testing.T) {
+	t.Parallel()
+	assertDirectImportsExclude(t, "./internal/stdhttp", "/internal/plugins/frontends/",
+		"internal/stdhttp must not directly import concrete frontend plugins (use pluginreg or local constants)")
+}
+
+// assertDirectImportsExclude checks that the package at pattern has no direct
+// production imports (Imports field, not Deps) containing substr.
+func assertDirectImportsExclude(t *testing.T, pattern, substr, errMsg string) {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-test=false", "-json", pattern)
+	cmd.Dir = repoRoot(t)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var pkg goListPackage
+		if err := dec.Decode(&pkg); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		for _, imp := range pkg.Imports {
+			if strings.Contains(imp, substr) {
+				t.Fatalf("%s: %s directly imports %s", errMsg, pkg.ImportPath, imp)
+			}
+		}
+	}
 }

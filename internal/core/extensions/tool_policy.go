@@ -10,7 +10,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/extensiontrace"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -47,7 +46,7 @@ func RunToolPolicyStage(in ToolPolicyStageInput) (err error) {
 	}
 	start := time.Now()
 	outcome := "ok"
-	ctx, endSpan := extensiontrace.StartSpan(ctx, "lip.extension.tool_policy",
+	ctx, endSpan := startSpan(ctx, "lip.extension.tool_policy",
 		attribute.String("lip.extension.stage", "tool_policy"),
 		attribute.Int("lip.extension.tool_policy.policy_count", len(policies)),
 	)

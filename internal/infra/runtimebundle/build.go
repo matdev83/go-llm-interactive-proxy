@@ -20,7 +20,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/continuity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -145,7 +144,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 			}
 		}
 	}
-	store, err := continuity.OpenStoreContext(parent, cfg)
+	store, err := OpenContinuityStore(parent, cfg)
 	if err != nil {
 		if derr := disposeClosers(closers); derr != nil {
 			return nil, errors.Join(fmt.Errorf("runtimebundle: %w", err), derr)

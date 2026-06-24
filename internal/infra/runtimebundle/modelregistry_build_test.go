@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	refvllm "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
@@ -83,6 +85,41 @@ func TestBuild_exposesModelRegistryForFastLookup(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].BackendID != "test-backend" || got[0].NativeID != "gpt-4o" {
 		t.Fatalf("Lookup(openai/gpt-4o) = %+v", got)
+	}
+}
+
+func TestBuild_vllmBackendDiscoversModelsIntoRegistry(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(refvllm.NewHandler(refvllm.Config{}))
+	t.Cleanup(srv.Close)
+
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := modelRegistryTestConfig("vllm")
+	cfg.Routing.DefaultRoute = "vllm:meta-llama/Llama-3-8B-Instruct"
+	cfg.Plugins.Backends[0].Config = mustYAMLNode(t, `base_url: `+srv.URL+`/v1
+api_key: vllm-test
+discovery:
+  catalog: false
+`)
+
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(closeModelRegistryBuilt(t, b))
+
+	got, ok := b.ModelRegistry.Lookup("meta-llama/Llama-3-8B-Instruct")
+	if !ok {
+		t.Fatal("Lookup(meta-llama/Llama-3-8B-Instruct) ok = false")
+	}
+	if len(got) != 1 || got[0].BackendID != "test-backend" || got[0].Kind != "vllm" || got[0].NativeID != "meta-llama/Llama-3-8B-Instruct" {
+		t.Fatalf("Lookup(meta-llama/Llama-3-8B-Instruct) = %+v", got)
 	}
 }
 
@@ -334,6 +371,15 @@ func modelRegistryTestConfig(kind string) *config.Config {
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
+}
+
+func mustYAMLNode(t *testing.T, raw string) yaml.Node {
+	t.Helper()
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
+		t.Fatal(err)
+	}
+	return node
 }
 
 func writeModelRegistryCache(t *testing.T, path string, snap modelregistry.Snapshot) {

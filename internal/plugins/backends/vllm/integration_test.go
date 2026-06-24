@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
@@ -372,5 +373,83 @@ func TestVllmBackend_rateLimitClassification(t *testing.T) {
 	}
 	if !errors.Is(err, lipapi.ErrRecoverablePreOutput) {
 		t.Fatalf("expected recoverable pre-output rate limit error, got %v", err)
+	}
+}
+
+func TestVllmBackend_streamCancelClosesResponseBody(t *testing.T) {
+	t.Parallel()
+	requestClosed := make(chan struct{})
+	flusherOK := make(chan bool, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		flusher, ok := w.(http.Flusher)
+		flusherOK <- ok
+		if !ok {
+			http.Error(w, "response writer does not flush", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		_, _ = io.WriteString(w, "data: {\"id\":\"stream\",\"object\":\"chat.completion.chunk\",\"created\":1715620000,\"model\":\"meta-llama/Llama-3-8B-Instruct\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+		close(requestClosed)
+	}))
+	t.Cleanup(srv.Close)
+
+	call := testCall()
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeStreaming,
+		TransportMode: lipapi.TransportModeStreaming,
+	}
+	be := vllm.New(vllm.Config{
+		BaseURL:       srv.URL,
+		SDKMaxRetries: new(int),
+	})
+	es, err := be.Open(context.Background(), call, testCandidate("vllm/meta-llama/Llama-3-8B-Instruct"))
+	if err != nil {
+		select {
+		case ok := <-flusherOK:
+			if !ok {
+				t.Fatal("response writer does not flush")
+			}
+		default:
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+	select {
+	case ok := <-flusherOK:
+		if !ok {
+			t.Fatal("response writer does not flush")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not verify response writer flushing")
+	}
+	recvCtx, recvCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer recvCancel()
+	for {
+		ev, err := es.Recv(recvCtx)
+		if err != nil {
+			t.Fatalf("recv text event: %v", err)
+		}
+		if ev.Kind == lipapi.EventTextDelta && ev.Delta != "" {
+			break
+		}
+	}
+	result := es.Cancel(context.Background(), lipapi.CancelCause{Kind: lipapi.CancelExplicit, Detail: "test"})
+	if result.Mode == lipapi.CancelModeNone {
+		t.Fatalf("Cancel mode = %q", result.Mode)
+	}
+	if result.Err != nil {
+		t.Fatalf("Cancel err = %v", result.Err)
+	}
+	select {
+	case <-requestClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream request was not closed after Cancel")
 	}
 }
