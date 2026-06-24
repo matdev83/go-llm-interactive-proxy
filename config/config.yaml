@@ -325,6 +325,31 @@ plugins:
       #   catalog: true
       #   catalog_url: https://models.dev/api.json
       #   timeout: 15s
+    # Custom compatible backends let operators add API-compatible providers without code.
+    # Use kind to select the generic factory; id remains the runtime route backend instance.
+    # backend_prefix must be unique, cannot contain / or :, and cannot use standard connector prefixes such as nvidia/openrouter/anthropic.
+    # api_key_env_var_root reads ROOT, ROOT_2, ROOT_3, ... using the standard static key convention.
+    # - id: provider123
+    #   kind: custom-openai-legacy-compatible
+    #   enabled: false
+    #   config:
+    #     backend_prefix: provider123
+    #     base_url: https://api.provider123.example/v1
+    #     api_key_env_var_root: PROVIDER123_API_KEY
+    # - id: provider123-responses
+    #   kind: custom-openai-responses-compatible
+    #   enabled: false
+    #   config:
+    #     backend_prefix: provider123-responses
+    #     base_url: https://api.provider123.example/v1
+    #     api_key_env_var_root: PROVIDER123_RESPONSES_API_KEY
+    # - id: provider-anthropic
+    #   kind: custom-anthropic-compatible
+    #   enabled: false
+    #   config:
+    #     backend_prefix: provider-anthropic
+    #     base_url: https://api.provider-anthropic.example
+    #     api_key_env_var_root: PROVIDER_ANTHROPIC_API_KEY
   features:
     - id: submit-noop
       enabled: true

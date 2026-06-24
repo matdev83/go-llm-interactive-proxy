@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -23,6 +24,8 @@ import (
 type Config struct {
 	BaseURL string
 	APIKey  string
+	// BackendPrefix overrides the backend/model-inventory prefix. Empty uses the bundled Anthropic ID.
+	BackendPrefix string
 	// APIKeys is the ordered credential list for this backend instance.
 	// When non-empty, APIKey should match APIKeys[0] for SDK compatibility.
 	APIKeys []string
@@ -50,29 +53,34 @@ func defaultBackendCaps() lipapi.BackendCaps {
 
 // New returns a runtime backend that invokes the Anthropic Messages API using anthropic-sdk-go.
 func New(cfg Config) execbackend.Backend {
-	if err := checkcfg.RequireNonEmpty(ID, "base_url", cfg.BaseURL); err != nil {
-		return newConfigErrorBackend(err)
+	id := strings.TrimSpace(cfg.BackendPrefix)
+	if id == "" {
+		id = ID
+	}
+	if err := checkcfg.RequireNonEmpty(id, "base_url", cfg.BaseURL); err != nil {
+		return newConfigErrorBackend(id, err)
 	}
 	pool, err := credpool.NewPoolFromCredentials(cfg.APIKey, cfg.APIKeys, cfg.Credentials)
 	if err != nil {
-		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
+		return newConfigErrorBackend(id, fmt.Errorf("%s: credentials: %w", id, err))
 	}
 	return execbackend.Backend{
 		Caps:            defaultBackendCaps(),
-		BackendPrefixes: []string{ID},
+		BackendPrefixes: []string{id},
 		ProviderCounter: NewTokenCounter(cfg),
 		ModelInventory: modeldiscover.AnthropicModelsProvider{
-			BaseURL:    cfg.BaseURL,
-			APIKey:     cfg.APIKey,
-			APIKeys:    cfg.APIKeys,
-			HTTPClient: cfg.HTTPClient,
+			BaseURL:         cfg.BaseURL,
+			APIKey:          cfg.APIKey,
+			APIKeys:         cfg.APIKeys,
+			HTTPClient:      cfg.HTTPClient,
+			CanonicalPrefix: id,
 		},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {
-				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
+				return nil, fmt.Errorf("%s: %w", id, lipapi.ErrNilContext)
 			}
 			p, err := ParamsForCall(&call, cand)
 			if err != nil {
@@ -88,7 +96,7 @@ func New(cfg Config) execbackend.Backend {
 					if errors.Is(aerr, credpool.ErrNoUsableCredential) {
 						return nil, lipapi.RecoverablePreOutputError(aerr)
 					}
-					return nil, fmt.Errorf("%s: %w", ID, aerr)
+					return nil, fmt.Errorf("%s: %w", id, aerr)
 				}
 				cli := newSDKClientForSecret(cfg, cred.Secret)
 				stream := cli.Messages.NewStreaming(ctx, p)
@@ -117,10 +125,10 @@ func New(cfg Config) execbackend.Backend {
 	}
 }
 
-func newConfigErrorBackend(err error) execbackend.Backend {
+func newConfigErrorBackend(id string, err error) execbackend.Backend {
 	return execbackend.Backend{
 		Caps:            defaultBackendCaps(),
-		BackendPrefixes: []string{ID},
+		BackendPrefixes: []string{id},
 		ModelInventory:  modelinventory.ErrorProvider{Err: err},
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return ModelCapabilities(resolveModel(cand, call))

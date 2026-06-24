@@ -51,10 +51,11 @@ func (p OpenAICompatibleModelsProvider) LoadModels(ctx context.Context) (modelin
 }
 
 type AnthropicModelsProvider struct {
-	BaseURL    string
-	APIKey     string
-	APIKeys    []string
-	HTTPClient *http.Client
+	BaseURL         string
+	APIKey          string
+	APIKeys         []string
+	HTTPClient      *http.Client
+	CanonicalPrefix string
 }
 
 func (p AnthropicModelsProvider) LoadModels(ctx context.Context) (modelinventory.Snapshot, error) {
@@ -77,13 +78,17 @@ func (p AnthropicModelsProvider) LoadModels(ctx context.Context) (modelinventory
 		return modelinventory.Snapshot{}, err
 	}
 	models := make([]modelinventory.Model, 0, len(payload.Data))
+	prefix := strings.Trim(strings.TrimSpace(p.CanonicalPrefix), "/")
+	if prefix == "" {
+		prefix = "anthropic"
+	}
 	for _, row := range payload.Data {
 		native := strings.TrimSpace(row.ID)
 		if native == "" {
 			continue
 		}
 		models = append(models, modelinventory.Model{
-			CanonicalID: "anthropic/" + native,
+			CanonicalID: prefix + "/" + native,
 			NativeID:    native,
 			DisplayName: strings.TrimSpace(row.DisplayName),
 		})

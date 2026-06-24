@@ -72,6 +72,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if log == nil {
 		return nil, fmt.Errorf("runtimebundle: nil logger")
 	}
+	if err := pluginreg.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
+		return nil, fmt.Errorf("runtimebundle: %w", err)
+	}
 	authEvents, err := buildAuthEventDispatcher(cfg, log, opts)
 	if err != nil {
 		return nil, err

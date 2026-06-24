@@ -1,6 +1,6 @@
 # Plugin authoring guide
 
-This guide explains how to write feature and protocol plugins that preserve the Go proxy architecture. For the complete stage map, see `docs/extension-points.md`. For operator configuration and examples, see `README.md` and `config/config.yaml`. For the **no-key local stub** maintainer workflow (`check-config`, routes, inventory, serve), see [`docs/dogfood-local.md`](dogfood-local.md).
+This guide explains how to write feature and protocol plugins that preserve the Go proxy architecture. For the complete stage map, see `docs/extension-points.md`. For operator configuration and examples, see `README.md` and `config/config.yaml`. For YAML-only OpenAI/Anthropic-compatible provider wiring, see [`docs/custom-compatible-backends.md`](custom-compatible-backends.md). For the **no-key local stub** maintainer workflow (`check-config`, routes, inventory, serve), see [`docs/dogfood-local.md`](dogfood-local.md).
 
 ## Plugin types
 

@@ -90,6 +90,9 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
 		return out, err
 	}
+	if err := pluginreg.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
+		return out, fmt.Errorf("runtimebundle: %w", err)
+	}
 
 	traceRes, err := tracing.Init(ctx, cfg)
 	if err != nil {
