@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -113,8 +114,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, err
 	}
+	var vendorCatalogRuntime *modelcatalog.CatalogRuntime
+	if startedCatalog != nil {
+		vendorCatalogRuntime = startedCatalog.Runtime
+	}
 	backendDeps := pluginreg.BackendFactoryDeps{
-		ModelVendorResolver: openCodeVendorResolver(startedCatalog.Runtime),
+		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
 	}
 
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))

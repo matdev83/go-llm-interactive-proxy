@@ -88,7 +88,7 @@ func TestInventoryProvider_nilContext(t *testing.T) {
 	t.Parallel()
 
 	p := NewInventoryProvider(InventoryProviderConfig{Kind: BackendZen})
-	_, err := p.LoadModels(nil)
+	_, err := p.LoadModels(nil) //nolint:staticcheck // verifies nil context guard.
 	if err != modelinventory.ErrNilContext {
 		t.Fatalf("err = %v", err)
 	}

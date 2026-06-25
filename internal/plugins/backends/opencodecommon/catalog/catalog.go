@@ -87,8 +87,7 @@ func (c *ModelCatalog) lookup(model string) (ModelEntry, bool) {
 		return entry, true
 	}
 	prefix := c.prefix + "/"
-	if strings.HasPrefix(model, prefix) {
-		raw := strings.TrimPrefix(model, prefix)
+	if raw, ok := strings.CutPrefix(model, prefix); ok {
 		if entry, ok := c.byRaw[raw]; ok {
 			return entry, true
 		}

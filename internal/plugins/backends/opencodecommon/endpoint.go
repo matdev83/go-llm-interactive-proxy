@@ -25,8 +25,8 @@ func EndpointBaseURL(entry ModelEntry, defaultBase string, flavor Flavor) string
 func stripKnownSuffixes(endpoint string, suffixes ...string) string {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	for _, suffix := range suffixes {
-		if strings.HasSuffix(endpoint, suffix) {
-			return strings.TrimRight(strings.TrimSuffix(endpoint, suffix), "/")
+		if trimmed, ok := strings.CutSuffix(endpoint, suffix); ok {
+			return strings.TrimRight(trimmed, "/")
 		}
 	}
 	return endpoint

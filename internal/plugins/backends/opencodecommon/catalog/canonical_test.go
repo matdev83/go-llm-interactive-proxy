@@ -116,7 +116,6 @@ func TestCanonicalizer_openCodeGoCurrentInventoryHasNoUnknownVendorFallbacks(t *
 		"hy3-preview",
 	}
 	for _, raw := range rawModels {
-		raw := raw
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 			got := c.CanonicalID(raw)

@@ -100,8 +100,7 @@ func modelCatalogStartupNeeded(cfg *config.Config) bool {
 
 func cloneCatalogHTTPClient(upstream *http.Client) (*http.Client, func()) {
 	if upstream == nil {
-		tr := http.DefaultTransport.(*http.Transport).Clone()
-		return &http.Client{Transport: tr}, tr.CloseIdleConnections
+		return &http.Client{}, func() {}
 	}
 	c := *upstream
 	if tr, ok := upstream.Transport.(*http.Transport); ok {
