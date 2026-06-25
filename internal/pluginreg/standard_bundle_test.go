@@ -14,7 +14,7 @@ func TestInstallBundleOnCustomBundleDoesNotTouchOtherRegistries(t *testing.T) {
 
 	custom := Bundle{Backends: []BackendRegistration{{
 		ID: "custom-backend",
-		Factory: func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+		Factory: func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 			return execbackend.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
 		},
 		Profile: BackendSecurityProfile{CredentialMode: CredentialWorkload},
@@ -24,12 +24,12 @@ func TestInstallBundleOnCustomBundleDoesNotTouchOtherRegistries(t *testing.T) {
 	if err := InstallBundleOn(withCustom, custom); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := withCustom.BuildBackend("custom-backend", yaml.Node{}, nil); err != nil {
+	if _, err := withCustom.BuildBackend("custom-backend", yaml.Node{}, nil, BackendFactoryDeps{}); err != nil {
 		t.Fatalf("custom bundle backend missing: %v", err)
 	}
 
 	empty := NewRegistry()
-	if _, err := empty.BuildBackend("custom-backend", yaml.Node{}, nil); err == nil {
+	if _, err := empty.BuildBackend("custom-backend", yaml.Node{}, nil, BackendFactoryDeps{}); err == nil {
 		t.Fatal("custom bundle leaked into another registry")
 	}
 }

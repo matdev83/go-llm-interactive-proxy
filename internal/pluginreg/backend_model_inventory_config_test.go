@@ -32,7 +32,7 @@ models:
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil)
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestBuildBackend_openAIResponses_usesFileModelInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil)
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestBuildBackend_openAIResponses_pathOnlyDefaultsToFileModelInventory(t *te
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil)
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestBuildBackend_openAIResponses_fileModelInventoryAcceptsModelsAlias(t *te
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil)
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

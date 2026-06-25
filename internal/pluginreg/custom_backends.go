@@ -22,6 +22,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -226,6 +228,8 @@ var reservedStandardBackendPrefixes = map[string]struct{}{
 	acp.ID:             {},
 	openrouter.ID:      {},
 	nvidia.ID:          {},
+	opencodego.ID:      {},
+	opencodezen.ID:     {},
 	ollama.ID:          {},
 	ollama.CloudID:     {},
 	llamacpp.ID:        {},

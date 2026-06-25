@@ -16,6 +16,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
@@ -154,55 +156,61 @@ func StandardBundle() Bundle {
 // StandardBackendBundle returns the standard backend table with environment/default keys already bound.
 func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 	return Bundle{Backends: []BackendRegistration{
-		{ID: openairesponses.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: openairesponses.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenAIResponses(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: openailegacy.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: openailegacy.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenAILegacy(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendAnthropic(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendGemini(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendBedrock(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialWorkload}},
-		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendACP(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenRouter(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendNvidia(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: opencodego.ID, Factory: func(n yaml.Node, upstream *http.Client, deps BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenCodeGo(n, upstream, keys, deps.ModelVendorResolver)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: opencodezen.ID, Factory: func(n yaml.Node, upstream *http.Client, deps BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenCodeZen(n, upstream, keys, deps.ModelVendorResolver)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOllama(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
-		{ID: ollama.CloudID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: ollama.CloudID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOllamaCloud(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
-		{ID: llamacpp.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: llamacpp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendLlamacpp(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
-		{ID: lmstudio.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: lmstudio.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendLmstudio(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
-		{ID: vllm.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: vllm.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendVllm(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
-		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: localstub.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendLocalStub(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},
-		{ID: CustomOpenAILegacyCompatibleID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: CustomOpenAILegacyCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendCustomOpenAILegacyCompatible(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: CustomOpenAIResponsesCompatibleID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: CustomOpenAIResponsesCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendCustomOpenAIResponsesCompatible(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
-		{ID: CustomAnthropicCompatibleID, Factory: func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		{ID: CustomAnthropicCompatibleID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendCustomAnthropicCompatible(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 	}}

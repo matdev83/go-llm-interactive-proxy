@@ -31,7 +31,7 @@ func TestBuild_requiresModelInventoryForEnabledBackends(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-no-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-no-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-no-inventory"},
@@ -55,7 +55,7 @@ func TestBuild_exposesModelRegistryForFastLookup(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-inventory"},
@@ -141,7 +141,7 @@ func TestBuild_modelRegistryLoadsCacheWithoutRemoteInventoryCall(t *testing.T) {
 	})
 	provider := &runtimeBundleCountingInventory{err: errors.New("remote must not be called")}
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-inventory"},
@@ -185,7 +185,7 @@ func TestBuild_modelRegistryColdStartSavesCache(t *testing.T) {
 		NativeID:    "gpt-remote",
 	}}}
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-inventory"},
@@ -221,7 +221,7 @@ func TestBuild_modelRegistryColdStartFailsWhenCacheAndRemoteUnavailable(t *testi
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-inventory"},
@@ -248,7 +248,7 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-inventory"},
@@ -267,8 +267,9 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 		t.Fatal(err)
 	}
 	if len(b.Closers) != 0 {
-		t.Fatalf("closers = %d, want 0 for all-static inventory", len(b.Closers))
+		t.Fatalf("closers = %d, want 0 for disabled model catalog with static inventory", len(b.Closers))
 	}
+	closeRuntimeBuilt(t, b)
 }
 
 func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *testing.T) {
@@ -289,7 +290,7 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 	})
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-error-inventory", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("test-error-inventory", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"test-error-inventory"},
@@ -311,8 +312,9 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 		t.Fatal(err)
 	}
 	if len(b.Closers) != 0 {
-		t.Fatalf("closers = %d, want 0 for static error provider", len(b.Closers))
+		t.Fatalf("closers = %d, want 0 for disabled model catalog with cached model registry", len(b.Closers))
 	}
+	defer closeRuntimeBuilt(t, b)
 	if b.ModelRegistryRuntime == nil {
 		t.Fatal("ModelRegistryRuntime is nil")
 	}
@@ -329,15 +331,15 @@ func TestBuild_modelRegistryFetchTimeoutAppliesPerBackend(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("test-inventory-a", delayedBackendFactory("test-inventory-a", "vendor/a", 20*time.Millisecond)); err != nil {
+	if err := reg.RegisterBackend("test-inventory-a", delayedBackendFactory("test-inventory-a", "vendor/a", 75*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterBackend("test-inventory-b", delayedBackendFactory("test-inventory-b", "vendor/b", 20*time.Millisecond)); err != nil {
+	if err := reg.RegisterBackend("test-inventory-b", delayedBackendFactory("test-inventory-b", "vendor/b", 75*time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg := modelRegistryTestConfig("test-inventory-a")
-	cfg.ModelInventory.FetchTimeout = "30ms"
+	cfg.ModelInventory.FetchTimeout = "100ms"
 	cfg.Plugins.Backends = append(cfg.Plugins.Backends, config.PluginConfig{
 		Kind:    "test-inventory-b",
 		ID:      "test-backend-b",
@@ -425,7 +427,7 @@ type runtimeBundleCountingInventory struct {
 }
 
 func delayedBackendFactory(prefix, modelID string, delay time.Duration) pluginreg.BackendFactory {
-	return func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	return func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{prefix},

@@ -167,7 +167,7 @@ func loadBackendInventory(ctx context.Context, reg *pluginreg.Registry, client *
 	if err != nil {
 		return backendError(candidate.ID, fmt.Errorf("decode proof config: %w", err))
 	}
-	be, err := reg.BuildBackend(candidate.ID, node, client)
+	be, err := reg.BuildBackend(candidate.ID, node, client, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		return backendError(candidate.ID, fmt.Errorf("build backend: %w", err))
 	}

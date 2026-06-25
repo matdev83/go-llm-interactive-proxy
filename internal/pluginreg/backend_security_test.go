@@ -11,7 +11,7 @@ import (
 func TestBackendSecurityProfile_roundTrip(t *testing.T) {
 	t.Parallel()
 	reg := NewRegistry()
-	if err := reg.RegisterBackendWithProfile("oauth", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackendWithProfile("oauth", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}, BackendSecurityProfile{CredentialMode: CredentialOAuthUser}); err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestBackendSecurityProfile_roundTrip(t *testing.T) {
 func TestRegisterBackend_defaultsUnknownCredentialMode(t *testing.T) {
 	t.Parallel()
 	reg := NewRegistry()
-	if err := reg.RegisterBackend("legacy", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("legacy", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}); err != nil {
 		t.Fatal(err)

@@ -21,7 +21,7 @@ import (
 func TestBuildWiresTokenAccountingContracts(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"stub"},
@@ -109,7 +109,7 @@ func TestBuildTokenAccountingUsesDefaultCountTimeoutWhenOmitted(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"stub"},
@@ -154,7 +154,7 @@ func TestBuildWiresConfiguredAccountingPreflightLimits(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"stub"},
@@ -212,7 +212,7 @@ func TestBuildWiresConfiguredAccountingPreflightLimits(t *testing.T) {
 func TestBuildProviderRequiredFailsWithoutProviderCounter(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"stub"},
@@ -252,7 +252,7 @@ func TestBuildProviderRequiredFailsWithoutProviderCounter(t *testing.T) {
 func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend("stub", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{"stub"},

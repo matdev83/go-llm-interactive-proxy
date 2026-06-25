@@ -16,6 +16,8 @@ func StandardDistributionRequirements() []Requirement {
 		{Kind: PluginKindBackend, ID: "acp"},
 		{Kind: PluginKindBackend, ID: "openrouter"},
 		{Kind: PluginKindBackend, ID: "nvidia"},
+		{Kind: PluginKindBackend, ID: "opencode-go"},
+		{Kind: PluginKindBackend, ID: "opencode-zen"},
 		{Kind: PluginKindBackend, ID: "ollama"},
 		{Kind: PluginKindBackend, ID: "ollama-cloud"},
 		{Kind: PluginKindBackend, ID: "llamacpp"},

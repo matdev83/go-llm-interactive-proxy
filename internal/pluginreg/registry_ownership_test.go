@@ -15,12 +15,12 @@ func TestRegistriesDoNotShareFactories(t *testing.T) {
 	a := NewRegistry()
 	b := NewRegistry()
 	id := "isolated-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := a.RegisterBackend(id, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := a.RegisterBackend(id, func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.BuildBackend(id, yaml.Node{}, nil); err == nil {
+	if _, err := b.BuildBackend(id, yaml.Node{}, nil, BackendFactoryDeps{}); err == nil {
 		t.Fatal("expected empty registry b to miss factory registered only on a")
 	}
 }
@@ -30,7 +30,7 @@ func TestDuplicateRegistrationScopedPerRegistry(t *testing.T) {
 	r1 := NewRegistry()
 	r2 := NewRegistry()
 	id := "dup-scope-" + strings.ReplaceAll(t.Name(), "/", "-")
-	fn := func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	fn := func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}
 	if err := r1.RegisterBackend(id, fn); err != nil {

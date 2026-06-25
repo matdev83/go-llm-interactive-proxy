@@ -24,7 +24,7 @@ func TestStandardBackends_exposeInventoryPrefixes(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(standardBackendBuildYAML(id)), &node); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil)
+			be, err := reg.BuildBackend(id, node, nil, BackendFactoryDeps{})
 			if err != nil {
 				t.Fatalf("BuildBackend(%q) error = %v", id, err)
 			}
@@ -63,7 +63,7 @@ func TestReservedStandardBackendPrefixes_coverStandardBackendPrefixes(t *testing
 			if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil)
+			be, err := reg.BuildBackend(id, node, nil, BackendFactoryDeps{})
 			if err != nil {
 				t.Fatalf("BuildBackend(%q) error = %v", id, err)
 			}
@@ -89,7 +89,7 @@ func standardBackendFactoryIDs(t *testing.T) []string {
 
 func standardBackendBuildYAML(id string) string {
 	switch id {
-	case "acp", "anthropic", "openai-legacy", "openai-responses", "openrouter", "nvidia":
+	case "acp", "anthropic", "openai-legacy", "openai-responses", "openrouter", "nvidia", "opencode-go", "opencode-zen":
 		return "base_url: http://127.0.0.1:9\n"
 	case "gemini":
 		return "api_key: test\n"

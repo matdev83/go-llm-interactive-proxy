@@ -63,6 +63,16 @@
       "enabled": false
     },
     {
+      "id": "opencode-go",
+      "factory_kind": "opencode-go",
+      "enabled": false
+    },
+    {
+      "id": "opencode-zen",
+      "factory_kind": "opencode-zen",
+      "enabled": false
+    },
+    {
       "id": "ollama",
       "factory_kind": "ollama",
       "enabled": false

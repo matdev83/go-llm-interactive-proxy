@@ -43,6 +43,10 @@ type BackendSpec struct {
 	Inventory      modelinventory.Provider
 }
 
+func HostedCaps() lipapi.BackendCaps {
+	return openaicaps.HostedFull
+}
+
 func NewBackend(spec BackendSpec) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(spec.ID, "base_url", spec.BaseURL); err != nil {
 		return newConfigErrorBackend(spec.ID, err)

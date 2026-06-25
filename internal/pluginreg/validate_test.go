@@ -39,9 +39,10 @@ func TestValidateBundledFactories_customRegistryIndependentOfDefaultCompleteness
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterBackend(
 		"validate-custom-only",
-		func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+		func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			_ = n
 			_ = upstream
+			_ = deps
 			return execbackend.Backend{Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming)}, nil
 		},
 	); err != nil {

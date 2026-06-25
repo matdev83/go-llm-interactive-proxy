@@ -3,6 +3,8 @@ package modelcatalog
 import (
 	"context"
 	"maps"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -55,6 +57,8 @@ type SnapshotIndex struct {
 	byCatalogModelID map[string]ModelFacts
 	// normToIDs maps NormalizeStripOneProviderPrefix(catalogId) -> sorted catalog ids sharing that suffix.
 	normToIDs map[string][]string
+	// suffixToIDs maps dotted/dashed suffix lookup keys -> sorted catalog ids sharing that suffix.
+	suffixToIDs map[string][]string
 }
 
 // NewSnapshotIndex returns an index backed by a defensive copy of catalog entries.
@@ -64,6 +68,7 @@ func NewSnapshotIndex(catalog map[string]ModelFacts) *SnapshotIndex {
 	return &SnapshotIndex{
 		byCatalogModelID: m,
 		normToIDs:        buildNormToIDs(m),
+		suffixToIDs:      buildSuffixToIDs(m),
 	}
 }
 
@@ -74,4 +79,29 @@ func (s *SnapshotIndex) FactsByCatalogModelID(catalogModelID string) (ModelFacts
 	}
 	f, ok := s.byCatalogModelID[catalogModelID]
 	return f, ok
+}
+
+// CatalogIDsForSuffixLookup returns sorted catalog ids whose model suffix matches lookup keys
+// (including dotted/dashed numeric variants). Nil when the index or suffix is empty.
+func (s *SnapshotIndex) CatalogIDsForSuffixLookup(suffix string) []string {
+	if s == nil || s.suffixToIDs == nil {
+		return nil
+	}
+	suffix = strings.TrimSpace(suffix)
+	if suffix == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, key := range SuffixLookupKeys(suffix) {
+		for _, id := range s.suffixToIDs[key] {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

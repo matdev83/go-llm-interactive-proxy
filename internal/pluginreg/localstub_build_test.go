@@ -18,7 +18,7 @@ func TestStandardBackends_includeLocalStubFactory(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(`text: "x"`), &n); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reg.BuildBackend(localstub.ID, n, nil); err != nil {
+	if _, err := reg.BuildBackend(localstub.ID, n, nil, BackendFactoryDeps{}); err != nil {
 		t.Fatal(err)
 	}
 	p, ok := reg.BackendSecurityProfile(localstub.ID)

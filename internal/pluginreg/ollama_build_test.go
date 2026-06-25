@@ -39,7 +39,7 @@ func TestBuildBackend_ollamaCloud_emptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.CloudID, node, nil)
+	b, err := reg.BuildBackend(ollama.CloudID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ discovery:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.CloudID, node, local.Client())
+	b, err := reg.BuildBackend(ollama.CloudID, node, local.Client(), BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestBuildBackend_ollama_emptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.ID, node, nil)
+	b, err := reg.BuildBackend(ollama.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ discovery:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.ID, node, local.Client())
+	b, err := reg.BuildBackend(ollama.ID, node, local.Client(), BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

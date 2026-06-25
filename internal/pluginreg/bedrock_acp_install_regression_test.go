@@ -56,7 +56,7 @@ func Test_registryBuildBedrockAndACP_afterHostedKeyChanges(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(acpRaw), &acpNode); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reg.BuildBackend(acp.ID, acpNode, nil); err != nil {
+	if _, err := reg.BuildBackend(acp.ID, acpNode, nil, BackendFactoryDeps{}); err != nil {
 		t.Fatalf("acp BuildBackend: %v", err)
 	}
 
@@ -68,7 +68,7 @@ secret_access_key: SECRETTEST
 	if err := yaml.Unmarshal([]byte(brRaw), &brNode); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reg.BuildBackend(bedrock.ID, brNode, nil); err != nil {
+	if _, err := reg.BuildBackend(bedrock.ID, brNode, nil, BackendFactoryDeps{}); err != nil {
 		t.Fatalf("bedrock BuildBackend: %v", err)
 	}
 }
