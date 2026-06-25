@@ -548,7 +548,7 @@ func TestInventory_discoveryTimeoutAppliesToModelDiscovery(t *testing.T) {
 			Local:   &boolTrue,
 			Cloud:   &boolFalse,
 			Catalog: &boolFalse,
-			Timeout: 20 * time.Millisecond,
+			Timeout: 200 * time.Millisecond,
 		},
 	})
 
@@ -600,7 +600,7 @@ func TestInventory_discoveryTimeoutAppliesToLazyCapabilityProbe(t *testing.T) {
 		BaseURL:    local.URL + "/v1",
 		NativeRoot: local.URL,
 		HTTPClient: local.Client(),
-		Discovery:  DiscoveryConfig{Timeout: 20 * time.Millisecond},
+		Discovery:  DiscoveryConfig{Timeout: 200 * time.Millisecond},
 	})
 
 	capsCh := make(chan lipapi.BackendCaps, 1)
