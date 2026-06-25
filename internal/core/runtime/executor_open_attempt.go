@@ -304,6 +304,7 @@ func (e *Executor) openPlannedCandidate(
 		ALegID:     p.aLegID,
 		BLegID:     bleg.BLegID,
 		AttemptSeq: bleg.Seq,
+		BackendID:  strings.TrimSpace(c.Primary.Backend),
 	}); err != nil {
 		return zero, fmt.Errorf("executor: request hooks: %w", err)
 	}

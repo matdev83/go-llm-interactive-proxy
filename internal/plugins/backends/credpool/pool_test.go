@@ -222,6 +222,65 @@ func TestAcquire_concurrentAcquireAndMark(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAcquireByID_usableCredential(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
+	p, err := credpool.New([]credpool.Credential{
+		{ID: "alpha", Secret: "sk-a"},
+		{ID: "beta", Secret: "sk-b"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.AcquireByID(base, "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "beta" || got.Secret != "sk-b" {
+		t.Fatalf("credential: %+v", got)
+	}
+}
+
+func TestAcquireByID_authInvalidReturnsErrNoUsableCredential(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
+	p, err := credpool.New([]credpool.Credential{{ID: "x", Secret: "sk-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.MarkAuthInvalid("x")
+	_, err = p.AcquireByID(base, "x")
+	if !errors.Is(err, credpool.ErrNoUsableCredential) {
+		t.Fatalf("want ErrNoUsableCredential, got %v", err)
+	}
+}
+
+func TestAcquireByID_cooldownReturnsErrNoUsableCredential(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
+	p, err := credpool.New([]credpool.Credential{{ID: "x", Secret: "sk-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.MarkRateLimited("x", base.Add(time.Minute))
+	_, err = p.AcquireByID(base, "x")
+	if !errors.Is(err, credpool.ErrNoUsableCredential) {
+		t.Fatalf("want ErrNoUsableCredential, got %v", err)
+	}
+}
+
+func TestAcquireByID_missingIDReturnsErrNoUsableCredential(t *testing.T) {
+	t.Parallel()
+	p, err := credpool.New([]credpool.Credential{{ID: "x", Secret: "sk-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.AcquireByID(time.Unix(0, 0), "missing")
+	if !errors.Is(err, credpool.ErrNoUsableCredential) {
+		t.Fatalf("want ErrNoUsableCredential, got %v", err)
+	}
+}
+
 func TestMarkRateLimited_keepsLaterCooldownDeadline(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)

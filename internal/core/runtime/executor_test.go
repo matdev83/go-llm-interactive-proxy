@@ -810,6 +810,9 @@ func TestExecutor_requestPartHook_metaIncludesBLeg(t *testing.T) {
 	if got.BLegID == "" || got.AttemptSeq <= 0 {
 		t.Fatalf("request hook after NextBLeg: want BLegID and positive AttemptSeq, got %+v", got)
 	}
+	if got.BackendID != "openai" {
+		t.Fatalf("request hook BackendID = %q, want openai", got.BackendID)
+	}
 }
 
 func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
@@ -883,11 +886,17 @@ func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
 	if respMeta.BLegID == "" || respMeta.AttemptSeq <= 0 {
 		t.Fatalf("response hook: want non-empty BLegID and positive AttemptSeq on recv path, got %+v", respMeta)
 	}
+	if respMeta.BackendID != "openai" {
+		t.Fatalf("response hook: BackendID = %q, want openai", respMeta.BackendID)
+	}
 	if toolMeta.TraceID == "" || toolMeta.ALegID == "" {
 		t.Fatalf("tool reactor: want non-empty TraceID and ALegID, got %+v", toolMeta)
 	}
 	if toolMeta.BLegID == "" || toolMeta.AttemptSeq <= 0 {
 		t.Fatalf("tool reactor: want non-empty BLegID and positive AttemptSeq, got %+v", toolMeta)
+	}
+	if toolMeta.BackendID != "openai" {
+		t.Fatalf("tool reactor: BackendID = %q, want openai", toolMeta.BackendID)
 	}
 	_ = stream.Close()
 }

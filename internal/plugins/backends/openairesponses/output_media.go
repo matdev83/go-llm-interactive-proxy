@@ -14,6 +14,7 @@ import (
 // The OpenAI wire uses the same content types as request items; the Go SDK union may
 // not type every variant, so we parse RawJSON per content element.
 func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) error {
+	m := s.eventMapper()
 	for _, item := range resp.Output {
 		if item.Type != "message" {
 			continue
@@ -38,10 +39,10 @@ func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) error {
 				if url == "" {
 					continue
 				}
-				if err := s.ensureResponseStarted(); err != nil {
+				if err := m.EnsureResponseStarted(); err != nil {
 					return err
 				}
-				if err := s.ensureAssistantMessageStarted(); err != nil {
+				if err := m.EnsureMessageStarted(); err != nil {
 					return err
 				}
 				if err := s.pending.Push(lipapi.Event{
@@ -55,10 +56,10 @@ func emitOutputMediaFromResponse(s *sdkStream, resp responses.Response) error {
 				if strings.TrimSpace(probe.FileID) == "" {
 					continue
 				}
-				if err := s.ensureResponseStarted(); err != nil {
+				if err := m.EnsureResponseStarted(); err != nil {
 					return err
 				}
-				if err := s.ensureAssistantMessageStarted(); err != nil {
+				if err := m.EnsureMessageStarted(); err != nil {
 					return err
 				}
 				if err := s.pending.Push(lipapi.Event{

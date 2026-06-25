@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/openairesponsestream"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/packages/ssestream"
@@ -27,29 +28,28 @@ type sdkStream struct {
 
 	sdk *ssestream.Stream[responses.ResponseStreamEventUnion]
 
-	pending      stream.PendingEventQueue
-	sawResp      bool
-	sawMsg       bool
-	sawTextDelta bool
-	closed       bool
-
-	// Tool-call streaming: Responses API uses output item id as the stable key.
-	toolCallStarted   map[string]bool
-	toolCallArgDeltas map[string]bool
-	toolCallFinished  map[string]bool
+	pending stream.PendingEventQueue
+	mapper  *openairesponsestream.Mapper
+	closed  bool
 }
 
 func newSDKStream(s *ssestream.Stream[responses.ResponseStreamEventUnion], maxPending int) lipapi.ManagedEventStream {
 	if s == nil {
 		return lipapi.NewFixedEventStream(nil)
 	}
-	return &sdkStream{
-		sdk:               s,
-		pending:           stream.NewPendingEventQueue(maxPending),
-		toolCallStarted:   map[string]bool{},
-		toolCallArgDeltas: map[string]bool{},
-		toolCallFinished:  map[string]bool{},
+	st := &sdkStream{
+		sdk:     s,
+		pending: stream.NewPendingEventQueue(maxPending),
 	}
+	st.mapper = openairesponsestream.New(&st.pending)
+	return st
+}
+
+func (s *sdkStream) eventMapper() *openairesponsestream.Mapper {
+	if s.mapper == nil {
+		s.mapper = openairesponsestream.New(&s.pending)
+	}
+	return s.mapper
 }
 
 func (s *sdkStream) Recv(ctx context.Context) (lipapi.Event, error) {
@@ -99,58 +99,20 @@ func (s *sdkStream) Recv(ctx context.Context) (lipapi.Event, error) {
 }
 
 func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
-	if s.toolCallStarted == nil {
-		s.toolCallStarted = map[string]bool{}
-		s.toolCallArgDeltas = map[string]bool{}
-		s.toolCallFinished = map[string]bool{}
-	}
+	m := s.eventMapper()
 	switch cur.Type {
 	case "response.created":
-		if !s.sawResp {
-			s.sawResp = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
-				return err
-			}
-		}
+		return m.ResponseCreated()
 	case "response.output_text.delta":
-		if !s.sawResp {
-			s.sawResp = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
-				return err
-			}
-		}
-		if !s.sawMsg {
-			s.sawMsg = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-				return err
-			}
-		}
-		if cur.Delta != "" {
-			s.sawTextDelta = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: cur.Delta}); err != nil {
-				return err
-			}
-		}
+		return m.OutputTextDelta(cur.Delta)
 	case "response.completed":
 		resp := cur.Response
-		if !s.sawResp {
-			s.sawResp = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
-				return err
-			}
+		if err := m.BeginCompleted(); err != nil {
+			return err
 		}
-		if !s.sawMsg {
-			s.sawMsg = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+		if !m.SawTextDelta() {
+			if err := m.CompletedTextFallback(resp.OutputText()); err != nil {
 				return err
-			}
-		}
-		if !s.sawTextDelta {
-			text := resp.OutputText()
-			if text != "" {
-				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text}); err != nil {
-					return err
-				}
 			}
 		}
 		if err := emitOutputMediaFromResponse(s, resp); err != nil {
@@ -160,32 +122,14 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 			return err
 		}
 		if usage := usageFromResponse(resp); usage != nil {
-			if err := s.pending.Push(*usage); err != nil {
+			if err := m.PushUsage(usage); err != nil {
 				return err
 			}
 		}
-		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseFinished}); err != nil {
-			return err
-		}
+		return m.ResponseFinished()
 	case "error":
 		ev := cur.AsError()
-		if !s.sawResp {
-			s.sawResp = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
-				return err
-			}
-		}
-		msg := ev.Message
-		if msg == "" {
-			msg = "stream error"
-		}
-		if err := s.pending.Push(lipapi.Event{
-			Kind:         lipapi.EventError,
-			ErrorCode:    ev.Code,
-			ErrorMessage: msg,
-		}); err != nil {
-			return err
-		}
+		return m.StreamError(ev.Code, ev.Message, "stream error")
 	case "response.output_item.added":
 		addEv := cur.AsResponseOutputItemAdded()
 		item := addEv.Item
@@ -193,88 +137,15 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 			return nil
 		}
 		fc := item.AsFunctionCall()
-		id := toolCallItemID(fc)
-		if id == "" {
-			return nil
-		}
-		if err := s.ensureResponseStarted(); err != nil {
-			return err
-		}
-		if s.toolCallStarted[id] {
-			return nil
-		}
-		s.toolCallStarted[id] = true
-		if err := s.ensureAssistantMessageStarted(); err != nil {
-			return err
-		}
-		if err := s.pending.Push(lipapi.Event{
-			Kind:       lipapi.EventToolCallStarted,
-			ToolCallID: id,
-			ToolName:   fc.Name,
-		}); err != nil {
-			return err
-		}
+		return m.ToolCallAdded(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name)
 	case "response.function_call_arguments.delta":
 		d := cur.AsResponseFunctionCallArgumentsDelta()
-		id := d.ItemID
-		if id == "" || d.Delta == "" {
-			return nil
-		}
-		if err := s.ensureResponseStarted(); err != nil {
-			return err
-		}
-		if !s.toolCallStarted[id] {
-			s.toolCallStarted[id] = true
-			if err := s.ensureAssistantMessageStarted(); err != nil {
-				return err
-			}
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallStarted,
-				ToolCallID: id,
-			}); err != nil {
-				return err
-			}
-		}
-		s.toolCallArgDeltas[id] = true
-		if err := s.pending.Push(lipapi.Event{
-			Kind:       lipapi.EventToolCallArgsDelta,
-			ToolCallID: id,
-			Delta:      d.Delta,
-		}); err != nil {
-			return err
-		}
+		id := openairesponsestream.ToolCallIDFromRaw(d.ItemID, d.RawJSON())
+		return m.ToolCallArgsDelta(id, d.Delta)
 	case "response.function_call_arguments.done":
 		d := cur.AsResponseFunctionCallArgumentsDone()
-		id := d.ItemID
-		if id == "" {
-			return nil
-		}
-		if err := s.ensureResponseStarted(); err != nil {
-			return err
-		}
-		if !s.toolCallStarted[id] {
-			s.toolCallStarted[id] = true
-			if err := s.ensureAssistantMessageStarted(); err != nil {
-				return err
-			}
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallStarted,
-				ToolCallID: id,
-				ToolName:   d.Name,
-			}); err != nil {
-				return err
-			}
-		}
-		if !s.toolCallArgDeltas[id] && d.Arguments != "" {
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallArgsDelta,
-				ToolCallID: id,
-				Delta:      d.Arguments,
-			}); err != nil {
-				return err
-			}
-		}
-		return s.emitToolCallFinished(id)
+		id := openairesponsestream.ToolCallIDFromRaw(d.ItemID, d.RawJSON())
+		return m.FinishToolCallArguments(id, d.Name, d.Arguments)
 	case "response.output_item.done":
 		doneEv := cur.AsResponseOutputItemDone()
 		item := doneEv.Item
@@ -282,112 +153,21 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 			return nil
 		}
 		fc := item.AsFunctionCall()
-		id := toolCallItemID(fc)
-		if id == "" {
-			return nil
-		}
-		if err := s.ensureResponseStarted(); err != nil {
-			return err
-		}
-		if !s.toolCallStarted[id] {
-			s.toolCallStarted[id] = true
-			if err := s.ensureAssistantMessageStarted(); err != nil {
-				return err
-			}
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallStarted,
-				ToolCallID: id,
-				ToolName:   fc.Name,
-			}); err != nil {
-				return err
-			}
-		}
-		if !s.toolCallArgDeltas[id] && fc.Arguments != "" {
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallArgsDelta,
-				ToolCallID: id,
-				Delta:      fc.Arguments,
-			}); err != nil {
-				return err
-			}
-		}
-		return s.emitToolCallFinished(id)
+		return m.FinishToolCallArguments(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name, fc.Arguments)
 	default:
 		// Ignore intermediate events (in_progress, queued, etc.).
 	}
 	return nil
 }
 
-func toolCallItemID(fc responses.ResponseFunctionToolCall) string {
-	if fc.ID != "" {
-		return fc.ID
-	}
-	return fc.CallID
-}
-
-func (s *sdkStream) ensureResponseStarted() error {
-	if s.sawResp {
-		return nil
-	}
-	s.sawResp = true
-	return s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted})
-}
-
-func (s *sdkStream) ensureAssistantMessageStarted() error {
-	if s.sawMsg {
-		return nil
-	}
-	s.sawMsg = true
-	return s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
-}
-
-func (s *sdkStream) emitToolCallFinished(id string) error {
-	if s.toolCallFinished[id] {
-		return nil
-	}
-	s.toolCallFinished[id] = true
-	return s.pending.Push(lipapi.Event{
-		Kind:       lipapi.EventToolCallFinished,
-		ToolCallID: id,
-	})
-}
-
 func (s *sdkStream) emitToolCallsFromCompletedResponse(resp responses.Response) error {
+	m := s.eventMapper()
 	for _, item := range resp.Output {
 		if item.Type != "function_call" {
 			continue
 		}
 		fc := item.AsFunctionCall()
-		id := toolCallItemID(fc)
-		if id == "" || s.toolCallFinished[id] {
-			continue
-		}
-		if err := s.ensureResponseStarted(); err != nil {
-			return err
-		}
-		if !s.toolCallStarted[id] {
-			s.toolCallStarted[id] = true
-			if err := s.ensureAssistantMessageStarted(); err != nil {
-				return err
-			}
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallStarted,
-				ToolCallID: id,
-				ToolName:   fc.Name,
-			}); err != nil {
-				return err
-			}
-		}
-		if !s.toolCallArgDeltas[id] && fc.Arguments != "" {
-			if err := s.pending.Push(lipapi.Event{
-				Kind:       lipapi.EventToolCallArgsDelta,
-				ToolCallID: id,
-				Delta:      fc.Arguments,
-			}); err != nil {
-				return err
-			}
-		}
-		if err := s.emitToolCallFinished(id); err != nil {
+		if err := m.EmitCompletedToolCall(openairesponsestream.ToolCallID(fc.ID, fc.CallID), fc.Name, fc.Arguments); err != nil {
 			return err
 		}
 	}

@@ -27,6 +27,7 @@ type ToolMeta struct {
 	TraceID    string
 	ALegID     string
 	BLegID     string
+	BackendID  string
 	AttemptSeq int
 
 	Principal execview.PrincipalView

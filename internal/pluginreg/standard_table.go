@@ -14,12 +14,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
@@ -149,6 +151,7 @@ func StandardBundle() Bundle {
 			{ID: reftraffictranscript.ID, Factory: featureRefTrafficTranscript},
 			{ID: refverifier.ID, Factory: featureRefVerifier},
 			{ID: prerequestpolicy.ID, Factory: featurePreRequestPolicy},
+			{ID: codexclientcompat.ID, Factory: FeatureFactoryFromHooks(featureCodexClientCompat)},
 		},
 	}
 }
@@ -185,6 +188,9 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: opencodezen.ID, Factory: func(n yaml.Node, upstream *http.Client, deps BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenCodeZen(n, upstream, keys, deps.ModelVendorResolver)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: openaicodex.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenAICodex(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOllama(n, upstream, keys)
