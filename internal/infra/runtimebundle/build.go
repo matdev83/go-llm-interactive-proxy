@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -109,9 +110,24 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		parent = opts.StartupContext
 	}
 
+	startedCatalog, err := startModelCatalog(parent, cfg, upstream)
+	if err != nil {
+		return nil, err
+	}
+	var vendorCatalogRuntime *modelcatalog.CatalogRuntime
+	if startedCatalog != nil {
+		vendorCatalogRuntime = startedCatalog.Runtime
+	}
+	backendDeps := pluginreg.BackendFactoryDeps{
+		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
+	}
+
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
 	closers := []func() error{}
+	if startedCatalog != nil {
+		closers = append(closers, startedCatalog.closers...)
+	}
 	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
@@ -119,9 +135,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		}
 		fid := p.FactoryID()
 		iid := p.InstanceID()
-		be, err := reg.BuildBackend(fid, p.Config, upstream)
+		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
 		if err != nil {
-			return nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			wrapped := fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			if derr := disposeClosers(closers); derr != nil {
+				return nil, errors.Join(wrapped, derr)
+			}
+			return nil, wrapped
 		}
 		backends[iid] = be
 		inventories = append(inventories, modelregistry.BackendInventory{
@@ -134,7 +154,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
 	if err != nil {
-		return nil, fmt.Errorf("runtimebundle: model registry: %w", err)
+		wrapped := fmt.Errorf("runtimebundle: model registry: %w", err)
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(wrapped, derr)
+		}
+		return nil, wrapped
 	}
 	closers = append(closers, modelRegistryClosers...)
 	if cfg.Accounting.StrictAuthoritative {
@@ -354,14 +378,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts.SecureSessionStore != nil {
 		secureSessionStore = opts.SecureSessionStore
 	}
-	catalogRuntime, err := attachModelCatalog(parent, exec, &closers, cfg, upstream)
-	if err != nil {
-		wrapped := fmt.Errorf("runtimebundle: model catalog: %w", err)
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(wrapped, derr)
-		}
-		return nil, wrapped
-	}
+	catalogRuntime := attachModelCatalog(exec, startedCatalog, cfg)
 	return &Built{
 		Executor:              exec,
 		Store:                 store,

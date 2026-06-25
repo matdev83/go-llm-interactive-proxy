@@ -21,7 +21,7 @@ import (
 
 func registerProfiledBackend(t *testing.T, reg *pluginreg.Registry, factoryID string, mode pluginreg.BackendCredentialMode) {
 	t.Helper()
-	err := reg.RegisterBackendWithProfile(factoryID, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	err := reg.RegisterBackendWithProfile(factoryID, func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{factoryID},
@@ -43,7 +43,7 @@ type billingBackendOptions struct {
 
 func registerBillingBackend(t *testing.T, reg *pluginreg.Registry, factoryID string, opts billingBackendOptions) {
 	t.Helper()
-	err := reg.RegisterBackend(factoryID, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	err := reg.RegisterBackend(factoryID, func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		be := execbackend.Backend{
 			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			BackendPrefixes: []string{factoryID},

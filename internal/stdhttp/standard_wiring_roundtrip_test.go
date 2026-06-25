@@ -66,6 +66,7 @@ models:
 	if err != nil {
 		t.Fatalf("runtimebundle.Build: %v", err)
 	}
+	t.Cleanup(func() { runClosers(testkit.DiscardLogger(), built.Closers) })
 	if len(built.Executor.Backends) != 1 {
 		t.Fatalf("backends: got %d want 1", len(built.Executor.Backends))
 	}

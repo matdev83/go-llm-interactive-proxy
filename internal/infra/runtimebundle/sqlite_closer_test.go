@@ -39,7 +39,5 @@ func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 	if len(b.Closers) != 1 {
 		t.Fatalf("expected 1 closer for sqlite, got %d", len(b.Closers))
 	}
-	if err := b.Closers[0](); err != nil {
-		t.Fatalf("closer: %v", err)
-	}
+	closeRuntimeBuilt(t, b)
 }

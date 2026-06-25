@@ -12,6 +12,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -82,7 +83,7 @@ func (c *TokenCounter) CountCall(ctx context.Context, input app.CountCallInput) 
 		return app.CountResult{}, supportError(support, app.ErrProviderUnsupported)
 	}
 
-	params, err := ParamsForCall(&input.Call, routing.AttemptCandidate{Primary: routing.Primary{Model: input.Model}})
+	params, err := anthropicmessages.ParamsForCall(&input.Call, routing.AttemptCandidate{Primary: routing.Primary{Model: input.Model}})
 	if err != nil {
 		return app.CountResult{}, fmt.Errorf("%w: anthropic count_tokens: map call: %w", app.ErrProviderUnsupported, err)
 	}

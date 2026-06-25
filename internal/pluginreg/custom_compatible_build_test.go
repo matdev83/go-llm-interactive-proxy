@@ -65,7 +65,7 @@ api_key: yaml-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAILegacyCompatibleID, node, modelsSrv.Client())
+	be, err := reg.BuildBackend(CustomOpenAILegacyCompatibleID, node, modelsSrv.Client(), BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ api_key: yaml-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, modelsSrv.Client())
+	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, modelsSrv.Client(), BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ models:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, nil)
+	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ api_key: yaml-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, modelsSrv.Client())
+	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, modelsSrv.Client(), BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ models:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil)
+	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestBuildBackend_customAnthropicCompatible_missingBaseURLUsesCustomPrefix(t
 	if err := yaml.Unmarshal([]byte("backend_prefix: my-anthropic\napi_key: yaml-key\n"), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil)
+	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

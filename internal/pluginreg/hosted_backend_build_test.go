@@ -27,7 +27,7 @@ api_keys:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil)
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestBuildBackend_nvidia_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(nvidia.ID, node, nil)
+	b, err := reg.BuildBackend(nvidia.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestBuildBackend_openAIResponses_envDefaultsWhenYAMLHasNoKeys(t *testing.T)
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil)
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ api_key: test-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(openairesponses.ID, node, client)
+	b, err := reg.BuildBackend(openairesponses.ID, node, client, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

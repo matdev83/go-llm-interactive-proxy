@@ -73,16 +73,7 @@ func NormalizeStripOneProviderPrefix(s string) string {
 }
 
 func buildNormToIDs(byID map[string]ModelFacts) map[string][]string {
-	// Count ids per normalized suffix so inner slices can be preallocated (avoid repeated append growth).
-	counts := make(map[string]int, len(byID))
-	for id := range byID {
-		n := NormalizeStripOneProviderPrefix(id)
-		counts[n]++
-	}
-	normToIDs := make(map[string][]string, len(counts))
-	for n, c := range counts {
-		normToIDs[n] = make([]string, 0, c)
-	}
+	normToIDs := make(map[string][]string, len(byID))
 	for id := range byID {
 		n := NormalizeStripOneProviderPrefix(id)
 		normToIDs[n] = append(normToIDs[n], id)
@@ -92,6 +83,21 @@ func buildNormToIDs(byID map[string]ModelFacts) map[string][]string {
 		normToIDs[n] = list
 	}
 	return normToIDs
+}
+
+func buildSuffixToIDs(byID map[string]ModelFacts) map[string][]string {
+	suffixToIDs := make(map[string][]string, len(byID))
+	for id := range byID {
+		suffix := NormalizeStripOneProviderPrefix(id)
+		for _, key := range SuffixLookupKeys(suffix) {
+			suffixToIDs[key] = append(suffixToIDs[key], id)
+		}
+	}
+	for key, list := range suffixToIDs {
+		slices.Sort(list)
+		suffixToIDs[key] = list
+	}
+	return suffixToIDs
 }
 
 func (s *SnapshotIndex) catalogIDsForNormalized(normalized string) []string {

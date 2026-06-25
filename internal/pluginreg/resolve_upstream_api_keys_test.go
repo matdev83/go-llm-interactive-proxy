@@ -15,7 +15,11 @@ func clearNumberedEnv(t *testing.T, prefix string) {
 
 func clearAllProviderEnv(t *testing.T) {
 	t.Helper()
-	for _, prefix := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_API_KEY"} {
+	for _, prefix := range []string{
+		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY",
+		"OPENROUTER_API_KEY", "NVIDIA_API_KEY",
+		"OPENCODE_GO_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY",
+	} {
 		t.Setenv(prefix, "")
 		clearNumberedEnv(t, prefix)
 	}

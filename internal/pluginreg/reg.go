@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
@@ -16,8 +17,17 @@ import (
 // FrontendMount is the stable SDK-named contract (see pkg/lipsdk).
 type FrontendMount = lipsdk.FrontendMount
 
-// BackendFactory builds a backend from opaque per-plugin YAML and the composition-root HTTP client.
-type BackendFactory func(n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error)
+type ModelVendorResolver = opencodecommon.VendorResolver
+
+// BackendFactoryDeps carries composition-root runtime services that backend factories may use.
+// Dependencies here must be stable core-owned seams, not plugin-specific mutable registry state.
+type BackendFactoryDeps struct {
+	ModelVendorResolver ModelVendorResolver
+}
+
+// BackendFactory builds a backend from opaque per-plugin YAML, the composition-root HTTP client,
+// and explicit composition-root runtime dependencies.
+type BackendFactory func(n yaml.Node, upstreamHTTP *http.Client, deps BackendFactoryDeps) (execbackend.Backend, error)
 
 // BackendCredentialMode and BackendSecurityProfile are the public plugin registration contract
 // (see [lipsdk.BackendCredentialMode], [lipsdk.BackendSecurityProfile]).
@@ -177,9 +187,6 @@ func (r *Registry) RegisterFeature(id string, fn FeatureFactory) error {
 	return nil
 }
 
-// BuildBackend constructs a backend from r using the factory id (plugin kind).
-// upstreamHTTP is the shared outbound client from the composition root; nil is passed through
-// to factories, which apply defaults where HTTP is required (e.g. Bedrock, ACP).
 // BackendSecurityProfile returns credential posture metadata for a registered backend factory.
 func (r *Registry) BackendSecurityProfile(factoryID string) (BackendSecurityProfile, bool) {
 	factoryID = strings.TrimSpace(factoryID)
@@ -189,7 +196,15 @@ func (r *Registry) BackendSecurityProfile(factoryID string) (BackendSecurityProf
 	return profile, ok
 }
 
-func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *http.Client) (execbackend.Backend, error) {
+// BuildBackend constructs a backend from r using the factory id (plugin kind).
+// upstreamHTTP is the shared outbound client from the composition root; nil is passed through
+// to factories, which apply defaults where HTTP is required (e.g. Bedrock, ACP).
+func (r *Registry) BuildBackend(
+	factoryID string,
+	n yaml.Node,
+	upstreamHTTP *http.Client,
+	deps BackendFactoryDeps,
+) (execbackend.Backend, error) {
 	factoryID = strings.TrimSpace(factoryID)
 
 	r.mu.RLock()
@@ -198,7 +213,7 @@ func (r *Registry) BuildBackend(factoryID string, n yaml.Node, upstreamHTTP *htt
 	if !ok {
 		return execbackend.Backend{}, fmt.Errorf("pluginreg: unknown backend plugin %q", factoryID)
 	}
-	return fn(n, upstreamHTTP)
+	return fn(n, upstreamHTTP, deps)
 }
 
 // MountFrontend registers routes for one enabled frontend plugin on r.

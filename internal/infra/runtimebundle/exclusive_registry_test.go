@@ -23,7 +23,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 
 	factoryID := "custom-registry-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
-	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+	if err := reg.RegisterBackend(factoryID, func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		_ = n
 		_ = upstream
 		return execbackend.Backend{
@@ -39,7 +39,7 @@ func TestBuild_backendConstructionUsesInjectedRegistryNotDefault(t *testing.T) {
 	}
 
 	empty := pluginreg.NewRegistry()
-	if _, err := empty.BuildBackend(factoryID, yaml.Node{}, nil); err == nil {
+	if _, err := empty.BuildBackend(factoryID, yaml.Node{}, nil, pluginreg.BackendFactoryDeps{}); err == nil {
 		t.Fatal("expected empty registry to omit custom factory id")
 	}
 

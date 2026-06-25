@@ -49,13 +49,13 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzParamsForCall` | `internal/plugins/backends/openairesponses` | Canonical call → Responses params |
 | `FuzzHandleResponseStreamUnion` | `internal/plugins/backends/openairesponses` | Responses SSE union → events |
 | `FuzzBuildToolsParametersJSON` | `internal/plugins/backends/openairesponses` | Tool JSON schema unmarshal |
-| `FuzzHandleMessageStreamEventUnion` | `internal/plugins/backends/anthropic` | Anthropic stream union → events |
-| `FuzzToolInputSchemaParametersJSON` | `internal/plugins/backends/anthropic` | Anthropic tool schema unmarshal |
+| `FuzzHandleMessageStreamEventUnion` | `internal/plugins/backends/protocols/anthropicmessages` | Anthropic stream union → events |
+| `FuzzToolInputSchemaParametersJSON` | `internal/plugins/backends/protocols/anthropicmessages` | Anthropic tool schema unmarshal |
 | `FuzzHandleChatCompletionChunk` | `internal/plugins/backends/openailegacy` | Chat completion chunk → events |
 | `FuzzBuildChatToolsParametersJSON` | `internal/plugins/backends/openailegacy` | Chat tools JSON unmarshal |
-| `FuzzHandleGenerateContentResponse` | `internal/plugins/backends/gemini` | Gemini response JSON → events |
-| `FuzzBuildToolsParametersJSON` | `internal/plugins/backends/gemini` | Gemini tool params unmarshal |
-| `FuzzMessageToContentToolResultJSON` | `internal/plugins/backends/gemini` | Tool result JSON in invoke |
+| `FuzzHandleGenerateContentResponse` | `internal/plugins/backends/protocols/geminigenerate` | Gemini response JSON → events |
+| `FuzzBuildToolsParametersJSON` | `internal/plugins/backends/protocols/geminigenerate` | Gemini tool params unmarshal |
+| `FuzzMessageToContentToolResultJSON` | `internal/plugins/backends/protocols/geminigenerate` | Tool result JSON in invoke |
 | `FuzzAssistantPartsToContentBlocksJSON` | `internal/plugins/backends/bedrock` | Assistant JSON part → Converse blocks |
 | `FuzzParseNDJSONLine` | `internal/plugins/backends/acp` | ACP NDJSON line mapping |
 | `FuzzMapSessionUpdateToEvents` | `internal/plugins/backends/acp` | ACP session/update map |

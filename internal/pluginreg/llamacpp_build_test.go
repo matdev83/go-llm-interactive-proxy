@@ -33,7 +33,7 @@ func TestBuildBackend_llamacpp_emptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(`{}`), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(llamacpp.ID, node, nil)
+	b, err := reg.BuildBackend(llamacpp.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ discovery:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(llamacpp.ID, node, modelsSrv.Client())
+	b, err := reg.BuildBackend(llamacpp.ID, node, modelsSrv.Client(), BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

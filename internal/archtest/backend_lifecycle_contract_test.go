@@ -12,6 +12,8 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 	root := repoRoot(t)
 	backendsDir := filepath.Join(root, "internal", "plugins", "backends")
 	lifecycleDelegatedToSharedAdapter := map[string]string{
+		"anthropic":    filepath.Join("protocols", "anthropicmessages"),
+		"gemini":       filepath.Join("protocols", "geminigenerate"),
 		"ollama":       "openaicompat",
 		"ollama-cloud": "openaicompat",
 		"llamacpp":     "openaicompat",
@@ -19,12 +21,16 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"openrouter":   "openaicompat",
 		"nvidia":       "openaicompat",
 		"vllm":         "openaicompat",
+		"opencodego":   "opencodecommon",
+		"opencodezen":  "opencodecommon",
 	}
 	skipDirs := map[string]struct{}{
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},
 		"modeldiscover": {},
 		"openaicompat":  {},
 		"openaifamily":  {},
+		"opencodetest":  {},
+		"protocols":     {},
 	}
 	entries, err := os.ReadDir(backendsDir)
 	if err != nil {

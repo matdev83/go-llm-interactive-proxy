@@ -276,6 +276,16 @@ plugins:
       config: {}
       # base_url: https://integrate.api.nvidia.com/v1  # default
       # api_key: ""          # or use NVIDIA_API_KEY / NVIDIA_API_KEY_N env vars
+    - id: opencode-go
+      enabled: false
+      config: {}
+      # base_url: https://opencode.ai/zen/go/v1  # default
+      # api_key: ""          # or use OPENCODE_GO_API_KEY / OPENCODE_GO_API_KEY_N env vars
+    - id: opencode-zen
+      enabled: false
+      config: {}
+      # base_url: https://opencode.ai/zen/v1  # default
+      # api_key: ""          # or use OPENCODE_API_KEY / OPENCODE_ZEN_API_KEY (+ _N variants) env vars
     - id: ollama
       enabled: false
       config: {}

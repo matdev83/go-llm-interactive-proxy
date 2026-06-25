@@ -1,50 +1,17 @@
 package pluginreg
 
 import (
-	"cmp"
-	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
-
-type bedrockBackendYAML struct {
-	Region                   string             `yaml:"region"`
-	AccessKeyID              string             `yaml:"access_key_id"`
-	SecretAccessKey          string             `yaml:"secret_access_key"`
-	SessionToken             string             `yaml:"session_token"`
-	BaseEndpoint             string             `yaml:"base_endpoint"`
-	DisableHTTPS             bool               `yaml:"disable_https"`
-	AllowInsecureNonLoopback bool               `yaml:"allow_insecure_non_loopback"`
-	Models                   modelInventoryYAML `yaml:"models"`
-}
-
-type acpBackendYAML struct {
-	BaseURL string             `yaml:"base_url"`
-	Models  modelInventoryYAML `yaml:"models"`
-}
 
 type openAIStyleYAML struct {
 	BaseURL     string                 `yaml:"base_url"`
@@ -129,14 +96,22 @@ func applyConfiguredModelInventory(be execbackend.Backend, y modelInventoryYAML)
 }
 
 func configuredModelInventory(y modelInventoryYAML) (modelinventory.Provider, bool, error) {
+	rows, source, ok, err := modelInventoryRows(y, false)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	return staticModelInventory(source, rows)
+}
+
+func modelInventoryRows(y modelInventoryYAML, emptyOK bool) ([]modelInventoryItemYAML, modelinventory.Source, bool, error) {
 	source := strings.ToLower(strings.TrimSpace(y.Source))
 	path := strings.TrimSpace(y.Path)
 	if path != "" && len(y.Items) > 0 {
-		return nil, false, fmt.Errorf("backend models: specify either path or items, not both")
+		return nil, "", false, fmt.Errorf("backend models: specify either path or items, not both")
 	}
 	if source == "" {
 		if len(y.Items) == 0 && path == "" {
-			return nil, false, nil
+			return nil, "", false, nil
 		}
 		if path != "" && len(y.Items) == 0 {
 			source = "file"
@@ -144,22 +119,33 @@ func configuredModelInventory(y modelInventoryYAML) (modelinventory.Provider, bo
 			source = "inline"
 		}
 	}
+	var rows []modelInventoryItemYAML
+	var inventorySource modelinventory.Source
 	switch source {
 	case "inline", "static_inline":
-		return staticModelInventory(modelinventory.SourceStaticInline, y.Items)
+		rows = y.Items
+		inventorySource = modelinventory.SourceStaticInline
 	case "file", "static_file":
 		path := strings.TrimSpace(y.Path)
 		if path == "" {
-			return nil, false, fmt.Errorf("backend models: path is required for source %q", source)
+			return nil, "", false, fmt.Errorf("backend models: path is required for source %q", source)
 		}
 		items, err := loadModelInventoryFile(path)
 		if err != nil {
-			return nil, false, err
+			return nil, "", false, err
 		}
-		return staticModelInventory(modelinventory.SourceStaticFile, items)
+		rows = items
+		inventorySource = modelinventory.SourceStaticFile
 	default:
-		return nil, false, fmt.Errorf("backend models: unsupported source %q", y.Source)
+		return nil, "", false, fmt.Errorf("backend models: unsupported source %q", y.Source)
 	}
+	if len(rows) == 0 {
+		if emptyOK {
+			return nil, "", false, nil
+		}
+		return nil, "", false, fmt.Errorf("backend models: at least one item is required")
+	}
+	return rows, inventorySource, true, nil
 }
 
 func loadModelInventoryFile(path string) ([]modelInventoryItemYAML, error) {
@@ -198,301 +184,4 @@ func staticModelInventory(source modelinventory.Source, rows []modelInventoryIte
 		Source: source,
 		Models: models,
 	}, true, nil
-}
-
-func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIStyleYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: %w", err)
-	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
-	cfg := openairesponses.Config{
-		BaseURL:     base,
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(openairesponses.New(cfg), y.Models)
-}
-
-func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIStyleYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: %w", err)
-	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
-	cfg := openailegacy.Config{
-		BaseURL:     base,
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(openailegacy.New(cfg), y.Models)
-}
-
-func backendAnthropic(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIStyleYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("anthropic backend config: %w", err)
-	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.anthropic.com")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Anthropic)
-	cfg := anthropic.Config{
-		BaseURL:     base,
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
-}
-
-func backendCustomAnthropicCompatible(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-	y, err := decodeCustomCompatibleBackendYAML(n)
-	if err != nil {
-		return execbackend.Backend{}, fmt.Errorf("%s backend config: %w", CustomAnthropicCompatibleID, err)
-	}
-	prefix := strings.TrimSpace(y.BackendPrefix)
-	if err := validateCustomBackendPrefix(prefix); err != nil {
-		return execbackend.Backend{}, err
-	}
-	base := strings.TrimSpace(y.BaseURL)
-	ek := resolveCustomCompatibleAPIKeys(y)
-	cfg := anthropic.Config{
-		BaseURL:       base,
-		BackendPrefix: prefix,
-		APIKeys:       ek,
-		Credentials:   hostedCredentials(y.Credentials),
-		HTTPClient:    resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
-}
-
-func backendGemini(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIStyleYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("gemini backend config: %w", err)
-	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://generativelanguage.googleapis.com")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Gemini)
-	cfg := gemini.Config{
-		BaseURL:     base,
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(gemini.New(cfg), y.Models)
-}
-
-func backendBedrock(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-	var y bedrockBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("bedrock backend config: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), bedrock.DefaultLoadConfigTimeout)
-	defer cancel()
-	return applyConfiguredModelInventory(bedrock.NewWithContext(ctx, bedrock.Config{
-		Region:                   y.Region,
-		AccessKeyID:              y.AccessKeyID,
-		SecretAccessKey:          y.SecretAccessKey,
-		SessionToken:             y.SessionToken,
-		BaseEndpoint:             y.BaseEndpoint,
-		DisableHTTPS:             y.DisableHTTPS,
-		AllowInsecureNonLoopback: y.AllowInsecureNonLoopback,
-		HTTPClient:               resolveUpstreamHTTP(upstream),
-	}), y.Models)
-}
-
-func backendLocalStub(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
-	return localstub.NewFromYAML(n)
-}
-
-func backendACP(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
-	var y acpBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("acp backend config: %w", err)
-	}
-	base := strings.TrimSpace(y.BaseURL)
-	if base == "" {
-		return execbackend.Backend{}, fmt.Errorf("backend acp: base_url is required")
-	}
-	return applyConfiguredModelInventory(acp.New(acp.Config{
-		BaseURL:    base,
-		HTTPClient: resolveUpstreamHTTP(upstream),
-	}), y.Models)
-}
-
-func backendLlamacpp(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIFamilyBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("llamacpp backend config: %w", err)
-	}
-	cfg, err := openAIFamilyConfigFromYAML("llamacpp", y, upstream)
-	if err != nil {
-		return execbackend.Backend{}, err
-	}
-	return applyConfiguredModelInventory(llamacpp.New(cfg), y.Models)
-}
-
-func backendLmstudio(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIFamilyBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("lmstudio backend config: %w", err)
-	}
-	cfg, err := openAIFamilyConfigFromYAML("lmstudio", y, upstream)
-	if err != nil {
-		return execbackend.Backend{}, err
-	}
-	return applyConfiguredModelInventory(lmstudio.New(cfg), y.Models)
-}
-
-func backendVllm(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIFamilyBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("vllm backend config: %w", err)
-	}
-	cfg, err := openAIFamilyConfigFromYAML("vllm", y, upstream)
-	if err != nil {
-		return execbackend.Backend{}, err
-	}
-	return applyConfiguredModelInventory(vllm.New(cfg), y.Models)
-}
-
-func backendNvidia(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openAIStyleYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("nvidia backend config: %w", err)
-	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://integrate.api.nvidia.com/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Nvidia)
-	cfg := nvidia.Config{
-		BaseURL:     base,
-		APIKeys:     ek,
-		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(nvidia.New(cfg), y.Models)
-}
-
-type openRouterBackendYAML struct {
-	BaseURL       string                 `yaml:"base_url"`
-	APIKey        string                 `yaml:"api_key"`
-	APIKeys       []string               `yaml:"api_keys"`
-	Credentials   []hostedCredentialYAML `yaml:"credentials"`
-	StaticReferer string                 `yaml:"static_referer"`
-	StaticTitle   string                 `yaml:"static_title"`
-	Models        modelInventoryYAML     `yaml:"models"`
-}
-
-func backendOpenRouter(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
-	var y openRouterBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return execbackend.Backend{}, fmt.Errorf("openrouter backend config: %w", err)
-	}
-	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://openrouter.ai/api/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenRouter)
-	cfg := openrouter.Config{
-		BaseURL:       base,
-		APIKeys:       ek,
-		Credentials:   hostedCredentials(y.Credentials),
-		HTTPClient:    resolveUpstreamHTTP(upstream),
-		StaticReferer: strings.TrimSpace(y.StaticReferer),
-		StaticTitle:   strings.TrimSpace(y.StaticTitle),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return applyConfiguredModelInventory(openrouter.New(cfg), y.Models)
-}
-
-type ollamaDiscoveryYAML struct {
-	Enabled        *bool  `yaml:"enabled"`
-	LocalModels    *bool  `yaml:"local_models"`
-	CloudModels    *bool  `yaml:"cloud_models"`
-	Catalog        *bool  `yaml:"catalog"`
-	Capabilities   *bool  `yaml:"capabilities"`
-	CloudModelsURL string `yaml:"cloud_models_url"`
-	CatalogURL     string `yaml:"catalog_url"`
-	Timeout        string `yaml:"timeout"`
-}
-
-type ollamaBackendYAML struct {
-	BaseURL      string                 `yaml:"base_url"`
-	APIKey       string                 `yaml:"api_key"`
-	APIKeys      []string               `yaml:"api_keys"`
-	Credentials  []hostedCredentialYAML `yaml:"credentials"`
-	ResponsesAPI string                 `yaml:"responses_api"`
-	Discovery    ollamaDiscoveryYAML    `yaml:"discovery"`
-	Models       modelInventoryYAML     `yaml:"models"`
-}
-
-func backendOllama(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	cfg, models, err := parseOllamaBackendConfig(n, upstream)
-	if err != nil {
-		return execbackend.Backend{}, err
-	}
-	return applyConfiguredModelInventory(ollama.New(cfg), models)
-}
-
-func backendOllamaCloud(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbackend.Backend, error) {
-	cfg, models, err := parseOllamaBackendConfig(n, upstream)
-	if err != nil {
-		return execbackend.Backend{}, err
-	}
-	return applyConfiguredModelInventory(ollama.NewCloud(cfg), models)
-}
-
-func parseOllamaBackendConfig(n yaml.Node, upstream *http.Client) (ollama.Config, modelInventoryYAML, error) {
-	var y ollamaBackendYAML
-	if err := config.DecodeYAMLNode(n, &y); err != nil {
-		return ollama.Config{}, modelInventoryYAML{}, fmt.Errorf("ollama backend config: %w", err)
-	}
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, nil)
-	discovery := ollama.DiscoveryConfig{
-		Enabled:      y.Discovery.Enabled,
-		Local:        y.Discovery.LocalModels,
-		Cloud:        y.Discovery.CloudModels,
-		Catalog:      y.Discovery.Catalog,
-		Capabilities: y.Discovery.Capabilities,
-		CloudURL:     strings.TrimSpace(y.Discovery.CloudModelsURL),
-		CatalogURL:   strings.TrimSpace(y.Discovery.CatalogURL),
-	}
-	if timeout := strings.TrimSpace(y.Discovery.Timeout); timeout != "" {
-		d, err := time.ParseDuration(timeout)
-		if err != nil {
-			return ollama.Config{}, modelInventoryYAML{}, fmt.Errorf("ollama discovery timeout: %w", err)
-		}
-		discovery.Timeout = d
-	}
-	cfg := ollama.Config{
-		BaseURL:      strings.TrimSpace(y.BaseURL),
-		APIKeys:      ek,
-		Credentials:  hostedCredentials(y.Credentials),
-		HTTPClient:   resolveUpstreamHTTP(upstream),
-		ResponsesAPI: strings.TrimSpace(y.ResponsesAPI),
-		Discovery:    discovery,
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
-	}
-	return cfg, y.Models, nil
 }

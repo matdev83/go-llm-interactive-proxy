@@ -63,6 +63,12 @@ plugins:
     - id: nvidia
       enabled: false
       config: {}
+    - id: opencode-go
+      enabled: false
+      config: {}
+    - id: opencode-zen
+      enabled: false
+      config: {}
     - id: ollama
       enabled: false
       config: {}

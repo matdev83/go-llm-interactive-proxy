@@ -3,7 +3,9 @@
 // frontend plugins, or concrete HTTP/filesystem adapters (those live under internal/infra).
 //
 // Matching and resolution: [DefaultMatcher] (exact then normalized catalog ids), [OverrideResolver] for
-// administrator pair/model overrides, and [CatalogResolverImpl] (from [NewCatalogResolver]) for effective capabilities vs backend caps.
+// administrator pair/model overrides, [CatalogResolverImpl] (from [NewCatalogResolver]) for effective capabilities vs backend caps,
+// and [DefaultVendorResolver] (from [NewVendorResolver]) for catalog-backed vendor/model canonicalization
+// with optional [VendorPolicy] hooks for provider-specific alias and keyword rules.
 //
 // Lifecycle: [CatalogRuntime] loads the local cache; the composition root runs periodic refresh via
 // [SnapshotSource] / [SnapshotCache], and publishes an immutable active [Snapshot] for readers.

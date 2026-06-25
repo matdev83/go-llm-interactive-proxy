@@ -11,6 +11,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
 )
 
@@ -25,6 +27,8 @@ var bundledBackendFactoryIDs = []string{
 	acp.ID,
 	openrouter.ID,
 	nvidia.ID,
+	opencodego.ID,
+	opencodezen.ID,
 	localstub.ID,
 }
 

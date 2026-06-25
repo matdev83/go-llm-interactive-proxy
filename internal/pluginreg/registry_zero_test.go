@@ -17,12 +17,12 @@ func TestRegistry_zeroValueRegisterBackend(t *testing.T) {
 	t.Parallel()
 	var r Registry
 	id := "zero-value-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client) (execbackend.Backend, error) {
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}); err == nil {
 		t.Fatal("expected duplicate registration error")

@@ -219,6 +219,28 @@ func TestParseSnapshot_limitRejectsOverflowAndNonFinite(t *testing.T) {
 	}
 }
 
+func TestParseSnapshot_suffixLookupIndex(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{
+		"anthropic": {
+			"id": "anthropic",
+			"models": [{"id": "claude-opus-4-7"}]
+		},
+		"alibaba": {
+			"id": "alibaba",
+			"models": [{"id": "qwen3.7-plus"}]
+		}
+	}`)
+	snap, err := modelsdev.ParseSnapshot(raw, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := snap.Index.CatalogIDsForSuffixLookup("claude-opus-4.7")
+	if len(ids) != 1 || ids[0] != "anthropic/claude-opus-4-7" {
+		t.Fatalf("dotted suffix lookup = %v", ids)
+	}
+}
+
 func TestParseSnapshot_generationMatchesContentHash(t *testing.T) {
 	t.Parallel()
 	a := []byte(`{"a":{"id":"a","models":[{"id":"m"}]}}`)

@@ -31,7 +31,7 @@ func TestExecutor_localStubFromStandardRegistry(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(`text: "via-registry"`), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(localstub.ID, node, nil)
+	be, err := reg.BuildBackend(localstub.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

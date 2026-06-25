@@ -43,6 +43,8 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"ollama-cloud",
 		"openai-legacy",
 		"openai-responses",
+		"opencode-go",
+		"opencode-zen",
 		"openrouter",
 		"vllm",
 	}

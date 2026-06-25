@@ -14,11 +14,13 @@ const maxNumberedAPIKeysEnv = 32
 // (typically from [ResolveUpstreamAPIKeysFromEnv]) when plugin YAML leaves api_key empty.
 // Treat all string values as secrets: do not log them or include them in error text.
 type UpstreamAPIKeys struct {
-	OpenAI     []string
-	Anthropic  []string
-	Gemini     []string
-	OpenRouter []string
-	Nvidia     []string
+	OpenAI      []string
+	Anthropic   []string
+	Gemini      []string
+	OpenRouter  []string
+	Nvidia      []string
+	OpenCodeGo  []string
+	OpenCodeZen []string
 }
 
 // EffectiveAPIKeys merges YAML api_key (first), then api_keys in order: trims, drops empties,
@@ -65,12 +67,22 @@ func EffectiveAPIKeys(yamlKey string, yamlKeys []string, defaults []string) []st
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
 func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 	return UpstreamAPIKeys{
-		OpenAI:     collectNumberedEnvKeys("OPENAI_API_KEY"),
-		Anthropic:  collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
-		Gemini:     collectNumberedEnvKeys("GEMINI_API_KEY"),
-		OpenRouter: collectOpenRouterEnvKeys(),
-		Nvidia:     collectNvidiaEnvKeys(),
+		OpenAI:      collectNumberedEnvKeys("OPENAI_API_KEY"),
+		Anthropic:   collectNumberedEnvKeys("ANTHROPIC_API_KEY"),
+		Gemini:      collectNumberedEnvKeys("GEMINI_API_KEY"),
+		OpenRouter:  collectOpenRouterEnvKeys(),
+		Nvidia:      collectNvidiaEnvKeys(),
+		OpenCodeGo:  collectNumberedEnvKeys("OPENCODE_GO_API_KEY"),
+		OpenCodeZen: collectOpenCodeZenEnvKeys(),
 	}
+}
+
+func collectOpenCodeZenEnvKeys() []string {
+	out := collectNumberedEnvKeys("OPENCODE_API_KEY")
+	if len(out) > 0 {
+		return out
+	}
+	return collectNumberedEnvKeys("OPENCODE_ZEN_API_KEY")
 }
 
 // collectOpenRouterEnvKeys reads OPENROUTER_API_KEY and numbered variants starting

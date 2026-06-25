@@ -274,25 +274,33 @@ func NewStandardHandler(
 	log *slog.Logger,
 	built *runtimebundle.Built,
 ) (http.Handler, func(context.Context), error) {
+	var releaseBuilt sync.Once
 	if cfg == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil config")
 	}
 	if ctx == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil context")
 	}
 	if err := validateStartupSecurity(cfg); err != nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, err
 	}
 	if app == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil app")
 	}
 	if log == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil logger")
 	}
 	if built == nil || built.Executor == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil built runtime")
 	}
 	if built.PluginRegistry == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return nil, nil, errors.New("stdhttp: nil plugin registry in built runtime")
 	}
 	prep, err := prepareStandardHandler(ctx, cfg, app, log, built)
@@ -301,7 +309,7 @@ func NewStandardHandler(
 	}
 	cleanup := func(shutdownCtx context.Context) {
 		app.Shutdown(shutdownCtx)
-		prep.releaseClosers()
+		releaseBuilt.Do(prep.releaseClosers)
 	}
 	return prep.Handler, cleanup, nil
 }
@@ -356,32 +364,40 @@ func RunWithRuntime(
 	log *slog.Logger,
 	built *runtimebundle.Built,
 ) error {
+	var releaseBuilt sync.Once
 	if cfg == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil config")
 	}
 	if err := validateStartupSecurity(cfg); err != nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return fmt.Errorf("stdhttp: validate startup security: %w", err)
 	}
 	if app == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil app")
 	}
 	if log == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil logger")
 	}
 	if built == nil || built.Executor == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil built runtime")
 	}
 	if built.PluginRegistry == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil plugin registry in built runtime")
 	}
 	if ctx == nil {
+		releaseBuiltResources(log, built, &releaseBuilt)
 		return errors.New("stdhttp: nil context")
 	}
 	prep, err := prepareStandardHandler(ctx, cfg, app, log, built)
 	if err != nil {
 		return fmt.Errorf("stdhttp: prepare standard handler: %w", err)
 	}
-	releaseClosers := prep.releaseClosers
+	releaseClosers := func() { releaseBuilt.Do(prep.releaseClosers) }
 	handler := prep.Handler
 
 	srv := &http.Server{
@@ -479,6 +495,13 @@ func mountModelCatalogDiagnostics(in modelCatalogDiagnosticsMount) {
 	if log != nil {
 		log.InfoContext(logCtx, "model catalog diagnostics mounted", "path", path)
 	}
+}
+
+func releaseBuiltResources(log *slog.Logger, built *runtimebundle.Built, once *sync.Once) {
+	if built == nil || once == nil {
+		return
+	}
+	once.Do(func() { runClosers(log, built.Closers) })
 }
 
 // runClosers invokes closers in reverse registration order. Errors are joined and logged once at
