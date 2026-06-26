@@ -273,6 +273,52 @@ func TestOpenAICodexBackendFactory_envFallbackWhenYAMLHasNoKeys(t *testing.T) {
 	}
 }
 
+func TestOpenAICodexBackendFactory_ignoresDefaultTemperatureYAML(t *testing.T) {
+	t.Parallel()
+
+	srv := refbackend.New(refbackend.Config{Token: "sk-codex", OutputText: "ok"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	reg := NewRegistry()
+	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	var cfg yaml.Node
+	yamlText := "base_url: " + ts.URL + "/backend-api/codex\naccess_token: sk-codex\ndefault_temperature: 0.7\n"
+	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	es, err := be.Open(context.Background(), lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	if err != nil {
+		t.Fatalf("default_temperature must not be plumbed or rejected: %v", err)
+	}
+	drainOpenAICodexStream(t, es)
+	body := srv.LatestRequest().Body
+	if _, ok := body["temperature"]; ok {
+		t.Fatalf("temperature must not appear in payload: %#v", body)
+	}
+}
+
+func drainOpenAICodexStream(t *testing.T, es lipapi.ManagedEventStream) {
+	t.Helper()
+	for {
+		_, err := es.Recv(context.Background())
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = es.Close()
+}
+
 func TestOpenAICodexBackendFactory_apiKeyAliasForAccessToken(t *testing.T) {
 	t.Parallel()
 

@@ -12,15 +12,6 @@ const (
 	defaultGPT55TargetModel = "gpt-5.4"
 )
 
-func applyDowngradeDefaults(cfg *Config) {
-	if strings.TrimSpace(cfg.GPT55DowngradeSourceModel) == "" {
-		cfg.GPT55DowngradeSourceModel = defaultGPT55SourceModel
-	}
-	if strings.TrimSpace(cfg.GPT55DowngradeTargetModel) == "" {
-		cfg.GPT55DowngradeTargetModel = defaultGPT55TargetModel
-	}
-}
-
 // downgradePolicy is local openaicodex policy until a backend retry-hook seam exists.
 type downgradePolicy struct {
 	disabled bool

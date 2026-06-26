@@ -895,9 +895,6 @@ func TestExecutor_responsePartHook_and_toolReactor_metaOnRecv(t *testing.T) {
 	if toolMeta.BLegID == "" || toolMeta.AttemptSeq <= 0 {
 		t.Fatalf("tool reactor: want non-empty BLegID and positive AttemptSeq, got %+v", toolMeta)
 	}
-	if toolMeta.BackendID != "openai" {
-		t.Fatalf("tool reactor: BackendID = %q, want openai", toolMeta.BackendID)
-	}
 	_ = stream.Close()
 }
 

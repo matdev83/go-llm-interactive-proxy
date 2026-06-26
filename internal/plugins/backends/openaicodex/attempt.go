@@ -19,9 +19,10 @@ type codexOpenEnv struct {
 	convID        string
 	client        *http.Client
 	endpoint      string
+	downgrade     downgradePolicy
 }
 
-func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, cand routing.AttemptCandidate) (*codexOpenEnv, error) {
+func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy) (*codexOpenEnv, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
 	}
@@ -42,6 +43,7 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 		convID:        convID,
 		client:        client,
 		endpoint:      responsesEndpoint(cfg.BaseURL),
+		downgrade:     policy,
 	}, nil
 }
 
@@ -66,7 +68,7 @@ func (env *codexOpenEnv) newAttempt(ctx context.Context, cfg *Config, call lipap
 		originalModel: env.originalModel,
 		payload:       &payload,
 		body:          body,
-		downgrade:     newDowngradePolicy(*cfg),
+		downgrade:     env.downgrade,
 	}
 }
 

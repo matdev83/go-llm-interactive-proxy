@@ -14,6 +14,11 @@ const (
 	piBridgeMarker       = "Pi compatibility mode"
 	droidBridgeMarker    = "Factory Droid compatibility mode"
 
+	extAgentKey      = "agent"
+	extUserAgentKey  = "user_agent"
+	extCodexAgentKey = "openai_codex.agent"
+	extHeadersKey    = "headers"
+
 	// ponytail: mirrors openaicodex default when instructions empty so bridge appends after base Codex prompt.
 	codexDefaultInstruction = "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer."
 )
@@ -113,7 +118,7 @@ func detectCompatInput(call *lipapi.Call) compatInput {
 
 func collectAgentCandidates(call *lipapi.Call) []string {
 	out := make([]string, 0, 4)
-	for _, key := range []string{"agent", "user_agent", "openai_codex.agent"} {
+	for _, key := range []string{extAgentKey, extUserAgentKey, extCodexAgentKey} {
 		if raw, ok := call.Extensions[key]; ok {
 			var agent string
 			if json.Unmarshal(raw, &agent) == nil && strings.TrimSpace(agent) != "" {
@@ -121,7 +126,7 @@ func collectAgentCandidates(call *lipapi.Call) []string {
 			}
 		}
 	}
-	if raw, ok := call.Extensions["headers"]; ok {
+	if raw, ok := call.Extensions[extHeadersKey]; ok {
 		var headers map[string]string
 		if json.Unmarshal(raw, &headers) == nil {
 			for _, key := range []string{"user-agent", "User-Agent"} {
@@ -279,7 +284,8 @@ func joinInstructionText(insts []lipapi.Message) string {
 }
 
 func appendBridgeInstructions(call *lipapi.Call, marker, block string) {
-	current := joinInstructionText(call.Instructions)
+	raw := joinInstructionText(call.Instructions)
+	current := raw
 	if current == "" {
 		current = codexDefaultInstruction
 	}
@@ -287,7 +293,7 @@ func appendBridgeInstructions(call *lipapi.Call, marker, block string) {
 	if updated == current {
 		return
 	}
-	if joinInstructionText(call.Instructions) == "" {
+	if raw == "" {
 		call.Instructions = []lipapi.Message{{
 			Role:  lipapi.RoleSystem,
 			Parts: []lipapi.Part{lipapi.TextPart(updated)},

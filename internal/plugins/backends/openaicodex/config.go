@@ -23,7 +23,6 @@ type Config struct {
 	HTTPClient                            *http.Client
 	Models                                []string
 	DefaultReasoningEffort                string
-	DefaultTemperature                    *float64
 	ManagedOAuthEnabled                   bool
 	ManagedOAuthStoragePath               string
 	ManagedOAuthAccounts                  []string

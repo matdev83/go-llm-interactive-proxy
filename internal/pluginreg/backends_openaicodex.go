@@ -22,7 +22,6 @@ type openAICodexBackendYAML struct {
 	OAuthTokenURL                         string   `yaml:"oauth_token_url"`
 	OAuthClientID                         string   `yaml:"oauth_client_id"`
 	DefaultReasoningEffort                string   `yaml:"default_reasoning_effort"`
-	DefaultTemperature                    *float64 `yaml:"default_temperature"`
 	ManagedOAuthEnabled                   bool     `yaml:"managed_oauth_enabled"`
 	ManagedOAuthStoragePath               string   `yaml:"managed_oauth_storage_path"`
 	ManagedOAuthAccounts                  []string `yaml:"managed_oauth_accounts"`
@@ -64,7 +63,6 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 		HTTPClient:                        resolveUpstreamHTTP(upstream),
 		Models:                            models,
 		DefaultReasoningEffort:            strings.TrimSpace(y.DefaultReasoningEffort),
-		DefaultTemperature:                y.DefaultTemperature,
 		ManagedOAuthEnabled:               y.ManagedOAuthEnabled,
 		ManagedOAuthStoragePath:           strings.TrimSpace(y.ManagedOAuthStoragePath),
 		ManagedOAuthAccounts:              y.ManagedOAuthAccounts,

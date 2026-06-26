@@ -236,6 +236,32 @@ func TestPayloadForCall_rejectsMaxOutputTokens(t *testing.T) {
 	}
 }
 
+func TestPayloadForCall_marshalOmitsTemperatureAndTopP(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+	}
+	payload, err := backend.PayloadForCall(&call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.4-mini"},
+	}, backend.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, key := range []string{`"temperature"`, `"top_p"`} {
+		if strings.Contains(s, key) {
+			t.Fatalf("payload must not emit %s: %s", key, s)
+		}
+	}
+}
+
 func TestPayloadForCall_rejectsTemperature(t *testing.T) {
 	t.Parallel()
 	temp := 0.2

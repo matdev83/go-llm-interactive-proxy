@@ -26,9 +26,10 @@ var backendCaps = lipapi.NewBackendCaps(
 )
 
 type backendRuntime struct {
-	mu    sync.Mutex
-	cfg   Config
-	oauth *accountStore
+	mu        sync.Mutex
+	cfg       Config
+	oauth     *accountStore
+	downgrade downgradePolicy
 }
 
 func New(cfg Config) execbackend.Backend {
@@ -40,7 +41,7 @@ func New(cfg Config) execbackend.Backend {
 	if err != nil {
 		return newConfigErrorBackend(err)
 	}
-	applyDowngradeDefaults(&resolved)
+	rt.downgrade = newDowngradePolicy(resolved)
 	rt.cfg = resolved
 	rt.oauth = store
 	if store == nil {
@@ -96,13 +97,13 @@ func (rt *backendRuntime) open(ctx context.Context, call lipapi.Call, cand routi
 	store := rt.oauth
 	rt.mu.Unlock()
 	if store != nil {
-		return openManaged(ctx, &cfg, store, call, cand)
+		return openManaged(ctx, &cfg, store, call, cand, rt.downgrade)
 	}
 	return open(ctx, &cfg, rt, call, cand)
 }
 
-func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand)
+func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy) (lipapi.ManagedEventStream, error) {
+	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +113,6 @@ func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lip
 			return nil, err
 		}
 		planType := firstNonEmpty(acct.PlanType, cfg.PlanTypeHint)
-		policy := newDowngradePolicy(*cfg)
 		body, err := env.marshalWithModel(policy.modelForPlan(env.originalModel, planType))
 		if err != nil {
 			return nil, err
@@ -146,12 +146,11 @@ func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lip
 }
 
 func open(ctx context.Context, cfg *Config, rt *backendRuntime, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand)
+	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, rt.downgrade)
 	if err != nil {
 		return nil, err
 	}
-	policy := newDowngradePolicy(*cfg)
-	body, err := env.marshalWithModel(policy.modelForPlan(env.originalModel, cfg.PlanTypeHint))
+	body, err := env.marshalWithModel(rt.downgrade.modelForPlan(env.originalModel, cfg.PlanTypeHint))
 	if err != nil {
 		return nil, err
 	}

@@ -32,7 +32,6 @@ plugins:
 | `oauth_client_id` | OAuth client id (OpenAI Codex CLI default) |
 | `account_id` | `ChatGPT-Account-Id` header |
 | `default_reasoning_effort` | Default reasoning effort for requests |
-| `default_temperature` | Unsupported by Codex; setting it causes requests to fail explicitly |
 | `models` | Static model inventory (inline or file), same shape as other backends |
 | `managed_oauth_enabled` | Load OAuth accounts from JSON files in `managed_oauth_storage_path` |
 | `managed_oauth_storage_path` | Directory of `*.json` account files |

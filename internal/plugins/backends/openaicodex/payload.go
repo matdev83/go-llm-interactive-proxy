@@ -20,8 +20,6 @@ type Payload struct {
 	Input             []inputItem    `json:"input"`
 	Tools             []toolPayload  `json:"tools,omitempty"`
 	Reasoning         *reasoningSpec `json:"reasoning,omitempty"`
-	Temperature       *float64       `json:"temperature,omitempty"`
-	TopP              *float64       `json:"top_p,omitempty"`
 	ParallelToolCalls *bool          `json:"parallel_tool_calls,omitempty"`
 	PromptCacheKey    string         `json:"prompt_cache_key,omitempty"`
 }
@@ -132,7 +130,7 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 	} else if effort = strings.TrimSpace(cfg.DefaultReasoningEffort); effort != "" {
 		p.Reasoning = &reasoningSpec{Effort: effort}
 	}
-	if call.Options.Temperature != nil || cfg.DefaultTemperature != nil {
+	if call.Options.Temperature != nil {
 		return Payload{}, fmt.Errorf("%s: temperature is not supported by Codex", ID)
 	}
 	if call.Options.MaxOutputTokens != nil {

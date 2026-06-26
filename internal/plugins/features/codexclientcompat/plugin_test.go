@@ -29,7 +29,7 @@ func TestDetectOpenCodeFromExtensionAgent(t *testing.T) {
 	t.Parallel()
 	in := detectCompatInput(&lipapi.Call{
 		Extensions: map[string]json.RawMessage{
-			"agent": json.RawMessage(`"opencode/1.2.26"`),
+			extAgentKey: json.RawMessage(`"opencode/1.2.26"`),
 		},
 	})
 	if !isOpenCode(in) {
@@ -85,7 +85,7 @@ func TestRequestPartHook_noopWhenBackendNotOpenAICodex(t *testing.T) {
 		}},
 		Tools: []lipapi.ToolDef{{Name: "bash"}},
 		Extensions: map[string]json.RawMessage{
-			"agent": json.RawMessage(`"opencode"`),
+			extAgentKey: json.RawMessage(`"opencode"`),
 		},
 	}
 	before := joinInstructionText(call.Instructions)
@@ -111,7 +111,7 @@ func TestRequestPartHook_mutatesWhenBackendIsOpenAICodex(t *testing.T) {
 		}},
 		Tools: []lipapi.ToolDef{{Name: "bash"}},
 		Extensions: map[string]json.RawMessage{
-			"agent": json.RawMessage(`"opencode"`),
+			extAgentKey: json.RawMessage(`"opencode"`),
 		},
 	}
 	runHook(t, call, targetBackendID)
@@ -147,7 +147,7 @@ func TestApplyOpenCodeCompat_dedupBridgeOrphanToolOutput(t *testing.T) {
 		},
 		Tools: []lipapi.ToolDef{{Name: "bash"}},
 		Extensions: map[string]json.RawMessage{
-			"agent": json.RawMessage(`"opencode"`),
+			extAgentKey: json.RawMessage(`"opencode"`),
 		},
 	}
 	runHook(t, call, targetBackendID)
@@ -280,7 +280,7 @@ func TestApplyDroidCompat_bridgeFromTools(t *testing.T) {
 func TestRequestPartHook_openCodeCompatPayloadShape(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{
-		Extensions: map[string]json.RawMessage{"agent": json.RawMessage(`"opencode"`)},
+		Extensions: map[string]json.RawMessage{extAgentKey: json.RawMessage(`"opencode"`)},
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
 			Parts: []lipapi.Part{lipapi.TextPart("hi")},

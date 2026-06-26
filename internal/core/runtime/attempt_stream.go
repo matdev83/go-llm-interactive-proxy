@@ -267,7 +267,6 @@ func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 		TraceID:    s.traceID,
 		ALegID:     s.aLegID,
 		BLegID:     s.bleg.BLegID,
-		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
 		AttemptSeq: s.bleg.Seq,
 	}
 	return pm, tm
