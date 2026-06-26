@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/openairesponsestream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -33,11 +34,12 @@ func TestEmitOutputMediaFromResponse_inputImageAndFile(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		t.Fatal(err)
 	}
-	s := &sdkStream{}
-	if err := emitOutputMediaFromResponse(s, resp); err != nil {
+	pending := stream.NewPendingEventQueue(0)
+	mapper := openairesponsestream.New(&pending)
+	if err := openairesponsestream.EmitOutputMediaFromResponse(mapper, &pending, resp); err != nil {
 		t.Fatal(err)
 	}
-	evs := stream.DrainPending(&s.pending)
+	evs := stream.DrainPending(&pending)
 	var media []lipapi.Event
 	for _, ev := range evs {
 		if ev.Kind == lipapi.EventAssistantImageRef || ev.Kind == lipapi.EventAssistantFileRef {

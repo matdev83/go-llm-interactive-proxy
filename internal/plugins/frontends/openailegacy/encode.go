@@ -25,8 +25,9 @@ type streamChunkState struct {
 
 // EncodeOptions controls wire identifiers for encoded Chat Completions payloads.
 type EncodeOptions struct {
-	CompletionID string
-	CreatedAt    int64
+	CompletionID             string
+	CreatedAt                int64
+	ExposeLipUsageExtensions bool
 }
 
 type wireAPIError struct {
@@ -93,33 +94,44 @@ type wireUsageLegacy struct {
 	TotalTokens             int                          `json:"total_tokens"`
 	PromptTokensDetails     *wirePromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
 	CompletionTokensDetails *wireCompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+	CostNanoUnits           int64                        `json:"x_lip_cost_nano_units,omitempty"`
+	Currency                string                       `json:"x_lip_currency,omitempty"`
+	CostSource              string                       `json:"x_lip_cost_source,omitempty"`
 }
 
 type wirePromptTokensDetails struct {
-	CachedTokens int `json:"cached_tokens,omitempty"`
+	CachedTokens   int `json:"cached_tokens,omitempty"`
+	UncachedTokens int `json:"x_lip_uncached_tokens,omitempty"`
+	CacheWrite     int `json:"x_lip_cache_write_tokens,omitempty"`
 }
 
 type wireCompletionTokensDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
-func wireLegacyUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok int) *wireUsageLegacy {
-	if inTok == 0 && outTok == 0 && cacheReadTok == 0 && reasoningTok == 0 && totalTok == 0 {
+func wireLegacyUsage(col lipapi.Collected, exposeExt bool) *wireUsageLegacy {
+	if col.InputTokens == 0 && col.OutputTokens == 0 && col.CacheReadTokens == 0 && col.CacheWriteTokens == 0 && col.ReasoningTokens == 0 && col.TotalTokens == 0 && col.CostNanoUnits == 0 {
 		return nil
 	}
-	if totalTok == 0 {
-		totalTok = inTok + outTok
-	}
 	u := &wireUsageLegacy{
-		PromptTokens:     inTok,
-		CompletionTokens: outTok,
-		TotalTokens:      totalTok,
+		PromptTokens:     col.InputTokens,
+		CompletionTokens: col.OutputTokens,
+		TotalTokens:      col.TotalOrDerived(),
 	}
-	if cacheReadTok > 0 {
-		u.PromptTokensDetails = &wirePromptTokensDetails{CachedTokens: cacheReadTok}
+	if col.CacheReadTokens > 0 || col.CacheWriteTokens > 0 {
+		u.PromptTokensDetails = &wirePromptTokensDetails{CachedTokens: col.CacheReadTokens}
+		if exposeExt {
+			u.PromptTokensDetails.UncachedTokens = col.UncachedInputTokens()
+			u.PromptTokensDetails.CacheWrite = col.CacheWriteTokens
+		}
 	}
-	if reasoningTok > 0 {
-		u.CompletionTokensDetails = &wireCompletionTokensDetails{ReasoningTokens: reasoningTok}
+	if col.ReasoningTokens > 0 {
+		u.CompletionTokensDetails = &wireCompletionTokensDetails{ReasoningTokens: col.ReasoningTokens}
+	}
+	if exposeExt {
+		u.CostNanoUnits = col.CostNanoUnits
+		u.Currency = col.Currency
+		u.CostSource = col.CostSource
 	}
 	return u
 }
@@ -217,7 +229,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 			FinishReason: &stop,
 		}},
 	}
-	out.Usage = wireLegacyUsage(col.InputTokens, col.OutputTokens, col.CacheReadTokens, col.ReasoningTokens, col.TotalTokens)
+	out.Usage = wireLegacyUsage(col, opts.ExposeLipUsageExtensions)
 	sessionwire.WriteResponseCarriers(w, call)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -272,7 +284,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return err
 	}
 
-	var inTok, outTok, cacheReadTok, reasoningTok, totalTok int
+	var usageCol lipapi.Collected
 	streamToolIndex := make(map[string]int)
 	nextToolStreamIndex := 0
 	sawTool := false
@@ -289,14 +301,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		switch ev.Kind {
 		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
-			usage := lipapi.ClientVisibleUsage(ev)
-			inTok += usage.InputTokens
-			outTok += usage.OutputTokens
-			cacheReadTok += usage.CacheReadTokens
-			reasoningTok += usage.ReasoningTokens
-			if usage.TotalTokens > 0 {
-				totalTok = usage.TotalTokens
-			}
+			usageCol.AccumulateUsage(ev)
 		case lipapi.EventTextDelta:
 			st.choices[0].FinishReason = nil
 			st.delta = wireDelta{Content: ev.Delta}
@@ -351,7 +356,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			st.delta = wireDelta{}
 			st.choices[0].Delta = &st.delta
 			st.choices[0].FinishReason = &stop
-			st.chunk.Usage = wireLegacyUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok)
+			st.chunk.Usage = wireLegacyUsage(usageCol, opts.ExposeLipUsageExtensions)
 			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
 				return err
 			}

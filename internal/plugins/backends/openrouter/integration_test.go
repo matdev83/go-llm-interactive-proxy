@@ -203,6 +203,9 @@ func TestIntegration_chatNonStreamUsage(t *testing.T) {
 	if usage.TotalTokens != 10 {
 		t.Fatalf("TotalTokens = %d, want 10", usage.TotalTokens)
 	}
+	if usage.CostNanoUnits != 140_000 {
+		t.Fatalf("CostNanoUnits = %d, want 140000", usage.CostNanoUnits)
+	}
 	if usage.RawUsageJSON == "" {
 		t.Fatal("expected RawUsageJSON")
 	}

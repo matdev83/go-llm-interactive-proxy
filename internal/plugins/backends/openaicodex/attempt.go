@@ -56,7 +56,7 @@ func (env *codexOpenEnv) marshalWithModel(model string) ([]byte, error) {
 	return body, nil
 }
 
-func (env *codexOpenEnv) newAttempt(ctx context.Context, cfg *Config, call lipapi.Call, body []byte) *codexOpenAttempt {
+func (env *codexOpenEnv) newAttempt(ctx context.Context, cfg *Config, call lipapi.Call, body []byte, usageEst *usageEstimator) *codexOpenAttempt {
 	payload := env.payload
 	return &codexOpenAttempt{
 		ctx:           ctx,
@@ -69,6 +69,7 @@ func (env *codexOpenEnv) newAttempt(ctx context.Context, cfg *Config, call lipap
 		payload:       &payload,
 		body:          body,
 		downgrade:     env.downgrade,
+		usageEst:      usageEst,
 	}
 }
 
@@ -98,6 +99,7 @@ type codexOpenAttempt struct {
 	payload          *Payload
 	body             []byte
 	downgrade        downgradePolicy
+	usageEst         *usageEstimator
 	downgradeRetried bool
 }
 
@@ -147,11 +149,16 @@ func (a *codexOpenAttempt) maybeRetryGPT55Downgrade(resp *http.Response, callCfg
 }
 
 func (a *codexOpenAttempt) openStream(resp *http.Response) (lipapi.ManagedEventStream, error) {
-	es := newCodexStream(resp.Body, a.call.MaxPendingWireEvents)
-	ev, rerr := es.Recv(a.ctx)
-	if rerr == nil {
-		return streampeek.NewManagedPrependFirst(ev, es), nil
+	model := strings.TrimSpace(a.payload.Model)
+	if model == "" {
+		model = a.originalModel
 	}
-	_ = es.Close()
+	es := newCodexStream(resp.Body, a.call.MaxPendingWireEvents)
+	managed := newUsageEstimatingStream(es, a.usageEst, a.call, model)
+	ev, rerr := managed.Recv(a.ctx)
+	if rerr == nil {
+		return streampeek.NewManagedPrependFirst(ev, managed), nil
+	}
+	_ = managed.Close()
 	return nil, rerr
 }

@@ -37,37 +37,18 @@ func newCodexStream(body io.ReadCloser, maxPending int) *codexStream {
 }
 
 func (s *codexStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	if ctx == nil {
-		return lipapi.Event{}, lipapi.ErrNilContext
+	pump := stream.EventPump[string]{
+		Lock:     &s.mu,
+		Pending:  &s.pending,
+		IsClosed: func() bool { return s.closed },
+		Read:     s.readData,
+		Handle:   s.handleData,
 	}
-	if err := ctx.Err(); err != nil {
-		return lipapi.Event{}, err
-	}
-	for {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			return lipapi.Event{}, io.EOF
-		}
-		if ev, ok := s.pending.PopFront(); ok {
-			s.mu.Unlock()
-			return ev, nil
-		}
-		s.mu.Unlock()
+	return pump.Recv(ctx)
+}
 
-		if !s.scanner.Scan() {
-			s.mu.Lock()
-			if s.closed {
-				s.mu.Unlock()
-				return lipapi.Event{}, io.EOF
-			}
-			if err := s.scanner.Err(); err != nil {
-				s.mu.Unlock()
-				return lipapi.Event{}, fmt.Errorf("%s: read stream: %w", ID, err)
-			}
-			s.mu.Unlock()
-			return lipapi.Event{}, io.EOF
-		}
+func (s *codexStream) readData() (string, bool, error) {
+	for s.scanner.Scan() {
 		line := strings.TrimSpace(s.scanner.Text())
 		if !strings.HasPrefix(line, "data: ") {
 			continue
@@ -76,17 +57,12 @@ func (s *codexStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		if data == "" || data == "[DONE]" {
 			continue
 		}
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			continue
-		}
-		if err := s.handleData(data); err != nil {
-			s.mu.Unlock()
-			return lipapi.Event{}, err
-		}
-		s.mu.Unlock()
+		return data, true, nil
 	}
+	if err := s.scanner.Err(); err != nil {
+		return "", false, fmt.Errorf("%s: read stream: %w", ID, err)
+	}
+	return "", false, nil
 }
 
 func (s *codexStream) handleData(data string) error {
@@ -336,6 +312,11 @@ func usageFromCompleted(raw json.RawMessage) *lipapi.Event {
 		InputTokens:  safecast.IntFromInt64Clamp(u.InputTokens),
 		OutputTokens: safecast.IntFromInt64Clamp(u.OutputTokens),
 		TotalTokens:  safecast.IntFromInt64Clamp(u.TotalTokens),
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane:     lipapi.UsagePlaneProviderBillable,
+			Source:    lipapi.UsageSourceProviderReported,
+			Authority: lipapi.UsageAuthorityAuthoritative,
+		},
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
@@ -17,7 +17,7 @@ import (
 // FrontendMount is the stable SDK-named contract (see pkg/lipsdk).
 type FrontendMount = lipsdk.FrontendMount
 
-type ModelVendorResolver = opencodecommon.VendorResolver
+type ModelVendorResolver = modelcatalog.VendorResolver
 
 // BackendFactoryDeps carries composition-root runtime services that backend factories may use.
 // Dependencies here must be stable core-owned seams, not plugin-specific mutable registry state.

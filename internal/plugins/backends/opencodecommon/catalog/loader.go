@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
@@ -141,7 +142,7 @@ func getJSON(ctx context.Context, client *http.Client, endpoint string, headers 
 	return body, nil
 }
 
-func modelInventorySnapshot(kind BackendKind, entries []ModelEntry, source modelinventory.Source, warnings []string, vendors VendorResolver) modelinventory.Snapshot {
+func modelInventorySnapshot(kind BackendKind, entries []ModelEntry, source modelinventory.Source, warnings []string, vendors modelcatalog.VendorResolver) modelinventory.Snapshot {
 	return modelinventory.Snapshot{
 		Source:   source,
 		LoadedAt: time.Now(),

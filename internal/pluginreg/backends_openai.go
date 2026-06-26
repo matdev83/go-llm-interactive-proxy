@@ -19,15 +19,13 @@ func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPI
 		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
+	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
 	cfg := openairesponses.Config{
 		BaseURL:     base,
+		APIKey:      primaryKey,
 		APIKeys:     ek,
 		Credentials: hostedCredentials(y.Credentials),
 		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
 	}
 	return applyConfiguredModelInventory(openairesponses.New(cfg), y.Models)
 }
@@ -38,15 +36,13 @@ func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKey
 		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.openai.com/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
+	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.OpenAI)
 	cfg := openailegacy.Config{
 		BaseURL:     base,
+		APIKey:      primaryKey,
 		APIKeys:     ek,
 		Credentials: hostedCredentials(y.Credentials),
 		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
 	}
 	return applyConfiguredModelInventory(openailegacy.New(cfg), y.Models)
 }

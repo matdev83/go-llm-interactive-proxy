@@ -36,6 +36,7 @@ type Handler struct {
 	TrafficPorts         traffic.PortBundle
 	DecodeLimiter        *decodeqos.Limiter
 	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
+	Config               Config
 }
 
 func (h *Handler) maxBodyLimit() int64 {
@@ -168,7 +169,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
 
-	opts := EncodeOptions{MessageID: "msg_" + diag.StableCallToken(call)}
+	opts := EncodeOptions{
+		MessageID:                "msg_" + diag.StableCallToken(call),
+		ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions,
+	}
 	if decoded.Stream {
 		if err := WriteStreamSSE(ctx, w, call, es, opts); err != nil {
 			diag.LogError(ctx, h.Log, "stream encode failed", diag.AttrOpts{CallID: call.ID}, err)

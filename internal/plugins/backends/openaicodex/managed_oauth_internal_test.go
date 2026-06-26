@@ -284,6 +284,93 @@ func TestPersistQuotaHeaders_doesNotBlockOnMutexForFileIO(t *testing.T) {
 	t.Fatal("quota headers not written while store mutex held")
 }
 
+func writeManagedAccountFile(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadManagedAccounts_sortedByFilePath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeManagedAccountFile(t, dir, "z.json", `{"account_id":"z","access_token":"tok-z"}`)
+	writeManagedAccountFile(t, dir, "a.json", `{"account_id":"a","access_token":"tok-a"}`)
+	writeManagedAccountFile(t, dir, "m.json", `{"account_id":"m","access_token":"tok-m"}`)
+
+	got, err := loadManagedAccounts(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len = %d want 3", len(got))
+	}
+	want := []string{"a", "m", "z"}
+	for i, acct := range got {
+		if !strings.HasSuffix(acct.FilePath, want[i]+".json") {
+			t.Fatalf("index %d path = %q want suffix %q.json", i, acct.FilePath, want[i])
+		}
+	}
+}
+
+func TestLoadManagedAccounts_filterByAccountID(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeManagedAccountFile(t, dir, "a.json", `{"account_id":"acct-a","access_token":"tok-a"}`)
+	writeManagedAccountFile(t, dir, "b.json", `{"account_id":"acct-b","access_token":"tok-b"}`)
+
+	got, err := loadManagedAccounts(dir, []string{"acct-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d want 1", len(got))
+	}
+	if got[0].ID != "acct-b" {
+		t.Fatalf("ID = %q want acct-b", got[0].ID)
+	}
+}
+
+func TestLoadManagedAccounts_filterByFilename(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeManagedAccountFile(t, dir, "pick-me.json", `{"account_id":"acct-a","access_token":"tok-a"}`)
+	writeManagedAccountFile(t, dir, "skip-me.json", `{"account_id":"acct-b","access_token":"tok-b"}`)
+
+	got, err := loadManagedAccounts(dir, []string{"pick-me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d want 1", len(got))
+	}
+	if !strings.HasSuffix(got[0].FilePath, "pick-me.json") {
+		t.Fatalf("path = %q want pick-me.json", got[0].FilePath)
+	}
+}
+
+func TestSelectAccountForSession_roundRobinSkipsCooldown(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1000, 0)
+	store := testStore(t, selectionRoundRobin, 0, 0, now)
+
+	first, err := store.selectAccountForSession("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.markRateLimited(first, now.Add(time.Hour))
+
+	for i := 0; i < 3; i++ {
+		acct, err := store.selectAccountForSession("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if acct.ID == first.ID {
+			t.Fatalf("round %d: cooldown account %q should be skipped", i, acct.ID)
+		}
+	}
+}
+
 func TestPersistQuotaHeaders_updatesCachedPlanType(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

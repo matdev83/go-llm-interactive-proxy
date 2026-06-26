@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
@@ -13,7 +14,7 @@ import (
 type ModelSource struct {
 	kind           BackendKind
 	loader         ModelLoaderConfig
-	vendorResolver VendorResolver
+	vendorResolver modelcatalog.VendorResolver
 	static         *ModelCatalog
 
 	mu              sync.Mutex
@@ -22,7 +23,7 @@ type ModelSource struct {
 	remoteCatalog   *ModelCatalog
 }
 
-func NewModelSource(kind BackendKind, loader ModelLoaderConfig, staticEntries []ModelEntry, vendors VendorResolver) *ModelSource {
+func NewModelSource(kind BackendKind, loader ModelLoaderConfig, staticEntries []ModelEntry, vendors modelcatalog.VendorResolver) *ModelSource {
 	return &ModelSource{
 		kind:           kind,
 		loader:         loader,

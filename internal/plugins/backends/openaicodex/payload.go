@@ -133,7 +133,7 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 	if call.Options.Temperature != nil {
 		return Payload{}, fmt.Errorf("%s: temperature is not supported by Codex", ID)
 	}
-	if call.Options.MaxOutputTokens != nil {
+	if call.Options.MaxOutputTokens != nil && !hasAnthropicModelExtension(call) {
 		return Payload{}, fmt.Errorf("%s: max output tokens are not supported by Codex", ID)
 	}
 	if call.Options.TopP != nil {
@@ -169,6 +169,14 @@ func joinInstructionText(insts []lipapi.Message) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func hasAnthropicModelExtension(call *lipapi.Call) bool {
+	if call == nil || call.Extensions == nil {
+		return false
+	}
+	_, ok := call.Extensions["anthropic.model"]
+	return ok
 }
 
 func buildInputItems(call *lipapi.Call) ([]inputItem, error) {

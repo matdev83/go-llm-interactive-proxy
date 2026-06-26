@@ -83,15 +83,13 @@ func backendNvidia(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (ex
 		return execbackend.Backend{}, fmt.Errorf("nvidia backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://integrate.api.nvidia.com/v1")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Nvidia)
+	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.Nvidia)
 	cfg := nvidia.Config{
 		BaseURL:     base,
+		APIKey:      primaryKey,
 		APIKeys:     ek,
 		Credentials: hostedCredentials(y.Credentials),
 		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
 	}
 	return applyConfiguredModelInventory(nvidia.New(cfg), y.Models)
 }

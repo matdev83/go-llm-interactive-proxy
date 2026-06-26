@@ -116,22 +116,9 @@ func cloneCatalogHTTPClient(upstream *http.Client) (*http.Client, func()) {
 
 func openCodeVendorResolver(cat *modelcatalog.CatalogRuntime) pluginreg.ModelVendorResolver {
 	if cat != nil {
-		return modelVendorResolverAdapter{resolver: opencodecatalog.NewOpenCodeVendorResolver(cat, true)}
+		return opencodecatalog.NewOpenCodeVendorResolver(cat, true)
 	}
-	return modelVendorResolverAdapter{
-		resolver: opencodecatalog.NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{}, true),
-	}
-}
-
-type modelVendorResolverAdapter struct {
-	resolver modelcatalog.VendorResolver
-}
-
-func (a modelVendorResolverAdapter) CanonicalID(model string) string {
-	if a.resolver == nil {
-		return ""
-	}
-	return a.resolver.Resolve(model).CanonicalID
+	return opencodecatalog.NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{}, true)
 }
 
 func wireModelCatalogExecutor(exec *runtime.Executor, cat *modelcatalog.CatalogRuntime, cfg *config.Config) {

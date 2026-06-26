@@ -30,6 +30,7 @@ type backendRuntime struct {
 	cfg       Config
 	oauth     *accountStore
 	downgrade downgradePolicy
+	usageEst  *usageEstimator
 }
 
 func New(cfg Config) execbackend.Backend {
@@ -41,9 +42,14 @@ func New(cfg Config) execbackend.Backend {
 	if err != nil {
 		return newConfigErrorBackend(err)
 	}
+	usageEst, err := newUsageEstimator()
+	if err != nil {
+		return newConfigErrorBackend(err)
+	}
 	rt.downgrade = newDowngradePolicy(resolved)
 	rt.cfg = resolved
 	rt.oauth = store
+	rt.usageEst = usageEst
 	if store == nil {
 		if err := checkcfg.RequireNonEmpty(ID, "access_token", resolved.AccessToken); err != nil {
 			return newConfigErrorBackend(err)
@@ -95,19 +101,21 @@ func (rt *backendRuntime) open(ctx context.Context, call lipapi.Call, cand routi
 	rt.mu.Lock()
 	cfg := rt.cfg
 	store := rt.oauth
+	usageEst := rt.usageEst
 	rt.mu.Unlock()
 	if store != nil {
-		return openManaged(ctx, &cfg, store, call, cand, rt.downgrade)
+		return openManaged(ctx, &cfg, store, call, cand, rt.downgrade, usageEst)
 	}
 	return open(ctx, &cfg, rt, call, cand)
 }
 
-func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy) (lipapi.ManagedEventStream, error) {
+func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator) (lipapi.ManagedEventStream, error) {
 	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy)
 	if err != nil {
 		return nil, err
 	}
-	for {
+	retries := maxManagedRetries(store)
+	for range retries {
 		acct, err := store.selectAccountForSession(env.convID)
 		if err != nil {
 			return nil, err
@@ -118,7 +126,7 @@ func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lip
 			return nil, err
 		}
 		callCfg := callCfgFromAccount(cfg, acct)
-		attempt := env.newAttempt(ctx, cfg, call, body)
+		attempt := env.newAttempt(ctx, cfg, call, body, usageEst)
 		resp, err := attempt.doRequest(&callCfg)
 		if err != nil {
 			return nil, err
@@ -143,6 +151,14 @@ func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lip
 		}
 		return es, nil
 	}
+	return nil, fmt.Errorf("%s: no usable managed oauth accounts", ID)
+}
+
+func maxManagedRetries(store *accountStore) int {
+	if store == nil || len(store.meta) == 0 {
+		return 1
+	}
+	return len(store.meta)
 }
 
 func open(ctx context.Context, cfg *Config, rt *backendRuntime, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
@@ -154,7 +170,7 @@ func open(ctx context.Context, cfg *Config, rt *backendRuntime, call lipapi.Call
 	if err != nil {
 		return nil, err
 	}
-	attempt := env.newAttempt(ctx, cfg, call, body)
+	attempt := env.newAttempt(ctx, cfg, call, body, rt.usageEst)
 	resp, err := attempt.doRequest(cfg)
 	if err != nil {
 		return nil, err

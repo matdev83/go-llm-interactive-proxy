@@ -288,6 +288,41 @@ func TestManagedOAuth_noUsableAccountsAllowFallbackFalseErrors(t *testing.T) {
 	}
 }
 
+func TestManagedOAuth_all429sStopsAfterAccountBudget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeAccountFile(t, dir, "a.json", managedAccountFixture{AccountID: "acct-a", AccessToken: "tok-a"})
+	writeAccountFile(t, dir, "b.json", managedAccountFixture{AccountID: "acct-b", AccessToken: "tok-b"})
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/responses") {
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		http.Error(w, `{"error":"rate_limit"}`, http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := managedOAuthCfg(dir)
+	cfg.BaseURL = srv.URL + "/backend-api/codex"
+	cfg.HTTPClient = srv.Client()
+	be := backend.New(cfg)
+	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls = %d, want 2", calls.Load())
+	}
+	if !strings.Contains(err.Error(), "no usable managed oauth accounts") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestManagedOAuth_allowFallbackTrueUsesAuthJSONPath(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

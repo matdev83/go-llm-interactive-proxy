@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
@@ -33,7 +34,7 @@ func NativeID(kind BackendKind, rawID string) string {
 	return rawID
 }
 
-func InventoryModels(kind BackendKind, entries []ModelEntry, vendors VendorResolver) []modelinventory.Model {
+func InventoryModels(kind BackendKind, entries []ModelEntry, vendors modelcatalog.VendorResolver) []modelinventory.Model {
 	canonicalizer := NewCanonicalizer(vendors)
 	models := make([]modelinventory.Model, 0, len(entries))
 	for _, entry := range entries {

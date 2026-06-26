@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 )
 
 var ErrUnknownModel = errors.New("opencodecommon: unknown model")
@@ -26,7 +28,7 @@ type ModelCatalog struct {
 	byRaw         map[string]ModelEntry
 }
 
-func NewModelCatalog(kind BackendKind, entries []ModelEntry, vendors VendorResolver) *ModelCatalog {
+func NewModelCatalog(kind BackendKind, entries []ModelEntry, vendors modelcatalog.VendorResolver) *ModelCatalog {
 	c := &ModelCatalog{
 		kind:          kind,
 		prefix:        WirePrefix(kind),

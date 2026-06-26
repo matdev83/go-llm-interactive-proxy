@@ -54,7 +54,7 @@ func parseOllamaBackendConfig(n yaml.Node, upstream *http.Client) (ollama.Config
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return ollama.Config{}, modelInventoryYAML{}, fmt.Errorf("ollama backend config: %w", err)
 	}
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, nil)
+	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, nil)
 	discovery := ollama.DiscoveryConfig{
 		Enabled:      y.Discovery.Enabled,
 		Local:        y.Discovery.LocalModels,
@@ -73,14 +73,12 @@ func parseOllamaBackendConfig(n yaml.Node, upstream *http.Client) (ollama.Config
 	}
 	cfg := ollama.Config{
 		BaseURL:      strings.TrimSpace(y.BaseURL),
+		APIKey:       primaryKey,
 		APIKeys:      ek,
 		Credentials:  hostedCredentials(y.Credentials),
 		HTTPClient:   resolveUpstreamHTTP(upstream),
 		ResponsesAPI: strings.TrimSpace(y.ResponsesAPI),
 		Discovery:    discovery,
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
 	}
 	return cfg, y.Models, nil
 }

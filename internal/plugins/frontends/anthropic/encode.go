@@ -17,7 +17,8 @@ import (
 
 // EncodeOptions controls wire identifiers for encoded Messages payloads.
 type EncodeOptions struct {
-	MessageID string
+	MessageID                string
+	ExposeLipUsageExtensions bool
 }
 
 type wireAPIError struct {
@@ -55,8 +56,36 @@ type wireContentBlock struct {
 }
 
 type wireUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int    `json:"input_tokens"`
+	OutputTokens             int    `json:"output_tokens"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
+	CostNanoUnits            int64  `json:"x_lip_cost_nano_units,omitempty"`
+	Currency                 string `json:"x_lip_currency,omitempty"`
+	CostSource               string `json:"x_lip_cost_source,omitempty"`
+	UncachedInputTokens      int    `json:"x_lip_uncached_tokens,omitempty"`
+}
+
+func wireAnthropicUsage(col lipapi.Collected, exposeLipExtensions bool) wireUsage {
+	u := wireUsage{
+		InputTokens:  col.InputTokens,
+		OutputTokens: col.OutputTokens,
+	}
+	if col.CacheReadTokens > 0 {
+		u.CacheReadInputTokens = col.CacheReadTokens
+	}
+	if col.CacheWriteTokens > 0 {
+		u.CacheCreationInputTokens = col.CacheWriteTokens
+	}
+	if exposeLipExtensions {
+		u.CostNanoUnits = col.CostNanoUnits
+		u.Currency = col.Currency
+		u.CostSource = col.CostSource
+		if uncached := col.UncachedInputTokens(); uncached > 0 {
+			u.UncachedInputTokens = uncached
+		}
+	}
+	return u
 }
 
 // Streaming SSE wire shapes (typed JSON; avoids map[string]any in the hot loop).
@@ -148,9 +177,7 @@ type anthropicSSEContentBlockStop struct {
 type anthropicSSEMessageDelta struct {
 	Type  string                        `json:"type"`
 	Delta anthropicSSEMessageDeltaInner `json:"delta"`
-	Usage struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage wireUsage                     `json:"usage"`
 }
 
 type anthropicSSEMessageDeltaInner struct {
@@ -252,10 +279,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 		Model:      model,
 		StopReason: stop,
 		Content:    blocks,
-		Usage: wireUsage{
-			InputTokens:  col.InputTokens,
-			OutputTokens: col.OutputTokens,
-		},
+		Usage:      wireAnthropicUsage(col, opts.ExposeLipUsageExtensions),
 	}
 	sessionwire.WriteResponseCarriers(w, call)
 	w.Header().Set("Content-Type", "application/json")
@@ -295,7 +319,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return fmt.Errorf("anthropic: ResponseWriter is not a Flusher")
 	}
 
-	var inTok, outTok int
+	var usageCol lipapi.Collected
 	var msgStarted bool
 	nextBlockIdx := 0
 	textBlockIdx := -1
@@ -316,7 +340,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		p.Message.Model = model
 		p.Message.StopReason = anthropicJSONNull
 		p.Message.StopSequence = anthropicJSONNull
-		p.Message.Usage.InputTokens = inTok
+		p.Message.Usage.InputTokens = usageCol.InputTokens
 		p.Message.Usage.OutputTokens = 0
 		return stream.FlushSSEEventJSON(w, fl, "message_start", &p)
 	}
@@ -375,9 +399,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		case lipapi.EventResponseStarted:
 		case lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
-			usage := lipapi.ClientVisibleUsage(ev)
-			inTok += usage.InputTokens
-			outTok += usage.OutputTokens
+			usageCol.AccumulateUsage(ev)
 		case lipapi.EventToolCallStarted:
 			if err := openToolBlock(ev.ToolCallID, ev.ToolName); err != nil {
 				return err
@@ -462,7 +484,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			msgDelta.Type = "message_delta"
 			msgDelta.Delta.StopReason = stop
 			msgDelta.Delta.StopSequence = anthropicJSONNull
-			msgDelta.Usage.OutputTokens = outTok
+			msgDelta.Usage = wireAnthropicUsage(usageCol, opts.ExposeLipUsageExtensions)
 			if err := stream.FlushSSEEventJSON(w, fl, "message_delta", &msgDelta); err != nil {
 				return err
 			}

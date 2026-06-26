@@ -47,11 +47,7 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 		return execbackend.Backend{}, err
 	}
 	primary := cmp.Or(strings.TrimSpace(y.AccessToken), strings.TrimSpace(y.APIKey))
-	keysResolved := inventoryAPIKeys(primary, y.APIKeys, y.Credentials, keys.OpenAICodex)
-	accessToken := ""
-	if len(keysResolved) > 0 {
-		accessToken = keysResolved[0]
-	}
+	_, accessToken := firstAPIKey(primary, y.APIKeys, y.Credentials, keys.OpenAICodex)
 	cfg := openaicodex.Config{
 		BaseURL:                           base,
 		AccessToken:                       accessToken,
@@ -86,32 +82,13 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 }
 
 func openAICodexModelIDsFromYAML(y modelInventoryYAML) ([]string, error) {
-	rows, _, ok, err := modelInventoryRows(y, true)
-	if err != nil || !ok {
+	models, err := prefixedModelIDsFromYAML(openaicodex.ID, y)
+	if err != nil {
 		return nil, err
 	}
-	prefix := openaicodex.ID + "/"
-	ids := make([]string, 0, len(rows))
-	for i, row := range rows {
-		raw := strings.TrimSpace(row.NativeID)
-		switch {
-		case strings.HasPrefix(raw, prefix):
-			raw = strings.TrimPrefix(raw, prefix)
-		case raw == "":
-			canonical := strings.TrimSpace(row.CanonicalID)
-			if canonical == "" {
-				return nil, fmt.Errorf("backend models: item[%d] requires native_id or canonical_id", i)
-			}
-			if idx := strings.LastIndex(canonical, "/"); idx >= 0 {
-				raw = canonical[idx+1:]
-			} else {
-				raw = canonical
-			}
-		}
-		if raw == "" {
-			return nil, fmt.Errorf("backend models: item[%d] requires a model id", i)
-		}
-		ids = append(ids, raw)
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.RawID)
 	}
 	return ids, nil
 }

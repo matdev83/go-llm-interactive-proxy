@@ -119,7 +119,7 @@ func TestHandleChunk_multipleToolCallsFinishFollowsWireOrderWhenIndicesOutOfNume
 
 func TestHandleChunk_usageDetails(t *testing.T) {
 	t.Parallel()
-	raw := `{"id":"cc_usage","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":8,"total_tokens":19,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":5}}}`
+	raw := `{"id":"cc_usage","object":"chat.completion.chunk","created":1715620000,"model":"gpt-4o-mini","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":8,"total_tokens":19,"prompt_tokens_details":{"cached_tokens":3,"x_lip_cache_write_tokens":2},"completion_tokens_details":{"reasoning_tokens":5}}}`
 	var ch openai.ChatCompletionChunk
 	if err := json.Unmarshal([]byte(raw), &ch); err != nil {
 		t.Fatal(err)
@@ -135,6 +135,7 @@ func TestHandleChunk_usageDetails(t *testing.T) {
 		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
 	}
 	assertUsageIntField(t, ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, ev, "CacheWriteTokens", 2)
 	assertUsageIntField(t, ev, "ReasoningTokens", 5)
 	assertUsageIntField(t, ev, "TotalTokens", 19)
 	assertUsageRawJSONContains(t, ev, "total_tokens")

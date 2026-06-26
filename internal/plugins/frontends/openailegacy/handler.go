@@ -33,6 +33,7 @@ type Handler struct {
 	TrafficPorts         traffic.PortBundle
 	DecodeLimiter        *decodeqos.Limiter
 	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
+	Config               Config
 }
 
 func (h *Handler) maxBodyLimit() int64 {
@@ -159,8 +160,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
 
 	opts := EncodeOptions{
-		CompletionID: "chatcmpl_" + diag.StableCallToken(call),
-		CreatedAt:    diag.StableUnix(call),
+		CompletionID:             "chatcmpl_" + diag.StableCallToken(call),
+		CreatedAt:                diag.StableUnix(call),
+		ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions,
 	}
 	if clk := h.Exec.WallClock(); clk != nil {
 		opts.CreatedAt = clk().Unix()

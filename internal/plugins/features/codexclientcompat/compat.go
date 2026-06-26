@@ -55,32 +55,36 @@ type compatInput struct {
 }
 
 type compatBridge struct {
-	marker      string
-	detect      func(compatInput) bool
-	filter      func(string) bool
-	build       func(*lipapi.Call) string
-	beforeApply func(*lipapi.Call)
+	marker        string
+	matchesAgent  func(compatInput) bool
+	matchesPrompt func(compatInput) bool
+	filter        func(string) bool
+	build         func(*lipapi.Call) string
+	beforeApply   func(*lipapi.Call)
 }
 
 var compatBridges = []compatBridge{
 	{
-		marker:      openCodeBridgeMarker,
-		detect:      isOpenCode,
-		filter:      isOpenCodeHarnessText,
-		build:       func(*lipapi.Call) string { return buildOpenCodeBridge() },
-		beforeApply: convertOrphanedToolResults,
+		marker:        openCodeBridgeMarker,
+		matchesAgent:  openCodeAgentMatch,
+		matchesPrompt: openCodePromptMatch,
+		filter:        isOpenCodeHarnessText,
+		build:         func(*lipapi.Call) string { return buildOpenCodeBridge() },
+		beforeApply:   convertOrphanedToolResults,
 	},
 	{
-		marker: piBridgeMarker,
-		detect: isPi,
-		filter: isPiHarnessText,
-		build:  func(*lipapi.Call) string { return buildPiBridge() },
+		marker:        piBridgeMarker,
+		matchesAgent:  piAgentMatch,
+		matchesPrompt: piPromptMatch,
+		filter:        isPiHarnessText,
+		build:         func(*lipapi.Call) string { return buildPiBridge() },
 	},
 	{
-		marker: droidBridgeMarker,
-		detect: isDroid,
-		filter: isDroidHarnessText,
-		build:  func(call *lipapi.Call) string { return buildDroidBridge(collectCallToolNames(call)) },
+		marker:        droidBridgeMarker,
+		matchesAgent:  droidAgentMatch,
+		matchesPrompt: droidPromptMatch,
+		filter:        isDroidHarnessText,
+		build:         func(call *lipapi.Call) string { return buildDroidBridge(collectCallToolNames(call)) },
 	},
 }
 
@@ -89,23 +93,36 @@ func ApplyCompat(call *lipapi.Call) {
 		return
 	}
 	in := detectCompatInput(call)
-	hasTools := len(call.Tools) > 0
-	for _, bridge := range compatBridges {
-		if !bridge.detect(in) {
-			continue
-		}
-		call.Messages = filterHarnessMessages(call.Messages, bridge.filter)
-		call.Instructions = filterHarnessMessages(call.Instructions, bridge.filter)
-		if bridge.beforeApply != nil {
-			bridge.beforeApply(call)
-		}
-		if !hasTools {
-			continue
-		}
-		block := bridge.build(call)
-		appendBridgeInstructions(call, bridge.marker, block)
-		prependBridgeMessage(call, bridge.marker, block)
+	bridge := selectCompatBridge(in)
+	if bridge == nil {
+		return
 	}
+	hasTools := len(call.Tools) > 0
+	call.Messages = filterHarnessMessages(call.Messages, bridge.filter)
+	call.Instructions = filterHarnessMessages(call.Instructions, bridge.filter)
+	if bridge.beforeApply != nil {
+		bridge.beforeApply(call)
+	}
+	if !hasTools {
+		return
+	}
+	block := bridge.build(call)
+	appendBridgeInstructions(call, bridge.marker, block)
+	prependBridgeMessage(call, bridge.marker, block)
+}
+
+func selectCompatBridge(in compatInput) *compatBridge {
+	for i := range compatBridges {
+		if compatBridges[i].matchesAgent(in) {
+			return &compatBridges[i]
+		}
+	}
+	for i := range compatBridges {
+		if compatBridges[i].matchesPrompt(in) {
+			return &compatBridges[i]
+		}
+	}
+	return nil
 }
 
 func detectCompatInput(call *lipapi.Call) compatInput {
@@ -172,12 +189,16 @@ func collectCallToolNames(call *lipapi.Call) []string {
 	return out
 }
 
-func isOpenCode(in compatInput) bool {
+func openCodeAgentMatch(in compatInput) bool {
 	for _, candidate := range in.agents {
 		if strings.Contains(strings.ToLower(candidate), "opencode") {
 			return true
 		}
 	}
+	return false
+}
+
+func openCodePromptMatch(in compatInput) bool {
 	lower := strings.ToLower(in.prompt)
 	if strings.Contains(lower, "opencode") {
 		if strings.Contains(lower, "compatibility") || strings.Contains(lower, "harness") || strings.Contains(lower, "tool") {
@@ -187,7 +208,7 @@ func isOpenCode(in compatInput) bool {
 	return false
 }
 
-func isPi(in compatInput) bool {
+func piAgentMatch(in compatInput) bool {
 	for _, candidate := range in.agents {
 		lower := strings.ToLower(candidate)
 		for _, marker := range piUserAgentMarkers {
@@ -196,6 +217,10 @@ func isPi(in compatInput) bool {
 			}
 		}
 	}
+	return false
+}
+
+func piPromptMatch(in compatInput) bool {
 	lower := strings.ToLower(in.prompt)
 	hits := 0
 	for _, marker := range piPromptMarkers {
@@ -206,23 +231,18 @@ func isPi(in compatInput) bool {
 	return hits >= 2
 }
 
-func isDroid(in compatInput) bool {
-	if slices.ContainsFunc(in.agents, droidUserAgentMatch) {
-		return true
-	}
+func droidAgentMatch(in compatInput) bool {
+	return slices.ContainsFunc(in.agents, droidUserAgentMatch)
+}
+
+func droidPromptMatch(in compatInput) bool {
 	lower := strings.ToLower(in.prompt)
 	for _, keyword := range droidSystemPromptKeywords {
 		if strings.Contains(lower, keyword) {
 			return true
 		}
 	}
-	found := 0
-	for _, name := range in.tools {
-		if _, ok := droidNativeToolNames[name]; ok {
-			found++
-		}
-	}
-	return found >= 2
+	return false
 }
 
 func droidUserAgentMatch(userAgent string) bool {

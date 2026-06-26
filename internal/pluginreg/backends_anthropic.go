@@ -18,15 +18,13 @@ func backendAnthropic(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) 
 		return execbackend.Backend{}, fmt.Errorf("anthropic backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://api.anthropic.com")
-	ek := inventoryAPIKeys(y.APIKey, y.APIKeys, y.Credentials, keys.Anthropic)
+	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.Anthropic)
 	cfg := anthropic.Config{
 		BaseURL:     base,
+		APIKey:      primaryKey,
 		APIKeys:     ek,
 		Credentials: hostedCredentials(y.Credentials),
 		HTTPClient:  resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
 	}
 	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
 }
@@ -42,15 +40,14 @@ func backendCustomAnthropicCompatible(n yaml.Node, upstream *http.Client) (execb
 	}
 	base := strings.TrimSpace(y.BaseURL)
 	ek := resolveCustomCompatibleAPIKeys(y)
+	primaryKey := firstResolvedAPIKey(ek)
 	cfg := anthropic.Config{
 		BaseURL:       base,
 		BackendPrefix: prefix,
+		APIKey:        primaryKey,
 		APIKeys:       ek,
 		Credentials:   hostedCredentials(y.Credentials),
 		HTTPClient:    resolveUpstreamHTTP(upstream),
-	}
-	if len(ek) > 0 {
-		cfg.APIKey = ek[0]
 	}
 	return applyConfiguredModelInventory(anthropic.New(cfg), y.Models)
 }
