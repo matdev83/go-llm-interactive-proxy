@@ -80,13 +80,11 @@ func cacheWriteFromDetailsJSON(raw string) int {
 	if raw == "" {
 		return 0
 	}
-	var probe struct {
-		CacheWrite int `json:"x_lip_cache_write_tokens"`
-	}
+	var probe map[string]int
 	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
 		return 0
 	}
-	return probe.CacheWrite
+	return probe[lipCacheWriteTokensKey]
 }
 
 func applyUsageCostExtensions(ev *lipapi.Event, extras map[string]respjson.Field, usageRaw string) {
@@ -163,9 +161,13 @@ func providerCostNanoUnits(raw string) (int64, bool) {
 		return 0, false
 	}
 	rat.Mul(rat, big.NewRat(providerCostNanoScale, 1))
-	f, _ := rat.Float64()
-	if f <= 0 {
+	q, r := new(big.Int), new(big.Int)
+	q.QuoRem(rat.Num(), rat.Denom(), r)
+	if new(big.Int).Mul(r, big.NewInt(2)).Cmp(rat.Denom()) >= 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	if !q.IsInt64() {
 		return 0, false
 	}
-	return int64(f + 0.5), true
+	return q.Int64(), true
 }

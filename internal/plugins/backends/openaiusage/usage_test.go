@@ -88,3 +88,14 @@ func TestChatUsageEvent_ignoresMissingProviderCost(t *testing.T) {
 		t.Fatalf("unexpected cost fields: %+v", ev)
 	}
 }
+
+func TestProviderCostNanoUnits_roundsRationalExactly(t *testing.T) {
+	t.Parallel()
+	nano, ok := providerCostNanoUnits("0.0000000015")
+	if !ok {
+		t.Fatal("providerCostNanoUnits returned !ok")
+	}
+	if nano != 2 {
+		t.Fatalf("nano = %d, want 2", nano)
+	}
+}

@@ -36,7 +36,7 @@ func TestEmitOutputMediaFromResponse_inputImageAndFile(t *testing.T) {
 	}
 	pending := stream.NewPendingEventQueue(0)
 	mapper := openairesponsestream.New(&pending)
-	if err := openairesponsestream.EmitOutputMediaFromResponse(mapper, &pending, resp); err != nil {
+	if err := openairesponsestream.EmitOutputMediaFromResponse(mapper, resp); err != nil {
 		t.Fatal(err)
 	}
 	evs := stream.DrainPending(&pending)

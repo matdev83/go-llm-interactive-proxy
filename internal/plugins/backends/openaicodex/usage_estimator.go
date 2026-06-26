@@ -2,6 +2,7 @@ package openaicodex
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tokenizers/imageestimator"
@@ -22,7 +23,7 @@ func newUsageEstimator() (*usageEstimator, error) {
 		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: create usage token counter: %w", ID, err)
 	}
 	return &usageEstimator{counter: counter}, nil
 }

@@ -237,7 +237,7 @@ func (m *Mapper) emitToolCallStarted(id, name string) error {
 }
 
 // EmitOutputMediaFromResponse maps assistant message media in a completed Responses payload.
-func EmitOutputMediaFromResponse(m *Mapper, pending *stream.PendingEventQueue, resp responses.Response) error {
+func EmitOutputMediaFromResponse(m *Mapper, resp responses.Response) error {
 	for _, item := range resp.Output {
 		if item.Type != "message" {
 			continue
@@ -268,7 +268,7 @@ func EmitOutputMediaFromResponse(m *Mapper, pending *stream.PendingEventQueue, r
 				if err := m.EnsureMessageStarted(); err != nil {
 					return err
 				}
-				if err := pending.Push(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantRef: url, AssistantMIME: mediautil.SniffImageMIME(url)}); err != nil {
+				if err := m.pending.Push(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantRef: url, AssistantMIME: mediautil.SniffImageMIME(url)}); err != nil {
 					return err
 				}
 			case "input_file":
@@ -281,7 +281,7 @@ func EmitOutputMediaFromResponse(m *Mapper, pending *stream.PendingEventQueue, r
 				if err := m.EnsureMessageStarted(); err != nil {
 					return err
 				}
-				if err := pending.Push(lipapi.Event{Kind: lipapi.EventAssistantFileRef, AssistantRef: probe.FileID, AssistantMIME: "application/octet-stream"}); err != nil {
+				if err := m.pending.Push(lipapi.Event{Kind: lipapi.EventAssistantFileRef, AssistantRef: probe.FileID, AssistantMIME: "application/octet-stream"}); err != nil {
 					return err
 				}
 			}

@@ -86,7 +86,7 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 				return err
 			}
 		}
-		if err := openairesponsestream.EmitOutputMediaFromResponse(m, &s.pending, resp); err != nil {
+		if err := openairesponsestream.EmitOutputMediaFromResponse(m, resp); err != nil {
 			return err
 		}
 		if err := s.emitToolCallsFromCompletedResponse(resp); err != nil {

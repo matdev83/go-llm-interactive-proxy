@@ -2,6 +2,8 @@ package openaicodex
 
 import (
 	"context"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -47,6 +49,78 @@ func TestEstimateUsage_textRequest_positiveTotalsAndMetadata(t *testing.T) {
 	if ev.Accounting.Tokenizer.ModelUsed != "gpt-5.3-codex" {
 		t.Fatalf("model used=%q", ev.Accounting.Tokenizer.ModelUsed)
 	}
+}
+
+func TestUsageEstimatingStream_estimationFailureReturnsFinishedEvent(t *testing.T) {
+	t.Parallel()
+	est, err := newUsageEstimator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := &usageEstimatingStream{
+		base: &usageEstimateTestStream{events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: "hello"},
+			{Kind: lipapi.EventResponseFinished},
+		}},
+		est: est,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if _, err := stream.Recv(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	ev, err := stream.Recv(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != lipapi.EventResponseFinished {
+		t.Fatalf("kind = %q", ev.Kind)
+	}
+}
+
+func TestUsageEstimatingStream_skipsEstimationWhenOutputBufferExceedsLimit(t *testing.T) {
+	t.Parallel()
+	est := &usageEstimator{}
+	stream := &usageEstimatingStream{
+		base: &usageEstimateTestStream{events: []lipapi.Event{
+			{Kind: lipapi.EventTextDelta, Delta: strings.Repeat("x", maxUsageEstimateOutputBytes+1)},
+			{Kind: lipapi.EventResponseFinished},
+		}},
+		est: est,
+	}
+	if _, err := stream.Recv(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := stream.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Kind != lipapi.EventResponseFinished {
+		t.Fatalf("kind = %q", ev.Kind)
+	}
+	if stream.text.Len() != 0 || !stream.textFull {
+		t.Fatalf("buffer len=%d full=%v", stream.text.Len(), stream.textFull)
+	}
+}
+
+type usageEstimateTestStream struct {
+	events []lipapi.Event
+	idx    int
+}
+
+func (s *usageEstimateTestStream) Recv(context.Context) (lipapi.Event, error) {
+	if s.idx >= len(s.events) {
+		return lipapi.Event{}, io.EOF
+	}
+	ev := s.events[s.idx]
+	s.idx++
+	return ev, nil
+}
+
+func (s *usageEstimateTestStream) Close() error { return nil }
+
+func (s *usageEstimateTestStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{Mode: lipapi.CancelModeNone}
 }
 
 func TestEstimateUsage_imageRefURL_usesConservativeDefault(t *testing.T) {

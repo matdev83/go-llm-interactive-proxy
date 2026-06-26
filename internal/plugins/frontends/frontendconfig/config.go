@@ -25,6 +25,11 @@ func Decode(n yaml.Node, id string) (Config, error) {
 	if root.Kind != yaml.MappingNode {
 		return Config{}, fmt.Errorf("%s: config must be a mapping or null", id)
 	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "expose_lip_usage_extensions" {
+			return Config{}, fmt.Errorf("%s: unknown config key %q", id, root.Content[i].Value)
+		}
+	}
 	var cfg Config
 	if err := root.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", id, err)

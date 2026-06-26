@@ -2,7 +2,6 @@ package openaicodex
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -14,9 +13,12 @@ type usageEstimatingStream struct {
 	call     lipapi.Call
 	model    string
 	text     strings.Builder
+	textFull bool
 	sawUsage bool
 	queued   *lipapi.Event
 }
+
+const maxUsageEstimateOutputBytes = 1 << 20
 
 func newUsageEstimatingStream(base lipapi.ManagedEventStream, est *usageEstimator, call lipapi.Call, model string) lipapi.ManagedEventStream {
 	if est == nil {
@@ -41,12 +43,12 @@ func (s *usageEstimatingStream) Recv(ctx context.Context) (lipapi.Event, error) 
 		return ev, err
 	}
 	s.observe(ev)
-	if ev.Kind != lipapi.EventResponseFinished || s.sawUsage {
+	if ev.Kind != lipapi.EventResponseFinished || s.sawUsage || s.textFull {
 		return ev, nil
 	}
 	usage, err := s.est.estimateUsage(ctx, s.call, s.model, s.text.String())
 	if err != nil {
-		return lipapi.Event{}, fmt.Errorf("%s: estimate usage: %w", ID, err)
+		return ev, nil
 	}
 	s.queued = &ev
 	return usage, nil
@@ -55,6 +57,13 @@ func (s *usageEstimatingStream) Recv(ctx context.Context) (lipapi.Event, error) 
 func (s *usageEstimatingStream) observe(ev lipapi.Event) {
 	switch ev.Kind {
 	case lipapi.EventTextDelta:
+		if s.textFull {
+			return
+		}
+		if s.text.Len()+len(ev.Delta) > maxUsageEstimateOutputBytes {
+			s.textFull = true
+			return
+		}
 		s.text.WriteString(ev.Delta)
 	case lipapi.EventUsageDelta:
 		s.sawUsage = true

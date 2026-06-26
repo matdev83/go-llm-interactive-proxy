@@ -33,40 +33,42 @@ func (s *accountStore) persistQuotaHeaders(acct managedAccount, headers map[stri
 func writeQuotaHeadersToFile(filePath string, headers map[string]string) error {
 	b, err := os.ReadFile(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("read account file %q: %w", filePath, err)
 	}
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(b, &root); err != nil {
-		return fmt.Errorf("decode account file: %w", err)
+		return fmt.Errorf("decode account file %q: %w", filePath, err)
 	}
 	qh, err := json.Marshal(headers)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal quota headers for %q: %w", filePath, err)
 	}
 	root["quota_headers"] = qh
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal account file %q: %w", filePath, err)
 	}
 	out = append(out, '\n')
 	dir := filepath.Dir(filePath)
 	tmp, err := os.CreateTemp(dir, ".quota-*.tmp")
 	if err != nil {
-		return err
+		return fmt.Errorf("create temp quota file for %q: %w", filePath, err)
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 	if _, err := tmp.Write(out); err != nil {
 		_ = tmp.Close()
-		return err
+		return fmt.Errorf("write temp quota file for %q: %w", filePath, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return fmt.Errorf("close temp quota file for %q: %w", filePath, err)
 	}
 	if err := os.Rename(tmpPath, filePath); err == nil {
 		return nil
+	} else if writeErr := os.WriteFile(filePath, out, 0o600); writeErr != nil {
+		return fmt.Errorf("rename temp quota file %q to %q: %v; write account file: %w", tmpPath, filePath, err, writeErr)
 	}
-	return os.WriteFile(filePath, out, 0o600)
+	return nil
 }
 
 func codexQuotaHeaders(h map[string][]string) map[string]string {
