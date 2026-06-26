@@ -150,12 +150,13 @@ func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 		Usage *struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
+			TotalTokens  int `json:"total_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.Usage == nil || v.Usage.InputTokens != 9 || v.Usage.OutputTokens != 2 {
+	if v.Usage == nil || v.Usage.InputTokens != 9 || v.Usage.OutputTokens != 2 || v.Usage.TotalTokens != 11 {
 		t.Fatalf("usage %+v", v.Usage)
 	}
 }
@@ -165,7 +166,7 @@ func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
 	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
-		{Kind: lipapi.EventUsageDelta, CacheReadTokens: 7, ReasoningTokens: 3},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10, CacheReadTokens: 7, CacheWriteTokens: 2, ReasoningTokens: 3, CostNanoUnits: 99, Currency: "USD", CostSource: "estimated"},
 		{Kind: lipapi.EventResponseFinished},
 	})
 	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
@@ -179,7 +180,9 @@ func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
 			OutputTokens       int `json:"output_tokens"`
 			TotalTokens        int `json:"total_tokens"`
 			InputTokensDetails struct {
-				CachedTokens int `json:"cached_tokens"`
+				CachedTokens   int `json:"cached_tokens"`
+				UncachedTokens int `json:"x_lip_uncached_tokens"`
+				CacheWrite     int `json:"x_lip_cache_write_tokens"`
 			} `json:"input_tokens_details"`
 			OutputTokensDetails struct {
 				ReasoningTokens int `json:"reasoning_tokens"`
@@ -192,11 +195,49 @@ func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
 	if v.Usage == nil {
 		t.Fatal("usage is nil")
 	}
-	if v.Usage.InputTokens != 0 || v.Usage.OutputTokens != 0 || v.Usage.TotalTokens != 0 {
-		t.Fatalf("top-level usage = %+v, want zero counters", *v.Usage)
+	if v.Usage.InputTokens != 10 || v.Usage.OutputTokens != 0 || v.Usage.TotalTokens != 10 {
+		t.Fatalf("top-level usage = %+v", *v.Usage)
 	}
 	if v.Usage.InputTokensDetails.CachedTokens != 7 || v.Usage.OutputTokensDetails.ReasoningTokens != 3 {
 		t.Fatalf("usage details = %+v", *v.Usage)
+	}
+	if v.Usage.InputTokensDetails.UncachedTokens != 0 || v.Usage.InputTokensDetails.CacheWrite != 0 {
+		t.Fatalf("x_lip details should be hidden by default: %+v", *v.Usage)
+	}
+}
+
+func TestWriteNonStreamJSON_usageExtensionsWhenEnabled(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10, CacheReadTokens: 7, CacheWriteTokens: 2, CostNanoUnits: 99, Currency: "USD", CostSource: "estimated"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
+	rec := httptest.NewRecorder()
+	if err := openairesponses.WriteNonStreamJSON(t.Context(), rec, call, es, openairesponses.EncodeOptions{ExposeLipUsageExtensions: true}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Usage *struct {
+			CostNanoUnits      int64  `json:"x_lip_cost_nano_units"`
+			Currency           string `json:"x_lip_currency"`
+			CostSource         string `json:"x_lip_cost_source"`
+			InputTokensDetails struct {
+				UncachedTokens int `json:"x_lip_uncached_tokens"`
+				CacheWrite     int `json:"x_lip_cache_write_tokens"`
+			} `json:"input_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Usage == nil || v.Usage.CostNanoUnits != 99 || v.Usage.Currency != "USD" || v.Usage.CostSource != "estimated" {
+		t.Fatalf("cost extensions = %+v", v.Usage)
+	}
+	if v.Usage.InputTokensDetails.UncachedTokens != 3 || v.Usage.InputTokensDetails.CacheWrite != 2 {
+		t.Fatalf("cache extensions = %+v", v.Usage.InputTokensDetails)
 	}
 }
 
@@ -282,8 +323,9 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	var seq []string
 	var doneText string
 	var completedUsage struct {
-		In  int `json:"input_tokens"`
-		Out int `json:"output_tokens"`
+		In    int `json:"input_tokens"`
+		Out   int `json:"output_tokens"`
+		Total int `json:"total_tokens"`
 	}
 	for _, fr := range frames {
 		if fr.Data == "[DONE]" {
@@ -320,6 +362,9 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 				if x, ok := u["output_tokens"].(float64); ok {
 					completedUsage.Out = int(x)
 				}
+				if x, ok := u["total_tokens"].(float64); ok {
+					completedUsage.Total = int(x)
+				}
 			}
 		}
 	}
@@ -335,7 +380,7 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	if doneText != "hello world" {
 		t.Fatalf("done text %q", doneText)
 	}
-	if completedUsage.In != 7 || completedUsage.Out != 3 {
+	if completedUsage.In != 7 || completedUsage.Out != 3 || completedUsage.Total != 10 {
 		t.Fatalf("usage %+v", completedUsage)
 	}
 }

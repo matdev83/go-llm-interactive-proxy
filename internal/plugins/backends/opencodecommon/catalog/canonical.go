@@ -10,31 +10,15 @@ var canonicalAliases = map[string]string{
 	"kimi-k2.7": "kimi-k2.7-code",
 }
 
-type VendorResolver interface {
-	CanonicalID(model string) string
-}
-
 type Canonicalizer struct {
-	vendors VendorResolver
+	vendors modelcatalog.VendorResolver
 }
 
-func NewCanonicalizer(vendors VendorResolver) *Canonicalizer {
+func NewCanonicalizer(vendors modelcatalog.VendorResolver) *Canonicalizer {
 	if vendors == nil {
-		vendors = NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{}, true))
+		vendors = NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{}, true)
 	}
 	return &Canonicalizer{vendors: vendors}
-}
-
-type ModelCatalogVendorResolver interface {
-	Resolve(model string) modelcatalog.VendorResolveResult
-}
-
-type modelCatalogVendorResolver struct {
-	resolver ModelCatalogVendorResolver
-}
-
-func NewModelCatalogVendorResolver(resolver ModelCatalogVendorResolver) VendorResolver {
-	return modelCatalogVendorResolver{resolver: resolver}
 }
 
 func (c *Canonicalizer) CanonicalID(rawID string) string {
@@ -43,17 +27,12 @@ func (c *Canonicalizer) CanonicalID(rawID string) string {
 		return "unknown/unknown"
 	}
 	model := canonicalModelName(rawID)
-	if got := c.vendors.CanonicalID(model); got != "" {
-		return got
+	if c.vendors != nil {
+		if got := c.vendors.Resolve(model).CanonicalID; got != "" {
+			return got
+		}
 	}
 	return "unknown/" + rawID
-}
-
-func (r modelCatalogVendorResolver) CanonicalID(model string) string {
-	if r.resolver == nil {
-		return ""
-	}
-	return r.resolver.Resolve(model).CanonicalID
 }
 
 func canonicalModelName(rawID string) string {

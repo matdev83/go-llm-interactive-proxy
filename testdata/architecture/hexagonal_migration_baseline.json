@@ -41,7 +41,8 @@
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
       ]
     },
     {

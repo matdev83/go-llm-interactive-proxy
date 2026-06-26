@@ -32,7 +32,7 @@ func TestDetectOpenCodeFromExtensionAgent(t *testing.T) {
 			extAgentKey: json.RawMessage(`"opencode/1.2.26"`),
 		},
 	})
-	if !isOpenCode(in) {
+	if !openCodeAgentMatch(in) {
 		t.Fatal("expected OpenCode detection from extension agent")
 	}
 }
@@ -46,12 +46,12 @@ func TestDetectPiFromPromptMarkers(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart(prompt)},
 		}},
 	})
-	if !isPi(in) {
+	if !piPromptMatch(in) {
 		t.Fatal("expected Pi detection from prompt markers")
 	}
 }
 
-func TestDetectDroidFromToolList(t *testing.T) {
+func TestDetectDroidIgnoresToolListOnly(t *testing.T) {
 	t.Parallel()
 	in := detectCompatInput(&lipapi.Call{
 		Tools: []lipapi.ToolDef{
@@ -60,8 +60,120 @@ func TestDetectDroidFromToolList(t *testing.T) {
 			{Name: "TodoWrite"},
 		},
 	})
-	if !isDroid(in) {
-		t.Fatal("expected Droid detection from native tool names")
+	if droidAgentMatch(in) || droidPromptMatch(in) {
+		t.Fatal("tool names alone must not trigger Droid detection")
+	}
+}
+
+func TestApplyCompat_openCodeWinsOverDroidTools(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+		Tools: []lipapi.ToolDef{
+			{Name: "Read"},
+			{Name: "Execute"},
+			{Name: "TodoWrite"},
+		},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"opencode/1.2.26"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+	instructions := joinInstructionText(call.Instructions)
+	if !strings.Contains(instructions, openCodeBridgeMarker) {
+		t.Fatalf("expected OpenCode bridge, instructions: %q", instructions)
+	}
+	if strings.Contains(instructions, droidBridgeMarker) {
+		t.Fatalf("Droid bridge must not stack with OpenCode, instructions: %q", instructions)
+	}
+}
+
+func TestApplyCompat_piWinsOverDroidTools(t *testing.T) {
+	t.Parallel()
+	piPrompt := "You are an expert coding assistant operating inside pi, a coding agent harness.\nAvailable tools:\n- bash: Execute bash commands\nGuidelines:\nbe concise"
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+		Tools: []lipapi.ToolDef{
+			{Name: "Read"},
+			{Name: "Execute"},
+			{Name: "TodoWrite"},
+		},
+		Extensions: map[string]json.RawMessage{
+			extUserAgentKey: json.RawMessage(`"@mariozechner/pi-coding-agent/0.55.3"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+	instructions := joinInstructionText(call.Instructions)
+	if !strings.Contains(instructions, piBridgeMarker) {
+		t.Fatalf("expected Pi bridge, instructions: %q", instructions)
+	}
+	if strings.Contains(instructions, droidBridgeMarker) {
+		t.Fatalf("Droid bridge must not stack with Pi, instructions: %q", instructions)
+	}
+
+	call2 := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart(piPrompt)},
+		}, {
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+		Tools: []lipapi.ToolDef{
+			{Name: "Read"},
+			{Name: "Execute"},
+			{Name: "TodoWrite"},
+		},
+	}
+	runHook(t, call2, targetBackendID)
+	instructions2 := joinInstructionText(call2.Instructions)
+	if !strings.Contains(instructions2, piBridgeMarker) {
+		t.Fatalf("expected Pi bridge from prompt, instructions: %q", instructions2)
+	}
+	if strings.Contains(instructions2, droidBridgeMarker) {
+		t.Fatalf("Droid bridge must not stack with Pi prompt, instructions: %q", instructions2)
+	}
+}
+
+func TestApplyCompat_genericToolsDoNotTriggerDroid(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+		Tools: []lipapi.ToolDef{
+			{Name: "Read"},
+			{Name: "Execute"},
+			{Name: "TodoWrite"},
+		},
+	}
+	runHook(t, call, targetBackendID)
+	instructions := joinInstructionText(call.Instructions)
+	if strings.Contains(instructions, droidBridgeMarker) {
+		t.Fatalf("generic tool names must not trigger Droid bridge, instructions: %q", instructions)
 	}
 }
 

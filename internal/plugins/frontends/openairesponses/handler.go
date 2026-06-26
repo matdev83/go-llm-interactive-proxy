@@ -40,6 +40,7 @@ type Handler struct {
 	TrafficPorts        traffic.PortBundle
 	DecodeLimiter       *decodeqos.Limiter
 	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
+	Config              Config
 }
 
 type aLegCanceler interface {
@@ -233,8 +234,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
 
 	opts := EncodeOptions{
-		ResponseID: responseIDForCall(call),
-		CreatedAt:  diag.StableUnix(call),
+		ResponseID:               responseIDForCall(call),
+		CreatedAt:                diag.StableUnix(call),
+		ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions,
 	}
 	opts.MessageID = "msg_" + opts.ResponseID
 	if clk := h.Exec.WallClock(); clk != nil {

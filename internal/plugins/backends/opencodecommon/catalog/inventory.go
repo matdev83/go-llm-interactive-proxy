@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
@@ -16,7 +17,7 @@ type InventoryProviderConfig struct {
 	HTTPClient     *http.Client
 	Kind           BackendKind
 	Fallback       []ModelEntry
-	VendorResolver VendorResolver
+	VendorResolver modelcatalog.VendorResolver
 }
 
 type InventoryProvider struct {

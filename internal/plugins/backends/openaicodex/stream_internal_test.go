@@ -10,9 +10,13 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func testCodexStream() *codexStream {
+	return newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+}
+
 func TestHandleData_malformedJSON_returnsError(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 	if err := s.handleData("{not json"); err == nil {
 		t.Fatal("expected malformed JSON error")
 	}
@@ -20,8 +24,7 @@ func TestHandleData_malformedJSON_returnsError(t *testing.T) {
 
 func TestRecv_malformedSSEJSON_returnsError(t *testing.T) {
 	t.Parallel()
-	body := io.NopCloser(strings.NewReader("data: {broken\n"))
-	s := newCodexStream(body, 64)
+	s := newCodexStream(io.NopCloser(strings.NewReader("data: {broken\n")), 64)
 	_, err := s.Recv(context.Background())
 	if err == nil {
 		t.Fatal("expected malformed JSON error")
@@ -30,7 +33,7 @@ func TestRecv_malformedSSEJSON_returnsError(t *testing.T) {
 
 func TestHandleData_responseCreatedAndCompleted_mapsLifecycleAndUsage(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 
 	created := `{"type":"response.created","response":{"id":"resp_created"}}`
 	completed := `{"type":"response.completed","response":{"id":"resp_completed","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}`
@@ -49,14 +52,147 @@ func TestHandleData_responseCreatedAndCompleted_mapsLifecycleAndUsage(t *testing
 			t.Fatalf("event[%d] = %v, want %v", i, events[i].Kind, kind)
 		}
 	}
-	if usage := events[2]; usage.InputTokens != 1 || usage.OutputTokens != 2 || usage.TotalTokens != 3 {
+	usage := events[2]
+	if usage.InputTokens != 1 || usage.OutputTokens != 2 || usage.TotalTokens != 3 {
 		t.Fatalf("usage: %+v", usage)
+	}
+	if usage.Accounting.Source != lipapi.UsageSourceProviderReported {
+		t.Fatalf("usage source=%q", usage.Accounting.Source)
+	}
+	if usage.Accounting.Authority != lipapi.UsageAuthorityAuthoritative {
+		t.Fatalf("usage authority=%q", usage.Accounting.Authority)
+	}
+}
+
+func TestHandleData_completedWithoutUsageDoesNotEstimateUsage(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	delta := `{"type":"response.output_text.delta","delta":"world"}`
+	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"world"}]}]}}`
+	for _, raw := range []string{delta, completed} {
+		if err := s.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+	events := stream.DrainPending(&s.pending)
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventUsageDelta {
+			t.Fatalf("raw stream must not estimate usage: %+v", events)
+		}
+	}
+}
+
+func TestUsageEstimatingStream_completedWithoutUsage_generatesEstimatedUsageBeforeFinished(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+	}
+	est, err := newUsageEstimator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "world"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	s := newUsageEstimatingStream(base, est, call, "gpt-5.3-codex")
+
+	var events []lipapi.Event
+	for {
+		ev, err := s.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, ev)
+	}
+	usageIdx, finishedIdx := -1, -1
+	for i, ev := range events {
+		switch ev.Kind {
+		case lipapi.EventUsageDelta:
+			usageIdx = i
+		case lipapi.EventResponseFinished:
+			finishedIdx = i
+		}
+	}
+	if usageIdx < 0 || finishedIdx < 0 || usageIdx >= finishedIdx {
+		t.Fatalf("usage before finished: usageIdx=%d finishedIdx=%d events=%+v", usageIdx, finishedIdx, events)
+	}
+	usage := events[usageIdx]
+	if usage.InputTokens <= 0 || usage.OutputTokens <= 0 || usage.TotalTokens != usage.InputTokens+usage.OutputTokens {
+		t.Fatalf("usage: %+v", usage)
+	}
+	if usage.Accounting.Source != lipapi.UsageSourceLocalTokenizer || usage.Accounting.Authority != lipapi.UsageAuthorityEstimated {
+		t.Fatalf("accounting: %+v", usage.Accounting)
+	}
+	if usage.Accounting.Plane != lipapi.UsagePlaneProviderBillable {
+		t.Fatalf("usage plane=%q, want provider_billable", usage.Accounting.Plane)
+	}
+	if usage.Accounting.Tokenizer.ID != "o200k_base" {
+		t.Fatalf("tokenizer id=%q", usage.Accounting.Tokenizer.ID)
+	}
+}
+
+func TestUsageEstimatingStream_providerUsageIsNotOverridden(t *testing.T) {
+	t.Parallel()
+	est, err := newUsageEstimator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerUsage := lipapi.Event{
+		Kind:         lipapi.EventUsageDelta,
+		InputTokens:  7,
+		OutputTokens: 3,
+		TotalTokens:  10,
+		Accounting: lipapi.UsageAccountingMetadata{
+			Source:    lipapi.UsageSourceProviderReported,
+			Authority: lipapi.UsageAuthorityAuthoritative,
+		},
+	}
+	base := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "world"},
+		providerUsage,
+		{Kind: lipapi.EventResponseFinished},
+	})
+	s := newUsageEstimatingStream(base, est, lipapi.Call{}, "gpt-5.3-codex")
+
+	var usage []lipapi.Event
+	for {
+		ev, err := s.Recv(context.Background())
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Kind == lipapi.EventUsageDelta {
+			usage = append(usage, ev)
+		}
+	}
+	if len(usage) != 1 {
+		t.Fatalf("usage events = %+v", usage)
+	}
+	if usage[0].InputTokens != 7 || usage[0].OutputTokens != 3 || usage[0].TotalTokens != 10 {
+		t.Fatalf("usage = %+v", usage[0])
+	}
+	if usage[0].Accounting.Source != lipapi.UsageSourceProviderReported {
+		t.Fatalf("source = %q", usage[0].Accounting.Source)
 	}
 }
 
 func TestHandleData_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 
 	rawEvents := []string{
 		`{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_fc_1","status":"in_progress","name":"get_weather"}}`,
@@ -91,7 +227,7 @@ func TestHandleData_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 
 func TestHandleData_completedOnly_emitsFullText(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 
 	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}}`
 	if err := s.handleData(completed); err != nil {
@@ -111,7 +247,7 @@ func TestHandleData_completedOnly_emitsFullText(t *testing.T) {
 
 func TestHandleData_completed_replaysFunctionCalls(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 
 	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","id":"fc_1","call_id":"call_fc_1","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}]}}`
 	if err := s.handleData(completed); err != nil {
@@ -142,7 +278,7 @@ func TestHandleData_completed_replaysFunctionCalls(t *testing.T) {
 
 func TestHandleData_outputItemDone_emitsCompleteToolCall(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 
 	raw := `{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_done","call_id":"call_fc_done","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}}`
 	if err := s.handleData(raw); err != nil {
@@ -172,7 +308,7 @@ func TestHandleData_outputItemDone_emitsCompleteToolCall(t *testing.T) {
 
 func TestHandleData_toolCallStream_callIDOnDelta(t *testing.T) {
 	t.Parallel()
-	s := newCodexStream(io.NopCloser(strings.NewReader("")), 64)
+	s := testCodexStream()
 
 	rawEvents := []string{
 		`{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"type":"function_call","call_id":"call_only","name":"get_weather"}}`,

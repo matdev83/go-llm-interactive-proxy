@@ -63,7 +63,9 @@ func (s *gemStreamWireScratch) flushFileDataURI(w io.Writer, fl http.Flusher, ur
 }
 
 // EncodeOptions controls optional encoding tweaks.
-type EncodeOptions struct{}
+type EncodeOptions struct {
+	ExposeLipUsageExtensions bool
+}
 
 // gemCandStreamWire matches the streaming generateContent SSE JSON shape.
 type gemCandStreamWire struct {
@@ -100,9 +102,46 @@ type gemUsageStreamWire struct {
 }
 
 type gemUsageMeta struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int    `json:"promptTokenCount"`
+	CandidatesTokenCount    int    `json:"candidatesTokenCount"`
+	TotalTokenCount         int    `json:"totalTokenCount"`
+	CachedContentTokenCount int    `json:"cachedContentTokenCount,omitempty"`
+	CostNanoUnits           int64  `json:"xLipCostNanoUnits,omitempty"`
+	Currency                string `json:"xLipCurrency,omitempty"`
+	CostSource              string `json:"xLipCostSource,omitempty"`
+	UncachedTokens          int    `json:"xLipUncachedTokens,omitempty"`
+	CacheWriteTokens        int    `json:"xLipCacheWriteTokens,omitempty"`
+}
+
+type gemNonStreamWire struct {
+	Candidates    []gemCandItem `json:"candidates"`
+	UsageMetadata *gemUsageMeta `json:"usageMetadata,omitempty"`
+}
+
+func gemUsageMetaFromCollect(col lipapi.Collected, exposeLipExtensions bool) *gemUsageMeta {
+	if col.InputTokens == 0 && col.OutputTokens == 0 && col.CacheReadTokens == 0 && col.CacheWriteTokens == 0 && col.TotalTokens == 0 && (!exposeLipExtensions || col.CostNanoUnits == 0) {
+		return nil
+	}
+	meta := &gemUsageMeta{
+		PromptTokenCount:     col.InputTokens,
+		CandidatesTokenCount: col.OutputTokens,
+		TotalTokenCount:      col.TotalOrDerived(),
+	}
+	if col.CacheReadTokens > 0 {
+		meta.CachedContentTokenCount = col.CacheReadTokens
+	}
+	if exposeLipExtensions {
+		meta.CostNanoUnits = col.CostNanoUnits
+		meta.Currency = col.Currency
+		meta.CostSource = col.CostSource
+		if uncached := col.UncachedInputTokens(); uncached > 0 {
+			meta.UncachedTokens = uncached
+		}
+		if col.CacheWriteTokens > 0 {
+			meta.CacheWriteTokens = col.CacheWriteTokens
+		}
+	}
+	return meta
 }
 
 func toolArgsToRawJSON(raw string) (json.RawMessage, error) {
@@ -162,14 +201,18 @@ func buildGenerateContentWire(col lipapi.Collected) (gemCandStreamWire, error) {
 }
 
 // WriteNonStreamJSON encodes a completed canonical stream as a generateContent JSON body.
-func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, _ EncodeOptions) error {
+func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) error {
 	col, err := lipapi.Collect(ctx, es)
 	if err != nil {
 		return err
 	}
-	resp, err := buildGenerateContentWire(col)
+	cands, err := buildGenerateContentWire(col)
 	if err != nil {
 		return err
+	}
+	resp := gemNonStreamWire{
+		Candidates:    cands.Candidates,
+		UsageMetadata: gemUsageMetaFromCollect(col, opts.ExposeLipUsageExtensions),
 	}
 	sessionwire.WriteResponseCarriers(w, call)
 	w.Header().Set("Content-Type", "application/json")
@@ -178,7 +221,7 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 }
 
 // WriteStreamSSE emits Gemini stream chunks incrementally from the canonical stream.
-func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, _ EncodeOptions) (err error) {
+func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Call, es lipapi.EventStream, opts EncodeOptions) (err error) {
 	ka, err := stream.WrapRecoveryKeepalive(es)
 	if err != nil {
 		return err
@@ -204,7 +247,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return fmt.Errorf("gemini: ResponseWriter is not a Flusher")
 	}
 
-	var inTok, outTok int
+	var usageCol lipapi.Collected
 	toolArgs := make(map[string]*strings.Builder)
 	toolNames := make(map[string]string)
 
@@ -260,15 +303,11 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 		case lipapi.EventUsageDelta:
-			usage := lipapi.ClientVisibleUsage(ev)
-			inTok += usage.InputTokens
-			outTok += usage.OutputTokens
+			usageCol.AccumulateUsage(ev)
 		case lipapi.EventResponseFinished:
-			if inTok > 0 || outTok > 0 {
+			if meta := gemUsageMetaFromCollect(usageCol, opts.ExposeLipUsageExtensions); meta != nil {
 				var u gemUsageStreamWire
-				u.UsageMetadata.PromptTokenCount = inTok
-				u.UsageMetadata.CandidatesTokenCount = outTok
-				u.UsageMetadata.TotalTokenCount = inTok + outTok
+				u.UsageMetadata = *meta
 				if err := stream.FlushSSEDataJSON(w, fl, u); err != nil {
 					return err
 				}

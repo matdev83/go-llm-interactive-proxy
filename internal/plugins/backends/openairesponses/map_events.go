@@ -2,15 +2,13 @@ package openairesponses
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/openairesponsestream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
@@ -53,49 +51,22 @@ func (s *sdkStream) eventMapper() *openairesponsestream.Mapper {
 }
 
 func (s *sdkStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	if ctx == nil {
-		return lipapi.Event{}, lipapi.ErrNilContext
-	}
-	if err := ctx.Err(); err != nil {
-		return lipapi.Event{}, err
-	}
-	for {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			return lipapi.Event{}, io.EOF
-		}
-		if ev, ok := s.pending.PopFront(); ok {
-			s.mu.Unlock()
-			return ev, nil
-		}
-		s.mu.Unlock()
-
-		if !s.sdk.Next() {
-			s.mu.Lock()
-			if s.closed {
-				s.mu.Unlock()
-				return lipapi.Event{}, io.EOF
+	pump := stream.EventPump[responses.ResponseStreamEventUnion]{
+		Lock:     &s.mu,
+		Pending:  &s.pending,
+		IsClosed: func() bool { return s.closed },
+		Read: func() (responses.ResponseStreamEventUnion, bool, error) {
+			if !s.sdk.Next() {
+				if err := s.sdk.Err(); err != nil {
+					return responses.ResponseStreamEventUnion{}, false, fmt.Errorf("openai-responses: recv stream: %w", err)
+				}
+				return responses.ResponseStreamEventUnion{}, false, nil
 			}
-			if err := s.sdk.Err(); err != nil {
-				s.mu.Unlock()
-				return lipapi.Event{}, fmt.Errorf("openai-responses: recv stream: %w", err)
-			}
-			s.mu.Unlock()
-			return lipapi.Event{}, io.EOF
-		}
-		cur := s.sdk.Current()
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			continue
-		}
-		if err := s.handleUnion(cur); err != nil {
-			s.mu.Unlock()
-			return lipapi.Event{}, err
-		}
-		s.mu.Unlock()
+			return s.sdk.Current(), true, nil
+		},
+		Handle: s.handleUnion,
 	}
+	return pump.Recv(ctx)
 }
 
 func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
@@ -115,7 +86,7 @@ func (s *sdkStream) handleUnion(cur responses.ResponseStreamEventUnion) error {
 				return err
 			}
 		}
-		if err := emitOutputMediaFromResponse(s, resp); err != nil {
+		if err := openairesponsestream.EmitOutputMediaFromResponse(m, resp); err != nil {
 			return err
 		}
 		if err := s.emitToolCallsFromCompletedResponse(resp); err != nil {
@@ -179,27 +150,8 @@ func usageFromResponse(resp responses.Response) *lipapi.Event {
 	if u.InputTokens == 0 && u.OutputTokens == 0 && u.TotalTokens == 0 {
 		return nil
 	}
-	ev := lipapi.Event{
-		Kind:            lipapi.EventUsageDelta,
-		InputTokens:     safecast.IntFromInt64Clamp(u.InputTokens),
-		OutputTokens:    safecast.IntFromInt64Clamp(u.OutputTokens),
-		CacheReadTokens: safecast.IntFromInt64Clamp(u.InputTokensDetails.CachedTokens),
-		ReasoningTokens: safecast.IntFromInt64Clamp(u.OutputTokensDetails.ReasoningTokens),
-		TotalTokens:     safecast.IntFromInt64Clamp(u.TotalTokens),
-		RawUsageJSON:    rawUsageJSON(u.RawJSON(), u),
-	}
+	ev := openaiusage.ResponsesUsageEvent(u)
 	return &ev
-}
-
-func rawUsageJSON(raw string, usage any) string {
-	if raw != "" {
-		return raw
-	}
-	b, err := json.Marshal(usage)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
 
 func (s *sdkStream) Close() error {

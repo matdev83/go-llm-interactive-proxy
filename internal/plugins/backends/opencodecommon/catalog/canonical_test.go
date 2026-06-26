@@ -18,15 +18,15 @@ func testVendorCatalogIndex() *modelcatalog.SnapshotIndex {
 	})
 }
 
-func testKeywordFallbackResolver() VendorResolver {
-	return NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: nil}, true))
+func testKeywordFallbackResolver() modelcatalog.VendorResolver {
+	return NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: nil}, true)
 }
 
 func TestCanonicalizer_vendorResolverCatalogMappings(t *testing.T) {
 	t.Parallel()
 
 	idx := testVendorCatalogIndex()
-	c := NewCanonicalizer(NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: idx}, true)))
+	c := NewCanonicalizer(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: idx}, true))
 
 	cases := []struct {
 		raw  string
@@ -56,10 +56,10 @@ func TestCanonicalizer_vendorResolverCatalogMappings(t *testing.T) {
 func TestCanonicalizer_keywordFallbackWhenCatalogMisses(t *testing.T) {
 	t.Parallel()
 
-	c := NewCanonicalizer(NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(
+	c := NewCanonicalizer(NewOpenCodeVendorResolver(
 		modelcatalog.StaticActiveSnapshotProvider{Index: testVendorCatalogIndex()},
 		true,
-	)))
+	))
 	cases := []struct {
 		raw  string
 		want string
@@ -80,7 +80,7 @@ func TestCanonicalizer_keywordFallbackWhenCatalogMisses(t *testing.T) {
 func TestCanonicalizer_unresolvedDoesNotInventOpenCodeVendor(t *testing.T) {
 	t.Parallel()
 
-	c := NewCanonicalizer(NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: nil}, false)))
+	c := NewCanonicalizer(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: nil}, false))
 	if got := c.CanonicalID("unknown-widget-v9"); got != "unknown/unknown-widget-v9" {
 		t.Fatalf("CanonicalID = %q, want unknown/unknown-widget-v9", got)
 	}
@@ -89,10 +89,10 @@ func TestCanonicalizer_unresolvedDoesNotInventOpenCodeVendor(t *testing.T) {
 func TestCanonicalizer_openCodeGoCurrentInventoryHasNoUnknownVendorFallbacks(t *testing.T) {
 	t.Parallel()
 
-	c := NewCanonicalizer(NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(
+	c := NewCanonicalizer(NewOpenCodeVendorResolver(
 		modelcatalog.StaticActiveSnapshotProvider{Index: testVendorCatalogIndex()},
 		true,
-	)))
+	))
 	rawModels := []string{
 		"minimax-m3",
 		"minimax-m2.7",
@@ -130,7 +130,7 @@ func TestInventoryModels_vendorResolverCatalog(t *testing.T) {
 	t.Parallel()
 
 	idx := testVendorCatalogIndex()
-	resolver := NewModelCatalogVendorResolver(NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: idx}, true))
+	resolver := NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{Index: idx}, true)
 	entries := []ModelEntry{
 		{RawID: "mimo-v2.5"},
 		{RawID: "hy3-preview"},

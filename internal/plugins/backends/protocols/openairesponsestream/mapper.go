@@ -1,8 +1,13 @@
 package openairesponsestream
 
 import (
+	"encoding/json"
+	"strings"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/mediautil"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 // Mapper is not concurrency-safe; callers must serialize Handle calls on a single
@@ -229,4 +234,58 @@ func (m *Mapper) emitToolCallStarted(id, name string) error {
 		ToolCallID: id,
 		ToolName:   name,
 	})
+}
+
+// EmitOutputMediaFromResponse maps assistant message media in a completed Responses payload.
+func EmitOutputMediaFromResponse(m *Mapper, resp responses.Response) error {
+	for _, item := range resp.Output {
+		if item.Type != "message" {
+			continue
+		}
+		msg := item.AsMessage()
+		for _, c := range msg.Content {
+			raw := c.RawJSON()
+			if raw == "" {
+				continue
+			}
+			var probe struct {
+				Type     string          `json:"type"`
+				ImageURL json.RawMessage `json:"image_url"`
+				FileID   string          `json:"file_id"`
+			}
+			if err := json.Unmarshal([]byte(raw), &probe); err != nil {
+				continue
+			}
+			switch probe.Type {
+			case "input_image":
+				url := mediautil.ExtractImageURL(probe.ImageURL)
+				if url == "" {
+					continue
+				}
+				if err := m.EnsureResponseStarted(); err != nil {
+					return err
+				}
+				if err := m.EnsureMessageStarted(); err != nil {
+					return err
+				}
+				if err := m.pending.Push(lipapi.Event{Kind: lipapi.EventAssistantImageRef, AssistantRef: url, AssistantMIME: mediautil.SniffImageMIME(url)}); err != nil {
+					return err
+				}
+			case "input_file":
+				if strings.TrimSpace(probe.FileID) == "" {
+					continue
+				}
+				if err := m.EnsureResponseStarted(); err != nil {
+					return err
+				}
+				if err := m.EnsureMessageStarted(); err != nil {
+					return err
+				}
+				if err := m.pending.Push(lipapi.Event{Kind: lipapi.EventAssistantFileRef, AssistantRef: probe.FileID, AssistantMIME: "application/octet-stream"}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }

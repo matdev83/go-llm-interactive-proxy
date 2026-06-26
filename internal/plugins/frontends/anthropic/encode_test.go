@@ -514,3 +514,153 @@ func TestWriteNonStreamJSON_toolUseOutput(t *testing.T) {
 		t.Fatalf("content: %+v", v.Content)
 	}
 }
+
+func TestWriteStreamSSE_usageDetails_defaultOmitsLipExtensions(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_stream_usage_default"}); err != nil {
+		t.Fatal(err)
+	}
+	var msgDeltaUsage map[string]any
+	for _, fr := range testkit.ParseRecorderSSE(rec) {
+		if fr.Event != "message_delta" {
+			continue
+		}
+		var v struct {
+			Usage map[string]any `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		msgDeltaUsage = v.Usage
+	}
+	if msgDeltaUsage == nil {
+		t.Fatal("missing message_delta usage")
+	}
+	if msgDeltaUsage["output_tokens"] != float64(20) {
+		t.Fatalf("output_tokens: %+v", msgDeltaUsage)
+	}
+	if msgDeltaUsage["cache_read_input_tokens"] != float64(30) || msgDeltaUsage["cache_creation_input_tokens"] != float64(5) {
+		t.Fatalf("native cache fields: %+v", msgDeltaUsage)
+	}
+	for _, key := range []string{"x_lip_cost_nano_units", "x_lip_currency", "x_lip_cost_source", "x_lip_uncached_tokens"} {
+		if _, ok := msgDeltaUsage[key]; ok {
+			t.Fatalf("unexpected %q in default stream usage: %+v", key, msgDeltaUsage)
+		}
+	}
+}
+
+func TestWriteStreamSSE_usageDetails_exposesLipExtensionsWhenConfigured(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5, CostNanoUnits: 12345, Currency: "USD", CostSource: "provider"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	opts := anthropic.EncodeOptions{MessageID: "msg_stream_usage_ext", ExposeLipUsageExtensions: true}
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var msgDeltaUsage map[string]any
+	for _, fr := range testkit.ParseRecorderSSE(rec) {
+		if fr.Event != "message_delta" {
+			continue
+		}
+		var v struct {
+			Usage map[string]any `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		msgDeltaUsage = v.Usage
+	}
+	if msgDeltaUsage == nil {
+		t.Fatal("missing message_delta usage")
+	}
+	if msgDeltaUsage["cache_read_input_tokens"] != float64(30) || msgDeltaUsage["cache_creation_input_tokens"] != float64(5) {
+		t.Fatalf("native cache fields: %+v", msgDeltaUsage)
+	}
+	if msgDeltaUsage["x_lip_cost_nano_units"] != float64(12345) || msgDeltaUsage["x_lip_currency"] != "USD" || msgDeltaUsage["x_lip_cost_source"] != "provider" {
+		t.Fatalf("cost extensions: %+v", msgDeltaUsage)
+	}
+	if msgDeltaUsage["x_lip_uncached_tokens"] != float64(70) {
+		t.Fatalf("uncached tokens: %+v", msgDeltaUsage)
+	}
+}
+
+func TestWriteNonStreamJSON_usageDetails_defaultOmitsLipExtensions(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteNonStreamJSON(context.Background(), rec, &lipapi.Call{Extensions: mustModelExt(t, "claude-3-5-haiku-20241022")}, es, anthropic.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	usage := testkit.MustMapStringAny(t, raw["usage"])
+	if usage["input_tokens"] != float64(100) || usage["output_tokens"] != float64(20) {
+		t.Fatalf("usage tokens: %+v", usage)
+	}
+	if usage["cache_read_input_tokens"] != float64(30) || usage["cache_creation_input_tokens"] != float64(5) {
+		t.Fatalf("native cache fields: %+v", usage)
+	}
+	for _, key := range []string{"x_lip_cost_nano_units", "x_lip_currency", "x_lip_cost_source", "x_lip_uncached_tokens"} {
+		if _, ok := usage[key]; ok {
+			t.Fatalf("unexpected %q in default usage: %+v", key, usage)
+		}
+	}
+}
+
+func TestWriteNonStreamJSON_usageDetails_exposesLipExtensionsWhenConfigured(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5, CostNanoUnits: 12345, Currency: "USD", CostSource: "provider"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	opts := anthropic.EncodeOptions{ExposeLipUsageExtensions: true}
+	if err := anthropic.WriteNonStreamJSON(context.Background(), rec, &lipapi.Call{Extensions: mustModelExt(t, "claude-3-5-haiku-20241022")}, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	usage := testkit.MustMapStringAny(t, raw["usage"])
+	if usage["cache_read_input_tokens"] != float64(30) || usage["cache_creation_input_tokens"] != float64(5) {
+		t.Fatalf("native cache fields: %+v", usage)
+	}
+	if usage["x_lip_cost_nano_units"] != float64(12345) || usage["x_lip_currency"] != "USD" || usage["x_lip_cost_source"] != "provider" {
+		t.Fatalf("cost extensions: %+v", usage)
+	}
+	if usage["x_lip_uncached_tokens"] != float64(70) {
+		t.Fatalf("uncached tokens: %+v", usage)
+	}
+}

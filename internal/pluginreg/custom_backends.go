@@ -178,10 +178,7 @@ func buildCustomOpenAICompatibleBackend(
 	base := strings.TrimSpace(y.BaseURL)
 	ek := resolveCustomCompatibleAPIKeys(y)
 	creds := hostedCredentials(y.Credentials)
-	apiKey := ""
-	if len(ek) > 0 {
-		apiKey = ek[0]
-	}
+	apiKey := firstResolvedAPIKey(ek)
 	inventory := modeldiscover.OpenAICompatibleModelsProvider{
 		BaseURL:         base,
 		APIKey:          apiKey,

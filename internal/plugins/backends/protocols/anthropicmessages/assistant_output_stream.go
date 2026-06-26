@@ -6,6 +6,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/mediautil"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -79,7 +80,7 @@ func anthropicImageSourceRef(src json.RawMessage) (ref, mime string) {
 		if ref == "" {
 			return "", ""
 		}
-		return ref, sniffImageMIME(ref)
+		return ref, mediautil.SniffImageMIME(ref)
 	case "base64":
 		if u.Data == "" {
 			return "", ""
@@ -127,19 +128,5 @@ func anthropicDocumentSourceRef(src json.RawMessage) (ref, mime, title string) {
 		return "data:" + mt + ";base64," + u.Data, mt, u.Title
 	default:
 		return "", "", ""
-	}
-}
-
-func sniffImageMIME(ref string) string {
-	lower := strings.ToLower(ref)
-	switch {
-	case strings.Contains(lower, ".png"), strings.Contains(lower, "image/png"):
-		return "image/png"
-	case strings.Contains(lower, ".jpg"), strings.Contains(lower, ".jpeg"), strings.Contains(lower, "image/jpeg"):
-		return "image/jpeg"
-	case strings.Contains(lower, ".webp"):
-		return "image/webp"
-	default:
-		return ""
 	}
 }

@@ -17,9 +17,10 @@ import (
 
 // EncodeOptions controls wire identifiers for encoded Responses payloads.
 type EncodeOptions struct {
-	ResponseID string
-	MessageID  string
-	CreatedAt  int64
+	ResponseID               string
+	MessageID                string
+	CreatedAt                int64
+	ExposeLipUsageExtensions bool
 }
 
 type wireAPIError struct {
@@ -47,26 +48,44 @@ type wireUsage struct {
 	TotalTokens         int                      `json:"total_tokens,omitempty"`
 	InputTokensDetails  *wireInputTokensDetails  `json:"input_tokens_details,omitempty"`
 	OutputTokensDetails *wireOutputTokensDetails `json:"output_tokens_details,omitempty"`
+	CostNanoUnits       int64                    `json:"x_lip_cost_nano_units,omitempty"`
+	Currency            string                   `json:"x_lip_currency,omitempty"`
+	CostSource          string                   `json:"x_lip_cost_source,omitempty"`
 }
 
 type wireInputTokensDetails struct {
-	CachedTokens int `json:"cached_tokens,omitempty"`
+	CachedTokens   int `json:"cached_tokens,omitempty"`
+	UncachedTokens int `json:"x_lip_uncached_tokens,omitempty"`
+	CacheWrite     int `json:"x_lip_cache_write_tokens,omitempty"`
 }
 
 type wireOutputTokensDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
-func wireResponsesUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok int) *wireUsage {
-	if inTok == 0 && outTok == 0 && cacheReadTok == 0 && reasoningTok == 0 && totalTok == 0 {
+func wireResponsesUsage(col lipapi.Collected, exposeExt bool) *wireUsage {
+	if col.InputTokens == 0 && col.OutputTokens == 0 && col.CacheReadTokens == 0 && col.CacheWriteTokens == 0 && col.ReasoningTokens == 0 && col.TotalTokens == 0 && col.CostNanoUnits == 0 {
 		return nil
 	}
-	u := &wireUsage{InputTokens: inTok, OutputTokens: outTok, TotalTokens: totalTok}
-	if cacheReadTok > 0 {
-		u.InputTokensDetails = &wireInputTokensDetails{CachedTokens: cacheReadTok}
+	u := &wireUsage{
+		InputTokens:  col.InputTokens,
+		OutputTokens: col.OutputTokens,
+		TotalTokens:  col.TotalOrDerived(),
 	}
-	if reasoningTok > 0 {
-		u.OutputTokensDetails = &wireOutputTokensDetails{ReasoningTokens: reasoningTok}
+	if col.CacheReadTokens > 0 || col.CacheWriteTokens > 0 {
+		u.InputTokensDetails = &wireInputTokensDetails{CachedTokens: col.CacheReadTokens}
+		if exposeExt {
+			u.InputTokensDetails.UncachedTokens = col.UncachedInputTokens()
+			u.InputTokensDetails.CacheWrite = col.CacheWriteTokens
+		}
+	}
+	if col.ReasoningTokens > 0 {
+		u.OutputTokensDetails = &wireOutputTokensDetails{ReasoningTokens: col.ReasoningTokens}
+	}
+	if exposeExt {
+		u.CostNanoUnits = col.CostNanoUnits
+		u.Currency = col.Currency
+		u.CostSource = col.CostSource
 	}
 	return u
 }
@@ -175,7 +194,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var seq int
 	nextSeq := func() int { seq++; return seq }
 
-	var inTok, outTok, cacheReadTok, reasoningTok, totalTok int
+	var usageCol lipapi.Collected
 	var fullText strings.Builder
 	var assistantMedia []lipapi.Part
 
@@ -280,14 +299,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		switch ev.Kind {
 		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
-			usage := lipapi.ClientVisibleUsage(ev)
-			inTok += usage.InputTokens
-			outTok += usage.OutputTokens
-			cacheReadTok += usage.CacheReadTokens
-			reasoningTok += usage.ReasoningTokens
-			if usage.TotalTokens > 0 {
-				totalTok = usage.TotalTokens
-			}
+			usageCol.AccumulateUsage(ev)
 		case lipapi.EventTextDelta:
 			fullText.WriteString(ev.Delta)
 			if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{
@@ -429,7 +441,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			completed.Response.Status = "completed"
 			completed.Response.Model = model
 			completed.Response.Output = out
-			completed.Response.Usage = wireResponsesUsage(inTok, outTok, cacheReadTok, reasoningTok, totalTok)
+			completed.Response.Usage = wireResponsesUsage(usageCol, opts.ExposeLipUsageExtensions)
 			if err := flushSSE(w, fl, "response.completed", completed); err != nil {
 				return err
 			}
@@ -494,6 +506,6 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		Model:     model,
 		Output:    out,
 	}
-	resp.Usage = wireResponsesUsage(col.InputTokens, col.OutputTokens, col.CacheReadTokens, col.ReasoningTokens, col.TotalTokens)
+	resp.Usage = wireResponsesUsage(col, opts.ExposeLipUsageExtensions)
 	return resp, nil
 }

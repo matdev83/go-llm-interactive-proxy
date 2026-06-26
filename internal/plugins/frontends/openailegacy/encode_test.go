@@ -168,7 +168,7 @@ func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
 	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
-		{Kind: lipapi.EventUsageDelta, CacheReadTokens: 7, ReasoningTokens: 3},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10, CacheReadTokens: 7, CacheWriteTokens: 2, ReasoningTokens: 3, CostNanoUnits: 99, Currency: "USD", CostSource: "estimated"},
 		{Kind: lipapi.EventResponseFinished},
 	})
 	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
@@ -182,7 +182,9 @@ func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
 			CompletionTokens    int `json:"completion_tokens"`
 			TotalTokens         int `json:"total_tokens"`
 			PromptTokensDetails struct {
-				CachedTokens int `json:"cached_tokens"`
+				CachedTokens   int `json:"cached_tokens"`
+				UncachedTokens int `json:"x_lip_uncached_tokens"`
+				CacheWrite     int `json:"x_lip_cache_write_tokens"`
 			} `json:"prompt_tokens_details"`
 			CompletionTokensDetails struct {
 				ReasoningTokens int `json:"reasoning_tokens"`
@@ -195,11 +197,62 @@ func TestWriteNonStreamJSON_usageDetailsWithoutTopLevelTokens(t *testing.T) {
 	if v.Usage == nil {
 		t.Fatal("usage is nil")
 	}
-	if v.Usage.PromptTokens != 0 || v.Usage.CompletionTokens != 0 || v.Usage.TotalTokens != 0 {
-		t.Fatalf("top-level usage = %+v, want zero counters", *v.Usage)
+	if v.Usage.PromptTokens != 10 || v.Usage.CompletionTokens != 0 || v.Usage.TotalTokens != 10 {
+		t.Fatalf("top-level usage = %+v", *v.Usage)
 	}
 	if v.Usage.PromptTokensDetails.CachedTokens != 7 || v.Usage.CompletionTokensDetails.ReasoningTokens != 3 {
 		t.Fatalf("usage details = %+v", *v.Usage)
+	}
+	if v.Usage.PromptTokensDetails.UncachedTokens != 0 || v.Usage.PromptTokensDetails.CacheWrite != 0 {
+		t.Fatalf("x_lip details should be hidden by default: %+v", *v.Usage)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	usage, ok := raw["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("usage raw = %#v", raw["usage"])
+	}
+	for _, key := range []string{"x_lip_cost_nano_units", "x_lip_currency", "x_lip_cost_source"} {
+		if _, ok := usage[key]; ok {
+			t.Fatalf("%s should be hidden by default: %#v", key, usage)
+		}
+	}
+}
+
+func TestWriteNonStreamJSON_usageExtensionsWhenEnabled(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10, CacheReadTokens: 7, CacheWriteTokens: 2, CostNanoUnits: 99, Currency: "USD", CostSource: "estimated"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{Extensions: mustModelExt(t, "gpt-4o-mini")}
+	rec := httptest.NewRecorder()
+	if err := openailegacy.WriteNonStreamJSON(t.Context(), rec, call, es, openailegacy.EncodeOptions{ExposeLipUsageExtensions: true}); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Usage *struct {
+			CostNanoUnits       int64  `json:"x_lip_cost_nano_units"`
+			Currency            string `json:"x_lip_currency"`
+			CostSource          string `json:"x_lip_cost_source"`
+			PromptTokensDetails struct {
+				UncachedTokens int `json:"x_lip_uncached_tokens"`
+				CacheWrite     int `json:"x_lip_cache_write_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Usage == nil || v.Usage.CostNanoUnits != 99 || v.Usage.Currency != "USD" || v.Usage.CostSource != "estimated" {
+		t.Fatalf("cost extensions = %+v", v.Usage)
+	}
+	if v.Usage.PromptTokensDetails.UncachedTokens != 3 || v.Usage.PromptTokensDetails.CacheWrite != 2 {
+		t.Fatalf("cache extensions = %+v", v.Usage.PromptTokensDetails)
 	}
 }
 

@@ -1,0 +1,108 @@
+package openaicodex
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
+func loadManagedAccounts(dir string, filter []string) ([]managedAccount, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("%s: read managed oauth storage: %w", ID, err)
+	}
+	allowAll := accountFilterAllowsAll(filter)
+	allowed := accountFilterSet(filter)
+	var accounts []managedAccount
+	var skipped int
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(strings.ToLower(ent.Name()), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, ent.Name())
+		acct, ok, err := parseManagedAccountFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			skipped++
+			continue
+		}
+		if !allowAll && !allowed[acct.ID] && !allowed[strings.TrimSuffix(ent.Name(), ".json")] {
+			continue
+		}
+		accounts = append(accounts, acct)
+	}
+	if len(accounts) == 0 {
+		if skipped > 0 {
+			return nil, fmt.Errorf("%s: no usable managed oauth accounts in %q", ID, dir)
+		}
+		return nil, fmt.Errorf("%s: no managed oauth account files in %q", ID, dir)
+	}
+	slices.SortFunc(accounts, func(a, b managedAccount) int {
+		return strings.Compare(a.FilePath, b.FilePath)
+	})
+	return accounts, nil
+}
+
+func parseManagedAccountFile(path string) (managedAccount, bool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return managedAccount{}, false, err
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(b, &root); err != nil {
+		return managedAccount{}, false, fmt.Errorf("%s: %s: invalid JSON: %w", ID, path, err)
+	}
+	acct := managedAccount{
+		FilePath:     path,
+		ID:           firstNonEmpty(jsonRawString(root, "account_id", "accountID", "id")),
+		AccessToken:  jsonRawString(root, "access_token", "accessToken"),
+		RefreshToken: jsonRawString(root, "refresh_token", "refreshToken"),
+	}
+	if tokensRaw, ok := root["tokens"]; ok {
+		var tokens map[string]json.RawMessage
+		if err := json.Unmarshal(tokensRaw, &tokens); err == nil {
+			acct.AccessToken = firstNonEmpty(acct.AccessToken, jsonRawString(tokens, "access_token", "accessToken"))
+			acct.RefreshToken = firstNonEmpty(acct.RefreshToken, jsonRawString(tokens, "refresh_token", "refreshToken"))
+			acct.ID = firstNonEmpty(acct.ID, jsonRawString(tokens, "account_id", "accountID", "id"))
+		}
+	}
+	if acct.ID == "" || acct.AccessToken == "" {
+		return managedAccount{}, false, nil
+	}
+	if qhRaw, ok := root["quota_headers"]; ok {
+		var qh map[string]string
+		if err := json.Unmarshal(qhRaw, &qh); err == nil {
+			acct.PlanType = strings.TrimSpace(qh["x-codex-plan-type"])
+		}
+	}
+	return acct, true, nil
+}
+
+func accountFilterAllowsAll(filter []string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	for _, f := range filter {
+		if strings.EqualFold(strings.TrimSpace(f), "all") {
+			return true
+		}
+	}
+	return false
+}
+
+func accountFilterSet(filter []string) map[string]bool {
+	out := make(map[string]bool, len(filter))
+	for _, f := range filter {
+		f = strings.TrimSpace(f)
+		if f == "" || strings.EqualFold(f, "all") {
+			continue
+		}
+		out[f] = true
+	}
+	return out
+}

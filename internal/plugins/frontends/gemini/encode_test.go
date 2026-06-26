@@ -52,12 +52,9 @@ func TestWriteNonStreamJSON_textFromStream(t *testing.T) {
 	if p0["text"] != "hello-out" {
 		t.Fatalf("text: %v", p0["text"])
 	}
-	if _, has := body["usageMetadata"]; has {
-		t.Fatalf("non-stream JSON must not include usageMetadata (subset contract); body=%v", body)
-	}
 }
 
-func TestWriteNonStreamJSON_ignoresUsageFromStream(t *testing.T) {
+func TestWriteNonStreamJSON_usageFromCollect(t *testing.T) {
 	t.Parallel()
 	call := &lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
@@ -68,7 +65,48 @@ func TestWriteNonStreamJSON_ignoresUsageFromStream(t *testing.T) {
 	es := lipapi.NewFixedEventStream([]lipapi.Event{
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
-		{Kind: lipapi.EventUsageDelta, InputTokens: 10, OutputTokens: 5},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10, OutputTokens: 0},
+		{Kind: lipapi.EventTextDelta, Delta: "out"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 0, OutputTokens: 5},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteNonStreamJSON(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		UsageMetadata *struct {
+			Prompt     int `json:"promptTokenCount"`
+			Candidates int `json:"candidatesTokenCount"`
+			Total      int `json:"totalTokenCount"`
+		} `json:"usageMetadata"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.UsageMetadata == nil {
+		t.Fatal("usageMetadata is nil")
+	}
+	if body.UsageMetadata.Prompt != 10 || body.UsageMetadata.Candidates != 5 || body.UsageMetadata.Total != 15 {
+		t.Fatalf("usageMetadata = %+v", *body.UsageMetadata)
+	}
+}
+
+func TestWriteNonStreamJSONUsesClientVisibleScopedUsage(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	call.Extensions = map[string]json.RawMessage{
+		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{
+			{InputTokens: 100, OutputTokens: 50, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneProviderBillable}},
+			{InputTokens: 10, OutputTokens: 5, Accounting: lipapi.UsageAccountingMetadata{Plane: lipapi.UsagePlaneClientVisible}},
+		}},
 		{Kind: lipapi.EventTextDelta, Delta: "out"},
 		{Kind: lipapi.EventResponseFinished},
 	})
@@ -76,12 +114,21 @@ func TestWriteNonStreamJSON_ignoresUsageFromStream(t *testing.T) {
 	if err := gemini.WriteNonStreamJSON(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	var body map[string]any
+	var body struct {
+		UsageMetadata *struct {
+			Prompt     int `json:"promptTokenCount"`
+			Candidates int `json:"candidatesTokenCount"`
+			Total      int `json:"totalTokenCount"`
+		} `json:"usageMetadata"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if _, has := body["usageMetadata"]; has {
-		t.Fatalf("expected no usageMetadata on non-stream response; body=%v", body)
+	if body.UsageMetadata == nil {
+		t.Fatal("usageMetadata is nil")
+	}
+	if body.UsageMetadata.Prompt != 10 || body.UsageMetadata.Candidates != 5 || body.UsageMetadata.Total != 15 {
+		t.Fatalf("usageMetadata = %+v, want client-visible 10/5/15", *body.UsageMetadata)
 	}
 }
 
@@ -300,5 +347,165 @@ func TestWriteNonStreamJSON_functionCallOutput(t *testing.T) {
 	}
 	if !fcSeen {
 		t.Fatalf("missing functionCall: %+v", parts)
+	}
+}
+
+func TestWriteStreamSSE_usageDetails_defaultOmitsLipExtensions(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteStreamSSE(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var usage map[string]any
+	for _, fr := range testkit.ParseRecorderSSE(rec) {
+		if fr.Data == "" || fr.Data == "[DONE]" {
+			continue
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(fr.Data), &body); err != nil {
+			t.Fatal(err)
+		}
+		if u, ok := body["usageMetadata"].(map[string]any); ok {
+			usage = u
+		}
+	}
+	if usage == nil {
+		t.Fatal("missing usageMetadata frame")
+	}
+	if usage["promptTokenCount"] != float64(100) || usage["candidatesTokenCount"] != float64(20) {
+		t.Fatalf("token counts: %+v", usage)
+	}
+	if usage["cachedContentTokenCount"] != float64(30) {
+		t.Fatalf("cachedContentTokenCount: %+v", usage)
+	}
+	for _, key := range []string{"xLipCostNanoUnits", "xLipCurrency", "xLipCostSource", "xLipUncachedTokens", "xLipCacheWriteTokens"} {
+		if _, ok := usage[key]; ok {
+			t.Fatalf("unexpected %q in default stream usageMetadata: %+v", key, usage)
+		}
+	}
+}
+
+func TestWriteStreamSSE_usageDetails_exposesLipExtensionsWhenConfigured(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventTextDelta, Delta: "ok"},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5, CostNanoUnits: 12345, Currency: "USD", CostSource: "provider"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	opts := gemini.EncodeOptions{ExposeLipUsageExtensions: true}
+	if err := gemini.WriteStreamSSE(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var usage map[string]any
+	for _, fr := range testkit.ParseRecorderSSE(rec) {
+		if fr.Data == "" || fr.Data == "[DONE]" {
+			continue
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(fr.Data), &body); err != nil {
+			t.Fatal(err)
+		}
+		if u, ok := body["usageMetadata"].(map[string]any); ok {
+			usage = u
+		}
+	}
+	if usage == nil {
+		t.Fatal("missing usageMetadata frame")
+	}
+	if usage["cachedContentTokenCount"] != float64(30) {
+		t.Fatalf("cachedContentTokenCount: %+v", usage)
+	}
+	if usage["xLipCostNanoUnits"] != float64(12345) || usage["xLipCurrency"] != "USD" || usage["xLipCostSource"] != "provider" {
+		t.Fatalf("cost extensions: %+v", usage)
+	}
+	if usage["xLipUncachedTokens"] != float64(70) || usage["xLipCacheWriteTokens"] != float64(5) {
+		t.Fatalf("lip cache extensions: %+v", usage)
+	}
+}
+
+func TestWriteNonStreamJSON_usageDetails_defaultOmitsLipExtensions(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	call.Extensions = map[string]json.RawMessage{
+		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteNonStreamJSON(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	usage := testkit.MustMapStringAny(t, raw["usageMetadata"])
+	if usage["promptTokenCount"] != float64(100) || usage["candidatesTokenCount"] != float64(20) {
+		t.Fatalf("token counts: %+v", usage)
+	}
+	if usage["cachedContentTokenCount"] != float64(30) {
+		t.Fatalf("cachedContentTokenCount: %+v", usage)
+	}
+	for _, key := range []string{"xLipCostNanoUnits", "xLipCurrency", "xLipCostSource", "xLipUncachedTokens", "xLipCacheWriteTokens"} {
+		if _, ok := usage[key]; ok {
+			t.Fatalf("unexpected %q in default usageMetadata: %+v", key, usage)
+		}
+	}
+}
+
+func TestWriteNonStreamJSON_usageDetails_exposesLipExtensionsWhenConfigured(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	call.Extensions = map[string]json.RawMessage{
+		"gemini.model": json.RawMessage(`"gemini-2.0-flash"`),
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventUsageDelta, InputTokens: 100, OutputTokens: 20, CacheReadTokens: 30, CacheWriteTokens: 5, CostNanoUnits: 12345, Currency: "USD", CostSource: "provider"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	opts := gemini.EncodeOptions{ExposeLipUsageExtensions: true}
+	if err := gemini.WriteNonStreamJSON(context.Background(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	usage := testkit.MustMapStringAny(t, raw["usageMetadata"])
+	if usage["cachedContentTokenCount"] != float64(30) {
+		t.Fatalf("cachedContentTokenCount: %+v", usage)
+	}
+	if usage["xLipCostNanoUnits"] != float64(12345) || usage["xLipCurrency"] != "USD" || usage["xLipCostSource"] != "provider" {
+		t.Fatalf("cost extensions: %+v", usage)
+	}
+	if usage["xLipUncachedTokens"] != float64(70) || usage["xLipCacheWriteTokens"] != float64(5) {
+		t.Fatalf("lip cache extensions: %+v", usage)
 	}
 }

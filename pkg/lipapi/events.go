@@ -238,6 +238,9 @@ type Collected struct {
 	CacheWriteTokens int
 	ReasoningTokens  int
 	TotalTokens      int
+	CostNanoUnits    int64
+	Currency         string
+	CostSource       string
 	TerminalError    *Event
 	FinishReceived   bool
 
@@ -252,6 +255,24 @@ type ToolCallSummary struct {
 	ID        string
 	Name      string
 	Arguments string
+}
+
+// TotalOrDerived returns TotalTokens when present, otherwise derives a protocol-safe total
+// from input and output token counts.
+func (c Collected) TotalOrDerived() int {
+	if c.TotalTokens != 0 {
+		return c.TotalTokens
+	}
+	return c.InputTokens + c.OutputTokens
+}
+
+// UncachedInputTokens returns input tokens billed outside provider cache reads.
+func (c Collected) UncachedInputTokens() int {
+	uncached := c.InputTokens - c.CacheReadTokens
+	if uncached < 0 {
+		return 0
+	}
+	return uncached
 }
 
 // OrderedToolCalls returns tool calls in first-seen order for stable encoding.
@@ -433,13 +454,7 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			}
 			out.Warnings = append(out.Warnings, ev.WarningMessage)
 		case EventUsageDelta:
-			usage := ClientVisibleUsage(ev)
-			out.InputTokens += usage.InputTokens
-			out.OutputTokens += usage.OutputTokens
-			out.CacheReadTokens += usage.CacheReadTokens
-			out.CacheWriteTokens += usage.CacheWriteTokens
-			out.ReasoningTokens += usage.ReasoningTokens
-			out.TotalTokens = mergeTotalTokens(out.TotalTokens, usage.TotalTokens)
+			out.AccumulateUsage(ev)
 		case EventAssistantImageRef:
 			if limits.MaxAssistantMediaParts > 0 && len(out.AssistantMedia) >= limits.MaxAssistantMediaParts {
 				return out, fmt.Errorf("%w: assistant media parts would exceed %d", ErrCollectLimitExceeded, limits.MaxAssistantMediaParts)
@@ -459,6 +474,23 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			}
 			out.AssistantMedia = append(out.AssistantMedia, p)
 		}
+	}
+}
+
+func (c *Collected) AccumulateUsage(ev Event) {
+	usage := ClientVisibleUsage(ev)
+	c.InputTokens += usage.InputTokens
+	c.OutputTokens += usage.OutputTokens
+	c.CacheReadTokens += usage.CacheReadTokens
+	c.CacheWriteTokens += usage.CacheWriteTokens
+	c.ReasoningTokens += usage.ReasoningTokens
+	c.TotalTokens = mergeTotalTokens(c.TotalTokens, usage.TotalTokens)
+	c.CostNanoUnits += ev.CostNanoUnits
+	if ev.Currency != "" {
+		c.Currency = ev.Currency
+	}
+	if ev.CostSource != "" {
+		c.CostSource = ev.CostSource
 	}
 }
 

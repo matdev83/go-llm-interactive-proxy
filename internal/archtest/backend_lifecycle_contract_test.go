@@ -29,6 +29,7 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"modeldiscover": {},
 		"openaicompat":  {},
 		"openaifamily":  {},
+		"openaiusage":   {},
 		"opencodetest":  {},
 		"protocols":     {},
 	}

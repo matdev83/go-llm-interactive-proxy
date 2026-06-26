@@ -259,7 +259,7 @@ func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 
 func TestUsageFromResponse_usageDetails(t *testing.T) {
 	t.Parallel()
-	raw := `{"id":"resp_usage","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","output":[],"usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":3},"output_tokens":8,"output_tokens_details":{"reasoning_tokens":5},"total_tokens":19}}`
+	raw := `{"id":"resp_usage","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","output":[],"usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":3,"x_lip_cache_write_tokens":2},"output_tokens":8,"output_tokens_details":{"reasoning_tokens":5},"total_tokens":19}}`
 	var resp responses.Response
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		t.Fatal(err)
@@ -274,6 +274,7 @@ func TestUsageFromResponse_usageDetails(t *testing.T) {
 		t.Fatalf("usage tokens: in=%d out=%d", ev.InputTokens, ev.OutputTokens)
 	}
 	assertUsageIntField(t, *ev, "CacheReadTokens", 3)
+	assertUsageIntField(t, *ev, "CacheWriteTokens", 2)
 	assertUsageIntField(t, *ev, "ReasoningTokens", 5)
 	assertUsageIntField(t, *ev, "TotalTokens", 19)
 	assertUsageRawJSONContains(t, *ev, "total_tokens")

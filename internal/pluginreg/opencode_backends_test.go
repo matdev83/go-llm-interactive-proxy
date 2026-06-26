@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -106,10 +105,10 @@ func TestOpenCodeBackendFactory_usesExplicitVendorResolverDependency(t *testing.
 		t.Fatal(err)
 	}
 	be, err := reg.BuildBackend("opencode-go", cfg, srv.Client(), BackendFactoryDeps{
-		ModelVendorResolver: opencodecommon.NewModelCatalogVendorResolver(catalog.NewOpenCodeVendorResolver(
+		ModelVendorResolver: catalog.NewOpenCodeVendorResolver(
 			modelcatalog.StaticActiveSnapshotProvider{Index: idx},
 			true,
-		)),
+		),
 	})
 	if err != nil {
 		t.Fatal(err)

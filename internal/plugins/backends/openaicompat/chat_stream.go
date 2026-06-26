@@ -8,7 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/safecast"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/ssestream"
@@ -226,16 +226,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 	}
 
 	if ch.JSON.Usage.Valid() && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.TotalTokens > 0) {
-		ev := lipapi.Event{
-			Kind:            lipapi.EventUsageDelta,
-			InputTokens:     safecast.IntFromInt64Clamp(ch.Usage.PromptTokens),
-			OutputTokens:    safecast.IntFromInt64Clamp(ch.Usage.CompletionTokens),
-			CacheReadTokens: safecast.IntFromInt64Clamp(ch.Usage.PromptTokensDetails.CachedTokens),
-			ReasoningTokens: safecast.IntFromInt64Clamp(ch.Usage.CompletionTokensDetails.ReasoningTokens),
-			TotalTokens:     safecast.IntFromInt64Clamp(ch.Usage.TotalTokens),
-			RawUsageJSON:    RawChatUsageJSON(ch.Usage.RawJSON(), ch.Usage),
-		}
-		if err := s.pending.Push(ev); err != nil {
+		if err := s.pending.Push(openaiusage.ChatUsageEvent(ch.Usage)); err != nil {
 			return err
 		}
 	}

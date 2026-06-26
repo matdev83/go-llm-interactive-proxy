@@ -64,6 +64,45 @@ func TestChatCompletionEvents_textAndUsage(t *testing.T) {
 	}
 }
 
+func TestChatCompletionEvents_openRouterProviderCost(t *testing.T) {
+	t.Parallel()
+	raw := `{
+  "id": "cc_or",
+  "object": "chat.completion",
+  "created": 1715620000,
+  "model": "openai/gpt-4o-mini",
+  "choices": [{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+  "usage": {
+    "prompt_tokens": 3,
+    "completion_tokens": 7,
+    "total_tokens": 10,
+    "prompt_tokens_details": {"cached_tokens": 1},
+    "completion_tokens_details": {"reasoning_tokens": 5},
+    "cost": 0.00014
+  }
+}`
+	var comp openai.ChatCompletion
+	if err := json.Unmarshal([]byte(raw), &comp); err != nil {
+		t.Fatal(err)
+	}
+
+	var usage lipapi.Event
+	for _, ev := range ChatCompletionEvents(comp) {
+		if ev.Kind == lipapi.EventUsageDelta {
+			usage = ev
+		}
+	}
+	if usage.Kind != lipapi.EventUsageDelta {
+		t.Fatal("missing usage event")
+	}
+	if usage.CacheReadTokens != 1 || usage.ReasoningTokens != 5 {
+		t.Fatalf("usage details: %+v", usage)
+	}
+	if usage.CostNanoUnits != 140_000 {
+		t.Fatalf("CostNanoUnits = %d, want 140000", usage.CostNanoUnits)
+	}
+}
+
 func TestChatCompletionEvents_toolCalls(t *testing.T) {
 	t.Parallel()
 	raw := `{
