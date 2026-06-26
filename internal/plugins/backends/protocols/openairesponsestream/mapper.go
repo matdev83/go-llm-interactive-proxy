@@ -5,6 +5,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+// Mapper is not concurrency-safe; callers must serialize Handle calls on a single
+// instance. It holds mutable per-stream state including tool-call tracking maps.
 type Mapper struct {
 	pending *stream.PendingEventQueue
 

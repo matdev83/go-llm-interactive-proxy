@@ -18,9 +18,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func writeAccountFile(t *testing.T, dir, name string, fields map[string]any) {
+type managedAccountFixture struct {
+	AccountID    string            `json:"account_id,omitempty"`
+	AccessToken  string            `json:"access_token,omitempty"`
+	RefreshToken string            `json:"refresh_token,omitempty"`
+	Email        string            `json:"email,omitempty"`
+	QuotaHeaders map[string]string `json:"quota_headers,omitempty"`
+}
+
+func writeAccountFile(t *testing.T, dir, name string, acct managedAccountFixture) {
 	t.Helper()
-	b, err := json.Marshal(fields)
+	b, err := json.Marshal(acct)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,9 +51,9 @@ func managedOAuthCfg(dir string) backend.Config {
 func TestManagedOAuth_loadsAccountFilesAndUsesTokenAndAccountHeader(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "acct1.json", map[string]any{
-		"account_id":   "acct-one",
-		"access_token": "tok-one",
+	writeAccountFile(t, dir, "acct1.json", managedAccountFixture{
+		AccountID:   "acct-one",
+		AccessToken: "tok-one",
 	})
 
 	srv := refbackend.New(refbackend.Config{Token: "tok-one", OutputText: "managed-ok"})
@@ -75,13 +83,13 @@ func TestManagedOAuth_loadsAccountFilesAndUsesTokenAndAccountHeader(t *testing.T
 func TestManagedOAuth_roundRobinCyclesTwoAccounts(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "a.json", map[string]any{
-		"account_id":   "acct-a",
-		"access_token": "tok-a",
+	writeAccountFile(t, dir, "a.json", managedAccountFixture{
+		AccountID:   "acct-a",
+		AccessToken: "tok-a",
 	})
-	writeAccountFile(t, dir, "b.json", map[string]any{
-		"account_id":   "acct-b",
-		"access_token": "tok-b",
+	writeAccountFile(t, dir, "b.json", managedAccountFixture{
+		AccountID:   "acct-b",
+		AccessToken: "tok-b",
 	})
 
 	var lastAuth atomic.Value
@@ -140,13 +148,13 @@ func TestManagedOAuth_roundRobinCyclesTwoAccounts(t *testing.T) {
 func TestManagedOAuth_401OnFirstAccountRetriesSecondAndMarksFirstInvalid(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "bad.json", map[string]any{
-		"account_id":   "acct-bad",
-		"access_token": "tok-bad",
+	writeAccountFile(t, dir, "bad.json", managedAccountFixture{
+		AccountID:   "acct-bad",
+		AccessToken: "tok-bad",
 	})
-	writeAccountFile(t, dir, "good.json", map[string]any{
-		"account_id":   "acct-good",
-		"access_token": "tok-good",
+	writeAccountFile(t, dir, "good.json", managedAccountFixture{
+		AccountID:   "acct-good",
+		AccessToken: "tok-good",
 	})
 
 	var lastAuth atomic.Value
@@ -203,13 +211,13 @@ func TestManagedOAuth_401OnFirstAccountRetriesSecondAndMarksFirstInvalid(t *test
 func TestManagedOAuth_429WithRetryAfterRetriesSecondAndCooldownExcludesFirst(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "limited.json", map[string]any{
-		"account_id":   "acct-lim",
-		"access_token": "tok-lim",
+	writeAccountFile(t, dir, "limited.json", managedAccountFixture{
+		AccountID:   "acct-lim",
+		AccessToken: "tok-lim",
 	})
-	writeAccountFile(t, dir, "spare.json", map[string]any{
-		"account_id":   "acct-spare",
-		"access_token": "tok-spare",
+	writeAccountFile(t, dir, "spare.json", managedAccountFixture{
+		AccountID:   "acct-spare",
+		AccessToken: "tok-spare",
 	})
 
 	var lastAuth atomic.Value
@@ -265,7 +273,7 @@ func TestManagedOAuth_429WithRetryAfterRetriesSecondAndCooldownExcludesFirst(t *
 func TestManagedOAuth_noUsableAccountsAllowFallbackFalseErrors(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "broken.json", map[string]any{"email": "x@y.z"})
+	writeAccountFile(t, dir, "broken.json", managedAccountFixture{Email: "x@y.z"})
 
 	cfg := managedOAuthCfg(dir)
 	be := backend.New(cfg)
@@ -320,13 +328,13 @@ func callWithSession(sessionID string) lipapi.Call {
 func TestManagedOAuth_sessionAffinityReusesAccountAcrossCalls(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "a.json", map[string]any{
-		"account_id":   "acct-a",
-		"access_token": "tok-a",
+	writeAccountFile(t, dir, "a.json", managedAccountFixture{
+		AccountID:   "acct-a",
+		AccessToken: "tok-a",
 	})
-	writeAccountFile(t, dir, "b.json", map[string]any{
-		"account_id":   "acct-b",
-		"access_token": "tok-b",
+	writeAccountFile(t, dir, "b.json", managedAccountFixture{
+		AccountID:   "acct-b",
+		AccessToken: "tok-b",
 	})
 
 	var lastAuth atomic.Value
@@ -382,13 +390,13 @@ func TestManagedOAuth_sessionAffinityReusesAccountAcrossCalls(t *testing.T) {
 func TestManagedOAuth_sessionAffinityDifferentSessions(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "a.json", map[string]any{
-		"account_id":   "acct-a",
-		"access_token": "tok-a",
+	writeAccountFile(t, dir, "a.json", managedAccountFixture{
+		AccountID:   "acct-a",
+		AccessToken: "tok-a",
 	})
-	writeAccountFile(t, dir, "b.json", map[string]any{
-		"account_id":   "acct-b",
-		"access_token": "tok-b",
+	writeAccountFile(t, dir, "b.json", managedAccountFixture{
+		AccountID:   "acct-b",
+		AccessToken: "tok-b",
 	})
 
 	var lastAuth atomic.Value
@@ -438,13 +446,13 @@ func TestManagedOAuth_sessionAffinityDifferentSessions(t *testing.T) {
 func TestManagedOAuth_sessionAffinity401RotatesForSameSession(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "bad.json", map[string]any{
-		"account_id":   "acct-bad",
-		"access_token": "tok-bad",
+	writeAccountFile(t, dir, "bad.json", managedAccountFixture{
+		AccountID:   "acct-bad",
+		AccessToken: "tok-bad",
 	})
-	writeAccountFile(t, dir, "good.json", map[string]any{
-		"account_id":   "acct-good",
-		"access_token": "tok-good",
+	writeAccountFile(t, dir, "good.json", managedAccountFixture{
+		AccountID:   "acct-good",
+		AccessToken: "tok-good",
 	})
 
 	var lastAuth atomic.Value

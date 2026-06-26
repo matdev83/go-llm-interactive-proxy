@@ -8,9 +8,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
+const oauthRefreshTimeout = 30 * time.Second
+
 func refreshOAuthAccessToken(ctx context.Context, cfg Config, client *http.Client) (Config, error) {
+	ctx, cancel := context.WithTimeout(ctx, oauthRefreshTimeout)
+	defer cancel()
 	refreshToken := strings.TrimSpace(cfg.RefreshToken)
 	if refreshToken == "" {
 		return cfg, fmt.Errorf("refresh token is empty")

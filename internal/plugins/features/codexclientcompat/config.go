@@ -15,7 +15,10 @@ type Config struct {
 
 func DecodeConfig(n yaml.Node) (Config, error) {
 	root := n
-	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+	if root.Kind == yaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return Config{}, nil
+		}
 		root = *root.Content[0]
 	}
 	if root.Kind == 0 || (root.Kind == yaml.ScalarNode && (root.Tag == "!!null" || strings.TrimSpace(root.Value) == "" || root.Value == "null")) {

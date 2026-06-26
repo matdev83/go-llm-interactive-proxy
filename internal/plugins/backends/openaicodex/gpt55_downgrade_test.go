@@ -29,10 +29,10 @@ func requestModel(t *testing.T, srv *refbackend.Server) string {
 func TestGPT55Downgrade_proactiveManagedFreePlanSendsTargetModel(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "free.json", map[string]any{
-		"account_id":   "acct-free",
-		"access_token": "tok-free",
-		"quota_headers": map[string]string{
+	writeAccountFile(t, dir, "free.json", managedAccountFixture{
+		AccountID:   "acct-free",
+		AccessToken: "tok-free",
+		QuotaHeaders: map[string]string{
 			"x-codex-plan-type": "free",
 		},
 	})
@@ -60,10 +60,10 @@ func TestGPT55Downgrade_proactiveManagedFreePlanSendsTargetModel(t *testing.T) {
 func TestGPT55Downgrade_noProactiveDowngradeForProPlan(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeAccountFile(t, dir, "pro.json", map[string]any{
-		"account_id":   "acct-pro",
-		"access_token": "tok-pro",
-		"quota_headers": map[string]string{
+	writeAccountFile(t, dir, "pro.json", managedAccountFixture{
+		AccountID:   "acct-pro",
+		AccessToken: "tok-pro",
+		QuotaHeaders: map[string]string{
 			"x-codex-plan-type": "pro",
 		},
 	})

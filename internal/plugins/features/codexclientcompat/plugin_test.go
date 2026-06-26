@@ -6,11 +6,24 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 )
+
+func TestDecodeConfig_emptyDocumentNode(t *testing.T) {
+	t.Parallel()
+	cfg, err := DecodeConfig(yaml.Node{Kind: yaml.DocumentNode})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Order != nil {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
 
 func TestDetectOpenCodeFromExtensionAgent(t *testing.T) {
 	t.Parallel()

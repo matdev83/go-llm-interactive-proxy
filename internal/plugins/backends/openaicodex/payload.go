@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -52,6 +53,16 @@ type functionCallOutputItem struct {
 }
 
 func (functionCallOutputItem) inputItem() {}
+
+type functionCallItem struct {
+	Type      string `json:"type"`
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+func (functionCallItem) inputItem() {}
 
 type contentBlock interface {
 	contentBlock()
@@ -178,6 +189,16 @@ func buildInputItems(call *lipapi.Call) ([]inputItem, error) {
 			}
 			continue
 		}
+		if m.Role == lipapi.RoleAssistant && len(m.Parts) > 0 {
+			fcs, ok, err := assistantFunctionCallItems(m.Parts)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out = append(out, fcs...)
+				continue
+			}
+		}
 		item, err := messageToInputItem(m)
 		if err != nil {
 			return nil, err
@@ -185,6 +206,79 @@ func buildInputItems(call *lipapi.Call) ([]inputItem, error) {
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+func assistantFunctionCallItems(parts []lipapi.Part) ([]inputItem, bool, error) {
+	out := make([]inputItem, 0, len(parts))
+	for _, p := range parts {
+		item, ok, err := partToFunctionCallItem(p)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			return nil, false, nil
+		}
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return nil, false, nil
+	}
+	return out, true, nil
+}
+
+func partToFunctionCallItem(p lipapi.Part) (inputItem, bool, error) {
+	if p.Kind != lipapi.PartJSON || len(p.Content) == 0 {
+		return nil, false, nil
+	}
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(p.Content, &probe); err != nil {
+		return nil, false, nil
+	}
+	if t := strings.TrimSpace(probe.Type); t != "" && t != "function_call" {
+		return nil, false, nil
+	}
+	var v struct {
+		ID        string          `json:"id"`
+		CallID    string          `json:"call_id"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(p.Content, &v); err != nil {
+		return nil, false, fmt.Errorf("%s: function_call json: %w", ID, err)
+	}
+	callID := strings.TrimSpace(v.CallID)
+	name := strings.TrimSpace(v.Name)
+	if callID == "" || name == "" {
+		return nil, false, fmt.Errorf("%s: function_call requires call_id and name", ID)
+	}
+	argStr := "{}"
+	if jsonpresence.IsPresentNonNullJSON(v.Arguments) {
+		switch v.Arguments[0] {
+		case '"':
+			var s string
+			if err := json.Unmarshal(v.Arguments, &s); err != nil {
+				return nil, false, fmt.Errorf("%s: function_call arguments: %w", ID, err)
+			}
+			argStr = s
+		default:
+			if !json.Valid(v.Arguments) {
+				return nil, false, fmt.Errorf("%s: function_call arguments must be JSON", ID)
+			}
+			argStr = string(v.Arguments)
+		}
+	}
+	item := functionCallItem{
+		Type:      "function_call",
+		CallID:    callID,
+		Name:      name,
+		Arguments: argStr,
+	}
+	if id := strings.TrimSpace(v.ID); id != "" {
+		item.ID = id
+	}
+	return item, true, nil
 }
 
 func toolResultString(p lipapi.Part) string {

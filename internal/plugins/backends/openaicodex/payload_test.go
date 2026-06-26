@@ -74,6 +74,45 @@ func TestPayloadInputWireShape_multimodalUserMessage(t *testing.T) {
 	assertJSONEqual(t, got, []byte(want))
 }
 
+func TestPayloadInputWireShape_assistantFunctionCallHistory(t *testing.T) {
+	t.Parallel()
+	got := payloadInputJSON(t, lipapi.Call{
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+			{
+				Role: lipapi.RoleAssistant,
+				Parts: []lipapi.Part{{
+					Kind:    lipapi.PartJSON,
+					Content: []byte(`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}`),
+				}},
+			},
+		},
+	})
+	want := `[{"type":"message","role":"user","content":"hi"},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}]`
+	assertJSONEqual(t, got, []byte(want))
+}
+
+func TestPayloadInputWireShape_rejectsNonFunctionAssistantJSON(t *testing.T) {
+	t.Parallel()
+	_, err := backend.PayloadForCall(&lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleAssistant,
+			Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: []byte(`{"type":"other","foo":"bar"}`),
+			}},
+		}},
+	}, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	}, backend.Config{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported part kind") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestPayloadInputWireShape_toolResultMessage(t *testing.T) {
 	t.Parallel()
 	got := payloadInputJSON(t, lipapi.Call{
