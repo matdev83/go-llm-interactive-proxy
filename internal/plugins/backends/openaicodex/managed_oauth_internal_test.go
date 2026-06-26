@@ -360,7 +360,7 @@ func TestSelectAccountForSession_roundRobinSkipsCooldown(t *testing.T) {
 	}
 	store.markRateLimited(first, now.Add(time.Hour))
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		acct, err := store.selectAccountForSession("")
 		if err != nil {
 			t.Fatal(err)

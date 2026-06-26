@@ -114,7 +114,7 @@ func TestUsageEstimatingStream_completedWithoutUsage_generatesEstimatedUsageBefo
 		}
 		events = append(events, ev)
 	}
-	var usageIdx, finishedIdx = -1, -1
+	usageIdx, finishedIdx := -1, -1
 	for i, ev := range events {
 		switch ev.Kind {
 		case lipapi.EventUsageDelta:

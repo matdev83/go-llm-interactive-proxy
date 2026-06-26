@@ -60,7 +60,7 @@ func TestEstimateUsage_imageRefURL_usesConservativeDefault(t *testing.T) {
 			Role: lipapi.RoleUser,
 			Parts: []lipapi.Part{
 				lipapi.TextPart("describe"),
-				lipapi.Part{Kind: lipapi.PartImageRef, ImageRef: "https://example.com/image.png"},
+				{Kind: lipapi.PartImageRef, ImageRef: "https://example.com/image.png"},
 			},
 		}},
 	}
