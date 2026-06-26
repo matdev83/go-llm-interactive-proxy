@@ -286,6 +286,21 @@ plugins:
       config: {}
       # base_url: https://opencode.ai/zen/v1  # default
       # api_key: ""          # or use OPENCODE_API_KEY / OPENCODE_ZEN_API_KEY (+ _N variants) env vars
+    - id: openai-codex
+      enabled: false
+      config: {}
+      # base_url: https://chatgpt.com/backend-api/codex  # default
+      # access_token: ""     # or api_key for operator consistency
+      # auth_json_path: ""   # optional explicit Codex CLI auth.json; default discovers ~/.codex/auth.json
+      # account_id: ""       # optional ChatGPT account id header
+      # refresh_token: ""    # optional OAuth refresh token
+      # default_reasoning_effort: ""  # e.g. medium, high
+      # managed_oauth_enabled: false
+      # managed_oauth_storage_path: var/openai_codex_oauth_accounts
+      # managed_oauth_selection_strategy: first-available  # first-available | round-robin | session-affinity
+      # managed_oauth_allow_auth_json_fallback: true
+      # gpt55_downgrade_disabled: false
+      # OPENAI_CODEX_ACCESS_TOKEN / OPENAI_CODEX_API_KEY (+ _N variants) env vars
     - id: ollama
       enabled: false
       config: {}

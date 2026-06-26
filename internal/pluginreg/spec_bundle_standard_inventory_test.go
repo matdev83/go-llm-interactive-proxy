@@ -41,6 +41,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"nvidia",
 		"ollama",
 		"ollama-cloud",
+		"openai-codex",
 		"openai-legacy",
 		"openai-responses",
 		"opencode-go",
@@ -58,6 +59,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 	}
 
 	wantFeat := []string{
+		"codex-client-compat",
 		"parts-noop",
 		"pre-request-policy",
 		"ref-autoappend-file",

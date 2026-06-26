@@ -91,6 +91,8 @@ func standardBackendBuildYAML(id string) string {
 	switch id {
 	case "acp", "anthropic", "openai-legacy", "openai-responses", "openrouter", "nvidia", "opencode-go", "opencode-zen":
 		return "base_url: http://127.0.0.1:9\n"
+	case "openai-codex":
+		return "base_url: http://127.0.0.1:9\naccess_token: test\n"
 	case "gemini":
 		return "api_key: test\n"
 	case "ollama", "ollama-cloud":

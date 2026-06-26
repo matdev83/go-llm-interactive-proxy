@@ -21,6 +21,7 @@ type UpstreamAPIKeys struct {
 	Nvidia      []string
 	OpenCodeGo  []string
 	OpenCodeZen []string
+	OpenAICodex []string
 }
 
 // EffectiveAPIKeys merges YAML api_key (first), then api_keys in order: trims, drops empties,
@@ -74,7 +75,16 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 		Nvidia:      collectNvidiaEnvKeys(),
 		OpenCodeGo:  collectNumberedEnvKeys("OPENCODE_GO_API_KEY"),
 		OpenCodeZen: collectOpenCodeZenEnvKeys(),
+		OpenAICodex: collectOpenAICodexEnvKeys(),
 	}
+}
+
+func collectOpenAICodexEnvKeys() []string {
+	out := collectNumberedEnvKeys("OPENAI_CODEX_ACCESS_TOKEN")
+	if len(out) > 0 {
+		return out
+	}
+	return collectNumberedEnvKeys("OPENAI_CODEX_API_KEY")
 }
 
 func collectOpenCodeZenEnvKeys() []string {

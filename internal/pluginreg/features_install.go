@@ -2,6 +2,7 @@ package pluginreg
 
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
@@ -161,4 +162,14 @@ func featurePreRequestPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		SchemaVersion:      lipfeature.SchemaVersionV1,
 		PreRequestHandlers: handlers,
 	}, nil
+}
+
+func featureCodexClientCompat(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+	cfg, err := codexclientcompat.DecodeConfig(n)
+	if err != nil {
+		return hooks.Config{}, nil, err
+	}
+	return hooks.Config{
+		RequestPartHooks: []sdk.RequestPartHook{codexclientcompat.NewRequestPartHook(cfg)},
+	}, nil, nil
 }

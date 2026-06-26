@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
@@ -230,6 +231,7 @@ var reservedStandardBackendPrefixes = map[string]struct{}{
 	nvidia.ID:          {},
 	opencodego.ID:      {},
 	opencodezen.ID:     {},
+	openaicodex.ID:     {},
 	ollama.ID:          {},
 	ollama.CloudID:     {},
 	llamacpp.ID:        {},

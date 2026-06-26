@@ -130,6 +130,35 @@ func (p *Pool) Acquire(now time.Time, exclude map[string]struct{}) (Credential, 
 	return Credential{}, ErrNoUsableCredential
 }
 
+// AcquireByID returns the credential with the given id when it is usable at now
+// (not auth-invalid and not in an active cooldown).
+func (p *Pool) AcquireByID(now time.Time, id string) (Credential, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.creds {
+		e := &p.creds[i]
+		if e.id != id {
+			continue
+		}
+		if e.isAuthInvalid {
+			return Credential{}, ErrNoUsableCredential
+		}
+		if !e.cooldownUntil.IsZero() && e.cooldownUntil.After(now) {
+			return Credential{}, ErrNoUsableCredential
+		}
+		return Credential{
+			ID:                e.id,
+			Secret:            e.secret,
+			RemoteOrgID:       e.remoteOrgID,
+			RemoteProjectID:   e.remoteProjectID,
+			RemoteWorkspaceID: e.remoteWorkspaceID,
+			RemoteAccountID:   e.remoteAccountID,
+			RemoteRegion:      e.remoteRegion,
+		}, nil
+	}
+	return Credential{}, ErrNoUsableCredential
+}
+
 // MarkRateLimited puts the credential in cooldown until the given instant.
 // If the credential already has a cooldown that ends later than until, the existing
 // deadline is kept (never shortens an in-flight cooldown).

@@ -12,6 +12,7 @@ type PartMeta struct {
 	ALegID     string
 	BLegID     string
 	AttemptSeq int
+	BackendID  string
 }
 
 // RequestPartHook mutates canonical request parts before backend translation.

@@ -162,6 +162,50 @@ func TestHandleUnion_nonMappedEventTypes_emitNoTextOrToolDeltas(t *testing.T) {
 	}
 }
 
+func TestHandleUnion_toolCallStream_callIDOnlyOnDeltaDone(t *testing.T) {
+	t.Parallel()
+	s := &sdkStream{}
+
+	rawEvents := []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_only","name":"get_weather"}}`,
+		`{"type":"response.function_call_arguments.delta","call_id":"call_only","output_index":0,"delta":"{\"x\":1}"}`,
+		`{"type":"response.function_call_arguments.done","call_id":"call_only","output_index":0,"name":"get_weather","arguments":"{\"x\":1}"}`,
+	}
+	for _, raw := range rawEvents {
+		var u responses.ResponseStreamEventUnion
+		if err := json.Unmarshal([]byte(raw), &u); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.handleUnion(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var toolID string
+	var argDeltas int
+	var finished bool
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventToolCallStarted {
+			toolID = ev.ToolCallID
+		}
+		if ev.Kind == lipapi.EventToolCallArgsDelta {
+			argDeltas++
+		}
+		if ev.Kind == lipapi.EventToolCallFinished {
+			finished = true
+		}
+	}
+	if toolID != "call_only" {
+		t.Fatalf("tool call id: %q", toolID)
+	}
+	if argDeltas == 0 {
+		t.Fatal("expected tool call arg deltas")
+	}
+	if !finished {
+		t.Fatal("expected tool call finished")
+	}
+}
+
 func TestHandleUnion_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	t.Parallel()
 	s := &sdkStream{}

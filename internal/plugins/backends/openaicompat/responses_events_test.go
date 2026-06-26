@@ -10,16 +10,48 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 )
 
+func TestResponsesStreamFinishOnEOF_noResponseZeroEventsClosed(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+	if err := s.finishOnEOF(); err != nil {
+		t.Fatal(err)
+	}
+	if events := stream.DrainPending(&s.pending); len(events) != 0 {
+		t.Fatalf("events = %+v", events)
+	}
+	if !s.closed {
+		t.Fatal("expected stream closed")
+	}
+}
+
+func TestResponsesStreamFinishOnEOF_afterCompletedNoDuplicateFinish(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+	s.terminalEmitted = true
+
+	if err := s.finishOnEOF(); err != nil {
+		t.Fatal(err)
+	}
+	if events := stream.DrainPending(&s.pending); len(events) != 0 {
+		t.Fatalf("events = %+v", events)
+	}
+	if !s.closed {
+		t.Fatal("expected stream closed")
+	}
+}
+
 func TestResponsesStreamFinishOnEOF_afterResponseStarted(t *testing.T) {
 	t.Parallel()
 	s := newUnitResponsesStream()
-	s.sawResp = true
+	if err := s.mapper.ResponseCreated(); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.finishOnEOF(); err != nil {
 		t.Fatal(err)
 	}
 	events := stream.DrainPending(&s.pending)
-	if len(events) != 1 || events[0].Kind != lipapi.EventResponseFinished {
+	if len(events) != 2 || events[0].Kind != lipapi.EventResponseStarted || events[1].Kind != lipapi.EventResponseFinished {
 		t.Fatalf("events = %+v", events)
 	}
 }
@@ -55,6 +87,50 @@ func TestHandleUnion_streamError_emitsEventError(t *testing.T) {
 	}
 	if !sawError {
 		t.Fatal("expected EventError")
+	}
+}
+
+func TestHandleUnion_toolCallStream_callIDOnlyOnDeltaDone(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+
+	rawEvents := []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_only","name":"get_weather"}}`,
+		`{"type":"response.function_call_arguments.delta","call_id":"call_only","output_index":0,"delta":"{\"x\":1}"}`,
+		`{"type":"response.function_call_arguments.done","call_id":"call_only","output_index":0,"name":"get_weather","arguments":"{\"x\":1}"}`,
+	}
+	for _, raw := range rawEvents {
+		var u responses.ResponseStreamEventUnion
+		if err := json.Unmarshal([]byte(raw), &u); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.handleUnion(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var toolID string
+	var argDeltas int
+	var finished bool
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventToolCallStarted {
+			toolID = ev.ToolCallID
+		}
+		if ev.Kind == lipapi.EventToolCallArgsDelta {
+			argDeltas++
+		}
+		if ev.Kind == lipapi.EventToolCallFinished {
+			finished = true
+		}
+	}
+	if toolID != "call_only" {
+		t.Fatalf("tool call id: %q", toolID)
+	}
+	if argDeltas == 0 {
+		t.Fatal("expected tool call arg deltas")
+	}
+	if !finished {
+		t.Fatal("expected tool call finished")
 	}
 }
 
