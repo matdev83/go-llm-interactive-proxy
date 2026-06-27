@@ -170,18 +170,30 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 - Request/response mutation logic must live behind hooks or extension stages, not in the routing engine.
 - Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
 - Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
+- Concrete dependency construction belongs in composition roots or adapter constructors, not in core workflow methods.
 
 ## Naming and import conventions
 
 - package names are short, lowercase, and singular where practical.
 - avoid stutter such as `routing.RouterService`.
 - define interfaces where they are consumed.
+- keep interfaces small; compose larger contracts from focused pieces only when a real seam requires it.
+- constructors should return concrete types unless the package is intentionally exposing a stable SDK/plugin contract.
 - keep exported surface area small.
 - prefer internal packages for code that should not be imported externally.
+- use compile-time interface assertions near implementations for important plugin, SDK, and adapter contracts.
 
 ## Pragmatic hexagonal guidance
 
 Apply hexagonal architecture here as an ownership and dependency-direction discipline, not as a directory-renaming exercise.
+
+For this repository, read the usual hexagonal terms through the current LIP package map:
+
+- **domain/policy center:** canonical contracts in `pkg/lipapi` plus core policy packages under `internal/core/`.
+- **application/use-case orchestration:** executor, routing, continuity, extension, and runtime assembly paths that coordinate multiple seams.
+- **driving adapters:** HTTP frontends, CLI commands, admin/diagnostic HTTP surfaces, and transport auth entrypoints.
+- **driven adapters:** backend plugins, stores, model/catalog providers, tokenizers, metrics/tracing exporters, and other infrastructure implementations.
+- **composition roots:** `cmd/lipstd/`, `internal/pluginreg/`, `internal/infra/runtimebundle/`, and `internal/stdhttp/`.
 
 - keep the existing package map when it already expresses a clean boundary,
 - prefer selective seam extraction over repo-wide package churn,
@@ -192,6 +204,7 @@ Apply hexagonal architecture here as an ownership and dependency-direction disci
 - use dedicated read/query adapters for operator views, diagnostics, or reporting when a write-shaped repository would hide intent,
 - allow dedicated query adapters and read DTOs for diagnostics, admin, or reporting flows when they are simpler than repository-shaped write abstractions,
 - do not create interfaces only for mocking or symmetry.
+- keep provider/vendor names and SDK enums at adapter edges unless they are explicit compatibility-surface identifiers, not canonical business concepts.
 
 This means a seam may legitimately be:
 
@@ -200,14 +213,3 @@ This means a seam may legitimately be:
 - or a frozen concrete struct,
 
 as long as it gives the core a real substitution boundary and keeps technology details at the edge.
-
----
-_Initial Go steering version: 2026-04-20_
-_Updated 2026-04-23: pragmatic hexagonal guidance for seam placement, query adapters, and inbound concrete services._
-_Reason: reflect the current brownfield direction: preserve the working package map, tighten ownership, and avoid architecture theater._
-_Updated 2026-04-26: refreshed package map for secure sessions, extension snapshots, panic isolation, credential posture, and startup guardrails._
-_Reason: steering had drifted from the hardened Go runtime and stage-four extension-platform implementation._
-_Updated 2026-04-26: added optional hexagonal ownership prompts for domain/app/adapters, explicit transactions, and query seams._
-_Reason: future specs can benefit from ports-and-adapters discipline without requiring repo-wide restructuring._
-_Updated 2026-06-27: refreshed current package map, backend/frontend helper packages, infra surfaces, and store-seam wording._
-_Reason: steering had drifted from the current standard distribution and package layout._

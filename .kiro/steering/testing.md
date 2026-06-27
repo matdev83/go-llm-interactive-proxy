@@ -28,6 +28,9 @@ Core testing principles:
 - Boundary-aware verification: prove that core, plugins, and hooks interact through contracts.
 - Streaming is a first-class test target, not an afterthought.
 
+General Go testing skill guidance applies when it strengthens these principles, with repo-specific overrides below.
+In particular, do not copy generic build-tag rules over this repository's documented composed-test policy.
+
 ## Suite topology
 
 ### Unit tests
@@ -43,6 +46,11 @@ Use package-local tests for:
 - token accounting and usage propagation,
 - extension stage ordering, snapshots, and SDK facade behavior,
 - hook dispatch, ordering, and panic isolation.
+
+Table-driven tests should use named subtests (`name` plus `t.Run`) so failures identify the broken scenario.
+Tests must be independently runnable; avoid shared mutable package state unless the test owns setup and cleanup.
+Use `t.Parallel()` for independent cases when it does not hide ordering, timing, global-config, or goroutine-ownership problems.
+Prefer executable examples (`Example...`) for stable public contracts where a short usage sample is better than prose.
 
 ### Integration tests
 
@@ -110,6 +118,7 @@ Always prioritize tests for:
 - Prefer `httptest.Server` and small stubs over deep mocks.
 - Avoid mocking internal call graphs.
 - Fake clocks, stores, and id generators are encouraged when time or randomness matters.
+- For time-sensitive concurrent code, prefer deterministic clocks or repo fakes before real sleeps; consider `testing/synctest` only behind an explicit Go-version/toolchain decision because it is experimental.
 - Use real canonical types in tests whenever possible.
 - Provider SDKs should usually be hidden behind backend adapter seams in tests.
 - Do not introduce interfaces only to satisfy mocks; prefer small fakes around real consumer-owned seams.
@@ -149,14 +158,5 @@ Performance smoke (not part of default PR gates unless you opt in): `make bench`
 - protocol tests that ignore streaming order and termination,
 - architecture tests that fail because a concrete inbound service is used instead of an interface,
 - architecture tests that force generic `ports` or `services` packages,
-- broad end-to-end tests with poor failure localization when a smaller contract test would suffice.
-
----
-_Initial Go steering version: 2026-04-20_
-_Updated 2026-04-23: architecture-test guidance for pragmatic hexagonal enforcement and boundary-focused fakes._
-_Reason: keep testing guidance aligned with the current small-core, ownership-first architecture direction._
-_Updated 2026-04-26: added secure-session, extension-platform, startup fail-closed, model-alias, and panic-isolation test priorities._
-_Reason: recent Go runtime hardening expanded the highest-risk behavior contracts._
-_Updated 2026-05-01: clarified specification bundle (tests + fixtures + stable pkg contracts + steering) vs tests-only reconstructability._
-
-_Updated 2026-06-27: refreshed Makefile-first commands and high-value test targets for routing races, model catalogs, token accounting, and local-compatible backends._
+- broad end-to-end tests with poor failure localization when a smaller contract test would suffice,
+- performance claims from a single benchmark run; use repeat runs and `benchstat` before treating a speedup or regression as real.

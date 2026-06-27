@@ -161,8 +161,3 @@ When updating this file:
 - keep policy rules explicit,
 - avoid baking temporary implementation details into steering,
 - update whenever the core orchestration contract changes materially.
-
----
-_Updated 2026-04-23: pragmatic hexagonal ownership notes for routing, observation, and orchestration seams._
-_Updated 2026-04-26: added model-alias, routing-health, secure-session, and stage-four seam guidance._
-_Updated 2026-06-27: added current selector features, parallel routing, TTFT budgets, and clarified SQLite store location vs future store-plugin seam._

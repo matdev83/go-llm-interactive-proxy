@@ -129,8 +129,3 @@ When updating this file:
 - keep core-vs-adapter ownership explicit,
 - avoid endpoint-by-endpoint inventories,
 - update when compatibility policy or streaming/error rules change materially.
-
----
-_Updated 2026-04-23: canonical contract guidance, frontend/backend ownership, pragmatic adapter rules._
-_Updated 2026-04-26: added secure session, identity propagation, and backend credential-posture rules._
-_Updated 2026-06-27: refreshed compatibility families, custom-compatible guidance, model/capability seams, and error categories._
