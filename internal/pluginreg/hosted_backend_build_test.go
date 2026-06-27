@@ -4,11 +4,15 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,6 +57,56 @@ func TestBuildBackend_nvidia_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	}
 	if b.Open == nil {
 		t.Fatal("expected backend Open")
+	}
+}
+
+func TestBuildBackend_huggingface_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
+	t.Parallel()
+
+	auths := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-hf","object":"chat.completion","created":1715620000,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	reg := NewRegistry()
+	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{HuggingFace: []string{"hf-a", "hf-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw := "base_url: " + srv.URL + "/v1"
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
+		t.Fatal(err)
+	}
+	b, err := reg.BuildBackend(huggingface.ID, node, srv.Client(), BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	es, err := b.Open(context.Background(), hostedBuildTestCall(), routing.AttemptCandidate{Primary: routing.Primary{Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), es); err != nil {
+		t.Fatal(err)
+	}
+	if auth := <-auths; auth != "Bearer hf-a" {
+		t.Fatalf("Authorization = %q", auth)
+	}
+}
+
+func hostedBuildTestCall() lipapi.Call {
+	return lipapi.Call{
+		Invocation: lipapi.Invocation{
+			Operation:     lipapi.OperationOpenAIChatCompletions,
+			DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+			TransportMode: lipapi.TransportModeNonStreaming,
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}},
+		}},
 	}
 }
 

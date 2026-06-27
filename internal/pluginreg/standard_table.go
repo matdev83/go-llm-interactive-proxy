@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
@@ -182,6 +183,9 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendNvidia(n, upstream, keys)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		{ID: huggingface.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendHuggingface(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: opencodego.ID, Factory: func(n yaml.Node, upstream *http.Client, deps BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenCodeGo(n, upstream, keys, deps.ModelVendorResolver)

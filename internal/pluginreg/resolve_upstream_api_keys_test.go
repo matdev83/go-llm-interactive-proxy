@@ -17,7 +17,7 @@ func clearAllProviderEnv(t *testing.T) {
 	t.Helper()
 	for _, prefix := range []string{
 		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY",
-		"OPENROUTER_API_KEY", "NVIDIA_API_KEY",
+		"OPENROUTER_API_KEY", "NVIDIA_API_KEY", "HUGGINGFACE_API_KEY",
 		"OPENCODE_GO_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_API_KEY",
 	} {
@@ -174,6 +174,28 @@ func TestResolveUpstreamAPIKeysFromEnv_nvidiaGapStops(t *testing.T) {
 	want := []string{"nv-1"}
 	if !reflect.DeepEqual(got.Nvidia, want) {
 		t.Fatalf("Nvidia keys: %#v want %#v (gap at _2 stops scan)", got.Nvidia, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_huggingFaceBaseKey(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("HUGGINGFACE_API_KEY", "hf-key")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"hf-key"}
+	if !reflect.DeepEqual(got.HuggingFace, want) {
+		t.Fatalf("HuggingFace keys: %#v want %#v", got.HuggingFace, want)
+	}
+}
+
+func TestResolveUpstreamAPIKeysFromEnv_huggingFaceNumberedFrom1(t *testing.T) {
+	clearAllProviderEnv(t)
+	t.Setenv("HUGGINGFACE_API_KEY", "")
+	t.Setenv("HUGGINGFACE_API_KEY_1", "hf-1")
+	t.Setenv("HUGGINGFACE_API_KEY_2", "hf-2")
+	got := ResolveUpstreamAPIKeysFromEnv()
+	want := []string{"hf-1", "hf-2"}
+	if !reflect.DeepEqual(got.HuggingFace, want) {
+		t.Fatalf("HuggingFace keys: %#v want %#v", got.HuggingFace, want)
 	}
 }
 

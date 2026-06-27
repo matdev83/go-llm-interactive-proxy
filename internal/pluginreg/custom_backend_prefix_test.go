@@ -26,7 +26,7 @@ func TestValidateCustomBackendPrefix_rejectsInvalidCharacters(t *testing.T) {
 
 func TestValidateCustomBackendPrefix_rejectsReservedStandardPrefixes(t *testing.T) {
 	t.Parallel()
-	for _, prefix := range []string{"nvidia", "openrouter", "anthropic", "openai-legacy", "openai-responses", "opencode-go", "opencode-zen"} {
+	for prefix := range standardBackendPrefixSet() {
 		err := validateCustomBackendPrefix(prefix)
 		if err == nil {
 			t.Fatalf("expected error for reserved backend_prefix %q", prefix)

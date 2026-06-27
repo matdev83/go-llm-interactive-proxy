@@ -68,7 +68,7 @@ func TestReservedStandardBackendPrefixes_coverStandardBackendPrefixes(t *testing
 				t.Fatalf("BuildBackend(%q) error = %v", id, err)
 			}
 			for _, prefix := range be.BackendPrefixes {
-				if _, ok := reservedStandardBackendPrefixes[prefix]; !ok {
+				if !isReservedStandardBackendPrefix(prefix) {
 					t.Fatalf("standard backend %q exposes prefix %q not reserved for custom connectors", id, prefix)
 				}
 			}
@@ -89,7 +89,7 @@ func standardBackendFactoryIDs(t *testing.T) []string {
 
 func standardBackendBuildYAML(id string) string {
 	switch id {
-	case "acp", "anthropic", "openai-legacy", "openai-responses", "openrouter", "nvidia", "opencode-go", "opencode-zen":
+	case "acp", "anthropic", "openai-legacy", "openai-responses", "openrouter", "nvidia", "huggingface", "opencode-go", "opencode-zen":
 		return "base_url: http://127.0.0.1:9\n"
 	case "openai-codex":
 		return "base_url: http://127.0.0.1:9\naccess_token: test\n"
