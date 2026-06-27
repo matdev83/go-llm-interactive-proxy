@@ -129,7 +129,9 @@ func TestNewBackend_forwardsRequestAndClientOptions(t *testing.T) {
 	})
 
 	spec := validBackendSpec(srv.URL)
-	spec.ClientOptions = func(lipapi.Call) []option.RequestOption {
+	var gotCand routing.AttemptCandidate
+	spec.ClientOptions = func(_ lipapi.Call, cand routing.AttemptCandidate) []option.RequestOption {
+		gotCand = cand
 		return []option.RequestOption{option.WithHeader("X-Test-Client", "yes")}
 	}
 	spec.RequestOptions = func(lipapi.Call) []option.RequestOption {
@@ -148,6 +150,9 @@ func TestNewBackend_forwardsRequestAndClientOptions(t *testing.T) {
 	mu.Unlock()
 	if header != "yes" {
 		t.Fatalf("client header = %q", header)
+	}
+	if gotCand.Primary.Model != "gpt-test" {
+		t.Fatalf("candidate model = %q, want gpt-test", gotCand.Primary.Model)
 	}
 	body := rec.lastBody(t)
 	if !strings.Contains(string(body), `"max_tokens":19`) {

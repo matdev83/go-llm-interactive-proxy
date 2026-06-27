@@ -4,8 +4,10 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaifamily"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 type Config struct {
@@ -25,6 +27,10 @@ var profile = openaifamily.Profile{
 }
 
 func New(cfg Config) execbackend.Backend {
+	profile := profile
+	profile.ResolveModel = func(cand routing.AttemptCandidate, call lipapi.Call) string {
+		return resolveModelWithProvider(profile.ModelResolution, cand, call)
+	}
 	return openaifamily.New(profile, openaifamily.Config{
 		BaseURL:       cfg.BaseURL,
 		APIKey:        cfg.APIKey,

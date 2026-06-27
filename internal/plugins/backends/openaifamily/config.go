@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/option"
@@ -39,8 +40,9 @@ type Profile struct {
 	Transport               TransportPolicy
 	ModelResolution         ModelResolutionPolicy
 	Inventory               InventoryPolicy
-	ClientOptions           func(lipapi.Call) []option.RequestOption
+	ClientOptions           func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption
 	RequestOptions          func(lipapi.Call) []option.RequestOption
+	ResolveModel            func(routing.AttemptCandidate, lipapi.Call) string
 }
 
 func ApplyDefaults(profile Profile, cfg Config) Config {

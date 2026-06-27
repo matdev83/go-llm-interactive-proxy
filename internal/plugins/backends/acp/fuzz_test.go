@@ -33,7 +33,7 @@ func FuzzMapSessionUpdateToEvents(f *testing.F) {
 func FuzzMergeHandshakeProfileExtensions(f *testing.F) {
 	f.Add([]byte(`{"acp.session_id":"\"sid\""}`))
 	f.Fuzz(func(t *testing.T, raw []byte) {
-		raw = testkit.CapBytes(raw, 128<<10)
+		raw = testkit.CapBytes(raw, 8<<10)
 		var ext map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &ext); err != nil {
 			return

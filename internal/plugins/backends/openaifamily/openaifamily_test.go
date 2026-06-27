@@ -405,7 +405,7 @@ func TestNew_appliesRequestAndClientOptions(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	profile := testProfile()
-	profile.ClientOptions = func(lipapi.Call) []option.RequestOption {
+	profile.ClientOptions = func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption {
 		return []option.RequestOption{option.WithHeader("X-Test-Client", "yes")}
 	}
 	profile.RequestOptions = func(lipapi.Call) []option.RequestOption {
