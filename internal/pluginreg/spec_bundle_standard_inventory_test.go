@@ -35,6 +35,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"custom-openai-legacy-compatible",
 		"custom-openai-responses-compatible",
 		"gemini",
+		"huggingface",
 		"llamacpp",
 		"lmstudio",
 		"local-stub",

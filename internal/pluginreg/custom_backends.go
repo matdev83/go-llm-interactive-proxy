@@ -8,25 +8,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/vllm"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -91,7 +75,7 @@ func validateCustomBackendPrefix(prefix string) error {
 	if strings.Contains(prefix, "/") || strings.Contains(prefix, ":") {
 		return fmt.Errorf("custom backend: backend_prefix %q must not contain '/' or ':'", prefix)
 	}
-	if _, reserved := reservedStandardBackendPrefixes[prefix]; reserved {
+	if isReservedStandardBackendPrefix(prefix) {
 		return fmt.Errorf("custom backend: backend_prefix %q is reserved by a standard connector", prefix)
 	}
 	return nil
@@ -217,22 +201,19 @@ func backendCustomOpenAIResponsesCompatible(n yaml.Node, upstream *http.Client) 
 	return buildCustomOpenAICompatibleBackend(y, upstream, openaicompat.FlavorResponses, customOpenAIResponsesTransportCaps())
 }
 
-var reservedStandardBackendPrefixes = map[string]struct{}{
-	openairesponses.ID: {},
-	openailegacy.ID:    {},
-	anthropic.ID:       {},
-	gemini.ID:          {},
-	bedrock.ID:         {},
-	acp.ID:             {},
-	openrouter.ID:      {},
-	nvidia.ID:          {},
-	opencodego.ID:      {},
-	opencodezen.ID:     {},
-	openaicodex.ID:     {},
-	ollama.ID:          {},
-	ollama.CloudID:     {},
-	llamacpp.ID:        {},
-	lmstudio.ID:        {},
-	vllm.ID:            {},
-	localstub.ID:       {},
+func isReservedStandardBackendPrefix(prefix string) bool {
+	_, ok := standardBackendPrefixSet()[prefix]
+	return ok
+}
+
+func standardBackendPrefixSet() map[string]struct{} {
+	backends := StandardBackendBundle(UpstreamAPIKeys{}).Backends
+	out := make(map[string]struct{}, len(backends))
+	for _, entry := range backends {
+		if IsCustomCompatibleBackendKind(entry.ID) {
+			continue
+		}
+		out[entry.ID] = struct{}{}
+	}
+	return out
 }

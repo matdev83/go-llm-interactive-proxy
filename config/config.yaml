@@ -276,6 +276,11 @@ plugins:
       config: {}
       # base_url: https://integrate.api.nvidia.com/v1  # default
       # api_key: ""          # or use NVIDIA_API_KEY / NVIDIA_API_KEY_N env vars
+    - id: huggingface
+      enabled: false
+      config: {}
+      # base_url: https://router.huggingface.co/v1  # default
+      # api_key: ""          # or use HUGGINGFACE_API_KEY / HUGGINGFACE_API_KEY_N env vars
     - id: opencode-go
       enabled: false
       config: {}
@@ -352,7 +357,7 @@ plugins:
       #   timeout: 15s
     # Custom compatible backends let operators add API-compatible providers without code.
     # Use kind to select the generic factory; id remains the runtime route backend instance.
-    # backend_prefix must be unique, cannot contain / or :, and cannot use standard connector prefixes such as nvidia/openrouter/anthropic.
+    # backend_prefix must be unique, cannot contain / or :, and cannot use standard connector prefixes such as nvidia/openrouter/huggingface/anthropic.
     # api_key_env_var_root reads ROOT, ROOT_2, ROOT_3, ... using the standard static key convention.
     # - id: provider123
     #   kind: custom-openai-legacy-compatible

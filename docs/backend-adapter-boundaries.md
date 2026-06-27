@@ -19,6 +19,7 @@ Regression tests **must** cover mapping behavior (streaming order, tool events, 
 | `acp` | Parity + ACP subset (tools deferred per matrix) | HTTP client + ACP-specific session/update flows |
 | `nvidia` | Parity + NVIDIA NIM chat/responses wire | `openai-go` client; `NVIDIA_API_KEY` env pool; `max_tokens` remap, `stream_options` strip, `extra_body` pass-through |
 | `openrouter` | Parity + OpenRouter chat/responses wire | `openai-go` client; shared invoke/event mapping via [`openaicompat`](../internal/plugins/backends/openaicompat/); OpenRouter-specific headers and extensions |
+| `huggingface` | Parity + Hugging Face Inference Providers chat wire | `openai-go` client; shared invoke/event mapping via [`openaicompat`](../internal/plugins/backends/openaicompat/); chat completions only (`TransportChatOnly`); `HUGGINGFACE_API_KEY` env pool |
 | `local-stub` | Dogfood YAML + executor stub tests | No upstream credentials ([`CredentialNone`](../pkg/lipsdk/backend_security.go)); deterministic text |
 
 ## Shared OpenAI-compatible adapter layer

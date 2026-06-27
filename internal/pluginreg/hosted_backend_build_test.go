@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"gopkg.in/yaml.v3"
@@ -48,6 +49,26 @@ func TestBuildBackend_nvidia_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, err := reg.BuildBackend(nvidia.ID, node, nil, BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Open == nil {
+		t.Fatal("expected backend Open")
+	}
+}
+
+func TestBuildBackend_huggingface_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
+	t.Parallel()
+	reg := NewRegistry()
+	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{HuggingFace: []string{"hf-a", "hf-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	raw := `base_url: https://router.huggingface.co/v1`
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
+		t.Fatal(err)
+	}
+	b, err := reg.BuildBackend(huggingface.ID, node, nil, BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

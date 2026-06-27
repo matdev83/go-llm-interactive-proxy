@@ -19,6 +19,7 @@ type UpstreamAPIKeys struct {
 	Gemini      []string
 	OpenRouter  []string
 	Nvidia      []string
+	HuggingFace []string
 	OpenCodeGo  []string
 	OpenCodeZen []string
 	OpenAICodex []string
@@ -62,9 +63,9 @@ func EffectiveAPIKeys(yamlKey string, yamlKeys []string, defaults []string) []st
 }
 
 // ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
-// OPENROUTER_API_KEY plus numbered suffixes (_1, _2, _3, …) until the first missing or
-// empty value. OpenRouter uses _1-indexed numbering for consistency with
-// OPENROUTER_API_KEY_1, _2, etc.
+// OPENROUTER_API_KEY, NVIDIA_API_KEY, HUGGINGFACE_API_KEY plus numbered suffixes (_1, _2, _3, …) until the first missing or
+// empty value. OpenRouter, NVIDIA, and Hugging Face use _1-indexed numbering for consistency with
+// OPENROUTER_API_KEY_1, NVIDIA_API_KEY_1, HUGGINGFACE_API_KEY_1, etc.
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
 func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 	return UpstreamAPIKeys{
@@ -73,6 +74,7 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 		Gemini:      collectNumberedEnvKeys("GEMINI_API_KEY"),
 		OpenRouter:  collectOpenRouterEnvKeys(),
 		Nvidia:      collectNvidiaEnvKeys(),
+		HuggingFace: collectHuggingFaceEnvKeys(),
 		OpenCodeGo:  collectNumberedEnvKeys("OPENCODE_GO_API_KEY"),
 		OpenCodeZen: collectOpenCodeZenEnvKeys(),
 		OpenAICodex: collectOpenAICodexEnvKeys(),
@@ -106,6 +108,10 @@ func collectOpenRouterEnvKeys() []string {
 // from _1 (same 1-indexed numbering as OpenRouter per Python proxy convention).
 func collectNvidiaEnvKeys() []string {
 	return collect1IndexedEnvKeys("NVIDIA_API_KEY")
+}
+
+func collectHuggingFaceEnvKeys() []string {
+	return collect1IndexedEnvKeys("HUGGINGFACE_API_KEY")
 }
 
 func collect1IndexedEnvKeys(envPrefix string) []string {

@@ -20,6 +20,7 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"lmstudio":     "openaicompat",
 		"openrouter":   "openaicompat",
 		"nvidia":       "openaicompat",
+		"huggingface":  "openaicompat",
 		"vllm":         "openaicompat",
 		"opencodego":   "opencodecommon",
 		"opencodezen":  "opencodecommon",

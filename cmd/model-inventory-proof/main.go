@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
@@ -97,8 +98,21 @@ func main() {
 }
 
 func credentialedBackendCandidates(keys pluginreg.UpstreamAPIKeys, awsEnv awsEnvironment) ([]backendCandidate, []skipReport) {
-	candidates := make([]backendCandidate, 0, 7)
-	skipped := make([]skipReport, 0, 7)
+	staticBackends := []struct {
+		id     string
+		env    string
+		values []string
+	}{
+		{openairesponses.ID, "OPENAI_API_KEY", keys.OpenAI},
+		{openailegacy.ID, "OPENAI_API_KEY", keys.OpenAI},
+		{anthropic.ID, "ANTHROPIC_API_KEY", keys.Anthropic},
+		{gemini.ID, "GEMINI_API_KEY", keys.Gemini},
+		{openrouter.ID, "OPENROUTER_API_KEY", keys.OpenRouter},
+		{nvidia.ID, "NVIDIA_API_KEY", keys.Nvidia},
+		{huggingface.ID, "HUGGINGFACE_API_KEY", keys.HuggingFace},
+	}
+	candidates := make([]backendCandidate, 0, len(staticBackends)+1)
+	skipped := make([]skipReport, 0, len(staticBackends)+1)
 
 	addStaticKeyBackend := func(id, envName string, values []string) {
 		if len(values) == 0 {
@@ -108,12 +122,9 @@ func credentialedBackendCandidates(keys pluginreg.UpstreamAPIKeys, awsEnv awsEnv
 		candidates = append(candidates, backendCandidate{ID: id, Config: "{}"})
 	}
 
-	addStaticKeyBackend(openairesponses.ID, "OPENAI_API_KEY", keys.OpenAI)
-	addStaticKeyBackend(openailegacy.ID, "OPENAI_API_KEY", keys.OpenAI)
-	addStaticKeyBackend(anthropic.ID, "ANTHROPIC_API_KEY", keys.Anthropic)
-	addStaticKeyBackend(gemini.ID, "GEMINI_API_KEY", keys.Gemini)
-	addStaticKeyBackend(openrouter.ID, "OPENROUTER_API_KEY", keys.OpenRouter)
-	addStaticKeyBackend(nvidia.ID, "NVIDIA_API_KEY", keys.Nvidia)
+	for _, backend := range staticBackends {
+		addStaticKeyBackend(backend.id, backend.env, backend.values)
+	}
 
 	if ok, reason := awsEnv.usableForBedrock(); ok {
 		candidates = append(candidates, backendCandidate{

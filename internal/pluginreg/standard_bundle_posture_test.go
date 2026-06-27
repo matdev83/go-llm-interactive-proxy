@@ -1,36 +1,6 @@
 package pluginreg
 
-import (
-	"testing"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/localstub"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodego"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodezen"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
-)
-
-// bundledBackendFactoryIDs must stay aligned with installBackends in standard_table.go:
-// every bundled backend must register an explicit non-unknown credential posture.
-var bundledBackendFactoryIDs = []string{
-	openairesponses.ID,
-	openailegacy.ID,
-	anthropic.ID,
-	gemini.ID,
-	bedrock.ID,
-	acp.ID,
-	openrouter.ID,
-	nvidia.ID,
-	opencodego.ID,
-	opencodezen.ID,
-	localstub.ID,
-}
+import "testing"
 
 func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.T) {
 	t.Parallel()
@@ -38,7 +8,8 @@ func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range bundledBackendFactoryIDs {
+	for _, entry := range StandardBackendBundle(UpstreamAPIKeys{}).Backends {
+		id := entry.ID
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 			p, ok := reg.BackendSecurityProfile(id)
