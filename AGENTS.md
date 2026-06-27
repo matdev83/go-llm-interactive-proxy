@@ -4,9 +4,9 @@
 
 Go-based LLM Interactive Proxy.
 
-This repository is the greenfield Go re-implementation of the LIP (LLM Interactive Proxy Python app, GitHub: https://github.com/matdev83/llm-interactive-proxy) with **radically simpler** and cleaner architecture.
+This repository is the Go implementation of LIP (LLM Interactive Proxy) with a small core, explicit plugin boundaries, and a runnable standard distribution (`cmd/lipstd`). The sibling Python app (GitHub: https://github.com/matdev83/llm-interactive-proxy) remains useful historical and migration context, but docs and code claims in this repo must describe Go behavior unless explicitly marked as Python-era or future work.
 
-Whenever needed or user refers to the LIP repo, you can access it directly as a sibling repo living in the following absolute dir: `C:\Users\Mateusz\source\repos\llm-interactive-proxy`.
+Whenever needed or user refers to the LIP repo, you can access the Python sibling repo directly at `C:\Users\Mateusz\source\repos\llm-interactive-proxy`.
 
 This project is meant as a universal translation, routing, and control plane for AI clients.
 
@@ -14,7 +14,7 @@ Non-negotiable product traits:
 - small core,
 - plugin-first features,
 - frontend support for OpenAI Responses, legacy OpenAI-compatible, Anthropic, and Gemini APIs,
-- backend support for OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock, and ACP,
+- backend support for hosted providers, OpenAI-compatible/local runtimes, agent-specific backends, custom-compatible rows, and ACP,
 - cross-API translation through a canonical request model and canonical event stream,
 - streaming-first execution,
 - core-owned routing, failover, and B2BUA-like continuity handling.
@@ -25,6 +25,18 @@ Non-negotiable product traits:
 - While creating code or making fixes *ALWAYS* create extensive set of tests and run them and make sure the code is passing them before reporting back to the user.
 - Thrieve for simplicity. Create smallest possible set of changes which satisfies requirements and user's request.
 - Ask questions is user intention is not fully clear. Don't guess.
+
+## Go skill loading expectations
+
+Before non-trivial Go work, load the most relevant available skill(s) instead of relying on memory alone:
+
+- Architectural decisions, new feature design, package-boundary changes, or extension/seam work: load `golang-hexagonal-architecture` and `golang-design-patterns`; add `golang-dependency-injection` or `golang-structs-interfaces` when constructor, lifecycle, interface, or facade design is involved.
+- Test creation, regression coverage, conformance work, or test repair: load `golang-testing`; add `golang-stretchr-testify` when touching testify-based tests.
+- Concurrency, streaming, cancellation, or goroutine ownership: load `golang-concurrency` and/or `golang-context`.
+- Error handling, security, observability, database, CLI, performance, lint/style, dependency, documentation, or troubleshooting work: load the matching `golang-*` skill before editing those areas.
+- Simplification/refactor-only work: load `go-simplify` and keep the diff smaller than the explanation.
+
+Available Go-focused skills in this environment include: `go-simplify`, `golang-benchmark`, `golang-cli`, `golang-code-style`, `golang-concurrency`, `golang-context`, `golang-continuous-integration`, `golang-data-structures`, `golang-database`, `golang-dependency-injection`, `golang-dependency-management`, `golang-design-patterns`, `golang-documentation`, `golang-error-handling`, `golang-grpc`, `golang-hexagonal-architecture`, `golang-lint`, `golang-modernize`, `golang-naming`, `golang-observability`, `golang-performance`, `golang-popular-libraries`, `golang-project-layout`, `golang-safety`, `golang-samber-do`, `golang-samber-hot`, `golang-samber-lo`, `golang-samber-mo`, `golang-samber-oops`, `golang-samber-ro`, `golang-samber-slog`, `golang-security`, `golang-stay-updated`, `golang-stretchr-testify`, `golang-structs-interfaces`, `golang-testing`, and `golang-troubleshooting`.
 
 ## Architecture guardrails
 
@@ -49,14 +61,15 @@ Treat these paths as the default structure unless a spec says otherwise:
 - `pkg/lipapi/` — stable canonical request, event, capability, and error contracts.
 - `pkg/lipsdk/` — stable plugin SDK and registration contracts for plugins outside the repo.
 - `internal/core/` — orchestration (`runtime/`), routing, continuity + B2BUA store seams, stream engine, hook bus (`hooks/`), capabilities, config, HTTP/admin wiring, diagnostics helpers (`diag/`).
-- `internal/plugins/frontends/` — official frontend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`.
-- `internal/plugins/backends/` — official backend API adapters: `openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`, `bedrock/`, `acp/`.
-- `internal/plugins/features/` — official feature plugins and hook implementations.
+- `internal/plugins/frontends/` — official frontend API adapters (`openairesponses/`, `openailegacy/`, `anthropic/`, `gemini/`) plus shared wire/decode/session/routing helpers.
+- `internal/plugins/backends/` — official backend adapters. The standard bundle currently includes OpenAI Responses, legacy OpenAI-compatible, Anthropic, Gemini, Bedrock, ACP, OpenRouter, NVIDIA, Hugging Face, OpenAI Codex, OpenCode Go/Zen, Ollama (`ollama` / `ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`, and custom OpenAI/Anthropic-compatible backend kinds; exact registration lives in `internal/pluginreg/standard_table.go` and the mandatory distribution subset in `pkg/lipsdk/standard_bundle.go`.
+- `internal/plugins/features/` — official feature plugins, compatibility hook plugins, and reference/proof implementations.
 - `internal/pluginreg/`, `internal/infra/runtimebundle/`, `internal/stdhttp/` — registration tables and composition (`cmd/lipstd` → runnable HTTP server).
-- `internal/infra/` — HTTP client tuning, structured logging helpers, Prometheus/OpenTelemetry wiring, clocks, ids, and other non-codec adapters.
+- `internal/infra/` — HTTP client tuning, structured logging helpers, Prometheus/OpenTelemetry wiring, DB helpers, model catalog/registry, routing health, token accounting/tokenizers, auth events, clocks, ids, and other non-codec adapters.
 - `internal/testkit/` — provider stubs, stream harnesses, fixture loaders, fake clocks, and builders.
 - `cmd/lipstd/testdata/` — operator JSON goldens for `routes` / `inventory` (see `docs/dogfood-local.md`); update when `golden_normalize_test.go` fails after intentional shape changes.
 - `internal/refbackend/`, `internal/refclient/` — spec emulators and reference SDK clients for tests only (must not appear on production wiring paths).
+- `internal/safecast/` — small shared numeric conversion helpers.
 - `internal/qa/`, `internal/archtest/` — repo hygiene tests and architecture import/budget guardrails.
 - `testdata/` — golden protocol payloads, event streams, selector fixtures, and migration captures.
 - `docs/` — architecture notes, operator docs, migration notes, release gates, performance checks.
@@ -108,7 +121,7 @@ Key locations:
 
 Short guide to `.kiro/steering/` (enduring project memory; not spec-specific):
 
-- [`product.md`](.kiro/steering/product.md) — product promise, capability pillars, greenfield priorities, non-goals.
+- [`product.md`](.kiro/steering/product.md) — product promise, capability pillars, current direction, non-goals.
 - [`api-standards.md`](.kiro/steering/api-standards.md) — canonical middle, streaming-first, errors, versioning; frontend/backend compatibility surfaces.
 - [`routing-and-orchestration.md`](.kiro/steering/routing-and-orchestration.md) — core-owned routing, failover, B2BUA pre-output recovery, attempt lineage, hook seams.
 - [`structure.md`](.kiro/steering/structure.md) — repository zones, package map, where to change code by intent.
@@ -117,11 +130,11 @@ Short guide to `.kiro/steering/` (enduring project memory; not spec-specific):
 
 ### Spec numbering vs requirement numbering
 
-In `.kiro/specs/go-core-reimplementation-v1/`, **task IDs** in `tasks.md` (for example task **10.1** = OpenAI Responses **backend** plugin) are unrelated to **requirement IDs** in `requirements.md` (for example requirement **10.1** = request-part **hooks**). Always use the filename (`tasks.md` vs `requirements.md`) to disambiguate.
+In archived specs such as `.kiro/specs/archive/go-core-reimplementation-v1/`, **task IDs** in `tasks.md` (for example task **10.1** = OpenAI Responses **backend** plugin) are unrelated to **requirement IDs** in `requirements.md` (for example requirement **10.1** = request-part **hooks**). Always use the filename (`tasks.md` vs `requirements.md`) to disambiguate.
 
 ### Backend protocol plugins (spec Task 10.x)
 
-When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend work:
+When following historical backend task guidance in `.kiro/specs/archive/go-core-reimplementation-v1/tasks.md` or a newer backend spec:
 
 - **Emulator-first:** deliver the matching reference backend emulator task **10.0.x** before the corresponding `internal/plugins/backends/*` connector; use it for spec-faithful, deterministic tests (see `tasks.md` section 10 and 10.0).
 - **Gates:** each backend task (10.1, 10.2, …) depends on its **10.0.n** emulator being completed and the spec cross-check recorded.
@@ -133,19 +146,19 @@ When following `.kiro/specs/go-core-reimplementation-v1/tasks.md` for backend wo
 Prefer repo-defined scripts or make targets:
 
 - `make quality-checks` — gofmt, `go mod tidy` drift guard, `go build`, `go vet`
-- `make test` — quality checks plus `go test -parallel=8 ./...` (omits `//go:build precommit` and `//go:build integration` files unless you pass `-tags=precommit`, `-tags=integration`, or both as in `make qa`)
+- `make test` — quality checks, `go test -parallel=8 -timeout=10m ./...`, and `make parity-checks` (default unit pass omits `//go:build precommit`; parity checks compile the conformance package with `-tags=precommit,integration`)
 - `make test-precommit-extra` — `go test -tags=precommit` over `internal/qa` and `internal/core/runtime` (repo hygiene + executor regression matrices); used by the pre-commit gate via merged `test-staged` (see `LIP_TEST_PRECOMMIT` in `scripts/test-staged.*`); CI full suite uses `go test -tags=precommit,integration ./...` (see below)
 - `make qa` — quality checks, **one** full `go test -tags=precommit,integration ./...`, `golangci-lint` (or `staticcheck`), `go tool govulncheck` (pinned in `go.mod`)
 - `make test-race` — skipped on Windows (`scripts/race-check.ps1`); on Linux/macOS runs `scripts/race-check.sh`. CI runs strict race on Ubuntu (`.github/workflows/qa.yml`).
 - `make test-fuzz` — short native fuzz smoke over all release-gate fuzz targets (`FUZZTIME` per target, default `500ms`; see `docs/release-gates.md`). Optional committed seeds live under each package’s `testdata/fuzz/FuzzName/` using the `go test fuzz v1` file format ([testdata/fuzz/README.md](testdata/fuzz/README.md)).
-- `make parity-checks` — same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...` (FE×BE matrix + parity suites; see `docs/conformance-matrix-evidence.md`); use before push when you touch cross-frontend/backend behavior.
+- `make parity-checks` — same as `go test -parallel=8 -timeout=10m -tags=precommit,integration ./internal/testkit/conformance/...` (FE×BE matrix + parity suites; see `docs/conformance-matrix-evidence.md`); use before push when you touch cross-frontend/backend behavior.
 - `make bench` — benchmark smoke across hot packages (see [`docs/performance-checks.md`](docs/performance-checks.md)). Optional CI uploads weekly/manual runs via `.github/workflows/benchmarks.yml` for offline `benchstat` comparison.
 - `make hooks-install` — enable `.githooks/pre-commit` (`core.hooksPath=.githooks`; runs staged secret scan then quality gate when `.go` is staged)
 - `go test -run TestName ./path/to/pkg`
 - `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg` — suffix `$` matches one fuzz function when a package defines several `Fuzz*` targets
 - `go run ./cmd/lipstd --config ./config/config.yaml`
 
-CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...` (includes `internal/testkit/conformance/...` and optional-Postgres tests, which skip unless `LIP_TEST_POSTGRES_DSN` or `LIP_MANAGED_POSTGRES_DSN` is set; no separate parity step), release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint`, and `go tool govulncheck`.
+CI runs [`.github/workflows/qa.yml`](.github/workflows/qa.yml): `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...` (includes `internal/testkit/conformance/...` and optional-Postgres tests, which skip unless `LIP_TEST_POSTGRES_DSN` or `LIP_MANAGED_POSTGRES_DSN` is set; no separate parity step), release-gate fuzz smoke (`make test-fuzz` with `FUZZTIME=6s`), strict Linux race (`scripts/race-check.sh --strict`), `golangci-lint` v2, and `go tool govulncheck`.
 
 ### Go build and test caching
 

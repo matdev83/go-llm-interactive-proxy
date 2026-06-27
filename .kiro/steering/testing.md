@@ -39,6 +39,8 @@ Use package-local tests for:
 - stream collectors,
 - continuity stores and allocators,
 - secure-session managers, stores, redaction, and denial mapping,
+- model catalog/registry and capability inventory,
+- token accounting and usage propagation,
 - extension stage ordering, snapshots, and SDK facade behavior,
 - hook dispatch, ordering, and panic isolation.
 
@@ -92,14 +94,16 @@ Required where practical for:
 Always prioritize tests for:
 - canonical request and canonical event translation,
 - frontend/backend matrix compatibility on the shared subset,
-- routing selector syntax, model aliases, weighted behavior, and circuit-breaker eligibility,
+- routing selector syntax, model aliases, weighted behavior, parallel races, TTFT budgets, and circuit-breaker eligibility,
 - recoverable pre-output failure swallowing,
 - failover attempt budgets,
 - B2BUA A-leg continuity and B-leg attempt lineage,
 - secure-session BeginTurn, resume denial, redaction, durability posture, and diagnostics,
+- model catalog/capability inventory and local-compatible backend metadata,
+- token accounting, usage propagation, and tokenizer boundaries,
 - stream cancellation, keepalive behavior, and panic isolation,
 - plugin isolation boundaries and SDK-only feature plugins,
-- extension stage ordering, immutable snapshots, request/response hook ordering, completion gates, and traffic observation.
+- extension stage ordering, immutable snapshots, request/response hook ordering, completion gates, auxiliary calls, and traffic observation.
 
 ## Mocking and boundary guidance
 
@@ -124,18 +128,19 @@ Migration note:
 ## Canonical commands
 
 Default commands:
-- `go test ./...`
-- `go test -race ./...`
+- `make quality-checks`
+- `make test` (quality checks + default unit tests + parity checks)
+- `make test-unit` (`go test -parallel=8 -timeout=10m ./...`)
 - `go test -run TestName ./path/to/pkg`
-- `go test -fuzz=Fuzz -run=^$ ./path/to/pkg`
-- `go vet ./...`
-- `staticcheck ./...`
+- `go test -fuzz=FuzzName$ -fuzztime=30s -run=^$ ./path/to/pkg`
+- `make parity-checks` for conformance package tests (`-tags=precommit,integration`)
+- `make qa` for the local full profile (quality checks + one full tagged test pass + lint + govulncheck)
 
 Architecture and hygiene commands that should remain easy to run:
 - `go test ./internal/archtest/...`
 - `go test -tags=precommit ./internal/qa/... ./internal/core/runtime/...`
 
-Performance smoke (not part of default PR gates unless you opt in): `make bench` runs benchmarks across core, stream, routing, diag, testkit, and frontend encoder packages; see `docs/performance-checks.md`. CI may upload weekly `make bench` output via `.github/workflows/benchmarks.yml` for manual `benchstat` comparison.
+Performance smoke (not part of default PR gates unless you opt in): `make bench` runs benchmarks across testkit, stream, secure-session, runtime, routing, diag, and frontend encoder packages; see `docs/performance-checks.md`. CI may upload weekly `make bench` output via `.github/workflows/benchmarks.yml` for manual `benchstat` comparison.
 
 ## What to avoid
 
@@ -153,3 +158,5 @@ _Reason: keep testing guidance aligned with the current small-core, ownership-fi
 _Updated 2026-04-26: added secure-session, extension-platform, startup fail-closed, model-alias, and panic-isolation test priorities._
 _Reason: recent Go runtime hardening expanded the highest-risk behavior contracts._
 _Updated 2026-05-01: clarified specification bundle (tests + fixtures + stable pkg contracts + steering) vs tests-only reconstructability._
+
+_Updated 2026-06-27: refreshed Makefile-first commands and high-value test targets for routing races, model catalogs, token accounting, and local-compatible backends._

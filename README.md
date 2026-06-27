@@ -1,132 +1,95 @@
 # Go LLM Interactive Proxy
 
-This repository is the greenfield Go re-implementation of LLM Interactive Proxy.
+Go LLM Interactive Proxy (LIP) is a streaming-first control plane for LLM traffic. It sits between AI clients and provider backends so operators can keep client integrations stable while changing routing, provider mix, resilience behavior, observability, and extension policy at the proxy layer.
 
-The repository implements the **Go core v1** stack from `.kiro/specs/go-core-reimplementation-v1`: canonical `lipapi` contracts, core routing/B2BUA/executor, bundled frontend and backend plugins, conformance matrix, and a **runnable** standard distribution binary (`cmd/lipstd`) that serves the bundled HTTP APIs when configured.
+The standard distribution, `cmd/lipstd`, serves bundled HTTP frontends, routes through canonical `lipapi` requests and event streams, and wires the official backends and feature plugins through explicit registration.
 
-## Current state
+## What it does
 
-- **API parity (spec + matrices)** — vendor-surface claims are tracked under [.kiro/specs/llm-api-parity/](.kiro/specs/llm-api-parity/) with row-level status; the README does not assert parity beyond what those matrices mark `implemented` (see also [.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md](.kiro/specs/go-core-reimplementation-v1/refclient-spec-matrix.md)).
-- canonical Go module and repository layout
-- package boundaries aligned with `AGENTS.md` and Kiro steering
-- database persistence settings for continuity, secure sessions, and managed PostgreSQL pool tuning are documented in [`docs/database-persistence.md`](docs/database-persistence.md)
-- typed runtime configuration ([`config/config.yaml`](config/config.yaml)): optional **`server.read_header_timeout`**, **`read_timeout`**, **`write_timeout`**, **`idle_timeout`** (Go duration strings; omit for stdhttp defaults), and **`server.max_pending_wire_events`** to cap backend adapter pending-event queues per stream (`0` = unlimited). Multi-instance routing example: [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml). **Access / auth** — Commented templates at the top of the same file cover `access.mode`, `auth.handler`, `auth.required_level`, `auth.event_delivery` / `auth.event_failure_policy`, `auth.local_api_keys`, and optional `auth.remote`; when omitted, defaults match [`internal/core/config/access_auth_model.go`](internal/core/config/access_auth_model.go). **Logging** (`logging` in YAML): `level` (`debug`|`info`|`warn`|`error`), `format` (`json`|`text`), optional `add_source`, optional **`access_log`** (one structured `http.access` line per request with `method`, **`route_group`** (first path segment, bounded cardinality), `status`, `duration_ms`, and `trace_id` when present; optional **`access_log_include_raw_path: true`** adds the full URL path), and `access_log_skip_paths` (path prefixes starting with `/`, e.g. `/healthz`). The process logger is built in [`internal/infra/logging`](internal/infra/logging/logger.go) with `slog-multi` + `slog-formatter` error normalization over stdout.
-- **Architecture / drift** — [`docs/architecture-guardrails.md`](docs/architecture-guardrails.md), [`docs/adr/0005-architecture-guardrails-and-complexity-budgets.md`](docs/adr/0005-architecture-guardrails-and-complexity-budgets.md). **Stage-four extension platform** (legal stages, SDK facades, inventory, migration from hook-only plugins): [`docs/extension-platform-authoring.md`](docs/extension-platform-authoring.md). Plugin authors bind shared state with `pkg/lipsdk/state.BindPlugin` when a feature spans multiple handlers, and inventory surfaces privileged capability flags such as `auxiliary_requests` for stateful/call-gated feature bundles. Routing breaker semantics: [`docs/routing-health-circuit-breaker.md`](docs/routing-health-circuit-breaker.md). Execute-error taxonomy notes: [`docs/execerr-classification.md`](docs/execerr-classification.md). **HTTP 5xx** responses from bundled frontends use a stable generic message for internal executor/upstream failures (`internal error`); operators rely on structured server logs for detail (not backward compatible if you depended on error-body echo of raw upstream text).
-- **`cmd/lipstd`** — creates a [`pluginreg.Registry`](internal/pluginreg/reg.go) with [`pluginreg.NewRegistry`](internal/pluginreg/reg.go), resolves default upstream API keys once via [`pluginreg.ResolveUpstreamAPIKeysFromEnv`](internal/pluginreg/keys.go) (when YAML leaves keys empty: `OPENAI_API_KEY` plus optional `OPENAI_API_KEY_2` … up to `_32`, contiguous; same pattern for `ANTHROPIC_API_KEY*`, `GEMINI_API_KEY*`, `OPENROUTER_API_KEY*`, and `NVIDIA_API_KEY*`), installs the standard bundle via [`pluginreg.InstallStandardBundleOn`](internal/pluginreg/standard_table.go) (factory wiring in [`backends_install.go`](internal/pluginreg/backends_install.go), [`frontends_install.go`](internal/pluginreg/frontends_install.go), and [`features_install.go`](internal/pluginreg/features_install.go); mandatory ids in [`lipsdk.StandardDistributionRequirements`](pkg/lipsdk/standard_bundle.go)), loads config, validates mandatory plugins against that requirements list, assembles [`runtime.App`](internal/core/runtime/app.go) with a **non-nil** logger, builds [`runtimebundle.Built`](internal/infra/runtimebundle/built.go) via [`runtimebundle.Build`](internal/infra/runtimebundle/build.go) with an explicit registry in [`runtimebundle.BuildOptions`](internal/infra/runtimebundle/options.go) and a **non-nil** logger, a shared upstream HTTP client built from [`httpclient.StandardWithTune`](internal/infra/httpclient/standard.go) using [`httpclient.TransportTuneFromConfig`](internal/infra/httpclient/config_tune.go) (YAML `http_client` pool/timeouts; overridable for tests), then serves HTTP with [`stdhttp.RunWithRuntime`](internal/stdhttp/server.go) (which also requires a non-nil logger). HTTP request IDs use a per-process [`diag.TraceIDGenerator`](internal/core/diag/trace.go) created in `stdhttp`, not package-level global state. Optional **`routing.health.circuit_breaker`** (`enabled`, `failure_threshold`, `open_for`) wires executor candidate health; the executor emits structured **`lip.route`** routing observations when logging is configured. Bundled HTTP frontends classify execute failures with [`internal/plugins/frontends/execerr`](internal/plugins/frontends/execerr/execerr.go) (reject vs internal). [`stdhttp.Run`](internal/stdhttp/server.go) is a convenience that calls `Build` (with the provided registry) then `RunWithRuntime`.
-- test, vet, lint, and vuln-check entrypoints
-- QA scripts, optional git hooks, and a GitHub Actions workflow aligned with the sibling `go-live-market-data-aggregator` process (trimmed for this repo: no domain-specific custom vets)
-- deterministic IDs/timestamps in frontend encoders and ACP reference paths where reproducibility matters; **B2BUA A/B leg ids** are opaque random strings (`a_`/`b_` + 32 hex chars) to avoid trivial enumeration; the **standard** server path injects a real wall clock and non-deterministic RNG for the executor (see `internal/infra/runtimebundle`)
+- **Multi-protocol frontends** - OpenAI Responses, legacy OpenAI-compatible chat, Anthropic Messages, and Gemini generateContent-compatible HTTP surfaces.
+- **Backend flexibility** - hosted provider adapters, OpenAI-compatible/local runtimes, agent-specific backends, custom-compatible backend rows, and a no-key `localstub` backend for dogfood.
+- **Canonical translation** - frontend and backend adapters translate through one protocol-neutral request model and event stream; no pairwise protocol translators.
+- **Core-owned routing** - ordered failover, weighted routing, parallel races, TTFT budgets, model aliases, route diagnostics, and circuit-breaker eligibility live in the core.
+- **Continuity and recovery** - B2BUA-style A-leg/B-leg lineage records recoverable pre-output attempts, while post-output failures are surfaced instead of silently retried.
+- **Operator hardening** - typed config, auth/access modes, secure sessions, diagnostics secrets, pprof controls, Prometheus metrics, OpenTelemetry tracing, access logs, and resource limits.
+- **Extension platform** - feature bundles use `pkg/lipsdk` facades for request shaping, tools, completion gates, workspace/state, traffic observation, auxiliary calls, and compatibility hooks.
 
-### Security and trust boundaries
+## Standard distribution
 
-- **Auth audit events** — Structured `lip.auth.*` logs can include operator-visible PII (principal display name, ids, session/client correlation fields). `auth.event_delivery` selects the default log sink, `disabled`, or `custom` (composition root must supply `AuthEventSink`). `auth.event_failure_policy` **`best_effort`** ignores sink errors; **`fail_closed`** fails the request when the auth/session audit sink errors while emitting an auth-decision or session-start event, trading availability for stricter observability guarantees.
-- **Local API keys** — `auth.local_api_keys[].key` values must be at least **16 Unicode code points** after trimming (validated at config load). For **`access.mode: multi_user`** on a network-reachable bind, combine strong keys with **reverse-proxy rate limiting or a WAF**; the proxy does not implement per-client throttling on the auth middleware path.
-- **Diagnostics** — With `diagnostics.enabled`, routes other than `health_path` (attempts, inventory, route trace, pprof) can reveal routing and lineage metadata. Bind the listener to loopback or an admin-only network, and/or set **`diagnostics.shared_secret`** (at least 12 characters when set). Clients must then send header **`X-LIP-Diagnostics-Secret`** with that exact value. On a **non-loopback** `server.address`, config validation rejects startup when protected surfaces (those paths, enabled metrics, model-catalog diagnostics, or secure-session summary routes) would be reachable without a sufficiently long shared secret; loopback-only binds may omit the secret for local trust posture.
-- **Prometheus metrics** — Set **`observability.metrics.enabled: true`** and optional **`observability.metrics.path`** (defaults to **`/metrics`** when omitted in config load). Scrapes expose bounded-label HTTP histograms/counters on **`method`**, **`status_class`**, and **`route_group`** (same coarse bucketing as OTEL span names; `lip_http_request_duration_seconds` uses buckets up to 120s for LLM tail latency), plus **`lip_executor_attempts_total`**, **`lip_executor_backend_open_seconds`**, **`lip_upstream_request_duration_seconds`** (when using the bundled upstream client), and Go/process collectors. Optional **`observability.metrics.exemplars_enabled: true`** enables OpenMetrics on the scrape handler and attaches **`trace_id`** exemplars to selected histograms when a span is present. When **`diagnostics.shared_secret`** is set, scrapers must send **`X-LIP-Diagnostics-Secret`** for the metrics route (same as attempts/pprof). The metrics path participates in diagnostic path uniqueness checks (must not overlap `health_path`, etc.).
-- **OpenTelemetry tracing** — Set **`observability.tracing.enabled: true`** and optional **`observability.tracing.service_name`** (otherwise **`OTEL_SERVICE_NAME`** or **`lipstd`**). Optional **`observability.tracing.sample_ratio`** (strictly between 0 and 1 when set) applies **`ParentBased(TraceIDRatioBased)`** for new root spans; omit or use **`1`** for SDK default sampling. Configure OTLP export with standard **`OTEL_*`** environment variables (**`OTEL_EXPORTER_OTLP_ENDPOINT`**, **`OTEL_EXPORTER_OTLP_PROTOCOL`**, trace sampler settings, etc.). Incoming HTTP requests are wrapped with **`otelhttp`** (coarse span names); the executor adds child spans (**`lip.executor.execute`**, **`lip.executor.backend_open`**). The outbound upstream **`http.Client`** propagates trace context when tracing is active, including when **`runtimebundle.BuildOptions.HTTPClient`** supplies a custom client (its transport is wrapped). With tracing enabled, JSON logs include **`trace_id`** and **`span_id`** when the slog record context carries an active span; **[`diag.TraceID`](internal/core/diag/trace.go)** prefers explicit LIP correlation (**`WithCallDiag`**, **`X-Trace-ID`** / **`WithTraceID`**) and otherwise falls back to the W3C trace id from span context. Responses echo **`X-Trace-ID`** whenever a trace id is available on the request context.
-- **Outbound HTTP proxy** — The shared upstream client defaults to honoring **`HTTP_PROXY` / `HTTPS_PROXY`**. In environments where process environment is not trusted, set **`http_client.trust_environment_proxy: false`** so those variables are ignored. Optional **`http_client`** fields (`max_idle_conns`, `max_idle_conns_per_host`, `idle_conn_timeout`, `response_header_timeout`, `client_timeout`, dial/TLS timeouts) tune connection pooling for high concurrency; defaults match [`httpclient.DefaultTransportTune`](internal/infra/httpclient/standard.go).
-- **Bedrock cleartext** — **`disable_https: true`** is only accepted when **`base_endpoint`** resolves to a **loopback** host, unless **`allow_insecure_non_loopback: true`** is set on the Bedrock backend row (explicit lab escape hatch).
-- **SQLite path** — **`continuity.sqlite_path`** must not contain NUL, `?`, `#`, or `&` (avoids ambiguous `file:` DSN parsing).
+Exact registration is code-owned by [`internal/pluginreg/standard_table.go`](internal/pluginreg/standard_table.go); mandatory distribution subset is in [`pkg/lipsdk/standard_bundle.go`](pkg/lipsdk/standard_bundle.go).
 
-### Operations: container runtime and profiling
+| Surface | Bundled support |
+| --- | --- |
+| Frontends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini` |
+| Hosted/provider backends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openai-codex`, `opencode-go`, `opencode-zen` |
+| Local / compatible backends | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, custom OpenAI/Anthropic-compatible backend kinds |
+| Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility |
 
-- **`GOMEMLIMIT`** — In Kubernetes or other memory-capped environments, set `GOMEMLIMIT` to roughly 80–90% of the cgroup limit so the Go runtime can trigger GC before the OOM killer terminates the process (see the [`runtime/debug.SetMemoryLimit`](https://pkg.go.dev/runtime/debug#SetMemoryLimit) / `GOMEMLIMIT` documentation).
-- **`GOGC`** — The default target GC percentage is usually fine; change it only when profiling shows GC as a meaningful cost.
-- **PGO** — Optional: build with profile-guided optimization (e.g. `go build -pgo=default.pgo` after collecting a representative CPU profile) to improve hot paths in production binaries.
-- **`GOMAXPROCS`** — From Go 1.19 onward, the runtime usually respects CPU cgroup quotas automatically; override only when you have a deliberate reason (for example pinning to socket count on bare metal).
-- **CPU and heap profiles** — For local investigation, run benchmarks or tests with `go test -cpuprofile=cpu.prof ./path/...` then `go tool pprof cpu.prof`, or heap profiles with `-memprofile`. When **`diagnostics.enabled`** is true, set **`diagnostics.pprof_path`** in YAML (for example `/debug/pprof`) to expose the standard library pprof index and endpoints under that prefix. **Do not** expose pprof on untrusted networks; put the listener behind localhost, a VPN, or an authenticated reverse proxy. Diagnostic paths (`health_path`, `attempts_path`, `inventory_path`, `route_trace_path`, `pprof_path`, and **`observability.metrics.path`** when metrics are enabled) must be unique after normalization and must not prefix-overlap (validated at config load).
+## Quick start
 
-### Resource bounds (memory / DoS hardening)
-
-- **`lipapi.Call.Validate`** enforces maximum sizes on route selectors, IDs, messages/parts/tool counts, part payloads, extensions, and related option strings (see `pkg/lipapi/limits.go`). Oversized canonical requests fail validation before orchestration runs.
-- **`lipapi.Collect`** applies `DefaultCollectLimits` when aggregating streaming events into a single `Collected` struct. Use **`CollectWithLimits`** for custom caps or **`CollectUnbounded`** only for tests/harnesses that deliberately exceed defaults.
-- **`b2bua.MemoryStore`** applies a **default maximum number of concurrent A-leg rows** (`DefaultMemoryStoreMaxLegsWithoutTTL`, currently 100k) whenever **`MaxLegs` / `continuity.max_legs`** is unset (zero); set a positive value to override. Negative `max_legs` is rejected. **TTL** (when set) evicts idle rows by age; the max-legs cap still applies and evicts the least-recently-seen rows when the store is over capacity.
-
-### Routing defaults and continuity
-
-- **Default route selector** when clients omit `X-LIP-Route` is resolved by `config.EffectiveDefaultRouteSelector` from `routing.default_route` in YAML, then the first enabled backend plus registry default model ids (`pluginreg.DefaultWireModel`). Optional top-level **`model_aliases`** rewrites the full selector string (regexp `pattern` to `replacement`) before parsing; **`routing.default_route` is expanded the same way** during `runtimebundle.Build`. Backend rows use `id` as the **runtime instance id**; optional `kind` sets the bundled factory when you need multiple instances of the same adapter (`kind: openai-responses`, `id: openai-primary`). After `config.LoadFile`, call `routing.ValidateModelAliasesConfig(cfg)` so invalid alias rules fail at startup. See [`internal/core/config/effective_default_route.go`](internal/core/config/effective_default_route.go) and [`internal/core/routing/aliases.go`](internal/core/routing/aliases.go).
-- **Route-selector TTFT budgets** can be controlled directly in `X-LIP-Route` or `routing.default_route`. Use a leading global block to cap the full A-leg wait for first client-visible output across all pre-output attempts, for example `{ttft_timeout=60}openai:openai/gpt-5.5^gemini:google/gemini-3-flash`. Use per-leaf annotations to cap one B-leg attempt, for example `{ttft_timeout=60}[ttft_timeout=30]openai:openai/gpt-5.5^[ttft_timeout=20]gemini:google/gemini-3-flash`. Values are integer seconds. Keepalive/warning/usage events do not satisfy TTFT; the budget is satisfied only when canonical output commits. Per-leaf expiry cancels/closes that backend attempt and may fail over before output, while global expiry returns a final timeout error.
-- **Parallel routing** (`!` separator) races multiple backends concurrently; the first to produce a non-whitespace `text_delta` or `reasoning_delta` wins. Losing B-legs receive cancel-then-close. Per-leg `[handicap=N]` (seconds) gives a leg a head start: `startDelay = maxHandicap - legHandicap`. If a handicapped leg fails terminally before the race resolves, delayed legs start immediately (fast-forward). Per-leg `[ttft_timeout=N]` eliminates a leg that doesn't produce output within N seconds. Parallel groups can be chained with failover: `a:m!b:m|c:m!d:m` tries the first parallel group, and if all legs fail, falls back to the second. Mixing `!` with `^`/`[weight]`/`[first]` in the same arm is rejected. Example: `[handicap=10,ttft_timeout=10]nvidia:kimi-k2![handicap=5,ttft_timeout=5]nvidia:minimax-m3!nvidia:flash`.
-- **SQLite continuity** (`continuity.store: sqlite` and `continuity.sqlite_path`) persists A-leg rows and attempt lineage across process restarts (`internal/core/continuity/sqlitestore`, pure-Go driver `modernc.org/sqlite`). **`continuity.ttl` / `max_legs` apply only to the in-memory store**; combining them with SQLite is rejected at config load until durable pruning exists.
-- **Hook bus**: root `hooks.tool_reactor_error_policy` selects `fail_open` (default), `fail_closed`, or `swallow_event` for tool-reactor errors. Optional reference feature plugins are documented in [`internal/plugins/features/REFERENCE_PLUGINS.md`](internal/plugins/features/REFERENCE_PLUGINS.md).
-
-## QA and local workflow
-
-Fast checks (format, `go mod tidy` drift, build, vet, architecture guardrails in [`internal/archtest`](internal/archtest/guardrails_test.go), plus `go mod verify` in CI or when `LIP_VERIFY_MODULE_CACHE=1`) plus staged-package tests mirror the sibling repo’s `quality-checks` / `test-staged` pattern. See [`docs/architecture-guardrails.md`](docs/architecture-guardrails.md). **Recoverability** is defined by the **specification bundle** (tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` APIs, steering)—see [.kiro/steering/testing.md](.kiro/steering/testing.md), **[`docs/spec-bundle-index.md`](docs/spec-bundle-index.md)** (hub for core **SB-** scenario registries), [`docs/conformance-golden-coverage.md`](docs/conformance-golden-coverage.md), [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md), [`docs/spec-bundle-orchestration-scenarios.md`](docs/spec-bundle-orchestration-scenarios.md), [`docs/spec-bundle-continuity-scenarios.md`](docs/spec-bundle-continuity-scenarios.md), [`docs/spec-bundle-routing-scenarios.md`](docs/spec-bundle-routing-scenarios.md), and [`docs/spec-bundle-hook-scenarios.md`](docs/spec-bundle-hook-scenarios.md). For a **local FE×BE conformance pass** (integration-tagged matrix and parity sources under `internal/testkit/conformance`), run **`make parity-checks`** (see [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md)).
+Start with the no-key local stub path when you want to validate config, routing, inventory, and HTTP serving without hosted provider credentials:
 
 ```bash
-make quality-checks   # gofmt -l, tidy+diff guard, go build, go vet; add LIP_VERIFY_MODULE_CACHE=1 to include mod verify locally
-make test             # quality-checks + go test -parallel=8 ./... (excludes precommit-tagged tests)
-make test-precommit-extra  # hygiene + executor matrices (-tags=precommit; included in make qa + CI)
-make test-fast        # quality-checks + tests for staged packages (or all if none staged)
-make test-race        # skipped on Windows; on Linux/macOS runs scripts/race-check.sh (CI: strict race on Linux)
-make test-fuzz        # short fuzz smoke on internal/testkit (override: FUZZTIME=30s make test-fuzz)
-make parity-checks    # conformance package only: -tags=integration (matrix + parity suites; see docs/conformance-matrix-evidence.md)
-make bench            # benchmarks: testkit, core stream/runtime/routing/diag, frontend streaming encoders (see docs/performance-checks.md)
-make qa               # quality-checks + unit tests + golangci-lint + govulncheck (via `go tool`, see go.mod)
-make hooks-install    # set core.hooksPath to .githooks (secret scan on staged files, then quality-gate when .go is staged)
-```
-
-Pre-commit runs `scripts/check-staged-secrets` first (gitleaks when installed, otherwise high-signal `git grep` patterns; allowlist via `.gitleaks.toml` and `scripts/secret-scan-allowlist.txt`). When staged `.go` files exist, it then runs `scripts/quality-gate` (quality checks, staged tests, staged race scan on Linux/macOS only — skipped on Windows, `golangci-lint` if present, `go tool govulncheck`).
-
-CI (`.github/workflows/qa.yml`) runs `make quality-checks`, unit tests, strict race on Linux, `golangci-lint-action`, and `go tool govulncheck`.
-
-Linter config lives in `.golangci.yml` (golangci-lint **v2** schema: staticcheck, govet, revive, the `modernize` pass, gofumpt as a formatter, and small correctness linters). Install a v2.x binary locally so `make lint` matches CI.
-
-### Local dogfood (stub, no provider keys)
-
-Use YAML under [`config/examples/`](config/examples/) with the bundled **`local-stub`** backend for validation and serving **without** hosted API keys. The canonical command sequence (check-config, routes, inventory, serve) and per-protocol stub files are documented in [`docs/dogfood-local.md`](docs/dogfood-local.md). **`lipstd` accepts `--config` either before or after the subcommand**; if `-config` appears twice, the later value wins. Those example files are also validated together by [`internal/infra/runtimebundle/example_configs_test.go`](internal/infra/runtimebundle/example_configs_test.go).
-
-### SDK and HTTP mount API (breaking)
-
-- **Context** — Programmatic callers must pass a **non-nil** `context.Context` to [`runtimebundle.BuildBootstrap`](internal/infra/runtimebundle/bootstrap_plan.go), [`stdhttp.Run`](internal/stdhttp/server.go) / [`stdhttp.RunWithRuntime`](internal/stdhttp/server.go), and [`RunCommand`](cmd/lipstd/command.go) (exit code **2** on nil). Nil is not coerced to `context.Background()`.
-- [`lipsdk/continuity.Store`](pkg/lipsdk/continuity/store.go) — `GetALeg` was renamed to **`FetchALeg`** (golang naming: avoid `Get` on accessors). [`runtime.ErrNilConfig`](internal/core/runtime/app.go) and [`lipapi.ErrRecoverablePreOutput`](pkg/lipapi/upstream.go) `Error()` text now include a `runtime:` / `lipapi:` prefix; use [`errors.Is`](https://pkg.go.dev/errors#Is) instead of string equality.
-- [`lipapi.SessionRef`](pkg/lipapi/call.go) — the proxy-owned session id field is **`AuthoritativeSessionID`** (renamed from `SessionID` to avoid stutter with the struct name). JSON still uses the key **`SessionID`** for wire compatibility.
-- [`lipsdk.FrontendMount`](pkg/lipsdk/factory.go) now takes a single [`lipsdk.FrontendMountOptions`](pkg/lipsdk/factory.go) after the [`http.ServeMux`](https://pkg.go.dev/net/http#ServeMux). [`pluginreg.(*Registry).MountFrontend`](internal/pluginreg/reg.go) matches that shape (factory id, mux, options).
-- [`stdhttp.MountBundledFrontends`](internal/stdhttp/mount.go) takes [`stdhttp.MountBundledFrontendsInput`](internal/stdhttp/mount.go) instead of six separate parameters.
-- Composition roots: [`pluginreg.InstallStandardBundleOn`](internal/pluginreg/standard_table.go) / [`InstallStandardBackendsOn`](internal/pluginreg/standard_table.go) take [`pluginreg.UpstreamAPIKeys`](internal/pluginreg/keys.go) (per-family **ordered slices**; use [`ResolveUpstreamAPIKeysFromEnv`](internal/pluginreg/keys.go) in `main`, or `UpstreamAPIKeys{}` in tests). Env resolution includes numbered keys (`OPENAI_API_KEY_2`, … **contiguous** suffixes only: scanning stops at the first missing or empty `_N`, so a gap like `_2` unset while `_3` is set will not load `_3`; same pattern for Anthropic/Gemini/OpenRouter/NVIDIA/Hugging Face). Hosted backend YAML accepts optional `api_keys` alongside `api_key` (see [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml)). [`runtime.New`](internal/core/runtime/app.go), [`runtimebundle.Build`](internal/infra/runtimebundle/build.go), [`stdhttp.Run`](internal/stdhttp/server.go), and [`stdhttp.RunWithRuntime`](internal/stdhttp/server.go) require a **non-nil** `*slog.Logger`. [`pluginreg.(*Registry).RegisterBackend`](internal/pluginreg/reg.go) factories return [`execbackend.Backend`](internal/core/execbackend/backend.go) directly (not `any`). [`sqlitestore.New`](internal/core/continuity/sqlitestore/store.go) accepts an existing `*sql.DB` for tests.
-- **Hosted provider backends (multi-key pools)** — The bundled `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `openrouter`, `nvidia`, and `huggingface` backends keep ordered credentials per instance, classify pre-output 401/429 from the official SDKs, and may return [`lipapi.RecoverablePreOutputError`](pkg/lipapi/upstream.go) from [`execbackend.Backend.Open`](internal/core/execbackend/backend.go) when no key is usable before the first canonical stream event (including single-key rate limit or auth failure). They do not return an [`lipapi.EventStream`](pkg/lipapi/events.go) that fails only during [`lipapi.Collect`](pkg/lipapi/events.go) for that case. **401 handling:** HTTP 401 from the hosted upstream is treated as **permanently invalid** for that credential inside the process (the pool marks it unusable until restart); this matches static API keys but is not suitable for short-lived tokens that might recover without a restart. **429 / Gemini:** OpenAI and Anthropic read `Retry-After` from the SDK error where available; the genai client does not attach response headers to [`genai.APIError`](https://pkg.go.dev/google.golang.org/genai#APIError), so the Gemini adapter also reads [`google.rpc.RetryInfo`](https://cloud.google.com/apis/design/errors#error_details) from error JSON `details` when present, otherwise it uses a conservative fixed cooldown fallback.
-- **Terminal stream errors** — [`lipapi.Collect`](pkg/lipapi/events.go) and bundled frontend SSE encoders surface terminal upstream failures as [`lipapi.ErrStreamTerminal`](pkg/lipapi/errors.go) / [`*lipapi.StreamError`](pkg/lipapi/errors.go) (stable `Error()` string `lipapi: stream error`; use [`errors.As`](https://pkg.go.dev/errors#As) for `Code` and `Message`). This replaces embedding provider text directly in `err.Error()`.
-- **ACP JSON-RPC errors** — The bundled ACP client returns [`*acp.RPCError`](internal/plugins/backends/acp/rpc_error.go) with stable `Error()` text per RPC method; use `Code` / `Message` for vendor detail. Optional [`acp.Config.Log`](internal/plugins/backends/acp/plugin.go) enables debug logs when a best-effort cancel RPC fails after consumer cancellation.
-
-## Repository layout
-
-- `cmd/lipstd/` - standard distribution entrypoint (registry + runtimebundle + stdhttp)
-- `internal/pluginreg/` - standard bundle registration (`register_standard.go`, `*_install.go`) and registry helpers; mandatory bundled ids are defined in `pkg/lipsdk`
-- `pkg/lipapi/` - canonical public contracts
-- `pkg/lipsdk/` - stable plugin SDK contracts (including `pkg/lipsdk/request` for request-wide transforms, `pkg/lipsdk/toolcatalog` for tool catalog filters, and `pkg/lipsdk/completion` for whole-completion gates; these merge through `feature.FeatureBundle` into the runtime snapshot)
-- `internal/core/` - runtime, routing, stream, config, admin, capabilities
-- `internal/plugins/` - bundled frontend, backend, and feature plugins
-- `internal/stdhttp/` - standard distribution HTTP wiring (mount + `RunWithRuntime`)
-- `internal/infra/runtimebundle/` - assembles executor, continuity, shared upstream HTTP, health/observer seams
-- `internal/infra/logging/` - YAML-driven `slog` root logger (samber `slog-multi` / `slog-formatter` pipeline)
-- `internal/infra/` - shared infrastructure seams
-- `internal/testkit/` - test support surface scaffold
-- `internal/qa/` - repo hygiene tests (`//go:build precommit`; run via `make test-precommit-extra` or pre-commit hook, not default `make test`)
-- `internal/archtest/` - architecture guardrail tests (budgets, forbidden patterns)
-- `internal/refbackend/` - spec-shaped HTTP emulator servers for tests (`*_test.go` imports only)
-- `internal/refclient/` - official-SDK reference clients for conformance/matrix tests
-- `internal/plugins/stores/` - bundled persistence / continuity store plugins (intentional seam alongside backends)
-- `scripts/` - quality gate scripts (bash + PowerShell)
-- `.githooks/` - optional git hooks
-- `.github/workflows/` - CI QA pipeline
-- `testdata/` - fixtures and goldens
-- `.kiro/` - steering and spec artifacts
-
-## Bootstrap commands
-
-```bash
-make test
-make vet
-# Standard distribution (hosted-provider sample — requires keys or commented backends):
-go run ./cmd/lipstd --config ./config/config.yaml
-# No-key stub dogfood (see docs/dogfood-local.md):
 go run ./cmd/lipstd check-config --config ./config/examples/dogfood-local-stub.yaml
 go run ./cmd/lipstd routes --config ./config/examples/dogfood-local-stub.yaml
 go run ./cmd/lipstd inventory --config ./config/examples/dogfood-local-stub.yaml
 go run ./cmd/lipstd serve --config ./config/examples/dogfood-local-stub.yaml
 ```
 
-Use [`config/config.yaml`](config/config.yaml) as the default hosted-provider-oriented sample; optional `access` / `auth` blocks are spelled out in comments at the top of that file before the active `server` and `logging` keys. For maintainer-local stub workflow and proof-plugin context, use [`docs/dogfood-local.md`](docs/dogfood-local.md) and [`docs/feature-migration-map.md`](docs/feature-migration-map.md).
+For hosted providers, use [`config/config.yaml`](config/config.yaml) as the sample and provide API keys through YAML or environment variables. `pluginreg.ResolveUpstreamAPIKeysFromEnv` resolves the supported provider env vars and numbered variants once at startup; see [`internal/pluginreg/keys.go`](internal/pluginreg/keys.go) for the exact names and numbering rules.
 
-Install [golangci-lint](https://golangci-lint.run/) for the full `make qa` profile; `govulncheck` is invoked as `go tool govulncheck` (version pinned via the `tool` line and `golang.org/x/vuln` in `go.mod`).
+```bash
+go run ./cmd/lipstd --config ./config/config.yaml
+```
+
+`lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow.
+
+## Configuration and operations
+
+- **Config** - Runtime config is typed and loaded from YAML. [`config/config.yaml`](config/config.yaml) documents access/auth templates, server timeouts, logging, diagnostics, observability, routing, continuity, and provider rows. [`config/config.multi-instance.example.yaml`](config/config.multi-instance.example.yaml) shows multiple backend instances of the same adapter.
+- **Routing** - Default selectors come from `routing.default_route` or the first enabled backend plus registry default model ids. `model_aliases` rewrite full selector strings before parsing. Route selectors support ordered failover, weights, first-request annotations, parallel `!` races, per-leg `[handicap=N]`, and global/per-leg TTFT budgets.
+- **Continuity** - `continuity.store: memory` is the default. `continuity.store: sqlite` with `continuity.sqlite_path` persists A-leg rows and attempt lineage through [`internal/core/continuity/sqlitestore`](internal/core/continuity/sqlitestore). In-memory `ttl` and `max_legs` tuning does not apply to SQLite.
+- **Security** - Multi-user or non-loopback deployments need explicit auth/access posture. Local API keys must be at least 16 Unicode code points after trimming. Diagnostics, pprof, metrics, model-catalog diagnostics, and secure-session summaries require a shared secret when exposed beyond loopback.
+- **Observability** - Optional Prometheus metrics and OpenTelemetry tracing are configured under `observability`. Access logs use bounded-cardinality route groups by default; raw paths are opt-in.
+- **HTTP clients** - The shared upstream client honors `HTTP_PROXY` / `HTTPS_PROXY` by default. Set `http_client.trust_environment_proxy: false` when process environment is not trusted.
+- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps, and B2BUA store caps protect memory and request size boundaries.
+
+More detail: [`docs/database-persistence.md`](docs/database-persistence.md), [`docs/routing-health-circuit-breaker.md`](docs/routing-health-circuit-breaker.md), [`docs/execerr-classification.md`](docs/execerr-classification.md), [`docs/extension-platform-authoring.md`](docs/extension-platform-authoring.md), [`docs/performance-checks.md`](docs/performance-checks.md), and [`docs/release-gates.md`](docs/release-gates.md).
+
+## Developer workflow
+
+```bash
+make quality-checks        # gofmt drift, go mod tidy drift, build, vet, guard scripts, archtest
+make test                  # quality-checks + unit tests + parity-checks
+make test-unit             # go test -parallel=8 -timeout=10m ./...
+make test-precommit-extra  # precommit-tagged hygiene + executor matrices
+make test-fast             # quality-checks + staged-package tests, or all when none staged
+make parity-checks         # conformance package with -tags=precommit,integration
+make test-fuzz             # short fuzz smoke over release-gate fuzz targets
+make test-race             # skipped on Windows; strict race runs in CI on Linux
+make bench                 # benchmark smoke for hot packages
+make qa                    # quality-checks + one full tagged test pass + lint + govulncheck
+make hooks-install         # install optional pre-commit hooks
+```
+
+CI (`.github/workflows/qa.yml`) runs `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...`, fuzz smoke, strict Linux race, golangci-lint v2, and `go tool govulncheck ./...`. Linter config lives in [`.golangci.yml`](.golangci.yml).
+
+Recoverability is defined by the specification bundle: tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` contracts, steering, and parity/scenario docs. Start at [`docs/spec-bundle-index.md`](docs/spec-bundle-index.md), [`docs/conformance-golden-coverage.md`](docs/conformance-golden-coverage.md), and [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md).
+
+## Repository layout
+
+- `cmd/lipstd/` - standard distribution command and wiring tests.
+- `pkg/lipapi/` - canonical request, event, capability, validation, and error contracts.
+- `pkg/lipsdk/` - stable plugin SDK contracts and standard distribution requirements.
+- `internal/core/` - runtime orchestration, routing, continuity, secure sessions, hooks/extensions, stream handling, policy, accounting, config, admin, diagnostics, and safety.
+- `internal/plugins/` - bundled frontend, backend, feature, compatibility, and protocol-helper packages.
+- `internal/pluginreg/` - explicit standard bundle registration and backend factory helpers.
+- `internal/infra/runtimebundle/` and `internal/stdhttp/` - runtime assembly and HTTP mounting/serving.
+- `internal/infra/` - logging, HTTP client tuning, metrics, tracing, DB, model catalog/registry, routing health, tokenization/accounting, and auth-event plumbing.
+- `internal/refbackend/`, `internal/refclient/`, `internal/testkit/` - emulators, reference clients, fixtures, stubs, and conformance helpers for tests.
+- `internal/archtest/`, `internal/qa/`, `scripts/`, `.githooks/`, `.github/workflows/` - guardrails and quality automation.
+- `docs/`, `.kiro/`, `testdata/`, `config/` - operator docs, steering/spec artifacts, fixtures, and sample configs.
+
+## Relationship to Python LIP
+
+This repository is the Go implementation of LIP with a smaller core and explicit plugin/SDK boundaries. The sibling Python project remains useful historical context and migration reference, but Go documentation should describe only behavior implemented in this repo unless a doc explicitly says a feature is Python-era or future migration work.
