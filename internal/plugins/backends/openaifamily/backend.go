@@ -16,8 +16,11 @@ const rateLimitFallback = 60 * time.Second
 func New(profile Profile, cfg Config) execbackend.Backend {
 	cfg = ApplyDefaults(profile, cfg)
 	apiKey, apiKeys, credentials := EffectiveCredentials(profile, cfg)
-	resolveModel := func(cand routing.AttemptCandidate, call lipapi.Call) string {
-		return ResolveModel(profile.ModelResolution, profile.ID, cand, call)
+	resolveModel := profile.ResolveModel
+	if resolveModel == nil {
+		resolveModel = func(cand routing.AttemptCandidate, call lipapi.Call) string {
+			return ResolveModel(profile.ModelResolution, profile.ID, cand, call)
+		}
 	}
 	transportCaps := TransportCaps(profile.Transport)
 	be := openaicompat.NewBackend(openaicompat.BackendSpec{

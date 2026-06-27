@@ -36,7 +36,7 @@ type BackendSpec struct {
 	SDKMaxRetries     *int
 	RateLimitFallback time.Duration
 
-	ClientOptions  func(lipapi.Call) []option.RequestOption
+	ClientOptions  func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption
 	RequestOptions func(lipapi.Call) []option.RequestOption
 	ResolveModel   func(routing.AttemptCandidate, lipapi.Call) string
 	ResolveFlavor  func(lipapi.Call) Flavor
@@ -89,7 +89,7 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 				}
 				var clientOptions []option.RequestOption
 				if spec.ClientOptions != nil {
-					clientOptions = spec.ClientOptions(call)
+					clientOptions = spec.ClientOptions(call, cand)
 				}
 				cli := openaicred.NewOpenAIClientWithOptions(spec.BaseURL, cred.Secret, spec.HTTPClient, spec.SDKMaxRetries, clientOptions)
 

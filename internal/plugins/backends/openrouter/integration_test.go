@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -728,4 +729,130 @@ func newRefServer(t *testing.T, cfg refbackend.Config) *httptest.Server {
 	srv := httptest.NewServer(refbackend.NewHandler(cfg))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func TestIntegration_routeParamProviderInBody(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var capturedBody []byte
+
+	srv := newRefServer(t, refbackend.Config{
+		OnRequestBody: func(b []byte) {
+			mu.Lock()
+			capturedBody = append([]byte(nil), b...)
+			mu.Unlock()
+		},
+	})
+
+	call := testCall(nil)
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: new(int),
+	})
+
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{
+			Model:  "deepseek/deepseek-r1",
+			Params: url.Values{"provider": {"deepinfra/turbo"}},
+		},
+	}
+
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = drainStream(t, es)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(capturedBody) == 0 {
+		t.Fatal("captured request body is empty")
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(capturedBody, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v body=%s", err, string(capturedBody))
+	}
+	providerRaw, ok := payload["provider"]
+	if !ok {
+		t.Fatalf("expected provider field in body, got: %s", string(capturedBody))
+	}
+	var provider struct {
+		Order          []string `json:"order"`
+		AllowFallbacks *bool    `json:"allow_fallbacks"`
+	}
+	if err := json.Unmarshal(providerRaw, &provider); err != nil {
+		t.Fatalf("unmarshal provider: %v raw=%s", err, string(providerRaw))
+	}
+	if len(provider.Order) != 1 || provider.Order[0] != "deepinfra/turbo" {
+		t.Fatalf("provider.order = %v, want [deepinfra/turbo]", provider.Order)
+	}
+	if provider.AllowFallbacks == nil {
+		t.Fatalf("provider.allow_fallbacks missing from body, raw=%s", string(providerRaw))
+	}
+	if *provider.AllowFallbacks {
+		t.Fatalf("provider.allow_fallbacks = true, want false")
+	}
+}
+
+func TestIntegration_extProviderWinsOverRouteParam(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var capturedBody []byte
+
+	srv := newRefServer(t, refbackend.Config{
+		OnRequestBody: func(b []byte) {
+			mu.Lock()
+			capturedBody = append([]byte(nil), b...)
+			mu.Unlock()
+		},
+	})
+
+	ext := map[string]json.RawMessage{
+		openrouterwire.ExtProvider: json.RawMessage(`{"order":["OpenAI"],"allow_fallbacks":true}`),
+	}
+	call := testCall(ext)
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	be := openrouter.New(openrouter.Config{
+		BaseURL:       srv.URL,
+		APIKey:        "sk-test",
+		SDKMaxRetries: new(int),
+	})
+
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{
+			Model:  "deepseek/deepseek-r1",
+			Params: url.Values{"provider": {"deepinfra/turbo"}},
+		},
+	}
+
+	es, err := be.Open(context.Background(), call, cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = drainStream(t, es)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(capturedBody) == 0 {
+		t.Fatal("captured request body is empty")
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(capturedBody, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v body=%s", err, string(capturedBody))
+	}
+	providerRaw, ok := payload["provider"]
+	if !ok {
+		t.Fatalf("expected provider field in body, got: %s", string(capturedBody))
+	}
+	assertJSONRawEqual(t, providerRaw, `{"order":["OpenAI"],"allow_fallbacks":true}`)
 }

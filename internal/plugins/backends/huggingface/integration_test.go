@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,13 @@ func testCall() lipapi.Call {
 
 func testCandidate(model string) routing.AttemptCandidate {
 	return routing.AttemptCandidate{Primary: routing.Primary{Model: model}}
+}
+
+func testCandidateWithProvider(model, provider string) routing.AttemptCandidate {
+	return routing.AttemptCandidate{Primary: routing.Primary{
+		Model:  model,
+		Params: url.Values{"provider": {provider}},
+	}}
 }
 
 func drainStream(t *testing.T, es lipapi.ManagedEventStream) []lipapi.Event {
@@ -162,5 +170,98 @@ func TestIntegration_chatCompletionsStreaming(t *testing.T) {
 	}
 	if !hasTextDelta(drainStream(t, es), "hf-stream-ok") {
 		t.Fatal("expected hf-stream-ok text delta")
+	}
+}
+
+func TestIntegration_providerQueryAppendsSlug(t *testing.T) {
+	t.Parallel()
+	handlerErrs := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, readErr := io.ReadAll(r.Body)
+		var err error
+		if r.URL.Path != "/v1/chat/completions" {
+			err = fmt.Errorf("path = %q", r.URL.Path)
+		} else if readErr != nil {
+			err = fmt.Errorf("read request: %w", readErr)
+		} else {
+			var obj map[string]json.RawMessage
+			if decErr := json.Unmarshal(raw, &obj); decErr != nil {
+				err = fmt.Errorf("decode request: %w", decErr)
+			} else if got := string(obj["model"]); got != `"openai/gpt-oss-120b:sambanova"` {
+				err = fmt.Errorf("model = %s, want \"openai/gpt-oss-120b:sambanova\"", got)
+			} else if _, ok := obj["provider"]; ok {
+				err = fmt.Errorf("provider key must not be present in request body, got %s", string(obj["provider"]))
+			}
+		}
+		if err != nil {
+			reportHandlerErr(handlerErrs, err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-hf","object":"chat.completion","created":1715620000,"model":"openai/gpt-oss-120b:sambanova","choices":[{"index":0,"message":{"role":"assistant","content":"hf-provider-ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	call := testCall()
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	be := huggingface.New(huggingface.Config{BaseURL: srv.URL + "/v1", APIKey: "hf-test", HTTPClient: srv.Client()})
+	es, err := be.Open(context.Background(), call, testCandidateWithProvider("openai/gpt-oss-120b", "sambanova"))
+	if handlerErr := pollHandlerErr(handlerErrs); handlerErr != nil {
+		t.Fatal(handlerErr)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTextDelta(drainStream(t, es), "hf-provider-ok") {
+		t.Fatal("expected hf-provider-ok text delta")
+	}
+}
+
+func TestIntegration_providerQueryKeepsExistingSuffix(t *testing.T) {
+	t.Parallel()
+	handlerErrs := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		var err error
+		if r.URL.Path != "/v1/chat/completions" {
+			err = fmt.Errorf("path = %q", r.URL.Path)
+		} else if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
+			err = fmt.Errorf("decode request: %w", decErr)
+		} else if body.Model != "openai/gpt-oss-120b:fastest" {
+			err = fmt.Errorf("model = %q, want openai/gpt-oss-120b:fastest", body.Model)
+		}
+		if err != nil {
+			reportHandlerErr(handlerErrs, err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-hf","object":"chat.completion","created":1715620000,"model":"openai/gpt-oss-120b:fastest","choices":[{"index":0,"message":{"role":"assistant","content":"hf-suffix-ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	call := testCall()
+	call.Invocation = lipapi.Invocation{
+		Operation:     lipapi.OperationOpenAIChatCompletions,
+		DeliveryMode:  lipapi.DeliveryModeNonStreaming,
+		TransportMode: lipapi.TransportModeNonStreaming,
+	}
+	be := huggingface.New(huggingface.Config{BaseURL: srv.URL + "/v1", APIKey: "hf-test", HTTPClient: srv.Client()})
+	es, err := be.Open(context.Background(), call, testCandidateWithProvider("openai/gpt-oss-120b:fastest", "sambanova"))
+	if handlerErr := pollHandlerErr(handlerErrs); handlerErr != nil {
+		t.Fatal(handlerErr)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTextDelta(drainStream(t, es), "hf-suffix-ok") {
+		t.Fatal("expected hf-suffix-ok text delta")
 	}
 }

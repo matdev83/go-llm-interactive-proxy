@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaifamily"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -37,8 +38,8 @@ var profile = openaifamily.Profile{
 // New returns a runtime backend that invokes OpenRouter via the openai-go SDK.
 func New(cfg Config) execbackend.Backend {
 	profile := profile
-	profile.ClientOptions = func(call lipapi.Call) []option.RequestOption {
-		return buildRequestOptions(call, cfg)
+	profile.ClientOptions = func(call lipapi.Call, cand routing.AttemptCandidate) []option.RequestOption {
+		return buildRequestOptions(call, cand, cfg)
 	}
 	return openaifamily.New(profile, openaifamily.Config{
 		BaseURL:       cfg.BaseURL,

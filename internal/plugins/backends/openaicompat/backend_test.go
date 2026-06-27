@@ -129,7 +129,7 @@ func TestNewBackend_forwardsRequestAndClientOptions(t *testing.T) {
 	})
 
 	spec := validBackendSpec(srv.URL)
-	spec.ClientOptions = func(lipapi.Call) []option.RequestOption {
+	spec.ClientOptions = func(lipapi.Call, routing.AttemptCandidate) []option.RequestOption {
 		return []option.RequestOption{option.WithHeader("X-Test-Client", "yes")}
 	}
 	spec.RequestOptions = func(lipapi.Call) []option.RequestOption {

@@ -53,6 +53,14 @@ type Primary struct {
 	TTFTTimeout *time.Duration
 }
 
+// TrimmedParam returns the first query parameter value with surrounding whitespace removed.
+func (p Primary) TrimmedParam(key string) string {
+	if p.Params == nil {
+		return ""
+	}
+	return strings.TrimSpace(p.Params.Get(key))
+}
+
 // RequestSizeConstraint carries per-leaf request token eligibility bounds.
 type RequestSizeConstraint struct {
 	MinContextTokens *int64
