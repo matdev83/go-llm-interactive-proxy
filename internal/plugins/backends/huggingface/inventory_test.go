@@ -2,6 +2,7 @@ package huggingface_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,9 +12,16 @@ import (
 
 func TestNew_openAICompatibleInventory(t *testing.T) {
 	t.Parallel()
+	handlerErrs := make(chan error, 1)
 	modelsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
-			t.Fatalf("path = %q", r.URL.Path)
+			err := fmt.Errorf("path = %q", r.URL.Path)
+			select {
+			case handlerErrs <- err:
+			default:
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		_, _ = w.Write([]byte(`{"data":[{"id":"meta-llama/Llama-3.1-8B-Instruct"}]}`))
 	}))
@@ -27,6 +35,11 @@ func TestNew_openAICompatibleInventory(t *testing.T) {
 	snap, err := be.ModelInventory.LoadModels(context.Background())
 	if err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case err := <-handlerErrs:
+		t.Fatal(err)
+	default:
 	}
 	if len(snap.Models) != 1 {
 		t.Fatalf("models = %+v", snap.Models)

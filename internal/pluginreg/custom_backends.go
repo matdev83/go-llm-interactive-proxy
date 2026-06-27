@@ -214,6 +214,15 @@ func standardBackendPrefixSet() map[string]struct{} {
 			continue
 		}
 		out[entry.ID] = struct{}{}
+		be, err := entry.Factory(yaml.Node{}, nil, BackendFactoryDeps{})
+		if err != nil {
+			continue
+		}
+		for _, prefix := range be.BackendPrefixes {
+			if prefix = strings.TrimSpace(prefix); prefix != "" {
+				out[prefix] = struct{}{}
+			}
+		}
 	}
 	return out
 }
