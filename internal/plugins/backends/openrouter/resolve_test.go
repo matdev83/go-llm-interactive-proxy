@@ -12,12 +12,14 @@ func TestProviderRawFromCandidate(t *testing.T) {
 	t.Parallel()
 
 	t.Run("empty when no params", func(t *testing.T) {
+		t.Parallel()
 		if got := providerRawFromCandidate(routing.AttemptCandidate{}); got != nil {
 			t.Fatalf("expected nil, got %s", string(got))
 		}
 	})
 
 	t.Run("empty when provider param missing", func(t *testing.T) {
+		t.Parallel()
 		cand := routing.AttemptCandidate{Primary: routing.Primary{Params: url.Values{"foo": {"bar"}}}}
 		if got := providerRawFromCandidate(cand); got != nil {
 			t.Fatalf("expected nil, got %s", string(got))
@@ -25,6 +27,7 @@ func TestProviderRawFromCandidate(t *testing.T) {
 	})
 
 	t.Run("builds order and disable fallbacks", func(t *testing.T) {
+		t.Parallel()
 		cand := routing.AttemptCandidate{Primary: routing.Primary{Params: url.Values{"provider": {"deepinfra/turbo"}}}}
 		raw := providerRawFromCandidate(cand)
 		if raw == nil {
@@ -49,6 +52,7 @@ func TestProviderRawFromCandidate(t *testing.T) {
 	})
 
 	t.Run("uses first value when multiple", func(t *testing.T) {
+		t.Parallel()
 		cand := routing.AttemptCandidate{Primary: routing.Primary{Params: url.Values{"provider": {"a", "b"}}}}
 		raw := providerRawFromCandidate(cand)
 		var got struct {
@@ -63,6 +67,7 @@ func TestProviderRawFromCandidate(t *testing.T) {
 	})
 
 	t.Run("trims surrounding whitespace", func(t *testing.T) {
+		t.Parallel()
 		cand := routing.AttemptCandidate{Primary: routing.Primary{Params: url.Values{"provider": {"  deepinfra/turbo  "}}}}
 		raw := providerRawFromCandidate(cand)
 		if raw == nil {
@@ -80,6 +85,7 @@ func TestProviderRawFromCandidate(t *testing.T) {
 	})
 
 	t.Run("empty when provider is whitespace only", func(t *testing.T) {
+		t.Parallel()
 		cand := routing.AttemptCandidate{Primary: routing.Primary{Params: url.Values{"provider": {"   "}}}}
 		if got := providerRawFromCandidate(cand); got != nil {
 			t.Fatalf("expected nil for whitespace-only provider, got %s", string(got))
