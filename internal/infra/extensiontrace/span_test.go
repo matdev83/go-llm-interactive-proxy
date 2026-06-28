@@ -10,21 +10,21 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
+//nolint:paralleltest // Mutates global OpenTelemetry tracer provider; must run serially.
 func TestStartSpan_ok(t *testing.T) {
-	t.Parallel()
 	ctx, end := StartSpan(context.Background(), "lip.extension.test_span")
 	end(nil)
 	_ = ctx
 }
 
+//nolint:paralleltest // Mutates global OpenTelemetry tracer provider; must run serially.
 func TestStartSpan_withErr(t *testing.T) {
-	t.Parallel()
 	_, end := StartSpan(context.Background(), "lip.extension.test_span_err")
 	end(context.Canceled)
 }
 
+//nolint:paralleltest // Mutates global OpenTelemetry tracer provider; must run serially.
 func TestStartSpan_nilParent(t *testing.T) {
-	t.Parallel()
 	//nolint:staticcheck // nil parent: StartSpan must coerce to a usable context
 	ctx, end := StartSpan(nil, "lip.extension.nil_parent")
 	defer end(nil)
@@ -33,8 +33,8 @@ func TestStartSpan_nilParent(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Mutates global OpenTelemetry tracer provider; must run serially.
 func TestStartSpan_setsAttributes(t *testing.T) {
-	t.Parallel()
 	rec := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
 	prev := otel.GetTracerProvider()
