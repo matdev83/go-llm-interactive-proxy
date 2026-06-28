@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -227,12 +228,15 @@ func TestExecutorRequestSizePreflightUsesHybridParallelLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var countedMu sync.Mutex
 	var counted []string
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
 		Rand:  routing.NewSeededRng(1),
 		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(_ context.Context, in accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+			countedMu.Lock()
+			defer countedMu.Unlock()
 			counted = append(counted, in.Backend+":"+in.Model)
 			return accountingapp.CountResult{InputTokens: 3, TotalTokens: 3}, nil
 		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory}),
@@ -267,7 +271,10 @@ func TestExecutorRequestSizePreflightUsesHybridParallelLeaf(t *testing.T) {
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
 		t.Fatal(err)
 	}
-	if len(counted) == 0 || counted[0] != "exec-a:small" {
-		t.Fatalf("first preflight counted %v, want first exec-a:small", counted)
+	countedMu.Lock()
+	countedCopy := append([]string(nil), counted...)
+	countedMu.Unlock()
+	if len(countedCopy) == 0 || countedCopy[0] != "exec-a:small" {
+		t.Fatalf("first preflight counted %v, want first exec-a:small", countedCopy)
 	}
 }
