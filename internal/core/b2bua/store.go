@@ -1,6 +1,7 @@
 package b2bua
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -17,6 +19,11 @@ var (
 	ErrInvalidContinuityKey = errors.New("b2bua: continuity key required for resolve")
 	ErrInvalidAttempt       = errors.New("b2bua: invalid attempt record")
 	ErrInvalidMaxLegs       = errors.New("b2bua: max_legs must be non-negative")
+	// ErrInterleavedStateUnsupported is returned when an operation targets a
+	// store that does not implement InterleavedStateStore and the requested
+	// state is non-empty. Empty state remains a no-op so callers can treat
+	// unsupported lineage as a new-session equivalent.
+	ErrInterleavedStateUnsupported = errors.New("b2bua: interleaved state not supported by store")
 )
 
 // ALegRecord is the core-owned logical session row for routing and lineage.
@@ -44,6 +51,20 @@ type Store interface {
 	NextBLeg(ctx context.Context, aLegID string) (BLegRecord, error)
 	RecordAttempt(ctx context.Context, rec lipapi.AttemptRecord) error
 	LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.AttemptRecord, error)
+}
+
+// InterleavedStateStore is the narrow optional contract for persisting
+// thinker cycle state and memo references under A-leg continuity authority.
+//
+// It is intentionally separate from Store so pkg/lipsdk/continuity can mirror
+// only the base continuity contract without importing internal/core/interleavedstate
+// (archtests forbid pkg/lipsdk from depending on internal/). Durable and in-memory
+// stores implement this in addition to Store; callers type-assert or accept this
+// interface explicitly. A zero-value state is valid and means "no thinker state",
+// which is backward-compatible with A-legs created before interleaved thinking.
+type InterleavedStateStore interface {
+	SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error
+	FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error)
 }
 
 // MemoryStoreOptions configures the in-memory implementation.
@@ -75,14 +96,17 @@ type MemoryStore struct {
 	byKey map[string]string
 }
 
-var _ Store = (*MemoryStore)(nil)
+var (
+	_ Store                 = (*MemoryStore)(nil)
+	_ InterleavedStateStore = (*MemoryStore)(nil)
+)
 
 type legState struct {
-	record                ALegRecord
-	nextSeq               int
-	seqToBLeg             map[int]string
-	attemptBySeq          map[int]lipapi.AttemptRecord
-	continuityKeyInternal string // same as record.ContinuityKey; used on eviction
+	record       ALegRecord
+	nextSeq      int
+	seqToBLeg    map[int]string
+	attemptBySeq map[int]lipapi.AttemptRecord
+	interleaved  interleavedstate.State
 }
 
 // NewMemoryStore returns an empty store. opts may be zero-valued defaults.
@@ -158,10 +182,9 @@ func (s *MemoryStore) CreateALeg(ctx context.Context, continuityKey string) (ALe
 		LastSeenAt:    now,
 	}
 	st := &legState{
-		record:                rec,
-		seqToBLeg:             make(map[int]string),
-		attemptBySeq:          make(map[int]lipapi.AttemptRecord),
-		continuityKeyInternal: continuityKey,
+		record:       rec,
+		seqToBLeg:    make(map[int]string),
+		attemptBySeq: make(map[int]lipapi.AttemptRecord),
 	}
 	s.legs[aID] = st
 	if continuityKey != "" {
@@ -212,6 +235,51 @@ func (s *MemoryStore) SetWeightedFirstConsumed(ctx context.Context, aLegID strin
 	st.record.WeightedFirstConsumed = consumed
 	st.record.LastSeenAt = s.nowTime()
 	return nil
+}
+
+// SetInterleavedState stores the thinker cycle state and memo reference for an
+// A-leg. An empty state is permitted and clears any previously stored state.
+// The state is validated before storage; invalid state is rejected without
+// mutating the stored value.
+func (s *MemoryStore) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := state.Validate(); err != nil {
+		return fmt.Errorf("b2bua: invalid interleaved state: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.legs[aLegID]
+	if !ok {
+		return ErrALegNotFound
+	}
+	if s.evictIfStaleLocked(st, s.nowTime()) {
+		return ErrALegNotFound
+	}
+	st.interleaved = state
+	st.record.LastSeenAt = s.nowTime()
+	return nil
+}
+
+// FetchInterleavedState returns the thinker cycle state and memo reference for
+// an A-leg. A leg with no stored state returns the zero value, which is a
+// harmless "new session" state for cycle purposes.
+func (s *MemoryStore) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	if err := ctx.Err(); err != nil {
+		return interleavedstate.State{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.legs[aLegID]
+	if !ok {
+		return interleavedstate.State{}, ErrALegNotFound
+	}
+	if s.evictIfStaleLocked(st, s.nowTime()) {
+		return interleavedstate.State{}, ErrALegNotFound
+	}
+	st.record.LastSeenAt = s.nowTime()
+	return st.interleaved, nil
 }
 
 // NextBLeg allocates the next monotonic B-leg id and sequence for the A-leg.
@@ -290,13 +358,7 @@ func (s *MemoryStore) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi
 		out = append(out, r)
 	}
 	slices.SortFunc(out, func(a, b lipapi.AttemptRecord) int {
-		if a.Seq < b.Seq {
-			return -1
-		}
-		if a.Seq > b.Seq {
-			return 1
-		}
-		return 0
+		return cmp.Compare(a.Seq, b.Seq)
 	})
 	return out, nil
 }
@@ -335,9 +397,10 @@ func (s *MemoryStore) removeLegLocked(aLegID string) {
 		return
 	}
 	delete(s.legs, aLegID)
-	if st.continuityKeyInternal != "" {
-		if cur, ok := s.byKey[st.continuityKeyInternal]; ok && cur == aLegID {
-			delete(s.byKey, st.continuityKeyInternal)
+	continuityKey := st.record.ContinuityKey
+	if continuityKey != "" {
+		if cur, ok := s.byKey[continuityKey]; ok && cur == aLegID {
+			delete(s.byKey, continuityKey)
 		}
 	}
 }

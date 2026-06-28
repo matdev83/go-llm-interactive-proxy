@@ -6,7 +6,9 @@ package runtime
 // SecureSession fails closed there; see failclosed tests for an explicit regression.
 
 import (
+	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
@@ -16,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func init() {
@@ -52,4 +55,16 @@ func prepareExecutorSecureSessionForTests(e *Executor) {
 		e.SessionDenialMapper = lipapidenial.MapToSessionDenial
 	}
 	e.SyntheticLocalPrincipal = true
+}
+
+type ParallelPreWinFailStream struct{}
+
+func (ParallelPreWinFailStream) Recv(context.Context) (lipapi.Event, error) {
+	return lipapi.Event{}, errors.New("parallel leg failed before winner")
+}
+
+func (ParallelPreWinFailStream) Close() error { return nil }
+
+func (ParallelPreWinFailStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{}
 }

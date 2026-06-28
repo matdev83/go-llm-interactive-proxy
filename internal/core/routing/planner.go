@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 )
 
 // ErrNoEligibleCandidate means every candidate in the relevant scope was excluded or unhealthy.
@@ -36,6 +38,13 @@ type PlanOptions struct {
 	// math/rand/v2 PCG stream (deterministic, not crypto-safe); inject for tests or concurrency-safe rolls.
 	Rand        Rng
 	IsRetryPath bool
+	// ThinkerCycle is the persisted thinker-aware weighted cycle cursor for the current selector.
+	// A zero-value (empty) state means no cycle has been established yet; the planner builds a
+	// fresh cycle from the weighted branches and starts at position 0.
+	ThinkerCycle interleavedstate.CycleState
+	// SuppressThinker skips the thinker position during cycle advancement (continuation turns)
+	// and returns deterministic no-eligible-route outcomes when no executor candidate remains.
+	SuppressThinker bool
 }
 
 // RequestSizeEstimate is a provider-neutral request token estimate for route planning.
@@ -61,12 +70,23 @@ type AttemptCandidate struct {
 	IsParallel bool
 	// Handicap is the per-leg head-start delay for parallel routing (0 = no handicap).
 	Handicap time.Duration
+	// InterleavedRole labels thinker/executor candidates in thinker-aware weighted cycles.
+	// It is RoleNone for non-thinker weighted selectors.
+	InterleavedRole interleavedstate.Role
+	// SelectorKey is the thinker-aware weighted selector key the candidate was planned from.
+	// Empty for non-thinker weighted selectors.
+	SelectorKey string
 }
 
 // AttemptGroup is one eligible failover arm after planning.
 // Single-candidate arms (primary/weighted) contain exactly one candidate; parallel arms contain one or more legs.
 type AttemptGroup struct {
 	Candidates []AttemptCandidate
+	// NextThinkerCycle is the advanced thinker-aware weighted cycle cursor produced by
+	// picking a thinker-aware weighted branch. It is nil for non-thinker weighted selectors
+	// and for primary/parallel arms. Callers persist it when route selection becomes
+	// authoritative so the next request in the same session continues from the next position.
+	NextThinkerCycle *interleavedstate.CycleState
 }
 
 // ExpandFailoverGroups resolves a parsed selector into ordered candidate groups (one group per eligible arm).
@@ -76,8 +96,8 @@ func ExpandFailoverGroups(sel *Selector, opt PlanOptions) ([]AttemptGroup, error
 	if sel == nil {
 		return nil, fmt.Errorf("%w: nil selector", ErrInvalidSelector)
 	}
-	if c, ok := stickyCandidate(sel, opt); ok {
-		return []AttemptGroup{{Candidates: []AttemptCandidate{c}}}, nil
+	if g, ok := stickyAttemptGroup(sel, opt); ok {
+		return []AttemptGroup{g}, nil
 	}
 	groups := make([]AttemptGroup, 0, len(sel.Alternatives))
 	for _, alt := range sel.Alternatives {
@@ -89,7 +109,7 @@ func ExpandFailoverGroups(sel *Selector, opt PlanOptions) ([]AttemptGroup, error
 			}
 			groups = append(groups, AttemptGroup{Candidates: []AttemptCandidate{c}})
 		case alt.Weighted != nil:
-			c, consumeFirst, err := pickWeighted(alt.Weighted, opt)
+			c, consumeFirst, nextCycle, err := pickWeighted(alt.Weighted, opt)
 			if errors.Is(err, ErrNoEligibleCandidate) {
 				continue
 			}
@@ -99,7 +119,7 @@ func ExpandFailoverGroups(sel *Selector, opt PlanOptions) ([]AttemptGroup, error
 			if consumeFirst && opt.Session != nil {
 				opt.Session.FirstRequestConsumed = true
 			}
-			groups = append(groups, AttemptGroup{Candidates: []AttemptCandidate{c}})
+			groups = append(groups, AttemptGroup{Candidates: c, NextThinkerCycle: nextCycle})
 		case alt.Parallel != nil:
 			legs := expandParallel(alt.Parallel, opt)
 			if len(legs) == 0 {
@@ -133,10 +153,10 @@ func ExpandFailover(sel *Selector, opt PlanOptions) ([]AttemptCandidate, error) 
 	return out, nil
 }
 
-func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, bool) {
+func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, *interleavedstate.CycleState, bool) {
 	backend := strings.TrimSpace(opt.StickyBackendID)
 	if sel == nil || backend == "" {
-		return AttemptCandidate{}, false
+		return AttemptCandidate{}, nil, false
 	}
 	for _, alt := range sel.Alternatives {
 		switch {
@@ -146,17 +166,65 @@ func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, bool) {
 			}
 			c := AttemptCandidate{Primary: *alt.Primary, Key: alt.Primary.String()}
 			if candidateEligible(c.Primary, c.Key, opt) {
-				return c, true
+				return c, nil, true
 			}
 		case alt.Weighted != nil:
+			var entries []interleavedstate.CycleEntry
+			var selKey string
+			thinkerAware := false
 			for _, b := range alt.Weighted.Branches {
+				if b.IsThinker {
+					entries, selKey = buildThinkerCycle(alt.Weighted)
+					thinkerAware = true
+					break
+				}
+			}
+			for _, b := range alt.Weighted.Branches {
+				if b.IsThinker && opt.SuppressThinker {
+					continue
+				}
+				if b.Parallel != nil {
+					for _, leg := range b.Parallel.Branches {
+						if strings.TrimSpace(leg.Target.Backend) != backend {
+							continue
+						}
+						c := AttemptCandidate{
+							Primary:    leg.Target,
+							Key:        leg.Target.String(),
+							IsParallel: true,
+							Handicap:   leg.Handicap,
+						}
+						if !candidateEligible(c.Primary, c.Key, opt) {
+							continue
+						}
+						c.MarkedFirst = b.IsFirst && !opt.IsRetryPath && opt.Session != nil && !opt.Session.FirstRequestConsumed
+						var next *interleavedstate.CycleState
+						if thinkerAware {
+							c.SelectorKey = selKey
+							c.InterleavedRole = interleavedstate.RoleExecutor
+							next = nextCycleForEntry(entries, selKey, branchKey(b), interleavedstate.RoleExecutor)
+						}
+						return c, next, true
+					}
+					continue
+				}
 				if strings.TrimSpace(b.Target.Backend) != backend {
 					continue
 				}
 				c := AttemptCandidate{Primary: b.Target, Key: b.Target.String()}
 				if candidateEligible(c.Primary, c.Key, opt) {
 					c.MarkedFirst = b.IsFirst && !opt.IsRetryPath && opt.Session != nil && !opt.Session.FirstRequestConsumed
-					return c, true
+					var next *interleavedstate.CycleState
+					if thinkerAware {
+						role := interleavedstate.RoleExecutor
+						if b.IsThinker {
+							role = interleavedstate.RoleThinker
+						}
+						c.SelectorKey = selKey
+						c.InterleavedRole = role
+						next = nextCycleForEntry(entries, selKey, branchKey(b), role)
+					}
+					return c, next, true
 				}
 			}
 		case alt.Parallel != nil:
@@ -166,12 +234,36 @@ func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, bool) {
 				}
 				c := AttemptCandidate{Primary: b.Target, Key: b.Target.String(), IsParallel: true, Handicap: b.Handicap}
 				if candidateEligible(c.Primary, c.Key, opt) {
-					return c, true
+					return c, nil, true
 				}
 			}
 		}
 	}
-	return AttemptCandidate{}, false
+	return AttemptCandidate{}, nil, false
+}
+
+func nextCycleForEntry(entries []interleavedstate.CycleEntry, selKey, key string, role interleavedstate.Role) *interleavedstate.CycleState {
+	if len(entries) == 0 {
+		return nil
+	}
+	for idx, entry := range entries {
+		if entry.Key == key && entry.Role == role {
+			return &interleavedstate.CycleState{
+				SelectorKey: selKey,
+				Sequence:    entries,
+				NextIndex:   (idx + 1) % len(entries),
+			}
+		}
+	}
+	return nil
+}
+
+func stickyAttemptGroup(sel *Selector, opt PlanOptions) (AttemptGroup, bool) {
+	c, next, ok := stickyCandidate(sel, opt)
+	if !ok {
+		return AttemptGroup{}, false
+	}
+	return AttemptGroup{Candidates: []AttemptCandidate{c}, NextThinkerCycle: next}, true
 }
 
 func expandParallel(p *Parallel, opt PlanOptions) []AttemptCandidate {
@@ -226,32 +318,29 @@ func reorderPreferredGroups(groups []AttemptGroup, preferred []string) []Attempt
 	if len(groups) <= 1 || len(preferred) == 0 {
 		return groups
 	}
-	type groupKey struct {
-		group int
-	}
-	indexByCandidate := map[string]groupKey{}
+	indexByCandidate := map[string]int{}
 	for gi, g := range groups {
 		for _, c := range g.Candidates {
 			if c.Key == "" {
 				continue
 			}
 			if _, exists := indexByCandidate[c.Key]; !exists {
-				indexByCandidate[c.Key] = groupKey{group: gi}
+				indexByCandidate[c.Key] = gi
 			}
 		}
 	}
 	seenGroup := map[int]struct{}{}
 	out := make([]AttemptGroup, 0, len(groups))
 	for _, key := range preferred {
-		meta, ok := indexByCandidate[key]
+		group, ok := indexByCandidate[key]
 		if !ok {
 			continue
 		}
-		if _, exists := seenGroup[meta.group]; exists {
+		if _, exists := seenGroup[group]; exists {
 			continue
 		}
-		out = append(out, groups[meta.group])
-		seenGroup[meta.group] = struct{}{}
+		out = append(out, groups[group])
+		seenGroup[group] = struct{}{}
 	}
 	for gi, g := range groups {
 		if _, exists := seenGroup[gi]; exists {
@@ -307,6 +396,14 @@ func SelectorHasRequestSizeConstraints(sel *Selector) bool {
 		}
 		if alt.Weighted != nil {
 			for _, b := range alt.Weighted.Branches {
+				if b.Parallel != nil {
+					for _, leg := range b.Parallel.Branches {
+						if hasRequestSizeConstraint(leg.Target.Size) {
+							return true
+						}
+					}
+					continue
+				}
 				if hasRequestSizeConstraint(b.Target.Size) {
 					return true
 				}
@@ -332,6 +429,9 @@ func hasRequestSizeConstraint(c RequestSizeConstraint) bool {
 func ReplanWeighted(w *Weighted, opt PlanOptions) (AttemptCandidate, error) {
 	opt2 := opt
 	opt2.IsRetryPath = true
-	c, _, err := pickWeighted(w, opt2)
-	return c, err
+	cands, _, _, err := pickWeighted(w, opt2)
+	if err != nil {
+		return AttemptCandidate{}, err
+	}
+	return cands[0], nil
 }

@@ -25,6 +25,7 @@ func registerContinuityBaselineMigration() {
 			_ = db
 			return nil
 		})
+		registerInterleavedStateMigration()
 	})
 }
 

@@ -36,6 +36,25 @@ func TestDefaultBackendFromRouteSelector(t *testing.T) {
 	}
 }
 
+func TestDefaultBackendFromRouteSelector_HybridParallelFirstBranch(t *testing.T) {
+	t.Parallel()
+	b, err := routing.DefaultBackendFromRouteSelector("b:m!c:m^[thinker]a:m")
+	if err != nil || b != "b" {
+		t.Fatalf("got %q %v", b, err)
+	}
+}
+
+func TestSelectorHasRequestSizeConstraints_HybridParallelLeg(t *testing.T) {
+	t.Parallel()
+	sel, err := routing.Parse("[thinker]a:m^[max_context=10]b:m!c:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !routing.SelectorHasRequestSizeConstraints(sel) {
+		t.Fatal("embedded parallel leg max_context must be detected")
+	}
+}
+
 func TestApplyModelOnlyBackendsParallelBranches(t *testing.T) {
 	t.Parallel()
 	sel, err := routing.Parse("gpt-4!claude")
@@ -56,6 +75,38 @@ func TestSelectorHasEmptyBackendParallel(t *testing.T) {
 	}
 	if !routing.SelectorHasEmptyBackend(sel) {
 		t.Fatal("model-only parallel branch should report empty backend")
+	}
+}
+
+func TestSelectorHasEmptyBackendThinkerHybridParallel(t *testing.T) {
+	t.Parallel()
+	sel, err := routing.Parse("[thinker]a:m^b:m!c:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routing.SelectorHasEmptyBackend(sel) {
+		t.Fatal("embedded parallel legs with backends must not report empty backend")
+	}
+}
+
+func TestApplyModelOnlyBackendsThinkerHybridParallel(t *testing.T) {
+	t.Parallel()
+	sel, err := routing.Parse("[thinker]:m^:m!:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routing.ApplyModelOnlyBackends(sel, "openai")
+	if routing.SelectorHasEmptyBackend(sel) {
+		t.Fatal("expected embedded parallel legs filled")
+	}
+	w := sel.Alternatives[0].Weighted
+	if w == nil || len(w.Branches) != 2 || w.Branches[1].Parallel == nil {
+		t.Fatalf("unexpected hybrid shape: %#v", sel)
+	}
+	for _, leg := range w.Branches[1].Parallel.Branches {
+		if leg.Target.Backend != "openai" {
+			t.Fatalf("parallel leg backend: got %q want openai", leg.Target.Backend)
+		}
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	// Blank import registers the "sqlite" driver for database/sql. It lives in this package
 	// (not only in cmd/main) so any binary that links sqlitestore.Open gets a working driver
@@ -102,7 +103,10 @@ type Store struct {
 	db *sql.DB
 }
 
-var _ b2bua.Store = (*Store)(nil)
+var (
+	_ b2bua.Store                 = (*Store)(nil)
+	_ b2bua.InterleavedStateStore = (*Store)(nil)
+)
 
 func (s *Store) migrate(ctx context.Context) error {
 	stmts := []string{
@@ -112,7 +116,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			created_at_unix INTEGER NOT NULL,
 			last_seen_at_unix INTEGER NOT NULL,
 			weighted_first_consumed INTEGER NOT NULL DEFAULT 0,
-			next_b_seq INTEGER NOT NULL DEFAULT 0
+			next_b_seq INTEGER NOT NULL DEFAULT 0,
+			interleaved_state_json TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_a_legs_continuity
 			ON a_legs(continuity_key) WHERE continuity_key != ''`,
@@ -142,7 +147,28 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("sqlitestore migrate: %w", err)
 		}
 	}
+	if err := s.migrateAddInterleavedStateColumn(ctx); err != nil {
+		return fmt.Errorf("sqlitestore migrate: %w", err)
+	}
 	return nil
+}
+
+// migrateAddInterleavedStateColumn adds the interleaved_state_json column to
+// a_legs for databases created before this feature. Idempotent: tolerates the
+// "duplicate column name" error returned when the column already exists.
+func (s *Store) migrateAddInterleavedStateColumn(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `ALTER TABLE a_legs ADD COLUMN interleaved_state_json TEXT NOT NULL DEFAULT ''`)
+	if err == nil {
+		return nil
+	}
+	if isSQLiteDuplicateColumnErr(err) {
+		return nil
+	}
+	return err
+}
+
+func isSQLiteDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "duplicate column name")
 }
 
 // Close releases the database handle.
@@ -391,4 +417,63 @@ func (s *Store) LoadAttempts(ctx context.Context, aLegID string) ([]lipapi.Attem
 		return nil, opErr("load_attempts touch a_leg", err)
 	}
 	return out, nil
+}
+
+// SetInterleavedState persists the thinker cycle state and memo reference for
+// an A-leg as bounded JSON. An empty state clears any previously stored state
+// (stored as the zero-value empty string). Invalid state is rejected without
+// mutating the stored value. The memo body is never stored here; only the
+// compact cycle state and memo reference are persisted.
+func (s *Store) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := state.Validate(); err != nil {
+		return fmt.Errorf("sqlitestore: invalid interleaved state: %w", err)
+	}
+	encoded, err := interleavedstate.MarshalStateText(state)
+	if err != nil {
+		return opErr("set_interleaved_state encode", err)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE a_legs SET interleaved_state_json = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
+		encoded, time.Now().UnixNano(), aLegID)
+	if err != nil {
+		return opErr("set_interleaved_state update", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("set_interleaved_state rows_affected", err)
+	}
+	if n == 0 {
+		return b2bua.ErrALegNotFound
+	}
+	return nil
+}
+
+// FetchInterleavedState returns the thinker cycle state and memo reference for
+// an A-leg. A leg with no stored state returns the zero value, which is a
+// harmless "new session" state for cycle purposes.
+func (s *Store) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	if err := ctx.Err(); err != nil {
+		return interleavedstate.State{}, err
+	}
+	var encoded string
+	err := s.db.QueryRowContext(ctx, `SELECT interleaved_state_json FROM a_legs WHERE a_leg_id = ?`, aLegID).Scan(&encoded)
+	if errors.Is(err, sql.ErrNoRows) {
+		return interleavedstate.State{}, b2bua.ErrALegNotFound
+	}
+	if err != nil {
+		return interleavedstate.State{}, opErr("fetch_interleaved_state select", err)
+	}
+	state, err := interleavedstate.UnmarshalStateText(encoded)
+	if err != nil {
+		return interleavedstate.State{}, opErr("fetch_interleaved_state decode", err)
+	}
+	if err := state.Validate(); err != nil {
+		return interleavedstate.State{}, opErr("fetch_interleaved_state validate", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, time.Now().UnixNano(), aLegID); err != nil {
+		return interleavedstate.State{}, opErr("fetch_interleaved_state touch a_leg", err)
+	}
+	return state, nil
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/b2buatest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -322,4 +323,16 @@ func TestMemoryStore_NextBLeg_concurrentUniqueSeq(t *testing.T) {
 	if b.Seq != n+1 {
 		t.Fatalf("expected next seq %d after %d concurrent allocations, got %d", n+1, n, b.Seq)
 	}
+}
+
+func TestMemoryStore_InterleavedState(t *testing.T) {
+	t.Parallel()
+	b2buatest.TestInterleavedStateStore(t, func(t *testing.T) b2buatest.Store {
+		t.Helper()
+		s, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	})
 }

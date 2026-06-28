@@ -14,6 +14,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -35,21 +37,41 @@ func selectorHasParallelArm(sel *routing.Selector) bool {
 }
 
 type parallelLeg struct {
-	cand    routing.AttemptCandidate
-	bleg    b2bua.BLegRecord
-	stream  lipapi.ManagedEventStream
-	delay   time.Duration
-	recvErr error
+	cand        routing.AttemptCandidate
+	bleg        b2bua.BLegRecord
+	stream      lipapi.ManagedEventStream
+	delay       time.Duration
+	recvErr     error
+	interleaved interleavedstate.State
+	memoUpdate  *interleavedthinking.PendingMemoUpdate
+}
+
+func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
+	if scope == nil {
+		return
+	}
+	for _, leg := range legs {
+		scope.ReleaseBLeg(leg.bleg.BLegID)
+	}
 }
 
 func (e *Executor) tryOpenParallelGroup(
 	p attemptOpenParams,
 	candidates []routing.AttemptCandidate,
+	nextCycle *interleavedstate.CycleState,
 	stickyBackendID string,
 	stickyBinding bool,
 ) (attemptOpenResult, error) {
 	var zero attemptOpenResult
 	ctx := p.ctx
+	interleaved := p.interleaved
+	if nextCycle != nil {
+		interleaved.Cycle = *nextCycle
+		if err := e.persistInterleavedState(ctx, p.aLegID, interleaved); err != nil {
+			return zero, fmt.Errorf("executor: persist interleaved cycle: %w", err)
+		}
+	}
+	p.interleaved = interleaved
 	maxHandicap := time.Duration(0)
 	for _, c := range candidates {
 		if c.Handicap > maxHandicap {
@@ -144,10 +166,11 @@ func (e *Executor) tryOpenParallelGroup(
 			legParams.lastReject = nil
 			legParams.lastTransportReject = nil
 			legParams.isContextLimitExhaustion = nil
+			legParams.deferMemoInjectionCommit = true
 			// Parallel legs reserve attempt-budget slots before launch to avoid racy over-open.
 			legParams.budget = nil
 
-			out, err := e.openPlannedCandidate(legParams, entry.cand, stickyBackendID, stickyBinding)
+			out, err := e.openPlannedCandidate(legParams, entry.cand, nil, stickyBackendID, stickyBinding)
 			if err != nil {
 				if isParallelFatalErr(err) {
 					stopRace := false
@@ -181,7 +204,9 @@ func (e *Executor) tryOpenParallelGroup(
 					ID:      out.bleg.BLegID,
 					Attempt: lifecycleAttempt(out.stream),
 				}); err != nil {
-					_ = out.stream.Close()
+					if !errors.Is(err, leglifecycle.ErrALegCanceled) {
+						_ = out.stream.Close()
+					}
 					stopRace := false
 					mu.Lock()
 					if winnerIdx < 0 {
@@ -211,6 +236,8 @@ func (e *Executor) tryOpenParallelGroup(
 			mu.Lock()
 			legs[idx].stream = out.stream
 			legs[idx].bleg = out.bleg
+			legs[idx].interleaved = out.interleaved
+			legs[idx].memoUpdate = out.memoUpdate
 			if winnerIdx >= 0 {
 				mu.Unlock()
 				return
@@ -303,6 +330,7 @@ func (e *Executor) tryOpenParallelGroup(
 
 	if winner < 0 {
 		var parallelFailure error
+		var failedLegs []*parallelLeg
 		for i := range legs {
 			if legs[i].stream == nil {
 				parallelFailure = errors.Join(parallelFailure,
@@ -323,10 +351,15 @@ func (e *Executor) tryOpenParallelGroup(
 				Reason:    attemptReasonDetail(failure),
 				DetailErr: failure,
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: legs[i].bleg.BLegID})
-			if cerr := legs[i].stream.Close(); cerr != nil {
-				parallelFailure = errors.Join(parallelFailure,
-					fmt.Errorf("candidate %q close after failure: %w", legs[i].cand.Key, cerr))
+			failedLegs = append(failedLegs, &legs[i])
+		}
+		if len(failedLegs) > 0 {
+			cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+			defer cleanupCancel()
+			if cerr := cancelLosers(cleanupCtx, failedLegs); cerr != nil {
+				parallelFailure = errors.Join(parallelFailure, cerr)
 			}
+			releaseBLegs(p.aScope, failedLegs)
 		}
 		if skipped := len(candidates) - len(legs); skipped > 0 {
 			parallelFailure = errors.Join(parallelFailure,
@@ -342,11 +375,26 @@ func (e *Executor) tryOpenParallelGroup(
 		for _, c := range candidates {
 			p.excluded[c.Key] = struct{}{}
 		}
-		return zero, nil
+		return attemptOpenResult{interleaved: interleaved}, nil
 	}
 	if p.lastParallelFailure != nil {
 		*p.lastParallelFailure = nil
 	}
+	committedInterleaved, err := e.commitMemoInjection(ctx, p.aLegID, legs[winner].interleaved, legs[winner].memoUpdate)
+	if err != nil {
+		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+		defer cleanupCancel()
+		var toClean []*parallelLeg
+		for i := range legs {
+			if legs[i].stream != nil {
+				toClean = append(toClean, &legs[i])
+			}
+		}
+		cleanupErr := cancelLosers(cleanupCtx, toClean)
+		releaseBLegs(p.aScope, toClean)
+		return zero, errors.Join(err, cleanupErr)
+	}
+	legs[winner].interleaved = committedInterleaved
 
 	var losers []*parallelLeg
 	for i := range legs {
@@ -395,6 +443,7 @@ func (e *Executor) tryOpenParallelGroup(
 			cancelCtx, cancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 			defer cancel()
 			cleanupErr = cancelLosers(cancelCtx, losers)
+			releaseBLegs(p.aScope, losers)
 		}()
 	}
 
@@ -408,8 +457,9 @@ func (e *Executor) tryOpenParallelGroup(
 			losersDone:       losersDone,
 			loserCleanupWait: cancelLosersTimeout,
 		},
-		bleg: legs[winner].bleg,
-		cand: legs[winner].cand,
+		bleg:        legs[winner].bleg,
+		cand:        legs[winner].cand,
+		interleaved: legs[winner].interleaved,
 	}, nil
 }
 

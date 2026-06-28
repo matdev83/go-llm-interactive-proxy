@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -26,9 +27,7 @@ func applyModelOnlyToAlt(a *FailoverAlt, backend string) {
 		a.Primary.Backend = backend
 	case a.Weighted != nil:
 		for j := range a.Weighted.Branches {
-			if strings.TrimSpace(a.Weighted.Branches[j].Target.Backend) == "" {
-				a.Weighted.Branches[j].Target.Backend = backend
-			}
+			applyModelOnlyToWeightedBranch(&a.Weighted.Branches[j], backend)
 		}
 	case a.Parallel != nil:
 		for j := range a.Parallel.Branches {
@@ -49,10 +48,8 @@ func SelectorHasEmptyBackend(sel *Selector) bool {
 			return true
 		}
 		if alt.Weighted != nil {
-			for _, b := range alt.Weighted.Branches {
-				if strings.TrimSpace(b.Target.Backend) == "" {
-					return true
-				}
+			if slices.ContainsFunc(alt.Weighted.Branches, weightedBranchHasEmptyBackend) {
+				return true
 			}
 		}
 		if alt.Parallel != nil {
@@ -64,6 +61,53 @@ func SelectorHasEmptyBackend(sel *Selector) bool {
 		}
 	}
 	return false
+}
+
+func applyModelOnlyToWeightedBranch(b *WeightedBranch, backend string) {
+	if b == nil {
+		return
+	}
+	if b.Parallel != nil {
+		for j := range b.Parallel.Branches {
+			if strings.TrimSpace(b.Parallel.Branches[j].Target.Backend) == "" {
+				b.Parallel.Branches[j].Target.Backend = backend
+			}
+		}
+		return
+	}
+	if strings.TrimSpace(b.Target.Backend) == "" {
+		b.Target.Backend = backend
+	}
+}
+
+func defaultBackendFromWeightedBranch(b WeightedBranch) (string, error) {
+	if b.Parallel != nil {
+		if len(b.Parallel.Branches) == 0 {
+			return "", fmt.Errorf("routing default_route parallel branch must name a backend")
+		}
+		backend := strings.TrimSpace(b.Parallel.Branches[0].Target.Backend)
+		if backend == "" {
+			return "", fmt.Errorf("routing default_route parallel branch must name a backend")
+		}
+		return backend, nil
+	}
+	backend := strings.TrimSpace(b.Target.Backend)
+	if backend == "" {
+		return "", fmt.Errorf("routing default_route weighted branch must name a backend")
+	}
+	return backend, nil
+}
+
+func weightedBranchHasEmptyBackend(b WeightedBranch) bool {
+	if b.Parallel != nil {
+		for _, leg := range b.Parallel.Branches {
+			if strings.TrimSpace(leg.Target.Backend) == "" {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.TrimSpace(b.Target.Backend) == ""
 }
 
 // DefaultBackendFromRouteSelector extracts the backend id from a configured default route
@@ -87,9 +131,9 @@ func DefaultBackendFromRouteSelector(defaultRoute string) (string, error) {
 			return b, nil
 		}
 		if alt.Weighted != nil && len(alt.Weighted.Branches) > 0 {
-			b := strings.TrimSpace(alt.Weighted.Branches[0].Target.Backend)
-			if b == "" {
-				return "", fmt.Errorf("routing default_route weighted branch must name a backend")
+			b, err := defaultBackendFromWeightedBranch(alt.Weighted.Branches[0])
+			if err != nil {
+				return "", err
 			}
 			return b, nil
 		}

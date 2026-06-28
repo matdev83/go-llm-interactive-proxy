@@ -77,8 +77,17 @@ type WeightedBranch struct {
 	Weight int
 	// IsFirst marks a [first] annotation (only meaningful when not on retry path and session allows).
 	IsFirst bool
-	// Target is the resolved primary for this branch.
+	// IsThinker marks a [thinker] annotation; the branch produces a planning memo
+	// in interleaved-thinking cycles. At most one thinker branch is allowed per
+	// weighted group, and it cannot combine with [first] on the same branch.
+	IsThinker bool
+	// Target is the resolved primary for this branch. Zero when Parallel is set.
 	Target Primary
+	// Parallel, when non-nil, marks this branch as targeting an embedded parallel
+	// executor group. Allowed only on the non-thinker branch of a thinker hybrid
+	// weighted selector; the parser enforces that narrow shape. Target is zero in
+	// that case. General weighted/parallel mixing remains rejected.
+	Parallel *Parallel
 }
 
 // String returns a stable diagnostic key for a primary (exclusion / health maps).

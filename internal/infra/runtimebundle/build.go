@@ -343,6 +343,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		StreamRecovery:          streamRecovery,
 		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
 	}
+	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(err, derr)
+		}
+		return nil, err
+	}
 	if tokenAccounting != nil {
 		exec.Preflight = tokenAccounting.Preflight
 		exec.StreamUsage = tokenAccounting.StreamUsage

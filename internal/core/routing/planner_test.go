@@ -424,7 +424,7 @@ func TestPickWeighted_int64SumOverflow(t *testing.T) {
 		{Weight: math.MaxInt64 - 1, Target: Primary{Backend: "a", Model: "x"}},
 		{Weight: 2, Target: Primary{Backend: "b", Model: "y"}},
 	}}
-	_, _, err := pickWeighted(w, PlanOptions{Rand: rng(0), Session: &SessionRoutingState{FirstRequestConsumed: true}})
+	_, _, _, err := pickWeighted(w, PlanOptions{Rand: rng(0), Session: &SessionRoutingState{FirstRequestConsumed: true}})
 	if !errors.Is(err, ErrWeightedTotalTooLarge) {
 		t.Fatalf("got %v want ErrWeightedTotalTooLarge", err)
 	}

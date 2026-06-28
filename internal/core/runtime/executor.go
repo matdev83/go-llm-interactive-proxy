@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -146,6 +148,14 @@ type Executor struct {
 	// SessionAuditPolicy labels session-start events; ignored when AuthEvents is nil.
 	SessionAuditPolicy auth.SessionAuditPolicy
 
+	// InterleavedConfig carries resolved interleaved-thinking settings used to shape candidate
+	// calls before capability negotiation. When Instructions is empty, thinker shaping is inert.
+	// Wired by the runtime bundle (task 7.1); tests set it directly.
+	InterleavedConfig interleavedthinking.ShapeConfig
+	// MemoStore is the bounded core-owned memo store used for executor memo injection. When nil,
+	// executor candidates are returned unchanged. Wired by the runtime bundle (task 7.1).
+	MemoStore interleavedthinking.MemoStore
+
 	rngOnce    sync.Once
 	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
 }
@@ -225,6 +235,16 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	}
 	lifecycle := e.lifecycleCoordinator()
 	aScope := lifecycle.StartALeg(aLeg.ALegID)
+	streamReturned := false
+	defer func() {
+		if streamReturned || aScope == nil {
+			return
+		}
+		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+		defer cleanupCancel()
+		_ = aScope.Cancel(cleanupCtx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
+		aScope.End()
+	}()
 	var recvViews execctx.Views
 	recvViewsOK := false
 	if v, ok := execctx.FromContext(ctx); ok {
@@ -258,6 +278,10 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, recvViews, recvViewsOK)
 	if err != nil {
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)
+	}
+	interleaved, err := e.loadInterleavedState(ctx, aLeg.ALegID)
+	if err != nil {
+		return nil, fmt.Errorf("executor: load interleaved state: %w", err)
 	}
 	var lastReject lipapi.NegotiationResult
 	var lastTransportReject lipapi.TransportNegotiationResult
@@ -293,11 +317,13 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			affinitySet:         affinityKeyOK,
 			// Persists across failover iterations so ExpandFailover can map to ErrAllCandidatesContextLimitExceeded.
 			isContextLimitExhaustion: &contextLimitExhaustion,
+			interleaved:              interleaved,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("executor: plan or open attempt: %w", err)
 		}
 		if !out.opened {
+			interleaved = out.interleaved
 			continue
 		}
 		if !out.registered {
@@ -305,6 +331,9 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 				ID:      out.bleg.BLegID,
 				Attempt: lifecycleAttempt(out.stream),
 			}); err != nil {
+				if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
+					_ = out.stream.Close()
+				}
 				return nil, err
 			}
 		}
@@ -336,8 +365,22 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			accounting:    newAttemptAccountingTracker(e.now()),
 			recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 			aScope:        aScope,
+			interleaved:   out.interleaved,
 		}
 		rs.storeInner(out.stream)
+		if e.shouldWrapHiddenInterleavedThinker(out.cand) {
+			rs.holdALegEnd = true
+			rec := e.newThinkerRecorder(out.cand, baseline)
+			streamReturned = true
+			return newHiddenInterleavedStream(rs, rec, out.interleaved), nil
+		}
+		if e.shouldWrapVisibleInterleavedThinker(out.cand) {
+			rs.holdALegEnd = true
+			rec := e.newThinkerRecorder(out.cand, baseline)
+			streamReturned = true
+			return newVisibleInterleavedStream(rs, rec, out.interleaved), nil
+		}
+		streamReturned = true
 		return rs, nil
 	}
 }

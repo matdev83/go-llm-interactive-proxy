@@ -65,6 +65,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry",
@@ -101,6 +102,8 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/policy",
@@ -122,7 +125,8 @@
       "go_list_pattern": "./internal/core/routing",
       "classification": "aligned",
       "allowed_internal_core_imports": [
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
       ]
     },
     {
