@@ -75,6 +75,7 @@ __pycache__/
 *.py[cod]
 
 # Project specific files
+.agents/
 .claude/
 .cursor/
 /codex-history.jsonl
