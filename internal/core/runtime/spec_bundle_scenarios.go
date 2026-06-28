@@ -87,5 +87,25 @@ func SpecBundleOrchestrationScenarios() []OrchestrationScenarioSpec {
 			InvariantSummary: "Parallel race: when all legs in a group fail, failover to the next | arm.",
 			TestName:         "TestParallelRace_FailoverToNextArmWhenNoWinner",
 		},
+		{
+			ID:               "SB-ORCH-interleaved-hidden-continuation",
+			InvariantSummary: "Hidden thinker mode drains thinker output, stores memo state, opens executor continuation, and emits only executor output.",
+			TestName:         "TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo",
+		},
+		{
+			ID:               "SB-ORCH-interleaved-visible-continuation",
+			InvariantSummary: "Visible thinker mode surfaces sanitized reasoning deltas, stores memo state, then continues with executor output in the same logical request.",
+			TestName:         "TestExecutor_VisibleInterleavedContinuation_EmitsReasoningThenExecutor",
+		},
+		{
+			ID:               "SB-ORCH-interleaved-hybrid-parallel-race",
+			InvariantSummary: "Hybrid selector parallel executor arm runs the existing parallel race with winner selection and loser cancellation unchanged.",
+			TestName:         "TestExecutor_HybridParallelExecutorRace_WinnerAndLosers",
+		},
+		{
+			ID:               "SB-ORCH-interleaved-hybrid-thinker-continuation",
+			InvariantSummary: "Hybrid selector thinker arm runs hidden continuation into the embedded parallel executor group with thinker suppression.",
+			TestName:         "TestExecutor_HybridThinkerThenParallelContinuation",
+		},
 	}
 }

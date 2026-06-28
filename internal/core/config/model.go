@@ -29,10 +29,14 @@ type Config struct {
 	StreamRecovery StreamRecoveryConfig `yaml:"stream_recovery"`
 	Hooks          HooksConfig          `yaml:"hooks"`
 	Accounting     AccountingConfig     `yaml:"accounting"`
+	Interleaved    InterleavedConfig    `yaml:"interleaved"`
 	Plugins        PluginsConfig        `yaml:"plugins"`
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
+	// ConfigDir is the directory containing the loaded config file. Set by [LoadFile];
+	// empty when Config is constructed without loading from disk.
+	ConfigDir string `yaml:"-"`
 }
 
 type AccountingConfig struct {

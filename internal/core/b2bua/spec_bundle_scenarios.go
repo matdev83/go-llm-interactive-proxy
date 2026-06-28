@@ -52,5 +52,10 @@ func SpecBundleContinuityScenarios() []ContinuityScenarioSpec {
 			InvariantSummary: "Store interface matches SDK continuity contract shape.",
 			TestName:         "TestContinuityContract_StoreInterfaceMatchesSDK",
 		},
+		{
+			ID:               "SB-CONT-interleaved-state-round-trip",
+			InvariantSummary: "Thinker cycle state and memo reference round-trip on the A-leg; empty state is harmless for routes without thinker.",
+			TestName:         "TestMemoryStore_InterleavedState",
+		},
 	}
 }

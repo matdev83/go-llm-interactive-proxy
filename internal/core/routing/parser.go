@@ -129,6 +129,20 @@ func parseFailoverAlt(s string) (FailoverAlt, error) {
 	hasWeightAnn := hasWeightedAnnotationPrefix(s)
 
 	if hasBang && (hasCaret || hasWeightAnn) {
+		// Narrow hybrid exception (req 7.1/7.4/7.5): one thinker weighted branch
+		// plus one non-thinker weighted branch whose target is an embedded
+		// parallel executor group. Anything else stays a general mixing rejection.
+		if w, herr := tryParseThinkerParallelHybrid(s); herr != nil {
+			return FailoverAlt{}, herr
+		} else if w != nil {
+			if err := validateWeightedFirst(w); err != nil {
+				return FailoverAlt{}, err
+			}
+			if err := validateWeightedThinker(w); err != nil {
+				return FailoverAlt{}, err
+			}
+			return FailoverAlt{Weighted: w}, nil
+		}
 		return FailoverAlt{}, fmt.Errorf("%w: parallel '!' and weighted '^'/[weight]/[first] cannot be mixed in one arm", ErrInvalidSelector)
 	}
 	if hasBang {
@@ -144,6 +158,9 @@ func parseFailoverAlt(s string) (FailoverAlt, error) {
 			return FailoverAlt{}, err
 		}
 		if err := validateWeightedFirst(w); err != nil {
+			return FailoverAlt{}, err
+		}
+		if err := validateWeightedThinker(w); err != nil {
 			return FailoverAlt{}, err
 		}
 		return FailoverAlt{Weighted: w}, nil
@@ -169,7 +186,7 @@ func hasWeightedAnnotationPrefix(s string) bool {
 				key = left
 			}
 			switch strings.ToLower(strings.TrimSpace(key)) {
-			case "weight", "first":
+			case "weight", "first", "thinker":
 				return true
 			}
 		}
@@ -226,6 +243,9 @@ func parseParallelBranch(s string) (ParallelBranch, error) {
 	if ann.weight != nil || ann.first {
 		return ParallelBranch{}, fmt.Errorf("%w: [weight] and [first] are not valid on parallel branches", ErrInvalidSelector)
 	}
+	if ann.thinker {
+		return ParallelBranch{}, fmt.Errorf("%w: [thinker] is only valid on weighted branches", ErrInvalidSelector)
+	}
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
 		return ParallelBranch{}, fmt.Errorf("%w: missing primary after annotations", ErrInvalidSelector)
@@ -280,6 +300,127 @@ func validateWeightedFirst(w *Weighted) error {
 	return nil
 }
 
+func validateWeightedThinker(w *Weighted) error {
+	if w == nil {
+		return nil
+	}
+	thinkerCount := 0
+	executorCount := 0
+	for _, b := range w.Branches {
+		if b.IsThinker {
+			thinkerCount++
+		} else {
+			executorCount++
+		}
+	}
+	if thinkerCount > 1 {
+		return fmt.Errorf("%w: at most one [thinker] branch is allowed in a weighted selector", ErrInvalidSelector)
+	}
+	if thinkerCount > 0 && executorCount == 0 {
+		return fmt.Errorf("%w: weighted selector with [thinker] requires at least one non-thinker branch", ErrInvalidSelector)
+	}
+	return nil
+}
+
+// tryParseThinkerParallelHybrid parses the narrow thinker-plus-parallel-executor
+// hybrid weighted form. It returns (nil, nil) when the input does not match the
+// hybrid shape so the caller falls back to the general weighted/parallel mixing
+// rejection. It returns a parsed *Weighted on success, or an error when the
+// shape matches the hybrid but is invalid.
+func tryParseThinkerParallelHybrid(s string) (*Weighted, error) {
+	parts := splitOutsideBrackets(s, '^')
+	if len(parts) != 2 {
+		return nil, nil
+	}
+	t0 := prefixHasThinker(parts[0])
+	t1 := prefixHasThinker(parts[1])
+	thinkerCount := 0
+	if t0 {
+		thinkerCount++
+	}
+	if t1 {
+		thinkerCount++
+	}
+	if thinkerCount != 1 {
+		return nil, nil
+	}
+	thinkerIdx := 0
+	if t1 {
+		thinkerIdx = 1
+	}
+	executorIdx := 1 - thinkerIdx
+	if hasTopLevelBang(parts[thinkerIdx]) {
+		return nil, fmt.Errorf("%w: [thinker] branch cannot target an embedded parallel executor group", ErrInvalidSelector)
+	}
+	if !hasTopLevelBang(parts[executorIdx]) {
+		return nil, nil
+	}
+	thinker, err := parseWeightedBranch(parts[thinkerIdx])
+	if err != nil {
+		return nil, err
+	}
+	if !thinker.IsThinker {
+		return nil, fmt.Errorf("%w: [thinker] annotation required on thinker branch", ErrInvalidSelector)
+	}
+	executor, err := parseWeightedBranchWithParallelTarget(parts[executorIdx])
+	if err != nil {
+		return nil, err
+	}
+	var branches []WeightedBranch
+	if thinkerIdx == 0 {
+		branches = []WeightedBranch{thinker, executor}
+	} else {
+		branches = []WeightedBranch{executor, thinker}
+	}
+	return &Weighted{Branches: branches}, nil
+}
+
+// parseWeightedBranchWithParallelTarget parses the non-thinker executor branch
+// of a thinker hybrid: the entire branch text is an embedded parallel executor
+// group, and the weighted weight is fixed to 1 (matching Python LIP parity).
+// Per-leg annotations (handicap, ttft_timeout, max_context) live inside the
+// embedded parallel text; annotations that are invalid on parallel legs
+// ([weight], [first], [thinker]) are rejected by parseParallelBranch.
+func parseWeightedBranchWithParallelTarget(s string) (WeightedBranch, error) {
+	rest := strings.TrimSpace(s)
+	if rest == "" {
+		return WeightedBranch{}, fmt.Errorf("%w: missing parallel executor expression", ErrInvalidSelector)
+	}
+	if !hasTopLevelBang(rest) {
+		return WeightedBranch{}, fmt.Errorf("%w: embedded executor branch must be a parallel group", ErrInvalidSelector)
+	}
+	p, err := parseParallel(rest)
+	if err != nil {
+		return WeightedBranch{}, err
+	}
+	return WeightedBranch{Weight: 1, Parallel: p}, nil
+}
+
+// prefixHasThinker reports whether s begins with a [...] prefix annotation
+// block containing a thinker key. It mirrors hasWeightedAnnotationPrefix but
+// only looks for thinker, and never returns an error.
+func prefixHasThinker(s string) bool {
+	rest := strings.TrimSpace(s)
+	for strings.HasPrefix(rest, "[") {
+		idx := strings.Index(rest, "]")
+		if idx < 0 {
+			return false
+		}
+		inside := rest[1:idx]
+		for entry := range strings.SplitSeq(inside, ",") {
+			key := strings.TrimSpace(entry)
+			if left, _, ok := strings.Cut(key, "="); ok {
+				key = left
+			}
+			if strings.ToLower(strings.TrimSpace(key)) == "thinker" {
+				return true
+			}
+		}
+		rest = strings.TrimSpace(rest[idx+1:])
+	}
+	return false
+}
+
 func parseWeighted(s string) (*Weighted, error) {
 	parts := splitOutsideBrackets(s, '^')
 	branches := make([]WeightedBranch, 0, len(parts))
@@ -313,6 +454,10 @@ func parseWeightedBranch(s string) (WeightedBranch, error) {
 		weight = *ann.weight
 	}
 	first := ann.first
+	thinker := ann.thinker
+	if first && thinker {
+		return WeightedBranch{}, fmt.Errorf("%w: [first] and [thinker] cannot be combined on the same branch", ErrInvalidSelector)
+	}
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
 		return WeightedBranch{}, fmt.Errorf("%w: missing primary after annotations", ErrInvalidSelector)
@@ -321,7 +466,7 @@ func parseWeightedBranch(s string) (WeightedBranch, error) {
 	if err != nil {
 		return WeightedBranch{}, err
 	}
-	return WeightedBranch{Weight: weight, IsFirst: first, Target: p}, nil
+	return WeightedBranch{Weight: weight, IsFirst: first, IsThinker: thinker, Target: p}, nil
 }
 
 func parsePrimary(s string) (Primary, error) {
@@ -331,6 +476,9 @@ func parsePrimary(s string) (Primary, error) {
 	}
 	if ann.weight != nil || ann.first {
 		return Primary{}, fmt.Errorf("%w: [weight] and [first] are only valid on weighted branches", ErrInvalidSelector)
+	}
+	if ann.thinker {
+		return Primary{}, fmt.Errorf("%w: [thinker] is only valid on weighted branches", ErrInvalidSelector)
 	}
 	if ann.handicap != nil {
 		return Primary{}, fmt.Errorf("%w: [handicap] is only valid on parallel branches", ErrInvalidSelector)
@@ -398,6 +546,7 @@ func containsGlobalParamBlock(s string) bool {
 type prefixAnnotations struct {
 	weight      *int
 	first       bool
+	thinker     bool
 	size        RequestSizeConstraint
 	ttftTimeout *time.Duration
 	handicap    *time.Duration
@@ -443,6 +592,15 @@ func extractPrefixAnnotations(s string) (prefixAnnotations, string, error) {
 					return prefixAnnotations{}, "", fmt.Errorf("%w: [first] does not take a value", ErrInvalidSelector)
 				}
 				ann.first = true
+			case "thinker":
+				if ann.thinker {
+					return prefixAnnotations{}, "", fmt.Errorf("%w: duplicate [thinker] annotation", ErrInvalidSelector)
+				}
+				on, err := parseThinkerValue(raw, hasValue)
+				if err != nil {
+					return prefixAnnotations{}, "", err
+				}
+				ann.thinker = on
 			case "max_context":
 				if ann.size.MaxContextTokens != nil {
 					return prefixAnnotations{}, "", fmt.Errorf("%w: duplicate [max_context=N] annotation", ErrInvalidSelector)
@@ -550,6 +708,24 @@ func parsePositiveSecondsDurationAnnotation(key, raw string, hasValue bool) (tim
 		return 0, fmt.Errorf("%w: %s is too large", ErrInvalidSelector, key)
 	}
 	return time.Duration(n) * time.Second, nil
+}
+
+// parseThinkerValue interprets a [thinker] annotation value. The bare form and
+// the true-valued forms (1, yes, true) mark the branch as thinker; false-valued
+// forms (0, no, false), the empty value, and any other value are rejected.
+func parseThinkerValue(raw string, hasValue bool) (bool, error) {
+	if !hasValue {
+		return true, nil
+	}
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "1", "yes", "true":
+		return true, nil
+	case "0", "no", "false", "":
+		return false, fmt.Errorf("%w: [thinker] must be a true-valued boolean", ErrInvalidSelector)
+	default:
+		return false, fmt.Errorf("%w: [thinker] must be a true-valued boolean", ErrInvalidSelector)
+	}
 }
 
 func splitOutsideBrackets(s string, sep byte) []string {

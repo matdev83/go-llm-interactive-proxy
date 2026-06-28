@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
@@ -27,7 +28,10 @@ type Store struct {
 	db *bun.DB
 }
 
-var _ b2bua.Store = (*Store)(nil)
+var (
+	_ b2bua.Store                 = (*Store)(nil)
+	_ b2bua.InterleavedStateStore = (*Store)(nil)
+)
 
 // New returns a Store backed by db after applying schema. Closing the store closes the underlying sql.DB.
 // ctx bounds migrate DDL; use [NewContext] for explicit cancellation/timeouts.
@@ -401,4 +405,63 @@ FROM attempts WHERE a_leg_id = ? ORDER BY seq ASC
 		return nil, opErr("load attempts touch a leg", err)
 	}
 	return out, nil
+}
+
+// SetInterleavedState persists the thinker cycle state and memo reference for
+// an A-leg as bounded JSON. An empty state clears any previously stored state
+// (stored as the zero-value empty string). Invalid state is rejected without
+// mutating the stored value. The memo body is never stored here; only the
+// compact cycle state and memo reference are persisted.
+func (s *Store) SetInterleavedState(ctx context.Context, aLegID string, state interleavedstate.State) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := state.Validate(); err != nil {
+		return fmt.Errorf("bunstore: invalid interleaved state: %w", err)
+	}
+	encoded, err := interleavedstate.MarshalStateText(state)
+	if err != nil {
+		return opErr("set interleaved state encode", err)
+	}
+	res, err := s.db.NewRaw(`UPDATE a_legs SET interleaved_state_json = ?, last_seen_at_unix = ? WHERE a_leg_id = ?`,
+		encoded, time.Now().UnixNano(), aLegID).Exec(ctx)
+	if err != nil {
+		return opErr("set interleaved state update", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return opErr("set interleaved state rows affected", err)
+	}
+	if n == 0 {
+		return b2bua.ErrALegNotFound
+	}
+	return nil
+}
+
+// FetchInterleavedState returns the thinker cycle state and memo reference for
+// an A-leg. A leg with no stored state returns the zero value, which is a
+// harmless "new session" state for cycle purposes.
+func (s *Store) FetchInterleavedState(ctx context.Context, aLegID string) (interleavedstate.State, error) {
+	if err := ctx.Err(); err != nil {
+		return interleavedstate.State{}, err
+	}
+	var encoded string
+	err := s.db.NewRaw(`SELECT interleaved_state_json FROM a_legs WHERE a_leg_id = ?`, aLegID).Scan(ctx, &encoded)
+	if errors.Is(err, sql.ErrNoRows) {
+		return interleavedstate.State{}, b2bua.ErrALegNotFound
+	}
+	if err != nil {
+		return interleavedstate.State{}, opErr("fetch interleaved state select", err)
+	}
+	state, err := interleavedstate.UnmarshalStateText(encoded)
+	if err != nil {
+		return interleavedstate.State{}, opErr("fetch interleaved state decode", err)
+	}
+	if err := state.Validate(); err != nil {
+		return interleavedstate.State{}, opErr("fetch interleaved state validate", err)
+	}
+	if _, err := s.db.NewRaw(`UPDATE a_legs SET last_seen_at_unix = ? WHERE a_leg_id = ?`, time.Now().UnixNano(), aLegID).Exec(ctx); err != nil {
+		return interleavedstate.State{}, opErr("fetch interleaved state touch a leg", err)
+	}
+	return state, nil
 }

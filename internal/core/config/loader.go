@@ -19,15 +19,7 @@ func resolveConfigPath(raw string) (string, error) {
 	if raw == "" {
 		return "", errors.New("config: empty config path")
 	}
-	p := filepath.Clean(raw)
-	if filepath.IsAbs(p) {
-		return filepath.Abs(p)
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getwd: %w", err)
-	}
-	return filepath.Abs(filepath.Join(wd, p))
+	return filepath.Abs(filepath.Clean(raw))
 }
 
 // LoadFile decodes typed runtime configuration from YAML, applies defaults, and runs [Validate].
@@ -49,6 +41,8 @@ func LoadFile(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
+
+	cfg.ConfigDir = filepath.Dir(resolved)
 
 	applyDefaultServerListenAddress(&cfg)
 	if cfg.Auth.LocalAPIKeys == nil {

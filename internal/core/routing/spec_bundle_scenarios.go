@@ -97,5 +97,30 @@ func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 			InvariantSummary: "Model-only backend fill applies to parallel branches.",
 			TestName:         "TestApplyModelOnlyBackendsParallelBranches",
 		},
+		{
+			ID:               "SB-ROUTE-parse-thinker-forms",
+			InvariantSummary: "[thinker] accepts bare and true-valued forms on weighted branches.",
+			TestName:         "TestParseThinkerAcceptedForms",
+		},
+		{
+			ID:               "SB-ROUTE-parse-thinker-hybrid",
+			InvariantSummary: "One thinker weighted branch plus one non-thinker branch with an embedded parallel executor group parses.",
+			TestName:         "TestParseThinkerParallelHybridAccepted",
+		},
+		{
+			ID:               "SB-ROUTE-planner-thinker-cycle",
+			InvariantSummary: "Thinker-weighted cycle picks executor branches by weight, then thinker, wrapping NextIndex after each lap.",
+			TestName:         "TestPickThinkerCycle_AdvancesCursorAndWraps",
+		},
+		{
+			ID:               "SB-ROUTE-planner-thinker-suppression",
+			InvariantSummary: "SuppressThinker skips the thinker cycle position and returns the next executor candidate.",
+			TestName:         "TestPickThinkerCycle_SuppressThinkerPicksExecutor",
+		},
+		{
+			ID:               "SB-ROUTE-regress-non-thinker-noninterference",
+			InvariantSummary: "Selectors without [thinker] preserve weighted, failover, parallel, [first], health, and context-size behavior with empty interleaved role and selector key.",
+			TestName:         "TestNonThinkerSelectorsPreserveExistingBehavior",
+		},
 	}
 }

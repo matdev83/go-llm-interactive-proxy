@@ -12,5 +12,6 @@ Stable identifiers for **continuity store** invariants in `internal/core/b2bua`.
 | `SB-CONT-attempt-wrong-bleg-rejected` | Recording an attempt with a wrong B-leg id is rejected. | `TestMemoryStore_RecordAttempt_rejectsWrongBLegID` |
 | `SB-CONT-ttl-sweep-anonymous` | TTL sweeps stale anonymous legs on create when configured. | `TestMemoryStore_TTL_sweepsStaleAnonymousLegsOnCreate` |
 | `SB-CONT-contract-store-interface` | Store interface matches SDK continuity contract shape. | `TestContinuityContract_StoreInterfaceMatchesSDK` |
+| `SB-CONT-interleaved-state-round-trip` | Thinker cycle state and memo reference round-trip on the A-leg; memo bodies stay in process-local `MemoStore`, not continuity. Empty state is harmless for routes without thinker. | `TestMemoryStore_InterleavedState` |
 
 When adding or splitting tests, update `spec_bundle_scenarios.go`, this table, and keep `TestSpecBundle_continuityScenarios_referenceTests` passing (`go test -tags=precommit ./internal/core/b2bua/...`).

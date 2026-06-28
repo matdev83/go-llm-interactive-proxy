@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/b2buatest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	_ "modernc.org/sqlite" // register sqlite driver for tests
 )
@@ -66,6 +68,30 @@ func TestSchemaMigrateTwice_Idempotent_SQLite(t *testing.T) {
 	}
 	if applied != 1 {
 		t.Fatalf("expected one applied baseline migration row, got %d", applied)
+	}
+}
+
+func TestInterleavedStateMigration_duplicateColumnErrorsAreIdempotent(t *testing.T) {
+	t.Parallel()
+	for _, msg := range []string{
+		"SQL logic error: duplicate column name: interleaved_state_json",
+		`ERROR: column "interleaved_state_json" of relation "a_legs" already exists`,
+	} {
+		if !isDuplicateColumnErr(errors.New(msg)) {
+			t.Fatalf("duplicate column error not recognized: %q", msg)
+		}
+	}
+	for _, msg := range []string{
+		"syntax error near interleaved_state_json",
+		`ERROR: relation "a_legs" already exists`,
+		`ERROR: index "idx_foo" already exists`,
+		`ERROR: relation "interleaved_state_json" already exists`,
+		`ERROR: index "interleaved_state_json" already exists`,
+		"duplicate column name: other_column",
+	} {
+		if isDuplicateColumnErr(errors.New(msg)) {
+			t.Fatalf("unrelated migration error must not be treated as duplicate column: %q", msg)
+		}
 	}
 }
 
@@ -571,4 +597,102 @@ func newTestStore(t *testing.T) (*Store, func()) {
 		t.Fatal(err)
 	}
 	return st, func() { _ = st.Close() }
+}
+
+func TestFetchInterleavedState_RejectsCorruptStoredState(t *testing.T) {
+	t.Parallel()
+	st, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	leg, err := st.CreateALeg(ctx, "corrupt-interleaved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badJSON := `{"cycle":{"selector_key":"k","sequence":[{"key":"a","role":"executor"}],"next_index":5}}`
+	if _, err := st.db.NewRaw(
+		`UPDATE a_legs SET interleaved_state_json = ? WHERE a_leg_id = ?`,
+		badJSON, leg.ALegID,
+	).Exec(ctx); err != nil {
+		t.Fatalf("inject corrupt state: %v", err)
+	}
+	_, err = st.FetchInterleavedState(ctx, leg.ALegID)
+	if err == nil {
+		t.Fatal("expected validation error for corrupt stored interleaved state")
+	}
+}
+
+func TestStore_InterleavedState(t *testing.T) {
+	t.Parallel()
+	b2buatest.TestInterleavedStateStore(t, func(t *testing.T) b2buatest.Store {
+		t.Helper()
+		st, cleanup := newTestStore(t)
+		t.Cleanup(cleanup)
+		return st
+	})
+}
+
+func TestStore_InterleavedState_restartSurvival(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cont.db")
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	sqlDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	s1, err := New(bunDB)
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	leg, err := s1.CreateALeg(ctx, "durable-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := interleavedstate.State{
+		Cycle: interleavedstate.CycleState{
+			SelectorKey: "sk",
+			Sequence: []interleavedstate.CycleEntry{
+				{Key: "x", Role: interleavedstate.RoleExecutor},
+				{Key: "t", Role: interleavedstate.RoleThinker},
+			},
+			NextIndex: 1,
+		},
+		MemoRef: &interleavedstate.MemoRef{Key: "m", Version: 2},
+	}
+	if err := s1.SetInterleavedState(ctx, leg.ALegID, want); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sqlDB2, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB2.Close() })
+	sqlDB2.SetMaxOpenConns(1)
+	bunDB2, err := db.NewBunDB(sqlDB2, db.DialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2, err := New(bunDB2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s2.Close() })
+	got, err := s2.FetchInterleavedState(ctx, leg.ALegID)
+	if err != nil {
+		t.Fatalf("reopen fetch: %v", err)
+	}
+	if !got.Equal(want) {
+		t.Fatalf("durable round-trip mismatch: got %+v want %+v", got, want)
+	}
 }

@@ -77,6 +77,9 @@ func Validate(cfg *Config) error {
 	if err := validateRoutingHealth(cfg); err != nil {
 		return err
 	}
+	if err := validateInterleaved(cfg); err != nil {
+		return err
+	}
 	return validateRoutingAffinity(cfg)
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -100,6 +101,23 @@ type retryRecvStream struct {
 	recoverDrain             []lipapi.Event
 	tokenAccountingFinalized bool
 	aScope                   *leglifecycle.ALeg
+
+	// interleaved is the current interleaved-thinking state (cycle cursor + memo reference)
+	// for the A-leg, threaded across recv-phase failover iterations so retry continues from
+	// the latest persisted state.
+	interleaved interleavedstate.State
+	// holdALegEnd defers A-leg scope teardown until an outer coordinator (hidden interleaved
+	// continuation) finishes the combined thinker+executor logical request.
+	holdALegEnd bool
+	// suppressThinker keeps recv-phase failover inside an interleaved executor continuation
+	// from selecting another thinker branch in the same logical request.
+	suppressThinker bool
+	// suppressVisibleMemo skips visible memo reinjection on recv-phase failover within the
+	// same interleaved executor continuation turn.
+	suppressVisibleMemo bool
+	// lastParallelFailure preserves aggregated parallel-arm failure context across recv-phase
+	// replacement iterations so eventual ErrNoEligibleCandidate surfaces root causes.
+	lastParallelFailure error
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -216,7 +234,7 @@ func lifecycleAttempt(stream lipapi.EventStream) leglifecycle.BLegAttempt {
 }
 
 func (s *retryRecvStream) finishALegScope() {
-	if s == nil {
+	if s == nil || s.holdALegEnd {
 		return
 	}
 	s.endOnce.Do(func() {
@@ -810,41 +828,17 @@ func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
 }
 
 func (s *retryRecvStream) emitTrafficBTP(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
-	if s.executor == nil || s.executor.RuntimeSnapshot == nil {
-		return
-	}
-	bundle := coretraffic.PortBundleFromSnapshot(s.executor.RuntimeSnapshot)
-	if bundle.EmitIsNoop() {
-		return
-	}
-	b, err := json.Marshal(ev)
-	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "retry_recv traffic marshal skipped", "leg", sdktraffic.LegBTP, "error", err)
-		}
-		return
-	}
-	meta := sdktraffic.CaptureMeta{
-		TraceID:    pm.TraceID,
-		ALegID:     pm.ALegID,
-		BLegID:     pm.BLegID,
-		AttemptSeq: pm.AttemptSeq,
-		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
-	}
-	bundle.Emit(
-		ctx,
-		sdktraffic.LegBTP,
-		meta,
-		"lip/canonical+json",
-		"application/json",
-		b,
-	)
+	s.emitTraffic(ctx, sdktraffic.LegBTP, ev, pm)
 }
 
 func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) {
 	if ev.Kind == lipapi.EventWarning && ev.WarningCode == stream.KeepaliveEventCode {
 		return
 	}
+	s.emitTraffic(ctx, sdktraffic.LegPTC, ev, pm)
+}
+
+func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, ev lipapi.Event, pm sdk.PartMeta) {
 	if s.executor == nil || s.executor.RuntimeSnapshot == nil {
 		return
 	}
@@ -855,7 +849,7 @@ func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, p
 	b, err := json.Marshal(ev)
 	if err != nil {
 		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "retry_recv traffic marshal skipped", "leg", sdktraffic.LegPTC, "error", err)
+			s.executor.Log.DebugContext(ctx, "retry_recv traffic marshal skipped", "leg", leg, "error", err)
 		}
 		return
 	}
@@ -868,7 +862,7 @@ func (s *retryRecvStream) emitTrafficPTC(ctx context.Context, ev lipapi.Event, p
 	}
 	bundle.Emit(
 		ctx,
-		sdktraffic.LegPTC,
+		leg,
 		meta,
 		"lip/canonical+json",
 		"application/json",
@@ -940,18 +934,27 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		affinityKey:              s.affinityKey,
 		affinitySet:              s.affinitySet,
 		isContextLimitExhaustion: &s.isContextLimitExhaustion,
+		interleaved:              s.interleaved,
+		suppressThinker:          s.suppressThinker,
+		suppressVisibleMemo:      s.suppressVisibleMemo,
+		lastParallelFailure:      &s.lastParallelFailure,
 	})
 	if err != nil {
 		return false, err
 	}
 	if !out.opened {
+		s.interleaved = out.interleaved
 		return false, nil
 	}
+	s.interleaved = out.interleaved
 	if s.aScope != nil && !out.registered {
 		if err := s.aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
 			ID:      out.bleg.BLegID,
 			Attempt: lifecycleAttempt(out.stream),
 		}); err != nil {
+			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
+				_ = out.stream.Close()
+			}
 			return false, err
 		}
 	}

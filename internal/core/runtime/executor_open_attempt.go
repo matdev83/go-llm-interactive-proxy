@@ -14,6 +14,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -54,6 +56,16 @@ type attemptOpenParams struct {
 	// isContextLimitExhaustion, when non-nil, is set true when excluding a candidate for context-limit
 	// eligibility so a subsequent ErrNoEligibleCandidate maps to [lipapi.ErrAllCandidatesContextLimitExceeded].
 	isContextLimitExhaustion *bool
+	// interleaved is the loaded interleaved-thinking state (cycle cursor + memo reference) for the
+	// A-leg. It is the zero-value when interleaved thinking is disabled or no state has been stored.
+	interleaved interleavedstate.State
+	// suppressThinker skips thinker branches during planning (interleaved executor continuation).
+	suppressThinker bool
+	// suppressVisibleMemo skips visible memo injection during call shaping only.
+	suppressVisibleMemo bool
+	// deferMemoInjectionCommit leaves executor memo-store updates pending in the open result.
+	// Parallel races use this so only the winning leg consumes memo budget.
+	deferMemoInjectionCommit bool
 }
 
 type attemptOpenResult struct {
@@ -62,6 +74,11 @@ type attemptOpenResult struct {
 	stream     lipapi.ManagedEventStream
 	bleg       b2bua.BLegRecord
 	cand       routing.AttemptCandidate
+	// interleaved is the interleaved-thinking state after this attempt, with the cycle cursor
+	// advanced and memo reference updated when shaping persisted them. Callers thread it back
+	// into the next attempt-open iteration so retry/failover continues from the current state.
+	interleaved interleavedstate.State
+	memoUpdate  *interleavedthinking.PendingMemoUpdate
 }
 
 func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, error) {
@@ -79,6 +96,8 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		StickyBackendID:        stickyBackendID,
 		Rand:                   p.rng,
 		IsRetryPath:            p.isRetryPath,
+		ThinkerCycle:           p.interleaved.Cycle,
+		SuppressThinker:        p.suppressThinker,
 	})
 	if stickyBinding && stickyBackendID != "" &&
 		(err != nil || len(groups) == 0 || len(groups[0].Candidates) == 0 || groups[0].Candidates[0].Primary.Backend != stickyBackendID) {
@@ -93,6 +112,8 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 			PreferredCandidateKeys: execctx.RouteCandidatePreferences(p.ctx),
 			Rand:                   p.rng,
 			IsRetryPath:            p.isRetryPath,
+			ThinkerCycle:           p.interleaved.Cycle,
+			SuppressThinker:        p.suppressThinker,
 		})
 	}
 	if err != nil {
@@ -113,24 +134,44 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		}
 		return zero, fmt.Errorf("executor: expand failover: %w", err)
 	}
-	candidates := groups[0].Candidates
-	if len(candidates) == 0 {
-		return zero, fmt.Errorf("executor: empty candidate group")
+	var lastNoOpen attemptOpenResult
+	for gi, group := range groups {
+		candidates := group.Candidates
+		if len(candidates) == 0 {
+			continue
+		}
+		if candidates[0].IsParallel {
+			out, err := e.tryOpenParallelGroup(p, candidates, group.NextThinkerCycle, stickyBackendID, stickyBinding)
+			if err != nil {
+				return zero, err
+			}
+			p.interleaved = out.interleaved
+			if out.opened {
+				if p.lastParallelFailure != nil {
+					*p.lastParallelFailure = nil
+				}
+				return out, nil
+			}
+			lastNoOpen = out
+			if gi+1 < len(groups) {
+				continue
+			}
+			return lastNoOpen, nil
+		}
+		c := candidates[0]
+		out, err := e.openPlannedCandidate(p, c, group.NextThinkerCycle, stickyBackendID, stickyBinding)
+		if err == nil && out.opened && p.lastParallelFailure != nil {
+			*p.lastParallelFailure = nil
+		}
+		return out, err
 	}
-	if candidates[0].IsParallel {
-		return e.tryOpenParallelGroup(p, candidates, stickyBackendID, stickyBinding)
-	}
-	c := candidates[0]
-	out, err := e.openPlannedCandidate(p, c, stickyBackendID, stickyBinding)
-	if err == nil && out.opened && p.lastParallelFailure != nil {
-		*p.lastParallelFailure = nil
-	}
-	return out, err
+	return lastNoOpen, nil
 }
 
 func (e *Executor) openPlannedCandidate(
 	p attemptOpenParams,
 	c routing.AttemptCandidate,
+	nextCycle *interleavedstate.CycleState,
 	stickyBackendID string,
 	stickyBinding bool,
 ) (attemptOpenResult, error) {
@@ -142,6 +183,17 @@ func (e *Executor) openPlannedCandidate(
 	if e != nil && e.MaxPendingWireEvents > 0 {
 		attempt.MaxPendingWireEvents = e.MaxPendingWireEvents
 	}
+	// Apply interleaved call shaping after route selection and before capability negotiation.
+	// Thinker candidates get instructions prepended and tools suppressed; executor candidates
+	// get the latest memo injected. The shaped call is the one used for negotiation and open.
+	interleaved := p.interleaved
+	shapeRes, err := e.shapeAttemptCall(p.ctx, attempt, c, p.aLegID, interleaved, p.suppressVisibleMemo)
+	if err != nil {
+		return zero, fmt.Errorf("executor: interleaved shape: %w", err)
+	}
+	attempt = shapeRes.Call
+	e.logInterleavedMemoShape(p.ctx, p.traceID, "", c, shapeRes)
+	noOpen := attemptOpenResult{interleaved: interleaved}
 	req := lipapi.RequiredCapabilities(attempt)
 	be, ok := e.Backends[c.Primary.Backend]
 	if !ok {
@@ -169,7 +221,7 @@ func (e *Executor) openPlannedCandidate(
 				slog.String("backend", c.Primary.Backend),
 			)
 			p.excluded[c.Key] = struct{}{}
-			return zero, nil
+			return noOpen, nil
 		}
 		return zero, negotiatePanicErr
 	}
@@ -189,7 +241,7 @@ func (e *Executor) openPlannedCandidate(
 		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
 		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
 		p.excluded[c.Key] = struct{}{}
-		return zero, nil
+		return noOpen, nil
 	}
 	if p.lastReject != nil {
 		*p.lastReject = lipapi.NegotiationResult{}
@@ -231,7 +283,7 @@ func (e *Executor) openPlannedCandidate(
 		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
 		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
 		p.excluded[c.Key] = struct{}{}
-		return zero, nil
+		return noOpen, nil
 	}
 	e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Selected, "accept")
 	if p.lastTransportReject != nil {
@@ -265,7 +317,7 @@ func (e *Executor) openPlannedCandidate(
 			cat := catalogRouteTraceIfEnabled(e, facts, res, elig, true)
 			e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
 			p.excluded[c.Key] = struct{}{}
-			return zero, nil
+			return noOpen, nil
 		}
 	}
 	if res.Kind == lipapi.NegotiationDowngrade && !eligRan && e != nil {
@@ -282,14 +334,14 @@ func (e *Executor) openPlannedCandidate(
 			attempt.Options.MaxOutputTokens = &adjusted
 		}
 	}
+	if !p.budget.tryAcquire() {
+		return zero, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
+	}
 	if c.MarkedFirst {
 		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
 			return zero, fmt.Errorf("executor: set weighted first consumed: %w", err)
 		}
 		p.session.FirstRequestConsumed = true
-	}
-	if !p.budget.tryAcquire() {
-		return zero, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
 	}
 	bleg, err := e.Store.NextBLeg(p.ctx, p.aLegID)
 	if err != nil {
@@ -373,7 +425,7 @@ func (e *Executor) openPlannedCandidate(
 					DetailErr: tf,
 				}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 				p.excluded[c.Key] = struct{}{}
-				return zero, nil
+				return noOpen, nil
 			}
 			e.recordAttemptLogged(p.ctx, recordAttemptParams{
 				ALegID:    p.aLegID,
@@ -405,7 +457,7 @@ func (e *Executor) openPlannedCandidate(
 				slog.String("phase", "open"),
 			)
 			p.excluded[c.Key] = struct{}{}
-			return zero, nil
+			return noOpen, nil
 		}
 		e.recordAttemptLogged(p.ctx, recordAttemptParams{
 			ALegID:    p.aLegID,
@@ -416,6 +468,38 @@ func (e *Executor) openPlannedCandidate(
 			DetailErr: err,
 		}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
 		return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
+	}
+	if nextCycle != nil {
+		interleaved.Cycle = *nextCycle
+	}
+	var memoUpdate *interleavedthinking.PendingMemoUpdate
+	if p.deferMemoInjectionCommit {
+		if nextCycle != nil {
+			if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
+				if stream != nil {
+					_ = stream.Close()
+				}
+				return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
+			}
+		}
+		memoUpdate = shapeRes.MemoUpdate
+	} else {
+		if shapeRes.MemoUpdate != nil {
+			interleaved, err = e.commitMemoInjection(p.ctx, p.aLegID, interleaved, shapeRes.MemoUpdate)
+			if err != nil {
+				if stream != nil {
+					_ = stream.Close()
+				}
+				return zero, err
+			}
+		} else if nextCycle != nil {
+			if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
+				if stream != nil {
+					_ = stream.Close()
+				}
+				return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
+			}
+		}
 	}
 	if m := e.secureSessionForAttempt(); m != nil {
 		if st, ok := execctx.SecureSessionTurnFromContext(openCtx); ok {
@@ -435,7 +519,8 @@ func (e *Executor) openPlannedCandidate(
 		slog.String("upstream_transport_mode", string(openCall.Invocation.TransportMode)),
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
-	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c}, nil
+	e.logInterleavedRouteSelected(p.ctx, p.traceID, bleg.BLegID, c)
+	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c, interleaved: interleaved, memoUpdate: memoUpdate}, nil
 }
 
 func (e *Executor) lookupAffinityBinding(ctx context.Context, traceID string, sel *routing.Selector, key affinity.Key, keyOK bool) (string, bool, error) {
@@ -516,8 +601,28 @@ func firstSelectorPrimary(sel *routing.Selector) *routing.Primary {
 	if alt.Primary != nil {
 		return alt.Primary
 	}
-	if alt.Weighted != nil && len(alt.Weighted.Branches) > 0 {
-		return &alt.Weighted.Branches[0].Target
+	if alt.Weighted != nil {
+		for i := range alt.Weighted.Branches {
+			b := &alt.Weighted.Branches[i]
+			if b.Parallel != nil {
+				for j := range b.Parallel.Branches {
+					if b.Parallel.Branches[j].Target.Model != "" {
+						return &b.Parallel.Branches[j].Target
+					}
+				}
+				continue
+			}
+			if b.Target.Model != "" {
+				return &b.Target
+			}
+		}
+	}
+	if alt.Parallel != nil {
+		for i := range alt.Parallel.Branches {
+			if alt.Parallel.Branches[i].Target.Model != "" {
+				return &alt.Parallel.Branches[i].Target
+			}
+		}
 	}
 	return nil
 }

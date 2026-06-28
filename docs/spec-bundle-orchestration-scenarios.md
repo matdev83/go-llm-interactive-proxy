@@ -19,5 +19,9 @@ Stable identifiers for **core-owned** routing and executor invariants. Each ID m
 | `SB-ORCH-parallel-race-handicap-fast-forward` | Parallel race: terminal failure of handicapped leg fast-forwards pending legs. | `TestParallelRace_HandicapFastForwardOnTerminalFailure` |
 | `SB-ORCH-parallel-race-cancel-losers` | Parallel race: losers receive cancel before close after winner is selected. | `TestParallelRace_CancelLosersBeforeClose` |
 | `SB-ORCH-parallel-race-failover` | Parallel race: when all legs in a group fail, failover to the next \| arm. | `TestParallelRace_FailoverToNextArmWhenNoWinner` |
+| `SB-ORCH-interleaved-hidden-continuation` | Hidden thinker mode drains thinker output, stores memo state, opens executor continuation, and emits only executor output. | `TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo` |
+| `SB-ORCH-interleaved-visible-continuation` | Visible thinker mode surfaces sanitized reasoning deltas (bypassing response-part hooks/BTP/PTC), stores memo state, then continues with executor output in the same logical request. | `TestExecutor_VisibleInterleavedContinuation_EmitsReasoningThenExecutor` |
+| `SB-ORCH-interleaved-hybrid-parallel-race` | Hybrid selector parallel executor arm runs the existing parallel race with winner selection and loser cancellation unchanged. | `TestExecutor_HybridParallelExecutorRace_WinnerAndLosers` |
+| `SB-ORCH-interleaved-hybrid-thinker-continuation` | Hybrid selector thinker arm runs hidden continuation into the embedded parallel executor group with thinker suppression. | `TestExecutor_HybridThinkerThenParallelContinuation` |
 
 When adding or splitting tests, update `spec_bundle_scenarios.go`, this table, and keep `TestSpecBundle_orchestrationScenarios_referenceTests` passing (`go test -tags=precommit ./internal/core/runtime/...`).

@@ -3,6 +3,7 @@ package leglifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"sync"
@@ -147,6 +148,83 @@ func TestCoordinator_RegisterBLegAfterCancel_PropagatesCleanupErrors(t *testing.
 	if !errors.Is(err, lateCloseErr) {
 		t.Fatalf("expected late close error in aggregate, got %v", err)
 	}
+}
+
+func TestALeg_ReleaseBLeg_removesSingleLegFromCancelSweep(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: time.Second})
+	a := c.StartALeg("a-release")
+	released := &recordingBLeg{}
+	remaining := &recordingBLeg{}
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: "b-released", Attempt: released}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: "b-remaining", Attempt: remaining}); err != nil {
+		t.Fatal(err)
+	}
+
+	a.ReleaseBLeg("b-released")
+
+	if got, want := released.calls(), []string(nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("released leg must not have been canceled before CancelALeg: got %v want %v", got, want)
+	}
+	if err := c.CancelALeg(context.Background(), "a-release", CancelCause{Kind: CancelExplicit}); err != nil {
+		t.Fatal(err)
+	}
+	if got := released.calls(); got != nil {
+		t.Fatalf("released leg must not be touched by CancelALeg, got %v", got)
+	}
+	if got, want := remaining.calls(), []string{"cancel:explicit", "close"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("remaining leg must be canceled and closed: got %v want %v", got, want)
+	}
+}
+
+func TestALeg_ReleaseBLeg_nilAndMissingAreNoOps(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{})
+	a := c.StartALeg("a-nil-release")
+	b := &recordingBLeg{}
+	if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: "b1", Attempt: b}); err != nil {
+		t.Fatal(err)
+	}
+
+	var nilALeg *ALeg
+	nilALeg.ReleaseBLeg("anything")
+	a.ReleaseBLeg("never-registered")
+	a.ReleaseBLeg("")
+
+	if err := c.CancelALeg(context.Background(), "a-nil-release", CancelCause{Kind: CancelExplicit}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.calls(), []string{"cancel:explicit", "close"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("b1 must still be canceled after no-op releases: got %v want %v", got, want)
+	}
+}
+
+func TestALeg_ReleaseBLeg_isConcurrencySafe(t *testing.T) {
+	t.Parallel()
+	c := NewCoordinator(CoordinatorConfig{CancelTimeout: time.Second})
+	a := c.StartALeg("a-race")
+	const n = 32
+	for i := range n {
+		if err := a.RegisterBLeg(context.Background(), BLegHandle{ID: legID(i), Attempt: &recordingBLeg{}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			a.ReleaseBLeg(legID(i))
+		})
+	}
+	wg.Wait()
+	if err := c.CancelALeg(context.Background(), "a-race", CancelCause{Kind: CancelExplicit}); err != nil {
+		t.Fatalf("CancelALeg after concurrent releases: %v", err)
+	}
+}
+
+func legID(i int) string {
+	return fmt.Sprintf("b-%d", i)
 }
 
 type recordingBLeg struct {

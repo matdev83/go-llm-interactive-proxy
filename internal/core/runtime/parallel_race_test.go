@@ -568,6 +568,68 @@ func TestParallelRace_CancelLosersBeforeClose(t *testing.T) {
 	}
 }
 
+func TestParallelRace_WinnerPathLoserCleanupExactOnce(t *testing.T) {
+	t.Parallel()
+	st := parallelStore(t)
+	var winnerStream, loserStream *parallelRaceCleanupStream
+	slowReady := make(chan struct{}, 1)
+	slowRelease := make(chan struct{})
+	defer close(slowRelease)
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Backends: map[string]execbackend.Backend{
+			"winner": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					winnerStream = &parallelRaceCleanupStream{
+						waitReady: slowReady,
+						events:    completionEvents("winner"),
+					}
+					return winnerStream, nil
+				},
+			},
+			"loser": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					loserStream = &parallelRaceCleanupStream{
+						blockNotify:  slowReady,
+						blockRelease: slowRelease,
+						events:       completionEvents("loser"),
+					}
+					return loserStream, nil
+				},
+			},
+		},
+		Rand: routing.NewSeededRng(1),
+	}
+	s, err := ex.Execute(context.Background(), parallelCall("winner:model!loser:model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if winnerStream == nil || loserStream == nil {
+		t.Fatal("parallel streams must open")
+	}
+	assertParallelRaceCleanupOnce(t, loserStream, "loser")
+	loserCancels := loserStream.cancelCount.Load()
+	loserCloses := loserStream.closeCount.Load()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if loserStream.cancelCount.Load() != loserCancels {
+		t.Fatalf("second outer close must not re-cancel loser: got %d want %d", loserStream.cancelCount.Load(), loserCancels)
+	}
+	if loserStream.closeCount.Load() != loserCloses {
+		t.Fatalf("second outer close must not re-close loser: got %d want %d", loserStream.closeCount.Load(), loserCloses)
+	}
+}
+
 func TestParallelRace_CloseWhileRecvBlockedIsRaceSafe(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)

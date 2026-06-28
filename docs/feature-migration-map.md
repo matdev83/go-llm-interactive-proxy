@@ -15,6 +15,7 @@ States:
 | --- | --- | --- | --- |
 | Protocol translation across OpenAI/Anthropic/Gemini-style APIs | core-owned | `pkg/lipapi`, frontend/backend plugins | Use protocol-to-canonical adapters only; no pairwise translators. |
 | Route selector parsing, weighting, failover | core-owned | `internal/core/routing`, `internal/core/runtime` | Already core runtime behavior. |
+| Interleaved thinking (`[thinker]`, memo capture/injection, hidden/visible continuation) | core-owned | `internal/core/routing`, `internal/core/runtime`, `internal/core/interleavedthinking`, `internal/core/b2bua`, `internal/core/continuity` | Disabled by default; enable via `interleaved` config. Scenario evidence: [spec-bundle-routing-scenarios.md](spec-bundle-routing-scenarios.md), [spec-bundle-orchestration-scenarios.md](spec-bundle-orchestration-scenarios.md), [spec-bundle-continuity-scenarios.md](spec-bundle-continuity-scenarios.md). Operator migration notes: [python-to-go-migration.md](python-to-go-migration.md#interleaved-thinking-thinker). |
 | B2BUA continuity and attempt lineage | core-owned | `internal/core/continuity`, `internal/core/b2bua`, secure-session manager | Pre-output recovery only; post-output failures surface. |
 | Capability negotiation and model eligibility | core-owned | `pkg/lipapi`, `internal/core/modelcatalog`, executor negotiation | Unsupported required semantics fail explicitly. |
 | Default route and model aliases | core-owned | config + `internal/core/routing` | Keep startup validation. |

@@ -199,6 +199,15 @@ func (a *ALeg) End() {
 	a.coordinator.EndALeg(a.id)
 }
 
+func (a *ALeg) ReleaseBLeg(id string) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	delete(a.blegs, id)
+	a.mu.Unlock()
+}
+
 func (a *ALeg) cancelTimeout() time.Duration {
 	if a == nil || a.coordinator == nil {
 		return 0

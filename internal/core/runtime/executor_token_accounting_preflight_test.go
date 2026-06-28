@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -218,5 +219,62 @@ func TestExecutorRequestSizeRoutingUsesTokenAccountingPreflightWhenEnabled(t *te
 	}
 	if opened != "large" {
 		t.Fatalf("opened backend = %q, want large", opened)
+	}
+}
+
+func TestExecutorRequestSizePreflightUsesHybridParallelLeaf(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var countedMu sync.Mutex
+	var counted []string
+	ex := &runtime.Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  routing.NewSeededRng(1),
+		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(_ context.Context, in accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+			countedMu.Lock()
+			defer countedMu.Unlock()
+			counted = append(counted, in.Backend+":"+in.Model)
+			return accountingapp.CountResult{InputTokens: 3, TotalTokens: 3}, nil
+		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory}),
+		Backends: map[string]execbackend.Backend{
+			"exec-a": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+			"exec-b": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+			"thinker": {
+				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
+				},
+			},
+		},
+	}
+	stream, err := ex.Execute(context.Background(), &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "[max_context=100]exec-a:small![max_context=100]exec-b:large^[thinker]thinker:plan"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
+		t.Fatal(err)
+	}
+	countedMu.Lock()
+	countedCopy := append([]string(nil), counted...)
+	countedMu.Unlock()
+	if len(countedCopy) == 0 || countedCopy[0] != "exec-a:small" {
+		t.Fatalf("first preflight counted %v, want first exec-a:small", countedCopy)
 	}
 }
