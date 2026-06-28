@@ -66,9 +66,9 @@ type Recorder struct {
 
 // Observe processes one canonical event: it feeds text/reasoning deltas to
 // memo extraction and returns sanitized visible events. Returned content
-// deltas are always EventReasoningDelta with memo wrapper tags stripped;
-// non-content events pass through unchanged after flushing any buffered
-// partial-tag content.
+// deltas are always EventReasoningDelta with memo wrapper tags stripped.
+// Non-content events pass through unchanged; call FlushVisibleSanitizer at
+// stream end to emit any buffered partial-tag visible content.
 func (r *Recorder) Observe(ev lipapi.Event) []lipapi.Event {
 	switch ev.Kind {
 	case lipapi.EventTextDelta, lipapi.EventReasoningDelta:
@@ -78,12 +78,6 @@ func (r *Recorder) Observe(ev lipapi.Event) []lipapi.Event {
 		}
 		return nil
 	default:
-		if flushed := r.flushSanitizer(); flushed != "" {
-			return []lipapi.Event{
-				{Kind: lipapi.EventReasoningDelta, Delta: flushed},
-				ev,
-			}
-		}
 		return []lipapi.Event{ev}
 	}
 }
@@ -155,6 +149,15 @@ func (r *Recorder) writeBounded(b *strings.Builder, s string, truncated *bool) {
 	}
 	b.WriteString(s[:remaining])
 	*truncated = true
+}
+
+// FlushVisibleSanitizer returns any buffered partial-tag visible content and
+// should be called once at stream end before Finish when surfacing thinker output.
+func (r *Recorder) FlushVisibleSanitizer() []lipapi.Event {
+	if flushed := r.flushSanitizer(); flushed != "" {
+		return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: flushed}}
+	}
+	return nil
 }
 
 // Finish returns the captured MemoState. A complete block yields block content;

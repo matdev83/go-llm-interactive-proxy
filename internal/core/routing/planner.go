@@ -202,7 +202,7 @@ func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, *interle
 						if thinkerAware {
 							c.SelectorKey = selKey
 							c.InterleavedRole = interleavedstate.RoleExecutor
-							next = nextCycleForEntry(entries, selKey, branchKey(b), interleavedstate.RoleExecutor)
+							next = nextCycleForEntry(entries, selKey, branchKey(b), interleavedstate.RoleExecutor, stickyCycleStartIdx(opt, entries, selKey))
 						}
 						return c, next, true
 					}
@@ -222,7 +222,7 @@ func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, *interle
 						}
 						c.SelectorKey = selKey
 						c.InterleavedRole = role
-						next = nextCycleForEntry(entries, selKey, branchKey(b), role)
+						next = nextCycleForEntry(entries, selKey, branchKey(b), role, stickyCycleStartIdx(opt, entries, selKey))
 					}
 					return c, next, true
 				}
@@ -242,16 +242,35 @@ func stickyCandidate(sel *Selector, opt PlanOptions) (AttemptCandidate, *interle
 	return AttemptCandidate{}, nil, false
 }
 
-func nextCycleForEntry(entries []interleavedstate.CycleEntry, selKey, key string, role interleavedstate.Role) *interleavedstate.CycleState {
+func stickyCycleStartIdx(opt PlanOptions, entries []interleavedstate.CycleEntry, selKey string) int {
+	if opt.ThinkerCycle.IsEmpty() ||
+		opt.ThinkerCycle.SelectorKey != selKey ||
+		!cycleSequenceEqual(opt.ThinkerCycle.Sequence, entries) {
+		return 0
+	}
+	idx := opt.ThinkerCycle.NextIndex
+	if idx < 0 || idx >= len(entries) {
+		return 0
+	}
+	return idx
+}
+
+func nextCycleForEntry(entries []interleavedstate.CycleEntry, selKey, key string, role interleavedstate.Role, startIdx int) *interleavedstate.CycleState {
 	if len(entries) == 0 {
 		return nil
 	}
-	for idx, entry := range entries {
+	if startIdx < 0 || startIdx >= len(entries) {
+		startIdx = 0
+	}
+	n := len(entries)
+	for i := range n {
+		idx := (startIdx + i) % n
+		entry := entries[idx]
 		if entry.Key == key && entry.Role == role {
 			return &interleavedstate.CycleState{
 				SelectorKey: selKey,
 				Sequence:    entries,
-				NextIndex:   (idx + 1) % len(entries),
+				NextIndex:   (idx + 1) % n,
 			}
 		}
 	}

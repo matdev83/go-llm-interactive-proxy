@@ -65,13 +65,7 @@ func (e *Executor) tryOpenParallelGroup(
 	var zero attemptOpenResult
 	ctx := p.ctx
 	interleaved := p.interleaved
-	if nextCycle != nil {
-		interleaved.Cycle = *nextCycle
-		if err := e.persistInterleavedState(ctx, p.aLegID, interleaved); err != nil {
-			return zero, fmt.Errorf("executor: persist interleaved cycle: %w", err)
-		}
-	}
-	p.interleaved = interleaved
+	cycleAdvance := nextCycle
 	maxHandicap := time.Duration(0)
 	for _, c := range candidates {
 		if c.Handicap > maxHandicap {
@@ -106,6 +100,13 @@ func (e *Executor) tryOpenParallelGroup(
 			return zero, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
 		}
 		entries = limited
+	}
+	if cycleAdvance != nil {
+		interleaved.Cycle = *cycleAdvance
+		if err := e.persistInterleavedState(ctx, p.aLegID, interleaved); err != nil {
+			return zero, fmt.Errorf("executor: persist interleaved cycle: %w", err)
+		}
+		p.interleaved = interleaved
 	}
 
 	var (

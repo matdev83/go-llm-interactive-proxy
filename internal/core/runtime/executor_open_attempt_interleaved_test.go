@@ -123,12 +123,12 @@ func TestExecutor_OpenAttempt_ShapesThinkerCallBeforeOpen(t *testing.T) {
 				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
 				capture,
 			),
+			"unused-exec": recoverableInterleavedBackend(nil),
 		},
 		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."},
 	}
 
-	// [thinker]thinker-be:m builds a single-entry cycle that selects the thinker on first request.
-	call := interleavedBaseCall("[thinker]thinker-be:m")
+	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -165,7 +165,7 @@ func TestExecutor_OpenAttempt_ShapesThinkerCallBeforeOpen(t *testing.T) {
 	if state.Cycle.SelectorKey == "" {
 		t.Fatal("persisted cycle must carry selector key")
 	}
-	if len(state.Cycle.Sequence) != 1 || state.Cycle.Sequence[0].Role != interleavedstate.RoleThinker {
+	if len(state.Cycle.Sequence) != 2 || state.Cycle.Sequence[1].Role != interleavedstate.RoleThinker {
 		t.Fatalf("persisted cycle sequence mismatch: %+v", state.Cycle.Sequence)
 	}
 }
@@ -204,20 +204,24 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 		MemoStore:         memoStore,
 	}
 
-	// First request: thinker-only selector creates the A-leg and persists a cycle.
-	first := interleavedBaseCall("[thinker]exec-be:m")
-	if _, err := ex.Execute(context.Background(), first); err != nil {
-		t.Fatalf("first execute: %v", err)
+	// Seed an A-leg via a valid selector whose executor branch is reachable first.
+	first := interleavedBaseCall("[thinker]other-be:m^exec-be:m")
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
+		t.Fatalf("seed execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("seed collect: %v", err)
 	}
 	aLegID := first.Session.ALegID
 	if aLegID == "" {
-		t.Fatal("first execute must set A-leg id on call session")
+		t.Fatal("seed execute must set A-leg id")
 	}
 
 	// Seed a memo for the A-leg scope and record its reference on the A-leg interleaved state.
 	memoRef, err := memoStore.Put(context.Background(), interleavedthinking.Scope(aLegID), interleavedthinking.MemoState{
 		Memo:                  "plan: do the thing",
-		SourceSelector:        "[thinker]exec-be:m",
+		SourceSelector:        "[thinker]exec-be:m^exec-be:m",
 		Backend:               "exec-be",
 		RegularTurnsRemaining: 2,
 	})
@@ -225,7 +229,7 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 		t.Fatalf("memo put: %v", err)
 	}
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		Cycle:   interleavedstate.CycleState{SelectorKey: "[thinker]exec-be:m", Sequence: []interleavedstate.CycleEntry{{Key: "exec-be:m", Role: interleavedstate.RoleThinker}}, NextIndex: 0},
+		Cycle:   interleavedstate.CycleState{SelectorKey: "exec-be:m", Sequence: []interleavedstate.CycleEntry{{Key: "exec-be:m", Role: interleavedstate.RoleThinker}}, NextIndex: 0},
 		MemoRef: &memoRef,
 	}); err != nil {
 		t.Fatalf("seed interleaved state: %v", err)
@@ -566,10 +570,11 @@ func TestExecutor_OpenAttempt_DisabledConfigInertForTools(t *testing.T) {
 				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
 				capture,
 			),
+			"unused-exec": recoverableInterleavedBackend(nil),
 		},
 	}
 
-	call := interleavedBaseCall("[thinker]thinker-be:m")
+	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -704,11 +709,12 @@ func TestExecutor_OpenAttempt_InterleavedShapingRunsAfterTransformsBeforeComplet
 				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
 				capture,
 			),
+			"unused-exec": recoverableInterleavedBackend(nil),
 		},
 		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."},
 	}
 
-	call := interleavedBaseCall("[thinker]thinker-be:m")
+	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
 		t.Fatalf("execute: %v", err)

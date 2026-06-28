@@ -304,14 +304,20 @@ func validateWeightedThinker(w *Weighted) error {
 	if w == nil {
 		return nil
 	}
-	n := 0
+	thinkerCount := 0
+	executorCount := 0
 	for _, b := range w.Branches {
 		if b.IsThinker {
-			n++
+			thinkerCount++
+		} else {
+			executorCount++
 		}
 	}
-	if n > 1 {
+	if thinkerCount > 1 {
 		return fmt.Errorf("%w: at most one [thinker] branch is allowed in a weighted selector", ErrInvalidSelector)
+	}
+	if thinkerCount > 0 && executorCount == 0 {
+		return fmt.Errorf("%w: weighted selector with [thinker] requires at least one non-thinker branch", ErrInvalidSelector)
 	}
 	return nil
 }

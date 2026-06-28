@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -190,5 +191,46 @@ func TestPersistCapturedMemo_ReplacesMemoAndDeletesPrevious(t *testing.T) {
 	}
 	if persisted.MemoRef == nil || !persisted.MemoRef.Equal(*state.MemoRef) {
 		t.Fatalf("persisted memo ref = %+v want %+v", persisted.MemoRef, state.MemoRef)
+	}
+}
+
+func TestPersistCapturedMemo_RollbackOnPersistFailure(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	base, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &failInterleavedPersistStore{MemoryStore: base}
+	aLeg, err := st.CreateALeg(ctx, "memo-persist-fail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoStore := interleavedthinking.NewMemoStore(4096)
+	ex := &Executor{
+		Store:             st,
+		MemoStore:         memoStore,
+		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "think"},
+	}
+	scope := interleavedthinking.Scope(aLeg.ALegID)
+	oldRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{Memo: "keep-me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := interleavedstate.State{MemoRef: &oldRef}
+
+	resultState, err := ex.persistCapturedMemo(ctx, aLeg.ALegID, state, interleavedthinking.MemoState{Memo: "orphan"})
+	if !errors.Is(err, errInjectedCyclePersist) {
+		t.Fatalf("want errInjectedCyclePersist, got %v", err)
+	}
+	if resultState.MemoRef == nil || !resultState.MemoRef.Equal(oldRef) {
+		t.Fatalf("returned memo ref must restore old ref, got %+v want %+v", resultState.MemoRef, oldRef)
+	}
+	if _, ok, err := memoStore.Get(ctx, scope, oldRef); err != nil || !ok {
+		t.Fatalf("original memo must remain: ok=%v err=%v", ok, err)
+	}
+	orphanRef := interleavedstate.MemoRef{Key: "memo-2", Version: 1}
+	if _, ok, err := memoStore.Get(ctx, scope, orphanRef); err == nil && ok {
+		t.Fatal("orphan memo must be deleted when interleaved state persist fails")
 	}
 }

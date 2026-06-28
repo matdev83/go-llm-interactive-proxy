@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -95,6 +94,8 @@ func (s *parallelRaceCleanupStream) Close() error {
 
 func hybridParallelBackends(t *testing.T) (map[string]execbackend.Backend, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
+	slowRelease := make(chan struct{})
+	t.Cleanup(func() { close(slowRelease) })
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
 	var slowOpens, fastOpens atomic.Int32
 	backends := map[string]execbackend.Backend{
@@ -109,8 +110,8 @@ func hybridParallelBackends(t *testing.T) (map[string]execbackend.Backend, *atom
 			}),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				slowOpens.Add(1)
-				return &delayedStream{
-					delay: 200 * time.Millisecond,
+				return &parallelRaceCleanupStream{
+					blockRelease: slowRelease,
 					events: []lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
@@ -290,6 +291,8 @@ func TestExecutor_HybridThinkerThenParallelContinuation(t *testing.T) {
 func TestExecutor_HybridParallelMemoBudgetCommittedOnlyForWinner(t *testing.T) {
 	t.Parallel()
 
+	slowRelease := make(chan struct{})
+	t.Cleanup(func() { close(slowRelease) })
 	var mu sync.Mutex
 	openedCalls := map[string]lipapi.Call{}
 	var fastOpens atomic.Int32
@@ -302,8 +305,8 @@ func TestExecutor_HybridParallelMemoBudgetCommittedOnlyForWinner(t *testing.T) {
 				fastOpens.Add(1)
 			}
 			if backend == "slow-exec" {
-				return &delayedStream{
-					delay: 200 * time.Millisecond,
+				return &parallelRaceCleanupStream{
+					blockRelease: slowRelease,
 					events: []lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventMessageStarted},
@@ -450,9 +453,13 @@ func TestParallelRace_CommitMemoInjectionFailureCleansUpStreams(t *testing.T) {
 	}
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m"
 
-	first := interleavedBaseCall("[thinker]thinker-be:m")
-	if _, err := ex.Execute(context.Background(), first); err != nil {
+	first := seedThinkerFirstCall(t, st, selector)
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
 		t.Fatalf("seed execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("seed collect: %v", err)
 	}
 	aLegID := first.Session.ALegID
 	if aLegID == "" {

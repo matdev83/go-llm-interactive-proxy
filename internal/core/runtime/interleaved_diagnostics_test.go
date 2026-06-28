@@ -135,9 +135,13 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 		MemoStore: memoStore,
 	}
 
-	first := interleavedBaseCall("[thinker]exec-be:m")
-	if _, err := ex.Execute(context.Background(), first); err != nil {
-		t.Fatalf("first execute: %v", err)
+	first := interleavedBaseCall("[thinker]exec-be:m^exec-be:m")
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
+		t.Fatalf("seed execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("seed collect: %v", err)
 	}
 	aLegID := first.Session.ALegID
 
@@ -150,19 +154,16 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	cycle := thinkerCycleState(t, "[thinker]exec-be:m^exec-be:m", 0)
 	if err := st.SetInterleavedState(context.Background(), aLegID, interleavedstate.State{
-		Cycle: interleavedstate.CycleState{
-			SelectorKey: "[thinker]exec-be:m^exec-be:m",
-			Sequence:    []interleavedstate.CycleEntry{{Key: "exec-be:m", Role: interleavedstate.RoleExecutor}},
-			NextIndex:   0,
-		},
+		Cycle:   cycle,
 		MemoRef: &memoRef,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	second := interleavedBaseCall("[thinker]exec-be:m^exec-be:m")
-	second.Session = first.Session
+	resumeInterleavedCall(first, second)
 	if _, err := ex.Execute(context.Background(), second); err != nil {
 		t.Fatalf("second execute: %v", err)
 	}

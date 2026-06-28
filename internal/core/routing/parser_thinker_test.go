@@ -14,7 +14,6 @@ func TestParseThinkerAcceptedForms(t *testing.T) {
 		in        string
 		thinkerAt int
 	}{
-		{name: "bare single branch", in: "[thinker]a:m", thinkerAt: 0},
 		{name: "bare in two-branch weighted", in: "[thinker]a:m^b:m", thinkerAt: 0},
 		{name: "bare on second branch", in: "a:m^[thinker]b:m", thinkerAt: 1},
 		{name: "true value", in: "[thinker=true]a:m^b:m", thinkerAt: 0},
@@ -47,6 +46,26 @@ func TestParseThinkerAcceptedForms(t *testing.T) {
 				if b.IsThinker {
 					t.Fatalf("branch %d unexpectedly marked thinker", i)
 				}
+			}
+		})
+	}
+}
+
+func TestParseThinkerRejectsThinkerOnlyWeightedSelector(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"[thinker]a:m",
+		"[thinker=true]a:m",
+	}
+	for _, in := range cases {
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+			_, err := Parse(in)
+			if err == nil {
+				t.Fatal("expected rejection for thinker-only weighted selector")
+			}
+			if !errors.Is(err, ErrInvalidSelector) {
+				t.Fatalf("expected ErrInvalidSelector, got %v", err)
 			}
 		})
 	}

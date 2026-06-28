@@ -471,23 +471,34 @@ func (e *Executor) openPlannedCandidate(
 	}
 	if nextCycle != nil {
 		interleaved.Cycle = *nextCycle
-		if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
-			if stream != nil {
-				_ = stream.Close()
-			}
-			return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
-		}
 	}
 	var memoUpdate *interleavedthinking.PendingMemoUpdate
 	if p.deferMemoInjectionCommit {
+		if nextCycle != nil {
+			if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
+				if stream != nil {
+					_ = stream.Close()
+				}
+				return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
+			}
+		}
 		memoUpdate = shapeRes.MemoUpdate
 	} else {
-		interleaved, err = e.commitMemoInjection(p.ctx, p.aLegID, interleaved, shapeRes.MemoUpdate)
-		if err != nil {
-			if stream != nil {
-				_ = stream.Close()
+		if shapeRes.MemoUpdate != nil {
+			interleaved, err = e.commitMemoInjection(p.ctx, p.aLegID, interleaved, shapeRes.MemoUpdate)
+			if err != nil {
+				if stream != nil {
+					_ = stream.Close()
+				}
+				return zero, err
 			}
-			return zero, err
+		} else if nextCycle != nil {
+			if perr := e.persistInterleavedState(p.ctx, p.aLegID, interleaved); perr != nil {
+				if stream != nil {
+					_ = stream.Close()
+				}
+				return zero, fmt.Errorf("executor: persist interleaved cycle: %w", perr)
+			}
 		}
 	}
 	if m := e.secureSessionForAttempt(); m != nil {

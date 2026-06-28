@@ -97,6 +97,9 @@ func (s *interleavedContinuationStream) popPending() (lipapi.Event, bool) {
 	}
 	ev := s.pending[0]
 	s.pending = s.pending[1:]
+	if ev.Kind == lipapi.EventReasoningDelta {
+		s.recordVisibleOutput(ev)
+	}
 	return ev, true
 }
 
@@ -108,6 +111,14 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 		ev, err := s.thinker.Recv(ctx)
 		if err != nil {
 			if errors.Is(err, io.EOF) && s.thinker.isFinished() {
+				if s.surfaceVisible {
+					for _, visible := range s.recorder.FlushVisibleSanitizer() {
+						s.enqueueVisibleReasoning(visible)
+					}
+					if out, ok := s.popPending(); ok {
+						return out, nil
+					}
+				}
 				return s.beginExecutorContinuation(ctx)
 			}
 			if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
@@ -140,7 +151,6 @@ func (s *interleavedContinuationStream) enqueueVisibleReasoning(ev lipapi.Event)
 		)
 		s.responseStarted = true
 	}
-	s.recordVisibleOutput(ev)
 	s.pending = append(s.pending, ev)
 }
 
@@ -173,11 +183,9 @@ func (s *interleavedContinuationStream) captureAndPersistThinkerMemo(ctx context
 
 	persistCtx := ctx
 	if interrupted {
-		if ctx == nil {
-			persistCtx = context.Background()
-		} else {
-			persistCtx = context.WithoutCancel(ctx)
-		}
+		var cleanupCancel context.CancelFunc
+		persistCtx, cleanupCancel = detachedCleanupContext(ctx, cancelLosersTimeout)
+		defer cleanupCancel()
 	}
 
 	memo := s.recorder.Finish(interrupted)

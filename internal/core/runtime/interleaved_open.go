@@ -156,6 +156,11 @@ func (e *Executor) persistCapturedMemo(ctx context.Context, aLegID string, state
 	}
 	state.MemoRef = &ref
 	if err := e.persistInterleavedState(ctx, aLegID, state); err != nil {
+		state.MemoRef = oldRef
+		scope := interleavedthinking.Scope(aLegID)
+		if delErr := e.MemoStore.Delete(ctx, scope, ref); delErr != nil {
+			return state, fmt.Errorf("executor: persist memo reference: %w (rollback delete: %v)", err, delErr)
+		}
 		return state, fmt.Errorf("executor: persist memo reference: %w", err)
 	}
 	if oldRef != nil && oldRef.Key != "" && !oldRef.Equal(ref) {

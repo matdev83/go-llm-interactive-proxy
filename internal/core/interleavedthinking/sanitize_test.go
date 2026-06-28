@@ -151,19 +151,52 @@ func TestSanitize_NonContentEventsPassThrough(t *testing.T) {
 	}
 }
 
-func TestSanitize_FlushesPartialTagOnTerminalEvent(t *testing.T) {
+func TestSanitize_MidStreamNonContentDoesNotFlushPartialTag(t *testing.T) {
+	t.Parallel()
+	r := newRecorder(4096)
+	var out []lipapi.Event
+	for _, ev := range []lipapi.Event{
+		textDelta("plan <proxy_thinker_me"),
+		{Kind: lipapi.EventUsageDelta, InputTokens: 10},
+		textDelta("mo>done"),
+	} {
+		out = append(out, r.Observe(ev)...)
+	}
+	for i, ev := range out {
+		if strings.Contains(ev.Delta, memoOpenTag) || strings.Contains(ev.Delta, memoCloseTag) {
+			t.Fatalf("wrapper tag leaked into visible event %d: %+v", i, ev)
+		}
+	}
+	var reasoning []lipapi.Event
+	for _, ev := range out {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			reasoning = append(reasoning, ev)
+		}
+	}
+	if got := concatDeltas(reasoning); got != "plan done" {
+		t.Fatalf("mid-stream metadata must not flush partial tag, got %q", got)
+	}
+	if len(out) < 2 || out[1].Kind != lipapi.EventUsageDelta {
+		t.Fatalf("usage event must pass through, got %+v", out)
+	}
+}
+
+func TestSanitize_FinishFlushesPartialNonWrapperContent(t *testing.T) {
 	t.Parallel()
 	r := newRecorder(4096)
 	out := collectSanitized(t, r, []lipapi.Event{
 		textDelta("plan <proxy_thinker_me"),
-		{Kind: lipapi.EventResponseFinished},
 	})
-	onlyReasoningDeltas(t, out[:len(out)-1])
-	if out[len(out)-1].Kind != lipapi.EventResponseFinished {
-		t.Fatalf("terminal event must pass through, got %+v", out[len(out)-1])
+	onlyReasoningDeltas(t, out)
+	if got := concatDeltas(out); got != "plan " {
+		t.Fatalf("partial tag must stay buffered before finish, got %q", got)
 	}
-	if got := concatDeltas(out[:len(out)-1]); got != "plan <proxy_thinker_me" {
-		t.Fatalf("partial tag must flush as content, got %q", got)
+	flushed := r.FlushVisibleSanitizer()
+	if len(flushed) != 1 || flushed[0].Kind != lipapi.EventReasoningDelta {
+		t.Fatalf("finish flush must emit one reasoning delta, got %+v", flushed)
+	}
+	if flushed[0].Delta != "<proxy_thinker_me" {
+		t.Fatalf("finish flush must emit buffered partial tag as content, got %q", flushed[0].Delta)
 	}
 }
 

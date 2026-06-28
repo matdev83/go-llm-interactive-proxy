@@ -325,7 +325,7 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	t.Parallel()
 
 	const (
-		oldSelector = "[thinker]exec-be:m"
+		oldSelector = "[thinker]other-be:m^exec-be:m"
 		newSelector = "[thinker]exec-be:m^exec-be:m"
 		newKey      = "exec-be:m^exec-be:m"
 		memoBody    = "stale-selector memo"
@@ -358,8 +358,12 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	}
 
 	first := interleavedBaseCall(oldSelector)
-	if _, err := ex.Execute(context.Background(), first); err != nil {
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
 		t.Fatalf("seed execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("seed collect: %v", err)
 	}
 	aLegID := first.Session.ALegID
 

@@ -221,6 +221,9 @@ func pickThinkerCycle(w *Weighted, opt PlanOptions) ([]AttemptCandidate, bool, *
 	var state interleavedstate.CycleState
 	if stateValid {
 		state = opt.ThinkerCycle
+		if state.NextIndex < 0 || state.NextIndex >= len(entries) {
+			state.NextIndex = 0
+		}
 	} else {
 		state = interleavedstate.CycleState{SelectorKey: selKey, Sequence: entries, NextIndex: 0}
 	}

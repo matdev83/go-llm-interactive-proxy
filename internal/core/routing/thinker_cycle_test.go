@@ -2,6 +2,7 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -93,6 +94,40 @@ func TestBuildThinkerCycle_ClampsHugeWeights(t *testing.T) {
 	}
 	if entries[len(entries)-1].Role != interleavedstate.RoleThinker {
 		t.Fatalf("last entry must remain thinker, got %+v", entries[len(entries)-1])
+	}
+}
+
+func TestPickThinkerCycle_InvalidNextIndexNormalized(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[thinker]a:m^b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := sel.Alternatives[0].Weighted
+	sess := &SessionRoutingState{FirstRequestConsumed: true}
+	seq := []interleavedstate.CycleEntry{
+		{Key: "b:m", Role: interleavedstate.RoleExecutor},
+		{Key: "a:m", Role: interleavedstate.RoleThinker},
+	}
+	for _, badIdx := range []int{-1, 99} {
+		t.Run(fmt.Sprintf("NextIndex=%d", badIdx), func(t *testing.T) {
+			t.Parallel()
+			stale := interleavedstate.CycleState{
+				SelectorKey: "a:m^b:m",
+				Sequence:    seq,
+				NextIndex:   badIdx,
+			}
+			cands, _, next, err := pickWeighted(w, PlanOptions{Session: sess, ThinkerCycle: stale})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cands) != 1 || cands[0].Key != "b:m" {
+				t.Fatalf("normalized pick: got %+v want b:m", cands)
+			}
+			if next == nil || next.NextIndex != 1 {
+				t.Fatalf("next cursor: got %+v want NextIndex 1", next)
+			}
+		})
 	}
 }
 

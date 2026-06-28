@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -436,6 +437,80 @@ func interleavedExecutor(t *testing.T, backends map[string]execbackend.Backend) 
 	return ex, st
 }
 
+func weightedBranchKey(b routing.WeightedBranch) string {
+	if b.Parallel != nil {
+		legs := make([]string, 0, len(b.Parallel.Branches))
+		for _, leg := range b.Parallel.Branches {
+			legs = append(legs, leg.Target.String())
+		}
+		return "parallel:" + strings.Join(legs, "!")
+	}
+	return b.Target.String()
+}
+
+func thinkerCycleState(t *testing.T, selector string, nextIndex int) interleavedstate.CycleState {
+	t.Helper()
+	sel, err := routing.Parse(selector)
+	if err != nil {
+		t.Fatalf("parse %q: %v", selector, err)
+	}
+	w := sel.Alternatives[0].Weighted
+	if w == nil {
+		t.Fatal("expected weighted selector")
+	}
+	keys := make([]string, 0, len(w.Branches))
+	for _, b := range w.Branches {
+		keys = append(keys, weightedBranchKey(b))
+	}
+	selKey := strings.Join(keys, "^")
+	entries := make([]interleavedstate.CycleEntry, 0, len(w.Branches)+2)
+	for _, b := range w.Branches {
+		if b.IsThinker {
+			continue
+		}
+		wt := int64(1)
+		if b.Weight > 0 {
+			wt = int64(b.Weight)
+		}
+		key := weightedBranchKey(b)
+		for range wt {
+			entries = append(entries, interleavedstate.CycleEntry{Key: key, Role: interleavedstate.RoleExecutor})
+		}
+	}
+	for _, b := range w.Branches {
+		if !b.IsThinker {
+			continue
+		}
+		entries = append(entries, interleavedstate.CycleEntry{Key: weightedBranchKey(b), Role: interleavedstate.RoleThinker})
+		break
+	}
+	if nextIndex < 0 {
+		for i, e := range entries {
+			if e.Role == interleavedstate.RoleThinker {
+				nextIndex = i
+				break
+			}
+		}
+	}
+	return interleavedstate.CycleState{SelectorKey: selKey, Sequence: entries, NextIndex: nextIndex}
+}
+
+func seedThinkerFirstCall(t *testing.T, st *b2bua.MemoryStore, selector string) *lipapi.Call {
+	t.Helper()
+	aLeg, err := st.CreateALeg(context.Background(), "thinker-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetInterleavedState(context.Background(), aLeg.ALegID, interleavedstate.State{
+		Cycle: thinkerCycleState(t, selector, -1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call := interleavedBaseCall(selector)
+	call.Session = lipapi.SessionRef{ALegID: aLeg.ALegID}
+	return call
+}
+
 func resumeInterleavedCall(first, second *lipapi.Call) {
 	second.Session = lipapi.SessionRef{
 		AuthoritativeSessionID: first.Session.AuthoritativeSessionID,
@@ -472,7 +547,7 @@ func TestExecutor_HiddenInterleavedThinkerPreOutputRecoveryThenExecutor(t *testi
 	}
 	ex, st := interleavedExecutor(t, backends)
 
-	selector := "[thinker]bad-thinker:m|good-thinker:m^exec-be:m"
+	selector := "[thinker]bad-thinker:m^exec-be:m|[thinker]good-thinker:m^exec-be:m"
 	first := interleavedBaseCall(selector)
 	firstStream, err := ex.Execute(context.Background(), first)
 	if err != nil {
@@ -581,15 +656,30 @@ func TestExecutor_HiddenInterleavedNoEligibleContinuation(t *testing.T) {
 	t.Parallel()
 
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
+	var missingExecOpens atomic.Int32
 	backends := map[string]execbackend.Backend{
 		"thinker-be": *interleavedBackendWithStream(caps, nil, func() lipapi.ManagedEventStream {
 			return thinkerMemoStream("plan only")
 		}),
+		"missing-exec": {
+			Caps: caps,
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if missingExecOpens.Add(1) == 1 {
+					return nil, lipapi.RecoverablePreOutputError(errors.New("bootstrap executor"))
+				}
+				return nil, lipapi.RecoverablePreOutputError(errors.New("executor unavailable"))
+			},
+		},
 	}
 	ex, _ := interleavedExecutor(t, backends)
 
-	selector := "[thinker]thinker-be:m"
-	stream, err := ex.Execute(context.Background(), interleavedBaseCall(selector))
+	selector := "[thinker]thinker-be:m^missing-exec:m"
+	call := interleavedBaseCall(selector)
+	stream, err := ex.Execute(context.Background(), call)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -779,6 +869,65 @@ func TestExecutor_VisibleInterleavedInterruptedThinkerMemoNotMarkedVisible(t *te
 	}
 	if stored.VisibleToClient {
 		t.Fatal("visible mode must not mark memo VisibleToClient without committed client-visible output")
+	}
+}
+
+func TestExecutor_VisibleInterleavedCloseAfterStartBeforeReasoningMemoNotVisible(t *testing.T) {
+	t.Parallel()
+
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
+	backends := map[string]execbackend.Backend{
+		"exec-be": *interleavedBackendWithStream(caps, nil, func() lipapi.ManagedEventStream {
+			return executorTextStream("setup exec")
+		}),
+		"thinker-be": *interleavedBackendWithStream(caps, nil, func() lipapi.ManagedEventStream {
+			return thinkerMemoStream("plan before close")
+		}),
+	}
+	ex, st := interleavedVisibleExecutor(t, backends)
+
+	selector := "[thinker]thinker-be:m^exec-be:m"
+	first := interleavedBaseCall(selector)
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
+		t.Fatalf("first execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("first collect: %v", err)
+	}
+
+	second := interleavedBaseCall(selector)
+	resumeInterleavedCall(first, second)
+	stream, err := ex.Execute(context.Background(), second)
+	if err != nil {
+		t.Fatalf("second execute: %v", err)
+	}
+	for i := range 2 {
+		ev, err := stream.Recv(context.Background())
+		if err != nil {
+			t.Fatalf("recv start event %d: %v", i, err)
+		}
+		if ev.Kind != lipapi.EventResponseStarted && ev.Kind != lipapi.EventMessageStarted {
+			t.Fatalf("expected injected start event %d, got %v", i, ev.Kind)
+		}
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	state, err := st.FetchInterleavedState(context.Background(), first.Session.ALegID)
+	if err != nil {
+		t.Fatalf("fetch interleaved state: %v", err)
+	}
+	if state.MemoRef == nil {
+		t.Fatal("thinker memo must still be persisted on close")
+	}
+	stored, ok, err := ex.MemoStore.Get(context.Background(), interleavedthinking.Scope(first.Session.ALegID), *state.MemoRef)
+	if err != nil || !ok {
+		t.Fatalf("memo lookup: ok=%v err=%v", ok, err)
+	}
+	if stored.VisibleToClient {
+		t.Fatal("memo must not be marked visible when client closed before reasoning delta delivery")
 	}
 }
 

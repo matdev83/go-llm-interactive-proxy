@@ -160,9 +160,13 @@ func TestExecutor_ParallelCommitMemoFailureEndsALegScope(t *testing.T) {
 	}
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m|recovery:m"
 
-	first := interleavedBaseCall("[thinker]thinker-be:m")
-	if _, err := ex.Execute(context.Background(), first); err != nil {
+	first := seedThinkerFirstCall(t, st, selector)
+	firstStream, err := ex.Execute(context.Background(), first)
+	if err != nil {
 		t.Fatalf("seed execute: %v", err)
+	}
+	if _, err := lipapi.Collect(context.Background(), firstStream); err != nil {
+		t.Fatalf("seed collect: %v", err)
 	}
 	aLegID := first.Session.ALegID
 

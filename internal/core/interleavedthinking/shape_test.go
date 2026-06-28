@@ -518,13 +518,12 @@ func TestShapeCall_ExecutorDedupeAvoidsDuplicateMemo(t *testing.T) {
 	}
 }
 
-func TestShapeCall_ExecutorDedupeDetectsMemoInMessages(t *testing.T) {
+func TestShapeCall_ExecutorInjectsWhenRawMemoEchoedInUserMessage(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store, scope, ref := storeWithMemo(t, injectableMemoState())
 
 	in := baseCall()
-	// The memo text already appears in a user message (e.g., echoed by client).
 	in.Messages = append(in.Messages, lipapi.Message{
 		Role:  lipapi.RoleUser,
 		Parts: []lipapi.Part{lipapi.TextPart("Earlier planner said: " + injectableMemoState().Memo)},
@@ -539,8 +538,11 @@ func TestShapeCall_ExecutorDedupeDetectsMemoInMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shape: %v", err)
 	}
-	if res.MemoInjected {
-		t.Fatal("memo already in messages must not be re-injected")
+	if !res.MemoInjected {
+		t.Fatal("raw memo echo in user message must not suppress wrapped injection")
+	}
+	if len(res.Call.Instructions) != 1 {
+		t.Fatalf("executor call must have one injected instruction, got %d", len(res.Call.Instructions))
 	}
 }
 

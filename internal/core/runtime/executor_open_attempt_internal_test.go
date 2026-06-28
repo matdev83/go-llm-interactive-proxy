@@ -158,7 +158,7 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 		t.Fatalf("threaded cycle must match persisted cycle, got %+v stored %+v", out1.interleaved.Cycle, stored.Cycle)
 	}
 	if stored.Cycle.NextIndex == seededCycle.NextIndex {
-		t.Fatal("parallel open must advance persisted thinker cycle before legs run")
+		t.Fatal("parallel open must advance persisted thinker cycle after at least one leg is admitted")
 	}
 }
 
@@ -450,5 +450,79 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 	}
 	if !state.IsEmpty() {
 		t.Fatalf("cycle must not persist when SetInterleavedState fails, got %+v", state)
+	}
+}
+
+func TestTryPlanOpenOnce_ParallelBudgetRejectsAllPreservesCycle(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aLeg, err := st.CreateALeg(ctx, "parallel-budget-cycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, err := routing.Parse("[thinker]thinker-be:m^a:m!b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
+	transport := lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+		Operation: lipapi.OperationOpenAIChatCompletions,
+		Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+	})
+	ex := &Executor{
+		Store: st,
+		Bus:   hooks.New(hooks.Config{}),
+		Rand:  routing.NewSeededRng(2),
+		Backends: map[string]execbackend.Backend{
+			"a": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("parallel leg must not open when budget rejects all entries")
+				return nil, nil
+			}},
+			"b": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("parallel leg must not open when budget rejects all entries")
+				return nil, nil
+			}},
+		},
+		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
+	}
+	seededCycle := interleavedstate.CycleState{
+		SelectorKey: "thinker-be:m^a:m!b:m",
+		Sequence: []interleavedstate.CycleEntry{
+			{Key: "a:m!b:m", Role: interleavedstate.RoleExecutor},
+			{Key: "thinker-be:m", Role: interleavedstate.RoleThinker},
+		},
+		NextIndex: 0,
+	}
+	if err := st.SetInterleavedState(ctx, aLeg.ALegID, interleavedstate.State{Cycle: seededCycle}); err != nil {
+		t.Fatal(err)
+	}
+	ttft := newTTFTBudget(ex.now(), sel)
+	_, err = ex.tryPlanOpenOnce(attemptOpenParams{
+		ctx:         ctx,
+		bus:         ex.Bus,
+		traceID:     "parallel-budget-cycle",
+		aLegID:      aLeg.ALegID,
+		baseline:    lipapi.Call{Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}},
+		sel:         sel,
+		session:     &routing.SessionRoutingState{},
+		excluded:    map[string]struct{}{},
+		rng:         routing.NewSeededRng(2),
+		budget:      &attemptBudget{max: 0},
+		ttft:        &ttft,
+		interleaved: interleavedstate.State{Cycle: seededCycle},
+	})
+	if !errors.Is(err, lipapi.ErrMaxRouteAttempts) {
+		t.Fatalf("want ErrMaxRouteAttempts, got %v", err)
+	}
+	stored, err := st.FetchInterleavedState(ctx, aLeg.ALegID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Cycle.NextIndex != seededCycle.NextIndex {
+		t.Fatalf("cycle NextIndex: got %d want %d when budget rejects all parallel legs", stored.Cycle.NextIndex, seededCycle.NextIndex)
 	}
 }

@@ -206,22 +206,23 @@ func shapeExecutor(ctx context.Context, out lipapi.Call, in ShapeInput) (ShapeRe
 }
 
 // callContainsMemoText reports whether any text part in the call's Instructions
-// or Messages already contains the memo text. Used to avoid duplicate
-// equivalent memo injection (Requirement 5.5).
+// or Messages already contains the exact wrapped memo context block. Used to
+// avoid duplicate equivalent memo injection (Requirement 5.5).
 func callContainsMemoText(call lipapi.Call, memo string) bool {
 	if memo == "" {
 		return false
 	}
+	wrapped := MemoContextOpenTag + "\n" + memo + "\n" + MemoContextCloseTag
 	for _, m := range call.Instructions {
 		for _, p := range m.Parts {
-			if p.Kind == lipapi.PartText && strings.Contains(p.Text, memo) {
+			if p.Kind == lipapi.PartText && strings.Contains(p.Text, wrapped) {
 				return true
 			}
 		}
 	}
 	for _, m := range call.Messages {
 		for _, p := range m.Parts {
-			if p.Kind == lipapi.PartText && strings.Contains(p.Text, memo) {
+			if p.Kind == lipapi.PartText && strings.Contains(p.Text, wrapped) {
 				return true
 			}
 		}

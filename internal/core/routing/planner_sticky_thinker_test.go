@@ -94,6 +94,35 @@ func TestStickyCandidate_ExecutorBranchSetsExecutorRole(t *testing.T) {
 	}
 }
 
+func TestStickyCandidate_DuplicateWeightedEntryAdvancesFromCurrentCursor(t *testing.T) {
+	t.Parallel()
+	sel, err := Parse("[thinker]a:m^[weight=2]b:m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, selKey := buildThinkerCycle(sel.Alternatives[0].Weighted)
+	cycle := interleavedstate.CycleState{
+		SelectorKey: selKey,
+		Sequence:    entries,
+		NextIndex:   1,
+	}
+	groups, err := ExpandFailoverGroups(sel, PlanOptions{
+		StickyBackendID: "b",
+		ThinkerCycle:    cycle,
+		Session:         &SessionRoutingState{FirstRequestConsumed: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || len(groups[0].Candidates) != 1 || groups[0].Candidates[0].Key != "b:m" {
+		t.Fatalf("sticky executor: got %#v", groups)
+	}
+	next := groups[0].NextThinkerCycle
+	if next == nil || next.NextIndex != 2 {
+		t.Fatalf("next cycle from second b:m: got %+v want NextIndex 2", next)
+	}
+}
+
 func TestExpandFailoverGroups_StickyThinkerWeightedSetsNextThinkerCycle(t *testing.T) {
 	t.Parallel()
 	sel, err := Parse("[thinker]a:m^b:m")

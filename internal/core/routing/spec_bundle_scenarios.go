@@ -99,22 +99,22 @@ func SpecBundleRoutingScenarios() []RoutingScenarioSpec {
 		},
 		{
 			ID:               "SB-ROUTE-parse-thinker-forms",
-			InvariantSummary: "[thinker] accepts bare and true-valued forms on weighted branches and rejects false/duplicate/misplaced/first-plus-thinker forms.",
+			InvariantSummary: "[thinker] accepts bare and true-valued forms on weighted branches.",
 			TestName:         "TestParseThinkerAcceptedForms",
 		},
 		{
 			ID:               "SB-ROUTE-parse-thinker-hybrid",
-			InvariantSummary: "One thinker branch plus one non-thinker weighted branch targeting a parallel executor group parses; general weighted/parallel mixing stays rejected.",
+			InvariantSummary: "One thinker weighted branch plus one non-thinker branch with an embedded parallel executor group parses.",
 			TestName:         "TestParseThinkerParallelHybridAccepted",
 		},
 		{
 			ID:               "SB-ROUTE-planner-thinker-cycle",
-			InvariantSummary: "Thinker-aware weighted cycle repeats non-thinker branches by weight, appends thinker once, advances the cursor, and resets stale selector state.",
+			InvariantSummary: "Thinker-weighted cycle picks executor branches by weight, then thinker, wrapping NextIndex after each lap.",
 			TestName:         "TestPickThinkerCycle_AdvancesCursorAndWraps",
 		},
 		{
 			ID:               "SB-ROUTE-planner-thinker-suppression",
-			InvariantSummary: "Thinker suppression skips the thinker position for continuation turns and surfaces no-eligible-route when no executor remains.",
+			InvariantSummary: "SuppressThinker skips the thinker cycle position and returns the next executor candidate.",
 			TestName:         "TestPickThinkerCycle_SuppressThinkerPicksExecutor",
 		},
 		{
