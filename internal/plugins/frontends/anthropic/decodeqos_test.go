@@ -2,6 +2,7 @@ package anthropic_test
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,28 @@ var minimalMessageRequest = []byte(`{
   "max_tokens": 64,
   "messages": [{"role":"user","content":"ping"}]
 }`)
+
+func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	exec := &recordingExecutor{}
+	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeLimiter: decodeqos.NewLimiter(1)}
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(minimalMessageRequest))
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if exec.called {
+		t.Fatal("executor was called with canceled request context")
+	}
+}
 
 func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()

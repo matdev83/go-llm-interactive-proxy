@@ -179,7 +179,7 @@ func ConverseStreamInputForCall(call *lipapi.Call, cand routing.AttemptCandidate
 }
 
 func buildSystemBlocks(call *lipapi.Call) ([]types.SystemContentBlock, error) {
-	var out []types.SystemContentBlock
+	out := make([]types.SystemContentBlock, 0, len(call.Messages)+1)
 	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		out = append(out, &types.SystemContentBlockMemberText{Value: t})
 	}
@@ -198,7 +198,7 @@ func buildSystemBlocks(call *lipapi.Call) ([]types.SystemContentBlock, error) {
 }
 
 func buildMessages(call *lipapi.Call) ([]types.Message, error) {
-	var out []types.Message
+	out := make([]types.Message, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
 			continue
@@ -259,7 +259,7 @@ func lipMessageToBedrock(m lipapi.Message) (types.Message, error) {
 }
 
 func assistantPartsToContentBlocks(parts []lipapi.Part) ([]types.ContentBlock, error) {
-	var out []types.ContentBlock
+	out := make([]types.ContentBlock, 0, len(parts))
 	for _, p := range parts {
 		switch p.Kind {
 		case lipapi.PartText:
@@ -299,7 +299,7 @@ func assistantPartsToContentBlocks(parts []lipapi.Part) ([]types.ContentBlock, e
 }
 
 func userPartsToContentBlocks(parts []lipapi.Part) ([]types.ContentBlock, error) {
-	var out []types.ContentBlock
+	out := make([]types.ContentBlock, 0, len(parts))
 	for _, p := range parts {
 		switch p.Kind {
 		case lipapi.PartText:

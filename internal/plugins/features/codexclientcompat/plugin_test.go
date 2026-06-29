@@ -411,6 +411,183 @@ func TestRequestPartHook_openCodeCompatPayloadShape(t *testing.T) {
 	}
 }
 
+func TestDetectHermesFromExtensionAgent(t *testing.T) {
+	t.Parallel()
+	in := detectCompatInput(&lipapi.Call{
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"hermes-agent/1.0 NousResearch"`),
+		},
+	})
+	if !hermesAgentMatch(in) {
+		t.Fatal("expected Hermes detection from extension agent")
+	}
+}
+
+func TestDetectHermesFromExactIdentityPrompt(t *testing.T) {
+	t.Parallel()
+	identity := "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
+	in := detectCompatInput(&lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart(identity + " Be helpful.")},
+		}},
+	})
+	if !hermesPromptMatch(in) {
+		t.Fatal("expected Hermes detection from exact identity prompt")
+	}
+}
+
+func TestDetectHermesIgnoresGenericMention(t *testing.T) {
+	t.Parallel()
+	in := detectCompatInput(&lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("You are a helpful assistant. Mention Hermes in your reply.")},
+		}},
+	})
+	if hermesAgentMatch(in) || hermesPromptMatch(in) {
+		t.Fatal("generic Hermes mention must not trigger detection")
+	}
+}
+
+func TestRequestPartHook_noopForHermesOnNonCodexBackend(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"hermes-agent/1.0"`),
+		},
+	}
+	before := joinInstructionText(call.Instructions)
+	runHook(t, call, "openai-responses")
+	if after := joinInstructionText(call.Instructions); after != before {
+		t.Fatalf("instructions changed for non-codex backend: before=%q after=%q", before, after)
+	}
+	if _, ok := call.Extensions[extCodexToolStrictKey]; ok {
+		t.Fatal("tool_strict extension must not be set for non-codex backend")
+	}
+	if strings.Contains(joinInstructionText(call.Messages), hermesBridgeMarker) {
+		t.Fatal("expected no Hermes bridge message for non-codex backend")
+	}
+}
+
+func TestApplyHermesCompat_idempotentBridgeCountOne(t *testing.T) {
+	t.Parallel()
+	identity := "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart(identity)},
+		}, {
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"hermes-agent/1.0"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+	runHook(t, call, targetBackendID)
+
+	instructions := joinInstructionText(call.Instructions)
+	if strings.Count(instructions, hermesBridgeMarker) != 1 {
+		t.Fatalf("expected exactly one Hermes bridge, instructions: %q", instructions)
+	}
+	for _, m := range call.Messages {
+		if strings.Contains(messageText(m), identity) {
+			return
+		}
+	}
+	t.Fatal("expected Hermes identity system prompt to be preserved in Messages")
+}
+
+func TestApplyHermesCompat_preservesInstructionIdentity(t *testing.T) {
+	t.Parallel()
+	identity := "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart(identity)},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+	}
+	runHook(t, call, targetBackendID)
+	runHook(t, call, targetBackendID)
+
+	instructions := joinInstructionText(call.Instructions)
+	if !strings.Contains(instructions, identity) {
+		t.Fatalf("expected Hermes identity preserved in instructions: %q", instructions)
+	}
+	if strings.Count(instructions, hermesBridgeMarker) != 1 {
+		t.Fatalf("expected exactly one Hermes bridge, instructions: %q", instructions)
+	}
+}
+
+func TestApplyHermesCompat_payloadShapeIncludesBridgeAndToolStrictFalse(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"hermes-agent/1.0"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+
+	raw, ok := call.Extensions[extCodexToolStrictKey]
+	if !ok {
+		t.Fatal("expected openai_codex.tool_strict extension set for Hermes")
+	}
+	var strict bool
+	if err := json.Unmarshal(raw, &strict); err != nil {
+		t.Fatal(err)
+	}
+	if strict {
+		t.Fatalf("tool_strict = true, want false: %s", raw)
+	}
+
+	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	}, openaicodex.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload.Instructions, hermesBridgeMarker) {
+		t.Fatalf("instructions missing Hermes bridge: %q", payload.Instructions)
+	}
+	pjson, _ := json.Marshal(payload)
+	if !strings.Contains(string(pjson), `"strict":false`) {
+		t.Fatalf("expected tool strict=false for Hermes: %s", pjson)
+	}
+	if payload.ParallelToolCalls == nil || !*payload.ParallelToolCalls {
+		t.Fatalf("expected parallel_tool_calls=true for Hermes: %+v", payload.ParallelToolCalls)
+	}
+}
+
 func runHook(t *testing.T, call *lipapi.Call, backendID string) {
 	t.Helper()
 	hook := NewRequestPartHook(Config{})
