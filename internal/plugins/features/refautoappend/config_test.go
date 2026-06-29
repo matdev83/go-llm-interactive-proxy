@@ -12,6 +12,7 @@ import (
 func TestDecodeConfig(t *testing.T) {
 	t.Parallel()
 
+	order5 := 5
 	tests := []struct {
 		name    string
 		yaml    string
@@ -52,7 +53,7 @@ func TestDecodeConfig(t *testing.T) {
 		{
 			name: "mapping with order and no file_text",
 			yaml: "order: 5",
-			want: refautoappend.Config{Order: intPtr(5), FileText: "\n[ref-autoappend-file]\n"},
+			want: refautoappend.Config{Order: &order5, FileText: "\n[ref-autoappend-file]\n"},
 		},
 		{
 			name:    "mapping with negative order",
@@ -77,7 +78,6 @@ func TestDecodeConfig(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -116,8 +116,4 @@ func TestDecodeConfig(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPtr(i int) *int {
-	return &i
 }
