@@ -120,7 +120,7 @@ func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
 }
 
 func buildAnthropicMessages(call *lipapi.Call) ([]anthropic.MessageParam, error) {
-	var out []anthropic.MessageParam
+	out := make([]anthropic.MessageParam, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
 			continue
