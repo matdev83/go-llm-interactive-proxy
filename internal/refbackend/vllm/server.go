@@ -3,10 +3,11 @@ package vllm
 
 import (
 	"bytes"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
 
 const maxBodyBytes = 10 << 20

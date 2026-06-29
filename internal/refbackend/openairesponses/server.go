@@ -6,11 +6,12 @@ package openairesponses
 import (
 	"bytes"
 	"context"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
 
 const maxBodyBytes = 10 << 20
