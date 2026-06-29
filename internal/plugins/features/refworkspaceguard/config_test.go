@@ -1,8 +1,9 @@
 package refworkspaceguard_test
 
 import (
-	"gopkg.in/yaml.v3"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 )
@@ -21,6 +22,7 @@ func TestDecodeConfig(t *testing.T) {
 			yaml:    "",
 			wantErr: false,
 			check: func(t *testing.T, c refworkspaceguard.Config) {
+				t.Helper()
 				if c.ProjectRoot != "/ref/workspace" {
 					t.Errorf("expected default project root, got %s", c.ProjectRoot)
 				}
@@ -31,6 +33,7 @@ func TestDecodeConfig(t *testing.T) {
 			yaml:    "null",
 			wantErr: false,
 			check: func(t *testing.T, c refworkspaceguard.Config) {
+				t.Helper()
 				if c.ProjectRoot != "/ref/workspace" {
 					t.Errorf("expected default project root, got %s", c.ProjectRoot)
 				}
@@ -41,6 +44,7 @@ func TestDecodeConfig(t *testing.T) {
 			yaml:    "project_root: /custom/path\ndirty_tree: false\nmarkers:\n  - .refws",
 			wantErr: false,
 			check: func(t *testing.T, c refworkspaceguard.Config) {
+				t.Helper()
 				if c.ProjectRoot != "/custom/path" {
 					t.Errorf("expected /custom/path, got %s", c.ProjectRoot)
 				}
@@ -57,6 +61,7 @@ func TestDecodeConfig(t *testing.T) {
 			yaml:    "order: 5\ndirty_tree: false",
 			wantErr: false,
 			check: func(t *testing.T, c refworkspaceguard.Config) {
+				t.Helper()
 				if c.ProjectRoot != "/ref/workspace" {
 					t.Errorf("expected default project root, got %s", c.ProjectRoot)
 				}
@@ -83,7 +88,6 @@ func TestDecodeConfig(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var n yaml.Node
