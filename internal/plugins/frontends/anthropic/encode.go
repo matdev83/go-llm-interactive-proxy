@@ -228,7 +228,11 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 	if len(tools) > 0 {
 		stop = "tool_use"
 	}
-	var blocks []wireContentBlock
+	blocksCap := len(tools) + len(col.AssistantMedia)
+	if text != "" {
+		blocksCap++
+	}
+	blocks := make([]wireContentBlock, 0, blocksCap)
 	if text != "" {
 		blocks = append(blocks, wireContentBlock{Type: "text", Text: text})
 	}
