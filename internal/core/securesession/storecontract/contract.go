@@ -80,10 +80,10 @@ func RunAll(t *testing.T, newStore func(*testing.T) app.Store) {
 	t.Run("NextTranscriptSeq", func(t *testing.T) {
 		testNextTranscriptSeq(t, newStore(t))
 	})
-
 }
 
 func testCreateUniquenessSessionid(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp1, fp2 := twoFingerprints()
 	base := sampleCreate("owner-a", "ws-1", fp1, "a-leg-1", "sid-1")
@@ -101,6 +101,7 @@ func testCreateUniquenessSessionid(t *testing.T, s app.Store) {
 }
 
 func testCreateUniquenessFingerprint(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	r1 := sampleCreate("o1", "w1", fp, "aleg-1", "session-1")
@@ -116,6 +117,7 @@ func testCreateUniquenessFingerprint(t *testing.T, s app.Store) {
 }
 
 func testLoadByIDOwnerWorkspace(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("principal-x", "workspace-y", fp, "a-leg-z", "sess-own")
@@ -133,6 +135,7 @@ func testLoadByIDOwnerWorkspace(t *testing.T, s app.Store) {
 }
 
 func testLoadByALegIDRoundTrip(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("o", "w", fp, "a-leg-lookup", "sess-aleg")
@@ -150,6 +153,7 @@ func testLoadByALegIDRoundTrip(t *testing.T, s app.Store) {
 }
 
 func testAttemptTraceOutcomeByBLeg(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("o", "w", fp, "a-main", "sess-trace")
@@ -182,6 +186,7 @@ func testAttemptTraceOutcomeByBLeg(t *testing.T, s app.Store) {
 }
 
 func testTranscriptDisabledExplicit(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("o", "w", fp, "a-t", "sess-tx-off")
@@ -201,6 +206,7 @@ func testTranscriptDisabledExplicit(t *testing.T, s app.Store) {
 }
 
 func testAddUsageSummaryRollups(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("owner-sum", "ws-sum", fp, "a-sum", "sess-sum")
@@ -251,6 +257,7 @@ func testAddUsageSummaryRollups(t *testing.T, s app.Store) {
 }
 
 func testListAttemptEvidenceTraceUsageOutcome(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("owner-ev", "ws-ev", fp, "a-leg-ev", "sess-evidence")
@@ -314,6 +321,7 @@ func testListAttemptEvidenceTraceUsageOutcome(t *testing.T, s app.Store) {
 }
 
 func testAddUsageFinishTimingPreservesLatestUsage(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("owner-finish", "ws-finish", fp, "a-finish", "sess-finish")
@@ -354,6 +362,7 @@ func testAddUsageFinishTimingPreservesLatestUsage(t *testing.T, s app.Store) {
 }
 
 func testAddUsageTotalTokensUsesLatestProviderTotal(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("owner-total", "ws-total", fp, "a-total", "sess-total")
@@ -393,6 +402,7 @@ func testAddUsageTotalTokensUsesLatestProviderTotal(t *testing.T, s app.Store) {
 }
 
 func testMissingLookupsNonEnumerating(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	_, err := s.LoadByID(ctx, "no-such-session-id-xxxxxxxx")
 	if !errors.Is(err, domain.ErrSessionNotFound) {
@@ -411,6 +421,7 @@ func testMissingLookupsNonEnumerating(t *testing.T, s app.Store) {
 }
 
 func testTouchActivityUpdatesRecord(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	rec, err := s.Create(ctx, sampleCreate("o", "w", fp, "a-touch", "sess-touch"))
@@ -431,6 +442,7 @@ func testTouchActivityUpdatesRecord(t *testing.T, s app.Store) {
 }
 
 func testTouchActivityOlderTimestampIgnored(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	rec, err := s.Create(ctx, sampleCreate("o", "w", fp, "a-touch-old", "sess-touch-old"))
@@ -454,6 +466,7 @@ func testTouchActivityOlderTimestampIgnored(t *testing.T, s app.Store) {
 }
 
 func testAppendTranscriptAuditOrdering(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("o", "w", fp, "a-audit", "sess-audit")
@@ -495,6 +508,7 @@ func testAppendTranscriptAuditOrdering(t *testing.T, s app.Store) {
 }
 
 func testNextAuditSeq(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("o", "w", fp, "a-naudit", "sess-naudit")
@@ -524,6 +538,7 @@ func testNextAuditSeq(t *testing.T, s app.Store) {
 }
 
 func testNextTranscriptSeq(t *testing.T, s app.Store) {
+	t.Helper()
 	ctx := context.Background()
 	fp, _ := twoFingerprints()
 	cr := sampleCreate("o", "w", fp, "a-ntr", "sess-ntr")
