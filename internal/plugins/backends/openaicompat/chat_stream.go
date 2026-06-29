@@ -113,6 +113,116 @@ func (s *chatStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	}
 }
 
+func (s *chatStream) ensureMsgStarted() error {
+	if !s.sawMsg {
+		s.sawMsg = true
+		return s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted})
+	}
+	return nil
+}
+
+func (s *chatStream) handleToolCall(tc openai.ChatCompletionChunkChoiceDeltaToolCall) error {
+	if s.activeTools == nil {
+		s.activeTools = make(map[int64]string)
+	}
+	if tc.ID != "" {
+		if _, seen := s.activeTools[tc.Index]; !seen {
+			s.activeToolOrder = append(s.activeToolOrder, tc.Index)
+		}
+		s.activeTools[tc.Index] = tc.ID
+		if err := s.pending.Push(lipapi.Event{
+			Kind:       lipapi.EventToolCallStarted,
+			ToolCallID: tc.ID,
+			ToolName:   tc.Function.Name,
+		}); err != nil {
+			return err
+		}
+		for _, args := range s.pendingToolArgs[tc.Index] {
+			if err := s.pending.Push(lipapi.Event{
+				Kind:       lipapi.EventToolCallArgsDelta,
+				ToolCallID: tc.ID,
+				Delta:      args,
+			}); err != nil {
+				return err
+			}
+		}
+		delete(s.pendingToolArgs, tc.Index)
+	}
+	if tc.Function.Arguments != "" {
+		id := s.activeTools[tc.Index]
+		if id == "" {
+			if s.pendingToolArgs == nil {
+				s.pendingToolArgs = make(map[int64][]string)
+			}
+			s.pendingToolArgs[tc.Index] = append(s.pendingToolArgs[tc.Index], tc.Function.Arguments)
+			return nil
+		}
+		if err := s.pending.Push(lipapi.Event{
+			Kind:       lipapi.EventToolCallArgsDelta,
+			ToolCallID: id,
+			Delta:      tc.Function.Arguments,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *chatStream) handleChoice(choice openai.ChatCompletionChunkChoice) error {
+	d := choice.Delta
+	if d.Role != "" {
+		if err := s.ensureMsgStarted(); err != nil {
+			return err
+		}
+	}
+
+	if reasoning := ReasoningTextFromChunkDelta(d); reasoning != "" {
+		if err := s.ensureMsgStarted(); err != nil {
+			return err
+		}
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: reasoning}); err != nil {
+			return err
+		}
+	}
+
+	if len(d.ToolCalls) > 0 {
+		if err := s.ensureMsgStarted(); err != nil {
+			return err
+		}
+		for _, tc := range d.ToolCalls {
+			if err := s.handleToolCall(tc); err != nil {
+				return err
+			}
+		}
+	}
+
+	if d.Content != "" {
+		if err := s.ensureMsgStarted(); err != nil {
+			return err
+		}
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content}); err != nil {
+			return err
+		}
+	}
+
+	if choice.FinishReason == "tool_calls" {
+		for _, idx := range s.activeToolOrder {
+			if id := s.activeTools[idx]; id != "" {
+				if err := s.pending.Push(lipapi.Event{
+					Kind:       lipapi.EventToolCallFinished,
+					ToolCallID: id,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+		s.activeTools = nil
+		s.pendingToolArgs = nil
+		s.activeToolOrder = nil
+	}
+	return nil
+}
+
 func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 	if !s.sawResp {
 		s.sawResp = true
@@ -122,106 +232,8 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 	}
 
 	for _, choice := range ch.Choices {
-		d := choice.Delta
-		if d.Role != "" && !s.sawMsg {
-			s.sawMsg = true
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-				return err
-			}
-		}
-
-		if reasoning := ReasoningTextFromChunkDelta(d); reasoning != "" {
-			if !s.sawMsg {
-				s.sawMsg = true
-				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-					return err
-				}
-			}
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: reasoning}); err != nil {
-				return err
-			}
-		}
-
-		if len(d.ToolCalls) > 0 {
-			if !s.sawMsg {
-				s.sawMsg = true
-				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-					return err
-				}
-			}
-			for _, tc := range d.ToolCalls {
-				if s.activeTools == nil {
-					s.activeTools = make(map[int64]string)
-				}
-				if tc.ID != "" {
-					if _, seen := s.activeTools[tc.Index]; !seen {
-						s.activeToolOrder = append(s.activeToolOrder, tc.Index)
-					}
-					s.activeTools[tc.Index] = tc.ID
-					if err := s.pending.Push(lipapi.Event{
-						Kind:       lipapi.EventToolCallStarted,
-						ToolCallID: tc.ID,
-						ToolName:   tc.Function.Name,
-					}); err != nil {
-						return err
-					}
-					for _, args := range s.pendingToolArgs[tc.Index] {
-						if err := s.pending.Push(lipapi.Event{
-							Kind:       lipapi.EventToolCallArgsDelta,
-							ToolCallID: tc.ID,
-							Delta:      args,
-						}); err != nil {
-							return err
-						}
-					}
-					delete(s.pendingToolArgs, tc.Index)
-				}
-				if tc.Function.Arguments != "" {
-					id := s.activeTools[tc.Index]
-					if id == "" {
-						if s.pendingToolArgs == nil {
-							s.pendingToolArgs = make(map[int64][]string)
-						}
-						s.pendingToolArgs[tc.Index] = append(s.pendingToolArgs[tc.Index], tc.Function.Arguments)
-						continue
-					}
-					if err := s.pending.Push(lipapi.Event{
-						Kind:       lipapi.EventToolCallArgsDelta,
-						ToolCallID: id,
-						Delta:      tc.Function.Arguments,
-					}); err != nil {
-						return err
-					}
-				}
-			}
-		}
-
-		if d.Content != "" {
-			if !s.sawMsg {
-				s.sawMsg = true
-				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-					return err
-				}
-			}
-			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d.Content}); err != nil {
-				return err
-			}
-		}
-
-		if choice.FinishReason == "tool_calls" {
-			for _, idx := range s.activeToolOrder {
-				if id := s.activeTools[idx]; id != "" {
-					if err := s.pending.Push(lipapi.Event{
-						Kind:       lipapi.EventToolCallFinished,
-						ToolCallID: id,
-					}); err != nil {
-						return err
-					}
-				}
-			}
-			s.activeTools = nil
-			s.pendingToolArgs = nil
-			s.activeToolOrder = nil
+		if err := s.handleChoice(choice); err != nil {
+			return err
 		}
 	}
 
