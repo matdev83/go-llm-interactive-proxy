@@ -170,7 +170,7 @@ func assistantMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
 			return anthropic.MessageParam{}, fmt.Errorf("anthropic: assistant message may only contain text parts in this adapter")
 		}
 	}
-	var blocks []anthropic.ContentBlockParamUnion
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.Parts))
 	for _, p := range m.Parts {
 		if strings.TrimSpace(p.Text) == "" {
 			continue
