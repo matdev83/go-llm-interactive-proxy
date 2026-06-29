@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
 
 const maxBodyBytes = 10 << 20
@@ -63,7 +65,7 @@ func NewHandler(cfg Config) http.Handler {
 		if cfg.OnAuthorizedCredential != nil {
 			cfg.OnAuthorizedCredential(secret)
 		}
-		if tryWriteForcedHTTPError(w, cfg) {
+		if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 			return
 		}
 
@@ -74,25 +76,6 @@ func NewHandler(cfg Config) http.Handler {
 		}
 		writeJSON(w, cfg)
 	})
-}
-
-func tryWriteForcedHTTPError(w http.ResponseWriter, cfg Config) bool {
-	switch cfg.ForcedHTTPStatus {
-	case http.StatusUnauthorized, http.StatusTooManyRequests:
-	default:
-		return false
-	}
-	if cfg.ForcedRetryAfter != "" && cfg.ForcedHTTPStatus == http.StatusTooManyRequests {
-		w.Header().Set("Retry-After", cfg.ForcedRetryAfter)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(cfg.ForcedHTTPStatus)
-	body := cfg.ForcedErrorJSON
-	if body == "" {
-		body = defaultForcedErrorJSON(cfg.ForcedHTTPStatus)
-	}
-	_, _ = w.Write([]byte(body))
-	return true
 }
 
 func defaultForcedErrorJSON(status int) string {
