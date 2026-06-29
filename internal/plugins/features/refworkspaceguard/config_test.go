@@ -82,7 +82,7 @@ dirty_tree: false
 			want: Config{
 				Order:       intPtr(5),
 				ProjectRoot: "/ref/workspace", // defaults
-				DirtyTree:   true, // default
+				DirtyTree:   true,             // default
 				Markers:     []string{".refws"},
 				Labels:      map[string]string{LabelDenyHeat: "1"},
 			},
@@ -99,7 +99,6 @@ order: -1
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
