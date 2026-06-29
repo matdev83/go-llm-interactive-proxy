@@ -198,7 +198,7 @@ func buildSystemBlocks(call *lipapi.Call) ([]types.SystemContentBlock, error) {
 }
 
 func buildMessages(call *lipapi.Call) ([]types.Message, error) {
-	var out []types.Message
+	out := make([]types.Message, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
 			continue
