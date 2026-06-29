@@ -101,7 +101,21 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (anthropic.
 }
 
 func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
+	capBlocks := 0
+	if len(call.Instructions) > 0 {
+		capBlocks++
+	}
+	for _, m := range call.Messages {
+		if m.Role == lipapi.RoleSystem {
+			capBlocks += len(m.Parts)
+		}
+	}
+
 	var out []anthropic.TextBlockParam
+	if capBlocks > 0 {
+		out = make([]anthropic.TextBlockParam, 0, capBlocks)
+	}
+
 	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		out = append(out, anthropic.TextBlockParam{Text: t})
 	}
