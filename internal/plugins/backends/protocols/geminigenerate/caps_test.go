@@ -8,6 +8,7 @@ import (
 )
 
 func TestModelCapabilities(t *testing.T) {
+	t.Parallel()
 	// Construct expected capabilities for gemini-1.0-pro (no vision/documents)
 	expected10ProCaps := lipapi.NewBackendCaps()
 	for c := range defaultBackendCaps() {
@@ -56,6 +57,7 @@ func TestModelCapabilities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := ModelCapabilities(tt.model)
 			if !reflect.DeepEqual(got, tt.expected) {
 				t.Errorf("ModelCapabilities() = %v, want %v", got, tt.expected)
