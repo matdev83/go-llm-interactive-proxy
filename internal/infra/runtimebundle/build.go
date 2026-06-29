@@ -122,35 +122,16 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
 	}
 
-	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
-	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
 	closers := []func() error{}
 	if startedCatalog != nil {
 		closers = append(closers, startedCatalog.closers...)
 	}
-	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
-	for _, p := range cfg.Plugins.Backends {
-		if !p.Enabled {
-			continue
+	backends, inventories, err := buildBackends(cfg, reg, upstream, backendDeps)
+	if err != nil {
+		if derr := disposeClosers(closers); derr != nil {
+			return nil, errors.Join(err, derr)
 		}
-		fid := p.FactoryID()
-		iid := p.InstanceID()
-		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
-		if err != nil {
-			wrapped := fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
-			if derr := disposeClosers(closers); derr != nil {
-				return nil, errors.Join(wrapped, derr)
-			}
-			return nil, wrapped
-		}
-		backends[iid] = be
-		inventories = append(inventories, modelregistry.BackendInventory{
-			BackendID:       iid,
-			Kind:            fid,
-			BackendPrefixes: be.BackendPrefixes,
-			Provider:        be.ModelInventory,
-			FetchTimeout:    modelInventoryFetchTimeout,
-		})
+		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
 	if err != nil {
@@ -199,26 +180,12 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		closers = append(closers, ssRun.closer)
 	}
 
-	wireModel := opts.WireModel
-	if wireModel == nil {
-		wireModel = pluginreg.DefaultWireModel
-	}
-	rawDefaultRoute := config.EffectiveDefaultRouteSelector(cfg, wireModel)
-	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
+	effectiveRoute, defBE, aliasResolver, err := resolveRouting(cfg, opts.WireModel)
 	if err != nil {
 		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(fmt.Errorf("runtimebundle: model_aliases: %w", err), derr)
+			return nil, errors.Join(fmt.Errorf("runtimebundle: %w", err), derr)
 		}
-		return nil, fmt.Errorf("runtimebundle: model_aliases: %w", err)
-	}
-	effectiveRoute := aliasResolver.Resolve(rawDefaultRoute)
-	defBE, err := routing.DefaultBackendFromRouteSelector(effectiveRoute)
-	if err != nil {
-		wrapped := fmt.Errorf("runtimebundle: %w", err)
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(wrapped, derr)
-		}
-		return nil, wrapped
+		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 	capMap := make(capabilities.MapResolver, len(backends))
 	for id, be := range backends {
@@ -237,79 +204,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		nowFn = opts.Clock
 	}
 
-	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
-	if len(opts.WorkspaceResolvers) > 0 {
-		ss := cfg.SecureSession
-		secureOn := cfg.SecureSessionEffectivelyEnabled()
-		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
-		failClosedWS := secureOn && resolveFailClosed
-		if failClosedWS {
-			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
-		} else {
-			ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
-		}
-	}
-	var openers []session.Opener
-	if len(opts.SessionOpeners) > 0 {
-		openers = slices.Clone(opts.SessionOpeners)
-	}
-	var catalogFilters []toolcatalog.Filter
-	if len(opts.ToolCatalogFilters) > 0 {
-		catalogFilters = slices.Clone(opts.ToolCatalogFilters)
-	}
-	var toolPolicies []toolpolicy.Policy
-	if len(opts.ToolCallPolicies) > 0 {
-		toolPolicies = slices.Clone(opts.ToolCallPolicies)
-	}
-	var reqTransforms []request.Transform
-	if len(opts.RequestTransforms) > 0 {
-		reqTransforms = slices.Clone(opts.RequestTransforms)
-	}
-	var preReqs []prerequest.Handler
-	if len(opts.PreRequestHandlers) > 0 {
-		preReqs = slices.Clone(opts.PreRequestHandlers)
-	}
-	var routeHints []routehint.Provider
-	if len(opts.RouteHintProviders) > 0 {
-		routeHints = slices.Clone(opts.RouteHintProviders)
-	}
 	var exec *runtime.Executor
-	var compGates []completion.Gate
-	if len(opts.CompletionGates) > 0 {
-		compGates = slices.Clone(opts.CompletionGates)
-	}
-	var trafficObs traffic.Observer = traffic.NoopObserver{}
-	if len(opts.TrafficObservers) > 0 {
-		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
-	}
-	var usageObs usage.Observer = usage.NoopObserver{}
-	if len(opts.UsageObservers) > 0 {
-		usageObs = usage.ChainObservers(opts.UsageObservers...)
-	}
-	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
-	if len(opts.RawCaptureSinks) > 0 {
-		trafficRaw = traffic.MultiRawCapture(opts.RawCaptureSinks...)
-	}
-	var trafficRedactors []traffic.Redactor
-	if len(opts.TrafficRedactors) > 0 {
-		trafficRedactors = slices.Clone(opts.TrafficRedactors)
-	}
-	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:              corestate.NewMem(nowFn),
-		Aux:                auxreq.NewClient(func() auxreq.ExecutorRunner { return exec }),
-		Workspace:          ws,
-		SessionOpeners:     openers,
-		ToolCatalogFilters: catalogFilters,
-		ToolCallPolicies:   toolPolicies,
-		RequestTransforms:  reqTransforms,
-		PreRequestHandlers: preReqs,
-		RouteHintProviders: routeHints,
-		CompletionGates:    compGates,
-		TrafficObserver:    trafficObs,
-		UsageObserver:      usageObs,
-		RawCapture:         trafficRaw,
-		TrafficRedactors:   trafficRedactors,
-	})
+	snap := buildRuntimeSnapshot(bus, cfg, opts, nowFn, func() auxreq.ExecutorRunner { return exec })
 	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -520,4 +416,133 @@ func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, 
 		GracePeriod: eff.GracePeriod,
 		EmitWarning: eff.EmitWarning,
 	}, nil
+}
+
+func buildBackends(
+	cfg *config.Config,
+	reg *pluginreg.Registry,
+	upstream *http.Client,
+	backendDeps pluginreg.BackendFactoryDeps,
+) (map[string]execbackend.Backend, []modelregistry.BackendInventory, error) {
+	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
+	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
+	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
+	for _, p := range cfg.Plugins.Backends {
+		if !p.Enabled {
+			continue
+		}
+		fid := p.FactoryID()
+		iid := p.InstanceID()
+		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
+		if err != nil {
+			return nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+		}
+		backends[iid] = be
+		inventories = append(inventories, modelregistry.BackendInventory{
+			BackendID:       iid,
+			Kind:            fid,
+			BackendPrefixes: be.BackendPrefixes,
+			Provider:        be.ModelInventory,
+			FetchTimeout:    modelInventoryFetchTimeout,
+		})
+	}
+	return backends, inventories, nil
+}
+
+func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {
+	if wireModel == nil {
+		wireModel = pluginreg.DefaultWireModel
+	}
+	rawDefaultRoute := config.EffectiveDefaultRouteSelector(cfg, wireModel)
+	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("model_aliases: %w", err)
+	}
+	effectiveRoute := aliasResolver.Resolve(rawDefaultRoute)
+	defBE, err := routing.DefaultBackendFromRouteSelector(effectiveRoute)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return effectiveRoute, defBE, aliasResolver, nil
+}
+
+func buildRuntimeSnapshot(
+	bus *hooks.Bus,
+	cfg *config.Config,
+	opts *BuildOptions,
+	nowFn func() time.Time,
+	execRunnerProvider func() auxreq.ExecutorRunner,
+) *extensions.RequestRuntimeSnapshot {
+	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
+	if len(opts.WorkspaceResolvers) > 0 {
+		ss := cfg.SecureSession
+		secureOn := cfg.SecureSessionEffectivelyEnabled()
+		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
+		failClosedWS := secureOn && resolveFailClosed
+		if failClosedWS {
+			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
+		} else {
+			ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
+		}
+	}
+	var openers []session.Opener
+	if len(opts.SessionOpeners) > 0 {
+		openers = slices.Clone(opts.SessionOpeners)
+	}
+	var catalogFilters []toolcatalog.Filter
+	if len(opts.ToolCatalogFilters) > 0 {
+		catalogFilters = slices.Clone(opts.ToolCatalogFilters)
+	}
+	var toolPolicies []toolpolicy.Policy
+	if len(opts.ToolCallPolicies) > 0 {
+		toolPolicies = slices.Clone(opts.ToolCallPolicies)
+	}
+	var reqTransforms []request.Transform
+	if len(opts.RequestTransforms) > 0 {
+		reqTransforms = slices.Clone(opts.RequestTransforms)
+	}
+	var preReqs []prerequest.Handler
+	if len(opts.PreRequestHandlers) > 0 {
+		preReqs = slices.Clone(opts.PreRequestHandlers)
+	}
+	var routeHints []routehint.Provider
+	if len(opts.RouteHintProviders) > 0 {
+		routeHints = slices.Clone(opts.RouteHintProviders)
+	}
+	var compGates []completion.Gate
+	if len(opts.CompletionGates) > 0 {
+		compGates = slices.Clone(opts.CompletionGates)
+	}
+	var trafficObs traffic.Observer = traffic.NoopObserver{}
+	if len(opts.TrafficObservers) > 0 {
+		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
+	}
+	var usageObs usage.Observer = usage.NoopObserver{}
+	if len(opts.UsageObservers) > 0 {
+		usageObs = usage.ChainObservers(opts.UsageObservers...)
+	}
+	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
+	if len(opts.RawCaptureSinks) > 0 {
+		trafficRaw = traffic.MultiRawCapture(opts.RawCaptureSinks...)
+	}
+	var trafficRedactors []traffic.Redactor
+	if len(opts.TrafficRedactors) > 0 {
+		trafficRedactors = slices.Clone(opts.TrafficRedactors)
+	}
+	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		State:              corestate.NewMem(nowFn),
+		Aux:                auxreq.NewClient(execRunnerProvider),
+		Workspace:          ws,
+		SessionOpeners:     openers,
+		ToolCatalogFilters: catalogFilters,
+		ToolCallPolicies:   toolPolicies,
+		RequestTransforms:  reqTransforms,
+		PreRequestHandlers: preReqs,
+		RouteHintProviders: routeHints,
+		CompletionGates:    compGates,
+		TrafficObserver:    trafficObs,
+		UsageObserver:      usageObs,
+		RawCapture:         trafficRaw,
+		TrafficRedactors:   trafficRedactors,
+	})
 }
