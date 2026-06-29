@@ -47,17 +47,30 @@ func TestPanicError_Error_IsStableAndDoesNotLeakPanicOrStack(t *testing.T) {
 
 func TestCapture_ValueType(t *testing.T) {
 	t.Parallel()
-	pe := Capture(BoundaryStream, "op", 42)
-	if pe.ValueType() != "int" {
-		t.Fatalf("int: got %q", pe.ValueType())
+	tests := []struct {
+		name     string
+		boundary Boundary
+		value    any
+		want     string
+		prefix   bool
+	}{
+		{name: "int", boundary: BoundaryStream, value: 42, want: "int"},
+		{name: "struct", boundary: BoundaryHTTP, value: struct{ n int }{n: 1}, want: "struct", prefix: true},
+		{name: "nil", boundary: BoundaryHTTP, value: nil, want: "nil"},
 	}
-	pe2 := Capture(BoundaryHTTP, "x", struct{ n int }{n: 1})
-	if !strings.HasPrefix(pe2.ValueType(), "struct") {
-		t.Fatalf("struct: got %q", pe2.ValueType())
-	}
-	pe3 := Capture(BoundaryHTTP, "x", nil)
-	if pe3.ValueType() != "nil" {
-		t.Fatalf("nil panic: want type name nil, got %q", pe3.ValueType())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pe := Capture(tc.boundary, "op", tc.value)
+			got := pe.ValueType()
+			if tc.prefix {
+				if !strings.HasPrefix(got, tc.want) {
+					t.Fatalf("expected prefix %q, got %q", tc.want, got)
+				}
+			} else if got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
 	}
 }
 

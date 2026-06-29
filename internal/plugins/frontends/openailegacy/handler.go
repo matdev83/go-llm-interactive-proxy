@@ -97,14 +97,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
 	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
 	if err != nil {
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error", ""))
 		return
 	}
 	if !ok {
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error", ""))
 		return
 	}
+	defer releaseDecode()
 	if _, err := jsonguard.Preflight(body, limits); err != nil {
-		releaseDecode()
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON", "invalid_request_error", ""))
 		return
 	}
@@ -112,7 +113,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sel = routeselect.FromModelOrDefault(body, h.DefaultRouteSelector)
 	}
 	decoded, err := DecodeChatRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
-	releaseDecode()
 	if err != nil {
 		if h.Log != nil {
 			diag.LogError(ctx, h.Log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))

@@ -2,6 +2,7 @@ package openairesponses_test
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,28 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 )
+
+func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	exec := &recordingExecutor{}
+	h := &openairesponses.Handler{Exec: exec, DefaultRouteSelector: "stub:gpt-4o-mini", DecodeLimiter: decodeqos.NewLimiter(1)}
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(readGolden(t, "create_text_nonstream.json")))
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if exec.called {
+		t.Fatal("executor was called with canceled request context")
+	}
+}
 
 func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()

@@ -1,5 +1,7 @@
 package lipapi
 
+import "slices"
+
 // UsagePlane identifies the accounting perspective for a usage delta.
 type UsagePlane string
 
@@ -112,6 +114,6 @@ func validateScopedUsage(scopes []ScopedUsageDelta) error {
 }
 
 func cloneEvent(ev Event) Event {
-	ev.UsageScopes = append([]ScopedUsageDelta(nil), ev.UsageScopes...)
+	ev.UsageScopes = slices.Clone(ev.UsageScopes)
 	return ev
 }

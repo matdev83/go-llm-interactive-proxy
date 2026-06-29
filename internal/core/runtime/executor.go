@@ -40,6 +40,12 @@ import (
 
 var _ lipsdk.ExecutorView = (*Executor)(nil)
 
+// noCopy signals go vet's copylocks analyzer to reject accidental copies.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
 // secureSessionTestPrepare is a no-op in production and in packages that import runtime without compiling
 // runtime's *_test.go sources (for example tests under internal/core/runtime/failclosed). Only the
 // internal/core/runtime test binary links export_test.go, which assigns this hook in init.
@@ -47,6 +53,7 @@ var secureSessionTestPrepare = func(*Executor) {}
 
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
 type Executor struct {
+	_ noCopy //nolint:unused
 	Store b2bua.Store
 	Bus   *hooks.Bus
 	// RuntimeSnapshot is the per-build execution binding published on each request context.
