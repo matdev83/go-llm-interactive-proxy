@@ -149,7 +149,7 @@ func parseSystem(raw json.RawMessage) ([]lipapi.Message, error) {
 	if err := frontendlimits.Count("system", len(blocks), frontendlimits.MaxParts); err != nil {
 		return nil, err
 	}
-	var parts []lipapi.Part
+	parts := make([]lipapi.Part, 0, len(blocks))
 	for i, blk := range blocks {
 		p, err := parseContentBlock(blk)
 		if err != nil {
@@ -239,6 +239,156 @@ func parseMessageContent(raw json.RawMessage) ([]lipapi.Part, error) {
 	return out, nil
 }
 
+func parseToolResultBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(blk, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if strings.TrimSpace(w.ToolUseID) == "" {
+		return lipapi.Part{}, errors.New("anthropic: tool_result requires tool_use_id")
+	}
+	// Content may be a string or array of text blocks; flatten to plain text.
+	var resultText string
+	if jsonpresence.IsPresentNonNullJSON(w.Content) {
+		if err := frontendlimits.Bytes("tool_result.content", len(w.Content), frontendlimits.MaxRawJSONPayload); err != nil {
+			return lipapi.Part{}, err
+		}
+		var s string
+		if err := json.Unmarshal(w.Content, &s); err == nil {
+			resultText = s
+		} else {
+			var blocks []json.RawMessage
+			if err := json.Unmarshal(w.Content, &blocks); err == nil {
+				var sb strings.Builder
+				for _, b := range blocks {
+					var tb struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					}
+					if err := json.Unmarshal(b, &tb); err == nil && tb.Type == "text" {
+						sb.WriteString(tb.Text)
+					}
+				}
+				resultText = sb.String()
+			}
+		}
+	}
+	return lipapi.Part{
+		Kind:       lipapi.PartToolResult,
+		ToolCallID: w.ToolUseID,
+		Text:       resultText,
+	}, nil
+}
+
+func parseToolUseBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		ID    string          `json:"id"`
+		Name  string          `json:"name"`
+		Input json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(blk, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if strings.TrimSpace(w.ID) == "" {
+		return lipapi.Part{}, errors.New("anthropic: tool_use requires id")
+	}
+	if strings.TrimSpace(w.Name) == "" {
+		return lipapi.Part{}, errors.New("anthropic: tool_use requires name")
+	}
+	input := w.Input
+	if len(input) == 0 {
+		input = json.RawMessage(`{}`)
+	}
+	if err := frontendlimits.Bytes("tool_use.input", len(input), frontendlimits.MaxRawJSONPayload); err != nil {
+		return lipapi.Part{}, err
+	}
+	return lipapi.Part{
+		Kind:       lipapi.PartJSON,
+		ToolCallID: w.ID,
+		ToolName:   w.Name,
+		Content:    input,
+	}, nil
+}
+
+func parseDocumentBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		Source struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(blk, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if w.Source.Type != "base64" {
+		return lipapi.Part{}, fmt.Errorf("anthropic: document source type %q not supported", w.Source.Type)
+	}
+	data := strings.TrimSpace(w.Source.Data)
+	if data == "" {
+		return lipapi.Part{}, errors.New("anthropic: document requires base64 data")
+	}
+	if err := frontendlimits.StringBytes("document source.data", data, frontendlimits.MaxBase64Data); err != nil {
+		return lipapi.Part{}, err
+	}
+	mime := strings.TrimSpace(w.Source.MediaType)
+	if mime == "" {
+		mime = "application/pdf"
+	}
+	name := "document"
+	if mime == "application/pdf" {
+		name = "document.pdf"
+	}
+	ref := "data:" + mime + ";base64," + data
+	return lipapi.FilePart(ref, mime, name), nil
+}
+
+func parseImageBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		Source struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(blk, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if w.Source.Type != "base64" {
+		return lipapi.Part{}, fmt.Errorf("anthropic: image source type %q not supported", w.Source.Type)
+	}
+	data := strings.TrimSpace(w.Source.Data)
+	if data == "" {
+		return lipapi.Part{}, errors.New("anthropic: image requires base64 data")
+	}
+	if err := frontendlimits.StringBytes("image source.data", data, frontendlimits.MaxBase64Data); err != nil {
+		return lipapi.Part{}, err
+	}
+	mime := strings.TrimSpace(w.Source.MediaType)
+	if mime == "" {
+		mime = "image/png"
+	}
+	ref := "data:" + mime + ";base64," + data
+	return lipapi.Part{Kind: lipapi.PartImageRef, ImageRef: ref, ImageMIME: mime}, nil
+}
+
+func parseTextBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var s struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(blk, &s); err != nil {
+		return lipapi.Part{}, err
+	}
+	t := strings.TrimSpace(s.Text)
+	if t == "" {
+		return lipapi.Part{}, errors.New("anthropic: text block requires text")
+	}
+	return lipapi.TextPart(t), nil
+}
+
 func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 	var probe struct {
 		Type string `json:"type"`
@@ -248,145 +398,15 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 	}
 	switch probe.Type {
 	case "text":
-		var s struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(blk, &s); err != nil {
-			return lipapi.Part{}, err
-		}
-		t := strings.TrimSpace(s.Text)
-		if t == "" {
-			return lipapi.Part{}, errors.New("anthropic: text block requires text")
-		}
-		return lipapi.TextPart(t), nil
+		return parseTextBlock(blk)
 	case "image":
-		var w struct {
-			Source struct {
-				Type      string `json:"type"`
-				MediaType string `json:"media_type"`
-				Data      string `json:"data"`
-			} `json:"source"`
-		}
-		if err := json.Unmarshal(blk, &w); err != nil {
-			return lipapi.Part{}, err
-		}
-		if w.Source.Type != "base64" {
-			return lipapi.Part{}, fmt.Errorf("anthropic: image source type %q not supported", w.Source.Type)
-		}
-		data := strings.TrimSpace(w.Source.Data)
-		if data == "" {
-			return lipapi.Part{}, errors.New("anthropic: image requires base64 data")
-		}
-		if err := frontendlimits.StringBytes("image source.data", data, frontendlimits.MaxBase64Data); err != nil {
-			return lipapi.Part{}, err
-		}
-		mime := strings.TrimSpace(w.Source.MediaType)
-		if mime == "" {
-			mime = "image/png"
-		}
-		ref := "data:" + mime + ";base64," + data
-		return lipapi.Part{Kind: lipapi.PartImageRef, ImageRef: ref, ImageMIME: mime}, nil
+		return parseImageBlock(blk)
 	case "document":
-		var w struct {
-			Source struct {
-				Type      string `json:"type"`
-				MediaType string `json:"media_type"`
-				Data      string `json:"data"`
-			} `json:"source"`
-		}
-		if err := json.Unmarshal(blk, &w); err != nil {
-			return lipapi.Part{}, err
-		}
-		if w.Source.Type != "base64" {
-			return lipapi.Part{}, fmt.Errorf("anthropic: document source type %q not supported", w.Source.Type)
-		}
-		data := strings.TrimSpace(w.Source.Data)
-		if data == "" {
-			return lipapi.Part{}, errors.New("anthropic: document requires base64 data")
-		}
-		if err := frontendlimits.StringBytes("document source.data", data, frontendlimits.MaxBase64Data); err != nil {
-			return lipapi.Part{}, err
-		}
-		mime := strings.TrimSpace(w.Source.MediaType)
-		if mime == "" {
-			mime = "application/pdf"
-		}
-		name := "document"
-		if mime == "application/pdf" {
-			name = "document.pdf"
-		}
-		ref := "data:" + mime + ";base64," + data
-		return lipapi.FilePart(ref, mime, name), nil
+		return parseDocumentBlock(blk)
 	case "tool_use":
-		var w struct {
-			ID    string          `json:"id"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
-		}
-		if err := json.Unmarshal(blk, &w); err != nil {
-			return lipapi.Part{}, err
-		}
-		if strings.TrimSpace(w.ID) == "" {
-			return lipapi.Part{}, errors.New("anthropic: tool_use requires id")
-		}
-		if strings.TrimSpace(w.Name) == "" {
-			return lipapi.Part{}, errors.New("anthropic: tool_use requires name")
-		}
-		input := w.Input
-		if len(input) == 0 {
-			input = json.RawMessage(`{}`)
-		}
-		if err := frontendlimits.Bytes("tool_use.input", len(input), frontendlimits.MaxRawJSONPayload); err != nil {
-			return lipapi.Part{}, err
-		}
-		return lipapi.Part{
-			Kind:       lipapi.PartJSON,
-			ToolCallID: w.ID,
-			ToolName:   w.Name,
-			Content:    input,
-		}, nil
+		return parseToolUseBlock(blk)
 	case "tool_result":
-		var w struct {
-			ToolUseID string          `json:"tool_use_id"`
-			Content   json.RawMessage `json:"content"`
-		}
-		if err := json.Unmarshal(blk, &w); err != nil {
-			return lipapi.Part{}, err
-		}
-		if strings.TrimSpace(w.ToolUseID) == "" {
-			return lipapi.Part{}, errors.New("anthropic: tool_result requires tool_use_id")
-		}
-		// Content may be a string or array of text blocks; flatten to plain text.
-		var resultText string
-		if jsonpresence.IsPresentNonNullJSON(w.Content) {
-			if err := frontendlimits.Bytes("tool_result.content", len(w.Content), frontendlimits.MaxRawJSONPayload); err != nil {
-				return lipapi.Part{}, err
-			}
-			var s string
-			if err := json.Unmarshal(w.Content, &s); err == nil {
-				resultText = s
-			} else {
-				var blocks []json.RawMessage
-				if err := json.Unmarshal(w.Content, &blocks); err == nil {
-					var sb strings.Builder
-					for _, b := range blocks {
-						var tb struct {
-							Type string `json:"type"`
-							Text string `json:"text"`
-						}
-						if err := json.Unmarshal(b, &tb); err == nil && tb.Type == "text" {
-							sb.WriteString(tb.Text)
-						}
-					}
-					resultText = sb.String()
-				}
-			}
-		}
-		return lipapi.Part{
-			Kind:       lipapi.PartToolResult,
-			ToolCallID: w.ToolUseID,
-			Text:       resultText,
-		}, nil
+		return parseToolResultBlock(blk)
 	default:
 		return lipapi.Part{}, fmt.Errorf("anthropic: unsupported content block type %q", probe.Type)
 	}

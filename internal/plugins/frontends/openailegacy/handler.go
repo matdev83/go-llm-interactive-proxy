@@ -97,6 +97,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
 	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
 	if err != nil {
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error", ""))
 		return
 	}
 	if !ok {

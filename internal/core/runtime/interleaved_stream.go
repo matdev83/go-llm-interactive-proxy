@@ -96,7 +96,11 @@ func (s *interleavedContinuationStream) popPending() (lipapi.Event, bool) {
 		return lipapi.Event{}, false
 	}
 	ev := s.pending[0]
+	s.pending[0] = lipapi.Event{} // zero out for GC before advancing
 	s.pending = s.pending[1:]
+	if len(s.pending) == 0 {
+		s.pending = nil
+	}
 	if ev.Kind == lipapi.EventReasoningDelta {
 		s.recordVisibleOutput(ev)
 	}
@@ -352,6 +356,14 @@ func (s *interleavedContinuationStream) recvExecutor(ctx context.Context) (lipap
 	}
 }
 
+func (s *interleavedContinuationStream) persistInterruptedThinkerMemo(ctx context.Context) {
+	if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
+		if s.thinker != nil && s.thinker.executor != nil {
+			s.thinker.executor.logInterleavedMemoPersistFailed(ctx, s.thinker.traceID, persistErr)
+		}
+	}
+}
+
 func (s *interleavedContinuationStream) markFinished() {
 	s.mu.Lock()
 	s.finished = true
@@ -396,7 +408,7 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 	thinkerPhase := s.phase == interleavedPhaseThinker
 	s.mu.Unlock()
 	if thinkerPhase {
-		_, _ = s.captureAndPersistThinkerMemo(ctx, true)
+		s.persistInterruptedThinkerMemo(ctx)
 	}
 	s.markFinished()
 	return res
@@ -415,7 +427,7 @@ func (s *interleavedContinuationStream) Close() error {
 	thinkerPhase := s.phase == interleavedPhaseThinker
 	s.mu.Unlock()
 	if thinkerPhase {
-		_, _ = s.captureAndPersistThinkerMemo(context.Background(), true)
+		s.persistInterruptedThinkerMemo(context.Background())
 	}
 	s.markFinished()
 	return err
