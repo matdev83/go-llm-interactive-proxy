@@ -2,6 +2,7 @@ package llamacpp
 
 import (
 	"bytes"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 	"io"
 	"net/http"
 	"strings"
@@ -82,7 +83,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, cfg Config) {
 		cfg.OnAuthorizedCredential(secret)
 	}
 
-	if tryWriteForcedHTTPError(w, cfg) {
+	if utils.TryWriteForcedHTTPError(w, cfg.ForcedHTTPStatus, cfg.ForcedRetryAfter, cfg.ForcedErrorJSON, defaultForcedErrorJSON) {
 		return
 	}
 
@@ -92,25 +93,6 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, cfg Config) {
 	} else {
 		writeChatJSON(w, cfg)
 	}
-}
-
-func tryWriteForcedHTTPError(w http.ResponseWriter, cfg Config) bool {
-	switch cfg.ForcedHTTPStatus {
-	case http.StatusUnauthorized, http.StatusTooManyRequests:
-	default:
-		return false
-	}
-	if cfg.ForcedRetryAfter != "" && cfg.ForcedHTTPStatus == http.StatusTooManyRequests {
-		w.Header().Set("Retry-After", cfg.ForcedRetryAfter)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(cfg.ForcedHTTPStatus)
-	body := cfg.ForcedErrorJSON
-	if body == "" {
-		body = defaultForcedErrorJSON(cfg.ForcedHTTPStatus)
-	}
-	writeBody(w, body)
-	return true
 }
 
 func defaultForcedErrorJSON(status int) string {
