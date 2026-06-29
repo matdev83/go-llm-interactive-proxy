@@ -149,7 +149,7 @@ func parseSystem(raw json.RawMessage) ([]lipapi.Message, error) {
 	if err := frontendlimits.Count("system", len(blocks), frontendlimits.MaxParts); err != nil {
 		return nil, err
 	}
-	var parts []lipapi.Part
+	parts := make([]lipapi.Part, 0, len(blocks))
 	for i, blk := range blocks {
 		p, err := parseContentBlock(blk)
 		if err != nil {
