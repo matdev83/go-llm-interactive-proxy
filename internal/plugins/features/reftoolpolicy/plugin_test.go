@@ -204,6 +204,7 @@ func TestNewToolCallPolicy(t *testing.T) {
 	t.Parallel()
 
 	t.Run("default_order", func(t *testing.T) {
+		t.Parallel()
 		p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{})
 		// We can't access reftoolpolicy.defaultOrder directly since it's unexported and we are in _test.
 		// Let's rely on the tested behavior, which is that it falls back to a non-zero value,
@@ -221,6 +222,7 @@ func TestNewToolCallPolicy(t *testing.T) {
 	})
 
 	t.Run("custom_order", func(t *testing.T) {
+		t.Parallel()
 		customOrder := 10
 		p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{Order: &customOrder})
 		if p.Order() != customOrder {
