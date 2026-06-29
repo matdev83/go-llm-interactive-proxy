@@ -387,315 +387,20 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 		}
 		if err == nil {
-			recvAt := s.now()
-			s.accounting.observeBackendEvent(recvAt, ev)
-			s.accounting.observeUsage(ev)
-			pm, tm := s.recvHookMeta()
-			s.emitTrafficBTP(ctx, ev, pm)
-			ev = s.enrichUsageCost(ev)
-			s.emitUsage(ctx, ev)
-			if te, ok := lipapi.ToolEventFromEvent(ev); ok {
-				if err := s.applyToolPolicies(ctx, te, tm); err != nil {
-					s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-						ALegID:    s.aLegID,
-						BLeg:      s.bleg,
-						Cand:      s.cand,
-						Outcome:   lipapi.AttemptSurfacedFailure,
-						Reason:    attemptReasonDetail(err),
-						DetailErr: err,
-					}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-					return lipapi.Event{}, err
-				}
-				res := s.bus.ApplyToolReactors(ctx, te, tm)
-				if res.Err != nil {
-					return lipapi.Event{}, res.Err
-				}
-				if !res.Emit {
-					continue
-				}
-				if res.Event.Kind != "" {
-					ev = lipapi.MergeToolEventInto(ev, res.Event)
-				}
+			ev, cont, err := s.handleRecvSuccess(ctx, ev)
+			if cont {
+				continue
 			}
-			evp := ev
-			if herr := s.bus.RunResponsePartHooks(ctx, &evp, pm); herr != nil {
-				return lipapi.Event{}, herr
-			}
-			ev = evp
-			gates := s.completionGatesFromContext(ctx)
-			if len(gates) > 0 {
-				out, gerr := s.completionGatedEmit(ctx, gates, ev)
-				if errors.Is(gerr, errGateContinueInner) {
-					continue
-				}
-				if gerr != nil {
-					return lipapi.Event{}, gerr
-				}
-				out = s.emitGateDrained(ctx, out)
-				s.markOutputCommitted(out)
-				s.accounting.observeClientEvent(s.now(), out)
-				if s.recoverPolicy != nil {
-					s.recoverPolicy.ObserveClientEvent(out, s.now())
-				}
-				if err := s.beforeEmitClientFacing(ctx, out); err != nil {
-					if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-						return lipapi.Event{}, err
-					}
-					if s.executor != nil && s.executor.Log != nil {
-						s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-					}
-				}
-				s.commitAffinityIfOutput(ctx, out)
-				s.emitTrafficPTC(ctx, out, pm)
-				return out, nil
-			}
-			if lipapi.OutputCommitted(ev) {
-				s.markOutputCommitted(ev)
-			}
-			s.accounting.observeClientEvent(s.now(), ev)
-			if s.recoverPolicy != nil {
-				s.recoverPolicy.ObserveClientEvent(ev, s.now())
-			}
-			if ev.Kind == lipapi.EventResponseFinished {
-				s.rememberClientEvent(ev)
-				if usageEv, ok, err := s.finalizeTokenAccounting(ctx, ev); err != nil {
-					return lipapi.Event{}, err
-				} else if ok {
-					s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
-					s.tokenAccountingFinalized = true
-					return s.emitSynthesizedUsage(ctx, usageEv)
-				}
-				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:  s.aLegID,
-					BLeg:    s.bleg,
-					Cand:    s.cand,
-					Outcome: lipapi.AttemptSuccess,
-				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-				s.markFinished()
-				s.finishALegScope()
-			} else {
-				s.rememberClientEvent(ev)
-			}
-			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-					return lipapi.Event{}, err
-				}
-				if s.executor != nil && s.executor.Log != nil {
-					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-				}
-			}
-			s.commitAffinityIfOutput(ctx, ev)
-			s.emitTrafficPTC(ctx, ev, pm)
-			return ev, nil
+			return ev, err
 		}
 		if errors.Is(err, io.EOF) {
-			s.recordPartialTokenAccounting(ctx, "stream ended without response_finished", io.EOF)
-			// Truncated upstream: never run completion gates on a partial buffer (replace gates could
-			// synthesize response_finished and mask the failure).
-			gates := s.completionGatesFromContext(ctx)
-			if len(gates) > 0 && !s.gateLive && len(s.gateBuf) > 0 && !extensions.StreamFinished(s.gateBuf) {
-				s.gateBuf = nil
-			}
-			if s.recoverPolicy != nil {
-				dec := s.recoverPolicy.DecideEOF(io.EOF, s.now())
-				if dec.Kind == streamrecovery.DecisionFinishPostOutput {
-					s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-						ALegID:    s.aLegID,
-						BLeg:      s.bleg,
-						Cand:      s.cand,
-						Outcome:   lipapi.AttemptSuccess,
-						Reason:    dec.Reason,
-						DetailErr: io.EOF,
-					}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-					if dec.Warning.Kind != "" {
-						s.recoverDrain = append(s.recoverDrain, dec.Warning)
-					}
-					s.recoverDrain = append(s.recoverDrain, dec.Finish)
-					ev := s.recoverDrain[0]
-					s.recoverDrain = s.recoverDrain[1:]
-					if ev.Kind == lipapi.EventResponseFinished {
-						s.markFinished()
-						s.finishALegScope()
-					}
-					return ev, nil
-				}
-			}
-			if !s.isFinished() {
-				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    s.aLegID,
-					BLeg:      s.bleg,
-					Cand:      s.cand,
-					Outcome:   lipapi.AttemptSurfacedFailure,
-					Reason:    "stream ended without response_finished",
-					DetailErr: io.EOF,
-				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-			}
-			s.markFinished()
-			s.finishALegScope()
-			return lipapi.Event{}, io.EOF
+			return s.handleRecvEOF(ctx)
 		}
-		if idleDeadline.expired(recvCtx, err) {
-			dec := s.recoverPolicy.DecideIdle(s.now())
-			if dec.Kind == streamrecovery.DecisionFinishPostOutput {
-				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    s.aLegID,
-					BLeg:      s.bleg,
-					Cand:      s.cand,
-					Outcome:   lipapi.AttemptSuccess,
-					Reason:    dec.Reason,
-					DetailErr: context.DeadlineExceeded,
-				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-				if c := s.takeAndNilInner(); c != nil {
-					s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
-				}
-				if dec.Warning.Kind != "" {
-					s.recoverDrain = append(s.recoverDrain, dec.Warning)
-				}
-				s.recoverDrain = append(s.recoverDrain, dec.Finish)
-				ev := s.recoverDrain[0]
-				s.recoverDrain = s.recoverDrain[1:]
-				if ev.Kind == lipapi.EventResponseFinished {
-					s.markFinished()
-					s.finishALegScope()
-				}
-				return ev, nil
-			}
-			if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
-				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    s.aLegID,
-					BLeg:      s.bleg,
-					Cand:      s.cand,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    dec.Reason,
-					DetailErr: dec.Err,
-				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-				if c := s.takeAndNilInner(); c != nil {
-					s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
-				}
-				s.excluded[s.cand.Key] = struct{}{}
-				continue
-			}
+		ev, cont, err := s.handleRecvError(ctx, recvCtx, err, idleDeadline, ttftDeadline)
+		if cont {
+			continue
 		}
-		if ttftDeadline.expired(recvCtx, err) && !s.isCommitted() {
-			ttftScope := ttftDeadline.scope
-			if ttftScope == ttftTimeoutLeaf {
-				tf := ttftFailure(ttftScope, s.cand.Key)
-				s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-					ALegID:    s.aLegID,
-					BLeg:      s.bleg,
-					Cand:      s.cand,
-					Outcome:   lipapi.AttemptSwallowedFailure,
-					Reason:    ttftAttemptReason(ttftScope),
-					DetailErr: tf,
-				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-				if c := s.takeAndNilInner(); c != nil {
-					if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-						s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
-							"reason", "leaf_ttft_timeout",
-							"error", cerr,
-						)
-					}
-				}
-				s.excluded[s.cand.Key] = struct{}{}
-				continue
-			}
-			tf := ttftFailure(ttftScope, s.cand.Key)
-			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
-				BLeg:      s.bleg,
-				Cand:      s.cand,
-				Outcome:   lipapi.AttemptSurfacedFailure,
-				Reason:    ttftAttemptReason(ttftScope),
-				DetailErr: tf,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-			if c := s.takeAndNilInner(); c != nil {
-				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-					s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
-						"reason", "global_ttft_timeout",
-						"error", cerr,
-					)
-				}
-			}
-			s.markFinished()
-			s.finishALegScope()
-			return lipapi.Event{}, lipapi.ErrTTFTTimeout
-		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
-			reason := cancellationAttemptReason(ctx, err)
-			if s.executor != nil && s.executor.Log != nil && err != nil {
-				s.executor.Log.DebugContext(ctx, "retry_recv context cancellation",
-					"reason", reason,
-					"recv_error_detail", diag.TruncErrDetail(err, attemptReasonMaxRunes),
-				)
-			}
-			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
-				BLeg:      s.bleg,
-				Cand:      s.cand,
-				Outcome:   lipapi.AttemptCancelled,
-				Reason:    reason,
-				DetailErr: err,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-			if c := s.takeAndNilInner(); c != nil {
-				if s.aScope != nil {
-					_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
-				} else {
-					s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
-				}
-			}
-			s.persistCancellationBilling(ctx, reason)
-			s.markFinished()
-			s.finishALegScope()
-			return lipapi.Event{}, err
-		}
-		if s.isCommitted() || !lipapi.IsRecoverablePreOutput(err) {
-			surfErr := err
-			if s.isCommitted() && lipapi.IsRecoverablePreOutput(err) {
-				surfErr = &lipapi.UpstreamFailure{
-					Phase:        lipapi.PhasePostOutput,
-					Recoverable:  false,
-					Reason:       attemptReasonDetail(err),
-					CandidateKey: s.cand.Key,
-				}
-			}
-			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-				ALegID:    s.aLegID,
-				BLeg:      s.bleg,
-				Cand:      s.cand,
-				Outcome:   lipapi.AttemptSurfacedFailure,
-				Reason:    attemptReasonDetail(surfErr),
-				DetailErr: surfErr,
-			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-			s.recordPartialTokenAccounting(ctx, attemptReasonDetail(surfErr), surfErr)
-			return lipapi.Event{}, surfErr
-		}
-		var log *slog.Logger
-		if s.executor != nil {
-			log = s.executor.Log
-		}
-		diag.LogDecision(ctx, log, "recoverable_pre_output_swallowed",
-			diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
-			slog.String("candidate_key", s.cand.Key),
-			slog.String("phase", "recv"),
-		)
-		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
-			ALegID:    s.aLegID,
-			BLeg:      s.bleg,
-			Cand:      s.cand,
-			Outcome:   lipapi.AttemptSwallowedFailure,
-			Reason:    "recoverable pre-output (recv)",
-			DetailErr: err,
-		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-		s.recordPartialTokenAccounting(ctx, "recoverable pre-output (recv)", err)
-		if c := s.takeAndNilInner(); c != nil {
-			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-				s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
-					"reason", "recoverable_pre_output",
-					"error", cerr,
-				)
-			}
-		}
-		s.excluded[s.cand.Key] = struct{}{}
+		return ev, err
 	}
 }
 
@@ -1336,4 +1041,321 @@ func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
 		s.visibleText.WriteString(ev.Delta)
 	}
 	s.seenEvents = append(s.seenEvents, ev)
+}
+
+func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
+	recvAt := s.now()
+	s.accounting.observeBackendEvent(recvAt, ev)
+	s.accounting.observeUsage(ev)
+	pm, tm := s.recvHookMeta()
+	s.emitTrafficBTP(ctx, ev, pm)
+	ev = s.enrichUsageCost(ev)
+	s.emitUsage(ctx, ev)
+	if te, ok := lipapi.ToolEventFromEvent(ev); ok {
+		if err := s.applyToolPolicies(ctx, te, tm); err != nil {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSurfacedFailure,
+				Reason:    attemptReasonDetail(err),
+				DetailErr: err,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			return lipapi.Event{}, false, err
+		}
+		res := s.bus.ApplyToolReactors(ctx, te, tm)
+		if res.Err != nil {
+			return lipapi.Event{}, false, res.Err
+		}
+		if !res.Emit {
+			return lipapi.Event{}, true, nil
+		}
+		if res.Event.Kind != "" {
+			ev = lipapi.MergeToolEventInto(ev, res.Event)
+		}
+	}
+	evp := ev
+	if herr := s.bus.RunResponsePartHooks(ctx, &evp, pm); herr != nil {
+		return lipapi.Event{}, false, herr
+	}
+	ev = evp
+	gates := s.completionGatesFromContext(ctx)
+	if len(gates) > 0 {
+		out, gerr := s.completionGatedEmit(ctx, gates, ev)
+		if errors.Is(gerr, errGateContinueInner) {
+			return lipapi.Event{}, true, nil
+		}
+		if gerr != nil {
+			return lipapi.Event{}, false, gerr
+		}
+		out = s.emitGateDrained(ctx, out)
+		s.markOutputCommitted(out)
+		s.accounting.observeClientEvent(s.now(), out)
+		if s.recoverPolicy != nil {
+			s.recoverPolicy.ObserveClientEvent(out, s.now())
+		}
+		if err := s.beforeEmitClientFacing(ctx, out); err != nil {
+			if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+				return lipapi.Event{}, false, err
+			}
+			if s.executor != nil && s.executor.Log != nil {
+				s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+			}
+		}
+		s.commitAffinityIfOutput(ctx, out)
+		s.emitTrafficPTC(ctx, out, pm)
+		return out, false, nil
+	}
+	if lipapi.OutputCommitted(ev) {
+		s.markOutputCommitted(ev)
+	}
+	s.accounting.observeClientEvent(s.now(), ev)
+	if s.recoverPolicy != nil {
+		s.recoverPolicy.ObserveClientEvent(ev, s.now())
+	}
+	if ev.Kind == lipapi.EventResponseFinished {
+		s.rememberClientEvent(ev)
+		if usageEv, ok, err := s.finalizeTokenAccounting(ctx, ev); err != nil {
+			return lipapi.Event{}, false, err
+		} else if ok {
+			s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
+			s.tokenAccountingFinalized = true
+			ev, err := s.emitSynthesizedUsage(ctx, usageEv)
+			return ev, false, err
+		}
+		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			ALegID:  s.aLegID,
+			BLeg:    s.bleg,
+			Cand:    s.cand,
+			Outcome: lipapi.AttemptSuccess,
+		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		s.markFinished()
+		s.finishALegScope()
+	} else {
+		s.rememberClientEvent(ev)
+	}
+	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
+		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+			return lipapi.Event{}, false, err
+		}
+		if s.executor != nil && s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+		}
+	}
+	s.commitAffinityIfOutput(ctx, ev)
+	s.emitTrafficPTC(ctx, ev, pm)
+	return ev, false, nil
+}
+
+func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, error) {
+	s.recordPartialTokenAccounting(ctx, "stream ended without response_finished", io.EOF)
+	// Truncated upstream: never run completion gates on a partial buffer (replace gates could
+	// synthesize response_finished and mask the failure).
+	gates := s.completionGatesFromContext(ctx)
+	if len(gates) > 0 && !s.gateLive && len(s.gateBuf) > 0 && !extensions.StreamFinished(s.gateBuf) {
+		s.gateBuf = nil
+	}
+	if s.recoverPolicy != nil {
+		dec := s.recoverPolicy.DecideEOF(io.EOF, s.now())
+		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSuccess,
+				Reason:    dec.Reason,
+				DetailErr: io.EOF,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			if dec.Warning.Kind != "" {
+				s.recoverDrain = append(s.recoverDrain, dec.Warning)
+			}
+			s.recoverDrain = append(s.recoverDrain, dec.Finish)
+			ev := s.recoverDrain[0]
+			s.recoverDrain = s.recoverDrain[1:]
+			if ev.Kind == lipapi.EventResponseFinished {
+				s.markFinished()
+				s.finishALegScope()
+			}
+			return ev, nil
+		}
+	}
+	if !s.isFinished() {
+		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			ALegID:    s.aLegID,
+			BLeg:      s.bleg,
+			Cand:      s.cand,
+			Outcome:   lipapi.AttemptSurfacedFailure,
+			Reason:    "stream ended without response_finished",
+			DetailErr: io.EOF,
+		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+	}
+	s.markFinished()
+	s.finishALegScope()
+	return lipapi.Event{}, io.EOF
+}
+
+func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err error, idleDeadline idleContextDeadline, ttftDeadline ttftContextDeadline) (lipapi.Event, bool, error) {
+	if idleDeadline.expired(recvCtx, err) {
+		dec := s.recoverPolicy.DecideIdle(s.now())
+		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSuccess,
+				Reason:    dec.Reason,
+				DetailErr: context.DeadlineExceeded,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			if c := s.takeAndNilInner(); c != nil {
+				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
+			}
+			if dec.Warning.Kind != "" {
+				s.recoverDrain = append(s.recoverDrain, dec.Warning)
+			}
+			s.recoverDrain = append(s.recoverDrain, dec.Finish)
+			ev := s.recoverDrain[0]
+			s.recoverDrain = s.recoverDrain[1:]
+			if ev.Kind == lipapi.EventResponseFinished {
+				s.markFinished()
+				s.finishALegScope()
+			}
+			return ev, false, nil
+		}
+		if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSwallowedFailure,
+				Reason:    dec.Reason,
+				DetailErr: dec.Err,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			if c := s.takeAndNilInner(); c != nil {
+				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone, Detail: dec.Reason})
+			}
+			s.excluded[s.cand.Key] = struct{}{}
+			return lipapi.Event{}, true, nil
+		}
+	}
+	if ttftDeadline.expired(recvCtx, err) && !s.isCommitted() {
+		ttftScope := ttftDeadline.scope
+		if ttftScope == ttftTimeoutLeaf {
+			tf := ttftFailure(ttftScope, s.cand.Key)
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptSwallowedFailure,
+				Reason:    ttftAttemptReason(ttftScope),
+				DetailErr: tf,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+			if c := s.takeAndNilInner(); c != nil {
+				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+					s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+						"reason", "leaf_ttft_timeout",
+						"error", cerr,
+					)
+				}
+			}
+			s.excluded[s.cand.Key] = struct{}{}
+			return lipapi.Event{}, true, nil
+		}
+		tf := ttftFailure(ttftScope, s.cand.Key)
+		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			ALegID:    s.aLegID,
+			BLeg:      s.bleg,
+			Cand:      s.cand,
+			Outcome:   lipapi.AttemptSurfacedFailure,
+			Reason:    ttftAttemptReason(ttftScope),
+			DetailErr: tf,
+		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		if c := s.takeAndNilInner(); c != nil {
+			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+				s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+					"reason", "global_ttft_timeout",
+					"error", cerr,
+				)
+			}
+		}
+		s.markFinished()
+		s.finishALegScope()
+		return lipapi.Event{}, false, lipapi.ErrTTFTTimeout
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+		reason := cancellationAttemptReason(ctx, err)
+		if s.executor != nil && s.executor.Log != nil && err != nil {
+			s.executor.Log.DebugContext(ctx, "retry_recv context cancellation",
+				"reason", reason,
+				"recv_error_detail", diag.TruncErrDetail(err, attemptReasonMaxRunes),
+			)
+		}
+		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			ALegID:    s.aLegID,
+			BLeg:      s.bleg,
+			Cand:      s.cand,
+			Outcome:   lipapi.AttemptCancelled,
+			Reason:    reason,
+			DetailErr: err,
+		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		if c := s.takeAndNilInner(); c != nil {
+			if s.aScope != nil {
+				_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
+			} else {
+				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
+			}
+		}
+		s.persistCancellationBilling(ctx, reason)
+		s.markFinished()
+		s.finishALegScope()
+		return lipapi.Event{}, false, err
+	}
+	if s.isCommitted() || !lipapi.IsRecoverablePreOutput(err) {
+		surfErr := err
+		if s.isCommitted() && lipapi.IsRecoverablePreOutput(err) {
+			surfErr = &lipapi.UpstreamFailure{
+				Phase:        lipapi.PhasePostOutput,
+				Recoverable:  false,
+				Reason:       attemptReasonDetail(err),
+				CandidateKey: s.cand.Key,
+			}
+		}
+		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+			ALegID:    s.aLegID,
+			BLeg:      s.bleg,
+			Cand:      s.cand,
+			Outcome:   lipapi.AttemptSurfacedFailure,
+			Reason:    attemptReasonDetail(surfErr),
+			DetailErr: surfErr,
+		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(surfErr), surfErr)
+		return lipapi.Event{}, false, surfErr
+	}
+	var log *slog.Logger
+	if s.executor != nil {
+		log = s.executor.Log
+	}
+	diag.LogDecision(ctx, log, "recoverable_pre_output_swallowed",
+		diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
+		slog.String("candidate_key", s.cand.Key),
+		slog.String("phase", "recv"),
+	)
+	s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+		ALegID:    s.aLegID,
+		BLeg:      s.bleg,
+		Cand:      s.cand,
+		Outcome:   lipapi.AttemptSwallowedFailure,
+		Reason:    "recoverable pre-output (recv)",
+		DetailErr: err,
+	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+	s.recordPartialTokenAccounting(ctx, "recoverable pre-output (recv)", err)
+	if c := s.takeAndNilInner(); c != nil {
+		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+				"reason", "recoverable_pre_output",
+				"error", cerr,
+			)
+		}
+	}
+	s.excluded[s.cand.Key] = struct{}{}
+	return lipapi.Event{}, true, nil
 }
