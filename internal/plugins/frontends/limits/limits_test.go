@@ -5,6 +5,7 @@ import (
 )
 
 func TestCount(t *testing.T) {
+	t.Parallel()
 	if err := Count("test", 5, 10); err != nil {
 		t.Errorf("expected no error for got < max, got: %v", err)
 	}
