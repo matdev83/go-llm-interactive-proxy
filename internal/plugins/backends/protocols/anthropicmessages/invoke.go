@@ -120,7 +120,7 @@ func buildSystemBlocks(call *lipapi.Call) []anthropic.TextBlockParam {
 }
 
 func buildAnthropicMessages(call *lipapi.Call) ([]anthropic.MessageParam, error) {
-	var out []anthropic.MessageParam
+	out := make([]anthropic.MessageParam, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
 			continue
@@ -170,7 +170,7 @@ func assistantMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
 			return anthropic.MessageParam{}, fmt.Errorf("anthropic: assistant message may only contain text parts in this adapter")
 		}
 	}
-	var blocks []anthropic.ContentBlockParamUnion
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.Parts))
 	for _, p := range m.Parts {
 		if strings.TrimSpace(p.Text) == "" {
 			continue
@@ -184,7 +184,7 @@ func assistantMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
 }
 
 func userPartsToBlocks(parts []lipapi.Part) ([]anthropic.ContentBlockParamUnion, error) {
-	var out []anthropic.ContentBlockParamUnion
+	out := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
 	for _, p := range parts {
 		switch p.Kind {
 		case lipapi.PartText:
