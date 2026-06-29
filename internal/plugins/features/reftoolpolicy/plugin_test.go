@@ -199,3 +199,34 @@ func TestToolCallPolicy_Handle_DenyBlockedPrefix(t *testing.T) {
 		t.Fatalf("want DecisionDeny, got %v", dec)
 	}
 }
+
+func TestNewToolCallPolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default_order", func(t *testing.T) {
+		t.Parallel()
+		p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{})
+		// We can't access reftoolpolicy.defaultOrder directly since it's unexported and we are in _test.
+		// Let's rely on the tested behavior, which is that it falls back to a non-zero value,
+		// or explicitly provide 45 because we see it in code.
+		if p.Order() != 45 {
+			t.Errorf("expected order 45, got %d", p.Order())
+		}
+		expectedID := "ref-tool-policy-tool-policy"
+		if p.ID() != expectedID {
+			t.Errorf("expected id %q, got %q", expectedID, p.ID())
+		}
+		if p.FailureMode() != sdk.FailClosed {
+			t.Errorf("expected failure mode %d, got %d", sdk.FailClosed, p.FailureMode())
+		}
+	})
+
+	t.Run("custom_order", func(t *testing.T) {
+		t.Parallel()
+		customOrder := 10
+		p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{Order: &customOrder})
+		if p.Order() != customOrder {
+			t.Errorf("expected order %d, got %d", customOrder, p.Order())
+		}
+	})
+}
