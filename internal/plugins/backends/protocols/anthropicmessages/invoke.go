@@ -184,7 +184,7 @@ func assistantMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
 }
 
 func userPartsToBlocks(parts []lipapi.Part) ([]anthropic.ContentBlockParamUnion, error) {
-	var out []anthropic.ContentBlockParamUnion
+	out := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
 	for _, p := range parts {
 		switch p.Kind {
 		case lipapi.PartText:
