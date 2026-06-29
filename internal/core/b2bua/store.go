@@ -93,7 +93,7 @@ const DefaultMemoryStoreMaxLegsWithoutTTL = 100_000
 
 // MemoryStore is a mutex-protected in-memory Store with lazy TTL eviction.
 type MemoryStore struct {
-	_ noCopy //nolint:unused
+	_       noCopy //nolint:unused
 	ttl     time.Duration
 	maxLegs int
 	now     func() time.Time
@@ -387,7 +387,7 @@ func (s *MemoryStore) sweepExpiredLegsLocked(now time.Time) {
 	if s.ttl <= 0 {
 		return
 	}
-	var stale []string
+	stale := make([]string, 0, len(s.legs))
 	for id, st := range s.legs {
 		if now.Sub(st.record.LastSeenAt) >= s.ttl {
 			stale = append(stale, id)

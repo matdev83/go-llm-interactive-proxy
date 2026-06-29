@@ -147,12 +147,12 @@ func (e *Executor) tryOpenParallelGroup(
 
 	for idx, entry := range entries {
 		wg.Go(func() {
-		defer func() {
-			if r := recover(); r != nil {
-				pe := safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
-				e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race leg", diag.AttrOpts{CallID: p.traceID})
-			}
-		}()
+			defer func() {
+				if r := recover(); r != nil {
+					pe := safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
+					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race leg", diag.AttrOpts{CallID: p.traceID})
+				}
+			}()
 
 			if entry.startDelay > 0 {
 				timer := time.NewTimer(entry.startDelay)
@@ -325,11 +325,6 @@ func (e *Executor) tryOpenParallelGroup(
 	case <-winnerCh:
 	case <-ctx.Done():
 		raceCancel()
-		// Do not block the caller on wg.Wait(); leg streams may ignore context
-		// cancellation while blocked on network I/O until explicitly closed.
-		go func() {
-			wg.Wait()
-		}()
 		return zero, ctx.Err()
 	}
 

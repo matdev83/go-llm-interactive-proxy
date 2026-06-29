@@ -356,6 +356,14 @@ func (s *interleavedContinuationStream) recvExecutor(ctx context.Context) (lipap
 	}
 }
 
+func (s *interleavedContinuationStream) persistInterruptedThinkerMemo(ctx context.Context) {
+	if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
+		if s.thinker != nil && s.thinker.executor != nil {
+			s.thinker.executor.logInterleavedMemoPersistFailed(ctx, s.thinker.traceID, persistErr)
+		}
+	}
+}
+
 func (s *interleavedContinuationStream) markFinished() {
 	s.mu.Lock()
 	s.finished = true
@@ -400,11 +408,7 @@ func (s *interleavedContinuationStream) Cancel(ctx context.Context, cause lipapi
 	thinkerPhase := s.phase == interleavedPhaseThinker
 	s.mu.Unlock()
 	if thinkerPhase {
-		if _, persistErr := s.captureAndPersistThinkerMemo(ctx, true); persistErr != nil {
-			if s.thinker != nil && s.thinker.executor != nil {
-				s.thinker.executor.logInterleavedMemoPersistFailed(ctx, s.thinker.traceID, persistErr)
-			}
-		}
+		s.persistInterruptedThinkerMemo(ctx)
 	}
 	s.markFinished()
 	return res
@@ -423,12 +427,7 @@ func (s *interleavedContinuationStream) Close() error {
 	thinkerPhase := s.phase == interleavedPhaseThinker
 	s.mu.Unlock()
 	if thinkerPhase {
-		closeCtx := context.Background()
-		if _, persistErr := s.captureAndPersistThinkerMemo(closeCtx, true); persistErr != nil {
-			if s.thinker != nil && s.thinker.executor != nil {
-				s.thinker.executor.logInterleavedMemoPersistFailed(closeCtx, s.thinker.traceID, persistErr)
-			}
-		}
+		s.persistInterruptedThinkerMemo(context.Background())
 	}
 	s.markFinished()
 	return err
