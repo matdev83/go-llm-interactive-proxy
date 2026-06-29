@@ -11,7 +11,7 @@ func BenchmarkBuildContents(b *testing.B) {
 	call := &lipapi.Call{
 		Messages: make([]lipapi.Message, 1000),
 	}
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		call.Messages[i] = lipapi.Message{
 			Role: lipapi.RoleUser,
 			Parts: []lipapi.Part{
@@ -29,7 +29,7 @@ func BenchmarkBuildContents(b *testing.B) {
 
 func BenchmarkUserPartsToGenaiParts(b *testing.B) {
 	parts := make([]lipapi.Part, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		parts[i] = lipapi.TextPart("hello world")
 	}
 
@@ -42,7 +42,7 @@ func BenchmarkUserPartsToGenaiParts(b *testing.B) {
 
 func BenchmarkAssistantPartsToGenaiParts(b *testing.B) {
 	parts := make([]lipapi.Part, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		parts[i] = lipapi.TextPart("hello world")
 	}
 
@@ -55,7 +55,7 @@ func BenchmarkAssistantPartsToGenaiParts(b *testing.B) {
 
 func BenchmarkBuildTools(b *testing.B) {
 	tools := make([]lipapi.ToolDef, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		tools[i] = lipapi.ToolDef{
 			Name:        "test",
 			Description: "desc",
