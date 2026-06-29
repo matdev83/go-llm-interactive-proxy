@@ -31,7 +31,7 @@ func TestDecodeConfig(t *testing.T) {
 		{
 			name:           "valid mapping",
 			input:          "order: 5\nsuffix: foo\nresponse_prefix: bar",
-			wantOrder:      intPtr(5),
+			wantOrder:      func() *int { v := 5; return &v }(),
 			wantSuffix:     "foo",
 			wantRespPrefix: "bar",
 		},
@@ -58,7 +58,6 @@ func TestDecodeConfig(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var n yaml.Node
@@ -102,8 +101,4 @@ func TestDecodeConfig(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPtr(i int) *int {
-	return &i
 }
