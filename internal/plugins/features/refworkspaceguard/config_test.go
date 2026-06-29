@@ -1,88 +1,99 @@
-package refworkspaceguard_test
+package refworkspaceguard
 
 import (
+	"reflect"
 	"testing"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 )
 
 func TestDecodeConfig(t *testing.T) {
 	t.Parallel()
 
+	intPtr := func(i int) *int { return &i }
+
 	tests := []struct {
 		name    string
 		yaml    string
+		want    Config
 		wantErr bool
-		check   func(*testing.T, refworkspaceguard.Config)
 	}{
 		{
-			name:    "empty config",
-			yaml:    "",
-			wantErr: false,
-			check: func(t *testing.T, c refworkspaceguard.Config) {
-				t.Helper()
-				if c.ProjectRoot != "/ref/workspace" {
-					t.Errorf("expected default project root, got %s", c.ProjectRoot)
-				}
+			name: "empty input",
+			yaml: "",
+			want: Config{
+				ProjectRoot: "/ref/workspace",
+				DirtyTree:   true,
+				Markers:     []string{".refws"},
+				Labels:      map[string]string{LabelDenyHeat: "1"},
 			},
+			wantErr: false,
 		},
 		{
-			name:    "null config",
-			yaml:    "null",
-			wantErr: false,
-			check: func(t *testing.T, c refworkspaceguard.Config) {
-				t.Helper()
-				if c.ProjectRoot != "/ref/workspace" {
-					t.Errorf("expected default project root, got %s", c.ProjectRoot)
-				}
+			name: "null scalar",
+			yaml: "null",
+			want: Config{
+				ProjectRoot: "/ref/workspace",
+				DirtyTree:   true,
+				Markers:     []string{".refws"},
+				Labels:      map[string]string{LabelDenyHeat: "1"},
 			},
+			wantErr: false,
 		},
 		{
-			name:    "valid mapping",
-			yaml:    "project_root: /custom/path\ndirty_tree: false\nmarkers:\n  - .refws",
-			wantErr: false,
-			check: func(t *testing.T, c refworkspaceguard.Config) {
-				t.Helper()
-				if c.ProjectRoot != "/custom/path" {
-					t.Errorf("expected /custom/path, got %s", c.ProjectRoot)
-				}
-				if c.DirtyTree != false {
-					t.Errorf("expected DirtyTree false, got %v", c.DirtyTree)
-				}
-				if len(c.Markers) != 1 || c.Markers[0] != ".refws" {
-					t.Errorf("expected markers [.refws], got %v", c.Markers)
-				}
-			},
-		},
-		{
-			name:    "valid mapping empty project root (gets defaults with order)",
-			yaml:    "order: 5\ndirty_tree: false",
-			wantErr: false,
-			check: func(t *testing.T, c refworkspaceguard.Config) {
-				t.Helper()
-				if c.ProjectRoot != "/ref/workspace" {
-					t.Errorf("expected default project root, got %s", c.ProjectRoot)
-				}
-				if c.Order == nil || *c.Order != 5 {
-					t.Errorf("expected order 5, got %v", c.Order)
-				}
-			},
-		},
-		{
-			name:    "negative order",
-			yaml:    "order: -1",
+			name:    "invalid scalar",
+			yaml:    "foo",
+			want:    Config{},
 			wantErr: true,
 		},
 		{
-			name:    "invalid type",
-			yaml:    "- some_list_item",
+			name:    "sequence node",
+			yaml:    "- foo\n- bar",
+			want:    Config{},
 			wantErr: true,
 		},
 		{
-			name:    "scalar non-null",
-			yaml:    "some_string",
+			name: "valid mapping with project root",
+			yaml: `
+project_root: "/custom/root"
+dirty_tree: false
+markers:
+  - ".custom"
+labels:
+  foo: "bar"
+`,
+			want: Config{
+				ProjectRoot: "/custom/root",
+				DirtyTree:   false,
+				Markers:     []string{".custom"},
+				Labels: map[string]string{
+					"foo":         "bar",
+					LabelDenyHeat: "1",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid mapping missing project root",
+			yaml: `
+order: 5
+dirty_tree: false
+`,
+			want: Config{
+				Order:       intPtr(5),
+				ProjectRoot: "/ref/workspace", // defaults
+				DirtyTree:   true,             // default
+				Markers:     []string{".refws"},
+				Labels:      map[string]string{LabelDenyHeat: "1"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid order",
+			yaml: `
+order: -1
+`,
+			want:    Config{},
 			wantErr: true,
 		},
 	}
@@ -90,19 +101,63 @@ func TestDecodeConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			var n yaml.Node
-			err := yaml.Unmarshal([]byte(tt.yaml), &n)
-			if err != nil {
+			if err := yaml.Unmarshal([]byte(tt.yaml), &n); err != nil {
 				t.Fatalf("failed to unmarshal yaml: %v", err)
 			}
 
-			cfg, err := refworkspaceguard.DecodeConfig(n)
+			got, err := DecodeConfig(n)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("DecodeConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("DecodeConfig() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if err == nil && tt.check != nil {
-				tt.check(t, cfg)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("DecodeConfig() got = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestDecodeConfig_NodeTests(t *testing.T) {
+	t.Parallel()
+
+	t.Run("kind 0 node", func(t *testing.T) {
+		t.Parallel()
+		got, err := DecodeConfig(yaml.Node{Kind: 0})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		want := defaultConfig()
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("empty document node", func(t *testing.T) {
+		t.Parallel()
+		got, err := DecodeConfig(yaml.Node{Kind: yaml.DocumentNode})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		want := defaultConfig()
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("invalid mapping decode", func(t *testing.T) {
+		t.Parallel()
+		n := yaml.Node{
+			Kind: yaml.MappingNode,
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Value: "order"},
+				{Kind: yaml.ScalarNode, Value: "not-an-int"},
+			},
+		}
+		_, err := DecodeConfig(n)
+		if err == nil {
+			t.Error("expected error for invalid mapping decode, got nil")
+		}
+	})
 }

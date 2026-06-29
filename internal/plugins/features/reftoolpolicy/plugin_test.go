@@ -138,3 +138,64 @@ func TestToolCallPolicy_emptyBlocksIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestToolCallPolicy_Handle_DenyBlocked(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{
+		BlockNames: []string{"blocked"},
+	})
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolName: "blocked", ToolCallID: "tc1"}
+	dec, err := p.Handle(context.Background(), ev, toolpolicy.Meta{}, toolpolicy.Services{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != toolpolicy.DecisionDeny {
+		t.Fatalf("want DecisionDeny, got %v", dec)
+	}
+}
+
+func TestToolCallPolicy_Handle_AllowUnblocked(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{
+		BlockNames: []string{"blocked"},
+	})
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolName: "ok", ToolCallID: "tc1"}
+	dec, err := p.Handle(context.Background(), ev, toolpolicy.Meta{}, toolpolicy.Services{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != toolpolicy.DecisionAllow {
+		t.Fatalf("want DecisionAllow, got %v", dec)
+	}
+}
+
+func TestToolCallPolicy_Handle_AllowEmptyToolName(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{
+		BlockNames: []string{"blocked"},
+	})
+	// ToolName is empty, which can happen for argument delta events.
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventArgsDelta, ToolName: "", ToolCallID: "tc1", ArgsDelta: "{}"}
+	dec, err := p.Handle(context.Background(), ev, toolpolicy.Meta{}, toolpolicy.Services{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != toolpolicy.DecisionAllow {
+		t.Fatalf("want DecisionAllow, got %v", dec)
+	}
+}
+
+func TestToolCallPolicy_Handle_DenyBlockedPrefix(t *testing.T) {
+	t.Parallel()
+	p := reftoolpolicy.NewToolCallPolicy(reftoolpolicy.Config{
+		BlockPrefixes: []string{"bad_"},
+	})
+	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolName: "bad_tool", ToolCallID: "tc1"}
+	dec, err := p.Handle(context.Background(), ev, toolpolicy.Meta{}, toolpolicy.Services{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec != toolpolicy.DecisionDeny {
+		t.Fatalf("want DecisionDeny, got %v", dec)
+	}
+}
