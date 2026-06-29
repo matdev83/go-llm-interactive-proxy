@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +24,15 @@ import (
 )
 
 const cancelLosersTimeout = 5 * time.Second
+
+func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicError, message string, attrOpts diag.AttrOpts) {
+	if e == nil || e.Log == nil || pe == nil {
+		return
+	}
+	attrs := diag.IsolatedCrashAttrs(ctx, pe, diag.CrashAttrOpts{AttrOpts: attrOpts})
+	attrs = diag.AppendIsolatedCrashStack(attrs, pe)
+	e.Log.LogAttrs(ctx, slog.LevelError, message, attrs...)
+}
 
 func selectorHasParallelArm(sel *routing.Selector) bool {
 	if sel == nil {
@@ -139,7 +149,8 @@ func (e *Executor) tryOpenParallelGroup(
 		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
-					_ = safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
+					pe := safety.Capture(safety.BoundaryBackend, "parallel_race_leg", r)
+					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race leg", diag.AttrOpts{CallID: p.traceID})
 				}
 			}()
 
@@ -299,7 +310,8 @@ func (e *Executor) tryOpenParallelGroup(
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				_ = safety.Capture(safety.BoundaryWorker, "parallel_race_waiter", r)
+				pe := safety.Capture(safety.BoundaryWorker, "parallel_race_waiter", r)
+				e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race waiter", diag.AttrOpts{CallID: p.traceID})
 			}
 		}()
 		wg.Wait()
@@ -313,7 +325,6 @@ func (e *Executor) tryOpenParallelGroup(
 	case <-winnerCh:
 	case <-ctx.Done():
 		raceCancel()
-		wg.Wait()
 		return zero, ctx.Err()
 	}
 
@@ -435,7 +446,8 @@ func (e *Executor) tryOpenParallelGroup(
 			var cleanupErr error
 			defer func() {
 				if r := recover(); r != nil {
-					_ = safety.Capture(safety.BoundaryBackend, "parallel_cancel_losers", r)
+					pe := safety.Capture(safety.BoundaryBackend, "parallel_cancel_losers", r)
+					e.logParallelRacePanic(ctx, pe, "executor: isolated panic in parallel race loser cleanup", diag.AttrOpts{CallID: p.traceID})
 					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("parallel race loser cleanup panic"))
 				}
 				done <- cleanupErr
@@ -454,7 +466,6 @@ func (e *Executor) tryOpenParallelGroup(
 		stream: &parallelBridgeStream{
 			winner:           &legs[winner],
 			buf:              winnerBuf,
-			ctx:              ctx,
 			losersDone:       losersDone,
 			loserCleanupWait: cancelLosersTimeout,
 		},
@@ -518,7 +529,6 @@ type parallelBridgeStream struct {
 	winner           *parallelLeg
 	buf              []lipapi.Event
 	bufIdx           int
-	ctx              context.Context
 	finished         atomic.Bool
 	losersDone       <-chan error
 	loserCleanupWait time.Duration

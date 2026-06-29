@@ -26,6 +26,12 @@ var (
 	ErrInterleavedStateUnsupported = errors.New("b2bua: interleaved state not supported by store")
 )
 
+// noCopy signals go vet's copylocks analyzer to reject accidental copies.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
 // ALegRecord is the core-owned logical session row for routing and lineage.
 type ALegRecord struct {
 	ALegID                string
@@ -87,6 +93,7 @@ const DefaultMemoryStoreMaxLegsWithoutTTL = 100_000
 
 // MemoryStore is a mutex-protected in-memory Store with lazy TTL eviction.
 type MemoryStore struct {
+	_       noCopy //nolint:unused
 	ttl     time.Duration
 	maxLegs int
 	now     func() time.Time
