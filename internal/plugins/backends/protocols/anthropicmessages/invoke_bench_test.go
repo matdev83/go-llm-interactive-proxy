@@ -1,8 +1,9 @@
 package anthropicmessages
 
 import (
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func BenchmarkBuildSystemBlocks(b *testing.B) {
