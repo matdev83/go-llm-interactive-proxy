@@ -275,7 +275,7 @@ func pickImageMediaType(fromDataURL, fromPart string) string {
 }
 
 func buildTools(tools []lipapi.ToolDef) ([]*genai.Tool, error) {
-	var decls []*genai.FunctionDeclaration
+	decls := make([]*genai.FunctionDeclaration, 0, len(tools))
 	for _, t := range tools {
 		fd := &genai.FunctionDeclaration{Name: t.Name}
 		if strings.TrimSpace(t.Description) != "" {
