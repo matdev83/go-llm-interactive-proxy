@@ -53,7 +53,7 @@ var secureSessionTestPrepare = func(*Executor) {}
 
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
 type Executor struct {
-	_ noCopy //nolint:unused
+	_     noCopy //nolint:unused
 	Store b2bua.Store
 	Bus   *hooks.Bus
 	// RuntimeSnapshot is the per-build execution binding published on each request context.
