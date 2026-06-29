@@ -108,8 +108,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error"))
 		return
 	}
-	defer releaseDecode()
 	if _, err := jsonguard.Preflight(body, limits); err != nil {
+		releaseDecode()
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON", "invalid_request_error"))
 		return
 	}
@@ -121,6 +121,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		AnthropicVersion: anthVer,
 		Headers:          r.Header,
 	})
+	releaseDecode()
 	if err != nil {
 		if h.Log != nil {
 			diag.LogError(ctx, h.Log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
