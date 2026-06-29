@@ -123,7 +123,7 @@ func buildSystemInstruction(call *lipapi.Call) *genai.Content {
 }
 
 func buildContents(call *lipapi.Call) ([]*genai.Content, error) {
-	var out []*genai.Content
+	out := make([]*genai.Content, 0, len(call.Messages))
 	for _, m := range call.Messages {
 		if m.Role == lipapi.RoleSystem {
 			continue
@@ -174,7 +174,7 @@ func messageToContent(m lipapi.Message) (*genai.Content, error) {
 }
 
 func userPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
-	var out []*genai.Part
+	out := make([]*genai.Part, 0, len(parts))
 	for _, p := range parts {
 		switch p.Kind {
 		case lipapi.PartText:
@@ -205,7 +205,7 @@ func userPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
 }
 
 func assistantPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
-	var out []*genai.Part
+	out := make([]*genai.Part, 0, len(parts))
 	for _, p := range parts {
 		if p.Kind != lipapi.PartText {
 			return nil, fmt.Errorf("gemini: assistant message may only contain text parts in this adapter")
