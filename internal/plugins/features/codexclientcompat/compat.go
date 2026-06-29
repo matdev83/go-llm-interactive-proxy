@@ -363,7 +363,7 @@ func convertOrphanedToolResults(call *lipapi.Call) {
 			out = append(out, m)
 			continue
 		}
-		var kept []lipapi.Part
+		kept := make([]lipapi.Part, 0, len(m.Parts))
 		for _, p := range m.Parts {
 			if p.Kind != lipapi.PartToolResult {
 				kept = append(kept, p)
