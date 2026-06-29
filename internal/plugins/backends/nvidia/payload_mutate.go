@@ -15,7 +15,15 @@ import (
 //   - remap max_completion_tokens to max_tokens (hosted NIM strict schema)
 //   - inject extra_body extension fields from Call.Extensions
 func requestOptions(call lipapi.Call) []option.RequestOption {
-	var opts []option.RequestOption
+	capEstimate := 1
+	if call.Options.MaxOutputTokens != nil && *call.Options.MaxOutputTokens > 0 {
+		capEstimate += 2
+	}
+	if call.Extensions != nil {
+		capEstimate += len(call.Extensions)
+	}
+
+	opts := make([]option.RequestOption, 0, capEstimate)
 
 	opts = append(opts, option.WithJSONDel("stream_options"))
 
