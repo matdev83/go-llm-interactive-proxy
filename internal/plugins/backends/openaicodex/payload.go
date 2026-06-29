@@ -12,6 +12,11 @@ import (
 
 const defaultCodexInstruction = "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer."
 
+// ExtToolStrict is the canonical-call extension key (bool) used by the codex
+// client-compat feature to signal Hermes-marked calls. When false, tools are
+// emitted with strict=false and parallel_tool_calls defaults to true.
+const ExtToolStrict = "openai_codex.tool_strict"
+
 type Payload struct {
 	Model             string         `json:"model"`
 	Stream            bool           `json:"stream"`
@@ -112,6 +117,7 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 	if err != nil {
 		return Payload{}, err
 	}
+	hermesMode := isHermesToolStrict(call)
 	p := Payload{
 		Model:        model,
 		Stream:       true,
@@ -119,11 +125,15 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 		Input:        items,
 	}
 	if len(call.Tools) > 0 {
-		tools, err := buildTools(call.Tools)
+		tools, err := buildTools(call.Tools, hermesMode)
 		if err != nil {
 			return Payload{}, err
 		}
 		p.Tools = tools
+		if hermesMode && p.ParallelToolCalls == nil {
+			t := true
+			p.ParallelToolCalls = &t
+		}
 	}
 	if effort := strings.TrimSpace(call.Options.ReasoningEffort); effort != "" {
 		p.Reasoning = &reasoningSpec{Effort: effort}
@@ -177,6 +187,21 @@ func hasAnthropicModelExtension(call *lipapi.Call) bool {
 	}
 	_, ok := call.Extensions["anthropic.model"]
 	return ok
+}
+
+func isHermesToolStrict(call *lipapi.Call) bool {
+	if call == nil || call.Extensions == nil {
+		return false
+	}
+	raw, ok := call.Extensions[ExtToolStrict]
+	if !ok {
+		return false
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return false
+	}
+	return !b
 }
 
 func buildInputItems(call *lipapi.Call) ([]inputItem, error) {
@@ -388,7 +413,7 @@ func stripDataURLBase64(dataURL string) (mime, b64 string, ok bool) {
 	return mime, encBody, true
 }
 
-func buildTools(tools []lipapi.ToolDef) ([]toolPayload, error) {
+func buildTools(tools []lipapi.ToolDef, strictFalse bool) ([]toolPayload, error) {
 	out := make([]toolPayload, 0, len(tools))
 	for _, t := range tools {
 		var schema map[string]any
@@ -405,7 +430,7 @@ func buildTools(tools []lipapi.ToolDef) ([]toolPayload, error) {
 			Name:        t.Name,
 			Description: t.Description,
 			Parameters:  schema,
-			Strict:      true,
+			Strict:      !strictFalse,
 		})
 	}
 	return out, nil
