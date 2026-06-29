@@ -101,7 +101,21 @@ func StreamParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (Stre
 }
 
 func buildSystemInstruction(call *lipapi.Call) *genai.Content {
+	capacity := 0
+	if len(call.Instructions) > 0 {
+		capacity++
+	}
+	for _, m := range call.Messages {
+		if m.Role == lipapi.RoleSystem {
+			capacity += len(m.Parts)
+		}
+	}
+
 	var texts []string
+	if capacity > 0 {
+		texts = make([]string, 0, capacity)
+	}
+
 	if t := lipapi.JoinInstructionText(call.Instructions); t != "" {
 		texts = append(texts, t)
 	}
