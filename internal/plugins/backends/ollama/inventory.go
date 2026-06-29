@@ -80,6 +80,7 @@ func (p *inventoryProvider) LoadModels(ctx context.Context) (modelinventory.Snap
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("local model discovery failed: %v", err))
 		} else {
+			models = slices.Grow(models, len(local))
 			for _, m := range local {
 				if _, ok := seen[m.NativeID]; ok {
 					continue
@@ -95,6 +96,7 @@ func (p *inventoryProvider) LoadModels(ctx context.Context) (modelinventory.Snap
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("cloud model discovery failed: %v", err))
 		} else {
+			models = slices.Grow(models, len(cloud))
 			for _, m := range cloud {
 				if _, ok := seen[m.NativeID]; ok {
 					continue
