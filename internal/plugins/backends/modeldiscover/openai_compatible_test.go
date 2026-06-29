@@ -84,12 +84,12 @@ func TestAnthropicModelsProvider_LoadModels(t *testing.T) {
 	}
 }
 
-func TestGeminiModelsProvider_LoadModelsUsesKeyQueryParameter(t *testing.T) {
+func TestGeminiModelsProvider_LoadModelsUsesAPIKeyHeader(t *testing.T) {
 	t.Parallel()
 
 	var key string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key = r.URL.Query().Get("key")
+		key = r.Header.Get("x-goog-api-key")
 		if r.URL.Path != "/v1beta/models" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
@@ -107,7 +107,7 @@ func TestGeminiModelsProvider_LoadModelsUsesKeyQueryParameter(t *testing.T) {
 		t.Fatalf("LoadModels() error = %v", err)
 	}
 	if key != "gemini secret/with spaces" {
-		t.Fatalf("key query = %q", key)
+		t.Fatalf("x-goog-api-key header = %q", key)
 	}
 	if len(snap.Models) != 1 {
 		t.Fatalf("models len = %d", len(snap.Models))

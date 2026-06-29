@@ -48,9 +48,9 @@ plugins:
 
 Without `models`, the connector exposes a built-in Codex model list.
 
-## Client compatibility (OpenCode / Pi / Droid)
+## Client compatibility (OpenCode / Pi / Droid / Hermes)
 
-OpenCode, Pi, and Factory Droid bridge prompts are **not** applied by the backend adapter. Enable the opt-in feature plugin instead:
+OpenCode, Pi, Factory Droid, and Hermes Agent bridge prompts are **not** applied by the backend adapter. Enable the opt-in feature plugin instead:
 
 ```yaml
 plugins:
@@ -60,7 +60,7 @@ plugins:
       config: {}
 ```
 
-The request-part hook detects client markers from extensions, headers, prompts, and tool names, then mutates the canonical call for selected `openai-codex` backend attempts before backend translation. It no-ops for other backends.
+The request-part hook detects client markers from extensions, headers, prompts, and tool names, then mutates the canonical call for selected `openai-codex` backend attempts before backend translation. It no-ops for other backends. For Hermes-marked calls it also sets the `openai_codex.tool_strict=false` extension, which makes the Codex payload emit Responses tools with `strict=false` and defaults `parallel_tool_calls` to `true` when unset.
 
 ## Routing example
 

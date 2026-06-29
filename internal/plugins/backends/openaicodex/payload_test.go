@@ -393,3 +393,79 @@ func TestPayloadForCall_doesNotMutateForClientMarkers(t *testing.T) {
 		t.Fatal("backend must not apply client compat mutations")
 	}
 }
+
+func TestPayloadForCall_nonHermesToolsRemainStrictAndParallelUnset(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+	}
+	payload, err := backend.PayloadForCall(&call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	}, backend.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(payload)
+	if !strings.Contains(string(raw), `"strict":true`) {
+		t.Fatalf("expected strict=true for non-Hermes: %s", raw)
+	}
+	if payload.ParallelToolCalls != nil {
+		t.Fatalf("expected parallel_tool_calls unset for non-Hermes: %+v", payload.ParallelToolCalls)
+	}
+}
+
+func TestPayloadForCall_hermesToolStrictFalseAndParallelTrue(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+		Extensions: map[string]json.RawMessage{
+			backend.ExtToolStrict: json.RawMessage(`false`),
+		},
+	}
+	payload, err := backend.PayloadForCall(&call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	}, backend.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(payload)
+	if !strings.Contains(string(raw), `"strict":false`) {
+		t.Fatalf("expected strict=false for Hermes: %s", raw)
+	}
+	if payload.ParallelToolCalls == nil || !*payload.ParallelToolCalls {
+		t.Fatalf("expected parallel_tool_calls=true for Hermes: %+v", payload.ParallelToolCalls)
+	}
+}
+
+func TestPayloadForCall_hermesRespectsExplicitParallelFalse(t *testing.T) {
+	t.Parallel()
+	parallel := false
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Tools:   []lipapi.ToolDef{{Name: "bash"}},
+		Options: lipapi.GenerationOptions{ParallelToolCalls: &parallel},
+		Extensions: map[string]json.RawMessage{
+			backend.ExtToolStrict: json.RawMessage(`false`),
+		},
+	}
+	payload, err := backend.PayloadForCall(&call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+	}, backend.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.ParallelToolCalls == nil || *payload.ParallelToolCalls {
+		t.Fatalf("expected explicit parallel_tool_calls=false honored for Hermes: %+v", payload.ParallelToolCalls)
+	}
+}

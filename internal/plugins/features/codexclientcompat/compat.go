@@ -13,11 +13,17 @@ const (
 	openCodeBridgeMarker = "OpenCode compatibility mode"
 	piBridgeMarker       = "Pi compatibility mode"
 	droidBridgeMarker    = "Factory Droid compatibility mode"
+	hermesBridgeMarker   = "Hermes Agent compatibility mode"
 
 	extAgentKey      = "agent"
 	extUserAgentKey  = "user_agent"
 	extCodexAgentKey = "openai_codex.agent"
 	extHeadersKey    = "headers"
+	// ponytail: mirrors openaicodex.ExtToolStrict; local const avoids feature→backend import.
+	extCodexToolStrictKey = "openai_codex.tool_strict"
+
+	// hermesIdentitySentence is the exact upstream Hermes Agent identity sentence.
+	hermesIdentitySentence = "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
 
 	// ponytail: mirrors openaicodex default when instructions empty so bridge appends after base Codex prompt.
 	codexDefaultInstruction = "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer."
@@ -45,7 +51,12 @@ var (
 		"droid, an ai",
 		"factory droid",
 	}
-	droidUserAgentTokens = []string{"factory-cli", "factory_cli", "factorydroid", "droid"}
+	droidUserAgentTokens   = []string{"factory-cli", "factory_cli", "factorydroid", "droid"}
+	hermesUserAgentMarkers = []string{
+		"hermes-agent",
+		"nousresearch/hermes-agent",
+		"hermes/",
+	}
 )
 
 type compatInput struct {
@@ -85,6 +96,14 @@ var compatBridges = []compatBridge{
 		matchesPrompt: droidPromptMatch,
 		filter:        isDroidHarnessText,
 		build:         func(call *lipapi.Call) string { return buildDroidBridge(collectCallToolNames(call)) },
+	},
+	{
+		marker:        hermesBridgeMarker,
+		matchesAgent:  hermesAgentMatch,
+		matchesPrompt: hermesPromptMatch,
+		filter:        isHermesBridgeText,
+		build:         func(*lipapi.Call) string { return buildHermesBridge() },
+		beforeApply:   applyHermesToolStrict,
 	},
 }
 
@@ -255,6 +274,22 @@ func droidUserAgentMatch(userAgent string) bool {
 	return false
 }
 
+func hermesAgentMatch(in compatInput) bool {
+	for _, candidate := range in.agents {
+		lower := strings.ToLower(candidate)
+		for _, marker := range hermesUserAgentMarkers {
+			if strings.Contains(lower, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hermesPromptMatch(in compatInput) bool {
+	return strings.Contains(strings.ToLower(in.prompt), strings.ToLower(hermesIdentitySentence))
+}
+
 func filterHarnessMessages(msgs []lipapi.Message, isHarness func(string) bool) []lipapi.Message {
 	if len(msgs) == 0 {
 		return msgs
@@ -293,6 +328,10 @@ func isPiHarnessText(text string) bool {
 func isDroidHarnessText(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "factory droid") && strings.Contains(lower, "execute") && strings.Contains(lower, "todowrite")
+}
+
+func isHermesBridgeText(text string) bool {
+	return strings.Contains(text, hermesBridgeMarker)
 }
 
 func joinInstructionText(insts []lipapi.Message) string {
@@ -488,6 +527,30 @@ func criticalInstruction(agentName string) string {
 		"existing file. Use respective tools provided by the " + agentName + " agent instead.\n" +
 		"(b) DO NOT use bash commands like ls for listing, cat for viewing, grep for " +
 		"string matching. Use respective tools provided by the " + agentName + " agent instead."
+}
+
+func buildHermesBridge() string {
+	return hermesBridgeMarker + ":\n" +
+		"- Preserve the Hermes Agent identity and system prompt; do not replace or restate it as Codex.\n" +
+		"- Use structured function/tool calls for every action; never inline textual " +
+		"`to=functions.<name>` or Harmony-style tool calls in assistant content.\n" +
+		"- Continue using the available tools until the task is complete and verified.\n" +
+		"- Perform prerequisite lookup and discovery (files, symbols, context) with tools before acting.\n" +
+		"- When retrievable context is missing, fetch it with available tools; do not guess or fabricate it.\n" +
+		"\n" +
+		"CRITICAL INSTRUCTION:\n" +
+		"(a) Keep the Hermes identity/system prompt intact; append compatibility guidance, never overwrite it.\n" +
+		"(b) Never emit textual tool-call syntax (`to=functions.<name>`, Harmony calls) in assistant content; use structured tool calls only."
+}
+
+func applyHermesToolStrict(call *lipapi.Call) {
+	if call.Extensions == nil {
+		call.Extensions = map[string]json.RawMessage{}
+	}
+	if _, ok := call.Extensions[extCodexToolStrictKey]; ok {
+		return
+	}
+	call.Extensions[extCodexToolStrictKey] = json.RawMessage("false")
 }
 
 func sortedNativeDroidTools() []string {
