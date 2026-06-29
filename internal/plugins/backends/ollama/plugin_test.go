@@ -63,7 +63,7 @@ func TestNew_VersionDetectionAndResponses(t *testing.T) {
 	// 1. Setup server for older version without responses support
 	srvOld := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/version" {
-			w.Write([]byte(`{"version": "0.1.0"}`))
+			_, _ = w.Write([]byte(`{"version": "0.1.0"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -85,7 +85,7 @@ func TestNew_VersionDetectionAndResponses(t *testing.T) {
 	// 2. Setup server for new version with responses support
 	srvNew := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/version" {
-			w.Write([]byte(`{"version": "0.13.3"}`))
+			_, _ = w.Write([]byte(`{"version": "0.13.3"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
