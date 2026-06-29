@@ -8,6 +8,7 @@ import (
 )
 
 func TestWriteErrorJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		status         int
@@ -54,15 +55,15 @@ func TestWriteErrorJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			w := httptest.NewRecorder()
 			err := WriteErrorJSON(w, tt.status, tt.message)
-
 			if err != nil {
 				t.Fatalf("WriteErrorJSON returned an unexpected error: %v", err)
 			}
 
 			res := w.Result()
-			defer res.Body.Close()
+			defer func() { _ = res.Body.Close() }()
 
 			if res.StatusCode != tt.status {
 				t.Errorf("expected status code %d, got %d", tt.status, res.StatusCode)
