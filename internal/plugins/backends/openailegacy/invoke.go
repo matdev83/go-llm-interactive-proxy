@@ -115,7 +115,7 @@ func joinInstructionText(insts []lipapi.Message) string {
 }
 
 func buildChatMessages(call *lipapi.Call) ([]openai.ChatCompletionMessageParamUnion, error) {
-	var out []openai.ChatCompletionMessageParamUnion
+	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(call.Messages)+1)
 
 	if inst := joinInstructionText(call.Instructions); inst != "" {
 		out = append(out, openai.SystemMessage(inst))

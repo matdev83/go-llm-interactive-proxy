@@ -40,7 +40,7 @@ func eventStreamForConfig(cfg Config) lipapi.ManagedEventStream {
 		return lipapi.NewFixedEventStream(canonicalEvents(cfg))
 	}
 	evs := canonicalEvents(cfg)
-	var prefix []lipapi.Event
+	prefix := make([]lipapi.Event, 0, len(evs))
 	for _, e := range evs {
 		prefix = append(prefix, e)
 		if e.Kind == lipapi.EventTextDelta {

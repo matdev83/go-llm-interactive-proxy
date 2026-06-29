@@ -83,6 +83,13 @@ func (e *Executor) logInterleavedPhaseTransition(ctx context.Context, traceID st
 	)
 }
 
+func (e *Executor) logInterleavedMemoPersistFailed(ctx context.Context, traceID string, err error) {
+	if e == nil || e.Log == nil || err == nil {
+		return
+	}
+	diag.LogError(ctx, e.Log, "interleaved_memo_persist_failed", diag.AttrOpts{CallID: traceID}, err)
+}
+
 func interleavedPhaseForRole(role interleavedstate.Role) string {
 	switch role {
 	case interleavedstate.RoleThinker:

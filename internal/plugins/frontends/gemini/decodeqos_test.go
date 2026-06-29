@@ -2,6 +2,7 @@ package gemini_test
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,28 @@ var minimalGenerateContentRequest = []byte(`{
   "contents": [{"role":"user","parts":[{"text":"ping"}]}],
   "generationConfig": {"maxOutputTokens": 128, "temperature": 0.5, "topP": 0.9}
 }`)
+
+func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	exec := &recordingExecutor{}
+	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeLimiter: decodeqos.NewLimiter(1)}
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", bytes.NewReader(minimalGenerateContentRequest))
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if exec.called {
+		t.Fatal("executor was called with canceled request context")
+	}
+}
 
 func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()
