@@ -40,7 +40,7 @@ func New(cfg Config) execbackend.Backend {
 // indefinitely. The caller must invoke the returned CancelFunc.
 func ensureLoadConfigDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
-		return context.WithTimeout(context.TODO(), DefaultLoadConfigTimeout)
+		return context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
 	}
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, func() {}
