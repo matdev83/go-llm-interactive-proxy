@@ -2,8 +2,6 @@ package codexclientcompat
 
 import (
 	"encoding/json"
-	"slices"
-	"sort"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -22,40 +20,7 @@ const (
 	extCodexToolStrictKey                 = "openai_codex.tool_strict"
 	extCodexIgnoreUnsupportedGenParamsKey = "openai_codex.ignore_unsupported_gen_params"
 
-	// hermesIdentitySentence is the exact upstream Hermes Agent identity sentence.
-	hermesIdentitySentence = "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
-
 	codexDefaultInstruction = "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer."
-)
-
-var (
-	piPromptMarkers = []string{
-		"operating inside pi",
-		"coding agent harness",
-		"available tools:",
-		"in addition to the tools above",
-		"guidelines:",
-	}
-	piUserAgentMarkers = []string{
-		"@mariozechner/pi-coding-agent",
-		" pi/",
-		"pi-coding-agent",
-	}
-	droidNativeToolNames = map[string]struct{}{
-		"Read": {}, "LS": {}, "Execute": {}, "Edit": {}, "Grep": {}, "Glob": {},
-		"Create": {}, "TodoWrite": {}, "WebSearch": {}, "FetchUrl": {}, "ExitSpecMode": {},
-	}
-	droidSystemPromptKeywords = []string{
-		"you are droid",
-		"droid, an ai",
-		"factory droid",
-	}
-	droidUserAgentTokens   = []string{"factory-cli", "factory_cli", "factorydroid", "droid"}
-	hermesUserAgentMarkers = []string{
-		"hermes-agent",
-		"nousresearch/hermes-agent",
-		"hermes/",
-	}
 )
 
 type compatInput struct {
@@ -159,61 +124,6 @@ func fallbackCompatBridge(call *lipapi.Call) *compatBridge {
 	return nil
 }
 
-func applyOpenCodeToolHistoryCompat(call *lipapi.Call) {
-	convertOrphanedToolResults(call)
-}
-
-func hasStructuredToolTranscript(msgs []lipapi.Message) bool {
-	for _, m := range msgs {
-		if m.Role == lipapi.RoleTool {
-			for _, p := range m.Parts {
-				if p.Kind == lipapi.PartToolResult {
-					return true
-				}
-			}
-		}
-		if m.Role != lipapi.RoleAssistant {
-			continue
-		}
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartJSON {
-				continue
-			}
-			if isFunctionCallPart(p) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func isFunctionCallPart(p lipapi.Part) bool {
-	if len(p.Content) == 0 {
-		return false
-	}
-	var fc struct {
-		Type     string `json:"type"`
-		CallID   string `json:"call_id"`
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Function *struct {
-			Name string `json:"name"`
-		} `json:"function"`
-	}
-	if json.Unmarshal(p.Content, &fc) != nil {
-		return false
-	}
-	if !strings.EqualFold(fc.Type, "function_call") && !strings.EqualFold(fc.Type, "function") {
-		return false
-	}
-	id := firstNonEmpty(fc.CallID, fc.ID)
-	name := strings.TrimSpace(fc.Name)
-	if name == "" && fc.Function != nil {
-		name = strings.TrimSpace(fc.Function.Name)
-	}
-	return strings.TrimSpace(id) != "" && name != ""
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -287,88 +197,6 @@ func collectCallToolNames(call *lipapi.Call) []string {
 	return out
 }
 
-func openCodeAgentMatch(in compatInput) bool {
-	for _, candidate := range in.agents {
-		if strings.Contains(strings.ToLower(candidate), "opencode") {
-			return true
-		}
-	}
-	return false
-}
-
-func openCodePromptMatch(in compatInput) bool {
-	lower := strings.ToLower(in.prompt)
-	if strings.Contains(lower, "opencode") {
-		if strings.Contains(lower, "compatibility") || strings.Contains(lower, "harness") || strings.Contains(lower, "tool") {
-			return true
-		}
-	}
-	return false
-}
-
-func piAgentMatch(in compatInput) bool {
-	for _, candidate := range in.agents {
-		lower := strings.ToLower(candidate)
-		for _, marker := range piUserAgentMarkers {
-			if strings.Contains(lower, marker) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func piPromptMatch(in compatInput) bool {
-	lower := strings.ToLower(in.prompt)
-	hits := 0
-	for _, marker := range piPromptMarkers {
-		if strings.Contains(lower, marker) {
-			hits++
-		}
-	}
-	return hits >= 2
-}
-
-func droidAgentMatch(in compatInput) bool {
-	return slices.ContainsFunc(in.agents, droidUserAgentMatch)
-}
-
-func droidPromptMatch(in compatInput) bool {
-	lower := strings.ToLower(in.prompt)
-	for _, keyword := range droidSystemPromptKeywords {
-		if strings.Contains(lower, keyword) {
-			return true
-		}
-	}
-	return false
-}
-
-func droidUserAgentMatch(userAgent string) bool {
-	lower := strings.ToLower(userAgent)
-	for _, pattern := range droidUserAgentTokens {
-		if strings.Contains(lower, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func hermesAgentMatch(in compatInput) bool {
-	for _, candidate := range in.agents {
-		lower := strings.ToLower(candidate)
-		for _, marker := range hermesUserAgentMarkers {
-			if strings.Contains(lower, marker) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func hermesPromptMatch(in compatInput) bool {
-	return strings.Contains(strings.ToLower(in.prompt), strings.ToLower(hermesIdentitySentence))
-}
-
 func filterHarnessMessages(msgs []lipapi.Message, isHarness func(string) bool) []lipapi.Message {
 	if len(msgs) == 0 {
 		return msgs
@@ -387,30 +215,6 @@ func messageText(m lipapi.Message) string {
 	var b strings.Builder
 	appendMessageText(&b, m)
 	return b.String()
-}
-
-func isOpenCodeHarnessText(text string) bool {
-	lower := strings.ToLower(text)
-	return strings.Contains(lower, "opencode") && strings.Contains(lower, "tool")
-}
-
-func isPiHarnessText(text string) bool {
-	lower := strings.ToLower(text)
-	for _, marker := range piPromptMarkers {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDroidHarnessText(text string) bool {
-	lower := strings.ToLower(text)
-	return strings.Contains(lower, "factory droid") && strings.Contains(lower, "execute") && strings.Contains(lower, "todowrite")
-}
-
-func isHermesBridgeText(text string) bool {
-	return strings.Contains(text, hermesBridgeMarker)
 }
 
 func joinInstructionText(insts []lipapi.Message) string {
@@ -473,210 +277,12 @@ func appendCompatInstructions(instructions, marker, block string) string {
 	return block
 }
 
-func convertOrphanedToolResults(call *lipapi.Call) {
-	known := collectKnownToolCallIDs(call.Messages)
-	out := make([]lipapi.Message, 0, len(call.Messages))
-	for _, m := range call.Messages {
-		if m.Role != lipapi.RoleTool {
-			out = append(out, m)
-			continue
-		}
-		kept := make([]lipapi.Part, 0, len(m.Parts))
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartToolResult {
-				kept = append(kept, p)
-				continue
-			}
-			callID := strings.TrimSpace(p.ToolCallID)
-			if callID != "" {
-				if _, ok := known[callID]; ok {
-					kept = append(kept, p)
-					continue
-				}
-			}
-			out = append(out, convertOrphanedToolResult(p))
-		}
-		if len(kept) > 0 {
-			out = append(out, lipapi.Message{Role: lipapi.RoleTool, Parts: kept})
-		}
-	}
-	call.Messages = out
-}
-
-func collectKnownToolCallIDs(msgs []lipapi.Message) map[string]struct{} {
-	known := make(map[string]struct{})
-	for _, m := range msgs {
-		if m.Role != lipapi.RoleAssistant {
-			continue
-		}
-		for _, p := range m.Parts {
-			if p.Kind != lipapi.PartJSON {
-				continue
-			}
-			var fc struct {
-				Type   string `json:"type"`
-				CallID string `json:"call_id"`
-				ID     string `json:"id"`
-			}
-			if json.Unmarshal(p.Content, &fc) != nil {
-				continue
-			}
-			// Accept Responses-style ("function_call") and Chat Completions-style
-			// ("function") assistant tool calls so matching tool results are preserved.
-			if !strings.EqualFold(fc.Type, "function_call") && !strings.EqualFold(fc.Type, "function") {
-				continue
-			}
-			id := strings.TrimSpace(fc.CallID)
-			if id == "" {
-				id = strings.TrimSpace(fc.ID)
-			}
-			if id != "" {
-				known[id] = struct{}{}
-			}
-		}
-	}
-	return known
-}
-
-func argumentText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	if raw[0] == '"' {
-		var s string
-		if json.Unmarshal(raw, &s) == nil {
-			return s
-		}
-	}
-	return string(raw)
-}
-
-func messagePartText(p lipapi.Part) string {
-	switch p.Kind {
-	case lipapi.PartText:
-		return p.Text
-	case lipapi.PartToolResult, lipapi.PartJSON:
-		return string(p.Content)
-	default:
-		return string(p.Kind)
-	}
-}
-
-func convertOrphanedToolResult(p lipapi.Part) lipapi.Message {
-	rendered := string(p.Content)
-	if len(p.Content) == 0 {
-		rendered = ""
-	}
-	header := "Prior tool output (original tool call reference unavailable)."
-	if id := strings.TrimSpace(p.ToolCallID); id != "" {
-		header += " call_id=" + id + "."
-	}
-	return lipapi.Message{
-		Role:  lipapi.RoleSystem,
-		Parts: []lipapi.Part{lipapi.TextPart(header + "\n" + rendered)},
-	}
-}
-
-func buildOpenCodeBridge(hasTools bool) string {
-	var b strings.Builder
-	b.WriteString(openCodeBridgeMarker)
-	b.WriteString(":\n")
-	if hasTools {
-		// Keep this guidance generic. OpenCode tool names and schemas vary by
-		// installation, plugin, and session; the structured tool list is the only
-		// authoritative source of callable names. Duplicating names in prose makes
-		// random session-specific tools look universal and can bias the model toward
-		// tools the current request did not actually expose.
-		b.WriteString("- Prefer the available client shell tool when command execution is needed.\n")
-	} else {
-		b.WriteString("- No callable client tools are available in this request. Do not attempt tool calls; respond in plain text or ask the user/client to provide tools.\n")
-	}
-	b.WriteString("- Never emit textual tool-call syntax such as `to=functions.<name>` or JSON tool calls in assistant content; use structured tool calls only when tools are available.\n")
-	if !hasTools {
-		// No tools are exposed, so do not append criticalInstruction("OpenCode"):
-		// it tells the model to use agent-provided tools, contradicting the
-		// "no callable client tools" guidance above and risking spurious tool calls.
-		return b.String()
-	}
-	b.WriteString(
-		"- For bash-style tools, arguments MUST be a JSON object with string " +
-			"`command` and string `description`.\n" +
-			"- Bash-style tools MAY include numeric `timeout` in milliseconds " +
-			"and string `workdir` when the client schema exposes them.\n" +
-			"- Never emit array-valued `command` arguments for shell execution.\n" +
-			"- Do not use `apply_patch`; use the client's native file editing tools instead.\n" +
-			"- Do not use `update_plan` or `read_plan`; use the client's task tools instead.\n" +
-			"- If you need a working directory, prefer `workdir` over `cd` commands " +
-			"or embedding cwd text in `description`.\n" +
-			"\n" +
-			criticalInstruction("OpenCode"),
-	)
-	return b.String()
-}
-
-func buildPiBridge() string {
-	return piBridgeMarker + ":\n" +
-		"- Use only tools exposed by the pi client for this session.\n" +
-		"- Use `bash` for terminal execution with a JSON object containing string `command` and optional numeric `timeout` in seconds; pi has no default timeout.\n" +
-		"- Do not emit `shell`, `local_shell_call`, or array-valued shell commands; pi expects the `bash` tool name.\n" +
-		"- Do not use `apply_patch`; use pi's `edit` tool for exact text replacement in a single file.\n" +
-		"- For `edit`, pass `path` plus an `edits` array of replacements with `oldText` and `newText`, each matched against the original file.\n" +
-		"- For file reads use `read` with `path` and optional `offset`/`limit`; for full rewrites use `write` with `path` and `content`.\n" +
-		"- Keep responses concise and show file paths clearly.\n" +
-		"\n" +
-		criticalInstruction("pi")
-}
-
-func buildDroidBridge(availableTools []string) string {
-	native := sortedNativeDroidTools()
-	available := availableTools
-	if len(available) == 0 {
-		available = native
-	}
-	availableText := joinBacktickList(available)
-	nativeText := joinBacktickList(native)
-	return droidBridgeMarker + ":\n" +
-		"- This session is using Factory Droid tools, not Codex-native tools.\n" +
-		"- Use only tool names that are actually available in this session: " + availableText + ".\n" +
-		"- Prefer the native Factory Droid tool family when available: " + nativeText + ".\n" +
-		"- Use Droid argument shapes exactly for the native file/execute tools: `Read(file_path, offset?, limit?)`, `LS(directory_path?)`, `Execute(command, timeout?, cwd?)`, `Edit(file_path, old_str, new_str)`, `Grep(pattern, path?, file_pattern?, max_results?)`, `Glob(pattern, max_results?)`, `Create(file_path, content)`.\n" +
-		"- Do not emit Codex-native tool names such as `read`, `read_file`, `bash`, `shell`, `apply_patch`, `grep_files`, or `list_dir`.\n" +
-		"- Use `TodoWrite` instead of Codex task-planner tools, `WebSearch` for web search, and `FetchUrl` for direct URL fetches when those tools are available.\n" +
-		"- Keep tool arguments as JSON objects; for `Execute`, the `command` value must be a single shell command string, not an array.\n" +
-		"\n" +
-		criticalInstruction("Droid")
-}
-
 func criticalInstruction(agentName string) string {
 	return "CRITICAL INSTRUCTION:\n" +
 		"(a) NEVER run cat inside a bash command to create a file or append to an " +
 		"existing file. Use respective tools provided by the " + agentName + " agent instead.\n" +
 		"(b) DO NOT use bash commands like ls for listing, cat for viewing, grep for " +
 		"string matching. Use respective tools provided by the " + agentName + " agent instead."
-}
-
-func buildHermesBridge() string {
-	return hermesBridgeMarker + ":\n" +
-		"- Preserve the Hermes Agent identity and system prompt; do not replace or restate it as Codex.\n" +
-		"- Use structured function/tool calls for every action; never inline textual " +
-		"`to=functions.<name>` or Harmony-style tool calls in assistant content.\n" +
-		"- Continue using the available tools until the task is complete and verified.\n" +
-		"- Perform prerequisite lookup and discovery (files, symbols, context) with tools before acting.\n" +
-		"- When retrievable context is missing, fetch it with available tools; do not guess or fabricate it.\n" +
-		"\n" +
-		"CRITICAL INSTRUCTION:\n" +
-		"(a) Keep the Hermes identity/system prompt intact; append compatibility guidance, never overwrite it.\n" +
-		"(b) Never emit textual tool-call syntax (`to=functions.<name>`, Harmony calls) in assistant content; use structured tool calls only."
-}
-
-func applyHermesToolStrict(call *lipapi.Call) {
-	if call.Extensions == nil {
-		call.Extensions = map[string]json.RawMessage{}
-	}
-	if _, ok := call.Extensions[extCodexToolStrictKey]; ok {
-		return
-	}
-	call.Extensions[extCodexToolStrictKey] = json.RawMessage("false")
 }
 
 func applyIgnoreUnsupportedGenParams(call *lipapi.Call) {
@@ -687,24 +293,4 @@ func applyIgnoreUnsupportedGenParams(call *lipapi.Call) {
 		return
 	}
 	call.Extensions[extCodexIgnoreUnsupportedGenParamsKey] = json.RawMessage("true")
-}
-
-func sortedNativeDroidTools() []string {
-	out := make([]string, 0, len(droidNativeToolNames))
-	for name := range droidNativeToolNames {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func joinBacktickList(names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
-	parts := make([]string, len(names))
-	for i, name := range names {
-		parts[i] = "`" + name + "`"
-	}
-	return strings.Join(parts, ", ")
 }

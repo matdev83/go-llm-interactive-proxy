@@ -86,6 +86,9 @@ func looksLikeToolProtocolText(delta string) bool {
 	if text == "" {
 		return false
 	}
+	// Treat suspected textual tool-call protocol as a stream error instead of
+	// dropping it silently: leaking tool syntax to the client is more damaging
+	// than the small false-positive risk for ordinary assistant prose.
 	if strings.Contains(text, "to=functions.") || strings.Contains(text, "to=functions_") {
 		return true
 	}

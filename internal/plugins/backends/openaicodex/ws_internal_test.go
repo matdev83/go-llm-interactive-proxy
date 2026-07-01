@@ -364,3 +364,93 @@ func newTestWebSocketPair(t *testing.T) (*gorillawebsocket.Conn, *gorillawebsock
 		return nil, nil
 	}
 }
+
+func TestWSSessionStoreCloseIdleClosesTrackedArmedSession(t *testing.T) {
+	t.Parallel()
+	clientConn, serverConn := newTestWebSocketPair(t)
+	defer func() { _ = serverConn.Close() }()
+
+	store := newWSSessionStore()
+	key := wsSessionKey{baseURL: "ws://example.test", accessToken: "tok", conversation: "sess"}
+	timer := time.AfterFunc(time.Hour, func() {})
+	defer timer.Stop()
+	session := &wsSessionConn{
+		key:       key,
+		store:     store,
+		sem:       make(chan struct{}, 1),
+		conn:      clientConn,
+		idleTimer: timer,
+	}
+	store.sessions[key] = session
+
+	store.closeIdle(key, session)
+
+	if session.conn != nil {
+		t.Fatal("tracked armed idle session conn was not closed")
+	}
+	if _, ok := store.sessions[key]; ok {
+		t.Fatal("tracked armed idle session was not forgotten")
+	}
+	if session.idleTimer != nil {
+		t.Fatal("tracked armed idle timer was not stopped")
+	}
+}
+
+func TestWSSessionStoreCloseIdleSkipsTrackedInUseSession(t *testing.T) {
+	t.Parallel()
+	clientConn, serverConn := newTestWebSocketPair(t)
+	defer func() { _ = serverConn.Close() }()
+
+	store := newWSSessionStore()
+	key := wsSessionKey{baseURL: "ws://example.test", accessToken: "tok", conversation: "sess"}
+	// idleTimer == nil models a concurrent acquire having stopped the timer to
+	// reuse this tracked session while the stale closeIdle callback races. The
+	// session is still the map entry, so the guard must skip closing it.
+	session := &wsSessionConn{
+		key:       key,
+		store:     store,
+		sem:       make(chan struct{}, 1),
+		conn:      clientConn,
+		idleTimer: nil,
+	}
+	store.sessions[key] = session
+
+	store.closeIdle(key, session)
+
+	if session.conn == nil {
+		t.Fatal("tracked in-use session conn was closed by stale closeIdle callback")
+	}
+	if _, ok := store.sessions[key]; !ok {
+		t.Fatal("tracked in-use session was forgotten by stale closeIdle callback")
+	}
+}
+
+func TestWSStreamReleasesSessionOnMapperError(t *testing.T) {
+	t.Parallel()
+	clientConn, serverConn := newTestWebSocketPair(t)
+	defer func() { _ = serverConn.Close() }()
+
+	// A non-JSON text frame causes codexEventMapper.handleData to return a
+	// malformed-stream-event error on the mapper-error path.
+	if err := serverConn.WriteMessage(gorillawebsocket.TextMessage, []byte("not-json")); err != nil {
+		t.Fatal(err)
+	}
+
+	var released bool
+	var closeConn bool
+	stream := newWSStream(clientConn, 0)
+	stream.release = func(close bool) {
+		released = true
+		closeConn = close
+	}
+
+	if _, err := stream.Recv(context.Background()); err == nil {
+		t.Fatal("expected Recv error for malformed frame")
+	}
+	if !released {
+		t.Fatal("expected session released on mapper error")
+	}
+	if !closeConn {
+		t.Fatal("expected release with closeConn=true on mapper error")
+	}
+}
