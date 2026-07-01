@@ -69,9 +69,25 @@ func isObjectSchema(node map[string]any) bool {
 func addStrictAdditionalProperties(v any) {
 	switch x := v.(type) {
 	case map[string]any:
-		for k, child := range x {
-			addStrictAdditionalProperties(child)
-			x[k] = child
+		// Only descend through subschema-bearing keywords so non-schema payloads
+		// (enum, default, examples, etc.) are not mutated with strict keywords.
+		if props, ok := x["properties"].(map[string]any); ok {
+			for k, child := range props {
+				addStrictAdditionalProperties(child)
+				props[k] = child
+			}
+		}
+		if items, ok := x["items"]; ok {
+			addStrictAdditionalProperties(items)
+			x["items"] = items
+		}
+		for _, key := range []string{"oneOf", "anyOf", "allOf"} {
+			if children, ok := x[key].([]any); ok {
+				for i, child := range children {
+					addStrictAdditionalProperties(child)
+					children[i] = child
+				}
+			}
 		}
 		if isObjectSchema(x) {
 			if _, ok := x["additionalProperties"]; !ok {

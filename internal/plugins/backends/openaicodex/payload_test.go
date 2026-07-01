@@ -855,6 +855,63 @@ func TestPayloadForCall_parameterlessObjectWithAdditionalPropertiesTrueIsStrictF
 	}
 }
 
+func TestPayloadForCall_noToolsOmitsExplicitParallelToolCalls(t *testing.T) {
+	t.Parallel()
+	// A no-tools turn must not leak any tool-protocol field, even when the client
+	// explicitly requests parallel_tool_calls. Keep the absence of tools explicit.
+	parallel := true
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("continue")},
+		}},
+		Options: lipapi.GenerationOptions{ParallelToolCalls: &parallel},
+	}
+	payload, err := backend.PayloadForCall(&call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.4-mini"},
+	}, backend.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"parallel_tool_calls"`) {
+		t.Fatalf("no-tools payload must omit parallel_tool_calls even when explicit: %s", raw)
+	}
+}
+
+func TestPayloadForCall_schemaNormalizationSkipsNonSchemaKeywords(t *testing.T) {
+	t.Parallel()
+	// The "default" keyword holds an example value, not a subschema: it must not
+	// be mutated with additionalProperties:false/required:[] even though it looks
+	// like an object schema.
+	schema := `{"type":"object","properties":{"mode":{"type":"string","default":{"type":"object","properties":{"x":{"type":"string"}}}}},"required":["mode"],"additionalProperties":false}`
+	_, raw := codexToolStrict(t, schema)
+	var decoded struct {
+		Tools []struct {
+			Parameters map[string]any `json:"parameters"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded.Tools) != 1 {
+		t.Fatalf("decode tools: %v raw=%s", err, raw)
+	}
+	params := decoded.Tools[0].Parameters
+	props, _ := params["properties"].(map[string]any)
+	mode, _ := props["mode"].(map[string]any)
+	def, _ := mode["default"].(map[string]any)
+	if def == nil {
+		t.Fatalf("default value missing: %#v", params)
+	}
+	if _, ok := def["additionalProperties"]; ok {
+		t.Fatalf("default value must not be mutated with additionalProperties: %#v", def)
+	}
+	if _, ok := def["required"]; ok {
+		t.Fatalf("default value must not be mutated with required: %#v", def)
+	}
+}
+
 func TestPayloadForCall_composedLooseToolSchemaUsesStrictFalse(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

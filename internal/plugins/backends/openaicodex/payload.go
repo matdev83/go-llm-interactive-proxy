@@ -96,11 +96,13 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 	if p.Reasoning != nil {
 		p.Include = []string{"reasoning.encrypted_content"}
 	}
-	if call.Options.ParallelToolCalls != nil {
-		p.ParallelToolCalls = call.Options.ParallelToolCalls
-	} else if p.ParallelToolCalls == nil && len(call.Tools) > 0 {
-		v := false
-		p.ParallelToolCalls = &v
+	if len(call.Tools) > 0 {
+		if call.Options.ParallelToolCalls != nil {
+			p.ParallelToolCalls = call.Options.ParallelToolCalls
+		} else if p.ParallelToolCalls == nil {
+			v := false
+			p.ParallelToolCalls = &v
+		}
 	}
 	return p, nil
 }
