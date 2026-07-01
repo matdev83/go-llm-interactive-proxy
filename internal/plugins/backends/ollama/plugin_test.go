@@ -138,3 +138,22 @@ func TestNew_VersionDetectionAndResponses(t *testing.T) {
 		t.Fatal("expected explicitly disabled responses to not be supported")
 	}
 }
+
+func TestFetchVersion_OOM_Regression(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		chunk := make([]byte, 1024*1024)
+		for i := 0; i < 50; i++ {
+			w.Write(chunk)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, err := fetchVersion(ctx, srv.Client(), srv.URL)
+	if err == nil {
+		t.Fatalf("expected error due to large payload or invalid json, got none")
+	}
+}

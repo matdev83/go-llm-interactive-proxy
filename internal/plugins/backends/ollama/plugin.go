@@ -138,7 +138,7 @@ func fetchVersion(ctx context.Context, client *http.Client, nativeRoot string) (
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return "", fmt.Errorf("version HTTP status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
 		return "", err
 	}

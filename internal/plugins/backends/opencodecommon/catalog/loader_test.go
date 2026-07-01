@@ -115,3 +115,22 @@ func TestLoadModelEntries_noFallbackOnRemoteFailure(t *testing.T) {
 		t.Fatal("expected error without fallback")
 	}
 }
+
+func TestGetJSON_OOM_Regression(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		chunk := make([]byte, 1024*1024)
+		for i := 0; i < 50; i++ {
+			w.Write(chunk)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, err := getJSON(ctx, srv.Client(), srv.URL, nil)
+	if err == nil {
+		t.Fatalf("expected error due to large payload or invalid json, got none")
+	}
+}
