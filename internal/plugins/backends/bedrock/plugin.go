@@ -21,19 +21,9 @@ func defaultBackendCaps() lipapi.BackendCaps {
 }
 
 // DefaultLoadConfigTimeout bounds AWS SDK default configuration loading during backend construction.
-// New applies it automatically; composition roots calling NewWithContext should wrap their
+// Composition roots calling NewWithContext should wrap their
 // context with context.WithTimeout using this duration (or shorter) unless it already carries a deadline.
 const DefaultLoadConfigTimeout = 30 * time.Second
-
-// New returns a runtime backend that invokes Bedrock ConverseStream via the AWS SDK v2.
-//
-// Deprecated: prefer [NewWithContext] with a context whose deadline reflects your bootstrap
-// budget. New applies [DefaultLoadConfigTimeout] around AWS config load only.
-func New(cfg Config) execbackend.Backend {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultLoadConfigTimeout)
-	defer cancel()
-	return NewWithContext(ctx, cfg)
-}
 
 // ensureLoadConfigDeadline returns a context for awsconfig.LoadDefaultConfig. If ctx is nil, or
 // has no deadline, it wraps with [DefaultLoadConfigTimeout] so config load cannot hang
@@ -48,7 +38,7 @@ func ensureLoadConfigDeadline(ctx context.Context) (context.Context, context.Can
 	return context.WithTimeout(ctx, DefaultLoadConfigTimeout)
 }
 
-// NewWithContext returns a runtime backend like [New], using ctx for awsconfig.LoadDefaultConfig.
+// NewWithContext returns a runtime backend, using ctx for awsconfig.LoadDefaultConfig.
 // A deadline is always applied for the load step: either ctx's own deadline, or
 // [DefaultLoadConfigTimeout] when ctx is nil or uncancelled without a deadline.
 func NewWithContext(ctx context.Context, cfg Config) execbackend.Backend {
