@@ -161,6 +161,24 @@ func TestBuildScope_noIdentityReturnsError(t *testing.T) {
 	}
 }
 
+// TestBuildScope_trustedScopeWithoutIdentityReturnsError proves a trusted scope carrying no
+// principal id does not silently produce an anonymous snapshot, mirroring the legacy path
+// (requirement 1.4, 2.2).
+func TestBuildScope_trustedScopeWithoutIdentityReturnsError(t *testing.T) {
+	t.Parallel()
+	noID := trustedScope()
+	noID.PrincipalID = scope.Unknown()
+	_, err := BuildScope(ScopeBuildInput{
+		Decision: sdkauth.Decision{Outcome: sdkauth.OutcomeAllow, Scope: &noID},
+	})
+	if err == nil {
+		t.Fatal("expected error for trusted scope without identity")
+	}
+	if !errors.Is(err, ErrNoIdentity) {
+		t.Fatalf("expected ErrNoIdentity, got %v", err)
+	}
+}
+
 // TestBuildScope_rejectsUnsafeScopeValue proves the normalizer rejects credential-like
 // material before it enters request lifecycle evidence (requirement 2.6, 5.4).
 func TestBuildScope_rejectsUnsafeScopeValue(t *testing.T) {

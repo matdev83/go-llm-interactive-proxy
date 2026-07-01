@@ -4,7 +4,7 @@ import "context"
 
 type ctxKey int
 
-const keyScope ctxKey = iota + 18400
+const keyScope ctxKey = iota + 18400 // offset avoids collision with other packages' context keys
 
 // WithScope returns a child context carrying the authoritative principal/scope snapshot for
 // downstream handlers and the execution pipeline. The value is cloned so callers cannot

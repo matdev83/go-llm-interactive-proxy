@@ -149,19 +149,7 @@ func TestValidate_auth_localAPIKeyAttributionRejectsCredentialLikeValue(t *testi
 func TestValidateAuthLocalAPIKeyRecords_attributionConverted(t *testing.T) {
 	t.Parallel()
 	rec := localAPIKeyAttributionRecord()
-	// Round-trip through core auth validator by constructing core records directly.
-	coreRec := coreauth.LocalAPIKeyRecord{
-		KeyID:       rec.KeyID,
-		PrincipalID: rec.PrincipalID,
-		Key:         rec.Key,
-		Attribution: coreauth.LocalAttribution{
-			DisplayName: rec.Attribution.DisplayName,
-			TenantID:    rec.Attribution.TenantID,
-			Roles:       rec.Attribution.Roles,
-			SafeClaims:  rec.Attribution.SafeClaims,
-		},
-	}
-	if err := coreauth.ValidateLocalAPIKeyRecords([]coreauth.LocalAPIKeyRecord{coreRec}); err != nil {
-		t.Fatalf("core validate: %v", err)
+	if err := config.ValidateAuthLocalAPIKeyRecords([]config.AuthLocalAPIKeyRecord{rec}); err != nil {
+		t.Fatalf("ValidateAuthLocalAPIKeyRecords: %v", err)
 	}
 }

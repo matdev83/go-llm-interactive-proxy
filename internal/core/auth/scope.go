@@ -46,6 +46,9 @@ func BuildScope(input ScopeBuildInput) (ScopeBuildResult, error) {
 		if err := SanitizeScope(s); err != nil {
 			return ScopeBuildResult{}, err
 		}
+		if strings.TrimSpace(s.PrincipalID.String()) == "" {
+			return ScopeBuildResult{}, ErrNoIdentity
+		}
 		return ScopeBuildResult{Scope: s, Principal: s.Principal()}, nil
 	}
 	if pid := strings.TrimSpace(d.Principal.ID); pid != "" {
@@ -98,6 +101,9 @@ func authMethodFromLevel(l sdkauth.RequiredLevel) scope.Value {
 // the snapshot enters request lifecycle or audit evidence (requirements 2.6, 5.4). It is the
 // shared safety gate called by [BuildScope] for accepted decisions and by the HTTP auth bridge
 // for denied/challenged attribution evidence.
+//
+// The substring heuristic is best-effort defense-in-depth and is not exhaustive; trusted
+// callers remain responsible for never placing raw secret material in scope fields.
 func SanitizeScope(s scope.PrincipalScopeView) error {
 	values := []namedValue{
 		{"principal_id", s.PrincipalID},

@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
@@ -100,9 +102,9 @@ func (a AuthLocalAttribution) toCore() coreauth.LocalAttribution {
 		ProjectID:      a.ProjectID,
 		DepartmentID:   a.DepartmentID,
 		CostCenterID:   a.CostCenterID,
-		Roles:          a.Roles,
-		SafeClaims:     a.SafeClaims,
-		PolicyLabels:   a.PolicyLabels,
+		Roles:          slices.Clone(a.Roles),
+		SafeClaims:     maps.Clone(a.SafeClaims),
+		PolicyLabels:   maps.Clone(a.PolicyLabels),
 	}
 }
 

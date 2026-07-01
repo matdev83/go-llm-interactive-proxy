@@ -100,11 +100,10 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 	// successful lifecycle scope (requirement 1.6).
 	bridged := bridgeScope(d)
 	if bridged.err != nil {
-		// Credential-like scope material is rejected before execution and evidence.
+		// Credential-like scope material is rejected before execution and evidence; the
+		// unsafe-scope reason always supersedes any unrelated allow-era reason code.
 		d.Outcome = auth.OutcomeDeny
-		if d.ReasonCode == "" {
-			d.ReasonCode = "unsafe_scope"
-		}
+		d.ReasonCode = "unsafe_scope"
 	}
 
 	ev := authDecisionEvent(now, traceID, p.Policy, meta, d, bridged.evidence)

@@ -271,6 +271,41 @@ func TestPolicyProvider_unsafeScope_deniesAndOmitsFromEvidence(t *testing.T) {
 	}
 }
 
+// TestPolicyProvider_unsafeScope_overwritesStaleReasonCode proves a forced unsafe-scope deny
+// always reports the unsafe_scope reason even when the original allow carried an unrelated
+// informational reason code (requirement 2.6, 5.4).
+func TestPolicyProvider_unsafeScope_overwritesStaleReasonCode(t *testing.T) {
+	t.Parallel()
+	unsafe := allowScope()
+	unsafe.PrincipalID = scope.Known("bearer stale-reason-secret-1234567890")
+	stub := &stubCoreAuthenticator{dec: auth.Decision{Outcome: auth.OutcomeAllow, Scope: &unsafe, ReasonCode: "degraded_allow"}}
+	sink := &captureSink{}
+	disp := coreauth.NewEventDispatcher(sink, coreauth.EventFailureBestEffort)
+	p := NewPolicyProvider(stub, disp, PolicySnapshot{
+		AccessMode: auth.AccessMultiUser, HandlerKind: auth.HandlerRemote, RequiredLevel: auth.LevelAPIKey,
+	}, nil)
+	res, err := p.Authenticate(context.Background(), httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Type != httpauth.TypeReject {
+		t.Fatalf("unsafe scope must deny, got type %q", res.Type)
+	}
+	if len(sink.events) != 1 {
+		t.Fatalf("events %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if ev.Outcome != auth.OutcomeDeny {
+		t.Fatalf("evidence outcome %q want deny", ev.Outcome)
+	}
+	if ev.ReasonCode != "unsafe_scope" {
+		t.Fatalf("stale allow reason survived unsafe-scope deny: got %q want unsafe_scope", ev.ReasonCode)
+	}
+	if ev.Scope != nil {
+		t.Fatalf("unsafe scope must not appear in evidence, got %+v", ev.Scope)
+	}
+}
+
 // TestPolicyProvider_deny_unsafeScope_omittedFromEvidence proves a denied decision that carries
 // credential-like scope material still renders the rejection shape but omits the unsafe scope
 // from evidence entirely (requirements 1.6, 2.6, 5.4, 6.1).
