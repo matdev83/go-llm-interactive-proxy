@@ -3,9 +3,11 @@ package traffic
 import (
 	"context"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
-// Leg identifies one hop in the four-leg observation model (design §10).
+// Leg identifies one hop in the four-leg observation model (design section 10).
 type Leg string
 
 const (
@@ -21,6 +23,10 @@ const (
 // privileged payloads unless policy explicitly places them on the redacted path. Callers of
 // [Observer.OnObservation] run after [PortBundle.Emit] applies redactors; [Body] is the
 // post-redaction bytes passed to the observer.
+//
+// Scope is optional safe principal/scope attribution (requirement 6.4). It is additive metadata
+// only; existing observers may ignore it. Scope must never be injected into [Body]; [Body]
+// remains the wire payload for the leg (requirements 7.1, 7.4).
 type Observation struct {
 	Leg         Leg
 	TraceID     string
@@ -34,10 +40,11 @@ type Observation struct {
 	Protocol    string
 	ContentType string
 	Body        []byte
+	Scope       scope.PrincipalScopeView
 	RecordedAt  time.Time
 }
 
-// Observer receives non-mutating traffic observations (design §10). Implementations should treat
+// Observer receives non-mutating traffic observations (design section 10). Implementations should treat
 // [Observation] as read-only data for logging, transcript, or metrics adapters; they must not
 // mutate the slice backing [Observation.Body] in place if they retain it beyond the call.
 type Observer interface {
@@ -51,7 +58,8 @@ func (NoopObserver) OnObservation(context.Context, Observation) error { return n
 
 // CaptureMeta is correlation metadata for traffic legs: request trace, attempt lineage, principal
 // and session identifiers, and route-facing backend/frontend labels. It intentionally excludes
-// transport and provider concrete types (hexagonal task 5.2).
+// transport and provider concrete types (hexagonal task 5.2). Scope is optional safe attribution
+// propagated to observers as metadata; it is never injected into payload bytes (req 6.4, 7.4).
 type CaptureMeta struct {
 	TraceID     string
 	ALegID      string
@@ -61,6 +69,7 @@ type CaptureMeta struct {
 	AttemptSeq  int
 	BackendID   string
 	FrontendID  string
+	Scope       scope.PrincipalScopeView
 }
 
 // RawCaptureSink receives verbatim bytes for privileged capture paths (design §10), using the

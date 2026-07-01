@@ -1,6 +1,9 @@
 package auth
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+)
 
 // DeviceIdentity distinguishes app, device, or key material from a human principal.
 // Fingerprints and IDs must be non-secret (or redacted) when emitted to events.
@@ -29,4 +32,8 @@ type Decision struct {
 	Challenge      Challenge
 	// ReasonCode is a stable, machine-oriented reason (e.g. "invalid_api_key", "remote_denied").
 	ReasonCode string
+	// Scope carries an optional authoritative safe principal/scope snapshot supplied by
+	// trusted auth code. It is nil for legacy principal-only decisions. Raw bearer/API/OAuth/
+	// resume tokens and transport headers must never be placed here (requirements 2.1, 2.5, 2.6).
+	Scope *scope.PrincipalScopeView
 }

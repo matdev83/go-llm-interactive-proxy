@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -91,13 +93,26 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 	if traceID == "" {
 		traceID = meta.TraceID
 	}
-	ev := authDecisionEvent(now, traceID, p.Policy, meta, d)
+
+	// Normalize an accepted decision into one authoritative safe scope plus the derived
+	// principal projection before any evidence is emitted or proxy execution begins
+	// (requirements 1.1, 1.5, 2.1, 4.1). Denied/challenged decisions never produce a
+	// successful lifecycle scope (requirement 1.6).
+	bridged := bridgeScope(d)
+	if bridged.err != nil {
+		// Credential-like scope material is rejected before execution and evidence; the
+		// unsafe-scope reason always supersedes any unrelated allow-era reason code.
+		d.Outcome = auth.OutcomeDeny
+		d.ReasonCode = "unsafe_scope"
+	}
+
+	ev := authDecisionEvent(now, traceID, p.Policy, meta, d, bridged.evidence)
 	if p.Events != nil {
 		if e2 := p.Events.DispatchAuthDecision(ctx, ev); e2 != nil {
 			synth := d
 			synth.Outcome = auth.OutcomeDeny
 			synth.ReasonCode = "event_delivery_failed"
-			ev2 := authDecisionEvent(now, traceID, p.Policy, meta, synth)
+			ev2 := authDecisionEvent(now, traceID, p.Policy, meta, synth, nil)
 			rend := p.callRenderer(ctx, frontendID, &meta, synth, ev2, http.StatusServiceUnavailable)
 			return resultFromRender(rend, auth.OutcomeDeny), nil
 		}
@@ -105,6 +120,12 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 
 	switch d.Outcome {
 	case auth.OutcomeAllow:
+		if bridged.lifecycle != nil {
+			s := bridged.lifecycle.Scope
+			return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: bridged.lifecycle.Principal, Scope: &s}, nil
+		}
+		// Allow without a trusted scope or identity (legacy pass-through): attach the
+		// legacy principal only; the runtime derives synthetic scope under local mode.
 		return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: d.Principal}, nil
 	case auth.OutcomeChallenge, auth.OutcomeDeny:
 		st := defaultTerminalHTTPStatus(&d)
@@ -116,10 +137,50 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 		if d2.ReasonCode == "" {
 			d2.ReasonCode = "unusable_outcome"
 		}
-		ev2 := authDecisionEvent(now, traceID, p.Policy, meta, d2)
+		ev2 := authDecisionEvent(now, traceID, p.Policy, meta, d2, nil)
 		rend := p.callRenderer(ctx, frontendID, &meta, d2, ev2, http.StatusUnauthorized)
 		return resultFromRender(rend, auth.OutcomeDeny), nil
 	}
+}
+
+type scopeBridgeResult struct {
+	lifecycle *coreauth.ScopeBuildResult
+	evidence  *scope.PrincipalScopeView
+	err       error
+}
+
+// bridgeScope normalizes an accepted auth decision into one authoritative safe scope and the
+// derived legacy principal projection. It returns the built scope/principal for accepted
+// decisions, an evidence-safe scope pointer (set for both accepted and rejected decisions when
+// identity attribution is available), and a non-nil error only when a trusted scope value looks
+// like credential material and must be rejected before execution (requirement 2.6, 5.4).
+func bridgeScope(d auth.Decision) scopeBridgeResult {
+	if d.Outcome == auth.OutcomeAllow {
+		res, bErr := coreauth.BuildScope(coreauth.ScopeBuildInput{Decision: d})
+		switch {
+		case bErr == nil:
+			s := res.Scope
+			return scopeBridgeResult{lifecycle: &res, evidence: &s}
+		case errors.Is(bErr, coreauth.ErrNoIdentity):
+			// Legacy allow with no trusted identity; runtime derives scope when permitted.
+			return scopeBridgeResult{}
+		default:
+			// Unsafe scope material or any other normalization failure rejects before execution.
+			return scopeBridgeResult{err: bErr}
+		}
+	}
+	// Denied/challenged decisions: emit safe attribution from a trusted scope when the
+	// authenticator supplied one, without creating a lifecycle scope (requirement 6.1, 1.6).
+	// The scope is run through the Phase 2 safety filter so credential-like material in a
+	// rejected decision's scope is omitted from evidence rather than emitted (requirement 2.6, 5.4).
+	if d.Scope != nil {
+		s := d.Scope.Clone()
+		if err := coreauth.SanitizeScope(s); err != nil {
+			return scopeBridgeResult{}
+		}
+		return scopeBridgeResult{evidence: &s}
+	}
+	return scopeBridgeResult{}
 }
 
 func (p *PolicyProvider) frontendID(r *http.Request) string {
@@ -259,14 +320,22 @@ func authDecisionEvent(
 	pol PolicySnapshot,
 	meta auth.InboundCallMeta,
 	d auth.Decision,
+	evidenceScope *scope.PrincipalScopeView,
 ) auth.AuthDecisionEvent {
-	roles := slices.Clone(d.Principal.Roles)
+	// Prefer the authoritative scope projection for compatibility fields so legacy event
+	// consumers see the same identity as the request lifecycle (requirements 1.5, 4.6, 7.3);
+	// fall back to the legacy principal when no scope is available.
+	src := d.Principal
+	if evidenceScope != nil {
+		src = evidenceScope.Principal()
+	}
+	roles := slices.Clone(src.Roles)
 	// PrincipalSafeClaims must not carry claim values on the audit path: only key names are
 	// emitted so misconfigured or hostile deciders cannot seed OAuth/access tokens into events.
 	var claims map[string]string
-	if len(d.Principal.Claims) > 0 {
-		claims = make(map[string]string, len(d.Principal.Claims))
-		for k := range d.Principal.Claims {
+	if len(src.Claims) > 0 {
+		claims = make(map[string]string, len(src.Claims))
+		for k := range src.Claims {
 			k = strings.TrimSpace(k)
 			if k == "" {
 				continue
@@ -277,7 +346,7 @@ func authDecisionEvent(
 			claims = nil
 		}
 	}
-	return auth.AuthDecisionEvent{
+	ev := auth.AuthDecisionEvent{
 		Time:                 now,
 		TraceID:              traceID,
 		AccessMode:           pol.AccessMode,
@@ -286,8 +355,8 @@ func authDecisionEvent(
 		Frontend:             meta.Frontend,
 		Outcome:              d.Outcome,
 		ReasonCode:           d.ReasonCode,
-		PrincipalID:          strings.TrimSpace(d.Principal.ID),
-		PrincipalDisplayName: strings.TrimSpace(d.Principal.DisplayName),
+		PrincipalID:          strings.TrimSpace(src.ID),
+		PrincipalDisplayName: strings.TrimSpace(src.DisplayName),
 		PrincipalRoles:       roles,
 		PrincipalSafeClaims:  claims,
 		DeviceID:             strings.TrimSpace(d.Device.ID),
@@ -296,6 +365,11 @@ func authDecisionEvent(
 		ChallengeKind:        d.Challenge.Kind,
 		ChallengeSummary:     d.Challenge.Summary,
 	}
+	if evidenceScope != nil {
+		s := evidenceScope.Clone()
+		ev.Scope = &s
+	}
+	return ev
 }
 
 var _ httpauth.Provider = (*PolicyProvider)(nil)

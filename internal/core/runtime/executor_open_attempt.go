@@ -366,12 +366,15 @@ func (e *Executor) openPlannedCandidate(
 	}
 	if e.RuntimeSnapshot != nil {
 		if rawPayload, jerr := json.Marshal(openCall); jerr == nil {
+			sc := scopeFromCtx(p.ctx)
 			meta := sdktraffic.CaptureMeta{
-				TraceID:    p.traceID,
-				ALegID:     p.aLegID,
-				BLegID:     bleg.BLegID,
-				AttemptSeq: bleg.Seq,
-				BackendID:  strings.TrimSpace(c.Primary.Backend),
+				TraceID:     p.traceID,
+				ALegID:      p.aLegID,
+				BLegID:      bleg.BLegID,
+				AttemptSeq:  bleg.Seq,
+				BackendID:   strings.TrimSpace(c.Primary.Backend),
+				PrincipalID: strings.TrimSpace(sc.PrincipalID.String()),
+				Scope:       sc,
 			}
 			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
 				p.ctx,
