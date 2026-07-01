@@ -132,7 +132,7 @@ func getJSON(ctx context.Context, client *http.Client, endpoint string, headers 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("opencodecommon: model discovery HTTP status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("opencodecommon: model discovery read: %w", err)
 	}
