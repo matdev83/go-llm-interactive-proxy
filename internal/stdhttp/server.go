@@ -239,6 +239,7 @@ func prepareStandardHandler(
 		Mux:                  mux,
 		Exec:                 exec,
 		DefaultRouteSelector: route,
+		RoutePrefixes:        built.RoutePrefixes,
 		Plugins:              cfg.Plugins.Frontends,
 		MaxRequestBodyBytes:  maxBody,
 		Reg:                  reg,

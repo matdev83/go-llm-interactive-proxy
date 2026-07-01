@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
@@ -18,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/streamdebug"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -34,6 +36,8 @@ type Handler struct {
 	Exec lipsdk.ExecutorView
 	// DefaultRouteSelector is used when HeaderRouteSelector is absent.
 	DefaultRouteSelector string
+	// RoutePrefixes are backend route-selector prefixes accepted from body model.
+	RoutePrefixes routeselect.PrefixSet
 	// MaxRequestBodyBytes caps the request body; zero uses reqbody.DefaultMaxBytes.
 	MaxRequestBodyBytes int64
 	Log                 *slog.Logger
@@ -154,14 +158,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sel == "" {
-		sel = routeselect.FromModelOrDefault(body, h.DefaultRouteSelector)
+		sel = h.RoutePrefixes.FromModelOrDefault(body, h.DefaultRouteSelector)
 	}
 	decoded, err := DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
 	releaseDecode()
 	if err != nil {
-		if h.Log != nil {
-			diag.LogError(ctx, h.Log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
+		log := h.Log
+		if log == nil {
+			log = slog.Default()
 		}
+		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
+		streamdebug.LogDecodeFailure(ctx, log, ID, body, err)
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
 			w,
 			http.StatusBadRequest,
@@ -193,6 +200,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		SessionID: call.Session.CorrelationID(),
 	}, "http", ct, body)
 
+	streamdebug.LogCall(ctx, h.Log, ID, call, decoded.Stream, len(body), sel)
+	executeStart := time.Now()
 	es, err := h.execute(ctx, w, call, decoded.Stream)
 	if err != nil {
 		out := execerr.ClassifyExecute(err)
@@ -231,8 +240,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	streamdebug.LogExecuteOpened(ctx, h.Log, ID, call, executeStart)
 
 	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
+	es = streamdebug.Wrap(ctx, h.Log, ID, call, es, executeStart)
 
 	opts := EncodeOptions{
 		ResponseID:               responseIDForCall(call),

@@ -422,3 +422,69 @@ func TestPersistQuotaHeaders_updatesCachedPlanType(t *testing.T) {
 		t.Fatalf("usage percent: %q", got["x-codex-primary-used-percent"])
 	}
 }
+
+func TestLoadManagedAccounts_rejectsGroupReadableAccountFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix mode bits not modeled on windows")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.json")
+	if err := os.WriteFile(path, []byte(`{"account_id":"a","access_token":"tok"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadManagedAccounts(dir, nil)
+	if err == nil {
+		t.Fatal("expected permission error for group/other-readable account file")
+	}
+	if !strings.Contains(err.Error(), "group/other") {
+		t.Fatalf("expected group/other in error, got: %v", err)
+	}
+}
+
+func TestLoadManagedAccounts_skipsSymlinkedAccountFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs admin/developer mode on windows")
+	}
+	t.Parallel()
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "real.json")
+	if err := os.WriteFile(outsideFile, []byte(`{"account_id":"leaked","access_token":"secret-leaked"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outsideFile, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	storageDir := t.TempDir()
+	realFile := filepath.Join(storageDir, "real.json")
+	if err := os.WriteFile(realFile, []byte(`{"account_id":"ok","access_token":"tok-ok"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(realFile, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkFile := filepath.Join(storageDir, "link.json")
+	if err := os.Symlink(outsideFile, linkFile); err != nil {
+		t.Fatal(err)
+	}
+
+	accounts, err := loadManagedAccounts(storageDir, nil)
+	if err != nil {
+		t.Fatalf("loadManagedAccounts: %v", err)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("expected exactly 1 account (symlink skipped), got %d: %+v", len(accounts), accounts)
+	}
+	if accounts[0].ID != "ok" {
+		t.Fatalf("account ID = %q want ok", accounts[0].ID)
+	}
+	if accounts[0].AccessToken == "secret-leaked" || accounts[0].ID == "leaked" {
+		t.Fatalf("symlink target was followed: %+v", accounts[0])
+	}
+}

@@ -23,6 +23,7 @@ type MountBundledFrontendsInput struct {
 	Mux                  *http.ServeMux
 	Exec                 *runtime.Executor
 	DefaultRouteSelector string
+	RoutePrefixes        []string
 	Plugins              []config.PluginConfig
 	MaxRequestBodyBytes  int64
 	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
@@ -67,6 +68,7 @@ func MountBundledFrontends(in MountBundledFrontendsInput) error {
 				PluginCfg:           p.Config,
 				Exec:                in.Exec,
 				DefaultRoute:        in.DefaultRouteSelector,
+				RoutePrefixes:       in.RoutePrefixes,
 				MaxRequestBodyBytes: in.MaxRequestBodyBytes,
 				TrafficPorts:        in.TrafficPorts,
 				PreRequestKeepalive: in.PreRequestKeepalive,

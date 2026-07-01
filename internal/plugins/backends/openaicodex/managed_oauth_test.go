@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	backend "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaicodex"
@@ -65,18 +66,117 @@ func TestManagedOAuth_loadsAccountFilesAndUsesTokenAndAccountHeader(t *testing.T
 	cfg.HTTPClient = ts.Client()
 	be := backend.New(cfg)
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	drainEvents(t, es)
 	got := srv.LatestRequest()
+	if got.Transport != "https" {
+		t.Fatalf("transport: %q, want https (websocket is experimental opt-in)", got.Transport)
+	}
 	if got.Authorization != "Bearer tok-one" {
 		t.Fatalf("authorization: %q", got.Authorization)
 	}
 	if got.ChatGPTAccountID != "acct-one" {
 		t.Fatalf("account id: %q", got.ChatGPTAccountID)
+	}
+}
+
+func TestManagedOAuth_websocketModeUsesManagedTokenAndAccountHeader(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeAccountFile(t, dir, "acct1.json", managedAccountFixture{
+		AccountID:   "acct-one",
+		AccessToken: "tok-one",
+	})
+
+	srv := refbackend.New(refbackend.Config{Token: "tok-one", OutputText: "managed-ws-ok"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	cfg := managedOAuthCfg(dir)
+	cfg.BaseURL = ts.URL + "/backend-api/codex"
+	cfg.HTTPClient = ts.Client()
+	cfg.Transport = backend.TransportWebSocket
+	cfg.ExperimentalWebSocket = true
+	be := backend.New(cfg)
+	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainEvents(t, es)
+	got := srv.LatestRequest()
+	if got.Transport != "websocket" {
+		t.Fatalf("transport: %q, want websocket", got.Transport)
+	}
+	if got.Authorization != "Bearer tok-one" {
+		t.Fatalf("authorization: %q", got.Authorization)
+	}
+	if got.ChatGPTAccountID != "acct-one" {
+		t.Fatalf("account id: %q", got.ChatGPTAccountID)
+	}
+}
+
+func TestManagedOAuth_httpsModeSkipsWebSocket(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeAccountFile(t, dir, "acct1.json", managedAccountFixture{
+		AccountID:   "acct-one",
+		AccessToken: "tok-one",
+	})
+
+	srv := refbackend.New(refbackend.Config{Token: "tok-one", OutputText: "managed-http-ok"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	cfg := managedOAuthCfg(dir)
+	cfg.BaseURL = ts.URL + "/backend-api/codex"
+	cfg.HTTPClient = ts.Client()
+	cfg.Transport = backend.TransportHTTPS
+	be := backend.New(cfg)
+	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainEvents(t, es)
+	if got := srv.LatestRequest().Transport; got != "https" {
+		t.Fatalf("transport: %q, want https", got)
+	}
+}
+
+func TestManagedOAuth_autoFallsBackToHTTPSOnWSFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeAccountFile(t, dir, "acct1.json", managedAccountFixture{
+		AccountID:   "acct-one",
+		AccessToken: "tok-one",
+	})
+
+	srv := refbackend.New(refbackend.Config{Token: "tok-one", OutputText: "managed-http-ok", ForcedWSFailure: refbackend.WSFailurePolicyCloseBeforeEvent})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	cfg := managedOAuthCfg(dir)
+	cfg.BaseURL = ts.URL + "/backend-api/codex"
+	cfg.HTTPClient = ts.Client()
+	cfg.Transport = backend.TransportAuto
+	cfg.ExperimentalWebSocket = true
+	be := backend.New(cfg)
+	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainEvents(t, es)
+	if got := srv.LatestRequest().Transport; got != "https" {
+		t.Fatalf("transport: %q, want https fallback", got)
 	}
 }
 
@@ -115,7 +215,7 @@ func TestManagedOAuth_roundRobinCyclesTwoAccounts(t *testing.T) {
 	cfg.HTTPClient = srv.Client()
 	cfg.ManagedOAuthSelectionStrategy = "round-robin"
 	be := backend.New(cfg)
-	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
 
 	es1, err := be.Open(context.Background(), sampleCall(), cand)
 	if err != nil {
@@ -179,7 +279,7 @@ func TestManagedOAuth_401OnFirstAccountRetriesSecondAndMarksFirstInvalid(t *test
 	cfg.BaseURL = srv.URL + "/backend-api/codex"
 	cfg.HTTPClient = srv.Client()
 	be := backend.New(cfg)
-	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
 
 	es, err := be.Open(context.Background(), sampleCall(), cand)
 	if err != nil {
@@ -241,7 +341,7 @@ func TestManagedOAuth_429WithRetryAfterRetriesSecondAndCooldownExcludesFirst(t *
 	cfg.BaseURL = srv.URL + "/backend-api/codex"
 	cfg.HTTPClient = srv.Client()
 	be := backend.New(cfg)
-	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
 
 	es, err := be.Open(context.Background(), sampleCall(), cand)
 	if err != nil {
@@ -278,7 +378,7 @@ func TestManagedOAuth_noUsableAccountsAllowFallbackFalseErrors(t *testing.T) {
 	cfg := managedOAuthCfg(dir)
 	be := backend.New(cfg)
 	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -310,7 +410,7 @@ func TestManagedOAuth_all429sStopsAfterAccountBudget(t *testing.T) {
 	cfg.HTTPClient = srv.Client()
 	be := backend.New(cfg)
 	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -342,7 +442,7 @@ func TestManagedOAuth_allowFallbackTrueUsesAuthJSONPath(t *testing.T) {
 	cfg.AuthJSONPath = authPath
 	be := backend.New(cfg)
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +495,7 @@ func TestManagedOAuth_sessionAffinityReusesAccountAcrossCalls(t *testing.T) {
 	cfg.HTTPClient = srv.Client()
 	cfg.ManagedOAuthSelectionStrategy = "session-affinity"
 	be := backend.New(cfg)
-	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
 
 	es1, err := be.Open(context.Background(), callWithSession("sess-sticky"), cand)
 	if err != nil {
@@ -451,7 +551,7 @@ func TestManagedOAuth_sessionAffinityDifferentSessions(t *testing.T) {
 	cfg.HTTPClient = srv.Client()
 	cfg.ManagedOAuthSelectionStrategy = "session-affinity"
 	be := backend.New(cfg)
-	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
 
 	es1, err := be.Open(context.Background(), callWithSession("sess-a"), cand)
 	if err != nil {
@@ -513,7 +613,7 @@ func TestManagedOAuth_sessionAffinity401RotatesForSameSession(t *testing.T) {
 	cfg.HTTPClient = srv.Client()
 	cfg.ManagedOAuthSelectionStrategy = "session-affinity"
 	be := backend.New(cfg)
-	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
 	call := callWithSession("sess-retry")
 
 	es, err := be.Open(context.Background(), call, cand)
@@ -564,7 +664,7 @@ func TestManagedOAuth_quotaHeadersPersistedOnSuccess(t *testing.T) {
 	cfg.HTTPClient = ts.Client()
 	be := backend.New(cfg)
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -598,5 +698,87 @@ func TestManagedOAuth_quotaHeadersPersistedOnSuccess(t *testing.T) {
 	}
 	if _, ok := saved["access_token"]; !ok {
 		t.Fatal("access_token field lost")
+	}
+}
+
+func TestManagedOAuth_websocket401OnFirstAccountRetriesSecondAndMarksFirstInvalid(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeAccountFile(t, dir, "bad.json", managedAccountFixture{
+		AccountID:   "acct-bad",
+		AccessToken: "tok-bad",
+	})
+	writeAccountFile(t, dir, "good.json", managedAccountFixture{
+		AccountID:   "acct-good",
+		AccessToken: "tok-good",
+	})
+
+	var lastAuth atomic.Value
+	var wsAttempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if websocket.IsWebSocketUpgrade(r) {
+			wsAttempts.Add(1)
+			auth := r.Header.Get("Authorization")
+			lastAuth.Store(auth)
+			if auth == "Bearer tok-bad" {
+				http.Error(w, `{"error":"invalid"}`, http.StatusUnauthorized)
+				return
+			}
+			refbackend.New(refbackend.Config{Token: "tok-good"}).Handler().ServeHTTP(w, r)
+			return
+		}
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/responses") {
+			http.NotFound(w, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		lastAuth.Store(auth)
+		if auth == "Bearer tok-bad" {
+			http.Error(w, `{"error":"invalid"}`, http.StatusUnauthorized)
+			return
+		}
+		refbackend.New(refbackend.Config{Token: "tok-good"}).Handler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := managedOAuthCfg(dir)
+	cfg.BaseURL = srv.URL + "/backend-api/codex"
+	cfg.HTTPClient = srv.Client()
+	cfg.Transport = backend.TransportWebSocket
+	cfg.ExperimentalWebSocket = true
+	be := backend.New(cfg)
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}}
+
+	es, err := be.Open(context.Background(), sampleCall(), cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainEvents(t, es)
+	if wsAttempts.Load() < 2 {
+		t.Fatalf("expected WS retry on first open, wsAttempts=%d", wsAttempts.Load())
+	}
+	got, ok := lastAuth.Load().(string)
+	if !ok {
+		t.Fatal("lastAuth not string")
+	}
+	if got != "Bearer tok-good" {
+		t.Fatalf("open auth: %q", got)
+	}
+
+	before := wsAttempts.Load()
+	es2, err := be.Open(context.Background(), sampleCall(), cand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainEvents(t, es2)
+	got, ok = lastAuth.Load().(string)
+	if !ok {
+		t.Fatal("lastAuth not string")
+	}
+	if got != "Bearer tok-good" {
+		t.Fatalf("second open auth: %q", got)
+	}
+	if wsAttempts.Load()-before != 1 {
+		t.Fatalf("second open should not retry bad account, wsAttempts=%d", wsAttempts.Load()-before)
 	}
 }

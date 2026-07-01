@@ -263,6 +263,81 @@ func TestDecodeChat_assistantToolCalls(t *testing.T) {
 	}
 }
 
+// TestDecodeChat_assistantToolCallsEmptyContentString proves an assistant turn carrying only a
+// tool call may use an empty content string (not just null), as some clients (e.g. OpenCode) emit.
+func TestDecodeChat_assistantToolCallsEmptyContentString(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [{
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [{"id":"call_1","type":"function","function":{"name":"x","arguments":"{}"}}]
+  }]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(d.Call.Messages) != 1 || len(d.Call.Messages[0].Parts) != 1 {
+		t.Fatalf("parts: %#v", d.Call.Messages)
+	}
+	if d.Call.Messages[0].Parts[0].Kind != lipapi.PartJSON {
+		t.Fatalf("want PartJSON, got %#v", d.Call.Messages[0].Parts[0])
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDecodeChat_emptyAssistantMessageIsSkipped proves OpenAI-compatible
+// clients may include empty assistant history entries after compaction.
+func TestDecodeChat_emptyAssistantMessageIsSkipped(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role":"user","content":"before"},
+    {"role":"assistant","content":""},
+    {"role":"user","content":"after"}
+  ]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := len(d.Call.Messages); got != 2 {
+		t.Fatalf("messages = %d, want 2", got)
+	}
+	for _, m := range d.Call.Messages {
+		if m.Role == lipapi.RoleAssistant {
+			t.Fatalf("empty assistant message was not skipped: %#v", d.Call.Messages)
+		}
+	}
+	if err := d.Call.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDecodeChat_reasoningEffortFromBody proves the Chat Completions body's reasoning_effort
+// field is decoded into call.Options.ReasoningEffort before executor routing merges URI
+// params. Route URI params override matching body options later in core execution.
+func TestDecodeChat_reasoningEffortFromBody(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "openai-codex:openai/gpt-5.4-mini?reasoning_effort=xhigh",
+  "reasoning_effort": "medium",
+  "messages": [{"role":"user","content":"hi"}]
+}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "openai-codex:openai/gpt-5.4-mini?reasoning_effort=xhigh"})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if d.Call.Options.ReasoningEffort != "medium" {
+		t.Fatalf("ReasoningEffort %q, want %q (body field must be decoded)", d.Call.Options.ReasoningEffort, "medium")
+	}
+}
+
 func TestDecodeChat_assistantFunctionCallLegacy(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{

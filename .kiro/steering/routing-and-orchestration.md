@@ -59,6 +59,7 @@ The current selector language includes these core-owned behaviors:
 - parallel groups (`!`) that race multiple B-legs,
 - per-leg `[handicap=N]` start delays in parallel groups,
 - global and per-leaf `{ttft_timeout=N}` / `[ttft_timeout=N]` budgets,
+- per-leaf query generation params that override matching per-request body/call options,
 - model aliases that rewrite full selector strings before parsing.
 
 Mixing incompatible selector forms must fail early. In particular, parallel `!` groups cannot be mixed with `^`, weights, or `[first]` in the same arm.

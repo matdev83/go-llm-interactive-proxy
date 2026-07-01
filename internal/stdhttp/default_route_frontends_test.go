@@ -73,6 +73,41 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	}
 }
 
+func TestBodyRoute_openaiResponses_usesMountedRoutePrefixes(t *testing.T) {
+	t.Parallel()
+	reg := testRegistryWithStdBundle(t)
+	var cap sync.Map
+	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
+	mux := http.NewServeMux()
+	if err := MountBundledFrontends(MountBundledFrontendsInput{
+		Mux:                  mux,
+		Exec:                 ex,
+		DefaultRouteSelector: unifiedPolicyRoute,
+		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+		RoutePrefixes:        []string{"stub"},
+		MaxRequestBodyBytes:  0,
+		Reg:                  reg,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"model":"stub:gpt-5.5?reasoning_effort=low","stream":false,"input":[{"role":"user","content":"ping"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	v, ok := cap.Load("last")
+	if !ok {
+		t.Fatal("expected captured call")
+	}
+	call := testkit.MustLIPCall(t, v)
+	if got := call.Route.Selector; got != "stub:gpt-5.5?reasoning_effort=low" {
+		t.Fatalf("route selector %q", got)
+	}
+}
+
 func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)

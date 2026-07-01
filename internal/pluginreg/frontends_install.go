@@ -7,6 +7,7 @@ import (
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
 	frontopenailegacy "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
 	frontopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -18,6 +19,7 @@ func mountOpenAIResponses(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) 
 	mux.Handle("/v1/responses", &frontopenairesponses.Handler{
 		Exec:                 opts.Exec,
 		DefaultRouteSelector: opts.DefaultRoute,
+		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
 		PreRequestKeepalive:  opts.PreRequestKeepalive,
@@ -34,6 +36,7 @@ func mountOpenAILegacy(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) err
 	mux.Handle("/v1/chat/completions", &frontopenailegacy.Handler{
 		Exec:                 opts.Exec,
 		DefaultRouteSelector: opts.DefaultRoute,
+		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
 		PreRequestKeepalive:  opts.PreRequestKeepalive,
@@ -50,6 +53,7 @@ func mountAnthropic(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error 
 	mux.Handle("/v1/messages", &frontanthropic.Handler{
 		Exec:                 opts.Exec,
 		DefaultRouteSelector: opts.DefaultRoute,
+		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
 		PreRequestKeepalive:  opts.PreRequestKeepalive,
@@ -66,6 +70,7 @@ func mountGemini(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 	h := &frontgemini.Handler{
 		Exec:                 opts.Exec,
 		DefaultRouteSelector: opts.DefaultRoute,
+		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
 		TrafficPorts:         opts.TrafficPorts,
 		PreRequestKeepalive:  opts.PreRequestKeepalive,

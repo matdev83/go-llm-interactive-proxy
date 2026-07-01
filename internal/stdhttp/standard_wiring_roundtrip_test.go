@@ -85,6 +85,7 @@ models:
 		Exec:                 built.Executor,
 		DefaultRouteSelector: route,
 		Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+		RoutePrefixes:        built.RoutePrefixes,
 		MaxRequestBodyBytes:  0,
 		Reg:                  reg,
 	}); err != nil {

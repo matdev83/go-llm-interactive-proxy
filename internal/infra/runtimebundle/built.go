@@ -27,6 +27,8 @@ type Built struct {
 	// UpstreamHTTP is the shared outbound HTTP client passed to backends that need upstream HTTP.
 	// Successful [Build] always sets this (explicit [BuildOptions.HTTPClient] or the default from httpclient).
 	UpstreamHTTP *http.Client
+	// RoutePrefixes are backend route-selector prefixes accepted from frontend protocol model fields.
+	RoutePrefixes []string
 	// PluginRegistry is the registry used to construct backends and must be used when mounting frontends
 	// or composing features. [Build] sets this from [BuildOptions.PluginRegistry].
 	PluginRegistry *pluginreg.Registry

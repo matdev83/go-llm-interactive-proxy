@@ -22,6 +22,7 @@ type Mapper struct {
 	toolCallStarted   map[string]bool
 	toolCallArgDeltas map[string]bool
 	toolCallFinished  map[string]bool
+	pendingToolArgs   map[string][]string
 }
 
 func New(pending *stream.PendingEventQueue) *Mapper {
@@ -30,6 +31,7 @@ func New(pending *stream.PendingEventQueue) *Mapper {
 		toolCallStarted:   make(map[string]bool),
 		toolCallArgDeltas: make(map[string]bool),
 		toolCallFinished:  make(map[string]bool),
+		pendingToolArgs:   make(map[string][]string),
 	}
 }
 
@@ -123,7 +125,10 @@ func (m *Mapper) ToolCallAdded(id, name string) error {
 	if m.toolCallStarted[id] {
 		return nil
 	}
-	return m.emitToolCallStarted(id, name)
+	if err := m.emitToolCallStarted(id, name); err != nil {
+		return err
+	}
+	return m.flushPendingToolArgs(id)
 }
 
 func (m *Mapper) ToolCallArgsDelta(id, delta string) error {
@@ -134,9 +139,8 @@ func (m *Mapper) ToolCallArgsDelta(id, delta string) error {
 		return err
 	}
 	if !m.toolCallStarted[id] {
-		if err := m.emitToolCallStarted(id, ""); err != nil {
-			return err
-		}
+		m.pendingToolArgs[id] = append(m.pendingToolArgs[id], delta)
+		return nil
 	}
 	m.toolCallArgDeltas[id] = true
 	return m.pending.Push(lipapi.Event{
@@ -157,6 +161,9 @@ func (m *Mapper) FinishToolCallArguments(id, name, arguments string) error {
 		if err := m.emitToolCallStarted(id, name); err != nil {
 			return err
 		}
+	}
+	if err := m.flushPendingToolArgs(id); err != nil {
+		return err
 	}
 	if !m.toolCallArgDeltas[id] && arguments != "" {
 		if err := m.pending.Push(lipapi.Event{
@@ -181,6 +188,9 @@ func (m *Mapper) EmitCompletedToolCall(id, name, arguments string) error {
 		if err := m.emitToolCallStarted(id, name); err != nil {
 			return err
 		}
+	}
+	if err := m.flushPendingToolArgs(id); err != nil {
+		return err
 	}
 	if !m.toolCallArgDeltas[id] && arguments != "" {
 		if err := m.pending.Push(lipapi.Event{
@@ -234,6 +244,53 @@ func (m *Mapper) emitToolCallStarted(id, name string) error {
 		ToolCallID: id,
 		ToolName:   name,
 	})
+}
+
+func (m *Mapper) flushPendingToolArgs(id string) error {
+	deltas := m.pendingToolArgs[id]
+	if len(deltas) == 0 {
+		return nil
+	}
+	delete(m.pendingToolArgs, id)
+	for _, delta := range deltas {
+		m.toolCallArgDeltas[id] = true
+		if err := m.pending.Push(lipapi.Event{
+			Kind:       lipapi.EventToolCallArgsDelta,
+			ToolCallID: id,
+			Delta:      delta,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemapToolCallID consolidates tool-call state buffered under oldID onto newID.
+// It is used when a tool call's real call_id is learned after argument deltas
+// were already buffered under the provisional item-only ID, so pending args and
+// started/arg-delta/finished flags all move onto the canonical ID instead of
+// fragmenting into two tool calls. Remapping is a no-op when no state exists
+// under oldID.
+func (m *Mapper) RemapToolCallID(oldID, newID string) {
+	if oldID == "" || newID == "" || oldID == newID {
+		return
+	}
+	if deltas, ok := m.pendingToolArgs[oldID]; ok {
+		m.pendingToolArgs[newID] = append(m.pendingToolArgs[newID], deltas...)
+		delete(m.pendingToolArgs, oldID)
+	}
+	if m.toolCallStarted[oldID] {
+		m.toolCallStarted[newID] = true
+		delete(m.toolCallStarted, oldID)
+	}
+	if m.toolCallArgDeltas[oldID] {
+		m.toolCallArgDeltas[newID] = true
+		delete(m.toolCallArgDeltas, oldID)
+	}
+	if m.toolCallFinished[oldID] {
+		m.toolCallFinished[newID] = true
+		delete(m.toolCallFinished, oldID)
+	}
 }
 
 // EmitOutputMediaFromResponse maps assistant message media in a completed Responses payload.

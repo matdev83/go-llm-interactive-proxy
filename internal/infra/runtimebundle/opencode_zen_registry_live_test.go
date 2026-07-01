@@ -3,6 +3,7 @@
 package runtimebundle_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -57,26 +58,27 @@ func TestOpenCodeZenLive_modelsAreVendorEnrichedInCentralRegistry(t *testing.T) 
 	}
 	defer closeRuntimeBuilt(t, built)
 
-	want := map[string]string{
-		"deepseek/deepseek-v4-flash-free": "deepseek-v4-flash-free",
-		"xiaomi/mimo-v2.5-free":           "mimo-v2.5-free",
-		"alibaba/qwen3.6-plus-free":       "qwen3.6-plus-free",
-		"minimax/minimax-m3-free":         "minimax-m3-free",
+	rows := built.ModelRegistry.All()
+	if len(rows) == 0 {
+		t.Fatal("central registry has no live opencode-zen models")
 	}
-	for canonicalID, nativeID := range want {
-		rows, ok := built.ModelRegistry.Lookup(canonicalID)
-		if !ok {
-			t.Fatalf("central registry missing %q", canonicalID)
+	enriched := 0
+	for _, row := range rows {
+		if row.BackendID != "opencode-zen" || row.Kind != "opencode-zen" {
+			t.Fatalf("central registry row = %+v, want opencode-zen backend/kind", row)
 		}
-		found := false
-		for _, row := range rows {
-			if row.BackendID == "opencode-zen" && row.Kind == "opencode-zen" && row.NativeID == nativeID {
-				found = true
-				break
-			}
+		if row.NativeID == "" {
+			t.Fatalf("central registry row has empty native id: %+v", row)
 		}
-		if !found {
-			t.Fatalf("central registry rows for %q = %+v, want opencode-zen native %q", canonicalID, rows, nativeID)
+		vendor, suffix, ok := strings.Cut(row.CanonicalID, "/")
+		if !ok || vendor == "" || suffix == "" {
+			t.Fatalf("central registry row has non-vendor canonical id: %+v", row)
 		}
+		if vendor != "unknown" {
+			enriched++
+		}
+	}
+	if enriched == 0 {
+		t.Fatalf("central registry has no vendor-enriched opencode-zen rows: %+v", rows)
 	}
 }

@@ -50,7 +50,7 @@ func TestMergeRouteQueryIntoGenerationOptions_fillsFromRoute(t *testing.T) {
 	}
 }
 
-func TestMergeRouteQueryIntoGenerationOptions_callWinsOverRoute(t *testing.T) {
+func TestMergeRouteQueryIntoGenerationOptions_routeOverridesCall(t *testing.T) {
 	t.Parallel()
 	temp := 0.1
 	base := lipapi.GenerationOptions{Temperature: &temp}
@@ -61,8 +61,49 @@ func TestMergeRouteQueryIntoGenerationOptions_callWinsOverRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got.Temperature == nil || *got.Temperature != 0.99 {
+		t.Fatalf("route temperature should override call, got %#v", got.Temperature)
+	}
+}
+
+func TestMergeRouteQueryIntoGenerationOptions_routeOverridesReasoningEffort(t *testing.T) {
+	t.Parallel()
+	// Route selectors are the user's explicit routing contract. The OpenCode/Codex
+	// latency bugs investigated around this connector were local protocol-shaping
+	// problems, not a reason to weaken URI reasoning_effort overrides.
+	base := lipapi.GenerationOptions{ReasoningEffort: "medium"}
+	q := url.Values{}
+	q.Set("reasoning_effort", "xhigh")
+
+	got, err := lipapi.MergeRouteQueryIntoGenerationOptions(base, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReasoningEffort != "xhigh" {
+		t.Fatalf("route reasoning_effort should override call, got %q", got.ReasoningEffort)
+	}
+}
+
+func TestMergeRouteQueryIntoGenerationOptions_routeAbsentLeavesCall(t *testing.T) {
+	t.Parallel()
+	temp := 0.1
+	base := lipapi.GenerationOptions{Temperature: &temp, ReasoningEffort: "medium"}
+	// Query sets nothing for temperature/reasoning_effort.
+	q := url.Values{}
+	q.Set("top_p", "0.5")
+
+	got, err := lipapi.MergeRouteQueryIntoGenerationOptions(base, q)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.Temperature == nil || *got.Temperature != 0.1 {
-		t.Fatalf("call temperature should win, got %#v", got.Temperature)
+		t.Fatalf("absent route key should leave call value, got %#v", got.Temperature)
+	}
+	if got.ReasoningEffort != "medium" {
+		t.Fatalf("absent route key should leave call value, got %q", got.ReasoningEffort)
+	}
+	if got.TopP == nil || *got.TopP != 0.5 {
+		t.Fatalf("top_p: %#v", got.TopP)
 	}
 }
 

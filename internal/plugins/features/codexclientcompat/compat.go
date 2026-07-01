@@ -15,17 +15,16 @@ const (
 	droidBridgeMarker    = "Factory Droid compatibility mode"
 	hermesBridgeMarker   = "Hermes Agent compatibility mode"
 
-	extAgentKey      = "agent"
-	extUserAgentKey  = "user_agent"
-	extCodexAgentKey = "openai_codex.agent"
-	extHeadersKey    = "headers"
-	// ponytail: mirrors openaicodex.ExtToolStrict; local const avoids feature→backend import.
-	extCodexToolStrictKey = "openai_codex.tool_strict"
+	extAgentKey                           = "agent"
+	extUserAgentKey                       = "user_agent"
+	extCodexAgentKey                      = "openai_codex.agent"
+	extHeadersKey                         = "headers"
+	extCodexToolStrictKey                 = "openai_codex.tool_strict"
+	extCodexIgnoreUnsupportedGenParamsKey = "openai_codex.ignore_unsupported_gen_params"
 
 	// hermesIdentitySentence is the exact upstream Hermes Agent identity sentence.
 	hermesIdentitySentence = "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
 
-	// ponytail: mirrors openaicodex default when instructions empty so bridge appends after base Codex prompt.
 	codexDefaultInstruction = "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer."
 )
 
@@ -80,8 +79,8 @@ var compatBridges = []compatBridge{
 		matchesAgent:  openCodeAgentMatch,
 		matchesPrompt: openCodePromptMatch,
 		filter:        isOpenCodeHarnessText,
-		build:         func(*lipapi.Call) string { return buildOpenCodeBridge() },
-		beforeApply:   convertOrphanedToolResults,
+		build:         func(call *lipapi.Call) string { return buildOpenCodeBridge(len(call.Tools) > 0) },
+		beforeApply:   applyOpenCodeToolHistoryCompat,
 	},
 	{
 		marker:        piBridgeMarker,
@@ -114,15 +113,19 @@ func ApplyCompat(call *lipapi.Call) {
 	in := detectCompatInput(call)
 	bridge := selectCompatBridge(in)
 	if bridge == nil {
-		return
+		bridge = fallbackCompatBridge(call)
+		if bridge == nil {
+			return
+		}
 	}
+	applyIgnoreUnsupportedGenParams(call)
 	hasTools := len(call.Tools) > 0
 	call.Messages = filterHarnessMessages(call.Messages, bridge.filter)
 	call.Instructions = filterHarnessMessages(call.Instructions, bridge.filter)
 	if bridge.beforeApply != nil {
 		bridge.beforeApply(call)
 	}
-	if !hasTools {
+	if !hasTools && bridge.marker != openCodeBridgeMarker {
 		return
 	}
 	block := bridge.build(call)
@@ -142,6 +145,82 @@ func selectCompatBridge(in compatInput) *compatBridge {
 		}
 	}
 	return nil
+}
+
+func fallbackCompatBridge(call *lipapi.Call) *compatBridge {
+	if call == nil || len(call.Tools) > 0 || !hasStructuredToolTranscript(call.Messages) {
+		return nil
+	}
+	for i := range compatBridges {
+		if compatBridges[i].marker == openCodeBridgeMarker {
+			return &compatBridges[i]
+		}
+	}
+	return nil
+}
+
+func applyOpenCodeToolHistoryCompat(call *lipapi.Call) {
+	convertOrphanedToolResults(call)
+}
+
+func hasStructuredToolTranscript(msgs []lipapi.Message) bool {
+	for _, m := range msgs {
+		if m.Role == lipapi.RoleTool {
+			for _, p := range m.Parts {
+				if p.Kind == lipapi.PartToolResult {
+					return true
+				}
+			}
+		}
+		if m.Role != lipapi.RoleAssistant {
+			continue
+		}
+		for _, p := range m.Parts {
+			if p.Kind != lipapi.PartJSON {
+				continue
+			}
+			if isFunctionCallPart(p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isFunctionCallPart(p lipapi.Part) bool {
+	if len(p.Content) == 0 {
+		return false
+	}
+	var fc struct {
+		Type     string `json:"type"`
+		CallID   string `json:"call_id"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Function *struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if json.Unmarshal(p.Content, &fc) != nil {
+		return false
+	}
+	if !strings.EqualFold(fc.Type, "function_call") && !strings.EqualFold(fc.Type, "function") {
+		return false
+	}
+	id := firstNonEmpty(fc.CallID, fc.ID)
+	name := strings.TrimSpace(fc.Name)
+	if name == "" && fc.Function != nil {
+		name = strings.TrimSpace(fc.Function.Name)
+	}
+	return strings.TrimSpace(id) != "" && name != ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func detectCompatInput(call *lipapi.Call) compatInput {
@@ -442,7 +521,9 @@ func collectKnownToolCallIDs(msgs []lipapi.Message) map[string]struct{} {
 			if json.Unmarshal(p.Content, &fc) != nil {
 				continue
 			}
-			if !strings.EqualFold(fc.Type, "function_call") {
+			// Accept Responses-style ("function_call") and Chat Completions-style
+			// ("function") assistant tool calls so matching tool results are preserved.
+			if !strings.EqualFold(fc.Type, "function_call") && !strings.EqualFold(fc.Type, "function") {
 				continue
 			}
 			id := strings.TrimSpace(fc.CallID)
@@ -455,6 +536,30 @@ func collectKnownToolCallIDs(msgs []lipapi.Message) map[string]struct{} {
 		}
 	}
 	return known
+}
+
+func argumentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	if raw[0] == '"' {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			return s
+		}
+	}
+	return string(raw)
+}
+
+func messagePartText(p lipapi.Part) string {
+	switch p.Kind {
+	case lipapi.PartText:
+		return p.Text
+	case lipapi.PartToolResult, lipapi.PartJSON:
+		return string(p.Content)
+	default:
+		return string(p.Kind)
+	}
 }
 
 func convertOrphanedToolResult(p lipapi.Part) lipapi.Message {
@@ -472,20 +577,41 @@ func convertOrphanedToolResult(p lipapi.Part) lipapi.Message {
 	}
 }
 
-func buildOpenCodeBridge() string {
-	return openCodeBridgeMarker + ":\n" +
-		"- Prefer the available client shell tool when command execution is needed.\n" +
+func buildOpenCodeBridge(hasTools bool) string {
+	var b strings.Builder
+	b.WriteString(openCodeBridgeMarker)
+	b.WriteString(":\n")
+	if hasTools {
+		// Keep this guidance generic. OpenCode tool names and schemas vary by
+		// installation, plugin, and session; the structured tool list is the only
+		// authoritative source of callable names. Duplicating names in prose makes
+		// random session-specific tools look universal and can bias the model toward
+		// tools the current request did not actually expose.
+		b.WriteString("- Prefer the available client shell tool when command execution is needed.\n")
+	} else {
+		b.WriteString("- No callable client tools are available in this request. Do not attempt tool calls; respond in plain text or ask the user/client to provide tools.\n")
+	}
+	b.WriteString("- Never emit textual tool-call syntax such as `to=functions.<name>` or JSON tool calls in assistant content; use structured tool calls only when tools are available.\n")
+	if !hasTools {
+		// No tools are exposed, so do not append criticalInstruction("OpenCode"):
+		// it tells the model to use agent-provided tools, contradicting the
+		// "no callable client tools" guidance above and risking spurious tool calls.
+		return b.String()
+	}
+	b.WriteString(
 		"- For bash-style tools, arguments MUST be a JSON object with string " +
-		"`command` and string `description`.\n" +
-		"- Bash-style tools MAY include numeric `timeout` in milliseconds " +
-		"and string `workdir` when the client schema exposes them.\n" +
-		"- Never emit array-valued `command` arguments for shell execution.\n" +
-		"- Do not use `apply_patch`; use the client's native file editing tools instead.\n" +
-		"- Do not use `update_plan` or `read_plan`; use the client's task tools instead.\n" +
-		"- If you need a working directory, prefer `workdir` over `cd` commands " +
-		"or embedding cwd text in `description`.\n" +
-		"\n" +
-		criticalInstruction("OpenCode")
+			"`command` and string `description`.\n" +
+			"- Bash-style tools MAY include numeric `timeout` in milliseconds " +
+			"and string `workdir` when the client schema exposes them.\n" +
+			"- Never emit array-valued `command` arguments for shell execution.\n" +
+			"- Do not use `apply_patch`; use the client's native file editing tools instead.\n" +
+			"- Do not use `update_plan` or `read_plan`; use the client's task tools instead.\n" +
+			"- If you need a working directory, prefer `workdir` over `cd` commands " +
+			"or embedding cwd text in `description`.\n" +
+			"\n" +
+			criticalInstruction("OpenCode"),
+	)
+	return b.String()
 }
 
 func buildPiBridge() string {
@@ -551,6 +677,16 @@ func applyHermesToolStrict(call *lipapi.Call) {
 		return
 	}
 	call.Extensions[extCodexToolStrictKey] = json.RawMessage("false")
+}
+
+func applyIgnoreUnsupportedGenParams(call *lipapi.Call) {
+	if call.Extensions == nil {
+		call.Extensions = map[string]json.RawMessage{}
+	}
+	if _, ok := call.Extensions[extCodexIgnoreUnsupportedGenParamsKey]; ok {
+		return
+	}
+	call.Extensions[extCodexIgnoreUnsupportedGenParamsKey] = json.RawMessage("true")
 }
 
 func sortedNativeDroidTools() []string {

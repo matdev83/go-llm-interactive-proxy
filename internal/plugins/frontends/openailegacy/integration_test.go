@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	front "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openailegacy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/routeselect"
 	refcli "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/refclienttest"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -337,7 +338,7 @@ func TestIntegration_routeHeaderOverridesDefault(t *testing.T) {
 	t.Parallel()
 	var capture sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &capture)
-	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route"}
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route", RoutePrefixes: routeselect.NewPrefixSet([]string{"stub"})}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/chat/completions", h)
 	srv := httptest.NewServer(mux)
@@ -373,7 +374,7 @@ func TestIntegration_modelRouteSelectorUsedWhenHeaderAbsent(t *testing.T) {
 	t.Parallel()
 	var capture sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &capture)
-	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route"}
+	h := &front.Handler{Exec: ex, DefaultRouteSelector: "stub:default-route", RoutePrefixes: routeselect.NewPrefixSet([]string{"stub"})}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/chat/completions", h)
 	srv := httptest.NewServer(mux)

@@ -62,7 +62,7 @@ func TestOpen_authJSONPathLoadsToken(t *testing.T) {
 		HTTPClient:   ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestOpen_explicitAccessTokenOverridesAuthJSON(t *testing.T) {
 		HTTPClient:   ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestNew_missingAccessTokenInAuthJSON(t *testing.T) {
 		AuthJSONPath: authPath,
 	})
 	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err == nil {
 		t.Fatal("expected config error")
@@ -144,7 +144,7 @@ func TestOpen_authJSONCamelCaseFields(t *testing.T) {
 		HTTPClient:   ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestOpen_defaultAuthJSONPathLoadsToken(t *testing.T) { //nolint:paralleltes
 		HTTPClient: ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestOpen_explicitAuthJSONPathOverridesDefaultDiscovery(t *testing.T) { //no
 		HTTPClient:   ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestNew_missingDefaultAuthJSONKeepsAccessTokenError(t *testing.T) { //nolin
 		BaseURL: "http://127.0.0.1",
 	})
 	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err == nil {
 		t.Fatal("expected config error")
@@ -254,7 +254,7 @@ func TestOpen_explicitAccountIDOverridesAuthJSON(t *testing.T) {
 		HTTPClient:   ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)

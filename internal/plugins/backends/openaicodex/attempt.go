@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/streampeek"
@@ -14,12 +15,13 @@ import (
 )
 
 type codexOpenEnv struct {
-	payload       Payload
-	originalModel string
-	convID        string
-	client        *http.Client
-	endpoint      string
-	downgrade     downgradePolicy
+	payload           Payload
+	originalModel     string
+	convID            string
+	inputFingerprints []string
+	client            *http.Client
+	endpoint          string
+	downgrade         downgradePolicy
 }
 
 func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy) (*codexOpenEnv, error) {
@@ -30,20 +32,23 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 	if err != nil {
 		return nil, err
 	}
-	originalModel := strings.TrimSpace(cand.Primary.Model)
-	convID := conversationID(call, originalModel)
+	logPayloadShape(ctx, &call, payload)
+	originalModel := normalizeCodexModel(cand.Primary.Model)
+	inputFingerprints := fingerprintInputItems(payload.Input)
+	convID := conversationIDForPayloadWithFingerprints(call, originalModel, payload, inputFingerprints)
 	payload.PromptCacheKey = convID
 	client := cfg.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
 	}
 	return &codexOpenEnv{
-		payload:       payload,
-		originalModel: originalModel,
-		convID:        convID,
-		client:        client,
-		endpoint:      responsesEndpoint(cfg.BaseURL),
-		downgrade:     policy,
+		payload:           payload,
+		originalModel:     originalModel,
+		convID:            convID,
+		inputFingerprints: inputFingerprints,
+		client:            client,
+		endpoint:          responsesEndpoint(cfg.BaseURL),
+		downgrade:         policy,
 	}, nil
 }
 
@@ -109,8 +114,21 @@ func readLimitedClose(resp *http.Response) []byte {
 	return b
 }
 
+const upstreamErrorBodyMax = 256
+
+// truncateErrorMessage bounds upstream/OAuth response text embedded in errors
+// so provider error bodies cannot dump multi-KiB of (possibly echoed) content
+// into logs.
+func truncateErrorMessage(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + fmt.Sprintf("…(truncated %d bytes)", len(s)-max)
+}
+
 func upstreamHTTPError(status int, body []byte) error {
-	return fmt.Errorf("%s: upstream HTTP %d: %s", ID, status, strings.TrimSpace(string(body)))
+	return fmt.Errorf("%s: upstream HTTP %d: %s", ID, status, truncateErrorMessage(string(body), upstreamErrorBodyMax))
 }
 
 func non2xxOrNil(resp *http.Response) error {
@@ -153,9 +171,19 @@ func (a *codexOpenAttempt) openStream(resp *http.Response) (lipapi.ManagedEventS
 	if model == "" {
 		model = a.originalModel
 	}
-	es := newCodexStream(resp.Body, a.call.MaxPendingWireEvents)
-	managed := newUsageEstimatingStream(es, a.usageEst, a.call, model)
-	ev, rerr := managed.Recv(a.ctx)
+	st := newCodexStream(resp.Body, a.call.MaxPendingWireEvents)
+	managed, err := openManagedFirstEvent(a.ctx, st, a.usageEst, a.call, model)
+	if err != nil {
+		return nil, err
+	}
+	return managed, nil
+}
+
+func openManagedFirstEvent(ctx context.Context, es lipapi.ManagedEventStream, usageEst *usageEstimator, call lipapi.Call, model string) (lipapi.ManagedEventStream, error) {
+	managed := newUsageEstimatingStream(es, usageEst, call, model)
+	start := time.Now()
+	ev, rerr := managed.Recv(ctx)
+	logFirstEventWait(ctx, call, model, start, ev, rerr)
 	if rerr == nil {
 		return streampeek.NewManagedPrependFirst(ev, managed), nil
 	}
