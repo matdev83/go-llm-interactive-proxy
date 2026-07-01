@@ -120,10 +120,8 @@ func SanitizeScope(s scope.PrincipalScopeView) error {
 			return fmt.Errorf("%w: %s", ErrUnsafeScope, v.Name)
 		}
 	}
-	for _, r := range s.Roles {
-		if looksCredentialLike(r) {
-			return fmt.Errorf("%w: roles", ErrUnsafeScope)
-		}
+	if slices.ContainsFunc(s.Roles, looksCredentialLike) {
+		return fmt.Errorf("%w: roles", ErrUnsafeScope)
 	}
 	for _, m := range []struct {
 		name string

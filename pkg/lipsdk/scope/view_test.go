@@ -38,8 +38,7 @@ func TestPrincipalScopeView_NoForbiddenSecretFields(t *testing.T) {
 	}
 	var v scope.PrincipalScopeView
 	rt := reflect.TypeOf(v)
-	for i := 0; i < rt.NumField(); i++ {
-		f := rt.Field(i)
+	for f := range rt.Fields() {
 		for _, bad := range forbidden {
 			if strings.Contains(f.Name, bad) {
 				t.Fatalf("field %s contains forbidden substring %q (raw secret/transport must not be in scope)", f.Name, bad)
@@ -223,5 +222,9 @@ func TestOrigin_Constants(t *testing.T) {
 
 func TestPrincipalScopeView_CompilesAsPrincipalViewSource(t *testing.T) {
 	t.Parallel()
-	var _ execview.PrincipalView = sampleView().Principal()
+	requirePrincipalView(sampleView().Principal())
 }
+
+// requirePrincipalView is a compile-time guard asserting the projected principal satisfies
+// execview.PrincipalView; it performs no runtime check.
+func requirePrincipalView(_ execview.PrincipalView) {}

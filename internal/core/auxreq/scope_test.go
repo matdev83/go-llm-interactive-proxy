@@ -33,7 +33,10 @@ func TestClient_Stream_preservesParentScopeAndMarksInternalOrigin(t *testing.T) 
 	ctx := scope.WithScope(context.Background(), parent)
 
 	r := &captureRunner{}
-	c := auxreq.NewClient(func() auxreq.ExecutorRunner { return r }).(auxreq.Client)
+	c, ok := auxreq.NewClient(func() auxreq.ExecutorRunner { return r }).(auxreq.Client)
+	if !ok {
+		t.Fatal("auxreq.NewClient must return auxreq.Client when an executor is provided")
+	}
 	call := &lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
@@ -67,7 +70,10 @@ func TestClient_Stream_preservesParentScopeAndMarksInternalOrigin(t *testing.T) 
 func TestClient_Stream_noParentScopeNoDerivedScope(t *testing.T) {
 	t.Parallel()
 	r := &captureRunner{}
-	c := auxreq.NewClient(func() auxreq.ExecutorRunner { return r }).(auxreq.Client)
+	c, ok := auxreq.NewClient(func() auxreq.ExecutorRunner { return r }).(auxreq.Client)
+	if !ok {
+		t.Fatal("auxreq.NewClient must return auxreq.Client when an executor is provided")
+	}
 	call := &lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
