@@ -672,7 +672,7 @@ func TestExecutor_routeQueryMergesIntoGenerationOptions(t *testing.T) {
 	}
 }
 
-func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
+func TestExecutor_routeQueryOverridesExplicitCallOptions(t *testing.T) {
 	t.Parallel()
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
@@ -716,8 +716,8 @@ func TestExecutor_routeQueryDoesNotOverrideExplicitCallOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if captured.Temperature == nil || *captured.Temperature != 0.11 {
-		t.Fatalf("explicit call temperature must win over route, got %#v", captured.Temperature)
+	if captured.Temperature == nil || *captured.Temperature != 0.99 {
+		t.Fatalf("route temperature must override explicit call option, got %#v", captured.Temperature)
 	}
 }
 

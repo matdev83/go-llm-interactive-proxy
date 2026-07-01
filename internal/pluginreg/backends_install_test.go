@@ -10,13 +10,13 @@ import (
 func TestPrefixedModelIDsFromYAML_stripsNativePrefixAndFallsBackToCanonicalTail(t *testing.T) {
 	t.Parallel()
 	got, err := prefixedModelIDsFromYAML("openai-codex", modelInventoryYAML{Items: []modelInventoryItemYAML{
-		{NativeID: "openai-codex/gpt-5.3-codex"},
+		{NativeID: "openai-codex/gpt-5.3-codex-spark"},
 		{CanonicalID: "openai-codex/gpt-5.4"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []prefixedModelYAML{{RawID: "gpt-5.3-codex"}, {RawID: "gpt-5.4"}}
+	want := []prefixedModelYAML{{RawID: "gpt-5.3-codex-spark"}, {RawID: "gpt-5.4"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models = %#v, want %#v", got, want)
 	}

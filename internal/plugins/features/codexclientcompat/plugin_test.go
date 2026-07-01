@@ -234,6 +234,10 @@ func TestRequestPartHook_mutatesWhenBackendIsOpenAICodex(t *testing.T) {
 
 func TestApplyOpenCodeCompat_dedupBridgeOrphanToolOutput(t *testing.T) {
 	t.Parallel()
+	// The bridge is intentionally generic: OpenCode deployments can expose any
+	// combination of built-in, MCP, or plugin tools. Prompt text must not duplicate
+	// request-specific names such as "bash" because the structured tool schema is
+	// the real availability contract and prose can outlive the current request.
 	call := &lipapi.Call{
 		Instructions: []lipapi.Message{{
 			Role:  lipapi.RoleSystem,
@@ -290,6 +294,7 @@ func TestApplyOpenCodeCompat_dedupBridgeOrphanToolOutput(t *testing.T) {
 	for _, want := range []string{
 		"string `command` and string `description`",
 		"Never emit array-valued `command`",
+		"Never emit textual tool-call syntax",
 		"Do not use `apply_patch`",
 		"Do not use `update_plan` or `read_plan`",
 		"prefer `workdir`",
@@ -298,6 +303,267 @@ func TestApplyOpenCodeCompat_dedupBridgeOrphanToolOutput(t *testing.T) {
 		if !strings.Contains(instructions, want) {
 			t.Fatalf("bridge missing %q", want)
 		}
+	}
+	for _, unwanted := range []string{"Use only tool names that are available in this request", "`bash`"} {
+		if strings.Contains(instructions, unwanted) {
+			t.Fatalf("OpenCode bridge must not duplicate request-specific tool names: %q", instructions)
+		}
+	}
+}
+
+func TestApplyOpenCodeCompat_keepsToolResultForChatCompletionsToolCall(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleSystem, Parts: []lipapi.Part{lipapi.TextPart("OpenCode tool environment prompt for bash and edit tools")}},
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("run it")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: json.RawMessage(`{"id":"call_abc","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo pong\"}"}}`),
+			}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "call_abc",
+				Content:    json.RawMessage(`{"status":"ok"}`),
+			}}},
+		},
+		Tools: []lipapi.ToolDef{{Name: "bash"}},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"opencode"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+
+	preserved := false
+	for _, m := range call.Messages {
+		if m.Role != lipapi.RoleTool {
+			continue
+		}
+		for _, p := range m.Parts {
+			if p.Kind == lipapi.PartToolResult && p.ToolCallID == "call_abc" {
+				preserved = true
+			}
+		}
+	}
+	if !preserved {
+		t.Fatalf("expected tool result for call_abc preserved as RoleTool: %#v", call.Messages)
+	}
+	for _, m := range call.Messages {
+		if strings.Contains(messageText(m), "Prior tool output") {
+			t.Fatalf("tool result matching a chat-completions tool call must not be treated as orphaned: %#v", call.Messages)
+		}
+	}
+}
+
+func TestApplyOpenCodeCompat_preservesMatchedToolProtocolWithTools(t *testing.T) {
+	t.Parallel()
+	// When tools are present, even old matched tool calls/results must remain
+	// structured. WebSocket continuation records prior output items and then sends
+	// only the delta input on the next turn; flattening matched history here would
+	// destroy the protocol lineage needed for previous_response_id continuation.
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("old request")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: json.RawMessage(`{"id":"old_call","type":"function","function":{"name":"grep","arguments":"{\"pattern\":\"old\"}"}}`),
+			}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "old_call",
+				Content:    json.RawMessage(`{"old":true}`),
+			}}},
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("current request")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: json.RawMessage(`{"id":"active_call","type":"function","function":{"name":"grep","arguments":"{\"pattern\":\"active\"}"}}`),
+			}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "active_call",
+				Content:    json.RawMessage(`{"active":true}`),
+			}}},
+		},
+		Tools: []lipapi.ToolDef{{Name: "grep"}},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"opencode"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+
+	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.4-mini"},
+	}, openaicodex.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(payload)
+	payloadJSON := string(raw)
+	if got := strings.Count(payloadJSON, `"type":"function_call",`); got != 2 {
+		t.Fatalf("matched function calls should remain structured, got %d: %s", got, payloadJSON)
+	}
+	if got := strings.Count(payloadJSON, `"type":"function_call_output"`); got != 2 {
+		t.Fatalf("matched function outputs should remain structured, got %d: %s", got, payloadJSON)
+	}
+	if !strings.Contains(payloadJSON, `"call_id":"old_call"`) {
+		t.Fatalf("matched stale tool call should remain protocol-shaped for WS continuation: %s", payloadJSON)
+	}
+	if !strings.Contains(payloadJSON, `"call_id":"active_call"`) {
+		t.Fatalf("active tool call must remain protocol-shaped: %s", payloadJSON)
+	}
+}
+
+func TestApplyOpenCodeCompat_flattensNoToolsToolHistoryAsConversation(t *testing.T) {
+	t.Parallel()
+	// This is the no-tools counterpart to the structured-history test above. The
+	// client may resend a transcript containing tool history while exposing zero
+	// callable tools. In that mode the safest universal representation is ordinary
+	// conversation text: it preserves context, avoids backend protocol mismatch, and
+	// prevents the model from continuing with raw textual tool-call syntax.
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("inspect logs")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: json.RawMessage(`{"id":"call_abc","type":"function","function":{"name":"grep","arguments":"{\"pattern\":\"error\"}"}}`),
+			}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "call_abc",
+				Content:    json.RawMessage(`{"matches":100}`),
+			}}},
+		},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"opencode"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+
+	for _, m := range call.Messages {
+		if strings.Contains(messageText(m), "Prior tool output") && m.Role != lipapi.RoleUser {
+			t.Fatalf("flattened tool output must remain conversation history, got role %q in %#v", m.Role, call.Messages)
+		}
+	}
+	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.4-mini"},
+	}, openaicodex.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(payload.Instructions, "Prior tool output") {
+		t.Fatalf("tool history must not be folded into Codex instructions: %q", payload.Instructions)
+	}
+	raw, _ := json.Marshal(payload)
+	if strings.Contains(string(raw), `"type":"function_call"`) || strings.Contains(string(raw), `"type":"function_call_output"`) {
+		t.Fatalf("no-tools history must not remain protocol-shaped: %s", raw)
+	}
+	if !strings.Contains(string(raw), "Prior assistant tool call") || !strings.Contains(string(raw), "Prior tool output") {
+		t.Fatalf("no-tools history should be rendered as conversation text: %s", raw)
+	}
+}
+
+func TestApplyOpenCodeCompat_noToolsAddsTextualToolCallGuard(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("inspect logs")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: json.RawMessage(`{"id":"call_abc","type":"function","function":{"name":"grep","arguments":"{\"pattern\":\"error\"}"}}`),
+			}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "call_abc",
+				Content:    json.RawMessage(`{"matches":100}`),
+			}}},
+		},
+		Extensions: map[string]json.RawMessage{
+			extAgentKey: json.RawMessage(`"opencode"`),
+		},
+	}
+	runHook(t, call, targetBackendID)
+
+	instructions := joinInstructionText(call.Instructions)
+	for _, want := range []string{
+		openCodeBridgeMarker,
+		"No callable client tools are available",
+		"Never emit textual tool-call syntax",
+		"to=functions.<name>",
+	} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("instructions missing %q: %q", want, instructions)
+		}
+	}
+	if call.Messages[0].Role != lipapi.RoleSystem || !strings.Contains(messageText(call.Messages[0]), openCodeBridgeMarker) {
+		t.Fatalf("expected bridge system message first: %#v", call.Messages[0])
+	}
+}
+
+func TestApplyCompat_noMarkerNoToolsToolHistoryAddsTextualToolCallGuard(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("inspect logs")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{{
+				Kind:    lipapi.PartJSON,
+				Content: json.RawMessage(`{"id":"call_abc","type":"function","function":{"name":"grep","arguments":"{\"pattern\":\"error\"}"}}`),
+			}}},
+			{Role: lipapi.RoleTool, Parts: []lipapi.Part{{
+				Kind:       lipapi.PartToolResult,
+				ToolCallID: "call_abc",
+				Content:    json.RawMessage(`{"matches":100}`),
+			}}},
+		},
+	}
+	runHook(t, call, targetBackendID)
+
+	instructions := joinInstructionText(call.Instructions)
+	for _, want := range []string{
+		openCodeBridgeMarker,
+		"No callable client tools are available",
+		"Never emit textual tool-call syntax",
+	} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("instructions missing %q: %q", want, instructions)
+		}
+	}
+}
+
+func TestApplyCompat_noMarkerNoToolsPlainChatDoesNotAddOpenCodeGuard(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Instructions: []lipapi.Message{{
+			Role:  lipapi.RoleSystem,
+			Parts: []lipapi.Part{lipapi.TextPart("Base instructions")},
+		}},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+	}
+	runHook(t, call, targetBackendID)
+	if instructions := joinInstructionText(call.Instructions); strings.Contains(instructions, openCodeBridgeMarker) {
+		t.Fatalf("plain no-tools chat must not get OpenCode guard: %q", instructions)
 	}
 }
 
@@ -401,13 +667,82 @@ func TestRequestPartHook_openCodeCompatPayloadShape(t *testing.T) {
 	}
 	runHook(t, &call, targetBackendID)
 	payload, err := openaicodex.PayloadForCall(&call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	}, openaicodex.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(payload.Instructions, "OpenCode compatibility mode") {
 		t.Fatalf("instructions: %q", payload.Instructions)
+	}
+}
+
+func TestApplyCompat_setsIgnoreUnsupportedGenParamsExt(t *testing.T) {
+	t.Parallel()
+	maxTok := 512
+	call := &lipapi.Call{
+		Extensions: map[string]json.RawMessage{extAgentKey: json.RawMessage(`"opencode"`)},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &maxTok},
+	}
+	runHook(t, call, targetBackendID)
+	raw, ok := call.Extensions[extCodexIgnoreUnsupportedGenParamsKey]
+	if !ok {
+		t.Fatal("expected ignore_unsupported_gen_params extension")
+	}
+	var ignore bool
+	if err := json.Unmarshal(raw, &ignore); err != nil || !ignore {
+		t.Fatalf("ignore_unsupported_gen_params = %s, want true", raw)
+	}
+	if _, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
+	}, openaicodex.Config{}); err != nil {
+		t.Fatalf("payload with compat ext: %v", err)
+	}
+}
+
+func TestRequestPartHook_codexBackendSetsIgnoreUnsupportedGenParamsWithoutClientMarker(t *testing.T) {
+	t.Parallel()
+	maxTok := 512
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("summarize prior context")},
+		}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &maxTok},
+	}
+	runHook(t, call, targetBackendID)
+	raw, ok := call.Extensions[extCodexIgnoreUnsupportedGenParamsKey]
+	if !ok {
+		t.Fatal("expected ignore_unsupported_gen_params extension")
+	}
+	var ignore bool
+	if err := json.Unmarshal(raw, &ignore); err != nil || !ignore {
+		t.Fatalf("ignore_unsupported_gen_params = %s, want true", raw)
+	}
+	if _, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.4-mini"},
+	}, openaicodex.Config{}); err != nil {
+		t.Fatalf("payload with codex compat ext: %v", err)
+	}
+}
+
+func TestRequestPartHook_nonCodexBackendDoesNotSetIgnoreUnsupportedGenParamsWithoutClientMarker(t *testing.T) {
+	t.Parallel()
+	maxTok := 512
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hi")},
+		}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &maxTok},
+	}
+	runHook(t, call, "openai-responses")
+	if _, ok := call.Extensions[extCodexIgnoreUnsupportedGenParamsKey]; ok {
+		t.Fatal("did not expect ignore_unsupported_gen_params extension for non-Codex backend")
 	}
 }
 
@@ -571,7 +906,7 @@ func TestApplyHermesCompat_payloadShapeIncludesBridgeAndToolStrictFalse(t *testi
 	}
 
 	payload, err := openaicodex.PayloadForCall(call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	}, openaicodex.Config{})
 	if err != nil {
 		t.Fatal(err)

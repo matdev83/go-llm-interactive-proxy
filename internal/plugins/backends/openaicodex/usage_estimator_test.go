@@ -21,7 +21,7 @@ func TestEstimateUsage_textRequest_positiveTotalsAndMetadata(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart("hello codex")},
 		}},
 	}
-	ev, err := est.estimateUsage(context.Background(), call, "gpt-5.3-codex", "world")
+	ev, err := est.estimateUsage(context.Background(), call, "gpt-5.3-codex-spark", "world")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestEstimateUsage_textRequest_positiveTotalsAndMetadata(t *testing.T) {
 	if ev.Accounting.Tokenizer.Source != "github.com/tiktoken-go/tokenizer" {
 		t.Fatalf("tokenizer source=%q", ev.Accounting.Tokenizer.Source)
 	}
-	if ev.Accounting.Tokenizer.ModelUsed != "gpt-5.3-codex" {
+	if ev.Accounting.Tokenizer.ModelUsed != "gpt-5.3-codex-spark" {
 		t.Fatalf("model used=%q", ev.Accounting.Tokenizer.ModelUsed)
 	}
 }
@@ -138,7 +138,7 @@ func TestEstimateUsage_imageRefURL_usesConservativeDefault(t *testing.T) {
 			},
 		}},
 	}
-	ev, err := est.estimateUsage(context.Background(), call, "gpt-5.3-codex", "done")
+	ev, err := est.estimateUsage(context.Background(), call, "gpt-5.3-codex-spark", "done")
 	if err != nil {
 		t.Fatal(err)
 	}

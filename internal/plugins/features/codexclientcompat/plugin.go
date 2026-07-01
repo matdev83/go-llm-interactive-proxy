@@ -9,7 +9,7 @@ import (
 
 const (
 	defaultOrder    = 50
-	targetBackendID = "openai-codex" // ponytail: mirrors openaicodex.ID; local const avoids feature→backend import.
+	targetBackendID = "openai-codex" // ponytail: mirrors openaicodex.ID; local const avoids feature->backend import.
 )
 
 type requestPartHook struct {
@@ -34,6 +34,7 @@ func (h requestPartHook) HandleRequestParts(_ context.Context, call *lipapi.Call
 	if meta.BackendID != targetBackendID {
 		return nil
 	}
+	applyIgnoreUnsupportedGenParams(call)
 	ApplyCompat(call)
 	return nil
 }

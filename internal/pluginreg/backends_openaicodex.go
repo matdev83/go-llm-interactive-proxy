@@ -34,6 +34,9 @@ type openAICodexBackendYAML struct {
 	GPT55DowngradeSourceModel             string   `yaml:"gpt55_downgrade_source_model"`
 	GPT55DowngradeTargetModel             string   `yaml:"gpt55_downgrade_target_model"`
 	PlanTypeHint                          string   `yaml:"plan_type_hint"`
+	Transport                             string   `yaml:"transport"`
+	ExperimentalWebSocket                 bool     `yaml:"experimental_websocket"`
+	WebSocketFallbackCooldownSeconds      int      `yaml:"websocket_fallback_cooldown_seconds"`
 }
 
 func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
@@ -78,6 +81,11 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 	cfg.GPT55DowngradeSourceModel = strings.TrimSpace(y.GPT55DowngradeSourceModel)
 	cfg.GPT55DowngradeTargetModel = strings.TrimSpace(y.GPT55DowngradeTargetModel)
 	cfg.PlanTypeHint = strings.TrimSpace(y.PlanTypeHint)
+	cfg.Transport = strings.TrimSpace(y.Transport)
+	cfg.ExperimentalWebSocket = y.ExperimentalWebSocket
+	if y.WebSocketFallbackCooldownSeconds > 0 {
+		cfg.WebSocketFallbackCooldown = time.Duration(y.WebSocketFallbackCooldownSeconds) * time.Second
+	}
 	return applyConfiguredModelInventory(openaicodex.New(cfg), y.Models)
 }
 

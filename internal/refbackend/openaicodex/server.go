@@ -8,9 +8,36 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
 const maxBodyBytes = 10 << 20
+
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(*http.Request) bool { return true },
+}
+
+// WSFailureMode selects a one-shot WebSocket failure behavior for the emulator.
+type WSFailureMode int
+
+const (
+	WSFailureNone WSFailureMode = iota
+	// WSFailurePolicyCloseBeforeEvent closes immediately after upgrade before any event frame.
+	WSFailurePolicyCloseBeforeEvent
+	// WSFailureNormalCloseBeforeEvent sends CloseNormalClosure immediately after upgrade.
+	WSFailureNormalCloseBeforeEvent
+	// WSFailureNoCanonicalFirstFrame sends one mappable but non-canonical event, then closes normally.
+	WSFailureNoCanonicalFirstFrame
+	// WSFailureMalformedFirstFrame sends invalid JSON as the first event frame.
+	WSFailureMalformedFirstFrame
+	// WSFailureStall consumes response.create and never sends an event frame.
+	WSFailureStall
+	// WSFailureAfterFirstEvent sends the first canonical event frame, then drops the connection.
+	WSFailureAfterFirstEvent
+	// WSFailureStallAfterFirstEvent sends the first canonical event frame, then stalls.
+	WSFailureStallAfterFirstEvent
+)
 
 // Config tunes the Codex Responses emulator.
 type Config struct {
@@ -21,11 +48,18 @@ type Config struct {
 	ForcedHTTPStatus int
 	ForcedRetryAfter string
 	ForcedErrorJSON  string
+	// ForcedWSFailure applies one one-shot WebSocket failure mode to the first upgrade.
+	ForcedWSFailure WSFailureMode
+	// ForcedWSRejectModel, when set, makes the WebSocket handler send a pre-content
+	// error event frame and close when the response.create payload names this model.
+	// Used to exercise reactive gpt-5.5 downgrade on the WebSocket path.
+	ForcedWSRejectModel string
 }
 
 // CapturedRequest is a snapshot of the latest handled POST /responses request.
 type CapturedRequest struct {
 	Path             string
+	Transport        string
 	Authorization    string
 	OpenAIBeta       string
 	Originator       string
@@ -45,6 +79,7 @@ type Server struct {
 	nextForcedStatus    int
 	nextForcedRetry     string
 	nextForcedErrorJSON string
+	nextWSFailure       WSFailureMode
 }
 
 // New returns an emulator configured from cfg.
@@ -55,7 +90,15 @@ func New(cfg Config) *Server {
 		s.nextForcedRetry = cfg.ForcedRetryAfter
 		s.nextForcedErrorJSON = cfg.ForcedErrorJSON
 	}
+	s.nextWSFailure = cfg.ForcedWSFailure
 	return s
+}
+
+// ForceNextWSFailure applies mode to the next WebSocket upgrade.
+func (s *Server) ForceNextWSFailure(mode WSFailureMode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextWSFailure = mode
 }
 
 // Handler returns the emulator HTTP handler.
@@ -75,6 +118,10 @@ func (s *Server) LatestRequest() CapturedRequest {
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	if websocket.IsWebSocketUpgrade(r) {
+		s.serveWebSocket(w, r)
+		return
+	}
 	if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/responses") {
 		http.NotFound(w, r)
 		return
@@ -111,17 +158,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	s.latest = CapturedRequest{
-		Path:             r.URL.Path,
-		Authorization:    r.Header.Get("Authorization"),
-		OpenAIBeta:       r.Header.Get("OpenAI-Beta"),
-		Originator:       r.Header.Get("originator"),
-		CodexTaskType:    r.Header.Get("Codex-Task-Type"),
-		ConversationID:   r.Header.Get("conversation_id"),
-		SessionID:        r.Header.Get("session_id"),
-		ChatGPTAccountID: r.Header.Get("chatgpt-account-id"),
-		Body:             maps.Clone(payload),
-	}
+	s.latest = captureRequest(r, "https", payload)
 	forcedStatus := s.nextForcedStatus
 	forcedRetry := s.nextForcedRetry
 	forcedJSON := s.nextForcedErrorJSON
@@ -147,6 +184,108 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	writeStream(w, s.outputText())
 }
 
+func (s *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Token != "" {
+		if r.Header.Get("Authorization") != "Bearer "+s.cfg.Token {
+			http.Error(w, "missing or invalid bearer", http.StatusUnauthorized)
+			return
+		}
+	}
+	if err := validateCodexHeaders(r); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	respHeader := http.Header{}
+	if s.cfg.PlanType != "" {
+		respHeader.Set("x-codex-plan-type", s.cfg.PlanType)
+	}
+	if s.cfg.UsagePercent != "" {
+		respHeader.Set("x-codex-primary-used-percent", s.cfg.UsagePercent)
+	}
+	conn, err := wsUpgrader.Upgrade(w, r, respHeader)
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	s.mu.Lock()
+	forcedWSFailure := s.nextWSFailure
+	s.nextWSFailure = WSFailureNone
+	s.mu.Unlock()
+	switch forcedWSFailure {
+	case WSFailurePolicyCloseBeforeEvent:
+		_ = conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "forced ws fail"))
+		return
+	case WSFailureNormalCloseBeforeEvent:
+		_ = conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		return
+	}
+
+	_, frame, err := conn.ReadMessage()
+	if err != nil {
+		return
+	}
+	var payload map[string]any
+	if len(frame) > 0 {
+		_ = json.Unmarshal(frame, &payload)
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if rejectModel := strings.TrimSpace(s.cfg.ForcedWSRejectModel); rejectModel != "" {
+		if model, _ := payload["model"].(string); model == rejectModel {
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(
+				`{"type":"error","error":{"message":"gpt-5.5 is not available on free plan"}}`))
+			return
+		}
+	}
+	s.mu.Lock()
+	s.latest = captureRequest(r, "websocket", payload)
+	s.mu.Unlock()
+
+	switch forcedWSFailure {
+	case WSFailureStall:
+		// Upgrade succeeded and the request frame was consumed, but no event is
+		// ever sent. Block until the client abandons the read and closes, which
+		// is how a server that upgrades but never produces a first event looks.
+		_, _, _ = conn.ReadMessage()
+		return
+	case WSFailureNoCanonicalFirstFrame:
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.unknown_ack"}`))
+		_ = conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		return
+	case WSFailureMalformedFirstFrame:
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("{not json"))
+		return
+	case WSFailureAfterFirstEvent:
+		// Send only the first canonical event, then drop mid-stream.
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(codexEventFrames(s.outputText())[0]))
+		return
+	case WSFailureStallAfterFirstEvent:
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(codexEventFrames(s.outputText())[0]))
+		_, _, _ = conn.ReadMessage()
+		return
+	}
+
+	for _, raw := range codexEventFrames(s.outputText()) {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(raw)); err != nil {
+			return
+		}
+	}
+	_ = conn.WriteMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+}
+
+func codexEventFrames(text string) []string {
+	created := `{"type":"response.created","sequence_number":0,"response":{"id":"resp_codex_ref","object":"response","created_at":1715620000,"status":"in_progress","model":"gpt-5.3-codex-spark"}}`
+	delta := fmt.Sprintf(`{"type":"response.output_text.delta","sequence_number":1,"item_id":"msg_codex_ref","output_index":0,"content_index":0,"delta":%q}`, text)
+	completed := fmt.Sprintf(`{"type":"response.completed","sequence_number":2,"response":{"id":"resp_codex_ref","object":"response","created_at":1715620000,"status":"completed","model":"gpt-5.3-codex-spark","output":[{"type":"message","id":"msg_codex_ref","status":"completed","role":"assistant","content":[{"type":"output_text","text":%q}]}],"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8}}}`, text)
+	return []string{created, delta, completed}
+}
+
 func validateCodexHeaders(r *http.Request) error {
 	required := []struct {
 		name string
@@ -164,6 +303,21 @@ func validateCodexHeaders(r *http.Request) error {
 		}
 	}
 	return nil
+}
+
+func captureRequest(r *http.Request, transport string, body map[string]any) CapturedRequest {
+	return CapturedRequest{
+		Path:             r.URL.Path,
+		Transport:        transport,
+		Authorization:    r.Header.Get("Authorization"),
+		OpenAIBeta:       r.Header.Get("OpenAI-Beta"),
+		Originator:       r.Header.Get("originator"),
+		CodexTaskType:    r.Header.Get("Codex-Task-Type"),
+		ConversationID:   r.Header.Get("conversation_id"),
+		SessionID:        r.Header.Get("session_id"),
+		ChatGPTAccountID: r.Header.Get("chatgpt-account-id"),
+		Body:             maps.Clone(body),
+	}
 }
 
 func (s *Server) outputText() string {
@@ -197,17 +351,18 @@ func defaultForcedErrorJSON(status int) string {
 }
 
 func writeStream(w http.ResponseWriter, text string) {
-	created := `{"type":"response.created","sequence_number":0,"response":{"id":"resp_codex_ref","object":"response","created_at":1715620000,"status":"in_progress","model":"gpt-5.3-codex"}}`
-	delta := fmt.Sprintf(`{"type":"response.output_text.delta","sequence_number":1,"item_id":"msg_codex_ref","output_index":0,"content_index":0,"delta":%q}`, text)
-	completed := fmt.Sprintf(`{"type":"response.completed","sequence_number":2,"response":{"id":"resp_codex_ref","object":"response","created_at":1715620000,"status":"completed","model":"gpt-5.3-codex","output":[{"type":"message","id":"msg_codex_ref","status":"completed","role":"assistant","content":[{"type":"output_text","text":%q}]}],"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8}}}`, text)
+	frames := codexEventFrames(text)
+	events := []string{
+		"response.created",
+		"response.output_text.delta",
+		"response.completed",
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "event: response.created\n")
-	_, _ = io.WriteString(w, "data: "+created+"\n\n")
-	_, _ = io.WriteString(w, "event: response.output_text.delta\n")
-	_, _ = io.WriteString(w, "data: "+delta+"\n\n")
-	_, _ = io.WriteString(w, "event: response.completed\n")
-	_, _ = io.WriteString(w, "data: "+completed+"\n\n")
+	for i, raw := range frames {
+		_, _ = io.WriteString(w, "event: "+events[i]+"\n")
+		_, _ = io.WriteString(w, "data: "+raw+"\n\n")
+	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
 }

@@ -55,7 +55,7 @@ func refreshOAuthAccessToken(ctx context.Context, cfg Config, client *http.Clien
 	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return cfg, fmt.Errorf("refresh HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return cfg, fmt.Errorf("refresh HTTP %d: %s", resp.StatusCode, truncateErrorMessage(string(respBody), upstreamErrorBodyMax))
 	}
 
 	var parsed map[string]json.RawMessage

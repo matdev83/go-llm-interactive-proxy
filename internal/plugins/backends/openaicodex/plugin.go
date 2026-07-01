@@ -3,10 +3,13 @@ package openaicodex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -15,6 +18,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
+
+// errManagedAccountsExhausted signals that the managed WebSocket open failed because
+// every managed account was unusable due to account-level auth/rate-limit rejection,
+// not a WebSocket transport problem. openWithFallback uses it to skip the global WS
+// cooldown: the bad accounts are already marked in the credpool and excluded from
+// future selection, so disabling WS for the whole backend would only delay recovery
+// of accounts whose per-account cooldown expires sooner than the WS fallback window.
+var errManagedAccountsExhausted = errors.New("managed oauth accounts exhausted")
 
 var backendCaps = lipapi.NewBackendCaps(
 	lipapi.CapabilityStreaming,
@@ -26,11 +37,14 @@ var backendCaps = lipapi.NewBackendCaps(
 )
 
 type backendRuntime struct {
-	mu        sync.Mutex
-	cfg       Config
-	oauth     *accountStore
-	downgrade downgradePolicy
-	usageEst  *usageEstimator
+	mu           sync.Mutex
+	cfg          Config
+	oauth        *accountStore
+	downgrade    downgradePolicy
+	usageEst     *usageEstimator
+	cooldown     *transportCooldown
+	wsSessions   *wsSessionStore
+	continuation *wsContinuationStore
 }
 
 func New(cfg Config) execbackend.Backend {
@@ -42,6 +56,14 @@ func New(cfg Config) execbackend.Backend {
 	if err != nil {
 		return newConfigErrorBackend(err)
 	}
+	transport, err := NormalizeTransport(resolved.Transport, resolved.ExperimentalWebSocket)
+	if err != nil {
+		return newConfigErrorBackend(err)
+	}
+	resolved.Transport = transport
+	if resolved.WebSocketFallbackCooldown <= 0 {
+		resolved.WebSocketFallbackCooldown = DefaultWebSocketFallbackCooldown
+	}
 	usageEst, err := newUsageEstimator()
 	if err != nil {
 		return newConfigErrorBackend(err)
@@ -50,6 +72,9 @@ func New(cfg Config) execbackend.Backend {
 	rt.cfg = resolved
 	rt.oauth = store
 	rt.usageEst = usageEst
+	rt.cooldown = newTransportCooldown(resolved.WebSocketFallbackCooldown)
+	rt.wsSessions = newWSSessionStore()
+	rt.continuation = newWSContinuationStore(codexContinuationTTL, codexContinuationMaxEntries)
 	if store == nil {
 		if err := checkcfg.RequireNonEmpty(ID, "access_token", resolved.AccessToken); err != nil {
 			return newConfigErrorBackend(err)
@@ -102,56 +127,147 @@ func (rt *backendRuntime) open(ctx context.Context, call lipapi.Call, cand routi
 	cfg := rt.cfg
 	store := rt.oauth
 	usageEst := rt.usageEst
+	cooldown := rt.cooldown
+	wsSessions := rt.wsSessions
+	continuation := rt.continuation
+	downgrade := rt.downgrade
 	rt.mu.Unlock()
 	if store != nil {
-		return openManaged(ctx, &cfg, store, call, cand, rt.downgrade, usageEst)
+		return openWithFallback(ctx, &cfg, cooldown,
+			func() (lipapi.ManagedEventStream, error) {
+				return openManaged(ctx, &cfg, store, call, cand, downgrade, usageEst)
+			},
+			func() (lipapi.ManagedEventStream, error) {
+				return openManagedWS(ctx, &cfg, store, call, cand, downgrade, usageEst, wsSessions, continuation)
+			},
+		)
 	}
-	return open(ctx, &cfg, rt, call, cand)
+	return openWithFallback(ctx, &cfg, cooldown,
+		func() (lipapi.ManagedEventStream, error) { return openHTTP(ctx, &cfg, rt, downgrade, call, cand) },
+		func() (lipapi.ManagedEventStream, error) {
+			return openWS(ctx, &cfg, downgrade, usageEst, wsSessions, continuation, call, cand)
+		},
+	)
 }
 
-func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator) (lipapi.ManagedEventStream, error) {
+// openWithFallback orchestrates transport selection for both the static-token
+// and managed paths. HTTPS is used directly when configured or when the WS
+// cooldown is active; WebSocket is used strictly when configured; auto mode
+// tries WS and falls back to HTTPS only on a WS fallback-eligible error,
+// recording the cooldown. The openHTTPS/openWS closures carry the path-specific
+// account wiring so this helper stays free of managed/static differences.
+func openWithFallback(
+	ctx context.Context,
+	cfg *Config,
+	cooldown *transportCooldown,
+	openHTTPS, openWS func() (lipapi.ManagedEventStream, error),
+) (lipapi.ManagedEventStream, error) {
+	switch cfg.Transport {
+	case TransportHTTPS:
+		return openHTTPS()
+	case TransportWebSocket:
+		return openWS()
+	default:
+		if cooldown.active() {
+			return openHTTPS()
+		}
+		es, err := openWS()
+		if err == nil {
+			return es, nil
+		}
+		// Account-level exhaustion from the managed WS path is not a WebSocket
+		// transport problem: the bad accounts are already marked and excluded, and
+		// HTTPS fallback may still succeed with a usable account. Skip the global WS
+		// cooldown so a later-recovered account can use WS again without waiting out
+		// the fallback window.
+		if errors.Is(err, errManagedAccountsExhausted) {
+			return openHTTPS()
+		}
+		if isWSFallbackError(ctx, err) {
+			cooldown.markFailed()
+			return openHTTPS()
+		}
+		return nil, err
+	}
+}
+
+// selectManagedSession prepares the per-account session state shared by the WS
+// and HTTP managed paths: picks an account for the conversation, derives the
+// per-account call config, and resolves the plan-scoped model. The returned
+// callCfg is a caller-owned copy so per-call mutation (e.g. OAuth refresh on
+// the static path) never leaks back into the stored account config.
+func selectManagedSession(env *codexOpenEnv, cfg *Config, store *accountStore, policy downgradePolicy) (managedAccount, Config, string, error) {
+	acct, err := store.selectAccountForSession(env.convID)
+	if err != nil {
+		return managedAccount{}, Config{}, "", err
+	}
+	callCfg := callCfgFromAccount(cfg, acct)
+	planType := firstNonEmpty(acct.PlanType, cfg.PlanTypeHint)
+	return acct, callCfg, policy.modelForPlan(env.originalModel, planType), nil
+}
+
+type managedOpenAttemptFn func(ctx context.Context, env *codexOpenEnv, callCfg *Config, model string, usageEst *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error)
+
+func openManagedAccountLoop(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, attempt managedOpenAttemptFn) (lipapi.ManagedEventStream, error) {
 	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy)
 	if err != nil {
 		return nil, err
 	}
 	retries := maxManagedRetries(store)
 	for range retries {
-		acct, err := store.selectAccountForSession(env.convID)
+		acct, callCfg, model, err := selectManagedSession(env, cfg, store, policy)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: no usable managed oauth accounts: %w", ID, errManagedAccountsExhausted)
 		}
-		planType := firstNonEmpty(acct.PlanType, cfg.PlanTypeHint)
-		body, err := env.marshalWithModel(policy.modelForPlan(env.originalModel, planType))
+		es, resp, err := attempt(ctx, env, &callCfg, model, usageEst)
+		if err == nil {
+			if resp != nil {
+				if qh := codexQuotaHeaders(resp.Header); len(qh) > 0 {
+					_ = store.persistQuotaHeaders(acct, qh)
+				}
+			}
+			return es, nil
+		}
+		if resp != nil {
+			switch resp.StatusCode {
+			case http.StatusUnauthorized, http.StatusForbidden:
+				store.markAuthInvalid(acct)
+				continue
+			case http.StatusTooManyRequests:
+				now := store.now()
+				store.markRateLimited(acct, credpool.CooldownFromRetryAfterOrFallback(resp.Header.Get("Retry-After"), now, store.fallback))
+				continue
+			}
+		}
+		return nil, err
+	}
+	return nil, fmt.Errorf("%s: no usable managed oauth accounts: %w", ID, errManagedAccountsExhausted)
+}
+
+func openManagedWS(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator, wsSessions *wsSessionStore, continuation *wsContinuationStore) (lipapi.ManagedEventStream, error) {
+	return openManagedAccountLoop(ctx, cfg, store, call, cand, policy, usageEst, func(ctx context.Context, env *codexOpenEnv, callCfg *Config, model string, usageEst *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error) {
+		return openWSPrepared(ctx, env, callCfg, model, call, usageEst, wsSessions, continuation)
+	})
+}
+
+func openManaged(ctx context.Context, cfg *Config, store *accountStore, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy, usageEst *usageEstimator) (lipapi.ManagedEventStream, error) {
+	return openManagedAccountLoop(ctx, cfg, store, call, cand, policy, usageEst, func(ctx context.Context, env *codexOpenEnv, callCfg *Config, model string, usageEst *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error) {
+		body, err := env.marshalWithModel(model)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		callCfg := callCfgFromAccount(cfg, acct)
 		attempt := env.newAttempt(ctx, cfg, call, body, usageEst)
-		resp, err := attempt.doRequest(&callCfg)
+		resp, err := attempt.doRequest(callCfg)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		switch resp.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			readLimitedClose(resp)
-			store.markAuthInvalid(acct)
-			continue
-		case http.StatusTooManyRequests:
-			readLimitedClose(resp)
-			now := store.now()
-			store.markRateLimited(acct, credpool.CooldownFromRetryAfterOrFallback(resp.Header.Get("Retry-After"), now, store.fallback))
-			continue
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
+			b := readLimitedClose(resp)
+			return nil, resp, upstreamHTTPError(resp.StatusCode, b)
 		}
-		es, finalResp, err := completeCodexOpenAttempt(attempt, resp, &callCfg)
-		if err != nil {
-			return nil, err
-		}
-		if qh := codexQuotaHeaders(finalResp.Header); len(qh) > 0 {
-			_ = store.persistQuotaHeaders(acct, qh)
-		}
-		return es, nil
-	}
-	return nil, fmt.Errorf("%s: no usable managed oauth accounts", ID)
+		return completeCodexOpenAttempt(attempt, resp, callCfg)
+	})
 }
 
 func maxManagedRetries(store *accountStore) int {
@@ -161,12 +277,12 @@ func maxManagedRetries(store *accountStore) int {
 	return len(store.meta)
 }
 
-func open(ctx context.Context, cfg *Config, rt *backendRuntime, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, rt.downgrade)
+func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, policy downgradePolicy, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy)
 	if err != nil {
 		return nil, err
 	}
-	body, err := env.marshalWithModel(rt.downgrade.modelForPlan(env.originalModel, cfg.PlanTypeHint))
+	body, err := env.marshalWithModel(policy.modelForPlan(env.originalModel, cfg.PlanTypeHint))
 	if err != nil {
 		return nil, err
 	}
@@ -216,9 +332,32 @@ func doCodexRequest(ctx context.Context, client *http.Client, endpoint string, b
 		return nil, fmt.Errorf("%s: build request: %w", ID, err)
 	}
 	applyCodexHeaders(req, *cfg, convID)
+	start := time.Now()
+	if debugTurnsEnabled() {
+		slog.DebugContext(ctx, "openaicodex.debug.http_request_start",
+			"endpoint", endpoint,
+			"body_bytes", len(body),
+			"conversation_id", convID,
+		)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
+		if debugTurnsEnabled() {
+			slog.DebugContext(ctx, "openaicodex.debug.http_request_done",
+				"endpoint", endpoint,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"status", "error",
+				"error", err.Error(),
+			)
+		}
 		return nil, fmt.Errorf("%s: request: %w", ID, err)
+	}
+	if debugTurnsEnabled() {
+		slog.DebugContext(ctx, "openaicodex.debug.http_request_done",
+			"endpoint", endpoint,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"status", resp.StatusCode,
+		)
 	}
 	return resp, nil
 }
@@ -271,18 +410,7 @@ var builtinCodexModelIDs = []string{
 	"gpt-5.5",
 	"gpt-5.4",
 	"gpt-5.4-mini",
-	"gpt-5.3-codex",
-	"gpt-5.2-codex",
-	"gpt-5.2",
-	"gpt-5.1-codex-max",
-	"gpt-5.1-codex",
-	"gpt-5.1-codex-mini",
-	"gpt-5.1",
-	"gpt-5-codex",
-	"gpt-5-codex-mini",
-	"gpt-5",
-	"gpt-oss-120b",
-	"gpt-oss-20b",
+	"gpt-5.3-codex-spark",
 }
 
 func newConfigErrorBackend(err error) execbackend.Backend {

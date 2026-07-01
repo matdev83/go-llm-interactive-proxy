@@ -44,7 +44,7 @@ func TestOpen_oauthRefreshRetriesOnceOn401(t *testing.T) {
 		HTTPClient:    ts.Client(),
 	})
 	es, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestOpen_oauthRefreshFailureReturnsError(t *testing.T) {
 		HTTPClient:    ts.Client(),
 	})
 	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err == nil {
 		t.Fatal("expected refresh failure error")
@@ -117,12 +117,47 @@ func TestOpen_401WithoutRefreshTokenDoesNotRetry(t *testing.T) {
 		HTTPClient:    ts.Client(),
 	})
 	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err == nil {
 		t.Fatal("expected auth error")
 	}
 	if refreshCalls.Load() != 0 {
 		t.Fatalf("refresh calls: %d", refreshCalls.Load())
+	}
+}
+
+func TestOpen_oauthRefreshErrorTruncatesLongBody(t *testing.T) {
+	t.Parallel()
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, strings.Repeat("z", 5000))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	srv := refbackend.New(refbackend.Config{Token: "expected-token"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:       ts.URL + "/backend-api/codex",
+		AccessToken:   "old-token",
+		RefreshToken:  "bad-refresh",
+		OAuthTokenURL: tokenSrv.URL,
+		HTTPClient:    ts.Client(),
+	})
+	_, err := be.Open(context.Background(), sampleCall(), routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
+	})
+	if err == nil {
+		t.Fatal("expected refresh failure error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, strings.Repeat("z", 300)) {
+		t.Fatalf("error leaks long token-endpoint body (len=%d)", len(msg))
+	}
+	if !strings.Contains(msg, "refresh") {
+		t.Fatalf("expected refresh context in error: %q", msg)
 	}
 }

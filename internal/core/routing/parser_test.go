@@ -110,7 +110,7 @@ func TestParseFirstSingleArm(t *testing.T) {
 // Task 14.5: parity with composite routing examples (failover |, weighted ^, [first], [weight=], per-leg query).
 func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 	t.Parallel()
-	s := "[first]openai-codex:gpt-5.3-codex?reasoning_effort=high^[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low|[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+	s := "[first]openai-codex:gpt-5.3-codex-spark?reasoning_effort=high^[weight=4]openai-codex:gpt-5.3-codex-spark?reasoning_effort=low|[weight=2]openai-codex:gpt-5.3-codex-spark?reasoning_effort=medium"
 	sel, err := Parse(s)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestParseParity_pythonLIPCompositeSelector(t *testing.T) {
 	if !b0.IsFirst || b0.Weight != 1 {
 		t.Fatalf("branch0: IsFirst=%v Weight=%d", b0.IsFirst, b0.Weight)
 	}
-	if b0.Target.Backend != "openai-codex" || b0.Target.Model != "gpt-5.3-codex" {
+	if b0.Target.Backend != "openai-codex" || b0.Target.Model != "gpt-5.3-codex-spark" {
 		t.Fatalf("branch0 target: %#v", b0.Target)
 	}
 	if b0.Target.Params.Get("reasoning_effort") != "high" {

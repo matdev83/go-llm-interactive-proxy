@@ -28,6 +28,8 @@ type FrontendMountOptions struct {
 	Exec ExecutorView
 	// DefaultRoute is the selector used when the frontend protocol omits a route/header override.
 	DefaultRoute string
+	// RoutePrefixes are backend route-selector prefixes accepted from protocol model fields.
+	RoutePrefixes []string
 	// MaxRequestBodyBytes caps inbound HTTP request size. Zero means the frontend should use its
 	// own default limit.
 	MaxRequestBodyBytes int64

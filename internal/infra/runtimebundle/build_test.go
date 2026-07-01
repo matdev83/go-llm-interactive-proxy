@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -173,6 +174,31 @@ func TestBuild_setsEffectiveDefaultRoute_defaultWireModel(t *testing.T) {
 	want := ar.Resolve(wantRaw)
 	if b.EffectiveDefaultRoute != want {
 		t.Fatalf("EffectiveDefaultRoute: got %q want %q", b.EffectiveDefaultRoute, want)
+	}
+}
+
+func TestBuild_derivesRoutePrefixesFromEnabledBackends(t *testing.T) {
+	t.Parallel()
+
+	reg := pluginreg.NewRegistry()
+	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Routing: config.RoutingConfig{MaxAttempts: 3},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "local-stub", Enabled: true}},
+		},
+		Continuity: config.ContinuityConfig{InMemory: true},
+	}
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(b.RoutePrefixes, "local-stub") {
+		t.Fatalf("RoutePrefixes = %v, want local-stub", b.RoutePrefixes)
 	}
 }
 

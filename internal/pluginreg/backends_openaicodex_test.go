@@ -85,7 +85,7 @@ func TestOpenAICodexBackendFactory_buildsFromYAMLAndHitsRefEmulator(t *testing.T
 		}},
 	}
 	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +121,8 @@ func TestOpenAICodexBackendFactory_configuredModelsFlowToInventory(t *testing.T)
 access_token: sk-codex
 models:
   items:
-    - canonical_id: openai-codex/gpt-5.3-codex
-      native_id: gpt-5.3-codex
+    - canonical_id: openai-codex/gpt-5.3-codex-spark
+      native_id: gpt-5.3-codex-spark
     - canonical_id: openai-codex/gpt-5.4
       native_id: gpt-5.4
 `
@@ -137,7 +137,7 @@ models:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := nativeIDs(snap.Models); !slices.Equal(got, []string{"gpt-5.3-codex", "gpt-5.4"}) {
+	if got := nativeIDs(snap.Models); !slices.Equal(got, []string{"gpt-5.3-codex-spark", "gpt-5.4"}) {
 		t.Fatalf("native IDs = %#v", got)
 	}
 }
@@ -170,7 +170,7 @@ func TestOpenAICodexBackendFactory_authJSONPath(t *testing.T) {
 	}
 	_, err = be.Open(context.Background(), lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
-	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestOpenAICodexBackendFactory_apiKeysFirstKeyUsed(t *testing.T) {
 	}
 	_, err = be.Open(context.Background(), lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
-	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestOpenAICodexBackendFactory_credentialsAPIKey(t *testing.T) {
 	}
 	_, err = be.Open(context.Background(), lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
-	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestOpenAICodexBackendFactory_envFallbackWhenYAMLHasNoKeys(t *testing.T) {
 	}
 	_, err = be.Open(context.Background(), lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
-	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestOpenAICodexBackendFactory_ignoresDefaultTemperatureYAML(t *testing.T) {
 	}
 	es, err := be.Open(context.Background(), lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
-	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
 	if err != nil {
 		t.Fatalf("default_temperature must not be plumbed or rejected: %v", err)
 	}
@@ -302,6 +302,63 @@ func TestOpenAICodexBackendFactory_ignoresDefaultTemperatureYAML(t *testing.T) {
 	body := srv.LatestRequest().Body
 	if _, ok := body["temperature"]; ok {
 		t.Fatalf("temperature must not appear in payload: %#v", body)
+	}
+}
+
+func TestOpenAICodexBackendFactory_transportHTTPSFromYAML(t *testing.T) {
+	t.Parallel()
+
+	srv := refbackend.New(refbackend.Config{Token: "sk-codex", OutputText: "ok"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	reg := NewRegistry()
+	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	var cfg yaml.Node
+	yamlText := "base_url: " + ts.URL + "/backend-api/codex\naccess_token: sk-codex\ntransport: https\nwebsocket_fallback_cooldown_seconds: 1\n"
+	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	es, err := be.Open(context.Background(), lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainOpenAICodexStream(t, es)
+	if got := srv.LatestRequest().Transport; got != "https" {
+		t.Fatalf("transport = %q, want https", got)
+	}
+}
+
+func TestOpenAICodexBackendFactory_invalidTransportFromYAML(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(refbackend.New(refbackend.Config{Token: "sk-codex"}).Handler())
+	t.Cleanup(ts.Close)
+	reg := NewRegistry()
+	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	var cfg yaml.Node
+	yamlText := "base_url: " + ts.URL + "/backend-api/codex\naccess_token: sk-codex\ntransport: quic\n"
+	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = be.Open(context.Background(), lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
+	if err == nil {
+		t.Fatal("expected invalid transport config error")
 	}
 }
 
@@ -340,7 +397,7 @@ func TestOpenAICodexBackendFactory_apiKeyAliasForAccessToken(t *testing.T) {
 	}
 	_, err = be.Open(context.Background(), lipapi.Call{
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
-	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex"}})
+	}, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.3-codex-spark"}})
 	if err != nil {
 		t.Fatal(err)
 	}

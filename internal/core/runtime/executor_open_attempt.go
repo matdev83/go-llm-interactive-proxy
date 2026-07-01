@@ -517,6 +517,7 @@ func (e *Executor) openPlannedCandidate(
 		slog.String("operation", string(openCall.Invocation.Operation)),
 		slog.String("client_delivery_mode", string(openCall.Invocation.DeliveryMode)),
 		slog.String("upstream_transport_mode", string(openCall.Invocation.TransportMode)),
+		slog.String("reasoning_effort", openCall.Options.ReasoningEffort),
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
 	e.logInterleavedRouteSelected(p.ctx, p.traceID, bleg.BLegID, c)

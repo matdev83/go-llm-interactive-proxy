@@ -17,7 +17,7 @@ func testCodexStream() *codexStream {
 func TestHandleData_malformedJSON_returnsError(t *testing.T) {
 	t.Parallel()
 	s := testCodexStream()
-	if err := s.handleData("{not json"); err == nil {
+	if err := s.mapper.handleData("{not json"); err == nil {
 		t.Fatal("expected malformed JSON error")
 	}
 }
@@ -38,11 +38,11 @@ func TestHandleData_responseCreatedAndCompleted_mapsLifecycleAndUsage(t *testing
 	created := `{"type":"response.created","response":{"id":"resp_created"}}`
 	completed := `{"type":"response.completed","response":{"id":"resp_completed","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}`
 	for _, raw := range []string{created, completed} {
-		if err := s.handleData(raw); err != nil {
+		if err := s.mapper.handleData(raw); err != nil {
 			t.Fatalf("handleData: %v", err)
 		}
 	}
-	events := stream.DrainPending(&s.pending)
+	events := stream.DrainPending(&s.mapper.pending)
 	want := []lipapi.EventKind{lipapi.EventResponseStarted, lipapi.EventMessageStarted, lipapi.EventUsageDelta, lipapi.EventResponseFinished}
 	if len(events) != len(want) {
 		t.Fatalf("events: %+v", events)
@@ -71,11 +71,11 @@ func TestHandleData_completedWithoutUsageDoesNotEstimateUsage(t *testing.T) {
 	delta := `{"type":"response.output_text.delta","delta":"world"}`
 	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"world"}]}]}}`
 	for _, raw := range []string{delta, completed} {
-		if err := s.handleData(raw); err != nil {
+		if err := s.mapper.handleData(raw); err != nil {
 			t.Fatalf("handleData: %v", err)
 		}
 	}
-	events := stream.DrainPending(&s.pending)
+	events := stream.DrainPending(&s.mapper.pending)
 	for _, ev := range events {
 		if ev.Kind == lipapi.EventUsageDelta {
 			t.Fatalf("raw stream must not estimate usage: %+v", events)
@@ -101,7 +101,7 @@ func TestUsageEstimatingStream_completedWithoutUsage_generatesEstimatedUsageBefo
 		{Kind: lipapi.EventTextDelta, Delta: "world"},
 		{Kind: lipapi.EventResponseFinished},
 	})
-	s := newUsageEstimatingStream(base, est, call, "gpt-5.3-codex")
+	s := newUsageEstimatingStream(base, est, call, "gpt-5.3-codex-spark")
 
 	var events []lipapi.Event
 	for {
@@ -164,7 +164,7 @@ func TestUsageEstimatingStream_providerUsageIsNotOverridden(t *testing.T) {
 		providerUsage,
 		{Kind: lipapi.EventResponseFinished},
 	})
-	s := newUsageEstimatingStream(base, est, lipapi.Call{}, "gpt-5.3-codex")
+	s := newUsageEstimatingStream(base, est, lipapi.Call{}, "gpt-5.3-codex-spark")
 
 	var usage []lipapi.Event
 	for {
@@ -201,15 +201,19 @@ func TestHandleData_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 		`{"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_1","output_index":0,"name":"get_weather","arguments":"{\"city\":\"NYC\"}"}`,
 	}
 	for _, raw := range rawEvents {
-		if err := s.handleData(raw); err != nil {
+		if err := s.mapper.handleData(raw); err != nil {
 			t.Fatalf("handleData: %v", err)
 		}
 	}
 
 	var kinds []lipapi.EventKind
 	var args strings.Builder
-	for _, ev := range stream.DrainPending(&s.pending) {
+	var toolID string
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
 		kinds = append(kinds, ev.Kind)
+		if ev.Kind == lipapi.EventToolCallStarted {
+			toolID = ev.ToolCallID
+		}
 		if ev.Kind == lipapi.EventToolCallArgsDelta {
 			args.WriteString(ev.Delta)
 		}
@@ -219,6 +223,9 @@ func TestHandleData_toolCallStream_mapsToCanonicalToolEvents(t *testing.T) {
 	}
 	if got := args.String(); got != `{"city":"NYC"}` {
 		t.Fatalf("combined args: %q", got)
+	}
+	if toolID != "call_fc_1" {
+		t.Fatalf("tool call id = %q, want upstream call_id", toolID)
 	}
 	if kinds[len(kinds)-1] != lipapi.EventToolCallFinished {
 		t.Fatalf("last event: %v", kinds)
@@ -230,12 +237,12 @@ func TestHandleData_completedOnly_emitsFullText(t *testing.T) {
 	s := testCodexStream()
 
 	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}}`
-	if err := s.handleData(completed); err != nil {
+	if err := s.mapper.handleData(completed); err != nil {
 		t.Fatal(err)
 	}
 
 	var texts []string
-	for _, ev := range stream.DrainPending(&s.pending) {
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
 		if ev.Kind == lipapi.EventTextDelta {
 			texts = append(texts, ev.Delta)
 		}
@@ -245,18 +252,46 @@ func TestHandleData_completedOnly_emitsFullText(t *testing.T) {
 	}
 }
 
+func TestHandleData_blocksToolProtocolTextLeak(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	raw := `{"type":"response.output_text.delta","delta":"{\"filePath\":\"C:\\\\repo\\\\file.go\",\"offset\":49,\"limit\":120}to=functions.read"}`
+	if err := s.mapper.handleData(raw); err != nil {
+		t.Fatal(err)
+	}
+
+	events := stream.DrainPending(&s.mapper.pending)
+	if len(events) == 0 {
+		t.Fatal("expected error event")
+	}
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventTextDelta {
+			t.Fatalf("tool protocol leaked as text: %+v", ev)
+		}
+	}
+	last := events[len(events)-1]
+	if last.Kind != lipapi.EventError || last.ErrorCode != "tool_protocol_text_leak" {
+		t.Fatalf("last event = %+v, want tool protocol leak error", last)
+	}
+}
+
 func TestHandleData_completed_replaysFunctionCalls(t *testing.T) {
 	t.Parallel()
 	s := testCodexStream()
 
 	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","id":"fc_1","call_id":"call_fc_1","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}]}}`
-	if err := s.handleData(completed); err != nil {
+	if err := s.mapper.handleData(completed); err != nil {
 		t.Fatal(err)
 	}
 
 	var kinds []lipapi.EventKind
-	for _, ev := range stream.DrainPending(&s.pending) {
+	var toolID string
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
 		kinds = append(kinds, ev.Kind)
+		if ev.Kind == lipapi.EventToolCallStarted {
+			toolID = ev.ToolCallID
+		}
 	}
 	want := []lipapi.EventKind{
 		lipapi.EventResponseStarted,
@@ -274,6 +309,9 @@ func TestHandleData_completed_replaysFunctionCalls(t *testing.T) {
 			t.Fatalf("event[%d] = %v, want %v", i, kinds[i], kind)
 		}
 	}
+	if toolID != "call_fc_1" {
+		t.Fatalf("tool call id = %q, want upstream call_id", toolID)
+	}
 }
 
 func TestHandleData_outputItemDone_emitsCompleteToolCall(t *testing.T) {
@@ -281,13 +319,17 @@ func TestHandleData_outputItemDone_emitsCompleteToolCall(t *testing.T) {
 	s := testCodexStream()
 
 	raw := `{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_done","call_id":"call_fc_done","name":"get_weather","arguments":"{\"city\":\"NYC\"}"}}`
-	if err := s.handleData(raw); err != nil {
+	if err := s.mapper.handleData(raw); err != nil {
 		t.Fatal(err)
 	}
 
 	var kinds []lipapi.EventKind
-	for _, ev := range stream.DrainPending(&s.pending) {
+	var toolID string
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
 		kinds = append(kinds, ev.Kind)
+		if ev.Kind == lipapi.EventToolCallStarted {
+			toolID = ev.ToolCallID
+		}
 	}
 	want := []lipapi.EventKind{
 		lipapi.EventResponseStarted,
@@ -304,6 +346,19 @@ func TestHandleData_outputItemDone_emitsCompleteToolCall(t *testing.T) {
 			t.Fatalf("event[%d] = %v, want %v", i, kinds[i], kind)
 		}
 	}
+	if toolID != "call_fc_done" {
+		t.Fatalf("tool call id = %q, want upstream call_id", toolID)
+	}
+	if len(s.mapper.outputItems) != 1 {
+		t.Fatalf("output items = %#v", s.mapper.outputItems)
+	}
+	item, ok := s.mapper.outputItems[0].(functionCallItem)
+	if !ok {
+		t.Fatalf("output item = %#v, want functionCallItem", s.mapper.outputItems[0])
+	}
+	if item.ID != "fc_done" || item.CallID != "call_fc_done" || item.Name != "get_weather" || item.Arguments != `{"city":"NYC"}` {
+		t.Fatalf("output item = %#v", item)
+	}
 }
 
 func TestHandleData_toolCallStream_callIDOnDelta(t *testing.T) {
@@ -316,18 +371,53 @@ func TestHandleData_toolCallStream_callIDOnDelta(t *testing.T) {
 		`{"type":"response.function_call_arguments.done","sequence_number":2,"call_id":"call_only","output_index":0,"name":"get_weather","arguments":"{\"x\":1}"}`,
 	}
 	for _, raw := range rawEvents {
-		if err := s.handleData(raw); err != nil {
+		if err := s.mapper.handleData(raw); err != nil {
 			t.Fatalf("handleData: %v", err)
 		}
 	}
 
 	var toolID string
-	for _, ev := range stream.DrainPending(&s.pending) {
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
 		if ev.Kind == lipapi.EventToolCallStarted {
 			toolID = ev.ToolCallID
 		}
 	}
 	if toolID != "call_only" {
 		t.Fatalf("tool call id: %q", toolID)
+	}
+}
+
+func TestHandleData_toolArgsBeforeAddedWaitForToolName(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	rawEvents := []string{
+		`{"type":"response.function_call_arguments.delta","sequence_number":1,"item_id":"fc_late","output_index":0,"delta":"{\"filePath\":"}`,
+		`{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"function_call","id":"fc_late","call_id":"call_late","status":"in_progress","name":"read"}}`,
+		`{"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_late","output_index":0,"name":"read","arguments":"{\"filePath\":\"x\"}"}`,
+	}
+	for _, raw := range rawEvents {
+		if err := s.mapper.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+
+	events := stream.DrainPending(&s.mapper.pending)
+	var toolStarted *lipapi.Event
+	var args strings.Builder
+	for i := range events {
+		ev := events[i]
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted:
+			toolStarted = &ev
+		case lipapi.EventToolCallArgsDelta:
+			args.WriteString(ev.Delta)
+		}
+	}
+	if toolStarted == nil || toolStarted.ToolName != "read" {
+		t.Fatalf("tool started = %+v, want name read; events=%+v", toolStarted, events)
+	}
+	if got := args.String(); got != `{"filePath":` {
+		t.Fatalf("args = %q", got)
 	}
 }

@@ -41,19 +41,33 @@ func (p downgradePolicy) modelForPlan(requested, planType string) string {
 	return p.target
 }
 
-func (p downgradePolicy) isFreePlanRejection(status int, body string) bool {
-	if status != http.StatusBadRequest || p.disabled {
+func (p downgradePolicy) isReactiveFreePlanRejectionMessage(message string) bool {
+	if p.disabled {
 		return false
 	}
-	lower := strings.ToLower(body)
-	if !strings.Contains(lower, "gpt-5.5") || !strings.Contains(lower, "free") {
+	lower := strings.ToLower(message)
+	if !strings.Contains(lower, strings.ToLower(p.source)) || !strings.Contains(lower, "free") {
 		return false
 	}
 	return strings.Contains(lower, "unsupported") || strings.Contains(lower, "not available")
 }
 
+func (p downgradePolicy) shouldReactiveRetry(originalModel string, alreadyRetried bool, rejectionMessage string) bool {
+	if alreadyRetried || originalModel != p.source || p.disabled {
+		return false
+	}
+	return p.isReactiveFreePlanRejectionMessage(rejectionMessage)
+}
+
+func (p downgradePolicy) isFreePlanRejection(status int, body string) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	return p.isReactiveFreePlanRejectionMessage(body)
+}
+
 func (p downgradePolicy) retryBody(originalModel string, alreadyRetried bool, status int, body string, payload *Payload) ([]byte, bool, error) {
-	if alreadyRetried || originalModel != p.source || !p.isFreePlanRejection(status, body) {
+	if status != http.StatusBadRequest || !p.shouldReactiveRetry(originalModel, alreadyRetried, body) {
 		return nil, false, nil
 	}
 	payload.Model = p.target

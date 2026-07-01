@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -74,6 +75,9 @@ func loadAuthJSON(path string) (authJSONCredentials, error) {
 	if path == "" {
 		return authJSONCredentials{}, fmt.Errorf("path is empty")
 	}
+	if err := checkTokenFilePermissions(path); err != nil {
+		return authJSONCredentials{}, err
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return authJSONCredentials{}, err
@@ -122,4 +126,21 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// checkTokenFilePermissions rejects token files readable or writable by group
+// or other on Unix, mirroring the Codex CLI auth.json guard. On Windows
+// (ACL-based permissions, no meaningful Unix mode bits) it is a no-op.
+func checkTokenFilePermissions(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil // let the caller's ReadFile produce the canonical not-exist error
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%s: token file %q is group/other accessible (mode %o); expected 0600", ID, path, info.Mode().Perm())
+	}
+	return nil
 }

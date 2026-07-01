@@ -33,7 +33,7 @@ func TestOpen_payloadIncludesPromptCacheKeyFromSession(t *testing.T) {
 		}},
 	}
 	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +43,48 @@ func TestOpen_payloadIncludesPromptCacheKeyFromSession(t *testing.T) {
 	got := srv.LatestRequest().Body["prompt_cache_key"]
 	if got != "sess-cache-key" {
 		t.Fatalf("prompt_cache_key: %#v", got)
+	}
+}
+
+func TestOpen_payloadUsesAuthoritativeSessionBeforeClientHint(t *testing.T) {
+	t.Parallel()
+	srv := refbackend.New(refbackend.Config{Token: "sk-codex"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	be := backend.New(backend.Config{
+		BaseURL:     ts.URL + "/backend-api/codex",
+		AccessToken: "sk-codex",
+		HTTPClient:  ts.Client(),
+	})
+	call := lipapi.Call{
+		ID: "call-fallback",
+		Session: lipapi.SessionRef{
+			ClientSessionID:        "client-controlled-session",
+			AuthoritativeSessionID: "proxy-authoritative-session",
+		},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+	}
+	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drainEvents(t, es)
+
+	got := srv.LatestRequest().Body["prompt_cache_key"]
+	if got != "proxy-authoritative-session" {
+		t.Fatalf("prompt_cache_key: %#v", got)
+	}
+	if got := srv.LatestRequest().ConversationID; got != "proxy-authoritative-session" {
+		t.Fatalf("conversation_id: %q", got)
+	}
+	if got := srv.LatestRequest().SessionID; got != "proxy-authoritative-session" {
+		t.Fatalf("session_id: %q", got)
 	}
 }
 
@@ -65,7 +107,7 @@ func TestOpen_payloadPromptCacheKeyFallsBackToCallID(t *testing.T) {
 		}},
 	}
 	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{
-		Primary: routing.Primary{Model: "gpt-5.3-codex"},
+		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	})
 	if err != nil {
 		t.Fatal(err)

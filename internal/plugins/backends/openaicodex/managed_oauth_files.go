@@ -22,6 +22,11 @@ func loadManagedAccounts(dir string, filter []string) ([]managedAccount, error) 
 		if ent.IsDir() || !strings.HasSuffix(strings.ToLower(ent.Name()), ".json") {
 			continue
 		}
+		if ent.Type()&os.ModeSymlink != 0 {
+			// security: skip symlinked account files so a planted symlink cannot
+			// read targets outside the managed-oauth storage directory.
+			continue
+		}
 		path := filepath.Join(dir, ent.Name())
 		acct, ok, err := parseManagedAccountFile(path)
 		if err != nil {
@@ -49,6 +54,9 @@ func loadManagedAccounts(dir string, filter []string) ([]managedAccount, error) 
 }
 
 func parseManagedAccountFile(path string) (managedAccount, bool, error) {
+	if err := checkTokenFilePermissions(path); err != nil {
+		return managedAccount{}, false, err
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return managedAccount{}, false, err

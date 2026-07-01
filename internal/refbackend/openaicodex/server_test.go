@@ -2,16 +2,20 @@ package openaicodex_test
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	gorillawebsocket "github.com/gorilla/websocket"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaicodex"
 )
 
-const streamBody = `{"model":"gpt-5.3-codex","stream":true,"input":[{"type":"message","role":"user","content":"hi"}]}`
+const streamBody = `{"model":"gpt-5.3-codex-spark","stream":true,"input":[{"type":"message","role":"user","content":"hi"}]}`
 
 func setCodexHeaders(req *http.Request, token string) {
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -89,7 +93,7 @@ func TestServer_happyPath_streamsSSEAndCapturesRequest(t *testing.T) {
 		t.Fatalf("chatgpt-account-id: %q", got.ChatGPTAccountID)
 	}
 	model, ok := got.Body["model"].(string)
-	if !ok || model != "gpt-5.3-codex" {
+	if !ok || model != "gpt-5.3-codex-spark" {
 		t.Fatalf("body model: %#v", got.Body["model"])
 	}
 }
@@ -257,4 +261,91 @@ func containsSubstring(events []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestServer_webSocketUpgrade_streamsEventFramesAndCaptures(t *testing.T) {
+	t.Parallel()
+	srv := refbackend.New(refbackend.Config{Token: "sk-codex", OutputText: "ws-ok"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	dialer := gorillawebsocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	hdr := http.Header{}
+	hdr.Set("Authorization", "Bearer sk-codex")
+	hdr.Set("OpenAI-Beta", "responses=experimental")
+	hdr.Set("originator", "lip-test")
+	hdr.Set("Codex-Task-Type", "code")
+	hdr.Set("conversation_id", "conv-ws")
+	hdr.Set("session_id", "sess-ws")
+
+	wsURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/backend-api/codex/responses"
+	conn, resp, err := dialer.Dial(wsURL, hdr)
+	if err != nil {
+		t.Fatalf("dial: %v (resp=%v)", err, resp)
+	}
+	defer func() { _ = conn.Close() }()
+
+	frame := `{"type":"response.create","model":"gpt-5.3-codex-spark","store":false,"input":[{"type":"message","role":"user","content":"hi"}]}`
+	if err := conn.WriteMessage(gorillawebsocket.TextMessage, []byte(frame)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	var types []string
+	for i := range 3 {
+		_, data, rerr := conn.ReadMessage()
+		if rerr != nil {
+			t.Fatalf("read[%d]: %v", i, rerr)
+		}
+		var ev struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("decode[%d]: %v: %s", i, err, data)
+		}
+		types = append(types, ev.Type)
+	}
+	if !slices.Contains(types, "response.created") || !slices.Contains(types, "response.completed") {
+		t.Fatalf("event types: %v", types)
+	}
+
+	got := srv.LatestRequest()
+	if got.Transport != "websocket" {
+		t.Fatalf("captured transport = %q, want websocket", got.Transport)
+	}
+	if got.ConversationID != "conv-ws" {
+		t.Fatalf("conversation id: %q", got.ConversationID)
+	}
+	if m, _ := got.Body["model"].(string); m != "gpt-5.3-codex-spark" {
+		t.Fatalf("frame model: %#v", got.Body["model"])
+	}
+	if _, hasStream := got.Body["stream"]; hasStream {
+		t.Fatalf("WS frame must not carry stream field: %#v", got.Body)
+	}
+}
+
+func TestServer_webSocketForcedFail_closesBeforeEvents(t *testing.T) {
+	t.Parallel()
+	srv := refbackend.New(refbackend.Config{Token: "sk-codex", ForcedWSFailure: refbackend.WSFailurePolicyCloseBeforeEvent})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	dialer := gorillawebsocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	hdr := http.Header{}
+	hdr.Set("Authorization", "Bearer sk-codex")
+	hdr.Set("OpenAI-Beta", "responses=experimental")
+	hdr.Set("originator", "lip-test")
+	hdr.Set("Codex-Task-Type", "code")
+	hdr.Set("conversation_id", "conv-ws")
+	hdr.Set("session_id", "sess-ws")
+
+	wsURL := strings.Replace(ts.URL, "http://", "ws://", 1) + "/backend-api/codex/responses"
+	conn, _, err := dialer.Dial(wsURL, hdr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.WriteMessage(gorillawebsocket.TextMessage, []byte(`{"type":"response.create"}`))
+	if _, _, rerr := conn.ReadMessage(); rerr == nil {
+		t.Fatal("expected read failure before first event")
+	}
 }

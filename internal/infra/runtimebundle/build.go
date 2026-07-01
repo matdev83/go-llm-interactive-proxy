@@ -126,7 +126,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if startedCatalog != nil {
 		closers = append(closers, startedCatalog.closers...)
 	}
-	backends, inventories, err := buildBackends(cfg, reg, upstream, backendDeps)
+	backends, inventories, routePrefixes, err := buildBackends(cfg, reg, upstream, backendDeps)
 	if err != nil {
 		if derr := disposeClosers(closers); derr != nil {
 			return nil, errors.Join(err, derr)
@@ -286,6 +286,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Store:                 store,
 		Closers:               closers,
 		UpstreamHTTP:          upstream,
+		RoutePrefixes:         routePrefixes,
 		PluginRegistry:        reg,
 		EffectiveDefaultRoute: effectiveRoute,
 		Metrics:               bundle,
@@ -423,9 +424,10 @@ func buildBackends(
 	reg *pluginreg.Registry,
 	upstream *http.Client,
 	backendDeps pluginreg.BackendFactoryDeps,
-) (map[string]execbackend.Backend, []modelregistry.BackendInventory, error) {
+) (map[string]execbackend.Backend, []modelregistry.BackendInventory, []string, error) {
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
+	rawPrefixes := make([]string, 0, len(cfg.Plugins.Backends))
 	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
@@ -435,9 +437,10 @@ func buildBackends(
 		iid := p.InstanceID()
 		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
 		if err != nil {
-			return nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			return nil, nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
 		}
 		backends[iid] = be
+		rawPrefixes = append(rawPrefixes, be.BackendPrefixes...)
 		inventories = append(inventories, modelregistry.BackendInventory{
 			BackendID:       iid,
 			Kind:            fid,
@@ -446,7 +449,8 @@ func buildBackends(
 			FetchTimeout:    modelInventoryFetchTimeout,
 		})
 	}
-	return backends, inventories, nil
+	routePrefixes := routing.FilterRoutePrefixes(rawPrefixes)
+	return backends, inventories, routePrefixes, nil
 }
 
 func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {

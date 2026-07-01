@@ -45,6 +45,7 @@ type wireCreate struct {
 	TopP              *float64          `json:"top_p"`
 	MaxTokens         *int              `json:"max_tokens"`
 	ParallelToolCalls *bool             `json:"parallel_tool_calls"`
+	ReasoningEffort   string            `json:"reasoning_effort"`
 	StreamOptions     json.RawMessage   `json:"stream_options"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
 }
@@ -55,8 +56,13 @@ var legacyKnownBodyKeys = map[string]bool{
 	"parallel_tool_calls": true, "stream_options": true, "metadata": true,
 	"max_completion_tokens": true, "n": true, "stop": true, "presence_penalty": true,
 	"frequency_penalty": true, "logit_bias": true, "logprobs": true, "top_logprobs": true,
-	"seed": true, "suffix": true,
+	"seed": true, "suffix": true, "reasoning_effort": true,
 }
+
+var (
+	errEmptyAssistantMessage = errors.New("empty assistant message")
+	errEmptyChatContent      = errors.New("message content string is empty")
+)
 
 // DecodeChatRequest maps a Chat Completions JSON body into a canonical call.
 func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
@@ -134,6 +140,7 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 			TopP:              w.TopP,
 			MaxOutputTokens:   w.MaxTokens,
 			ParallelToolCalls: w.ParallelToolCalls,
+			ReasoningEffort:   strings.TrimSpace(w.ReasoningEffort),
 		},
 	}
 	if len(w.Metadata) > 0 {
@@ -150,6 +157,9 @@ func parseMessages(raw []json.RawMessage) ([]lipapi.Message, error) {
 	for i, it := range raw {
 		m, err := parseMessage(it)
 		if err != nil {
+			if errors.Is(err, errEmptyAssistantMessage) {
+				continue
+			}
 			return nil, fmt.Errorf("openailegacy: messages[%d]: %w", i, err)
 		}
 		out = append(out, m)
@@ -217,9 +227,15 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 	if jsonpresence.IsPresentNonNullJSON(content) {
 		cp, err := parseChatContent(content)
 		if err != nil {
-			return nil, fmt.Errorf("openailegacy: assistant content: %w", err)
+			if errors.Is(err, errEmptyChatContent) {
+				cp = nil
+			} else {
+				return nil, fmt.Errorf("openailegacy: assistant content: %w", err)
+			}
 		}
-		contentParts = cp
+		if err == nil {
+			contentParts = cp
+		}
 	}
 	if jsonpresence.IsPresentNonNullJSON(toolCalls) {
 		if err := frontendlimits.Bytes("tool_calls", len(toolCalls), frontendlimits.MaxRawJSONPayload); err != nil {
@@ -257,7 +273,7 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 		parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: functionCallPart})
 	}
 	if len(parts) == 0 {
-		return nil, errors.New("openailegacy: assistant message requires content, tool_calls, or function_call")
+		return nil, errEmptyAssistantMessage
 	}
 	return parts, nil
 }
@@ -316,7 +332,7 @@ func parseChatContent(raw json.RawMessage) ([]lipapi.Part, error) {
 		}
 		s = strings.TrimSpace(s)
 		if s == "" {
-			return nil, errors.New("message content string is empty")
+			return nil, errEmptyChatContent
 		}
 		return []lipapi.Part{lipapi.TextPart(s)}, nil
 	}

@@ -304,6 +304,8 @@ plugins:
       # managed_oauth_storage_path: var/openai_codex_oauth_accounts
       # managed_oauth_selection_strategy: first-available  # first-available | round-robin | session-affinity
       # managed_oauth_allow_auth_json_fallback: true
+      # transport: https  # default; websocket/auto require experimental_websocket: true
+      # experimental_websocket: false
       # gpt55_downgrade_disabled: false
       # OPENAI_CODEX_ACCESS_TOKEN / OPENAI_CODEX_API_KEY (+ _N variants) env vars
     - id: ollama
