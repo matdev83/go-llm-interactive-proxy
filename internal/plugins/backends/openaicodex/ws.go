@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,11 +19,6 @@ import (
 
 const wsHandshakeTimeout = 30 * time.Second
 
-const (
-	wsSessionIdleTTL    = 2 * time.Minute
-	wsSessionMaxEntries = 256
-)
-
 // wsFirstEventTimeout bounds the wait for the first canonical event after the
 // WebSocket handshake. Without it, a server that upgrades but never sends would
 // leave openWS blocked forever on conn.ReadMessage (which ignores ctx). It is a
@@ -33,198 +27,6 @@ const (
 var wsFirstEventTimeout = 30 * time.Second
 
 var errWSPreviousResponseNotFound = errors.New("websocket previous response not found")
-
-type wsSessionKey struct {
-	baseURL      string
-	accountID    string
-	accessToken  string
-	conversation string
-}
-
-type wsSessionStore struct {
-	mu         sync.Mutex
-	sessions   map[wsSessionKey]*wsSessionConn
-	idleTTL    time.Duration
-	maxEntries int
-	now        func() time.Time
-}
-
-type wsSessionConn struct {
-	key       wsSessionKey
-	store     *wsSessionStore
-	sem       chan struct{}
-	conn      *websocket.Conn
-	lastUsed  time.Time
-	idleTimer *time.Timer
-}
-
-func newWSSessionStore() *wsSessionStore {
-	return &wsSessionStore{
-		sessions:   make(map[wsSessionKey]*wsSessionConn),
-		idleTTL:    wsSessionIdleTTL,
-		maxEntries: wsSessionMaxEntries,
-		now:        time.Now,
-	}
-}
-
-func (s *wsSessionStore) acquire(ctx context.Context, client *http.Client, url string, cfg *Config, convID string) (*wsSessionConn, *http.Response, bool, error) {
-	key := wsSessionKey{
-		baseURL:      strings.TrimSpace(url),
-		accountID:    strings.TrimSpace(cfg.AccountID),
-		accessToken:  strings.TrimSpace(cfg.AccessToken),
-		conversation: strings.TrimSpace(convID),
-	}
-	s.mu.Lock()
-	session := s.sessions[key]
-	if session == nil {
-		session = &wsSessionConn{
-			key:      key,
-			store:    s,
-			sem:      make(chan struct{}, 1),
-			lastUsed: s.now(),
-		}
-		s.sessions[key] = session
-		s.pruneToCapLocked(session)
-	}
-	session.stopIdleTimerLocked()
-	s.mu.Unlock()
-
-	if err := session.acquire(ctx); err != nil {
-		return nil, nil, false, err
-	}
-	if session.conn != nil {
-		return session, nil, true, nil
-	}
-	conn, resp, err := dialCodexWebSocket(ctx, client, url, cfg, convID)
-	if err != nil {
-		session.release(true)
-		return nil, resp, false, err
-	}
-	session.conn = conn
-	return session, resp, false, nil
-}
-
-func (s *wsSessionStore) forgetLocked(key wsSessionKey, session *wsSessionConn) {
-	if s.sessions[key] == session {
-		delete(s.sessions, key)
-	}
-}
-
-func (s *wsSessionStore) pruneToCapLocked(protected *wsSessionConn) {
-	for len(s.sessions) > s.maxEntries {
-		var oldestKey wsSessionKey
-		var oldest *wsSessionConn
-		for key, session := range s.sessions {
-			if session == protected {
-				continue
-			}
-			if !session.tryAcquire() {
-				continue
-			}
-			if oldest == nil || session.lastUsed.Before(oldest.lastUsed) {
-				if oldest != nil {
-					oldest.unlock()
-				}
-				oldestKey = key
-				oldest = session
-				continue
-			}
-			session.unlock()
-		}
-		if oldest == nil {
-			return
-		}
-		oldest.closeConnLocked()
-		s.forgetLocked(oldestKey, oldest)
-		oldest.unlock()
-	}
-}
-
-func (s *wsSessionStore) closeIdle(key wsSessionKey, session *wsSessionConn) {
-	if !session.tryAcquire() {
-		return
-	}
-	defer session.unlock()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	session.closeConnLocked()
-	session.stopIdleTimerLocked()
-	s.forgetLocked(key, session)
-}
-
-func (s *wsSessionConn) acquire(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	select {
-	case s.sem <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (s *wsSessionConn) tryAcquire() bool {
-	select {
-	case s.sem <- struct{}{}:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s *wsSessionConn) unlock() {
-	select {
-	case <-s.sem:
-	default:
-	}
-}
-
-func (s *wsSessionConn) release(closeConn bool) {
-	if s.store == nil {
-		s.unlock()
-		return
-	}
-	s.store.mu.Lock()
-	if closeConn {
-		s.closeConnLocked()
-		s.stopIdleTimerLocked()
-		s.store.forgetLocked(s.key, s)
-	} else {
-		s.lastUsed = s.store.now()
-		s.scheduleIdleTimerLocked()
-	}
-	s.store.mu.Unlock()
-	s.unlock()
-}
-
-func (s *wsSessionConn) closeConnLocked() {
-	if s.conn == nil {
-		return
-	}
-	_ = s.conn.Close()
-	s.conn = nil
-}
-
-func (s *wsSessionConn) stopIdleTimerLocked() {
-	if s.idleTimer == nil {
-		return
-	}
-	s.idleTimer.Stop()
-	s.idleTimer = nil
-}
-
-func (s *wsSessionConn) scheduleIdleTimerLocked() {
-	s.stopIdleTimerLocked()
-	if s.store == nil || s.store.idleTTL <= 0 {
-		return
-	}
-	key := s.key
-	store := s.store
-	s.idleTimer = time.AfterFunc(s.store.idleTTL, func() {
-		store.closeIdle(key, s)
-	})
-}
 
 // wsEndpoint converts an HTTPS Codex base URL into the WebSocket scheme used by
 // the Codex Responses WebSocket transport. Path handling mirrors
@@ -299,6 +101,38 @@ type wsOpenAttemptState struct {
 	allowStaleRetry   bool
 }
 
+type wsOpenAttemptPayload struct {
+	env                 *codexOpenEnv
+	cfg                 *Config
+	call                lipapi.Call
+	continuation        *wsContinuationStore
+	fullPayload         Payload
+	fullInputFP         []string
+	continuationApplied bool
+}
+
+func newWSOpenAttemptPayload(ctx context.Context, env *codexOpenEnv, cfg *Config, model string, call lipapi.Call, continuation *wsContinuationStore, state wsOpenAttemptState) wsOpenAttemptPayload {
+	env.payload.Model = model
+	fullPayload := env.payload
+	fullInputFP := append([]string(nil), env.inputFingerprints...)
+	return wsOpenAttemptPayload{
+		env:                 env,
+		cfg:                 cfg,
+		call:                call,
+		continuation:        continuation,
+		fullPayload:         fullPayload,
+		fullInputFP:         fullInputFP,
+		continuationApplied: state.allowContinuation && continuation.prepareWithFingerprints(ctx, cfg, call, &env.payload, fullInputFP),
+	}
+}
+
+func (p wsOpenAttemptPayload) rollback() {
+	if p.continuationApplied {
+		p.continuation.invalidateWithFingerprints(p.cfg, p.call, &p.fullPayload, p.fullInputFP)
+	}
+	p.env.payload = p.fullPayload
+}
+
 func openWSPreparedAttempt(ctx context.Context, env *codexOpenEnv, cfg *Config, model string, call lipapi.Call, usageEst *usageEstimator, sessions *wsSessionStore, continuation *wsContinuationStore) (lipapi.ManagedEventStream, *http.Response, []byte, error) {
 	state := wsOpenAttemptState{
 		allowContinuation: true,
@@ -325,33 +159,20 @@ func openWSPreparedAttemptOnce(ctx context.Context, env *codexOpenEnv, cfg *Conf
 	if continuation == nil {
 		continuation = newWSContinuationStore(codexContinuationTTL, codexContinuationMaxEntries)
 	}
-	env.payload.Model = model
-	fullPayload := env.payload
-	fullInputFingerprints := append([]string(nil), env.inputFingerprints...)
-	continuationApplied := state.allowContinuation && continuation.prepareWithFingerprints(ctx, cfg, call, &env.payload, fullInputFingerprints)
-	clearPreparedContinuation := func() {
-		if continuationApplied {
-			continuation.invalidateWithFingerprints(cfg, call, &fullPayload, fullInputFingerprints)
-		}
-	}
-	restoreFullPayload := func() {
-		env.payload = fullPayload
-	}
+	attemptPayload := newWSOpenAttemptPayload(ctx, env, cfg, model, call, continuation, state)
 	frame, err := payloadToWSResponseCreate(env.payload)
 	if err != nil {
-		clearPreparedContinuation()
-		restoreFullPayload()
+		attemptPayload.rollback()
 		return nil, nil, nil, wsOpenNoRetry, err
 	}
 	session, resp, reusedSession, err := sessions.acquire(ctx, env.client, wsEndpoint(cfg.BaseURL), cfg, env.convID)
 	if err != nil {
-		clearPreparedContinuation()
 		// Restore the full payload snapshot before returning so a rotation retry on
 		// another account does not inherit this attempt's continuation-trimmed Input
 		// and PreviousResponseID. The other retry paths restore below for the same
 		// reason; the handshake-error path must too because it hands resp back to the
 		// managed loop, which rotates accounts on 401/403/429 reusing this env.
-		restoreFullPayload()
+		attemptPayload.rollback()
 		// Return the (body-closed) handshake response so the managed WS path can
 		// classify 401/403/429 handshakes and rotate to the next account.
 		return nil, resp, nil, wsOpenNoRetry, err
@@ -360,12 +181,10 @@ func openWSPreparedAttemptOnce(ctx context.Context, env *codexOpenEnv, cfg *Conf
 	if err := writeWSResponseCreate(ctx, conn, frame); err != nil {
 		session.release(true)
 		if reusedSession && state.allowStaleRetry {
-			clearPreparedContinuation()
-			restoreFullPayload()
+			attemptPayload.rollback()
 			return nil, nil, nil, wsOpenRetryFreshSession, err
 		}
-		clearPreparedContinuation()
-		restoreFullPayload()
+		attemptPayload.rollback()
 		return nil, nil, nil, wsOpenNoRetry, err
 	}
 	effectiveModel := strings.TrimSpace(env.payload.Model)
@@ -380,25 +199,21 @@ func openWSPreparedAttemptOnce(ctx context.Context, env *codexOpenEnv, cfg *Conf
 	if rerr != nil {
 		session.release(true)
 		if reusedSession && state.allowStaleRetry && isWSFallbackError(ctx, rerr) {
-			clearPreparedContinuation()
-			restoreFullPayload()
+			attemptPayload.rollback()
 			return nil, nil, nil, wsOpenRetryFreshSession, rerr
 		}
-		clearPreparedContinuation()
-		restoreFullPayload()
+		attemptPayload.rollback()
 		return nil, nil, nil, wsOpenNoRetry, rerr
 	}
 	if isWSFreePlanRejection(rawFirst, env.downgrade, env.originalModel) {
 		session.release(true)
-		clearPreparedContinuation()
-		restoreFullPayload()
+		attemptPayload.rollback()
 		return nil, resp, rawFirst, wsOpenNoRetry, fmt.Errorf("%s: websocket model rejected before first event", ID)
 	}
 	mapper := newCodexEventMapper(call.MaxPendingWireEvents)
 	if err := mapper.handleData(string(rawFirst)); err != nil {
 		session.release(true)
-		clearPreparedContinuation()
-		restoreFullPayload()
+		attemptPayload.rollback()
 		return nil, nil, rawFirst, wsOpenNoRetry, err
 	}
 	wsStream := newWSStreamWithMapper(conn, mapper)
@@ -415,17 +230,15 @@ func openWSPreparedAttemptOnce(ctx context.Context, env *codexOpenEnv, cfg *Conf
 		managed, rerr = openManagedUntilCommitted(ctx, wsStream, usageEst, call, effectiveModel, wsFirstEventTimeout)
 	}
 	if rerr != nil {
-		if continuationApplied && errors.Is(rerr, errWSPreviousResponseNotFound) {
-			continuation.invalidateWithFingerprints(cfg, call, &fullPayload, fullInputFingerprints)
-			restoreFullPayload()
+		if attemptPayload.continuationApplied && errors.Is(rerr, errWSPreviousResponseNotFound) {
+			attemptPayload.rollback()
 			wsStream.releaseOnce(true)
 			return nil, nil, rawFirst, wsOpenRetryWithoutContinuation, rerr
 		}
-		clearPreparedContinuation()
-		restoreFullPayload()
+		attemptPayload.rollback()
 		return nil, nil, rawFirst, wsOpenNoRetry, wsPreFirstEventFailure(rerr)
 	}
-	managed = newCodexContinuationRecordingStream(managed, cfg, call, fullPayload, fullInputFingerprints, mapper, continuation)
+	managed = newCodexContinuationRecordingStream(managed, cfg, call, attemptPayload.fullPayload, attemptPayload.fullInputFP, mapper, continuation)
 	// The opening boundary has been reached: strict websocket mode returns after
 	// the first canonical event, while auto mode waits until output is committed
 	// or terminal. Clear the deadline so subsequent streaming reads are governed
@@ -657,152 +470,4 @@ func payloadToWSResponseCreate(p Payload) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%s: marshal ws frame: %w", ID, err)
 	}
 	return out, nil
-}
-
-var _ lipapi.ManagedEventStream = (*wsStream)(nil)
-
-type wsStream struct {
-	mapper       *codexEventMapper
-	mu           sync.Mutex
-	conn         *websocket.Conn
-	closed       bool
-	release      func(closeConn bool)
-	releaseOnceF sync.Once
-}
-
-func newWSStream(conn *websocket.Conn, maxPending int) *wsStream {
-	return newWSStreamWithMapper(conn, newCodexEventMapper(maxPending))
-}
-
-// newWSStreamWithMapper builds a wsStream over a pre-existing event mapper. The caller
-// may have already populated the mapper's pending queue (e.g. from a pre-read first
-// frame); the stream's Recv drains pending before reading the next wire frame.
-func newWSStreamWithMapper(conn *websocket.Conn, mapper *codexEventMapper) *wsStream {
-	return &wsStream{
-		mapper: mapper,
-		conn:   conn,
-	}
-}
-
-func (s *wsStream) Recv(ctx context.Context) (lipapi.Event, error) {
-	if ctx == nil {
-		return lipapi.Event{}, lipapi.ErrNilContext
-	}
-	if err := ctx.Err(); err != nil {
-		return lipapi.Event{}, err
-	}
-	for {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			return lipapi.Event{}, io.EOF
-		}
-		if ev, ok := s.mapper.pending.PopFront(); ok {
-			s.mu.Unlock()
-			return ev, nil
-		}
-		if s.mapper.terminal {
-			s.mu.Unlock()
-			s.releaseOnce(false)
-			return lipapi.Event{}, io.EOF
-		}
-		s.mu.Unlock()
-
-		text, ok, err := s.readMessage(ctx)
-		if err != nil {
-			s.mu.Lock()
-			closed := s.closed
-			s.mu.Unlock()
-			if closed {
-				return lipapi.Event{}, io.EOF
-			}
-			s.releaseOnce(true)
-			return lipapi.Event{}, err
-		}
-		if !ok {
-			s.mu.Lock()
-			closed := s.closed
-			s.mu.Unlock()
-			if closed {
-				return lipapi.Event{}, io.EOF
-			}
-			s.releaseOnce(false)
-			return lipapi.Event{}, io.EOF
-		}
-		if text == "" {
-			continue
-		}
-
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			continue
-		}
-		if err := s.mapper.handleData(text); err != nil {
-			s.mu.Unlock()
-			return lipapi.Event{}, err
-		}
-		s.mu.Unlock()
-	}
-}
-
-func (s *wsStream) readMessage(ctx context.Context) (string, bool, error) {
-	stopCancel := context.AfterFunc(ctx, func() {
-		_ = s.conn.SetReadDeadline(time.Now())
-	})
-	defer stopCancel()
-	_, data, err := s.conn.ReadMessage()
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			_ = s.conn.SetReadDeadline(time.Time{})
-			return "", false, ctxErr
-		}
-		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-			return "", false, io.EOF
-		}
-		return "", false, newWSStreamReadError(err)
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "" {
-		return "", true, nil
-	}
-	return text, true, nil
-}
-
-func (s *wsStream) Close() error {
-	closeConn := true
-	s.mu.Lock()
-	if s.mapper.terminal {
-		closeConn = false
-	}
-	s.mu.Unlock()
-	if closeConn && s.conn != nil {
-		// Close first, without taking s.mu: Recv holds that lock while blocked in
-		// ReadMessage, so taking it before closing would deadlock cancellation.
-		_ = s.conn.Close()
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	s.releaseOnce(closeConn)
-	return nil
-}
-
-func (s *wsStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
-	// Codex WebSocket does not have a request-cancel frame in this adapter. Close
-	// the socket instead of pretending cancellation is protocol-level; this also
-	// prevents reuse of an in-flight session whose upstream generation may still be
-	// producing frames.
-	return lipapi.CancelResult{Mode: lipapi.CancelModeCloseOnly, Err: s.Close()}
-}
-
-func (s *wsStream) releaseOnce(closeConn bool) {
-	s.releaseOnceF.Do(func() {
-		if s.release != nil {
-			s.release(closeConn)
-		}
-	})
 }

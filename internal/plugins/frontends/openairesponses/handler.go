@@ -163,10 +163,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	decoded, err := DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
 	releaseDecode()
 	if err != nil {
-		log := h.Log
-		if log == nil {
-			log = slog.Default()
-		}
+		log := diag.LoggerOrDefault(h.Log)
 		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))
 		streamdebug.LogDecodeFailure(ctx, log, ID, body, err)
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
