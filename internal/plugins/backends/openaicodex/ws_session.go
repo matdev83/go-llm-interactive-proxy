@@ -128,6 +128,16 @@ func (s *wsSessionStore) closeIdle(key wsSessionKey, session *wsSessionConn) {
 	defer session.unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// The idle timer may have fired after acquire already stopped it (Stop returns
+	// false for an already-expired timer) and is about to reuse this tracked
+	// session. Closing in that case would evict a session an in-flight acquire is
+	// reusing and force a redundant dial on an untracked session. Skip only when
+	// the session is still the tracked entry AND its timer was stopped since
+	// firing. A session that is no longer the map entry (replaced/forgotten) still
+	// needs its conn closed to avoid leaking an orphaned connection.
+	if s.sessions[key] == session && session.idleTimer == nil {
+		return
+	}
 	session.closeConnLocked()
 	session.stopIdleTimerLocked()
 	s.forgetLocked(key, session)

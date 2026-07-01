@@ -59,9 +59,14 @@ func hasStructuredToolTranscript(msgs []lipapi.Message) bool {
 	return false
 }
 
-func isFunctionCallPart(p lipapi.Part) bool {
+// parseFunctionCallID extracts the call id and tool name from an assistant
+// function-call part. It accepts both Responses-style ("function_call") and
+// Chat Completions-style ("function") type tags so the accepted variants stay
+// in sync across callers. ok is true when the part is a recognized function-call
+// part; id and name are trimmed and may be empty.
+func parseFunctionCallID(p lipapi.Part) (id, name string, ok bool) {
 	if len(p.Content) == 0 {
-		return false
+		return "", "", false
 	}
 	var fc struct {
 		Type     string `json:"type"`
@@ -73,17 +78,22 @@ func isFunctionCallPart(p lipapi.Part) bool {
 		} `json:"function"`
 	}
 	if json.Unmarshal(p.Content, &fc) != nil {
-		return false
+		return "", "", false
 	}
 	if !strings.EqualFold(fc.Type, "function_call") && !strings.EqualFold(fc.Type, "function") {
-		return false
+		return "", "", false
 	}
-	id := firstNonEmpty(fc.CallID, fc.ID)
-	name := strings.TrimSpace(fc.Name)
+	id = strings.TrimSpace(firstNonEmpty(fc.CallID, fc.ID))
+	name = strings.TrimSpace(fc.Name)
 	if name == "" && fc.Function != nil {
 		name = strings.TrimSpace(fc.Function.Name)
 	}
-	return strings.TrimSpace(id) != "" && name != ""
+	return id, name, true
+}
+
+func isFunctionCallPart(p lipapi.Part) bool {
+	id, name, ok := parseFunctionCallID(p)
+	return ok && id != "" && name != ""
 }
 
 func convertOrphanedToolResults(call *lipapi.Call) {
@@ -94,7 +104,17 @@ func convertOrphanedToolResults(call *lipapi.Call) {
 			out = append(out, m)
 			continue
 		}
-		kept := make([]lipapi.Part, 0, len(m.Parts))
+		// Flush kept tool parts in place so converted orphaned results are emitted
+		// in the same relative order they appear in the original message. Buffering
+		// kept parts until the loop ends would move orphaned (now System) results
+		// ahead of earlier known results and misrepresent tool/result ordering.
+		var kept []lipapi.Part
+		flushKept := func() {
+			if len(kept) > 0 {
+				out = append(out, lipapi.Message{Role: lipapi.RoleTool, Parts: kept})
+				kept = nil
+			}
+		}
 		for _, p := range m.Parts {
 			if p.Kind != lipapi.PartToolResult {
 				kept = append(kept, p)
@@ -107,11 +127,10 @@ func convertOrphanedToolResults(call *lipapi.Call) {
 					continue
 				}
 			}
+			flushKept()
 			out = append(out, convertOrphanedToolResult(p))
 		}
-		if len(kept) > 0 {
-			out = append(out, lipapi.Message{Role: lipapi.RoleTool, Parts: kept})
-		}
+		flushKept()
 	}
 	call.Messages = out
 }
@@ -126,22 +145,11 @@ func collectKnownToolCallIDs(msgs []lipapi.Message) map[string]struct{} {
 			if p.Kind != lipapi.PartJSON {
 				continue
 			}
-			var fc struct {
-				Type   string `json:"type"`
-				CallID string `json:"call_id"`
-				ID     string `json:"id"`
-			}
-			if json.Unmarshal(p.Content, &fc) != nil {
-				continue
-			}
 			// Accept Responses-style ("function_call") and Chat Completions-style
 			// ("function") assistant tool calls so matching tool results are preserved.
-			if !strings.EqualFold(fc.Type, "function_call") && !strings.EqualFold(fc.Type, "function") {
+			id, _, ok := parseFunctionCallID(p)
+			if !ok {
 				continue
-			}
-			id := strings.TrimSpace(fc.CallID)
-			if id == "" {
-				id = strings.TrimSpace(fc.ID)
 			}
 			if id != "" {
 				known[id] = struct{}{}

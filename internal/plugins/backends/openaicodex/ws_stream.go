@@ -92,6 +92,10 @@ func (s *wsStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		if err := s.mapper.handleData(text); err != nil {
 			s.mu.Unlock()
+			// A malformed frame desyncs the stream; release with a close so the
+			// session is evicted even if the caller never calls Close, mirroring the
+			// read-error path. releaseOnce is idempotent, so a later Close is safe.
+			s.releaseOnce(true)
 			return lipapi.Event{}, err
 		}
 		s.mu.Unlock()
