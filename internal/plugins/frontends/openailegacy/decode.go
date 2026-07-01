@@ -226,15 +226,13 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 
 	if jsonpresence.IsPresentNonNullJSON(content) {
 		cp, err := parseChatContent(content)
-		if err != nil {
-			if errors.Is(err, errEmptyChatContent) {
-				cp = nil
-			} else {
-				return nil, fmt.Errorf("openailegacy: assistant content: %w", err)
-			}
-		}
-		if err == nil {
+		switch {
+		case err == nil:
 			contentParts = cp
+		case errors.Is(err, errEmptyChatContent):
+			// treat empty content as absent for tool-call-only turns.
+		default:
+			return nil, fmt.Errorf("openailegacy: assistant content: %w", err)
 		}
 	}
 	if jsonpresence.IsPresentNonNullJSON(toolCalls) {

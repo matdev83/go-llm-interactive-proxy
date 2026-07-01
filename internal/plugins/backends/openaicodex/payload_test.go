@@ -217,6 +217,9 @@ func TestPayloadForCall_noToolsOmitsToolChoice(t *testing.T) {
 	if strings.Contains(string(raw), `"tool_choice"`) {
 		t.Fatalf("no-tools payload must omit tool_choice: %s", raw)
 	}
+	if strings.Contains(string(raw), `"parallel_tool_calls"`) {
+		t.Fatalf("no-tools payload must omit parallel_tool_calls: %s", raw)
+	}
 }
 
 func TestPayloadForCall_modelInstructionsReasoningTemperatureToolsMultimodal(t *testing.T) {
@@ -811,6 +814,44 @@ func TestPayloadForCall_strictCompatibleToolSchemaUsesStrictTrue(t *testing.T) {
 	strict, raw := codexToolStrict(t, `{"type":"object","properties":{"patch":{"type":"string"}},"required":["patch"],"additionalProperties":false}`)
 	if !strict {
 		t.Fatalf("strict-compatible schema must keep strict=true: %s", raw)
+	}
+}
+
+func TestPayloadForCall_parameterlessObjectSchemaGetsAdditionalPropertiesAndRequired(t *testing.T) {
+	t.Parallel()
+	strict, raw := codexToolStrict(t, `{"type":"object"}`)
+	if !strict {
+		t.Fatalf("parameterless object schema must stay strict=true after normalization: %s", raw)
+	}
+	var decoded struct {
+		Tools []struct {
+			Parameters map[string]any `json:"parameters"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Tools) != 1 {
+		t.Fatalf("tools: %v", decoded.Tools)
+	}
+	params := decoded.Tools[0].Parameters
+	if ap, ok := params["additionalProperties"].(bool); !ok || ap {
+		t.Fatalf("parameterless object must have additionalProperties:false: %#v", params)
+	}
+	req, ok := params["required"].([]any)
+	if !ok || len(req) != 0 {
+		t.Fatalf("parameterless object must have required:[]: %#v", params)
+	}
+}
+
+func TestPayloadForCall_parameterlessObjectWithAdditionalPropertiesTrueIsStrictFalse(t *testing.T) {
+	t.Parallel()
+	// A parameterless object that explicitly allows additional properties is not
+	// strict-compatible; it must be sent strict:false so the upstream does not
+	// reject it.
+	strict, _ := codexToolStrict(t, `{"type":"object","additionalProperties":true}`)
+	if strict {
+		t.Fatal("parameterless object with additionalProperties:true must use strict=false")
 	}
 }
 

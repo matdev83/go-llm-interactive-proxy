@@ -403,21 +403,36 @@ func TestHandleData_toolArgsBeforeAddedWaitForToolName(t *testing.T) {
 	}
 
 	events := stream.DrainPending(&s.mapper.pending)
-	var toolStarted *lipapi.Event
+	var startedCount int
+	var startedID, startedName string
 	var args strings.Builder
+	var finishedIDs []string
 	for i := range events {
 		ev := events[i]
 		switch ev.Kind {
 		case lipapi.EventToolCallStarted:
-			toolStarted = &ev
+			startedCount++
+			startedID = ev.ToolCallID
+			startedName = ev.ToolName
 		case lipapi.EventToolCallArgsDelta:
 			args.WriteString(ev.Delta)
+		case lipapi.EventToolCallFinished:
+			finishedIDs = append(finishedIDs, ev.ToolCallID)
 		}
 	}
-	if toolStarted == nil || toolStarted.ToolName != "read" {
-		t.Fatalf("tool started = %+v, want name read; events=%+v", toolStarted, events)
+	if startedCount != 1 {
+		t.Fatalf("tool call started count = %d, want 1 (no provisional/real duplicate); events=%+v", startedCount, events)
+	}
+	if startedID != "call_late" {
+		t.Fatalf("tool call started id = %q, want call_late; events=%+v", startedID, events)
+	}
+	if startedName != "read" {
+		t.Fatalf("tool started name = %q, want read; events=%+v", startedName, events)
 	}
 	if got := args.String(); got != `{"filePath":` {
-		t.Fatalf("args = %q", got)
+		t.Fatalf("args = %q, want incremental delta preserved after remap onto call_id", got)
+	}
+	if len(finishedIDs) != 1 || finishedIDs[0] != "call_late" {
+		t.Fatalf("tool call finished ids = %v, want [call_late]; events=%+v", finishedIDs, events)
 	}
 }

@@ -25,6 +25,7 @@ func loadManagedAccounts(dir string, filter []string) ([]managedAccount, error) 
 		if ent.Type()&os.ModeSymlink != 0 {
 			// security: skip symlinked account files so a planted symlink cannot
 			// read targets outside the managed-oauth storage directory.
+			skipped++
 			continue
 		}
 		path := filepath.Join(dir, ent.Name())

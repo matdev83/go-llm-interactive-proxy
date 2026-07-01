@@ -352,17 +352,25 @@ func defaultForcedErrorJSON(status int) string {
 
 func writeStream(w http.ResponseWriter, text string) {
 	frames := codexEventFrames(text)
-	events := []string{
-		"response.created",
-		"response.output_text.delta",
-		"response.completed",
-	}
 
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	for i, raw := range frames {
-		_, _ = io.WriteString(w, "event: "+events[i]+"\n")
+	for _, raw := range frames {
+		_, _ = io.WriteString(w, "event: "+sseEventNameFromFrame(raw)+"\n")
 		_, _ = io.WriteString(w, "data: "+raw+"\n\n")
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+}
+
+// sseEventNameFromFrame extracts the Codex Responses event "type" from a raw
+// JSON frame so the SSE event name always matches the payload instead of
+// relying on a parallel hardcoded list that can drift from codexEventFrames.
+func sseEventNameFromFrame(raw string) string {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(raw), &probe); err != nil || probe.Type == "" {
+		return "response.created"
+	}
+	return probe.Type
 }

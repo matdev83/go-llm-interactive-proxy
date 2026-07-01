@@ -593,8 +593,9 @@ func buildOpenCodeBridge(hasTools bool) string {
 	}
 	b.WriteString("- Never emit textual tool-call syntax such as `to=functions.<name>` or JSON tool calls in assistant content; use structured tool calls only when tools are available.\n")
 	if !hasTools {
-		b.WriteString("\n")
-		b.WriteString(criticalInstruction("OpenCode"))
+		// No tools are exposed, so do not append criticalInstruction("OpenCode"):
+		// it tells the model to use agent-provided tools, contradicting the
+		// "no callable client tools" guidance above and risking spurious tool calls.
 		return b.String()
 	}
 	b.WriteString(

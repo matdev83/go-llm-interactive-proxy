@@ -139,6 +139,9 @@ func checkTokenFilePermissions(path string) error {
 	if err != nil {
 		return nil // let the caller's ReadFile produce the canonical not-exist error
 	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s: token file %q is not a regular file", ID, path)
+	}
 	if info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("%s: token file %q is group/other accessible (mode %o); expected 0600", ID, path, info.Mode().Perm())
 	}

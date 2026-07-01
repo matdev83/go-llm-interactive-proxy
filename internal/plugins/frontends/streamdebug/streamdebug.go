@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -161,9 +162,7 @@ func (s *stream) Recv(ctx context.Context) (lipapi.Event, error) {
 
 func (s *stream) Close() error {
 	err := s.inner.Close()
-	if err != nil {
-		s.logTerminal(context.Background(), err)
-	}
+	s.logTerminal(context.Background(), err)
 	return err
 }
 
@@ -174,9 +173,12 @@ func (s *stream) logTerminal(ctx context.Context, err error) {
 		return
 	}
 	s.terminalLogged = true
-	status := "error"
-	if errors.Is(err, io.EOF) {
+	status := "closed"
+	switch {
+	case errors.Is(err, io.EOF):
 		status = "eof"
+	case err != nil:
+		status = "error"
 	}
 	s.log.DebugContext(ctx, "lip.debug.stream_terminal",
 		"frontend", s.frontend,
@@ -300,11 +302,7 @@ func summarizeCall(call *lipapi.Call) callSummary {
 
 func stableStrings(values []string) []string {
 	out := append([]string(nil), values...)
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
-	}
+	sort.Strings(out)
 	return out
 }
 

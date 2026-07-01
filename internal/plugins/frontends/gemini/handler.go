@@ -167,7 +167,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	streamdebug.LogExecuteOpened(ctx, h.Log, ID, call, executeStart)
-	ctx = diag.EnsureCallDiag(ctx, traceID, call.Session.ALegID)
+	ctx = diag.EnsureCallDiag(ctx, traceID, strings.TrimSpace(call.Session.ALegID))
 	es = streamdebug.Wrap(ctx, h.Log, ID, call, es, executeStart)
 
 	opts := EncodeOptions{ExposeLipUsageExtensions: h.Config.ExposeLipUsageExtensions}

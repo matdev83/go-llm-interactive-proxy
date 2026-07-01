@@ -98,7 +98,7 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 	}
 	if call.Options.ParallelToolCalls != nil {
 		p.ParallelToolCalls = call.Options.ParallelToolCalls
-	} else if p.ParallelToolCalls == nil {
+	} else if p.ParallelToolCalls == nil && len(call.Tools) > 0 {
 		v := false
 		p.ParallelToolCalls = &v
 	}

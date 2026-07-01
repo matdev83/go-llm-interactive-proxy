@@ -34,6 +34,9 @@ func (h requestPartHook) HandleRequestParts(_ context.Context, call *lipapi.Call
 	if meta.BackendID != targetBackendID {
 		return nil
 	}
+	if call == nil {
+		return nil
+	}
 	applyIgnoreUnsupportedGenParams(call)
 	ApplyCompat(call)
 	return nil

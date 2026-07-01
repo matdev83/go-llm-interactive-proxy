@@ -219,6 +219,7 @@ func (m *codexEventMapper) handleOutputItemDone(data string) error {
 		return nil
 	}
 	m.rememberToolCallID(ev.Item.ID, ev.Item.CallID)
+	m.remapProvisionalToolCall(ev.Item.ID, ev.Item.CallID)
 	if item, ok := outputFunctionCallInputItem(ev.Item.Type, ev.Item.ID, ev.Item.CallID, ev.Item.Name, ev.Item.Arguments); ok {
 		m.outputItems = append(m.outputItems, item)
 	}
@@ -296,6 +297,7 @@ func (m *codexEventMapper) handleOutputItemAdded(data string) error {
 		return nil
 	}
 	m.rememberToolCallID(ev.Item.ID, ev.Item.CallID)
+	m.remapProvisionalToolCall(ev.Item.ID, ev.Item.CallID)
 	return m.mapper.ToolCallAdded(codexCanonicalToolCallID(ev.Item.ID, ev.Item.CallID), ev.Item.Name)
 }
 
@@ -341,16 +343,39 @@ func (m *codexEventMapper) rememberToolCallID(itemID, callID string) {
 		return
 	}
 	m.toolCallIDs[itemID] = callID
+	// Once the real call_id is known, drop the provisional flag so toolCallID
+	// stops returning the item-only ID and all subsequent events canonicalize
+	// onto the call_id.
+	delete(m.provisional, itemID)
+}
+
+// remapProvisionalToolCall moves any mapper state buffered under the
+// provisional item-only ID onto the real call_id once it is learned. Without
+// this, argument deltas that arrived before output_item.added stay buffered
+// under the item ID while ToolCallAdded targets the call_id, fragmenting one
+// logical tool call into two.
+func (m *codexEventMapper) remapProvisionalToolCall(itemID, callID string) {
+	itemID = strings.TrimSpace(itemID)
+	callID = strings.TrimSpace(callID)
+	if itemID == "" || callID == "" || callID == itemID {
+		return
+	}
+	m.mapper.RemapToolCallID(itemID, callID)
 }
 
 func (m *codexEventMapper) toolCallID(itemID, callID string) string {
 	itemID = strings.TrimSpace(itemID)
 	callID = strings.TrimSpace(callID)
-	if itemID != "" && m.provisional[itemID] {
-		return itemID
-	}
+	// Prefer a learned call_id over the provisional item-only ID so deltas and
+	// completion events resolve to the same canonical ID as output_item.added.
 	if callID == "" {
 		callID = strings.TrimSpace(m.toolCallIDs[itemID])
+	}
+	if callID != "" {
+		return codexCanonicalToolCallID(itemID, callID)
+	}
+	if itemID != "" && m.provisional[itemID] {
+		return itemID
 	}
 	if callID == "" && itemID != "" {
 		m.provisional[itemID] = true

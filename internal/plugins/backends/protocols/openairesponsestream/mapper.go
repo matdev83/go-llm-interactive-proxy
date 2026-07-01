@@ -265,6 +265,34 @@ func (m *Mapper) flushPendingToolArgs(id string) error {
 	return nil
 }
 
+// RemapToolCallID consolidates tool-call state buffered under oldID onto newID.
+// It is used when a tool call's real call_id is learned after argument deltas
+// were already buffered under the provisional item-only ID, so pending args and
+// started/arg-delta/finished flags all move onto the canonical ID instead of
+// fragmenting into two tool calls. Remapping is a no-op when no state exists
+// under oldID.
+func (m *Mapper) RemapToolCallID(oldID, newID string) {
+	if oldID == "" || newID == "" || oldID == newID {
+		return
+	}
+	if deltas, ok := m.pendingToolArgs[oldID]; ok {
+		m.pendingToolArgs[newID] = append(m.pendingToolArgs[newID], deltas...)
+		delete(m.pendingToolArgs, oldID)
+	}
+	if m.toolCallStarted[oldID] {
+		m.toolCallStarted[newID] = true
+		delete(m.toolCallStarted, oldID)
+	}
+	if m.toolCallArgDeltas[oldID] {
+		m.toolCallArgDeltas[newID] = true
+		delete(m.toolCallArgDeltas, oldID)
+	}
+	if m.toolCallFinished[oldID] {
+		m.toolCallFinished[newID] = true
+		delete(m.toolCallFinished, oldID)
+	}
+}
+
 // EmitOutputMediaFromResponse maps assistant message media in a completed Responses payload.
 func EmitOutputMediaFromResponse(m *Mapper, resp responses.Response) error {
 	for _, item := range resp.Output {

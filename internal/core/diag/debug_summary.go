@@ -3,6 +3,7 @@ package diag
 import (
 	"log/slog"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,11 +36,7 @@ func StableCounts(counts map[string]int) []string {
 	for k := range counts {
 		keys = append(keys, k)
 	}
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
+	sort.Strings(keys)
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, k+"="+strconv.Itoa(counts[k]))

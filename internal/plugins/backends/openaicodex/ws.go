@@ -253,6 +253,10 @@ func newWSDialer(client *http.Client) *websocket.Dialer {
 				d.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 			}
 		}
+		// When client.Transport is a custom RoundTripper (e.g. instrumentation)
+		// rather than *http.Transport, proxy/TLS settings cannot be introspected
+		// generically, so the WS dialer falls back to default networking. This
+		// differs from the HTTPS path that uses the same client.
 	}
 	return d
 }
@@ -567,9 +571,6 @@ func readFirstNonEmptyWSMessage(ctx context.Context, conn *websocket.Conn, timeo
 		if err != nil {
 			if ctx != nil && ctx.Err() != nil {
 				return nil, ctx.Err()
-			}
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				return nil, newWSTransportError(fmt.Errorf("read websocket: %w", err))
 			}
 			return nil, newWSTransportError(fmt.Errorf("read websocket: %w", err))
 		}

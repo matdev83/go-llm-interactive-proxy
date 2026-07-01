@@ -292,6 +292,7 @@ func TestServer_webSocketUpgrade_streamsEventFramesAndCaptures(t *testing.T) {
 
 	var types []string
 	for i := range 3 {
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, data, rerr := conn.ReadMessage()
 		if rerr != nil {
 			t.Fatalf("read[%d]: %v", i, rerr)
@@ -344,6 +345,7 @@ func TestServer_webSocketForcedFail_closesBeforeEvents(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_ = conn.WriteMessage(gorillawebsocket.TextMessage, []byte(`{"type":"response.create"}`))
 	if _, _, rerr := conn.ReadMessage(); rerr == nil {
 		t.Fatal("expected read failure before first event")

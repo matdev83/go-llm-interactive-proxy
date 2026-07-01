@@ -316,3 +316,75 @@ func TestMapper_completedTextFallback_onlyWhenNoTextDeltas(t *testing.T) {
 		t.Fatalf("texts after delta: %v", texts)
 	}
 }
+
+func TestMapper_remapToolCallID_movesBufferedArgsOntoCanonicalID(t *testing.T) {
+	t.Parallel()
+	m, q := newTestMapper()
+	// Args arrive before the tool call is added, so they buffer under the
+	// provisional item-only ID.
+	if err := m.ToolCallArgsDelta("fc_late", `{"filePath":`); err != nil {
+		t.Fatal(err)
+	}
+	// Learning the real call_id remaps the buffered args onto it.
+	m.RemapToolCallID("fc_late", "call_late")
+	if err := m.ToolCallAdded("call_late", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.FinishToolCallArguments("call_late", "read", `{"filePath":"x"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	var startedCount, argDeltaCount, finishedCount int
+	var startedID string
+	var args strings.Builder
+	for _, ev := range stream.DrainPending(q) {
+		switch ev.Kind {
+		case lipapi.EventToolCallStarted:
+			startedCount++
+			startedID = ev.ToolCallID
+		case lipapi.EventToolCallArgsDelta:
+			argDeltaCount++
+			args.WriteString(ev.Delta)
+			if ev.ToolCallID != "call_late" {
+				t.Fatalf("args delta under id %q, want call_late", ev.ToolCallID)
+			}
+		case lipapi.EventToolCallFinished:
+			finishedCount++
+			if ev.ToolCallID != "call_late" {
+				t.Fatalf("finished under id %q, want call_late", ev.ToolCallID)
+			}
+		}
+	}
+	if startedCount != 1 || startedID != "call_late" {
+		t.Fatalf("started = %d / %q, want 1 / call_late", startedCount, startedID)
+	}
+	if argDeltaCount != 1 || args.String() != `{"filePath":` {
+		t.Fatalf("args = %d / %q, want 1 / {\"filePath\": (incremental preserved, full args suppressed)", argDeltaCount, args.String())
+	}
+	if finishedCount != 1 {
+		t.Fatalf("finished = %d, want 1", finishedCount)
+	}
+}
+
+func TestMapper_remapToolCallID_noOpWhenIDsEqualOrEmpty(t *testing.T) {
+	t.Parallel()
+	m, q := newTestMapper()
+	if err := m.ToolCallArgsDelta("fc_1", `{"x":1}`); err != nil {
+		t.Fatal(err)
+	}
+	m.RemapToolCallID("fc_1", "fc_1") // equal -> no-op
+	m.RemapToolCallID("", "call_1")   // empty old -> no-op
+	m.RemapToolCallID("fc_1", "")     // empty new -> no-op
+	if err := m.ToolCallAdded("fc_1", "get"); err != nil {
+		t.Fatal(err)
+	}
+	var args strings.Builder
+	for _, ev := range stream.DrainPending(q) {
+		if ev.Kind == lipapi.EventToolCallArgsDelta {
+			args.WriteString(ev.Delta)
+		}
+	}
+	if args.String() != `{"x":1}` {
+		t.Fatalf("args = %q, want original buffered delta preserved after no-op remaps", args.String())
+	}
+}
