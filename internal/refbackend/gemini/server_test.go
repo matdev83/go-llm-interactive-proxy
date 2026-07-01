@@ -1,6 +1,7 @@
 package gemini_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"io"
@@ -334,5 +335,36 @@ func TestHandler_forced429_streamPath_returnsJSONError(t *testing.T) {
 	ct := resp.Header.Get("Content-Type")
 	if !strings.Contains(ct, "application/json") {
 		t.Fatalf("Content-Type: %q", ct)
+	}
+}
+
+func TestHandler_bodyTooLarge_returns400(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{
+		AllowMissingAPIKey: true,
+	}))
+	t.Cleanup(srv.Close)
+
+	// maxBodyBytes is 10 MB, so send 10 MB + 1 byte
+	body := bytes.NewReader(make([]byte, 10<<20+1))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+geminiGenerateMinimalPath, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), "read body") {
+		t.Fatalf("body: %s", b)
 	}
 }
