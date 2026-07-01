@@ -59,37 +59,46 @@ endif
 
 # Short fuzz smoke (extend FUZZTIME locally, e.g. FUZZTIME=30s make test-fuzz)
 FUZZTIME ?= 500ms
+# Route each fuzz invocation through a wrapper that tolerates the Go fuzz
+# engine's spurious "context deadline exceeded" at -fuzztime expiry
+# (golang/go#75804, Go 1.25-1.26.x). On Windows `go test` runs directly: local
+# fuzz smoke is short and a rare flake is cheap to re-run, and bash may be absent.
+ifeq ($(OS),Windows_NT)
+FUZZ_WRAPPER := $(GO) test
+else
+FUZZ_WRAPPER := bash scripts/fuzz-run.sh
+endif
 test-fuzz:
 	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
-	$(GO) test -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
-	$(GO) test -fuzz=FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
-	$(GO) test -fuzz=FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
-	$(GO) test -fuzz=FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
-	$(GO) test -fuzz=FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
-	$(GO) test -fuzz=FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
-	$(GO) test -fuzz=FuzzDecodeGenerateContentRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
-	$(GO) test -fuzz=FuzzDecodeChatRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openailegacy
-	$(GO) test -fuzz=FuzzWriteNonStreamJSON_toolArguments$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
-	$(GO) test -fuzz=FuzzBuildGenerateContentResponse_toolJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
-	$(GO) test -fuzz=FuzzCallValidateJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(GO) test -fuzz=FuzzMergeRouteQueryGenerationOptions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(GO) test -fuzz=FuzzCollectWithLimitsProgram$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
-	$(GO) test -fuzz=FuzzStableCallIdentity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/diag
-	$(GO) test -fuzz=FuzzParamsForCall$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(GO) test -fuzz=FuzzHandleResponseStreamUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(GO) test -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
-	$(GO) test -fuzz=FuzzHandleMessageStreamEventUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
-	$(GO) test -fuzz=FuzzToolInputSchemaParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
-	$(GO) test -fuzz=FuzzHandleChatCompletionChunk$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
-	$(GO) test -fuzz=FuzzBuildChatToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
-	$(GO) test -fuzz=FuzzHandleGenerateContentResponse$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(GO) test -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(GO) test -fuzz=FuzzMessageToContentToolResultJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
-	$(GO) test -fuzz=FuzzAssistantPartsToContentBlocksJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/bedrock
-	$(GO) test -fuzz=FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
-	$(GO) test -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
-	$(GO) test -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
-	$(GO) test -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
+	$(FUZZ_WRAPPER) -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseSnapshot$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/modelcatalog/modelsdev
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseSelector$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseSelectorFromBytes$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/routing
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeCreateRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeMessageRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeGenerateContentRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeChatRequest$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/openailegacy
+	$(FUZZ_WRAPPER) -fuzz=FuzzWriteNonStreamJSON_toolArguments$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/anthropic
+	$(FUZZ_WRAPPER) -fuzz=FuzzBuildGenerateContentResponse_toolJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/gemini
+	$(FUZZ_WRAPPER) -fuzz=FuzzCallValidateJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=FuzzMergeRouteQueryGenerationOptions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=FuzzCollectWithLimitsProgram$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipapi
+	$(FUZZ_WRAPPER) -fuzz=FuzzStableCallIdentity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/diag
+	$(FUZZ_WRAPPER) -fuzz=FuzzParamsForCall$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzHandleResponseStreamUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openairesponses
+	$(FUZZ_WRAPPER) -fuzz=FuzzHandleMessageStreamEventUnion$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
+	$(FUZZ_WRAPPER) -fuzz=FuzzToolInputSchemaParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/anthropicmessages
+	$(FUZZ_WRAPPER) -fuzz=FuzzHandleChatCompletionChunk$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
+	$(FUZZ_WRAPPER) -fuzz=FuzzBuildChatToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/openailegacy
+	$(FUZZ_WRAPPER) -fuzz=FuzzHandleGenerateContentResponse$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
+	$(FUZZ_WRAPPER) -fuzz=FuzzBuildToolsParametersJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
+	$(FUZZ_WRAPPER) -fuzz=FuzzMessageToContentToolResultJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/protocols/geminigenerate
+	$(FUZZ_WRAPPER) -fuzz=FuzzAssistantPartsToContentBlocksJSON$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/bedrock
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(FUZZ_WRAPPER) -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(FUZZ_WRAPPER) -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(FUZZ_WRAPPER) -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
 
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...

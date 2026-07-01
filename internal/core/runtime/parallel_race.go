@@ -34,18 +34,6 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 	e.Log.LogAttrs(ctx, slog.LevelError, message, attrs...)
 }
 
-func selectorHasParallelArm(sel *routing.Selector) bool {
-	if sel == nil {
-		return false
-	}
-	for _, alt := range sel.Alternatives {
-		if alt.Parallel != nil {
-			return true
-		}
-	}
-	return false
-}
-
 type parallelLeg struct {
 	cand        routing.AttemptCandidate
 	bleg        b2bua.BLegRecord

@@ -30,12 +30,6 @@ type HandshakeProfile struct {
 	SessionNewMCPServers json.RawMessage
 }
 
-func defaultHandshakeProfile() HandshakeProfile {
-	return HandshakeProfile{
-		ProtocolVersion: 1,
-	}
-}
-
 func mergeHandshakeProfile(cfg Config, call *lipapi.Call) HandshakeProfile {
 	p := cfg.Handshake
 	if p.ProtocolVersion == 0 {
