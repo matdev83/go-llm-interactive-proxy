@@ -300,6 +300,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 	if s.isFinished() {
 		return lipapi.Event{}, io.EOF
 	}
+	ctx = s.recvExecContext(ctx)
 	if len(s.recoverDrain) > 0 {
 		ev := s.recoverDrain[0]
 		s.recoverDrain = s.recoverDrain[1:]
@@ -318,7 +319,6 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		}
 		return ev, nil
 	}
-	ctx = s.recvExecContext(ctx)
 	for {
 		if ev, ok := s.popGateDrainHead(); ok {
 			ev = s.emitGateDrained(ctx, ev)
@@ -558,12 +558,15 @@ func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, e
 		}
 		return
 	}
+	sc := scopeFromCtx(ctx)
 	meta := sdktraffic.CaptureMeta{
-		TraceID:    pm.TraceID,
-		ALegID:     pm.ALegID,
-		BLegID:     pm.BLegID,
-		AttemptSeq: pm.AttemptSeq,
-		BackendID:  strings.TrimSpace(s.cand.Primary.Backend),
+		TraceID:     pm.TraceID,
+		ALegID:      pm.ALegID,
+		BLegID:      pm.BLegID,
+		AttemptSeq:  pm.AttemptSeq,
+		BackendID:   strings.TrimSpace(s.cand.Primary.Backend),
+		PrincipalID: strings.TrimSpace(sc.PrincipalID.String()),
+		Scope:       sc,
 	}
 	bundle.Emit(
 		ctx,
@@ -763,8 +766,9 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 		return
 	}
 	principalID := ""
-	if v, ok := execctx.FromContext(ctx); ok {
-		principalID = v.Principal.ID
+	scopeView := scopeFromCtx(ctx)
+	if scopeView.PrincipalID.IsKnown() {
+		principalID = strings.TrimSpace(scopeView.PrincipalID.String())
 	}
 	model := ""
 	if s.cand.Primary.Model != "" {
@@ -779,6 +783,7 @@ func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {
 		AttemptSeq:       int(s.bleg.Seq),
 		BackendID:        strings.TrimSpace(s.cand.Primary.Backend),
 		Model:            strings.TrimSpace(model),
+		Scope:            scopeView.Clone(),
 		InputTokens:      ev.InputTokens,
 		OutputTokens:     ev.OutputTokens,
 		CacheReadTokens:  ev.CacheReadTokens,

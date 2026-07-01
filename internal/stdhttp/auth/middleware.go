@@ -99,6 +99,9 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 				continue
 			case httpauth.TypePrincipal:
 				ctx = httpauth.WithPrincipal(ctx, res.Principal)
+				if res.Scope != nil {
+					ctx = httpauth.WithScope(ctx, *res.Scope)
+				}
 			case httpauth.TypeAnnotate:
 				mergeAnnotateResponseHeaders(ctx, log, w.Header(), res.ResponseHeaders)
 			case httpauth.TypeReject, httpauth.TypeChallenge:
@@ -190,31 +193,33 @@ func writeTermination(ctx context.Context, log *slog.Logger, w http.ResponseWrit
 	}
 }
 
-// EnsureContextPrincipal copies a transport principal from parent into child if child has none.
+// EnsureContextIdentity copies transport identity from parent into child if child has none.
 // Used when a sub-context loses values (tests or isolated decode paths).
 // A nil child is reserved for tests and isolated decode helpers; production request paths must pass
 // a non-nil request-derived child so cancellation and context values behave normally.
 // If child is nil, it returns a non-nil context: when parent is non-nil, context.WithoutCancel(parent)
-// with the parent principal attached (preserves request-scoped values such as trace IDs without
+// with the parent identity attached (preserves request-scoped values such as trace IDs without
 // inheriting parent cancellation); otherwise context.Background.
-func EnsureContextPrincipal(parent, child context.Context) context.Context {
+func EnsureContextIdentity(parent, child context.Context) context.Context {
 	if child == nil {
-		if p, ok := httpauth.PrincipalFromContext(parent); ok {
-			if parent != nil {
-				return httpauth.WithPrincipal(context.WithoutCancel(parent), p)
-			}
-			return httpauth.WithPrincipal(context.Background(), p)
-		}
 		if parent != nil {
-			return context.WithoutCancel(parent)
+			child = context.WithoutCancel(parent)
+		} else {
+			child = context.Background()
 		}
-		return context.Background()
 	}
-	if _, ok := httpauth.PrincipalFromContext(child); ok {
-		return child
+
+	if _, ok := httpauth.PrincipalFromContext(child); !ok {
+		if p, ok := httpauth.PrincipalFromContext(parent); ok {
+			child = httpauth.WithPrincipal(child, p)
+		}
 	}
-	if p, ok := httpauth.PrincipalFromContext(parent); ok {
-		return httpauth.WithPrincipal(child, p)
+
+	if _, ok := httpauth.ScopeFromContext(child); !ok {
+		if s, ok := httpauth.ScopeFromContext(parent); ok {
+			child = httpauth.WithScope(child, s)
+		}
 	}
+
 	return child
 }

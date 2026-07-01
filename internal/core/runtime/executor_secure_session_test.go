@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
@@ -75,6 +76,27 @@ func (c *countSubmitHook) Handle(context.Context, *lipapi.Call, *sdkhooks.Submit
 		c.n.Add(1)
 	}
 	return sdkhooks.SubmitDecision{}, nil
+}
+
+func TestPrincipalRefFromScope_usesScopeTenant(t *testing.T) {
+	t.Parallel()
+
+	ref := principalRefFromScope(
+		execview.PrincipalView{
+			ID:     "user-1",
+			Claims: map[string]string{"issuer": "issuer-1", "tenant": "legacy-tenant"},
+		},
+		scope.PrincipalScopeView{TenantID: scope.Known("scope-tenant")},
+	)
+	if ref.ID != "user-1" {
+		t.Fatalf("ID: got %q want user-1", ref.ID)
+	}
+	if ref.Issuer != "issuer-1" {
+		t.Fatalf("Issuer: got %q want issuer-1", ref.Issuer)
+	}
+	if ref.Tenant != "scope-tenant" {
+		t.Fatalf("Tenant: got %q want scope-tenant", ref.Tenant)
+	}
 }
 
 func TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg(t *testing.T) {

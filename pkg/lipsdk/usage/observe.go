@@ -3,6 +3,8 @@ package usage
 import (
 	"context"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 // Event is a provider-neutral usage observation emitted from canonical usage deltas.
@@ -16,6 +18,11 @@ type Event struct {
 	BackendID   string
 	FrontendID  string
 	Model       string
+
+	// Scope is the optional safe principal/scope attribution snapshot for this request. It is
+	// additive metadata; existing observers may ignore it and keep reading PrincipalID
+	// (requirements 6.4, 6.5, 7.3). When Scope.PrincipalID is known it must match PrincipalID.
+	Scope scope.PrincipalScopeView
 
 	InputTokens      int
 	OutputTokens     int

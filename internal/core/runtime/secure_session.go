@@ -6,6 +6,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 // SecureSessionRecorder is an alias for the secure-session gate recording port implemented by [app.Recorder].
@@ -21,6 +22,14 @@ func principalRefFromView(p execview.PrincipalView) domain.PrincipalRef {
 	}
 	if v := strings.TrimSpace(p.Claims["tenant"]); v != "" {
 		r.Tenant = v
+	}
+	return r
+}
+
+func principalRefFromScope(p execview.PrincipalView, s scope.PrincipalScopeView) domain.PrincipalRef {
+	r := principalRefFromView(p)
+	if s.TenantID.IsKnown() {
+		r.Tenant = strings.TrimSpace(s.TenantID.String())
 	}
 	return r
 }

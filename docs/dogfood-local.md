@@ -133,7 +133,7 @@ WSL2 forwards `127.0.0.1:18000` on Windows to the listener in WSL. On success th
 
 ## Maintainer integration gate (spec task 5.2)
 
-After doc or wiring changes, run repository quality checks and the stage-focused test list from `.kiro/specs/go-stage-five-dogfood-alpha-extension-proof/tasks.md` task **5.2**:
+After doc or wiring changes, run repository quality checks and the stage-focused test list from `.kiro/specs/archive/go-stage-five-dogfood-alpha-extension-proof/tasks.md` task **5.2**:
 
 ```bash
 make quality-checks

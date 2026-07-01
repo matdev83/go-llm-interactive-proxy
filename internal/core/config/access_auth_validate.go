@@ -84,9 +84,26 @@ func ValidateAuthLocalAPIKeyRecords(records []AuthLocalAPIKeyRecord) error {
 			KeyID:       r.KeyID,
 			PrincipalID: r.PrincipalID,
 			Key:         r.Key,
+			Attribution: r.Attribution.toCore(),
 		})
 	}
 	return coreauth.ValidateLocalAPIKeyRecords(conv)
+}
+
+func (a AuthLocalAttribution) toCore() coreauth.LocalAttribution {
+	return coreauth.LocalAttribution{
+		DisplayName:    a.DisplayName,
+		AuthMethod:     a.AuthMethod,
+		TenantID:       a.TenantID,
+		OrganizationID: a.OrganizationID,
+		WorkspaceID:    a.WorkspaceID,
+		ProjectID:      a.ProjectID,
+		DepartmentID:   a.DepartmentID,
+		CostCenterID:   a.CostCenterID,
+		Roles:          a.Roles,
+		SafeClaims:     a.SafeClaims,
+		PolicyLabels:   a.PolicyLabels,
+	}
 }
 
 // effectiveAuthPolicy maps legacy server.auth_mode and new auth.* into a single view for posture checks.

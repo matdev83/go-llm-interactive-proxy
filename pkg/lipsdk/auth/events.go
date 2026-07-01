@@ -1,6 +1,10 @@
 package auth
 
-import "time"
+import (
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+)
 
 // AccessMode is deployment access posture at the time of an event (string for stable wire/logging).
 type AccessMode string
@@ -53,6 +57,10 @@ type AuthDecisionEvent struct {
 	// Challenge, when applicable, is non-secret metadata.
 	ChallengeKind    ChallengeKind
 	ChallengeSummary string
+	// Scope is an optional safe principal/scope snapshot from a trusted auth decision. It is
+	// nil when no scope was supplied. Raw secrets, transport headers, and resume authority
+	// must never be placed here (requirements 6.1, 2.6, 5.2).
+	Scope *scope.PrincipalScopeView
 }
 
 // SessionStartEvent is a non-secret record of a new or uncertain proxy-recognized session.
