@@ -222,14 +222,6 @@ func warningForCountError(code WarningCode, message string, err error) Warning {
 	return Warning{Code: code, Message: fmt.Sprintf("%s: %v", message, err), Err: err}
 }
 
-func cloneEvents(events []lipapi.Event) []lipapi.Event {
-	out := make([]lipapi.Event, len(events))
-	for i, ev := range events {
-		out[i] = cloneEvent(ev)
-	}
-	return out
-}
-
 func nonUsageEvents(events []lipapi.Event) []lipapi.Event {
 	out := []lipapi.Event{}
 	for _, ev := range events {

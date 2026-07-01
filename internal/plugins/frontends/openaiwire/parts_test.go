@@ -61,3 +61,21 @@ func TestFilePartFromBase64_nonPdfFilename(t *testing.T) {
 		t.Fatalf("kind %v", p.Kind)
 	}
 }
+
+func TestImagePartFromURL_standardURL(t *testing.T) {
+	t.Parallel()
+	urlStr := "https://example.com/image.png"
+	p, err := ImagePartFromURL(urlStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != lipapi.PartImageRef {
+		t.Fatalf("kind %v", p.Kind)
+	}
+	if p.ImageRef != urlStr {
+		t.Fatalf("ref %q", p.ImageRef)
+	}
+	if p.ImageMIME != "" {
+		t.Fatalf("mime %q", p.ImageMIME)
+	}
+}
