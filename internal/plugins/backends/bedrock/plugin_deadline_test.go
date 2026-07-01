@@ -15,6 +15,15 @@ func TestEnsureLoadConfigDeadline_todoYieldsDeadline(t *testing.T) {
 	}
 }
 
+func TestEnsureLoadConfigDeadline_nilYieldsDeadline(t *testing.T) {
+	t.Parallel()
+	c, cancel := ensureLoadConfigDeadline(nil) //nolint:staticcheck // nil ctx: ensureLoadConfigDeadline must coerce to a usable deadline context
+	defer cancel()
+	if _, ok := c.Deadline(); !ok {
+		t.Fatal("expected child deadline when parent is nil")
+	}
+}
+
 func TestEnsureLoadConfigDeadline_backgroundYieldsDeadline(t *testing.T) {
 	t.Parallel()
 	c, cancel := ensureLoadConfigDeadline(context.Background())
