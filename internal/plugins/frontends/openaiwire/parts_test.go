@@ -50,3 +50,14 @@ func TestFilePartFromBase64_pdfFilename(t *testing.T) {
 		t.Fatalf("kind %v", p.Kind)
 	}
 }
+
+func TestFilePartFromBase64_nonPdfFilename(t *testing.T) {
+	t.Parallel()
+	p := FilePartFromBase64("doc.txt", "qqq")
+	if p.FileMIME != "application/octet-stream" {
+		t.Fatalf("mime %q", p.FileMIME)
+	}
+	if p.Kind != lipapi.PartFileRef {
+		t.Fatalf("kind %v", p.Kind)
+	}
+}
