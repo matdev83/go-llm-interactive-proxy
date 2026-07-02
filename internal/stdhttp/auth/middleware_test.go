@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -332,21 +333,43 @@ func TestMiddleware_chain_ordering(t *testing.T) {
 
 type testCollisionKey struct{}
 
-func TestEnsureContextPrincipal_copiesFromParent(t *testing.T) {
+func TestEnsureContextIdentity_copiesFromParent(t *testing.T) {
 	t.Parallel()
 	parent := httpauth.WithPrincipal(context.Background(), execview.PrincipalView{ID: "p"})
+	parent = httpauth.WithScope(parent, scope.PrincipalScopeView{PrincipalID: scope.Known("scope-p")})
 	child := context.WithValue(context.Background(), testCollisionKey{}, 1)
-	out := auth.EnsureContextPrincipal(parent, child)
+	out := auth.EnsureContextIdentity(parent, child)
 	p, ok := httpauth.PrincipalFromContext(out)
 	if !ok || p.ID != "p" {
 		t.Fatalf("got %+v ok=%v", p, ok)
 	}
+	s, ok := httpauth.ScopeFromContext(out)
+	if !ok || !s.PrincipalID.Equal(scope.Known("scope-p")) {
+		t.Fatalf("scope %+v ok=%v", s, ok)
+	}
 }
 
-func TestEnsureContextPrincipal_nilChild_nonNil(t *testing.T) {
+func TestEnsureContextIdentity_preservesChildScopeWhenPrincipalMissing(t *testing.T) {
+	t.Parallel()
+	parent := httpauth.WithPrincipal(context.Background(), execview.PrincipalView{ID: "parent-p"})
+	parent = httpauth.WithScope(parent, scope.PrincipalScopeView{PrincipalID: scope.Known("parent-scope")})
+	child := httpauth.WithScope(context.Background(), scope.PrincipalScopeView{PrincipalID: scope.Known("child-scope")})
+	out := auth.EnsureContextIdentity(parent, child)
+	p, ok := httpauth.PrincipalFromContext(out)
+	if !ok || p.ID != "parent-p" {
+		t.Fatalf("principal %+v ok=%v", p, ok)
+	}
+	s, ok := httpauth.ScopeFromContext(out)
+	if !ok || !s.PrincipalID.Equal(scope.Known("child-scope")) {
+		t.Fatalf("scope %+v ok=%v", s, ok)
+	}
+}
+
+func TestEnsureContextIdentity_nilChild_nonNil(t *testing.T) {
 	t.Parallel()
 	parent := httpauth.WithPrincipal(context.Background(), execview.PrincipalView{ID: "p"})
-	out := auth.EnsureContextPrincipal(parent, nil)
+	parent = httpauth.WithScope(parent, scope.PrincipalScopeView{PrincipalID: scope.Known("scope-p")})
+	out := auth.EnsureContextIdentity(parent, nil)
 	if out == nil {
 		t.Fatal("expected non-nil context")
 	}
@@ -354,7 +377,11 @@ func TestEnsureContextPrincipal_nilChild_nonNil(t *testing.T) {
 	if !ok || p.ID != "p" {
 		t.Fatalf("got %+v ok=%v", p, ok)
 	}
-	out2 := auth.EnsureContextPrincipal(context.Background(), nil)
+	s, ok := httpauth.ScopeFromContext(out)
+	if !ok || !s.PrincipalID.Equal(scope.Known("scope-p")) {
+		t.Fatalf("scope %+v ok=%v", s, ok)
+	}
+	out2 := auth.EnsureContextIdentity(context.Background(), nil)
 	if out2 == nil {
 		t.Fatal("expected non-nil context")
 	}
@@ -363,11 +390,11 @@ func TestEnsureContextPrincipal_nilChild_nonNil(t *testing.T) {
 	}
 }
 
-func TestEnsureContextPrincipal_nilChild_preservesParentValuesWithoutCancellation(t *testing.T) {
+func TestEnsureContextIdentity_nilChild_preservesParentValuesWithoutCancellation(t *testing.T) {
 	t.Parallel()
 	parent, cancel := context.WithCancel(diag.WithTraceID(context.Background(), "trace-nil-child"))
 	cancel()
-	out := auth.EnsureContextPrincipal(parent, nil)
+	out := auth.EnsureContextIdentity(parent, nil)
 	if got := diag.TraceID(out); got != "trace-nil-child" {
 		t.Fatalf("trace id: got %q", got)
 	}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 // AuthenticationType classifies the outcome of one provider invocation.
@@ -28,6 +29,11 @@ type AuthenticationResult struct {
 
 	// Principal is used when Type is TypePrincipal.
 	Principal execview.PrincipalView
+
+	// Scope is an optional authoritative safe principal/scope snapshot carried from trusted
+	// auth provider code into the middleware. It is nil for legacy principal-only results.
+	// Raw secrets and transport headers must never be placed here (requirements 2.1, 2.6).
+	Scope *scope.PrincipalScopeView
 
 	// HTTPStatus is used for TypeReject and TypeChallenge (default 401 if zero).
 	HTTPStatus int

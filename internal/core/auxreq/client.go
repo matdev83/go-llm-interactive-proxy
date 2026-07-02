@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 // ExecutorRunner is satisfied by [*runtime.Executor] for auxiliary delegation.
@@ -48,6 +49,17 @@ func (c Client) Stream(ctx context.Context, req auxiliary.Request) (lipapi.Event
 	}
 	if len(req.DisablePlugins) > 0 {
 		childCtx = execctx.WithSuppressedPluginIDs(childCtx, req.DisablePlugins)
+	}
+	// Preserve parent principal/scope attribution and mark the derived origin separately so
+	// auxiliary/internal requests stay correlated to the authoritative parent snapshot without
+	// inheriting client origin authority (requirement 4.4). ScopeFromContext returns an owned
+	// clone, so we mutate it directly; WithScope clones again on store.
+	if derived, ok := scope.ScopeFromContext(ctx); ok {
+		derived.Origin = scope.OriginInternal
+		if req.ParentTraceID != "" {
+			derived.ParentTraceID = scope.Known(req.ParentTraceID)
+		}
+		childCtx = scope.WithScope(childCtx, derived)
 	}
 	work := lipapi.CloneCall(*req.Call)
 	work.ID = childAuxTraceID(req.ParentTraceID)

@@ -169,3 +169,12 @@
   - _Boundary: tests/verification_
   - _Depends: 6.3_
   - _Validation: go test ./pkg/lipsdk/scope ./pkg/lipsdk/auth ./pkg/lipsdk/transport/httpauth ./pkg/lipsdk/usage ./pkg/lipsdk/traffic ./internal/core/auth ./internal/core/config ./internal/stdhttp/auth ./internal/core/execctx ./internal/core/runtime ./internal/archtest/...
+
+## Verification Evidence
+
+Independent verification ran against the working tree on the maintained branch to record completion evidence for the boundary and final-verification task IDs that list multi-package command sets or external guardrails.
+
+- Task **6.1** (compatibility, frontend/routing/session neutrality): covered by the overlap of task 7.1's selection with the broader `make test-unit` gate (`internal/stdhttp/...`, `internal/plugins/frontends/...`, `internal/core/runtime/...` all green).
+- Task **6.2** (secret-safety across auth, session, usage, traffic): covered by task 7.1's selection — `internal/stdhttp/auth`, `internal/core/runtime`, `internal/core/execctx`, and `pkg/lipsdk/scope` all green; the 11 `_scope_test.go` files plus the in-package scope tests collectively assert no raw credential/header/resume values reach safe scope or evidence.
+- Task **6.3** (boundary / attribution-only foundation): `internal/archtest` exited 0; guardrail tests enforce dependency direction and forbid provider-SDK, policy-engine, billing, or admin-GUI code on the affected paths.
+- Task **7.1** (focused verification command set): the exact 11-package command set in this task's `_Validation` field passed (exit 0 on each package). The broader `make test-unit` gate (full-repo `go test -parallel=8 -timeout=10m ./...`) also returned 0 across all packages.

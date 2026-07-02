@@ -6,10 +6,13 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"maps"
+	"slices"
 	"strings"
 
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 // LocalAPIKeyAuthenticator validates bearer API keys against operator-configured records.
@@ -23,6 +26,7 @@ type localAPIKeyEntry struct {
 	principalID  string
 	secretDigest [sha256.Size]byte
 	fingerprint  string
+	attribution  LocalAttribution
 }
 
 // NewLocalAPIKeyAuthenticator builds an authenticator from validated key records.
@@ -40,6 +44,7 @@ func NewLocalAPIKeyAuthenticator(records []LocalAPIKeyRecord) (*LocalAPIKeyAuthe
 			principalID:  pid,
 			secretDigest: sha256.Sum256([]byte(sec)),
 			fingerprint:  redactedAPIKeyFingerprint(kid, sec),
+			attribution:  r.Attribution,
 		})
 	}
 	return &LocalAPIKeyAuthenticator{records: out}, nil
@@ -73,20 +78,53 @@ func (a *LocalAPIKeyAuthenticator) Authenticate(ctx context.Context, req sdkauth
 	}
 	if matched >= 0 {
 		r := a.records[matched]
+		principal := execview.PrincipalView{ID: strings.TrimSpace(r.principalID)}
 		return sdkauth.Decision{
-			Outcome: sdkauth.OutcomeAllow,
-			Principal: execview.PrincipalView{
-				ID: strings.TrimSpace(r.principalID),
-			},
-			Device: sdkauth.DeviceIdentity{
-				ID:          r.principalID + ":" + r.keyID,
-				KeyID:       r.keyID,
-				Fingerprint: r.fingerprint,
-			},
+			Outcome:        sdkauth.OutcomeAllow,
+			Principal:      principal,
+			Device:         sdkauth.DeviceIdentity{ID: r.principalID + ":" + r.keyID, KeyID: r.keyID, Fingerprint: r.fingerprint},
 			SatisfiedLevel: sdkauth.LevelAPIKey,
+			Scope:          scopeFromLocalAPIKey(r),
 		}, nil
 	}
 	return sdkauth.Decision{Outcome: sdkauth.OutcomeDeny, ReasonCode: "unknown_api_key"}, nil
+}
+
+// scopeFromLocalAPIKey builds the authoritative scope from a matched record's non-secret
+// attribution. AuthMethod defaults to "local_api_key" (the authenticator knows its method).
+// Missing optional fields remain unknown (requirement 3.5). Raw key material never enters.
+func scopeFromLocalAPIKey(r localAPIKeyEntry) *scope.PrincipalScopeView {
+	return &scope.PrincipalScopeView{
+		SubjectKind:    scope.SubjectService,
+		Origin:         scope.OriginClient,
+		PrincipalID:    scope.Known(r.principalID),
+		CredentialID:   scope.Known(r.keyID),
+		AuthMethod:     knownOrDefault(r.attribution.AuthMethod, "local_api_key"),
+		DisplayName:    knownOrUnknown(r.attribution.DisplayName),
+		TenantID:       knownOrUnknown(r.attribution.TenantID),
+		OrganizationID: knownOrUnknown(r.attribution.OrganizationID),
+		WorkspaceID:    knownOrUnknown(r.attribution.WorkspaceID),
+		ProjectID:      knownOrUnknown(r.attribution.ProjectID),
+		DepartmentID:   knownOrUnknown(r.attribution.DepartmentID),
+		CostCenterID:   knownOrUnknown(r.attribution.CostCenterID),
+		Roles:          slices.Clone(r.attribution.Roles),
+		SafeClaims:     maps.Clone(r.attribution.SafeClaims),
+		PolicyLabels:   maps.Clone(r.attribution.PolicyLabels),
+	}
+}
+
+func knownOrUnknown(configured string) scope.Value {
+	if v := strings.TrimSpace(configured); v != "" {
+		return scope.Known(v)
+	}
+	return scope.Unknown()
+}
+
+func knownOrDefault(configured, def string) scope.Value {
+	if v := strings.TrimSpace(configured); v != "" {
+		return scope.Known(v)
+	}
+	return scope.Known(def)
 }
 
 func stripBearer(s string) string {

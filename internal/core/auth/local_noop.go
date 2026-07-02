@@ -6,6 +6,7 @@ import (
 
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 // LocalNoOpAuthenticator grants credential-free access with an explicit non-anonymous
@@ -42,9 +43,24 @@ func (a LocalNoOpAuthenticator) Authenticate(ctx context.Context, req sdkauth.In
 		id = LocalUnknownOSPrincipalID
 		snap.FallbackUsed = true
 	}
+	displayName := strings.TrimSpace(snap.DisplayName)
+	principal := execview.PrincipalView{ID: id, DisplayName: displayName}
 	return sdkauth.Decision{
 		Outcome:        sdkauth.OutcomeAllow,
-		Principal:      execview.PrincipalView{ID: id, DisplayName: strings.TrimSpace(snap.DisplayName)},
+		Principal:      principal,
 		SatisfiedLevel: sdkauth.LevelNone,
+		Scope:          scopeFromLocalNoOp(id, displayName),
 	}, nil
+}
+
+// scopeFromLocalNoOp marks allowed local no-auth requests as local single-user scope without
+// inventing tenant, project, department, or cost-center values (requirements 1.4, 2.4, 3.5).
+func scopeFromLocalNoOp(principalID, displayName string) *scope.PrincipalScopeView {
+	return &scope.PrincipalScopeView{
+		SubjectKind: scope.SubjectLocal,
+		Origin:      scope.OriginClient,
+		PrincipalID: scope.Known(principalID),
+		AuthMethod:  scope.Known("local_noop"),
+		DisplayName: knownOrUnknown(displayName),
+	}
 }

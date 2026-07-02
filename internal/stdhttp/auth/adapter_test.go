@@ -365,7 +365,7 @@ func TestAuthDecisionEventMapping(t *testing.T) {
 		Device:     auth.DeviceIdentity{ID: "d1", KeyID: "k1", Fingerprint: "fp1"},
 	}
 	pol := PolicySnapshot{HandlerKind: auth.HandlerLocalNoop, RequiredLevel: auth.LevelNone, AccessMode: auth.AccessSingleUser}
-	ev := authDecisionEvent(now, "t1", pol, auth.InboundCallMeta{Frontend: "fe1"}, d)
+	ev := authDecisionEvent(now, "t1", pol, auth.InboundCallMeta{Frontend: "fe1"}, d, nil)
 	if ev.PrincipalID != "a" || ev.DeviceID != "d1" {
 		t.Fatalf("ev: %+v", ev)
 	}

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// PortBundle is the raw/redactor/observer triple used at each traffic leg (design §10–§11).
+// PortBundle is the raw/redactor/observer triple used at each traffic leg (design sections 10-11).
 // [Emit] maps [CaptureMeta] and the leg/protocol/content-type arguments into [Observation] only;
 // it does not attach transport handles or provider-specific values beyond those string fields.
 type PortBundle struct {
@@ -69,6 +69,7 @@ func (p PortBundle) Emit(ctx context.Context, leg Leg, meta CaptureMeta, protoco
 		Protocol:    protocol,
 		ContentType: contentType,
 		Body:        out,
+		Scope:       meta.Scope.Clone(),
 		RecordedAt:  time.Now(),
 	})
 }

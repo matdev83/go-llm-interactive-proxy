@@ -5,6 +5,7 @@ import (
 	"maps"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -14,8 +15,12 @@ type ctxKey int
 const keyViews ctxKey = iota + 6200 // offset avoids collision with diag keys
 
 // Views bundles typed snapshots for one request (design §2, R3).
+// Scope is the authoritative principal/scope snapshot; Principal is the legacy compatibility
+// projection derived from it. Annotations carry lifecycle-only notes kept separate from
+// trusted attribution (requirements 4.2, 4.3, 4.6, 5.1).
 type Views struct {
 	Principal   execview.PrincipalView
+	Scope       scope.PrincipalScopeView
 	Session     session.SessionView
 	Attempt     execview.AttemptView
 	Workspace   workspace.WorkspaceView
@@ -33,7 +38,9 @@ func WithViews(ctx context.Context, v Views) context.Context {
 	return context.WithValue(ctx, keyViews, v)
 }
 
-// FromContext returns the views attached with [WithViews], if any.
+// FromContext returns the views attached with [WithViews], if any. The returned Views is a
+// deep copy of the stored snapshot so callers cannot mutate the stored scope, principal,
+// session, workspace, or annotation slices/maps through the returned value (requirement 5.5).
 func FromContext(ctx context.Context) (Views, bool) {
 	if ctx == nil {
 		return Views{}, false
@@ -43,7 +50,10 @@ func FromContext(ctx context.Context) (Views, bool) {
 		return Views{}, false
 	}
 	v, ok := raw.(Views)
-	return v, ok
+	if !ok {
+		return Views{}, false
+	}
+	return copyViews(v), true
 }
 
 func copyViews(v Views) Views {
@@ -53,6 +63,7 @@ func copyViews(v Views) Views {
 	if len(v.Principal.Roles) > 0 {
 		v.Principal.Roles = append([]string(nil), v.Principal.Roles...)
 	}
+	v.Scope = v.Scope.Clone()
 	if len(v.Session.Labels) > 0 {
 		v.Session.Labels = maps.Clone(v.Session.Labels)
 	}

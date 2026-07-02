@@ -24,6 +24,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -62,18 +63,13 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	outCtx = ctx
 	var principal execview.PrincipalView
 	hasPrincipal := false
-	if p, ok := execview.PrincipalFromContext(ctx); ok {
+	var reqScope scope.PrincipalScopeView
+	if s, p, ok := e.resolveRequestScope(ctx); ok {
+		reqScope = s
 		principal = p
 		hasPrincipal = true
 		outCtx = execview.WithPrincipal(outCtx, p)
-	}
-	if !hasPrincipal && e != nil && e.SyntheticLocalPrincipal {
-		principal = execview.PrincipalView{
-			ID:     syntheticLocalPrincipalID,
-			Claims: map[string]string{"issuer": syntheticLocalPrincipalIssuer},
-		}
-		hasPrincipal = true
-		outCtx = execview.WithPrincipal(outCtx, principal)
+		outCtx = scope.WithScope(outCtx, s)
 	}
 	outCtx = diag.WithCallDiag(outCtx, traceID, "")
 
@@ -158,7 +154,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		Now:                    e.now(),
 		TraceID:                traceID,
 		Session:                secureSessionWireFromLipAPI(work.Session),
-		Principal:              principalRefFromView(principal),
+		Principal:              principalRefFromScope(principal, reqScope),
 		Workspace:              domain.WorkspaceRef{ID: strings.TrimSpace(wsView.ID)},
 		GlobalPolicy:           app.DefaultGlobalPolicy(),
 		ClientHints:            domain.ClientHints{ClientSessionID: strings.TrimSpace(work.Session.ClientSessionID)},
@@ -242,6 +238,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 				ALegID:      strings.TrimSpace(aLeg.ALegID),
 				SessionID:   ctpCall.Session.CorrelationID(),
 				PrincipalID: strings.TrimSpace(principal.ID),
+				Scope:       reqScope.Clone(),
 			}
 			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
 				outCtx,
@@ -360,6 +357,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	})
 	if hasPrincipal {
 		views.Principal = principal
+		views.Scope = reqScope
 	}
 	views.Workspace = wsView
 	views.Session.WorkspaceID = strings.TrimSpace(wsView.ID)
