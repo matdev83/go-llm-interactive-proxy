@@ -5,11 +5,14 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
 // ApplyCompletionGateChain runs sorted gates over the buffered completion (design §6, §17).
@@ -24,33 +27,72 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 	sorted := completion.MaterializeSorted(gates)
 	originalCopy := slices.Clone(original)
 	current := slices.Clone(original)
+	ev := DecisionEvidenceFromContext(ctx)
+	// completionGateFailureCfg carries outputCommitted (constant for the whole chain)
+	// into the shared timeout helper's evidence emitter. Failure handling stays inline
+	// to preserve the completion-gate panic special case (panics return through the
+	// stream boundary as fail-closed policy provider failures).
+	completionGateFailureCfg := stageFailureConfig{
+		Stage:        feature.StageIDCompletionGating,
+		MetricsStage: "",
+		TimeoutMsg:   "",
+		FailureMsg:   "",
+		PanicStage:   "completion_gate",
+		ProviderAttr: "gate",
+		EmitTimeout: func(ctx context.Context, ev *DecisionEvidence, providerID string, deadline time.Time, mode sdkhooks.FailureMode) {
+			emitCompletionGateTimeoutEvidence(ctx, ev, providerID, mode, outputCommitted, deadline)
+		},
+		EmitFailure: nil,
+	}
 	for _, g := range sorted {
 		if g == nil {
 			continue
 		}
+		mode := g.FailureMode()
+		zeroOutcome := completion.Outcome{}
 		buf := completion.NewBuffered(current)
-		out, err := safety.CallValue(safety.BoundaryExtension, "completion_gate_handle", func() (completion.Outcome, error) {
-			return g.Handle(ctx, meta, buf, svc)
+		res := runBoundedProvider(ctx, ev, feature.StageIDCompletionGating, g.ID(), func(c context.Context) (completion.Outcome, error) {
+			return safety.CallValue(safety.BoundaryExtension, "completion_gate_handle", func() (completion.Outcome, error) {
+				return g.Handle(c, meta, buf, svc)
+			})
 		})
+		if res.ParentCanceled {
+			return nil, res.Err
+		}
+		if res.TimedOut {
+			cont, terr := handleProviderTimeout(ctx, log, nil, ev, completionGateFailureCfg, res.IterCtx, g.ID(), res.Deadline, mode)
+			if cont {
+				continue
+			}
+			return nil, terr
+		}
+		iterCtx := res.IterCtx
+		deadline := res.Deadline
+		out, err := res.Value, res.Err
 		if err != nil {
 			var pe *safety.PanicError
 			if errors.As(err, &pe) {
-				// Panics are not ordinary fail-open handler errors: they must surface so the runtime
-				// stream mapper can apply pre-output vs post-output crash semantics (see completion_executor_test).
+				emitCompletionGateEvidence(iterCtx, ev, g.ID(), zeroOutcome, err, sdkhooks.FailClosed, outputCommitted, false, deadline)
 				logFailOpenExtensionPanic(ctx, log, "completion_gate", g.ID(), err)
-				return nil, err
+				return nil, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)
 			}
-			if g.FailureMode() == sdkhooks.FailClosed {
-				return nil, err
-			}
-			continue
-		}
-		if err := out.Validate(); err != nil {
-			if g.FailureMode() == sdkhooks.FailClosed {
-				return nil, err
+			emitCompletionGateEvidence(iterCtx, ev, g.ID(), zeroOutcome, err, mode, outputCommitted, false, deadline)
+			if mode == sdkhooks.FailClosed {
+				if IsContextCancellation(ctx, err) {
+					return nil, err
+				}
+				return nil, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)
 			}
 			continue
 		}
+		if vErr := out.Validate(); vErr != nil {
+			emitCompletionGateEvidence(iterCtx, ev, g.ID(), out, vErr, mode, outputCommitted, true, deadline)
+			if mode == sdkhooks.FailClosed {
+				return nil, PolicyErrorFromMalformed(feature.StageIDCompletionGating, g.ID(), vErr)
+			}
+			continue
+		}
+		emitCompletionGateEvidence(iterCtx, ev, g.ID(), out, nil, mode, outputCommitted, false, deadline)
 		switch out.Kind {
 		case completion.OutcomePassOriginal:
 			// unchanged
@@ -62,17 +104,74 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 			}
 			current = slices.Clone(out.Events)
 		case completion.OutcomeReject:
-			if out.Err == nil {
-				return nil, errors.New("extensions: completion reject without error")
-			}
-			return nil, out.Err
+			return nil, lipapi.NewPolicyDeniedError(feature.StageIDCompletionGating, g.ID(), ReasonCompletionReject, CategoryDenied, "completion rejected by policy", out.Err)
 		default:
-			if g.FailureMode() == sdkhooks.FailClosed {
-				return nil, errors.New("extensions: unknown completion outcome")
+			if mode == sdkhooks.FailClosed {
+				return nil, PolicyErrorFromMalformed(feature.StageIDCompletionGating, g.ID(), errors.New("extensions: unknown completion outcome"))
 			}
 		}
 	}
 	return current, nil
+}
+
+// emitCompletionGateEvidence projects one completion-gate outcome into shared
+// evidence (requirements 3.4, 4.3, 5.2, 8.2, 9.1, 9.5). The completion gate runs
+// after backend attempt is committed, so BackendAttempted is true. The gate
+// stage runs at stream completion; outputCommitted is the runtime's authoritative
+// per-event output-committed flag and is preserved on the emitted record so a
+// pre-output decision is not misrecorded as post-output. The projector still
+// represents ignored post-output replacement as skip/none, preserving the
+// no-failover-after-output invariant. No-op when no seam is attached.
+//
+// err != nil records a provider failure (handler error or panic) when malformed
+// is false, and a malformed-outcome validation failure when malformed is true
+// (requirements 6.6). Validation failures are malformed regardless of outcome
+// kind/fields; provider handler errors/panics are failures. Otherwise the gate's
+// outcome is projected through ProjectCompletionOutcome.
+func emitCompletionGateEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, out completion.Outcome, err error, mode sdkhooks.FailureMode, outputCommitted bool, malformed bool, deadline time.Time) {
+	if ev == nil || ev.Emitter == nil {
+		return
+	}
+	if err != nil {
+		reason, category := ReasonCompletionFailure, CategoryFailure
+		if malformed {
+			reason, category = ReasonCompletionMalformed, CategoryMalformed
+		}
+		emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+			Stage:            feature.StageIDCompletionGating,
+			ProviderID:       providerID,
+			BackendAttempted: true,
+			OutputCommitted:  outputCommitted,
+			ReasonCode:       reason,
+			ClientCategory:   category,
+			FailureMode:      mode,
+			Deadline:         deadline,
+		})
+		return
+	}
+	dctx := decisionContextForDeadline(ctx, ev, feature.StageIDCompletionGating, providerID, outputCommitted, deadline)
+	rec := ProjectCompletionOutcome(dctx, providerID, out)
+	rec.OutputCommitted = outputCommitted
+	emitDecisionRecord(ctx, ev, rec)
+}
+
+// emitCompletionGateTimeoutEvidence projects a completion-gate evaluation timeout into
+// shared evidence with the gate's failure behavior (requirements 6.1, 6.3). The
+// completion gate runs after backend attempt is committed, so BackendAttempted is
+// true. outputCommitted is preserved on the record. deadline is the exact evaluation
+// deadline used to bound the provider call; it is projected onto the record's
+// EvaluationDeadline. No-op when no seam is attached.
+func emitCompletionGateTimeoutEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, mode sdkhooks.FailureMode, outputCommitted bool, deadline time.Time) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:            feature.StageIDCompletionGating,
+		ProviderID:       providerID,
+		BackendAttempted: true,
+		OutputCommitted:  outputCommitted,
+		ReasonCode:       PolicyReasonTimeout,
+		ClientCategory:   CategoryFailure,
+		FailureMode:      mode,
+		Deadline:         deadline,
+	})
 }
 
 // CompletionGateBufferExceeded reports whether buffering should fail open to live passthrough (R8).

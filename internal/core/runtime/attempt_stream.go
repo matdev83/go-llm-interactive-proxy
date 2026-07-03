@@ -267,6 +267,7 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	if s.executor != nil && s.executor.Log != nil {
 		ctx = hooks.WithDiagnosticsLogger(ctx, s.executor.Log)
 	}
+	ctx = s.withDecisionEvidence(ctx)
 
 	s.lastParent = parent
 	s.cachedCtx = ctx
@@ -286,6 +287,15 @@ func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 		ALegID:     s.aLegID,
 		BLegID:     s.bleg.BLegID,
 		AttemptSeq: s.bleg.Seq,
+	}
+	// Authoritative scope/identity from the request-scoped execctx views snapshot
+	// kept on the stream so stream-stage reactors see proxy-validated attribution
+	// even when the recv ctx is a bare HTTP context (requirement 2.6, 9.1).
+	if v, ok := s.viewsFor(nil); ok { //nolint:staticcheck // SA1012: intentional nil context to force fallback to the stream snapshot
+		tm.Principal = v.Principal
+		tm.Scope = v.Scope
+		tm.Session = v.Session
+		tm.Workspace = v.Workspace
 	}
 	return pm, tm
 }
@@ -735,15 +745,17 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 		BLegID:     strings.TrimSpace(meta.BLegID),
 		AttemptSeq: meta.AttemptSeq,
 		Principal:  meta.Principal,
+		Scope:      meta.Scope,
 		Session:    meta.Session,
 		Workspace:  meta.Workspace,
 	}
-	if v, ok := execctx.FromContext(ctx); ok {
+	if v, ok := s.viewsFor(ctx); ok {
 		polMeta.Principal = v.Principal
+		polMeta.Scope = v.Scope
 		polMeta.Session = v.Session
 		polMeta.Workspace = v.Workspace
 	}
-	return extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
+	err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
 		Ctx:      ctx,
 		Log:      s.executor.Log,
 		Obs:      s.executor.ExtensionMetrics,
@@ -755,6 +767,7 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 			Aux:   s.executor.RuntimeSnapshot.Aux(),
 		},
 	})
+	return err
 }
 
 func (s *retryRecvStream) emitUsage(ctx context.Context, ev lipapi.Event) {

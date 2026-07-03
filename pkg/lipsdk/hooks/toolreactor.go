@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
@@ -23,6 +24,10 @@ const (
 // ToolMeta carries stream and session context for tool reactors.
 // Principal, Session, and Workspace are optional: the standard hook bus copies them from the
 // request-scoped views attached to context when present (R9 policy context).
+// Scope is the authoritative principal/scope attribution, carried separately from the legacy
+// Principal projection (requirement 2.6). Internal/auxiliary origin and parent trace attribution
+// are preserved through Scope.Origin and Scope.ParentTraceID; a zero Scope preserves
+// local/anonymous identity semantics.
 type ToolMeta struct {
 	TraceID    string
 	ALegID     string
@@ -30,6 +35,7 @@ type ToolMeta struct {
 	AttemptSeq int
 
 	Principal execview.PrincipalView
+	Scope     scope.PrincipalScopeView
 	Session   session.SessionView
 	Workspace workspace.WorkspaceView
 }

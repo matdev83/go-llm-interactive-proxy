@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
@@ -43,6 +44,9 @@ type RequestRuntimeSnapshot struct {
 	routeHintProviders []routehint.Provider
 	completionGates    []completion.Gate
 	trafficRedactors   []traffic.Redactor
+	policyObserver     policydecision.Observer
+	timeoutBudget      TimeoutBudgetSource
+	timeoutGuard       *ProviderTimeoutGuard
 	gen                int64
 }
 
@@ -62,7 +66,15 @@ type SnapshotOptions struct {
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficRedactors   []traffic.Redactor
-	Generation         int64
+	// PolicyObserver receives normalized policy decision evidence. Nil defaults to a
+	// disabled no-op observer so deployments without policy evidence keep current request
+	// outcomes (requirements 7.6, 10.5).
+	PolicyObserver policydecision.Observer
+	// TimeoutBudgetSource is the frozen per-request source of decision-provider evaluation
+	// budgets. Nil defaults to [DefaultTimeoutBudgetSource] (zero budget for every
+	// stage/provider) so legacy extension behavior is unchanged (requirements 6.3, 10.5).
+	TimeoutBudgetSource TimeoutBudgetSource
+	Generation          int64
 }
 
 // NewRequestRuntimeSnapshot captures bus and facades for the lifetime of the returned value.
@@ -105,6 +117,14 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	routeHints := slices.Clone(opts.RouteHintProviders)
 	compGates := slices.Clone(opts.CompletionGates)
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
+	polObs := opts.PolicyObserver
+	if polObs == nil {
+		polObs = policydecision.NoopObserver{}
+	}
+	budget := opts.TimeoutBudgetSource
+	if budget == nil {
+		budget = DefaultTimeoutBudgetSource{}
+	}
 	return &RequestRuntimeSnapshot{
 		hookBus:            bus,
 		state:              st,
@@ -121,6 +141,9 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		routeHintProviders: routeHints,
 		completionGates:    compGates,
 		trafficRedactors:   reds,
+		policyObserver:     polObs,
+		timeoutBudget:      budget,
+		timeoutGuard:       NewProviderTimeoutGuard(),
 		gen:                opts.Generation,
 	}
 }
@@ -264,6 +287,37 @@ func (s *RequestRuntimeSnapshot) Generation() int64 {
 		return 0
 	}
 	return s.gen
+}
+
+// PolicyObserver returns the frozen policy decision observer bound at snapshot construction
+// (requirements 7.6, 10.5). A nil snapshot returns the disabled no-op default so callers can
+// always invoke the returned observer without nil checks. The returned observer is an
+// interface value; it is treated as frozen for the lifetime of the snapshot.
+func (s *RequestRuntimeSnapshot) PolicyObserver() policydecision.Observer {
+	if s == nil || s.policyObserver == nil {
+		return policydecision.NoopObserver{}
+	}
+	return s.policyObserver
+}
+
+// TimeoutBudgetSource returns the frozen per-request decision-provider timeout budget source
+// bound at snapshot construction (requirements 6.3, 10.5). A nil snapshot returns the default
+// zero-budget source so callers can always invoke TimeoutFor without nil checks.
+func (s *RequestRuntimeSnapshot) TimeoutBudgetSource() TimeoutBudgetSource {
+	if s == nil || s.timeoutBudget == nil {
+		return DefaultTimeoutBudgetSource{}
+	}
+	return s.timeoutBudget
+}
+
+// ProviderTimeoutGuard returns the snapshot-scoped guard used to contain
+// uncooperative bounded providers. It is shared across requests for this immutable
+// snapshot so one stuck stage/provider cannot accumulate one goroutine per request.
+func (s *RequestRuntimeSnapshot) ProviderTimeoutGuard() *ProviderTimeoutGuard {
+	if s == nil {
+		return nil
+	}
+	return s.timeoutGuard
 }
 
 // WithRequestRuntimeSnapshot attaches snap to ctx for the remainder of the request lifetime.

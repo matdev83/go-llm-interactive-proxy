@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
@@ -71,11 +70,18 @@ func TestRunPreRequestStage_failOpenContinues(t *testing.T) {
 func TestRunPreRequestStage_failClosedStops(t *testing.T) {
 	t.Parallel()
 	call := validCall()
+	cause := errors.New("boom")
 	err := extensions.RunPreRequestStage(context.Background(), nil, nil, []prerequest.Handler{
-		preReqHandler{id: "bad", order: 1, err: errors.New("boom"), mode: sdkhooks.FailClosed},
+		preReqHandler{id: "bad", order: 1, err: cause, mode: sdkhooks.FailClosed},
 	}, &call, prerequest.Meta{}, prerequest.Services{})
-	if err == nil || !strings.Contains(err.Error(), "pre-request handler \"bad\"") {
-		t.Fatalf("expected wrapped handler error, got %v", err)
+	if err == nil {
+		t.Fatal("expected fail-closed error")
+	}
+	if !lipapi.IsPolicyFailure(err) {
+		t.Fatalf("fail-closed must surface a stable policy failure, got %v", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("fail-closed must preserve cause, got %v", err)
 	}
 }
 
@@ -101,8 +107,11 @@ func TestRunPreRequestStage_validatesAfterChain(t *testing.T) {
 	err := extensions.RunPreRequestStage(context.Background(), nil, nil, []prerequest.Handler{
 		preReqHandler{id: "mutate-bad", order: 1, mutate: func(c *lipapi.Call) { c.Messages = nil }},
 	}, &call, prerequest.Meta{}, prerequest.Services{})
-	if err == nil || !strings.Contains(err.Error(), "invalid canonical call after pre-request") {
-		t.Fatalf("expected validation error, got %v", err)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !lipapi.IsPolicyMalformed(err) {
+		t.Fatalf("post-chain validation failure must surface a stable policy malformed error, got %v", err)
 	}
 }
 

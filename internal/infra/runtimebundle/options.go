@@ -7,9 +7,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
@@ -79,6 +81,19 @@ type BuildOptions struct {
 	UsageObservers     []usage.Observer
 	RawCaptureSinks    []traffic.RawCaptureSink
 	TrafficRedactors   []traffic.Redactor
+	// PolicyObservers, when non-empty, are chained as the policy decision evidence
+	// observer for the runtime snapshot. When nil/empty, the snapshot uses a no-op
+	// observer so deployments without policy evidence keep current request outcomes
+	// (requirements 7.6, 10.5).
+	PolicyObservers []policydecision.Observer
+	// PolicyTimeoutBudgetSource, when set, supplies decision-provider evaluation
+	// budgets per stage/provider. When nil, the snapshot uses the default zero-budget
+	// source so legacy extension behavior is unchanged (requirements 6.3, 10.5).
+	PolicyTimeoutBudgetSource extensions.TimeoutBudgetSource
+	// PolicyDiagnosticsEnabled controls whether privileged-visibility policy decision
+	// records may leave the core through the evidence emitter. Default false withholds
+	// privileged records (requirement 7.4).
+	PolicyDiagnosticsEnabled bool
 	// SecureSessionStore is optional; when set on Built, stdhttp may mount secure-session diagnostics.
 	SecureSessionStore app.Store
 }

@@ -34,6 +34,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -121,6 +122,10 @@ type Executor struct {
 	Metrics MetricsSink
 	// ExtensionMetrics records extension pipeline stage timings when non-nil (Prometheus when enabled).
 	ExtensionMetrics extensions.StageMetrics
+	// PolicyDiagnosticsEnabled controls whether privileged-visibility policy decision records may
+	// leave the core through the runtime evidence emitter. Default false withholds privileged
+	// records (requirement 7.4).
+	PolicyDiagnosticsEnabled bool
 	// CompletionBufferLimits overrides completion-gate buffering bounds (tests). Zero MaxEvents uses SDK defaults.
 	CompletionBufferLimits completion.BufferLimits
 	// secureSessionMu guards lazy initialization of SecureSession in the test hook path.
@@ -193,6 +198,24 @@ func (e *Executor) effectiveTransportFallbackPolicy() lipapi.TransportFallbackPo
 		return lipapi.TransportFallbackCompatibility
 	}
 	return e.TransportFallbackPolicy
+}
+
+// policyEvidenceEmitter builds an EvidenceEmitter from the snapshot's policy observer
+// and the executor logger. Returns nil when snap is nil, or when the snapshot's policy
+// observer is the no-op default and privileged diagnostics are not enabled, so the
+// no-observer deployment does not attach an active emitter, build decision contexts,
+// or emit policy logs (requirements 7.6, 10.5). Emit on a nil emitter is a no-op, so
+// callers can always invoke it without nil checks. The emitter is built per-call to
+// reflect the frozen snapshot without caching across generations.
+func (e *Executor) policyEvidenceEmitter(snap *extensions.RequestRuntimeSnapshot) *extensions.EvidenceEmitter {
+	if e == nil || snap == nil {
+		return nil
+	}
+	obs := snap.PolicyObserver()
+	if policydecision.IsNoopObserver(obs) && !e.PolicyDiagnosticsEnabled {
+		return nil
+	}
+	return extensions.NewEvidenceEmitter(obs, e.Log, e.PolicyDiagnosticsEnabled)
 }
 
 // Execute runs submit hooks, resolves the A-leg, plans routes, negotiates per attempt,

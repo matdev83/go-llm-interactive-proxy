@@ -106,15 +106,23 @@ func (gateReject) ID() string                        { return "rj" }
 func (gateReject) Order() int                        { return 0 }
 func (gateReject) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
 func (gateReject) Handle(context.Context, completion.Meta, completion.Buffered, completion.Services) (completion.Outcome, error) {
-	return completion.RejectOutcome(errors.New("nope")), nil
+	return completion.RejectOutcome(errGateRejectCause), nil
 }
+
+var errGateRejectCause = errors.New("nope")
 
 func TestApplyCompletionGateChain_reject(t *testing.T) {
 	t.Parallel()
 	orig := []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
 	_, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReject{}}, completion.Meta{}, orig, false, completion.Services{}, nil)
-	if err == nil || err.Error() != "nope" {
-		t.Fatalf("got %v", err)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !lipapi.IsPolicyDenied(err) {
+		t.Fatalf("reject must surface a stable policy denied error, got %v", err)
+	}
+	if !errors.Is(err, errGateRejectCause) {
+		t.Fatalf("reject must preserve cause, got %v", err)
 	}
 }
 

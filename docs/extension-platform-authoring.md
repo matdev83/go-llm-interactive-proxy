@@ -85,6 +85,10 @@ Reference proof plugins under `internal/plugins/features/` demonstrate each clas
 
 Each request should run against **one immutable** [`internal/core/extensions.RequestRuntimeSnapshot`](../../internal/core/extensions/snapshot.go) for its lifetime (design **§15B**, quality **Q7**). Composition roots build snapshots from registry + config; mutating wiring after publish should use a **new** snapshot generation, not in-place mutation of shared stage chains.
 
+## Context cancellation and bounded stages
+
+Every SDK handler receives a `context.Context` from the core and must treat it as authoritative cancellation. Decision providers and feature hooks that perform loops, sleeps, channel waits, or blocking I/O must monitor `ctx.Done()` / `ctx.Err()` and return promptly when canceled. The core can bound cooperative providers with evaluation deadlines, but Go cannot forcibly stop a goroutine whose provider ignores its context; such code can outlive the request until its own call stack unwinds.
+
 ## Automated guardrails
 
 Architecture tests in [`internal/archtest`](../internal/archtest) and import boundaries in [`internal/core/runtime/boundaries_test.go`](../internal/core/runtime/boundaries_test.go) enforce package rules. See [architecture-guardrails.md](architecture-guardrails.md) for the checklist and how to update budgets when you intentionally grow a layer.

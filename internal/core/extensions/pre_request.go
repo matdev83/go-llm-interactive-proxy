@@ -2,7 +2,6 @@ package extensions
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -11,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"go.opentelemetry.io/otel"
@@ -45,6 +45,7 @@ func RunPreRequestStage(ctx context.Context, log *slog.Logger, obs StageMetrics,
 		span.End()
 	}()
 
+	ev := DecisionEvidenceFromContext(ctx)
 	for _, h := range prerequest.MaterializeSorted(handlers) {
 		if h == nil {
 			continue
@@ -52,30 +53,37 @@ func RunPreRequestStage(ctx context.Context, log *slog.Logger, obs StageMetrics,
 		if execctx.IsSuppressedPluginID(ctx, h.ID()) {
 			continue
 		}
-		decision, hErr := safety.CallValue(safety.BoundaryExtension, "pre_request", func() (prerequest.Decision, error) {
-			return h.Handle(ctx, call, meta, svc)
+		mode := h.FailureMode()
+		if mode == sdkhooks.FailureModeUnspecified {
+			mode = sdkhooks.FailOpen
+		}
+		r := runBoundedCall(ctx, ev, feature.StageIDPreRequest, h.ID(), call, func(c context.Context, target *lipapi.Call) (prerequest.Decision, error) {
+			return safety.CallValue(safety.BoundaryExtension, "pre_request", func() (prerequest.Decision, error) {
+				return h.Handle(c, target, meta, svc)
+			})
 		})
-		if hErr != nil {
-			mode := h.FailureMode()
-			if mode == sdkhooks.FailureModeUnspecified {
-				mode = sdkhooks.FailOpen
-			}
-			if mode == sdkhooks.FailOpen {
-				if log != nil {
-					var pe *safety.PanicError
-					if errors.As(hErr, &pe) {
-						logFailOpenExtensionPanic(ctx, log, "pre_request", h.ID(), hErr)
-					} else {
-						log.WarnContext(ctx, "pre_request: handler error (fail-open)", "handler", h.ID(), "error", hErr)
-					}
-				}
-				if obs != nil {
-					obs.IncFailOpenSkip(MetricsStagePreRequest)
-				}
+		iterCtx := r.IterCtx
+		deadline := r.Deadline
+		if r.ParentCanceled {
+			outcome = "error"
+			return r.Err
+		}
+		if r.TimedOut {
+			cont, terr := handleProviderTimeout(ctx, log, obs, ev, preRequestFailureCfg, iterCtx, h.ID(), deadline, mode)
+			if cont {
 				continue
 			}
 			outcome = "error"
-			return fmt.Errorf("pre-request handler %q: %w", h.ID(), hErr)
+			return terr
+		}
+		decision, hErr := r.Value, r.Err
+		if hErr != nil {
+			cont, ferr := handleProviderFailure(ctx, log, obs, ev, preRequestFailureCfg, iterCtx, h.ID(), deadline, mode, hErr)
+			if cont {
+				continue
+			}
+			outcome = "error"
+			return ferr
 		}
 		if len(decision.Annotations) != 0 {
 			if meta.Annotations == nil {
@@ -83,14 +91,86 @@ func RunPreRequestStage(ctx context.Context, log *slog.Logger, obs StageMetrics,
 			}
 			maps.Copy(meta.Annotations, decision.Annotations)
 		}
+		emitPreRequestDecisionEvidence(iterCtx, ev, h.ID(), decision, deadline)
 		if decision.Deny {
 			outcome = "denied"
-			return prerequest.NewRejectError(h.ID(), decision.DenyMessage)
+			// Wrap the legacy RejectError as the cause so prerequest.IsRejected and
+			// errors.As(*RejectError) keep working while the stable policy denied root
+			// lets execerr classify KindPolicyDenied.
+			return lipapi.NewPolicyDeniedError(feature.StageIDPreRequest, h.ID(), ReasonPreRequestDenied, CategoryDenied, decision.DenyMessage, prerequest.NewRejectError(h.ID(), decision.DenyMessage))
 		}
 	}
 	if vErr := call.Validate(); vErr != nil {
 		outcome = "error"
-		return fmt.Errorf("extensions: invalid canonical call after pre-request: %w", vErr)
+		emitPreRequestMalformedEvidence(ctx, ev)
+		return PolicyErrorFromMalformed(feature.StageIDPreRequest, "pre_request_chain", vErr)
 	}
 	return nil
+}
+
+// preRequestFailureCfg is the shared per-stage naming/evidence config for the
+// pre-request admission runner (requirements 6.1, 6.3, 6.5).
+var preRequestFailureCfg = stageFailureConfig{
+	Stage:        feature.StageIDPreRequest,
+	MetricsStage: MetricsStagePreRequest,
+	TimeoutMsg:   "pre_request: handler timed out (fail-open)",
+	FailureMsg:   "pre_request: handler error (fail-open)",
+	PanicStage:   "pre_request",
+	ProviderAttr: "handler",
+	EmitTimeout:  emitPreRequestTimeoutEvidence,
+	EmitFailure:  emitPreRequestFailureEvidence,
+}
+
+// emitPreRequestDecisionEvidence projects one admission handler's allow/annotate/
+// deny decision into shared evidence (requirements 3.1, 4.2, 4.3, 9.1, 9.5). Denial
+// evidence records BackendAttempted=false (no backend attempt committed for pre-backend
+// denials; requirements 8.1, 8.6). deadline is the exact evaluation deadline used to
+// bound the provider call (zero on the direct path). No-op when no seam is attached.
+func emitPreRequestDecisionEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, decision prerequest.Decision, deadline time.Time) {
+	if ev == nil || ev.Emitter == nil {
+		return
+	}
+	dctx := decisionContextForDeadline(ctx, ev, feature.StageIDPreRequest, providerID, false, deadline)
+	emitDecisionRecord(ctx, ev, ProjectPreRequestDecision(dctx, providerID, decision))
+}
+
+// emitPreRequestFailureEvidence projects a handler failure into shared evidence
+// with the provider's failure behavior (requirements 6.1, 6.2). deadline is the exact
+// evaluation deadline used to bound the provider call (zero on the direct path).
+func emitPreRequestFailureEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, _ error, deadline time.Time, mode sdkhooks.FailureMode) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDPreRequest,
+		ProviderID:     providerID,
+		ReasonCode:     ReasonPreRequestFailure,
+		ClientCategory: CategoryFailure,
+		FailureMode:    mode,
+		Deadline:       deadline,
+	})
+}
+
+// emitPreRequestTimeoutEvidence projects a handler evaluation timeout into shared
+// evidence with the provider's failure behavior (requirements 6.1, 6.3). deadline is
+// the exact evaluation deadline used to bound the provider call; it is projected onto
+// the record's EvaluationDeadline. No-op when no seam is attached.
+func emitPreRequestTimeoutEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, deadline time.Time, mode sdkhooks.FailureMode) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDPreRequest,
+		ProviderID:     providerID,
+		ReasonCode:     PolicyReasonTimeout,
+		ClientCategory: CategoryFailure,
+		FailureMode:    mode,
+		Deadline:       deadline,
+	})
+}
+
+// emitPreRequestMalformedEvidence records a malformed-validation outcome when
+// the canonical call fails validation after the pre-request chain
+// (requirements 3.1, 6.6). error/none is legal for StageIDPreRequest.
+func emitPreRequestMalformedEvidence(ctx context.Context, ev *DecisionEvidence) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDPreRequest,
+		ProviderID:     "pre_request_chain",
+		ReasonCode:     ReasonPreRequestMalformed,
+		ClientCategory: CategoryMalformed,
+	})
 }

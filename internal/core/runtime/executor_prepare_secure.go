@@ -224,6 +224,33 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	if e.Log != nil {
 		outCtx = hooks.WithDiagnosticsLogger(outCtx, e.Log)
 	}
+	// One base policy decision evidence seam carries the shared Emitter and
+	// TimeoutBudget for the whole prepare phase. Views are refreshed per phase
+	// via WithViews so submit hooks and post-submit pre-backend stages each see
+	// their correct safe attribution snapshot without rebuilding the seam.
+	// Emitter stays nil for the no-op observer default so no evidence/logs are
+	// produced (requirements 7.6, 10.5). ALegID is known post-BeginTurn;
+	// BLegID/AttemptSeq are unknown pre-backend, correct for no-backend-attempt
+	// submit evidence.
+	var baseEvidence *extensions.DecisionEvidence
+	if e.RuntimeSnapshot != nil {
+		submitViews := execctx.Views{
+			Principal:   principal,
+			Scope:       reqScope,
+			Session:     preSession,
+			Attempt:     execview.AttemptView{TraceID: traceID},
+			Workspace:   wsView,
+			Annotations: submitMeta.Annotations,
+		}
+		baseEvidence = &extensions.DecisionEvidence{
+			Emitter:       e.policyEvidenceEmitter(e.RuntimeSnapshot),
+			Views:         submitViews,
+			TimeoutBudget: e.RuntimeSnapshot.TimeoutBudgetSource(),
+			TimeoutGuard:  e.RuntimeSnapshot.ProviderTimeoutGuard(),
+		}
+		outCtx = extensions.WithDecisionEvidence(outCtx, baseEvidence)
+		outCtx = hooks.WithSubmitEvidence(outCtx, extensions.NewSubmitEvidenceFunc(baseEvidence))
+	}
 	if err := bus.RunSubmit(outCtx, &work, submitMeta); err != nil {
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}
@@ -255,6 +282,35 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		if ann == nil {
 			ann = make(map[string]string, len(submitMeta.Annotations))
 		}
+		reqMeta := request.RequestMeta{
+			TraceID:     traceID,
+			Annotations: ann,
+			Principal:   principal,
+			Scope:       reqScope,
+			Session:     preSession,
+			Workspace:   wsView,
+		}
+		if reqMeta.Annotations == nil {
+			reqMeta.Annotations = make(map[string]string, len(submitMeta.Annotations))
+		}
+		// Decision-context views for pre-backend stages. ALegID comes from preSession
+		// (set after BeginTurn authority); BLegID/AttemptSeq are unknown pre-backend, which is
+		// correct for no-backend-attempt evidence (req 8.1, 8.6). The evidence seam is attached
+		// to the context so the stage runners project per-provider decisions themselves; runtime
+		// only establishes context and does not emit aggregate runtime evidence.
+		pdViews := decisionViewsFromRequestMeta(reqMeta, execview.AttemptView{TraceID: traceID})
+		// Refresh the base seam's views for post-submit pre-backend stages before
+		// the first such stage runs. The base seam is re-attached whenever a
+		// snapshot is present so non-default timeout budgets are enforced even
+		// without a policy observer. Emitter stays nil for the no-op observer
+		// default so no evidence/logs are produced (requirements 7.6, 10.5);
+		// emitDecisionRecord and the tool reactor evidence func are no-ops on a
+		// nil emitter. The default zero-budget source keeps the
+		// no-timeout/no-observer path cheap and silent (legacy synchronous
+		// behavior). The submit evidence func captured the original baseEvidence
+		// pointer, so its submit-time views remain unchanged for the already-
+		// completed RunSubmit call.
+		outCtx = extensions.WithDecisionEvidence(outCtx, baseEvidence.WithViews(pdViews))
 		catalogMeta := toolcatalog.CatalogMeta{
 			TraceID:     traceID,
 			Annotations: ann,
@@ -274,16 +330,6 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		); err != nil {
 			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 		}
-		reqMeta := request.RequestMeta{
-			TraceID:     traceID,
-			Annotations: ann,
-			Principal:   principal,
-			Session:     preSession,
-			Workspace:   wsView,
-		}
-		if reqMeta.Annotations == nil {
-			reqMeta.Annotations = make(map[string]string, len(submitMeta.Annotations))
-		}
 		reqSvc := request.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
 		if err := extensions.RunRequestTransformStage(
 			outCtx,
@@ -300,6 +346,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			TraceID:        traceID,
 			Annotations:    ann,
 			Principal:      principal,
+			Scope:          reqScope,
 			Session:        preSession,
 			Workspace:      wsView,
 			AuxiliaryDepth: execctx.AuxiliaryDepth(outCtx),

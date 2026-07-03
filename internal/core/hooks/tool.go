@@ -29,6 +29,7 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 	}
 	if v, ok := execctx.FromContext(ctx); ok {
 		meta.Principal = v.Principal
+		meta.Scope = v.Scope
 		meta.Session = v.Session
 		meta.Workspace = v.Workspace
 	}
@@ -39,9 +40,16 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		tools = b.tools
 		pol = b.toolErrPol
 	}
+	reactorEvidence := ToolReactorEvidenceFromContext(ctx)
+	emit := func(providerID string, dec sdk.ToolDecision, err error, validationErr error) {
+		if reactorEvidence != nil {
+			reactorEvidence(ctx, providerID, dec, err, validationErr)
+		}
+	}
 	for _, r := range tools {
 		dec, next, err := callToolReactor(ctx, r, cur, meta)
 		if err != nil {
+			emit(r.ID(), dec, err, nil)
 			switch pol {
 			case sdk.ToolReactorErrorsFailClosed:
 				return ToolApplyResult{Err: fmt.Errorf("tool reactor %s: %w", r.ID(), err)}
@@ -57,9 +65,10 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 		}
 		switch dec {
 		case sdk.ToolPass:
-			// Explicit pass-through; ignore next.
+			emit(r.ID(), dec, nil, nil)
 		case sdk.ToolRewrite, sdk.ToolReplace:
 			if vErr := ValidateToolEventAfterPolicy(r.ID(), &next); vErr != nil {
+				emit(r.ID(), dec, nil, vErr)
 				switch pol {
 				case sdk.ToolReactorErrorsFailClosed:
 					return ToolApplyResult{Err: fmt.Errorf("tool reactor %s: %w", r.ID(), vErr)}
@@ -68,10 +77,13 @@ func (b *Bus) ApplyToolReactors(ctx context.Context, te lipapi.ToolEvent, meta s
 					continue
 				}
 			}
+			emit(r.ID(), dec, nil, nil)
 			cur = next
 		case sdk.ToolSwallow:
+			emit(r.ID(), dec, nil, nil)
 			return ToolApplyResult{Emit: false, Event: lipapi.ToolEvent{}}
 		default:
+			emit(r.ID(), dec, nil, nil)
 			continue
 		}
 	}

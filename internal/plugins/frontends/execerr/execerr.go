@@ -4,6 +4,7 @@ package execerr
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -20,6 +21,18 @@ const UnknownExecuteErrorMessage = "unknown error"
 // ContextLimitExceededWireMessage is returned for [lipapi.ErrAllCandidatesContextLimitExceeded] (HTTP 413).
 const ContextLimitExceededWireMessage = "request exceeds context limits for all configured model routes"
 
+// PolicyDeniedWireMessage is the stable client-safe wire message for policy denials when the
+// decision carries no client message (requirement 5.4).
+const PolicyDeniedWireMessage = "request denied by policy"
+
+// PolicyFailureWireMessage is the stable client-safe wire message for policy decision provider
+// failures handled through fail-closed behavior (requirement 6.1).
+const PolicyFailureWireMessage = "policy decision unavailable"
+
+// PolicyMalformedWireMessage is the stable client-safe wire message for malformed policy
+// decisions (requirements 1.5, 6.6).
+const PolicyMalformedWireMessage = "policy decision was malformed"
+
 type Kind int
 
 const (
@@ -28,6 +41,14 @@ const (
 	KindInternalError
 	// KindSessionDenial is a pre-backend secure-session denial with a stable public code and HTTP status.
 	KindSessionDenial
+	// KindPolicyDenied is a policy denial before backend output or an active-stream policy denial
+	// after output (requirement 5.1). Distinct from capability, session, backend, and internal errors.
+	KindPolicyDenied
+	// KindPolicyFailure is a fail-closed policy decision provider failure (requirement 6.1).
+	KindPolicyFailure
+	// KindPolicyMalformed is a malformed policy decision: unknown stage, outcome, effect, or illegal
+	// outcome/effect pair (requirements 1.5, 6.6).
+	KindPolicyMalformed
 )
 
 type Outcome struct {
@@ -68,6 +89,30 @@ func ClassifyExecute(err error) Outcome {
 			SessionPublicCode: code,
 		}
 	}
+	if lipapi.IsPolicyDenied(err) {
+		return Outcome{
+			Kind:    KindPolicyDenied,
+			Status:  http.StatusForbidden,
+			Message: clientSafePolicyMessage(err, PolicyDeniedWireMessage),
+			Err:     err,
+		}
+	}
+	if lipapi.IsPolicyFailure(err) {
+		return Outcome{
+			Kind:    KindPolicyFailure,
+			Status:  http.StatusServiceUnavailable,
+			Message: clientSafePolicyMessage(err, PolicyFailureWireMessage),
+			Err:     err,
+		}
+	}
+	if lipapi.IsPolicyMalformed(err) {
+		return Outcome{
+			Kind:    KindPolicyMalformed,
+			Status:  http.StatusInternalServerError,
+			Message: clientSafePolicyMessage(err, PolicyMalformedWireMessage),
+			Err:     err,
+		}
+	}
 	if lipapi.IsReject(err) {
 		return Outcome{Kind: KindClientReject, Status: http.StatusBadRequest, Message: err.Error(), Err: err}
 	}
@@ -75,7 +120,13 @@ func ClassifyExecute(err error) Outcome {
 		msg := "request denied"
 		var re *prerequest.RejectError
 		if errors.As(err, &re) && re != nil && re.Message != "" {
-			msg = re.Message
+			// Defense in depth: a bare RejectError not wrapped in a PolicyDecisionError
+			// still reaches the wire here. Bound plugin-controlled text with the same
+			// canonical normalizer used at PolicyDecisionError construction so the wire
+			// path can never emit an unbounded or control-laden deny message.
+			if bounded := lipapi.NormalizeClientMessage(re.Message); bounded != "" {
+				msg = bounded
+			}
 		}
 		return Outcome{Kind: KindClientReject, Status: http.StatusForbidden, Message: msg, Err: err}
 	}
@@ -95,9 +146,22 @@ func OpenAIWireErrorType(status int) string {
 	switch status {
 	case http.StatusUnauthorized:
 		return "authentication_error"
-	case http.StatusServiceUnavailable:
+	case http.StatusServiceUnavailable, http.StatusInternalServerError:
 		return "api_error"
 	default:
 		return "invalid_request_error"
 	}
+}
+
+// clientSafePolicyMessage returns the client-safe message from a policy decision error, falling
+// back to defaultMsg when the error carries no safe message. It never renders Cause, provider IDs,
+// stage, raw prompts, or secrets (requirement 5.4); PolicyDecisionError.ClientMessage is the only
+// policy field intended for wire rendering.
+func clientSafePolicyMessage(err error, defaultMsg string) string {
+	if pde := lipapi.PolicyDecisionErrorFrom(err); pde != nil {
+		if msg := strings.TrimSpace(pde.ClientMessage); msg != "" {
+			return msg
+		}
+	}
+	return defaultMsg
 }

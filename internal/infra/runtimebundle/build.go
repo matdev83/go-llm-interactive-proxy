@@ -41,6 +41,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
@@ -219,25 +220,26 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	closers = append(closers, accountingClosers...)
 	exec = &runtime.Executor{
-		Store:                   store,
-		Bus:                     bus,
-		RuntimeSnapshot:         snap,
-		Backends:                backends,
-		ALegLifecycle:           leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
-		MaxAttempts:             cfg.Routing.MaxAttempts,
-		DefaultBackend:          defBE,
-		SelectorAliases:         aliasResolver,
-		CapsResolver:            capMap,
-		Rand:                    routing.NewSeededRng(seed),
-		Now:                     nowFn,
-		CandidateHealth:         routinghealth.CandidateHealthFromConfig(cfg, nowFn),
-		RouteObserver:           routeObserverFor(log),
-		AffinityStore:           affinitymem.New(),
-		AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
-		Log:                     log,
-		MaxPendingWireEvents:    cfg.Server.MaxPendingWireEvents,
-		StreamRecovery:          streamRecovery,
-		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
+		Store:                    store,
+		Bus:                      bus,
+		RuntimeSnapshot:          snap,
+		Backends:                 backends,
+		ALegLifecycle:            leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
+		MaxAttempts:              cfg.Routing.MaxAttempts,
+		DefaultBackend:           defBE,
+		SelectorAliases:          aliasResolver,
+		CapsResolver:             capMap,
+		Rand:                     routing.NewSeededRng(seed),
+		Now:                      nowFn,
+		CandidateHealth:          routinghealth.CandidateHealthFromConfig(cfg, nowFn),
+		RouteObserver:            routeObserverFor(log),
+		AffinityStore:            affinitymem.New(),
+		AffinityMissingIdentity:  affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
+		Log:                      log,
+		MaxPendingWireEvents:     cfg.Server.MaxPendingWireEvents,
+		StreamRecovery:           streamRecovery,
+		TransportFallbackPolicy:  config.EffectiveTransportFallbackPolicy(cfg),
+		PolicyDiagnosticsEnabled: opts.PolicyDiagnosticsEnabled,
 	}
 	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
 		if derr := disposeClosers(closers); derr != nil {
@@ -533,20 +535,30 @@ func buildRuntimeSnapshot(
 	if len(opts.TrafficRedactors) > 0 {
 		trafficRedactors = slices.Clone(opts.TrafficRedactors)
 	}
+	var policyObs policydecision.Observer = policydecision.NoopObserver{}
+	if len(opts.PolicyObservers) > 0 {
+		policyObs = policydecision.NewChainObserver(opts.PolicyObservers...)
+	}
+	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
+	if opts.PolicyTimeoutBudgetSource != nil {
+		budgetSrc = opts.PolicyTimeoutBudgetSource
+	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:              corestate.NewMem(nowFn),
-		Aux:                auxreq.NewClient(execRunnerProvider),
-		Workspace:          ws,
-		SessionOpeners:     openers,
-		ToolCatalogFilters: catalogFilters,
-		ToolCallPolicies:   toolPolicies,
-		RequestTransforms:  reqTransforms,
-		PreRequestHandlers: preReqs,
-		RouteHintProviders: routeHints,
-		CompletionGates:    compGates,
-		TrafficObserver:    trafficObs,
-		UsageObserver:      usageObs,
-		RawCapture:         trafficRaw,
-		TrafficRedactors:   trafficRedactors,
+		State:               corestate.NewMem(nowFn),
+		Aux:                 auxreq.NewClient(execRunnerProvider),
+		Workspace:           ws,
+		SessionOpeners:      openers,
+		ToolCatalogFilters:  catalogFilters,
+		ToolCallPolicies:    toolPolicies,
+		RequestTransforms:   reqTransforms,
+		PreRequestHandlers:  preReqs,
+		RouteHintProviders:  routeHints,
+		CompletionGates:     compGates,
+		TrafficObserver:     trafficObs,
+		UsageObserver:       usageObs,
+		RawCapture:          trafficRaw,
+		TrafficRedactors:    trafficRedactors,
+		PolicyObserver:      policyObs,
+		TimeoutBudgetSource: budgetSrc,
 	})
 }

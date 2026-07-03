@@ -206,7 +206,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
 		switch out.Kind {
-		case execerr.KindSessionDenial:
+		case execerr.KindSessionDenial, execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
 				w,
 				out.Status,
