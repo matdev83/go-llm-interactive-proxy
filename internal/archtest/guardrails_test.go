@@ -17,7 +17,10 @@ var lineBudgets = []struct {
 	dir string
 	max int
 }{
-	{"internal/core", 32000},
+	// internal/core was raised from 32000 to 33000 for the admission-policy-decision-core
+	// spec, which adds the shared policy decision vocabulary, legality/evidence/timeout
+	// infrastructure, and stage-runner error taxonomy integration to the core layer.
+	{"internal/core", 33000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},
@@ -480,4 +483,111 @@ func repoRoot(t *testing.T) string {
 	}
 	t.Fatal("could not find go.mod above", wd)
 	return ""
+}
+
+// referencesIdent reports whether any *ast.Ident in the file has the given name. It
+// catches both field declarations (Field.Names) and selector/operand references, so a
+// guardrail can forbid an identifier from a whole layer without regard to how it is used.
+func referencesIdent(t *testing.T, filename string, src []byte, name string) bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", filename, err)
+	}
+	found := false
+	ast.Inspect(f, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if id.Name == name {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// TestPolicyDiagnosticsEnabledNotReferencedFromFrontendOrStdhttp locks requirement 7.4:
+// the privileged-diagnostics flag must be settable only from the composition root
+// (runtimebundle.BuildOptions -> runtime.Executor), never from a frontend HTTP adapter
+// or stdhttp request path. A client request must not be able to enable privileged
+// policy decision evidence.
+func TestPolicyDiagnosticsEnabledNotReferencedFromFrontendOrStdhttp(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dirs := []string{
+		filepath.Join(root, "internal", "plugins", "frontends"),
+		filepath.Join(root, "internal", "stdhttp"),
+	}
+	var bad []string
+	for _, dir := range dirs {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if referencesIdent(t, path, src, "PolicyDiagnosticsEnabled") {
+				bad = append(bad, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(bad) != 0 {
+		t.Fatalf("PolicyDiagnosticsEnabled must not be referenced from frontend/stdhttp request paths (composition-root-only, requirement 7.4):\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+// TestFailureModeAndTimeoutBudgetNotClientSourced locks requirements 6.2 and 6.3: policy
+// failure behavior and evaluation timeout budgets are sourced only from plugin
+// interface methods and the frozen RequestRuntimeSnapshot (composition root), never
+// from client request input decoded in a frontend adapter. An external client must not
+// be able to set failure modes or timeout budgets.
+func TestFailureModeAndTimeoutBudgetNotClientSourced(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	dir := filepath.Join(root, "internal", "plugins", "frontends")
+	forbidden := []string{"FailOpen", "FailClosed", "FailureMode", "TimeoutBudget", "TimeoutFor"}
+	var bad []string
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, name := range forbidden {
+			if referencesIdent(t, path, src, name) {
+				bad = append(bad, path+" ("+name+")")
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bad) != 0 {
+		t.Fatalf("frontend adapters must not reference failure-mode/timeout-budget identifiers (plugin/composition-root-only, requirements 6.2/6.3):\n%s", strings.Join(bad, "\n"))
+	}
 }

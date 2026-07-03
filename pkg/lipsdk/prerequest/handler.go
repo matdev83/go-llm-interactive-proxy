@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -77,10 +78,15 @@ func Deny(message string) Decision {
 func (d Decision) Allowed() bool { return !d.Deny }
 
 // Meta is read-only request context for pre-request admission handlers.
+// Scope is the authoritative principal/scope attribution for the accepted request,
+// carried separately from the legacy Principal projection (requirement 2.6). A zero
+// Scope preserves local/anonymous/unknown attribution semantics: SubjectKind is the
+// empty string (the zero SubjectKind) and presence-aware Values remain unknown.
 type Meta struct {
 	TraceID        string
 	Annotations    map[string]string
 	Principal      execview.PrincipalView
+	Scope          scope.PrincipalScopeView
 	Session        session.SessionView
 	Workspace      workspace.WorkspaceView
 	AuxiliaryDepth int

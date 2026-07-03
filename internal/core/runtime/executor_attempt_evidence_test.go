@@ -1,0 +1,47 @@
+package runtime
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+// TestIsAttemptFailureForEvidence_ExcludesCancellationAndSuccess is a focused
+// unit test for the attempt-record boundary predicate. It proves cancellation
+// and success outcomes are never classified as attempt failures for evidence,
+// so the runtime never invokes the attempt evidence seam for them (requirement
+// 6.4). Surfaced and swallowed failures with a non-nil DetailErr remain eligible.
+func TestIsAttemptFailureForEvidence_ExcludesCancellationAndSuccess(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("upstream boom")
+	cand := routing.AttemptCandidate{}
+	cand.Primary.Backend = "openai"
+
+	cases := []struct {
+		name    string
+		outcome lipapi.AttemptOutcome
+		detail  error
+		want    bool
+	}{
+		{"cancelled with error detail", lipapi.AttemptCancelled, boom, false},
+		{"cancelled without error detail", lipapi.AttemptCancelled, nil, false},
+		{"success with error detail", lipapi.AttemptSuccess, boom, false},
+		{"success without error detail", lipapi.AttemptSuccess, nil, false},
+		{"surfaced failure with error detail", lipapi.AttemptSurfacedFailure, boom, true},
+		{"surfaced failure without error detail", lipapi.AttemptSurfacedFailure, nil, false},
+		{"swallowed failure with error detail", lipapi.AttemptSwallowedFailure, boom, true},
+		{"swallowed failure without error detail", lipapi.AttemptSwallowedFailure, nil, false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := recordAttemptParams{Cand: cand, Outcome: tc.outcome, DetailErr: tc.detail}
+			if got := isAttemptFailureForEvidence(p); got != tc.want {
+				t.Fatalf("isAttemptFailureForEvidence(%s, detail=%v): got %v want %v", tc.outcome, tc.detail, got, tc.want)
+			}
+		})
+	}
+}

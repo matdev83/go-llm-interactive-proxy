@@ -2,14 +2,15 @@ package extensions
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"go.opentelemetry.io/otel"
@@ -42,6 +43,7 @@ func RunToolCatalogFilterStage(ctx context.Context, log *slog.Logger, obs StageM
 	}()
 
 	sorted := toolcatalog.MaterializeSorted(filters)
+	ev := DecisionEvidenceFromContext(ctx)
 	for _, f := range sorted {
 		if f == nil {
 			continue
@@ -49,36 +51,110 @@ func RunToolCatalogFilterStage(ctx context.Context, log *slog.Logger, obs StageM
 		if execctx.IsSuppressedPluginID(ctx, f.ID()) {
 			continue
 		}
-		hErr := safety.Call(safety.BoundaryExtension, "tool_catalog_filter", func() error {
-			return f.Handle(ctx, call, meta, svc)
+		mode := f.FailureMode()
+		if mode == sdkhooks.FailureModeUnspecified {
+			mode = sdkhooks.FailOpen
+		}
+		before := lipapi.CloneCall(*call)
+		r := runBoundedCall(ctx, ev, feature.StageIDToolCatalog, f.ID(), call, func(c context.Context, target *lipapi.Call) (struct{}, error) {
+			return struct{}{}, safety.Call(safety.BoundaryExtension, "tool_catalog_filter", func() error {
+				return f.Handle(c, target, meta, svc)
+			})
 		})
-		if hErr != nil {
-			mode := f.FailureMode()
-			if mode == sdkhooks.FailureModeUnspecified {
-				mode = sdkhooks.FailOpen
-			}
-			if mode == sdkhooks.FailOpen {
-				if log != nil {
-					var pe *safety.PanicError
-					if errors.As(hErr, &pe) {
-						logFailOpenExtensionPanic(ctx, log, "tool_catalog_filter", f.ID(), hErr)
-					} else {
-						log.WarnContext(ctx, "tool_catalog_filter: handler error (fail-open)", "filter", f.ID(), "error", hErr)
-					}
-				}
-				if obs != nil {
-					obs.IncFailOpenSkip(StageToolCatalog)
-				}
+		iterCtx := r.IterCtx
+		deadline := r.Deadline
+		if r.ParentCanceled {
+			outcome = "error"
+			return r.Err
+		}
+		if r.TimedOut {
+			cont, terr := handleProviderTimeout(ctx, log, obs, ev, toolCatalogFailureCfg, iterCtx, f.ID(), deadline, mode)
+			if cont {
 				continue
 			}
 			outcome = "error"
-			return fmt.Errorf("tool catalog filter %q: %w", f.ID(), hErr)
+			return terr
 		}
+		hErr := r.Err
+		if hErr != nil {
+			cont, ferr := handleProviderFailure(ctx, log, obs, ev, toolCatalogFailureCfg, iterCtx, f.ID(), deadline, mode, hErr)
+			if cont {
+				continue
+			}
+			outcome = "error"
+			return ferr
+		}
+		mutated := !reflect.DeepEqual(before, *call)
+		emitToolCatalogEvidence(iterCtx, ev, f.ID(), mutated, nil, sdkhooks.FailureModeUnspecified, deadline)
 	}
 	lipapi.ReconcileToolChoiceAfterToolListChange(call)
 	if vErr := call.Validate(); vErr != nil {
 		outcome = "error"
-		return fmt.Errorf("extensions: invalid canonical call after tool catalog filters: %w", vErr)
+		emitToolCatalogMalformedEvidence(ctx, ev)
+		return PolicyErrorFromMalformed(feature.StageIDToolCatalog, "tool_catalog_chain", vErr)
 	}
 	return nil
+}
+
+// toolCatalogFailureCfg is the shared per-stage naming/evidence config for the
+// tool-catalog filter runner (requirements 6.1, 6.3, 6.5). Failure evidence reuses
+// emitToolCatalogEvidence with mutated=false, matching the prior inline behavior.
+var toolCatalogFailureCfg = stageFailureConfig{
+	Stage:        feature.StageIDToolCatalog,
+	MetricsStage: StageToolCatalog,
+	TimeoutMsg:   "tool_catalog_filter: handler timed out (fail-open)",
+	FailureMsg:   "tool_catalog_filter: handler error (fail-open)",
+	PanicStage:   "tool_catalog_filter",
+	ProviderAttr: "filter",
+	EmitTimeout:  emitToolCatalogTimeoutEvidence,
+	EmitFailure: func(ctx context.Context, ev *DecisionEvidence, providerID string, err error, deadline time.Time, mode sdkhooks.FailureMode) {
+		emitToolCatalogEvidence(ctx, ev, providerID, false, err, mode, deadline)
+	},
+}
+
+// emitToolCatalogEvidence projects one tool-catalog filter outcome into shared
+// evidence when representable (requirements 3.5, 4.3, 9.1, 9.5). deadline is the
+// exact evaluation deadline used to bound the provider call (zero on the direct
+// path). No-op when no seam is attached or when the outcome has no representable
+// policy semantics (pure no-op filter). Advertised-tool mutation behavior is unchanged.
+func emitToolCatalogEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, mutated bool, err error, mode sdkhooks.FailureMode, deadline time.Time) {
+	if ev == nil || ev.Emitter == nil {
+		return
+	}
+	dctx := decisionContextForDeadline(ctx, ev, feature.StageIDToolCatalog, providerID, false, deadline)
+	rec, ok := ProjectToolCatalogOutcome(dctx, providerID, mutated, err)
+	if !ok {
+		return
+	}
+	if err != nil {
+		rec.FailureBehavior = failureBehaviorFromMode(mode)
+	}
+	emitDecisionRecord(ctx, ev, rec)
+}
+
+// emitToolCatalogTimeoutEvidence projects a tool-catalog filter evaluation timeout
+// into shared evidence with the provider's failure behavior (requirements 6.1, 6.3).
+// deadline is the exact evaluation deadline used to bound the provider call; it is
+// projected onto the record's EvaluationDeadline. No-op when no seam is attached.
+func emitToolCatalogTimeoutEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, deadline time.Time, mode sdkhooks.FailureMode) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDToolCatalog,
+		ProviderID:     providerID,
+		ReasonCode:     PolicyReasonTimeout,
+		ClientCategory: CategoryFailure,
+		FailureMode:    mode,
+		Deadline:       deadline,
+	})
+}
+
+// emitToolCatalogMalformedEvidence records a malformed-validation outcome when
+// the canonical call fails validation after the tool-catalog chain
+// (requirements 3.5, 6.6). error/none is legal for StageIDToolCatalog.
+func emitToolCatalogMalformedEvidence(ctx context.Context, ev *DecisionEvidence) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDToolCatalog,
+		ProviderID:     "tool_catalog_chain",
+		ReasonCode:     ReasonToolCatalogMalformed,
+		ClientCategory: CategoryMalformed,
+	})
 }

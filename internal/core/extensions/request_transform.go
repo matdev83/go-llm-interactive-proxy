@@ -2,14 +2,15 @@ package extensions
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"go.opentelemetry.io/otel"
@@ -43,6 +44,7 @@ func RunRequestTransformStage(ctx context.Context, log *slog.Logger, obs StageMe
 	}()
 
 	sorted := request.MaterializeSorted(transforms)
+	ev := DecisionEvidenceFromContext(ctx)
 	for _, tr := range sorted {
 		if tr == nil {
 			continue
@@ -50,35 +52,107 @@ func RunRequestTransformStage(ctx context.Context, log *slog.Logger, obs StageMe
 		if execctx.IsSuppressedPluginID(ctx, tr.ID()) {
 			continue
 		}
-		hErr := safety.Call(safety.BoundaryExtension, "request_transform", func() error {
-			return tr.Handle(ctx, call, meta, svc)
+		mode := tr.FailureMode()
+		if mode == sdkhooks.FailureModeUnspecified {
+			mode = sdkhooks.FailOpen
+		}
+		before := lipapi.CloneCall(*call)
+		r := runBoundedCall(ctx, ev, feature.StageIDRequestWide, tr.ID(), call, func(c context.Context, target *lipapi.Call) (struct{}, error) {
+			return struct{}{}, safety.Call(safety.BoundaryExtension, "request_transform", func() error {
+				return tr.Handle(c, target, meta, svc)
+			})
 		})
-		if hErr != nil {
-			mode := tr.FailureMode()
-			if mode == sdkhooks.FailureModeUnspecified {
-				mode = sdkhooks.FailOpen
-			}
-			if mode == sdkhooks.FailOpen {
-				if log != nil {
-					var pe *safety.PanicError
-					if errors.As(hErr, &pe) {
-						logFailOpenExtensionPanic(ctx, log, "request_transform", tr.ID(), hErr)
-					} else {
-						log.WarnContext(ctx, "request_transform: handler error (fail-open)", "transform", tr.ID(), "error", hErr)
-					}
-				}
-				if obs != nil {
-					obs.IncFailOpenSkip(MetricsStageRequestTransform)
-				}
+		iterCtx := r.IterCtx
+		deadline := r.Deadline
+		if r.ParentCanceled {
+			outcome = "error"
+			return r.Err
+		}
+		if r.TimedOut {
+			cont, terr := handleProviderTimeout(ctx, log, obs, ev, requestTransformFailureCfg, iterCtx, tr.ID(), deadline, mode)
+			if cont {
 				continue
 			}
 			outcome = "error"
-			return fmt.Errorf("request transform %q: %w", tr.ID(), hErr)
+			return terr
 		}
+		hErr := r.Err
+		if hErr != nil {
+			cont, ferr := handleProviderFailure(ctx, log, obs, ev, requestTransformFailureCfg, iterCtx, tr.ID(), deadline, mode, hErr)
+			if cont {
+				continue
+			}
+			outcome = "error"
+			return ferr
+		}
+		mutated := !reflect.DeepEqual(before, *call)
+		emitRequestTransformEvidence(iterCtx, ev, tr.ID(), mutated, nil, sdkhooks.FailureModeUnspecified, deadline)
 	}
 	if vErr := call.Validate(); vErr != nil {
 		outcome = "error"
-		return fmt.Errorf("extensions: invalid canonical call after request transforms: %w", vErr)
+		emitRequestTransformMalformedEvidence(ctx, ev)
+		return PolicyErrorFromMalformed(feature.StageIDRequestWide, "request_transform_chain", vErr)
 	}
 	return nil
+}
+
+// requestTransformFailureCfg is the shared per-stage naming/evidence config for the
+// request-transform runner (requirements 6.1, 6.3, 6.5). Failure evidence reuses
+// emitRequestTransformEvidence with mutated=false, matching the prior inline behavior.
+var requestTransformFailureCfg = stageFailureConfig{
+	Stage:        feature.StageIDRequestWide,
+	MetricsStage: MetricsStageRequestTransform,
+	TimeoutMsg:   "request_transform: handler timed out (fail-open)",
+	FailureMsg:   "request_transform: handler error (fail-open)",
+	PanicStage:   "request_transform",
+	ProviderAttr: "transform",
+	EmitTimeout:  emitRequestTransformTimeoutEvidence,
+	EmitFailure: func(ctx context.Context, ev *DecisionEvidence, providerID string, err error, deadline time.Time, mode sdkhooks.FailureMode) {
+		emitRequestTransformEvidence(ctx, ev, providerID, false, err, mode, deadline)
+	},
+}
+
+// emitRequestTransformEvidence projects one transform's pass/mutation/failure
+// outcome into shared evidence and emits it through the context-carried seam
+// (requirements 3.2, 4.3, 9.1, 9.5). deadline is the exact evaluation deadline used
+// to bound the provider call (zero on the direct path). No-op when no seam is
+// attached, preserving the no-observer default. Existing return values and ordering
+// are unchanged.
+func emitRequestTransformEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, mutated bool, err error, mode sdkhooks.FailureMode, deadline time.Time) {
+	if ev == nil || ev.Emitter == nil {
+		return
+	}
+	dctx := decisionContextForDeadline(ctx, ev, feature.StageIDRequestWide, providerID, false, deadline)
+	rec := ProjectRequestTransformResult(dctx, providerID, mutated, err)
+	if err != nil {
+		rec.FailureBehavior = failureBehaviorFromMode(mode)
+	}
+	emitDecisionRecord(ctx, ev, rec)
+}
+
+// emitRequestTransformTimeoutEvidence projects a transform evaluation timeout into
+// shared evidence with the provider's failure behavior (requirements 6.1, 6.3).
+// deadline is the exact evaluation deadline used to bound the provider call; it is
+// projected onto the record's EvaluationDeadline. No-op when no seam is attached.
+func emitRequestTransformTimeoutEvidence(ctx context.Context, ev *DecisionEvidence, providerID string, deadline time.Time, mode sdkhooks.FailureMode) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDRequestWide,
+		ProviderID:     providerID,
+		ReasonCode:     PolicyReasonTimeout,
+		ClientCategory: CategoryFailure,
+		FailureMode:    mode,
+		Deadline:       deadline,
+	})
+}
+
+// emitRequestTransformMalformedEvidence records a malformed-validation outcome
+// when the canonical call fails validation after the transform chain
+// (requirements 3.2, 6.6). error/none is legal for StageIDRequestWide.
+func emitRequestTransformMalformedEvidence(ctx context.Context, ev *DecisionEvidence) {
+	emitPolicyErrorEvidence(ctx, ev, policyErrorEvidenceSpec{
+		Stage:          feature.StageIDRequestWide,
+		ProviderID:     "request_transform_chain",
+		ReasonCode:     ReasonRequestTransformMalformed,
+		ClientCategory: CategoryMalformed,
+	})
 }

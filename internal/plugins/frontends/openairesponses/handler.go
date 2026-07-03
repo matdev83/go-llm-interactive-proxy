@@ -226,6 +226,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"invalid_request_error",
 				code,
 			))
+		case execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
+				w,
+				out.Status,
+				out.Message,
+				execerr.OpenAIWireErrorType(out.Status),
+				"",
+			))
 		default:
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
 				w,

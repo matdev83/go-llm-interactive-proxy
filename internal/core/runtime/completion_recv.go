@@ -104,6 +104,15 @@ func (s *retryRecvStream) completionGatedEmit(
 			BLegID:     s.bleg.BLegID,
 			AttemptSeq: s.bleg.Seq,
 		}
+		// Authoritative scope/identity from the request-scoped execctx views so
+		// completion-gate decision evidence carries proxy-validated attribution
+		// (requirement 2.1, 2.6, 9.1). completion.Meta exposes Scope/Session/
+		// Workspace; Principal is carried via Scope.PrincipalID.
+		if v, ok := s.viewsFor(ctx); ok {
+			meta.Scope = v.Scope
+			meta.Session = v.Session
+			meta.Workspace = v.Workspace
+		}
 		svc := completion.Services{}
 		if snap != nil {
 			svc.State = snap.State()

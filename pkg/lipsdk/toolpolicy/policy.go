@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
@@ -22,6 +23,9 @@ const (
 )
 
 // Meta carries read-only execution context for tool-call policy decisions.
+// Scope is the authoritative principal/scope attribution, carried separately from the
+// legacy Principal projection (requirement 2.6). A zero Scope preserves local/anonymous
+// identity semantics.
 type Meta struct {
 	TraceID    string
 	ALegID     string
@@ -29,6 +33,7 @@ type Meta struct {
 	AttemptSeq int
 
 	Principal execview.PrincipalView
+	Scope     scope.PrincipalScopeView
 	Session   session.SessionView
 	Workspace workspace.WorkspaceView
 }

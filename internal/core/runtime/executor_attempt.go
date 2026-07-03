@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -83,6 +85,32 @@ func (e *Executor) recordAttemptLogged(ctx context.Context, p recordAttemptParam
 			e.Log.LogAttrs(ctx, slog.LevelDebug, "secure_session_attempt_outcome_failed", attrs...)
 		}
 	}
+	// Attempt lifecycle evidence: emit observational evidence for attempt failures
+	// at the attempt-record boundary, the narrow runtime seam (requirements 3.6,
+	// 4.5, 7.2, 7.5). The seam is attached by the stream path (withDecisionEvidence);
+	// when absent (no snapshot/emitter, or non-stream callsites) no evidence is
+	// emitted, preserving the no-observer/non-interference default (requirements 7.6,
+	// 10.5). Cancellation and success are not policy failures and are not projected
+	// (requirement 6.4). This is a side-effect-only emission; retry/failover behavior
+	// and no-output/failover invariants are unchanged.
+	if isAttemptFailureForEvidence(p) {
+		if fn := extensions.AttemptEvidenceFromContext(ctx); fn != nil {
+			fn(ctx, strings.TrimSpace(p.Cand.Primary.Backend), p.DetailErr)
+		}
+	}
+}
+
+// isAttemptFailureForEvidence reports whether p represents an attempt failure that
+// [extensions.ProjectAttemptObservation] can represent (non-nil DetailErr and a
+// surfaced or swallowed failure outcome). Cancellation and success are excluded.
+func isAttemptFailureForEvidence(p recordAttemptParams) bool {
+	if p.DetailErr == nil {
+		return false
+	}
+	if lipapi.IsPolicyDecisionError(p.DetailErr) {
+		return false
+	}
+	return p.Outcome == lipapi.AttemptSurfacedFailure || p.Outcome == lipapi.AttemptSwallowedFailure
 }
 
 func backendCallWithRouteParams(work lipapi.Call, cand routing.AttemptCandidate) (lipapi.Call, error) {
