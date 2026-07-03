@@ -35,7 +35,6 @@ func TestIsAttemptFailureForEvidence_ExcludesCancellationAndSuccess(t *testing.T
 		{"swallowed failure without error detail", lipapi.AttemptSwallowedFailure, nil, false},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := recordAttemptParams{Cand: cand, Outcome: tc.outcome, DetailErr: tc.detail}

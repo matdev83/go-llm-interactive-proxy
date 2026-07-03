@@ -145,7 +145,7 @@ type stageFailureConfig struct {
 //
 // Returns cont=true when the chain should continue (fail-open skip); err is non-nil
 // when the caller should return (fail-closed). cont and err are mutually exclusive.
-func handleProviderTimeout(ctx context.Context, log *slog.Logger, obs StageMetrics, ev *DecisionEvidence, cfg stageFailureConfig, iterCtx context.Context, providerID string, deadline time.Time, mode sdkhooks.FailureMode) (cont bool, err error) {
+func handleProviderTimeout(ctx context.Context, log *slog.Logger, obs StageMetrics, ev *DecisionEvidence, cfg stageFailureConfig, iterCtx context.Context, providerID string, deadline time.Time, mode sdkhooks.FailureMode) (cont bool, err error) { //nolint:revive // context-as-argument: iterCtx is the evidence-emission iteration context, threaded at the seam.
 	if cfg.EmitTimeout != nil {
 		cfg.EmitTimeout(iterCtx, ev, providerID, deadline, mode)
 	}
@@ -183,7 +183,14 @@ func handleProviderTimeout(ctx context.Context, log *slog.Logger, obs StageMetri
 // The completion-gate panic special case is intentionally NOT routed through this
 // helper: completion panics return through the stream boundary as fail-closed policy
 // provider failures, which the completion runner keeps inline.
-func handleProviderFailure(ctx context.Context, log *slog.Logger, obs StageMetrics, ev *DecisionEvidence, cfg stageFailureConfig, iterCtx context.Context, providerID string, deadline time.Time, mode sdkhooks.FailureMode, err error) (cont bool, retErr error) {
+func handleProviderFailure(ctx context.Context, log *slog.Logger, obs StageMetrics, ev *DecisionEvidence, cfg stageFailureConfig, iterCtx context.Context, providerID string, deadline time.Time, mode sdkhooks.FailureMode, err error) (cont bool, retErr error) { //nolint:revive // context-as-argument: iterCtx is the evidence-emission iteration context, threaded at the seam.
+	// Preserve parent cancellation before evidence emission and fail-open: a
+	// cancellation-derived error must short-circuit the chain as cancellation
+	// (requirement 6.4), not be swallowed as a fail-open continue or recorded as
+	// a provider-failure record.
+	if IsContextCancellation(ctx, err) {
+		return false, err
+	}
 	if cfg.EmitFailure != nil {
 		cfg.EmitFailure(iterCtx, ev, providerID, err, deadline, mode)
 	}
@@ -200,9 +207,6 @@ func handleProviderFailure(ctx context.Context, log *slog.Logger, obs StageMetri
 			obs.IncFailOpenSkip(cfg.MetricsStage)
 		}
 		return true, nil
-	}
-	if IsContextCancellation(ctx, err) {
-		return false, err
 	}
 	return false, PolicyErrorFromProviderFailure(cfg.Stage, providerID, failureBehaviorFromMode(mode), err)
 }

@@ -59,12 +59,9 @@ func TestNewAttemptEvidenceFunc_SuccessEmitsNothing(t *testing.T) {
 // yields a func that emits nothing (non-interference default).
 func TestNewAttemptEvidenceFunc_NilEmitterEmitsNothing(t *testing.T) {
 	t.Parallel()
-	obs := &runnerEvidenceObserver{}
 	fn := extensions.NewAttemptEvidenceFunc(&extensions.DecisionEvidence{Emitter: nil, Views: sampleViews()})
+	// A nil emitter seam must not panic and emits nothing by default.
 	fn(context.Background(), "openai", errors.New("boom"))
-	if len(obs.snapshot()) != 0 {
-		t.Fatalf("nil emitter must emit nothing, got %+v", obs.snapshot())
-	}
 }
 
 // TestWithAttemptEvidence_RoundTrip asserts the context seam attaches and

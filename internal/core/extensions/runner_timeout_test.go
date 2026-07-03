@@ -350,12 +350,18 @@ type deadlineCapturePreReq struct {
 	mode     sdkhooks.FailureMode
 	deadline *time.Time
 	ok       *bool
+	done     chan struct{}
 }
 
 func (h deadlineCapturePreReq) ID() string                        { return h.id }
 func (h deadlineCapturePreReq) Order() int                        { return 0 }
 func (h deadlineCapturePreReq) FailureMode() sdkhooks.FailureMode { return h.mode }
 func (h deadlineCapturePreReq) Handle(ctx context.Context, _ *lipapi.Call, _ prerequest.Meta, _ prerequest.Services) (prerequest.Decision, error) {
+	defer func() {
+		if h.done != nil {
+			close(h.done)
+		}
+	}()
 	d, ok := ctx.Deadline()
 	if h.ok != nil {
 		*h.ok = ok
@@ -380,9 +386,11 @@ func TestRunPreRequestStage_TimeoutEvidenceDeadlineEqualsProviderCtxDeadline(t *
 	var saw bool
 	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
 	call := validCall()
+	done := make(chan struct{})
 	_ = extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
-		deadlineCapturePreReq{id: "pr-deadline", mode: sdkhooks.FailClosed, deadline: &captured, ok: &saw},
+		deadlineCapturePreReq{id: "pr-deadline", mode: sdkhooks.FailClosed, deadline: &captured, ok: &saw, done: done},
 	}, &call, prerequest.Meta{}, prerequest.Services{})
+	<-done
 	if !saw {
 		t.Fatal("provider ctx must carry a deadline on the timeout path")
 	}
@@ -406,12 +414,18 @@ type deadlineResultCapturePreReq struct {
 	id       string
 	mode     sdkhooks.FailureMode
 	deadline *time.Time
+	done     chan struct{}
 }
 
 func (h deadlineResultCapturePreReq) ID() string                        { return h.id }
 func (h deadlineResultCapturePreReq) Order() int                        { return 0 }
 func (h deadlineResultCapturePreReq) FailureMode() sdkhooks.FailureMode { return h.mode }
 func (h deadlineResultCapturePreReq) Handle(ctx context.Context, _ *lipapi.Call, _ prerequest.Meta, _ prerequest.Services) (prerequest.Decision, error) {
+	defer func() {
+		if h.done != nil {
+			close(h.done)
+		}
+	}()
 	if d, ok := ctx.Deadline(); ok && h.deadline != nil {
 		*h.deadline = d
 	}
@@ -432,9 +446,11 @@ func TestRunPreRequestStage_TimeoutEvidenceDeadlineMatchesBoundedDeadline(t *tes
 	var captured time.Time
 	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
 	call := validCall()
+	done := make(chan struct{})
 	_ = extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
-		deadlineResultCapturePreReq{id: "pr-result-deadline", mode: sdkhooks.FailClosed, deadline: &captured},
+		deadlineResultCapturePreReq{id: "pr-result-deadline", mode: sdkhooks.FailClosed, deadline: &captured, done: done},
 	}, &call, prerequest.Meta{}, prerequest.Services{})
+	<-done
 	if captured.IsZero() {
 		t.Fatal("provider ctx must carry a deadline on the timeout path")
 	}
@@ -457,12 +473,18 @@ type deadlineCaptureRtx struct {
 	mode     sdkhooks.FailureMode
 	deadline *time.Time
 	ok       *bool
+	done     chan struct{}
 }
 
 func (h deadlineCaptureRtx) ID() string                        { return h.id }
 func (h deadlineCaptureRtx) Order() int                        { return 0 }
 func (h deadlineCaptureRtx) FailureMode() sdkhooks.FailureMode { return h.mode }
 func (h deadlineCaptureRtx) Handle(ctx context.Context, _ *lipapi.Call, _ request.RequestMeta, _ request.Services) error {
+	defer func() {
+		if h.done != nil {
+			close(h.done)
+		}
+	}()
 	d, ok := ctx.Deadline()
 	if h.ok != nil {
 		*h.ok = ok
@@ -486,9 +508,11 @@ func TestRunRequestTransformStage_TimeoutEvidenceDeadlineEqualsProviderCtxDeadli
 	var saw bool
 	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
 	call := validCall()
+	done := make(chan struct{})
 	_ = extensions.RunRequestTransformStage(ctx, nil, nil, []request.Transform{
-		deadlineCaptureRtx{id: "rtx-deadline", mode: sdkhooks.FailClosed, deadline: &captured, ok: &saw},
+		deadlineCaptureRtx{id: "rtx-deadline", mode: sdkhooks.FailClosed, deadline: &captured, ok: &saw, done: done},
 	}, &call, request.RequestMeta{}, request.Services{State: state.DisabledStore{}})
+	<-done
 	if !saw {
 		t.Fatal("provider ctx must carry a deadline on the timeout path")
 	}
@@ -542,12 +566,18 @@ type lateMutateRtx struct {
 	mode    sdkhooks.FailureMode
 	unblock chan struct{}
 	mutated *bool
+	done    chan struct{}
 }
 
 func (h lateMutateRtx) ID() string                        { return h.id }
 func (h lateMutateRtx) Order() int                        { return 0 }
 func (h lateMutateRtx) FailureMode() sdkhooks.FailureMode { return h.mode }
 func (h lateMutateRtx) Handle(ctx context.Context, call *lipapi.Call, _ request.RequestMeta, _ request.Services) error {
+	defer func() {
+		if h.done != nil {
+			close(h.done)
+		}
+	}()
 	<-ctx.Done()
 	<-h.unblock
 	if len(call.Messages) > 0 && len(call.Messages[0].Parts) > 0 {
@@ -573,9 +603,10 @@ func TestRunRequestTransformStage_TimeoutDoesNotMutateLiveCallAfterTimeout(t *te
 	call := validCall()
 	original := lipapi.CloneCall(call)
 	unblock := make(chan struct{})
+	done := make(chan struct{})
 	var providerMutatedClone bool
 	err := extensions.RunRequestTransformStage(ctx, nil, nil, []request.Transform{
-		lateMutateRtx{id: "rtx-late-mut", mode: sdkhooks.FailClosed, unblock: unblock, mutated: &providerMutatedClone},
+		lateMutateRtx{id: "rtx-late-mut", mode: sdkhooks.FailClosed, unblock: unblock, mutated: &providerMutatedClone, done: done},
 	}, &call, request.RequestMeta{}, request.Services{State: state.DisabledStore{}})
 	if err == nil {
 		t.Fatal("expected timeout failure")
@@ -587,14 +618,10 @@ func TestRunRequestTransformStage_TimeoutDoesNotMutateLiveCallAfterTimeout(t *te
 		t.Fatalf("live call must not be mutated after timeout, got %+v want %+v", call, original)
 	}
 	// Release the still-running provider goroutine so it can mutate the clone and exit.
+	// Waiting on done (closed when Handle returns) gives a happens-before edge for the
+	// mutated read and avoids racing the bounded goroutine.
 	close(unblock)
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if providerMutatedClone {
-			break
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+	<-done
 	if !providerMutatedClone {
 		t.Fatalf("provider goroutine never observed unblock; potential leak")
 	}
@@ -611,12 +638,18 @@ type deadlineErrCapturePreReq struct {
 	id     string
 	mode   sdkhooks.FailureMode
 	ctxErr *error
+	done   chan struct{}
 }
 
 func (h deadlineErrCapturePreReq) ID() string                        { return h.id }
 func (h deadlineErrCapturePreReq) Order() int                        { return 0 }
 func (h deadlineErrCapturePreReq) FailureMode() sdkhooks.FailureMode { return h.mode }
 func (h deadlineErrCapturePreReq) Handle(ctx context.Context, _ *lipapi.Call, _ prerequest.Meta, _ prerequest.Services) (prerequest.Decision, error) {
+	defer func() {
+		if h.done != nil {
+			close(h.done)
+		}
+	}()
 	<-ctx.Done()
 	if h.ctxErr != nil {
 		*h.ctxErr = ctx.Err()
@@ -640,8 +673,9 @@ func TestRunPreRequestStage_TimeoutProviderCtxReportsDeadlineExceeded(t *testing
 	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
 	call := validCall()
 	var captured error
+	done := make(chan struct{})
 	err := extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
-		deadlineErrCapturePreReq{id: "pr-deadline-err", mode: sdkhooks.FailClosed, ctxErr: &captured},
+		deadlineErrCapturePreReq{id: "pr-deadline-err", mode: sdkhooks.FailClosed, ctxErr: &captured, done: done},
 	}, &call, prerequest.Meta{}, prerequest.Services{})
 	if err == nil {
 		t.Fatal("expected timeout failure error")
@@ -649,15 +683,9 @@ func TestRunPreRequestStage_TimeoutProviderCtxReportsDeadlineExceeded(t *testing
 	if !lipapi.IsPolicyFailure(err) {
 		t.Fatalf("timeout fail-closed must be policy failure, got %v", err)
 	}
-	// The bounded provider goroutine observes ctx.Done() asynchronously; poll for it to
-	// record ctx.Err() so the test does not race the goroutine.
-	wait := time.Now().Add(time.Second)
-	for time.Now().Before(wait) {
-		if captured != nil {
-			break
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+	// Waiting on done (closed when Handle returns) gives a happens-before edge for the
+	// captured ctx.Err() read and avoids racing the bounded goroutine.
+	<-done
 	if captured == nil {
 		t.Fatal("provider goroutine never observed ctx.Done(); potential leak")
 	}
@@ -666,5 +694,33 @@ func TestRunPreRequestStage_TimeoutProviderCtxReportsDeadlineExceeded(t *testing
 	}
 	if errors.Is(captured, context.Canceled) {
 		t.Fatalf("bounded provider ctx must not report Canceled when parent is active, got %v", captured)
+	}
+}
+
+// TestRunPreRequestStage_FailOpenCancellationIsPreservedNotSwallowed asserts that on
+// the direct (zero-timeout) execution path, a fail-open handler returning a
+// cancellation-derived error does NOT have its error swallowed as a fail-open
+// continue: parent cancellation is preserved (requirement 6.4) and no
+// provider-failure evidence is emitted. This covers the regression where
+// handleProviderFailure checked FailOpen before IsContextCancellation.
+func TestRunPreRequestStage_FailOpenCancellationIsPreservedNotSwallowed(t *testing.T) {
+	t.Parallel()
+	obs := &runnerEvidenceObserver{}
+	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{}}
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx := withRunnerEvidenceAndBudget(parent, obs, budget)
+	call := validCall()
+	err := extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
+		preReqHandler{id: "pr-cancel", order: 1, err: context.Canceled, mode: sdkhooks.FailOpen},
+	}, &call, prerequest.Meta{}, prerequest.Services{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("fail-open must not swallow parent cancellation, got %v", err)
+	}
+	if lipapi.IsPolicyFailure(err) {
+		t.Fatalf("cancellation must not be converted to policy failure, got %v", err)
+	}
+	if rec, ok := obs.findByProvider("pr-cancel"); ok {
+		t.Fatalf("cancellation must not emit provider-failure evidence, got %+v", rec)
 	}
 }

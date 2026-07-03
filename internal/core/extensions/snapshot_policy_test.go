@@ -44,9 +44,11 @@ func TestRequestRuntimeSnapshot_PolicyObserverPreservesConfigured(t *testing.T) 
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{PolicyObserver: obs})
 
 	got := snap.PolicyObserver()
-	got.OnPolicyDecision(context.Background(), policydecision.Record{
+	if err := got.OnPolicyDecision(context.Background(), policydecision.Record{
 		Stage: feature.StageIDPreRequest, Outcome: policydecision.OutcomeDeny, Effect: policydecision.EffectNone,
-	})
+	}); err != nil {
+		t.Fatalf("OnPolicyDecision returned error: %v", err)
+	}
 	if !obs.called {
 		t.Fatal("configured policy observer must be invoked through the snapshot accessor")
 	}

@@ -223,7 +223,7 @@ func TestNormalizeRecordTruncationMarkerDoesNotOverwriteAnnotation(t *testing.T)
 func TestNormalizeRecordCapsAnnotationEntries(t *testing.T) {
 	t.Parallel()
 	in := make(map[string]string, policydecision.MaxAnnotationEntries+5)
-	for i := 0; i < policydecision.MaxAnnotationEntries+5; i++ {
+	for i := range policydecision.MaxAnnotationEntries + 5 {
 		in[string(rune('a'+i%26))+string(rune('0'+i/26))] = "v"
 	}
 	got := policydecision.NormalizeRecord(in2record(in))
@@ -243,7 +243,7 @@ func TestNormalizeRecordAnnotationsNeverExceedMaxWithTruncationMarker(t *testing
 
 	// Exactly MaxAnnotationEntries valid entries, none oversized: no marker, count == max.
 	exact := make(map[string]string, policydecision.MaxAnnotationEntries)
-	for i := 0; i < policydecision.MaxAnnotationEntries; i++ {
+	for i := range policydecision.MaxAnnotationEntries {
 		exact[key(i)] = "v"
 	}
 	gotExact := policydecision.NormalizeRecord(in2record(exact))
@@ -256,7 +256,7 @@ func TestNormalizeRecordAnnotationsNeverExceedMaxWithTruncationMarker(t *testing
 
 	// MaxAnnotationEntries valid entries with one oversized value: marker must fit within max.
 	oversized := make(map[string]string, policydecision.MaxAnnotationEntries)
-	for i := 0; i < policydecision.MaxAnnotationEntries; i++ {
+	for i := range policydecision.MaxAnnotationEntries {
 		v := "v"
 		if i == 0 {
 			v = strings.Repeat("x", policydecision.MaxAnnotationValueBytes+10)
@@ -273,7 +273,7 @@ func TestNormalizeRecordAnnotationsNeverExceedMaxWithTruncationMarker(t *testing
 
 	// More than max entries: marker must fit within max.
 	over := make(map[string]string, policydecision.MaxAnnotationEntries+5)
-	for i := 0; i < policydecision.MaxAnnotationEntries+5; i++ {
+	for i := range policydecision.MaxAnnotationEntries + 5 {
 		over[key(i)] = "v"
 	}
 	gotOver := policydecision.NormalizeRecord(in2record(over))
@@ -321,9 +321,11 @@ func TestNormalizeRecordNilAnnotationsStaysNil(t *testing.T) {
 }
 
 // Exported constants for tests in the same package via the test pseudo-API.
-var _ = policydecision.MaxProviderIDBytes
-var _ = policydecision.MaxAnnotationValueBytes
-var _ = policydecision.MaxAnnotationEntries
+var (
+	_ = policydecision.MaxProviderIDBytes
+	_ = policydecision.MaxAnnotationValueBytes
+	_ = policydecision.MaxAnnotationEntries
+)
 
 func TestNormalizeRecordClientMessageParityWithLipapi(t *testing.T) {
 	t.Parallel()

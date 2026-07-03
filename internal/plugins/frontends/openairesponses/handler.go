@@ -206,7 +206,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			diag.LogError(ctx, h.Log, "execute failed", diag.AttrOpts{CallID: call.ID}, out.Err)
 		}
 		switch out.Kind {
-		case execerr.KindSessionDenial:
+		case execerr.KindSessionDenial, execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
 				w,
 				out.Status,
@@ -225,14 +225,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				out.Message,
 				"invalid_request_error",
 				code,
-			))
-		case execerr.KindPolicyDenied, execerr.KindPolicyFailure, execerr.KindPolicyMalformed:
-			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(
-				w,
-				out.Status,
-				out.Message,
-				execerr.OpenAIWireErrorType(out.Status),
-				"",
 			))
 		default:
 			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(

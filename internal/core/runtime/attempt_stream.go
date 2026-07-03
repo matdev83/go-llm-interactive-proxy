@@ -291,7 +291,7 @@ func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {
 	// Authoritative scope/identity from the request-scoped execctx views snapshot
 	// kept on the stream so stream-stage reactors see proxy-validated attribution
 	// even when the recv ctx is a bare HTTP context (requirement 2.6, 9.1).
-	if v, ok := s.viewsFor(nil); ok {
+	if v, ok := s.viewsFor(nil); ok { //nolint:staticcheck // SA1012: intentional nil context to force fallback to the stream snapshot
 		tm.Principal = v.Principal
 		tm.Scope = v.Scope
 		tm.Session = v.Session

@@ -163,7 +163,6 @@ func TestHandlerPolicyDeniedRendersDistinctFromInternalAndCapabilityErrors(t *te
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newPolicyHandler(tc.err)

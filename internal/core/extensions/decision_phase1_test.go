@@ -190,7 +190,7 @@ func TestIsContextCancellation(t *testing.T) {
 
 func TestDecisionProviderTimeoutChildDeadlineErrorClassifiesAsTimedOut(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		res := extensions.RunDecisionProviderWithTimeout(context.Background(), 20*time.Millisecond, func(ctx context.Context) (string, error) {
 			<-ctx.Done()
 			return "", ctx.Err()

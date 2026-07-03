@@ -84,10 +84,15 @@ func TestValidateRecordEveryLegalStageHasAllowedPair(t *testing.T) {
 			t.Fatalf("stage %q has no allowed decisions", stage)
 		}
 		for _, a := range allowed {
-			if err := policydecision.ValidateRecord(policydecision.Record{
-				Stage: a.Stage, Outcome: a.Outcome, Effect: a.Effects[0],
-			}); err != nil {
-				t.Fatalf("stage %q allowed pair (%q,%q) rejected: %v", stage, a.Outcome, a.Effects[0], err)
+			if a.Stage != stage {
+				t.Fatalf("allowed decision returned for %q under %q", a.Stage, stage)
+			}
+			for _, effect := range a.Effects {
+				if err := policydecision.ValidateRecord(policydecision.Record{
+					Stage: a.Stage, Outcome: a.Outcome, Effect: effect,
+				}); err != nil {
+					t.Fatalf("stage %q allowed pair (%q,%q) rejected: %v", stage, a.Outcome, effect, err)
+				}
 			}
 		}
 	}

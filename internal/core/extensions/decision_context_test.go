@@ -254,5 +254,5 @@ func TestDecisionContext_EmptyViewsProducesZeroSafeContext(t *testing.T) {
 func TestDecisionContext_ReturnsPolicyDecisionContextType(t *testing.T) {
 	t.Parallel()
 	ctx := extensions.BuildDecisionContext(sampleViews(), feature.StageIDPreRequest, "p1", extensions.DecisionContextOptions{})
-	var _ policydecision.Context = ctx
+	var _ policydecision.Context = ctx //nolint:staticcheck // QF1011: intentional compile-time return-type assertion
 }

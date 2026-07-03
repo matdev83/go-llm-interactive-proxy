@@ -37,7 +37,7 @@ func TestPolicyDecisionErrorRootsAreDistinct(t *testing.T) {
 		lipapi.ErrInvalidCall,
 		lipapi.ErrHookMutation,
 	} {
-		if errors.Is(lipapi.ErrPolicyDenied, other) || errors.Is(other, lipapi.ErrPolicyDenied) {
+		if errors.Is(lipapi.ErrPolicyDenied, other) || errors.Is(other, lipapi.ErrPolicyDenied) { //nolint:staticcheck // SA1032: intentional bidirectional errors.Is distinctness check
 			t.Fatalf("policy denied must be distinct from %v", other)
 		}
 	}

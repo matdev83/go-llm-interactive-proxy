@@ -30,7 +30,7 @@ type Record struct {
 	OutputCommitted    bool                     `json:"output_committed"`
 	BackendAttempted   bool                     `json:"backend_attempted"`
 	EvaluationTimeout  time.Duration            `json:"evaluation_timeout,omitempty"`
-	EvaluationDeadline time.Time                `json:"evaluation_deadline,omitempty"`
+	EvaluationDeadline time.Time                `json:"evaluation_deadline,omitzero"`
 }
 
 // Clone returns a deep copy of the record so callers and observers cannot mutate
