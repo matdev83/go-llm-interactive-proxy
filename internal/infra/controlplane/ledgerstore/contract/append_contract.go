@@ -9,6 +9,7 @@ import (
 )
 
 func testAppendDedupeOrdering(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -46,6 +47,7 @@ func testAppendDedupeOrdering(t *testing.T, f Factory) {
 }
 
 func testReadiness(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	if err := s.CheckReadiness(ctx(t)); err != nil {
@@ -54,6 +56,7 @@ func testReadiness(t *testing.T, f Factory) {
 }
 
 func testUnsafeEvidenceRejected(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)

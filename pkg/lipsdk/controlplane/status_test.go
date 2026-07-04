@@ -113,6 +113,6 @@ func TestReasonCodeConstantsAreStable(t *testing.T) {
 
 func TestServiceInterfacesCompile(t *testing.T) {
 	t.Parallel()
-	var _ controlplane.Recorder = controlplane.Recorder(nil)
-	var _ controlplane.Queries = controlplane.Queries(nil)
+	_ = controlplane.Recorder(nil)
+	_ = controlplane.Queries(nil)
 }

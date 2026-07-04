@@ -20,11 +20,11 @@ var pgUnsupportedDSNParams = []string{"channel_binding"}
 // only accepts URL-style DSNs, so a non-URL DSN will fail later with a clear
 // "invalid scheme" error). The function does not log or expose DSN secrets.
 func SanitizePostgresDSN(dsn string) (string, error) {
-	idx := strings.IndexByte(dsn, '?')
-	if idx < 0 {
+	before, after, ok := strings.Cut(dsn, "?")
+	if !ok {
 		return dsn, nil
 	}
-	base, rawQuery := dsn[:idx], dsn[idx+1:]
+	base, rawQuery := before, after
 	vals, err := url.ParseQuery(rawQuery)
 	if err != nil {
 		return "", fmt.Errorf("db: parse postgres dsn query: %w", err)

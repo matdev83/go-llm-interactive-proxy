@@ -94,7 +94,7 @@ func TestValidateEventRejectsProblems(t *testing.T) {
 			name: "oversized_scope_labels",
 			mut: func(e cp.Event) cp.Event {
 				labels := make(map[string]string, controlplane.MaxScopeMapEntries+1)
-				for i := 0; i < controlplane.MaxScopeMapEntries+1; i++ {
+				for i := range controlplane.MaxScopeMapEntries + 1 {
 					labels["k"+itoa(i)] = "v"
 				}
 				e.Scope = cp.ScopeSnapshot{

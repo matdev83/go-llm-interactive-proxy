@@ -58,7 +58,7 @@ func TestCrossSeam_AllAdaptersRecordSharedCorrelation(t *testing.T) {
 	if err := authAdapter.OnAuthDecision(ctx, sdkauth.AuthDecisionEvent{
 		Time: fixedTime, TraceID: traceID, Frontend: "openai-responses",
 		Outcome: sdkauth.OutcomeAllow, ReasonCode: "ok", HandlerKind: sdkauth.HandlerLocalAPIKey,
-		Scope: ptrScope(knownScope()),
+		Scope: new(knownScope()),
 	}); err != nil {
 		t.Fatalf("auth: %v", err)
 	}

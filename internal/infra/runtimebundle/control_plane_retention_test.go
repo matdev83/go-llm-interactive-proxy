@@ -25,24 +25,31 @@ type fakeRetentionStore struct {
 func (s *fakeRetentionStore) Append(context.Context, cp.Event) (cp.RecordResult, error) {
 	return cp.RecordResult{}, nil
 }
+
 func (s *fakeRetentionStore) Sessions(context.Context, cp.SessionQuery) (cp.Page[cp.SessionSummary], error) {
 	return cp.Page[cp.SessionSummary]{}, nil
 }
+
 func (s *fakeRetentionStore) Attempts(context.Context, cp.AttemptQuery) (cp.Page[cp.AttemptRow], error) {
 	return cp.Page[cp.AttemptRow]{}, nil
 }
+
 func (s *fakeRetentionStore) Usage(context.Context, cp.UsageQuery) (cp.Page[cp.UsageRow], error) {
 	return cp.Page[cp.UsageRow]{}, nil
 }
+
 func (s *fakeRetentionStore) UsageAggregate(context.Context, cp.UsageAggregateQuery) (cp.Page[cp.UsageAggregate], error) {
 	return cp.Page[cp.UsageAggregate]{}, nil
 }
+
 func (s *fakeRetentionStore) PolicyAudit(context.Context, cp.EvidenceQuery) (cp.Page[cp.PolicyAuditRow], error) {
 	return cp.Page[cp.PolicyAuditRow]{}, nil
 }
+
 func (s *fakeRetentionStore) Events(context.Context, cp.EventQuery) (cp.Page[cp.Event], error) {
 	return cp.Page[cp.Event]{}, nil
 }
+
 func (s *fakeRetentionStore) ApplyRetention(_ context.Context, _ controlplane.RetentionCommand) (controlplane.RetentionResult, error) {
 	s.applied.Add(1)
 	return controlplane.RetentionResult{}, s.applyErr

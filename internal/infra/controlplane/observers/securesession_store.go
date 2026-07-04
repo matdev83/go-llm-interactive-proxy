@@ -383,5 +383,7 @@ func usageKeySuffix(delta domain.UsageDelta, occurred time.Time) string {
 	return "h" + strconv.FormatUint(h.Sum64(), 16)
 }
 
-var _ app.Store = (*SecureSessionStoreDecorator)(nil)
-var _ app.SessionUsageRollup = (*SecureSessionStoreDecorator)(nil)
+var (
+	_ app.Store              = (*SecureSessionStoreDecorator)(nil)
+	_ app.SessionUsageRollup = (*SecureSessionStoreDecorator)(nil)
+)

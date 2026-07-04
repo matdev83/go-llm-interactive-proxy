@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -143,9 +144,7 @@ func (t *openTracker) snapshot() ([]string, map[string]int) {
 	defer t.mu.Unlock()
 	out := append([]string(nil), t.opens...)
 	counts := map[string]int{}
-	for k, v := range t.counts {
-		counts[k] = v
-	}
+	maps.Copy(counts, t.counts)
 	return out, counts
 }
 

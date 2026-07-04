@@ -75,7 +75,7 @@ func observersRepoRoot(t *testing.T) string {
 		t.Fatalf("could not locate caller")
 	}
 	dir := filepath.Dir(file)
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil &&
 			strings.HasPrefix(string(b), "module github.com/matdev83/go-llm-interactive-proxy") {
 			return dir

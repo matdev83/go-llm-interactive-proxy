@@ -86,7 +86,8 @@ func knownScope() scope.PrincipalScopeView {
 	}
 }
 
-func ptrScope(v scope.PrincipalScopeView) *scope.PrincipalScopeView { return &v }
+//go:fix inline
+func ptrScope(v scope.PrincipalScopeView) *scope.PrincipalScopeView { return new(v) }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
@@ -132,24 +133,31 @@ type failingStore struct{ err error }
 func (s *failingStore) Append(context.Context, cp.Event) (cp.RecordResult, error) {
 	return cp.RecordResult{}, s.err
 }
+
 func (s *failingStore) Sessions(context.Context, cp.SessionQuery) (cp.Page[cp.SessionSummary], error) {
 	return cp.Page[cp.SessionSummary]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *failingStore) Attempts(context.Context, cp.AttemptQuery) (cp.Page[cp.AttemptRow], error) {
 	return cp.Page[cp.AttemptRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *failingStore) Usage(context.Context, cp.UsageQuery) (cp.Page[cp.UsageRow], error) {
 	return cp.Page[cp.UsageRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *failingStore) UsageAggregate(context.Context, cp.UsageAggregateQuery) (cp.Page[cp.UsageAggregate], error) {
 	return cp.Page[cp.UsageAggregate]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *failingStore) PolicyAudit(context.Context, cp.EvidenceQuery) (cp.Page[cp.PolicyAuditRow], error) {
 	return cp.Page[cp.PolicyAuditRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *failingStore) Events(context.Context, cp.EventQuery) (cp.Page[cp.Event], error) {
 	return cp.Page[cp.Event]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *failingStore) ApplyRetention(context.Context, controlplane.RetentionCommand) (controlplane.RetentionResult, error) {
 	return controlplane.RetentionResult{}, nil
 }
@@ -223,15 +231,19 @@ func (f *fakeSecureSessionStore) Create(_ context.Context, rec domain.CreateReco
 		CreatedAt: rec.CreatedAt,
 	}, nil
 }
+
 func (f *fakeSecureSessionStore) LoadByID(context.Context, domain.SessionID) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (f *fakeSecureSessionStore) LoadByResumeFingerprint(context.Context, domain.TokenFingerprint) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (f *fakeSecureSessionStore) LoadByALegID(context.Context, string) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (f *fakeSecureSessionStore) TouchActivity(_ context.Context, id domain.SessionID, at time.Time, source domain.ActivitySource) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -241,6 +253,7 @@ func (f *fakeSecureSessionStore) TouchActivity(_ context.Context, id domain.Sess
 	f.lastTouch.source = source
 	return f.touchErr
 }
+
 func (f *fakeSecureSessionStore) AppendAttemptTrace(_ context.Context, trace domain.AttemptTrace) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -248,6 +261,7 @@ func (f *fakeSecureSessionStore) AppendAttemptTrace(_ context.Context, trace dom
 	f.lastAttemptTrace = trace
 	return f.appendAttemptTraceErr
 }
+
 func (f *fakeSecureSessionStore) UpdateAttemptOutcome(_ context.Context, outcome domain.AttemptOutcome) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -255,12 +269,15 @@ func (f *fakeSecureSessionStore) UpdateAttemptOutcome(_ context.Context, outcome
 	f.lastAttemptOutcome = outcome
 	return f.updateAttemptOutcomeErr
 }
+
 func (f *fakeSecureSessionStore) AppendTranscript(context.Context, domain.TranscriptItem) error {
 	return nil
 }
+
 func (f *fakeSecureSessionStore) NextTranscriptSeq(context.Context, domain.SessionID) (int64, error) {
 	return 1, nil
 }
+
 func (f *fakeSecureSessionStore) AddUsage(_ context.Context, delta domain.UsageDelta) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -268,9 +285,11 @@ func (f *fakeSecureSessionStore) AddUsage(_ context.Context, delta domain.UsageD
 	f.lastUsage = delta
 	return f.addUsageErr
 }
+
 func (f *fakeSecureSessionStore) NextAuditSeq(context.Context, domain.SessionID) (int64, error) {
 	return 1, nil
 }
+
 func (f *fakeSecureSessionStore) AppendAudit(_ context.Context, item domain.AuditItem) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -278,18 +297,23 @@ func (f *fakeSecureSessionStore) AppendAudit(_ context.Context, item domain.Audi
 	f.lastAudit = item
 	return f.appendAuditErr
 }
+
 func (f *fakeSecureSessionStore) Audit(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.AuditItem, error) {
 	return nil, nil
 }
+
 func (f *fakeSecureSessionStore) Summary(context.Context, domain.SummaryQuery) ([]domain.Summary, error) {
 	return nil, nil
 }
+
 func (f *fakeSecureSessionStore) Transcript(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.TranscriptItem, error) {
 	return nil, nil
 }
+
 func (f *fakeSecureSessionStore) ListAttemptEvidence(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.AttemptEvidence, error) {
 	return nil, nil
 }
+
 func (f *fakeSecureSessionStore) CheckReadiness(context.Context, domain.PolicyMetadata) error {
 	return nil
 }
@@ -308,12 +332,14 @@ type fakeB2BUAStore struct {
 func (f *fakeB2BUAStore) ResolveALeg(context.Context, string) (b2bua.ALegRecord, error) {
 	return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 }
+
 func (f *fakeB2BUAStore) CreateALeg(_ context.Context, _ string) (b2bua.ALegRecord, error) {
 	if f.allocateErr != nil {
 		return b2bua.ALegRecord{}, f.allocateErr
 	}
 	return b2bua.ALegRecord{ALegID: "aleg-1"}, nil
 }
+
 func (f *fakeB2BUAStore) FetchALeg(context.Context, string) (b2bua.ALegRecord, error) {
 	return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 }
@@ -321,6 +347,7 @@ func (f *fakeB2BUAStore) SetWeightedFirstConsumed(context.Context, string, bool)
 func (f *fakeB2BUAStore) NextBLeg(context.Context, string) (b2bua.BLegRecord, error) {
 	return b2bua.BLegRecord{BLegID: "bleg-1", ALegID: "aleg-1", Seq: 1}, nil
 }
+
 func (f *fakeB2BUAStore) RecordAttempt(_ context.Context, rec lipapi.AttemptRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -328,6 +355,7 @@ func (f *fakeB2BUAStore) RecordAttempt(_ context.Context, rec lipapi.AttemptReco
 	f.lastAttempt = rec
 	return f.recordAttemptErr
 }
+
 func (f *fakeB2BUAStore) LoadAttempts(context.Context, string) ([]lipapi.AttemptRecord, error) {
 	return nil, nil
 }

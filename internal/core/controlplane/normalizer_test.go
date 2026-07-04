@@ -55,7 +55,7 @@ func TestNormalizeAuthDecisionPreservesCorrelationAndScope(t *testing.T) {
 		PrincipalID:   "principal-1",
 		HandlerKind:   auth.HandlerLocalAPIKey,
 		RequiredLevel: auth.LevelAPIKey,
-		Scope:         ptrScope(knownScopeView()),
+		Scope:         new(knownScopeView()),
 	}
 	got, err := n.FromAuthDecision(ev)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestNormalizeAttemptDistinguishesSurfacedFromLostRace(t *testing.T) {
 		StartedAt:    time.Now().Add(-time.Minute),
 		FinishedAt:   time.Now(),
 		OccurredAt:   time.Now(),
-		Scope:        ptrScope(knownScopeView()),
+		Scope:        new(knownScopeView()),
 	}
 	got, err := n.FromAttempt(rec)
 	if err != nil {
@@ -438,7 +438,7 @@ func TestNormalizeSessionRecordUsesExplicitSourceKeyAndAction(t *testing.T) {
 		ALegID:         "aleg-1",
 		Action:         cp.SessionActionCreated,
 		Certainty:      "known",
-		Scope:          ptrScope(knownScopeView()),
+		Scope:          new(knownScopeView()),
 	}
 	got, err := n.FromSessionRecord(rec)
 	if err != nil {
@@ -506,7 +506,7 @@ func TestNormalizeUsageRecordUsesExplicitSourceKeyAndDropsRawJSON(t *testing.T) 
 		CostNanoUnits:  1000,
 		Currency:       "USD",
 		CostSource:     "accounting",
-		Scope:          ptrScope(knownScopeView()),
+		Scope:          new(knownScopeView()),
 	}
 	got, err := n.FromUsageRecord(rec)
 	if err != nil {
@@ -528,7 +528,8 @@ func TestNormalizeUsageRecordUsesExplicitSourceKeyAndDropsRawJSON(t *testing.T) 
 
 // helpers
 
-func ptrScope(v scope.PrincipalScopeView) *scope.PrincipalScopeView { return &v }
+//go:fix inline
+func ptrScope(v scope.PrincipalScopeView) *scope.PrincipalScopeView { return new(v) }
 
 func serializeEvent(t *testing.T, ev cp.Event) string {
 	t.Helper()

@@ -19,7 +19,7 @@ func sampleAuthDecision() sdkauth.AuthDecisionEvent {
 		Outcome:     sdkauth.OutcomeAllow,
 		ReasonCode:  "ok",
 		HandlerKind: sdkauth.HandlerLocalAPIKey,
-		Scope:       ptrScope(knownScope()),
+		Scope:       new(knownScope()),
 	}
 }
 

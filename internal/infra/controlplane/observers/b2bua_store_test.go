@@ -75,7 +75,6 @@ func TestB2BUA_RecordAttemptMapsSurfacedVsSwallowed(t *testing.T) {
 		{"cancelled", lipapi.AttemptCancelled, cp.AttemptSurfacedSwallowed, cp.AttemptOutcomeCancelled},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t, cp.RecordingBestEffort, nil)

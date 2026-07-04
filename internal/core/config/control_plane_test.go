@@ -160,7 +160,8 @@ func TestControlPlaneQueryMaxPageSizeMustBeGEQDefault(t *testing.T) {
 		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
 		ControlPlane: config.ControlPlaneConfig{Enabled: true, Query: config.ControlPlaneQueryConfig{
 			Enabled: true, PathPrefix: "/admin/cp", DefaultPageSize: 200, MaxPageSize: 100,
-		}}}
+		}},
+	}
 	err := config.Validate(&cfg)
 	if err == nil || !strings.Contains(err.Error(), "max_page_size") {
 		t.Fatalf("expected max_page_size >= default error, got %v", err)
@@ -188,7 +189,8 @@ func TestControlPlaneQueryMaxTimeWindowParses(t *testing.T) {
 		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
 		ControlPlane: config.ControlPlaneConfig{Enabled: true, Query: config.ControlPlaneQueryConfig{
 			Enabled: true, PathPrefix: "/admin/cp", MaxTimeWindow: "not-a-duration",
-		}}}
+		}},
+	}
 	err := config.Validate(&cfg)
 	if err == nil || !strings.Contains(err.Error(), "max_time_window") {
 		t.Fatalf("expected max_time_window parse error, got %v", err)
@@ -206,7 +208,8 @@ func TestControlPlaneQueryMaxTimeWindowZeroRejectedWhenEnabled(t *testing.T) {
 			Server: config.ServerConfig{Address: "127.0.0.1:8080"},
 			ControlPlane: config.ControlPlaneConfig{Enabled: true, Query: config.ControlPlaneQueryConfig{
 				Enabled: true, PathPrefix: "/admin/cp", MaxTimeWindow: raw,
-			}}}
+			}},
+		}
 		err := config.Validate(&cfg)
 		if err == nil || !strings.Contains(err.Error(), "max_time_window") {
 			t.Fatalf("max_time_window=%q must be rejected when query enabled, got %v", raw, err)
@@ -220,7 +223,8 @@ func TestControlPlaneQueryMaxTimeWindowNegativeRejectedWhenEnabled(t *testing.T)
 		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
 		ControlPlane: config.ControlPlaneConfig{Enabled: true, Query: config.ControlPlaneQueryConfig{
 			Enabled: true, PathPrefix: "/admin/cp", MaxTimeWindow: "-24h",
-		}}}
+		}},
+	}
 	err := config.Validate(&cfg)
 	if err == nil || !strings.Contains(err.Error(), "max_time_window") {
 		t.Fatalf("negative max_time_window must be rejected when query enabled, got %v", err)
@@ -233,7 +237,8 @@ func TestControlPlaneQueryMaxTimeWindowEmptyAcceptedWhenEnabled(t *testing.T) {
 		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
 		ControlPlane: config.ControlPlaneConfig{Enabled: true, Query: config.ControlPlaneQueryConfig{
 			Enabled: true, PathPrefix: "/admin/cp", MaxTimeWindow: "",
-		}}}
+		}},
+	}
 	if err := config.Validate(&cfg); err != nil {
 		t.Fatalf("empty max_time_window must validate (means no bound), got %v", err)
 	}
@@ -248,7 +253,8 @@ func TestControlPlaneQueryMaxTimeWindowIgnoredWhenQueryDisabled(t *testing.T) {
 		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
 		ControlPlane: config.ControlPlaneConfig{Enabled: true, Query: config.ControlPlaneQueryConfig{
 			Enabled: false, PathPrefix: "/admin/cp", MaxTimeWindow: "not-a-duration",
-		}}}
+		}},
+	}
 	if err := config.Validate(&cfg); err != nil {
 		t.Fatalf("invalid max_time_window must be ignored when query disabled, got %v", err)
 	}
@@ -345,19 +351,19 @@ func TestControlPlaneQueryRequiresControlPlaneEnabled(t *testing.T) {
 func TestControlPlaneExcludesEnterpriseFeatureConfigSurface(t *testing.T) {
 	t.Parallel()
 	forbidden := []string{"Billing", "Invoice", "Quota", "Allowance", "SpendCap", "RateLimit", "OAuth", "SAML", "SCIM", "UserDirectory", "PII", "PromptInjection", "Marketplace"}
-	rt := reflect.TypeOf(config.ControlPlaneConfig{})
-	for f := range rt.NumField() {
-		name := rt.Field(f).Name
+	rt := reflect.TypeFor[config.ControlPlaneConfig]()
+	for field := range rt.Fields() {
+		name := field.Name
 		for _, bad := range forbidden {
 			if strings.Contains(name, bad) {
 				t.Fatalf("ControlPlaneConfig field %s introduces excluded enterprise feature %q (requirement 10.1-10.4)", name, bad)
 			}
 		}
 		// descend one level into nested config structs
-		if rt.Field(f).Type.Kind() == reflect.Struct {
-			nested := rt.Field(f).Type
-			for nf := range nested.NumField() {
-				nname := nested.Field(nf).Name
+		if field.Type.Kind() == reflect.Struct {
+			nested := field.Type
+			for field := range nested.Fields() {
+				nname := field.Name
 				for _, bad := range forbidden {
 					if strings.Contains(nname, bad) {
 						t.Fatalf("ControlPlaneConfig.%s field %s introduces excluded enterprise feature %q", name, nname, bad)

@@ -57,8 +57,8 @@ type AttemptDetail struct {
 	Surfaced     AttemptSurfaced `json:"surfaced"`
 	Outcome      AttemptOutcome  `json:"outcome"`
 	ErrorClass   string          `json:"error_class,omitempty"`
-	StartedAt    time.Time       `json:"started_at,omitempty"`
-	FinishedAt   time.Time       `json:"finished_at,omitempty"`
+	StartedAt    time.Time       `json:"started_at,omitzero"`
+	FinishedAt   time.Time       `json:"finished_at,omitzero"`
 }
 
 // AttemptSurfaced classifies whether a backend attempt produced client-visible

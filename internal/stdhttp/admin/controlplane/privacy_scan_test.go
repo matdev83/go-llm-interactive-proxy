@@ -100,7 +100,7 @@ func TestHTTPPrivacyScan_QueryResponsesContainNoRawSecrets(t *testing.T) {
 				break
 			}
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		low := strings.ToLower(string(body))
 		for _, bad := range forbiddenHTTPSecretSubstrings {
 			if strings.Contains(low, bad) {
@@ -126,7 +126,7 @@ func TestHTTPPrivacyScan_QueryResponsesContainNoRawSecrets(t *testing.T) {
 			break
 		}
 	}
-	badResp.Body.Close()
+	_ = badResp.Body.Close()
 	if strings.Contains(strings.ToLower(string(badBody)), "sql") || strings.Contains(strings.ToLower(string(badBody)), "dsn") {
 		t.Fatalf("too-broad response leaked infra detail: %s", string(badBody))
 	}

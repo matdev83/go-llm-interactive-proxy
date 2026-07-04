@@ -139,7 +139,8 @@ func shapeHashEvidence(q cp.EvidenceQuery) uint64 {
 
 func writeCommonShape(h interface {
 	Write([]byte) (int, error)
-}, c cp.CommonFilters) {
+}, c cp.CommonFilters,
+) {
 	writeString(h, "|scope:")
 	writeScopeShape(h, c.Scope)
 	writeString(h, "|t:")
@@ -167,7 +168,8 @@ func writeCommonShape(h interface {
 
 func writeScopeShape(h interface {
 	Write([]byte) (int, error)
-}, s cp.ScopeFilters) {
+}, s cp.ScopeFilters,
+) {
 	writeScopeValue(h, "p", s.PrincipalID)
 	writeScopeValue(h, "c", s.CredentialID)
 	writeScopeValue(h, "t", s.TenantID)
@@ -180,7 +182,8 @@ func writeScopeShape(h interface {
 
 func writeScopeValue(h interface {
 	Write([]byte) (int, error)
-}, label string, v scope.Value) {
+}, label string, v scope.Value,
+) {
 	writeString(h, label)
 	if v.IsUnknown() {
 		writeString(h, "U")
@@ -198,7 +201,8 @@ func writeScopeValue(h interface {
 // collide accidentally.
 func writeTimeShape(h interface {
 	Write([]byte) (int, error)
-}, t time.Time) {
+}, t time.Time,
+) {
 	if t.IsZero() {
 		writeString(h, "Z")
 		return
@@ -209,13 +213,15 @@ func writeTimeShape(h interface {
 
 func writeString(h interface {
 	Write([]byte) (int, error)
-}, s string) {
+}, s string,
+) {
 	_, _ = h.Write([]byte(s))
 }
 
 func writeInt(h interface {
 	Write([]byte) (int, error)
-}, n int64) {
+}, n int64,
+) {
 	var buf [20]byte
 	_, _ = h.Write(strconv.AppendInt(buf[:0], n, 10))
 }

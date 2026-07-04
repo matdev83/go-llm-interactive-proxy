@@ -98,7 +98,7 @@ func TestScopeFlattenerRejectsOversizedMaps(t *testing.T) {
 	t.Parallel()
 	f := controlplane.NewScopeFlattener()
 	labels := make(map[string]string, controlplane.MaxScopeMapEntries+1)
-	for i := 0; i < controlplane.MaxScopeMapEntries+1; i++ {
+	for i := range controlplane.MaxScopeMapEntries + 1 {
 		labels[keyFor(i)] = "v"
 	}
 	view := scope.PrincipalScopeView{

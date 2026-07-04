@@ -254,25 +254,25 @@ func TestMemoryStore_concurrentAppendQueryAndRetention(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(writers + readers + retentionRuns)
 
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		go func(n int) {
 			defer wg.Done()
-			for j := 0; j < writesPerGoroutine; j++ {
+			for j := range writesPerGoroutine {
 				ev := contractEvent()
 				ev.SourceEventKey = "auth:conc:w" + strconvI(n) + ":" + strconvI(j)
 				_, _ = s.Append(c, ev)
 			}
 		}(i)
 	}
-	for i := 0; i < readers; i++ {
+	for range readers {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < writesPerGoroutine; j++ {
+			for range writesPerGoroutine {
 				_, _ = s.Events(c, cp.EventQuery{Limit: 10, Visibility: cp.VisibilityDefault})
 			}
 		}()
 	}
-	for i := 0; i < retentionRuns; i++ {
+	for range retentionRuns {
 		go func() {
 			defer wg.Done()
 			_, _ = s.ApplyRetention(c, controlplane.RetentionCommand{

@@ -59,8 +59,8 @@ func TestPhase6Compat_SecureSessionDiagnosticsUnchangedWithControlPlane(t *testi
 		{"audit", "/debug/sessions/sess-cmp/audit?limit=10"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			before := doCompatGet(t, baselineHandler, tc.path)
 			after := doCompatGet(t, wrappedHandler, tc.path)
 
@@ -120,10 +120,12 @@ func TestPhase6Compat_SecureSessionDiagnosticsDoNotRequireControlPlaneQuery(t *t
 }
 
 func seedCompatSession(ctx context.Context, t *testing.T, st *memory.Store, sid domain.SessionID, owner, aLeg string, pol domain.PolicyMetadata) {
+	t.Helper()
 	seedCompatSessionThroughStore(ctx, t, st, sid, owner, aLeg, pol)
 }
 
 func seedCompatSessionThroughDecorator(ctx context.Context, t *testing.T, st app.Store, sid domain.SessionID, owner, aLeg string, pol domain.PolicyMetadata) {
+	t.Helper()
 	seedCompatSessionThroughStore(ctx, t, st, sid, owner, aLeg, pol)
 }
 

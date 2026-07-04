@@ -53,7 +53,7 @@ func TestPrivacyGuardrails_StoredEventsAndQueryResultsContainNoRawSecrets(t *tes
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
 		Policy: cp.RecordingBestEffort,
@@ -170,7 +170,7 @@ func TestPrivacyGuardrails_RecorderRejectsRawSecretsInAnyFreeTextField(t *testin
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
 		Policy: cp.RecordingBestEffort,
@@ -221,7 +221,7 @@ func TestPrivacyGuardrails_PrivilegedAuditIsRedactedForDefaultVisibility(t *test
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
 		Policy: cp.RecordingBestEffort,
@@ -274,7 +274,7 @@ func TestPrivacyGuardrails_RetentionDoesNotAffectInFlightRecording(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
 		Policy: cp.RecordingBestEffort,

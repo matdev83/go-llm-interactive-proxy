@@ -26,22 +26,27 @@ func (s *queryProbeStore) Sessions(context.Context, cp.SessionQuery) (cp.Page[cp
 	s.sessionsCalled = true
 	return cp.Page[cp.SessionSummary]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *queryProbeStore) Attempts(context.Context, cp.AttemptQuery) (cp.Page[cp.AttemptRow], error) {
 	s.attemptsCalled = true
 	return cp.Page[cp.AttemptRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *queryProbeStore) Usage(context.Context, cp.UsageQuery) (cp.Page[cp.UsageRow], error) {
 	s.usageCalled = true
 	return cp.Page[cp.UsageRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *queryProbeStore) UsageAggregate(context.Context, cp.UsageAggregateQuery) (cp.Page[cp.UsageAggregate], error) {
 	s.usageAggCalled = true
 	return cp.Page[cp.UsageAggregate]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *queryProbeStore) PolicyAudit(context.Context, cp.EvidenceQuery) (cp.Page[cp.PolicyAuditRow], error) {
 	s.policyCalled = true
 	return cp.Page[cp.PolicyAuditRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (s *queryProbeStore) Events(_ context.Context, q cp.EventQuery) (cp.Page[cp.Event], error) {
 	s.eventsCalled = true
 	return cp.Page[cp.Event]{Visibility: q.Visibility}, nil

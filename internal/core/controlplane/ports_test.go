@@ -16,24 +16,31 @@ type stubStore struct{}
 func (stubStore) Append(context.Context, cp.Event) (cp.RecordResult, error) {
 	return cp.RecordResult{ID: cp.EventID{StoreID: "stub", Sequence: 1}, Dedupe: cp.DedupeInserted}, nil
 }
+
 func (stubStore) Sessions(context.Context, cp.SessionQuery) (cp.Page[cp.SessionSummary], error) {
 	return cp.Page[cp.SessionSummary]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (stubStore) Attempts(context.Context, cp.AttemptQuery) (cp.Page[cp.AttemptRow], error) {
 	return cp.Page[cp.AttemptRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (stubStore) Usage(context.Context, cp.UsageQuery) (cp.Page[cp.UsageRow], error) {
 	return cp.Page[cp.UsageRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (stubStore) UsageAggregate(context.Context, cp.UsageAggregateQuery) (cp.Page[cp.UsageAggregate], error) {
 	return cp.Page[cp.UsageAggregate]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (stubStore) PolicyAudit(context.Context, cp.EvidenceQuery) (cp.Page[cp.PolicyAuditRow], error) {
 	return cp.Page[cp.PolicyAuditRow]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (stubStore) Events(context.Context, cp.EventQuery) (cp.Page[cp.Event], error) {
 	return cp.Page[cp.Event]{Visibility: cp.VisibilityDefault}, nil
 }
+
 func (stubStore) ApplyRetention(context.Context, controlplane.RetentionCommand) (controlplane.RetentionResult, error) {
 	return controlplane.RetentionResult{}, nil
 }

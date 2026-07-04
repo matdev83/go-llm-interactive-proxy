@@ -180,29 +180,49 @@ func TestControlPlaneEndToEnd_CrossSessionCaptureAndQueryThroughHTTP(t *testing.
 	}
 
 	sessionsA := getJSON(t, srv, "/sessions?principal_id=principal-a")
-	itemsA := sessionsA["items"].([]any)
+	itemsA, ok := sessionsA["items"].([]any)
+	if !ok {
+		t.Fatalf("sessions principal-a: items missing or not array, got %T", sessionsA["items"])
+	}
 	if len(itemsA) != 1 {
 		t.Fatalf("sessions principal-a: got %d items, want 1", len(itemsA))
 	}
-	if got := itemsA[0].(map[string]any)["session_id"]; got != sessA {
+	itemA, ok := itemsA[0].(map[string]any)
+	if !ok {
+		t.Fatalf("sessions principal-a: item not an object, got %T", itemsA[0])
+	}
+	if got := itemA["session_id"]; got != sessA {
 		t.Fatalf("session id: got %v, want %q", got, sessA)
 	}
-	if ac, ok := itemsA[0].(map[string]any)["attempt_count"].(float64); ok && ac != 1 {
+	if ac, ok := itemA["attempt_count"].(float64); ok && ac != 1 {
 		t.Fatalf("attempt count: got %v, want 1", ac)
 	}
 
 	sessionsB := getJSON(t, srv, "/sessions?session_id="+sessB)
-	if len(sessionsB["items"].([]any)) != 1 {
+	itemsB, ok := sessionsB["items"].([]any)
+	if !ok {
+		t.Fatalf("sessions session-b: items missing or not array, got %T", sessionsB["items"])
+	}
+	if len(itemsB) != 1 {
 		t.Fatalf("sessions session-b: expected 1 item, got %v", sessionsB["items"])
 	}
 
 	attemptsBody := getJSON(t, srv, "/attempts?session_id="+sessA)
-	attemptItems := attemptsBody["items"].([]any)
+	attemptItems, ok := attemptsBody["items"].([]any)
+	if !ok {
+		t.Fatalf("attempts session A: items missing or not array, got %T", attemptsBody["items"])
+	}
 	if len(attemptItems) != 1 {
 		t.Fatalf("attempts session A: got %d items, want 1", len(attemptItems))
 	}
-	attemptRow := attemptItems[0].(map[string]any)
-	corr := attemptRow["correlation"].(map[string]any)
+	attemptRow, ok := attemptItems[0].(map[string]any)
+	if !ok {
+		t.Fatalf("attempts session A: row not an object, got %T", attemptItems[0])
+	}
+	corr, ok := attemptRow["correlation"].(map[string]any)
+	if !ok {
+		t.Fatalf("attempts session A: correlation missing or not object, got %T", attemptRow["correlation"])
+	}
 	if corr["b_leg_id"] != blegA {
 		t.Fatalf("attempt b_leg_id: got %v, want %q", corr["b_leg_id"], blegA)
 	}
@@ -211,13 +231,22 @@ func TestControlPlaneEndToEnd_CrossSessionCaptureAndQueryThroughHTTP(t *testing.
 	}
 
 	eventsBody := getJSON(t, srv, "/events?trace_id="+traceA)
-	eventItems := eventsBody["items"].([]any)
+	eventItems, ok := eventsBody["items"].([]any)
+	if !ok {
+		t.Fatalf("events trace A: items missing or not array, got %T", eventsBody["items"])
+	}
 	if len(eventItems) == 0 {
 		t.Fatalf("events trace A: expected at least one event")
 	}
 	for _, ei := range eventItems {
-		ev := ei.(map[string]any)
-		evCorr := ev["correlation"].(map[string]any)
+		ev, ok := ei.(map[string]any)
+		if !ok {
+			t.Fatalf("events trace A: event not an object, got %T", ei)
+		}
+		evCorr, ok := ev["correlation"].(map[string]any)
+		if !ok {
+			t.Fatalf("events trace A: event correlation missing or not object, got %T", ev["correlation"])
+		}
 		if evCorr["trace_id"] != traceA {
 			t.Fatalf("events trace A filter leaked trace %v", evCorr["trace_id"])
 		}
@@ -227,20 +256,35 @@ func TestControlPlaneEndToEnd_CrossSessionCaptureAndQueryThroughHTTP(t *testing.
 	}
 
 	usageBody := getJSON(t, srv, "/usage?backend_id=openai&model=gpt-4o")
-	usageItems := usageBody["items"].([]any)
+	usageItems, ok := usageBody["items"].([]any)
+	if !ok {
+		t.Fatalf("usage: items missing or not array, got %T", usageBody["items"])
+	}
 	if len(usageItems) != 1 {
 		t.Fatalf("usage: got %d items, want 1", len(usageItems))
 	}
-	if got := usageItems[0].(map[string]any)["input_tokens"].(float64); got != 100 {
-		t.Fatalf("usage input tokens: got %v, want 100", got)
+	usageRow, ok := usageItems[0].(map[string]any)
+	if !ok {
+		t.Fatalf("usage: row not an object, got %T", usageItems[0])
+	}
+	usageTokens, ok := usageRow["input_tokens"].(float64)
+	if !ok || usageTokens != 100 {
+		t.Fatalf("usage input tokens: got %v, want 100", usageRow["input_tokens"])
 	}
 
 	policyBody := getJSON(t, srv, "/policy-audit?a_leg_id="+alegA)
-	policyItems := policyBody["items"].([]any)
+	policyItems, ok := policyBody["items"].([]any)
+	if !ok {
+		t.Fatalf("policy-audit: items missing or not array, got %T", policyBody["items"])
+	}
 	if len(policyItems) != 1 {
 		t.Fatalf("policy-audit: got %d items, want 1", len(policyItems))
 	}
-	if got := policyItems[0].(map[string]any)["outcome"]; got != "allow" {
+	policyRow, ok := policyItems[0].(map[string]any)
+	if !ok {
+		t.Fatalf("policy-audit: row not an object, got %T", policyItems[0])
+	}
+	if got := policyRow["outcome"]; got != "allow" {
 		t.Fatalf("policy outcome: got %v, want allow", got)
 	}
 
@@ -256,7 +300,7 @@ func getJSON(t *testing.T, srv *httptest.Server, path string) map[string]any {
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := map[string]any{}
 	body["_status"] = float64(resp.StatusCode)
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -270,15 +314,19 @@ type noopB2BUAStore struct{}
 func (noopB2BUAStore) ResolveALeg(context.Context, string) (b2bua.ALegRecord, error) {
 	return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 }
+
 func (noopB2BUAStore) CreateALeg(context.Context, string) (b2bua.ALegRecord, error) {
 	return b2bua.ALegRecord{ALegID: "aleg-1"}, nil
 }
+
 func (noopB2BUAStore) FetchALeg(context.Context, string) (b2bua.ALegRecord, error) {
 	return b2bua.ALegRecord{}, b2bua.ErrALegNotFound
 }
+
 func (noopB2BUAStore) SetWeightedFirstConsumed(context.Context, string, bool) error {
 	return nil
 }
+
 func (noopB2BUAStore) NextBLeg(context.Context, string) (b2bua.BLegRecord, error) {
 	return b2bua.BLegRecord{BLegID: "bleg-1", ALegID: "aleg-1", Seq: 1}, nil
 }
@@ -292,27 +340,35 @@ type noopSecureSessionStore struct{}
 func (noopSecureSessionStore) Create(context.Context, domain.CreateRecord) (domain.Record, error) {
 	return domain.Record{SessionID: "ok"}, nil
 }
+
 func (noopSecureSessionStore) LoadByID(context.Context, domain.SessionID) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (noopSecureSessionStore) LoadByResumeFingerprint(context.Context, domain.TokenFingerprint) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (noopSecureSessionStore) LoadByALegID(context.Context, string) (domain.Record, error) {
 	return domain.Record{}, nil
 }
+
 func (noopSecureSessionStore) TouchActivity(context.Context, domain.SessionID, time.Time, domain.ActivitySource) error {
 	return nil
 }
+
 func (noopSecureSessionStore) AppendAttemptTrace(context.Context, domain.AttemptTrace) error {
 	return nil
 }
+
 func (noopSecureSessionStore) UpdateAttemptOutcome(context.Context, domain.AttemptOutcome) error {
 	return nil
 }
+
 func (noopSecureSessionStore) AppendTranscript(context.Context, domain.TranscriptItem) error {
 	return nil
 }
+
 func (noopSecureSessionStore) NextTranscriptSeq(context.Context, domain.SessionID) (int64, error) {
 	return 1, nil
 }
@@ -324,15 +380,19 @@ func (noopSecureSessionStore) AppendAudit(context.Context, domain.AuditItem) err
 func (noopSecureSessionStore) Audit(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.AuditItem, error) {
 	return nil, nil
 }
+
 func (noopSecureSessionStore) Summary(context.Context, domain.SummaryQuery) ([]domain.Summary, error) {
 	return nil, nil
 }
+
 func (noopSecureSessionStore) Transcript(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.TranscriptItem, error) {
 	return nil, nil
 }
+
 func (noopSecureSessionStore) ListAttemptEvidence(context.Context, domain.SessionID, domain.ReadOptions) ([]domain.AttemptEvidence, error) {
 	return nil, nil
 }
+
 func (noopSecureSessionStore) CheckReadiness(context.Context, domain.PolicyMetadata) error {
 	return nil
 }

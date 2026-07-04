@@ -13,6 +13,7 @@ package contract
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -93,12 +94,7 @@ type UnsupportedConfig struct {
 
 // IsUnsupported reports whether field is in the unsupported set.
 func (c UnsupportedConfig) IsUnsupported(field string) bool {
-	for _, f := range c.Fields {
-		if f == field {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Fields, field)
 }
 
 // RunSuite runs the full shared store contract against the supplied factory.

@@ -61,7 +61,7 @@ func TestHandler_Status_ReturnsCapabilityStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", resp.StatusCode)
 	}
@@ -85,7 +85,7 @@ func TestHandler_Sessions_ReturnsBoundedPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("sessions: got %d, want 200", resp.StatusCode)
 	}
@@ -108,7 +108,7 @@ func TestHandler_DisabledQueries_ReturnsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("disabled: got %d, want 404", resp.StatusCode)
 	}
@@ -123,7 +123,7 @@ func TestHandler_NilQueries_ReturnsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("nil queries: got %d, want 404", resp.StatusCode)
 	}
@@ -139,7 +139,7 @@ func TestHandler_TooBroadLimit_ReturnsTooBroad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("too broad: got %d, want 400", resp.StatusCode)
 	}
@@ -162,7 +162,7 @@ func TestHandler_InvalidCursor_ReturnsInvalidQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid cursor: got %d, want 400", resp.StatusCode)
 	}
@@ -178,7 +178,7 @@ func TestHandler_PostMethod_ReturnsMethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("post /status: got %d, want 405", resp.StatusCode)
 	}

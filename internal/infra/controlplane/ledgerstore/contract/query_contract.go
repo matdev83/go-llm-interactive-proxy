@@ -12,6 +12,7 @@ import (
 )
 
 func testEmptyResults(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -31,6 +32,7 @@ func testEmptyResults(t *testing.T, f Factory) {
 }
 
 func testScopePresencePreserved(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -61,6 +63,7 @@ func testScopePresencePreserved(t *testing.T, f Factory) {
 }
 
 func testScopeFiltersKnownValueAndEmpty(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -98,6 +101,7 @@ func testScopeFiltersKnownValueAndEmpty(t *testing.T, f Factory) {
 }
 
 func testEventsQueryFilters(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -155,6 +159,7 @@ func testEventsQueryFilters(t *testing.T, f Factory) {
 }
 
 func testSessionsProjection(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -186,6 +191,7 @@ func testSessionsProjection(t *testing.T, f Factory) {
 }
 
 func testAttemptsProjection(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -214,6 +220,7 @@ func testAttemptsProjection(t *testing.T, f Factory) {
 }
 
 func testUsageProjection(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -247,6 +254,7 @@ func testUsageProjection(t *testing.T, f Factory) {
 }
 
 func testPolicyAuditProjection(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -272,6 +280,7 @@ func testPolicyAuditProjection(t *testing.T, f Factory) {
 }
 
 func testPaginationContinuation(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -314,6 +323,7 @@ func testPaginationContinuation(t *testing.T, f Factory) {
 }
 
 func testContinuationShapeBound(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -349,6 +359,7 @@ func testContinuationShapeBound(t *testing.T, f Factory) {
 // actual time value (not just its presence) must invalidate the cursor
 // (requirement 2.7, 7.4).
 func testContinuationTimeRangeShape(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	cfg := unsupportedConfigOf(f)
 	if cfg.IsUnsupported(FieldTimeRange) {
@@ -391,6 +402,7 @@ func testContinuationTimeRangeShape(t *testing.T, f Factory) {
 }
 
 func testUnsupportedFiltersReported(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	cfg := unsupportedConfigOf(f)
 	if len(cfg.Fields) == 0 {

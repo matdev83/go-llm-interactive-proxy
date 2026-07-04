@@ -24,7 +24,7 @@ func TestControlPlaneNonInterference_AttemptStatesQueryableAndDistinct(t *testin
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
 		Policy: cp.RecordingBestEffort,
@@ -175,7 +175,7 @@ func TestControlPlaneNonInterference_NonStreamingKeepsCorrelationPath(t *testing
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
 		Policy: cp.RecordingBestEffort,

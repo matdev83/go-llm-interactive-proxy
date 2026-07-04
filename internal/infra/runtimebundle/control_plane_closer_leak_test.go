@@ -34,7 +34,7 @@ func (s *closeObservableStore) Close() error {
 //
 // Not parallel: uses a BuildOptions injection (no package-level state is mutated,
 // but the test is self-contained and need not run alongside parallel Build tests).
-func TestBuild_ControlPlaneCloserDisposedOnEarlyFailure(t *testing.T) {
+func TestBuild_ControlPlaneCloserDisposedOnEarlyFailure(t *testing.T) { //nolint:paralleltest // self-contained: documented Not parallel
 	store := &closeObservableStore{fakeRetentionStore: &fakeRetentionStore{}}
 	cfg := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
@@ -64,7 +64,7 @@ func TestBuild_ControlPlaneCloserDisposedOnEarlyFailure(t *testing.T) {
 // holds the control-plane store plus model-registry, continuity, and secure-
 // session handles. Previously this path returned without disposing closers,
 // leaking all of them.
-func TestBuild_ControlPlaneCloserDisposedOnStreamRecoveryFailure(t *testing.T) {
+func TestBuild_ControlPlaneCloserDisposedOnStreamRecoveryFailure(t *testing.T) { //nolint:paralleltest // self-contained: documented Not parallel
 	store := &closeObservableStore{fakeRetentionStore: &fakeRetentionStore{}}
 	cfg := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},

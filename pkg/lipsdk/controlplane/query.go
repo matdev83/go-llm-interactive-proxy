@@ -34,8 +34,8 @@ type UnsupportedFilter struct {
 // express an open range; both bounds require a selective filter for broad
 // event queries against durable stores (requirement 2.6, 7.4).
 type TimeRange struct {
-	From time.Time `json:"from,omitempty"`
-	To   time.Time `json:"to,omitempty"`
+	From time.Time `json:"from,omitzero"`
+	To   time.Time `json:"to,omitzero"`
 }
 
 // ScopeFilters carries the safe, presence-aware principal/scope filter
@@ -43,21 +43,21 @@ type TimeRange struct {
 // dimension is unknown; known-empty values match records whose dimension is
 // known and intentionally empty.
 type ScopeFilters struct {
-	PrincipalID    scopeValue `json:"principal_id,omitempty"`
-	CredentialID   scopeValue `json:"credential_id,omitempty"`
-	TenantID       scopeValue `json:"tenant_id,omitempty"`
-	OrganizationID scopeValue `json:"organization_id,omitempty"`
-	WorkspaceID    scopeValue `json:"workspace_id,omitempty"`
-	ProjectID      scopeValue `json:"project_id,omitempty"`
-	DepartmentID   scopeValue `json:"department_id,omitempty"`
-	CostCenterID   scopeValue `json:"cost_center_id,omitempty"`
+	PrincipalID    scopeValue `json:"principal_id,omitzero"`
+	CredentialID   scopeValue `json:"credential_id,omitzero"`
+	TenantID       scopeValue `json:"tenant_id,omitzero"`
+	OrganizationID scopeValue `json:"organization_id,omitzero"`
+	WorkspaceID    scopeValue `json:"workspace_id,omitzero"`
+	ProjectID      scopeValue `json:"project_id,omitzero"`
+	DepartmentID   scopeValue `json:"department_id,omitzero"`
+	CostCenterID   scopeValue `json:"cost_center_id,omitzero"`
 }
 
 // CommonFilters are the correlation and scope filters shared across query
 // shapes (requirement 2.5, 9.1).
 type CommonFilters struct {
-	Scope      ScopeFilters `json:"scope,omitempty"`
-	TimeRange  TimeRange    `json:"time_range,omitempty"`
+	Scope      ScopeFilters `json:"scope,omitzero"`
+	TimeRange  TimeRange    `json:"time_range,omitzero"`
 	BackendID  string       `json:"backend_id,omitempty"`
 	Model      string       `json:"model,omitempty"`
 	FrontendID string       `json:"frontend_id,omitempty"`
@@ -71,58 +71,58 @@ type CommonFilters struct {
 
 // SessionQuery requests bounded session summaries (requirement 2.1).
 type SessionQuery struct {
-	Common     CommonFilters `json:"common,omitempty"`
+	Common     CommonFilters `json:"common,omitzero"`
 	Limit      int           `json:"limit,omitempty"`
-	Cursor     Cursor        `json:"cursor,omitempty"`
+	Cursor     Cursor        `json:"cursor,omitzero"`
 	Visibility Visibility    `json:"visibility,omitempty"`
 }
 
 // AttemptQuery requests bounded backend attempt rows (requirement 2.2).
 type AttemptQuery struct {
-	Common     CommonFilters `json:"common,omitempty"`
+	Common     CommonFilters `json:"common,omitzero"`
 	Surfaced   string        `json:"surfaced,omitempty"`
 	Limit      int           `json:"limit,omitempty"`
-	Cursor     Cursor        `json:"cursor,omitempty"`
+	Cursor     Cursor        `json:"cursor,omitzero"`
 	Visibility Visibility    `json:"visibility,omitempty"`
 }
 
 // UsageQuery requests bounded usage rows (requirement 2.3, 9.2).
 type UsageQuery struct {
-	Common       CommonFilters `json:"common,omitempty"`
+	Common       CommonFilters `json:"common,omitzero"`
 	Plane        string        `json:"plane,omitempty"`
 	Availability string        `json:"availability,omitempty"`
 	Limit        int           `json:"limit,omitempty"`
-	Cursor       Cursor        `json:"cursor,omitempty"`
+	Cursor       Cursor        `json:"cursor,omitzero"`
 	Visibility   Visibility    `json:"visibility,omitempty"`
 }
 
 // UsageAggregateQuery requests bounded usage aggregates grouped by requested
 // dimensions (requirement 2.3, 6.4).
 type UsageAggregateQuery struct {
-	Common     CommonFilters `json:"common,omitempty"`
+	Common     CommonFilters `json:"common,omitzero"`
 	GroupBy    []string      `json:"group_by,omitempty"`
 	Limit      int           `json:"limit,omitempty"`
-	Cursor     Cursor        `json:"cursor,omitempty"`
+	Cursor     Cursor        `json:"cursor,omitzero"`
 	Visibility Visibility    `json:"visibility,omitempty"`
 }
 
 // EvidenceQuery requests bounded policy and audit evidence rows (requirement
 // 2.4, 9.3).
 type EvidenceQuery struct {
-	Common     CommonFilters `json:"common,omitempty"`
+	Common     CommonFilters `json:"common,omitzero"`
 	Effect     string        `json:"effect,omitempty"`
 	Category   Category      `json:"category,omitempty"`
 	Limit      int           `json:"limit,omitempty"`
-	Cursor     Cursor        `json:"cursor,omitempty"`
+	Cursor     Cursor        `json:"cursor,omitzero"`
 	Visibility Visibility    `json:"visibility,omitempty"`
 }
 
 // EventQuery requests bounded raw control-plane events (requirement 9.1).
 type EventQuery struct {
-	Common     CommonFilters `json:"common,omitempty"`
+	Common     CommonFilters `json:"common,omitzero"`
 	Category   Category      `json:"category,omitempty"`
 	Limit      int           `json:"limit,omitempty"`
-	Cursor     Cursor        `json:"cursor,omitempty"`
+	Cursor     Cursor        `json:"cursor,omitzero"`
 	Visibility Visibility    `json:"visibility,omitempty"`
 }
 
@@ -130,7 +130,7 @@ type EventQuery struct {
 // reporting, and visibility metadata (requirement 2.6, 2.7, 2.8, 3.5).
 type Page[T any] struct {
 	Items       []T                 `json:"items"`
-	Next        Cursor              `json:"next,omitempty"`
+	Next        Cursor              `json:"next,omitzero"`
 	Unsupported []UnsupportedFilter `json:"unsupported,omitempty"`
 	Visibility  Visibility          `json:"visibility"`
 }
@@ -164,8 +164,8 @@ type AttemptRow struct {
 	Surfaced      AttemptSurfaced `json:"surfaced"`
 	Outcome       AttemptOutcome  `json:"outcome"`
 	ErrorClass    string          `json:"error_class,omitempty"`
-	StartedAt     time.Time       `json:"started_at,omitempty"`
-	FinishedAt    time.Time       `json:"finished_at,omitempty"`
+	StartedAt     time.Time       `json:"started_at,omitzero"`
+	FinishedAt    time.Time       `json:"finished_at,omitzero"`
 	EvidenceState EvidenceState   `json:"evidence_state"`
 }
 
@@ -189,7 +189,7 @@ type UsageRow struct {
 // UsageAggregate is one row of a UsageAggregateQuery result (requirement 2.3,
 // 6.4). Aggregate rows are logically distinct from detailed usage rows.
 type UsageAggregate struct {
-	Scope         ScopeSnapshot `json:"scope,omitempty"`
+	Scope         ScopeSnapshot `json:"scope,omitzero"`
 	BackendID     string        `json:"backend_id,omitempty"`
 	Model         string        `json:"model,omitempty"`
 	Plane         UsagePlane    `json:"plane"`
@@ -197,8 +197,8 @@ type UsageAggregate struct {
 	OutputTokens  int64         `json:"output_tokens,omitempty"`
 	TotalTokens   int64         `json:"total_tokens,omitempty"`
 	CostNanoUnits int64         `json:"cost_nano_units,omitempty"`
-	WindowStart   time.Time     `json:"window_start,omitempty"`
-	WindowEnd     time.Time     `json:"window_end,omitempty"`
+	WindowStart   time.Time     `json:"window_start,omitzero"`
+	WindowEnd     time.Time     `json:"window_end,omitzero"`
 	EvidenceState EvidenceState `json:"evidence_state"`
 }
 
@@ -211,7 +211,7 @@ type PolicyAuditRow struct {
 	Outcome        string         `json:"outcome,omitempty"`
 	Effect         string         `json:"effect,omitempty"`
 	ReasonCode     string         `json:"reason_code,omitempty"`
-	OccurredAt     time.Time      `json:"occurred_at,omitempty"`
+	OccurredAt     time.Time      `json:"occurred_at,omitzero"`
 	Visibility     Visibility     `json:"visibility,omitempty"`
 	RedactionState RedactionState `json:"redaction_state"`
 	EvidenceState  EvidenceState  `json:"evidence_state"`

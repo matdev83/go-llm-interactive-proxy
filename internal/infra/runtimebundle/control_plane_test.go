@@ -108,6 +108,7 @@ func TestBuildControlPlaneRuntime_RequiredPreWork_FailsOnMemory(t *testing.T) {
 // error is detected, so the store closer must be disposed to avoid leaking the
 // durable handle (consistent with the retention-window parse error path).
 func TestBuildControlPlaneRuntime_InvalidMaxTimeWindow_FailsAndClosesStore(t *testing.T) {
+	t.Parallel()
 	store := &closeObservableStore{fakeRetentionStore: &fakeRetentionStore{}}
 	cfg := &config.Config{}
 	cfg.ControlPlane.Enabled = true

@@ -9,6 +9,7 @@ import (
 )
 
 func testRetentionIdempotent(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -49,6 +50,7 @@ func testRetentionIdempotent(t *testing.T, f Factory) {
 }
 
 func testRedactionDefaultVisibility(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)
@@ -82,6 +84,7 @@ func testRedactionDefaultVisibility(t *testing.T, f Factory) {
 // asserts the page-level visibility contract still mirrors the events view
 // (requirement 4.6, 6.5).
 func testSessionsDefaultVisibility(t *testing.T, f Factory) {
+	t.Helper()
 	maybeParallel(t, f)
 	s := f.Build(t)
 	c := ctx(t)

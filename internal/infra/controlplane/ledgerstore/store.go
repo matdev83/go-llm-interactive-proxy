@@ -303,7 +303,7 @@ func (s *DurableStore) placeholder(n int) string {
 func (s *DurableStore) placeholderList(count int) string {
 	if s.dialect == dialect.PG {
 		parts := make([]string, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			parts[i] = fmt.Sprintf("$%d", i+1)
 		}
 		return strings.Join(parts, ", ")

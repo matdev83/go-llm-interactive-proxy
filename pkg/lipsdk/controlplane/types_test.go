@@ -251,8 +251,7 @@ func walkFieldNames(t *testing.T, rt reflect.Type, forbidden []string, seen map[
 		return
 	}
 	seen[rt] = true
-	for f := range rt.NumField() {
-		fld := rt.Field(f)
+	for fld := range rt.Fields() {
 		for _, bad := range forbidden {
 			if strings.Contains(fld.Name, bad) {
 				t.Fatalf("field %s.%s contains forbidden substring %q (raw secret/transport must not be in control-plane contract)", rt.Name(), fld.Name, bad)

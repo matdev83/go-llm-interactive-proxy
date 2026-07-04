@@ -23,7 +23,7 @@ func TestControlPlaneCoreServicesEndToEndWithMemoryStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	status := controlplane.NewStatus(cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort})
 	recorder := controlplane.NewRecorderService(store, status, controlplane.RecorderConfig{
