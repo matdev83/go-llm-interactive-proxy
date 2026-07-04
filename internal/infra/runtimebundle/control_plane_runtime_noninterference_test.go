@@ -273,16 +273,29 @@ func TestControlPlaneRuntimeNonInterference_FailoverRecordsSurfacedAndSwallowed(
 func TestControlPlaneRuntimeNonInterference_ParallelRaceRecordsWinnerAndLoser(t *testing.T) {
 	t.Parallel()
 	rt := cpRuntimeNonInterference(t)
+	// Rendezvous both Opens so the fast arm cannot short-circuit the race
+	// before the slow arm opens. tryOpenParallelGroup guards Open with a
+	// winnerIdx check; under -race the fast arm can win before the slow
+	// goroutine is scheduled, skipping the slow Open entirely (a legal
+	// optimization codified by TestParallelRace_HandicapShortCircuitOnEarlyWinner).
+	// This test needs both arms to open so the ledger has a surfaced winner
+	// and a swallowed/cancelled loser, so the Opens synchronize here.
+	slowStarted := make(chan struct{})
+	fastStarted := make(chan struct{})
 	backends := map[string]execbackend.Backend{
 		"slow": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				close(slowStarted)
+				<-fastStarted
 				return &cpDelayedStream{delay: 200 * time.Millisecond, events: completionEvents("slow-response")}, nil
 			},
 		},
 		"fast": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				close(fastStarted)
+				<-slowStarted
 				return lipapi.NewFixedEventStream(completionEvents("fast-response")), nil
 			},
 		},
