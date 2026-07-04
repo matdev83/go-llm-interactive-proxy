@@ -81,7 +81,7 @@ func TestAccountingAdminPathNotCheckedWhenDisabled(t *testing.T) {
 	// When admin is disabled the path is not mounted, so a path overlapping
 	// another route must NOT be rejected (it is irrelevant).
 	cfg := config.Config{
-		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
+		Server:      config.ServerConfig{Address: "127.0.0.1:8080"},
 		Diagnostics: config.DiagnosticsConfig{HealthPath: "/healthz"},
 		Accounting: config.AccountingConfig{
 			Admin: config.AccountingAdminConfig{Enabled: false, Path: "/healthz"},
