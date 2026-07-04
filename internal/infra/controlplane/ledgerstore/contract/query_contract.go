@@ -293,7 +293,9 @@ func testPaginationContinuation(t *testing.T, f Factory) {
 
 	var collected []cp.Event
 	cursor := cp.Cursor{}
-	for {
+	const maxPaginationIter = 100
+	var iter int
+	for ; iter < maxPaginationIter; iter++ {
 		page, err := s.Events(c, cp.EventQuery{Limit: 2, Cursor: cursor})
 		if err != nil {
 			t.Fatalf("Events() page error = %v", err)
@@ -303,6 +305,9 @@ func testPaginationContinuation(t *testing.T, f Factory) {
 			break
 		}
 		cursor = page.Next
+	}
+	if iter == maxPaginationIter {
+		t.Fatalf("pagination did not terminate after %d iterations (store adapter may regress on cursor advancement)", maxPaginationIter)
 	}
 	if len(collected) != 5 {
 		t.Fatalf("collected = %d, want 5", len(collected))

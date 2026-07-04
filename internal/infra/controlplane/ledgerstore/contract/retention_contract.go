@@ -36,7 +36,9 @@ func testRetentionIdempotent(t *testing.T, f Factory) {
 	if second.Marked+second.Pruned != 0 {
 		t.Fatalf("ApplyRetention() second = +%d/+%d, want 0/0 (idempotent)", second.Marked, second.Pruned)
 	}
-	_ = first
+	if first.Marked+first.Pruned == 0 {
+		t.Fatalf("ApplyRetention() first = +0/+0, want at least one mark/prune (store performed work before idempotent re-run)")
+	}
 	// Records older than the cutoff must not appear in default query results.
 	page, err := s.Events(c, cp.EventQuery{Limit: 100})
 	if err != nil {

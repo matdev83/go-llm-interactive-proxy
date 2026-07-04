@@ -12,7 +12,8 @@ import (
 // with an opaque driver error. Neon and other managed providers emit
 // channel_binding=require by default, so stripping it here lets operators paste
 // a libpq DSN directly into config without manual editing. TLS behavior stays
-// governed by sslmode.
+// governed by sslmode. Add other pgdriver-incompatible params here as managed
+// providers emit them; keep the list minimal so legitimate DSN params survive.
 var pgUnsupportedDSNParams = []string{"channel_binding"}
 
 // SanitizePostgresDSN returns dsn with libpq-only query parameters that Bun

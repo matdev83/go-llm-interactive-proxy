@@ -89,6 +89,8 @@ func TestControlPlaneHTTPAdapterIsNotClientFacingLLMProtocol(t *testing.T) {
 		"control-plane HTTP adapter must not import OpenAI SDK")
 	assertDirectImportsExclude(t, "./internal/stdhttp/admin/controlplane", "github.com/anthropics/anthropic-sdk-go",
 		"control-plane HTTP adapter must not import Anthropic SDK")
+	assertDirectImportsExclude(t, "./internal/stdhttp/admin/controlplane", "/pkg/lipapi",
+		"control-plane HTTP adapter must not import pkg/lipapi request/response contracts")
 }
 
 // TestControlPlanePackagesHaveNoInitFunctions enforces the no-hidden-background-
@@ -105,7 +107,7 @@ func TestControlPlanePackagesHaveNoInitFunctions(t *testing.T) {
 		filepath.Join(root, "internal", "stdhttp", "admin", "controlplane"),
 	}
 	for _, dir := range dirs {
-		t.Run(filepath.Base(dir), func(t *testing.T) {
+		t.Run(strings.TrimPrefix(dir, root+string(filepath.Separator)), func(t *testing.T) {
 			t.Parallel()
 			err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
@@ -181,7 +183,7 @@ func TestClientFacingStdhttpDoesNotImportControlPlaneEvidence(t *testing.T) {
 		"/internal/core/controlplane",
 		"/internal/infra/controlplane",
 	} {
-		assertDirectImportsExclude(t, "./internal/stdhttp", substr,
+		assertDirectImportsExcludeExcept(t, "./internal/stdhttp/...", substr, "/stdhttp/admin/controlplane",
 			"client-facing stdhttp request path must not import control-plane evidence/recorders directly (route via admin handler/composition root only)")
 	}
 }

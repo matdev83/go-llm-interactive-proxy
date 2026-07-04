@@ -3,6 +3,7 @@ package ledgerstore
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -149,7 +150,7 @@ func TestMemoryStore_defaultPageSizeAppliedWhenLimitZero(t *testing.T) {
 	c := context.Background()
 	for i := 1; i <= 3; i++ {
 		ev := contractEvent()
-		ev.SourceEventKey = "auth:default:" + strconvI(i)
+		ev.SourceEventKey = "auth:default:" + strconv.Itoa(i)
 		ev.OccurredAt = contract.FixedTime.Add(time.Duration(i) * time.Second)
 		ev.RecordedAt = ev.OccurredAt.Add(time.Millisecond)
 		if _, err := s.Append(c, ev); err != nil {
@@ -259,7 +260,7 @@ func TestMemoryStore_concurrentAppendQueryAndRetention(t *testing.T) {
 			defer wg.Done()
 			for j := range writesPerGoroutine {
 				ev := contractEvent()
-				ev.SourceEventKey = "auth:conc:w" + strconvI(n) + ":" + strconvI(j)
+				ev.SourceEventKey = "auth:conc:w" + strconv.Itoa(n) + ":" + strconv.Itoa(j)
 				_, _ = s.Append(c, ev)
 			}
 		}(i)
@@ -313,7 +314,7 @@ func contractEvent() cp.Event {
 func contractEventAt(seq int) cp.Event {
 	occurred := contract.FixedTime.Add(time.Duration(seq) * time.Second)
 	return cp.Event{
-		SourceEventKey: "auth:fixture:" + strconvI(seq),
+		SourceEventKey: "auth:fixture:" + strconv.Itoa(seq),
 		Category:       cp.CategoryAuth,
 		OccurredAt:     occurred,
 		RecordedAt:     occurred.Add(time.Millisecond),
@@ -354,26 +355,4 @@ func contractEventAt(seq int) cp.Event {
 			AuthMethod: "api_key",
 		},
 	}
-}
-
-func strconvI(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }

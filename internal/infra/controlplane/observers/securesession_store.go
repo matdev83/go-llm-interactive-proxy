@@ -320,7 +320,9 @@ func (d *SecureSessionStoreDecorator) recordUsageBestEffort(ctx context.Context,
 func (d *SecureSessionStoreDecorator) recordSessionRequired(ctx context.Context, src controlplane.SessionSourceRecord) error {
 	ev, err := d.normalizer.FromSessionRecord(src)
 	if err != nil {
-		return nil
+		// Propagate normalization failures so a required-pre-work policy can fail
+		// closed instead of silently dropping an unrecordable session event.
+		return err
 	}
 	_, recErr := d.recorder.Record(ctx, ev)
 	if errors.Is(recErr, controlplane.ErrDisabled) {
@@ -334,7 +336,9 @@ func (d *SecureSessionStoreDecorator) recordSessionRequired(ctx context.Context,
 func (d *SecureSessionStoreDecorator) recordAudit(ctx context.Context, src controlplane.AuditSourceRecord) error {
 	ev, err := d.normalizer.FromAudit(src)
 	if err != nil {
-		return nil
+		// Propagate normalization failures so a required-pre-work policy can fail
+		// closed instead of silently dropping an unrecordable audit event.
+		return err
 	}
 	_, recErr := d.recorder.Record(ctx, ev)
 	if recErr != nil && errors.Is(recErr, controlplane.ErrDisabled) {
@@ -380,6 +384,17 @@ func usageKeySuffix(delta domain.UsageDelta, occurred time.Time) string {
 	_, _ = h.Write([]byte(string(delta.TurnID)))
 	_, _ = h.Write([]byte{':'})
 	_, _ = h.Write([]byte(delta.BLegID))
+	// Discriminate distinct usage deltas that share the same IDs when no stable
+	// time is available, so two different token/cost deltas do not collide on
+	// SourceEventKey and dedupe away real usage (non-sensitive aggregates only).
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(strconv.FormatInt(delta.InputTokens, 10)))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(strconv.FormatInt(delta.OutputTokens, 10)))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(strconv.FormatInt(delta.TotalTokens, 10)))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(strconv.FormatInt(delta.CostNanoUnits, 10)))
 	return "h" + strconv.FormatUint(h.Sum64(), 16)
 }
 

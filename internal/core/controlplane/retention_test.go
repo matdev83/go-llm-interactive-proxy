@@ -3,6 +3,7 @@ package controlplane_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,9 @@ func TestRetentionApplyFailureDegradesStatusWithoutLeakingInfra(t *testing.T) {
 	}
 	if !errors.Is(err, controlplane.ErrDegraded) {
 		t.Fatalf("retention failure must classify as degraded, got %v", err)
+	}
+	if strings.Contains(err.Error(), "pass") || strings.Contains(err.Error(), "postgres://") {
+		t.Fatalf("retention error must not leak raw infrastructure details, got: %v", err)
 	}
 	// The safe reason code must not leak raw infrastructure details.
 	got := status.Snapshot()

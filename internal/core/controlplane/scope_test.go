@@ -31,7 +31,7 @@ func TestScopeFlattenerRoundTripsUnknownKnownEmptyAndKnownValue(t *testing.T) {
 		AuthMethod:     scope.Known("api_key"),
 	}
 
-	snap := f.Flatten(view)
+	snap := f.MustFlatten(view)
 
 	if !snap.PrincipalID.Equal(scope.Known("principal-1")) {
 		t.Fatalf("principal_id known value lost: %#v", snap.PrincipalID)
@@ -61,7 +61,7 @@ func TestScopeFlattenerClonesSlicesAndMaps(t *testing.T) {
 		SafeClaims:   map[string]string{"k": "v"},
 		PolicyLabels: map[string]string{"p": "q"},
 	}
-	snap := f.Flatten(view)
+	snap := f.MustFlatten(view)
 
 	snap.Principal.Roles[0] = "mutated"
 	snap.Principal.SafeClaims["k"] = "mutated"

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,18 +90,11 @@ func TestHTTPPrivacyScan_QueryResponsesContainNoRawSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GET %s: %v", p, err)
 		}
-		body := make([]byte, 0, 4096)
-		buf := make([]byte, 1024)
-		for {
-			n, rerr := resp.Body.Read(buf)
-			if n > 0 {
-				body = append(body, buf[:n]...)
-			}
-			if rerr != nil {
-				break
-			}
-		}
+		body, err := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("read %s body: %v", p, err)
+		}
 		low := strings.ToLower(string(body))
 		for _, bad := range forbiddenHTTPSecretSubstrings {
 			if strings.Contains(low, bad) {
@@ -115,18 +109,11 @@ func TestHTTPPrivacyScan_QueryResponsesContainNoRawSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET too-broad: %v", err)
 	}
-	badBody := make([]byte, 0, 512)
-	tmp := make([]byte, 256)
-	for {
-		n, rerr := badResp.Body.Read(tmp)
-		if n > 0 {
-			badBody = append(badBody, tmp[:n]...)
-		}
-		if rerr != nil {
-			break
-		}
-	}
+	badBody, err := io.ReadAll(badResp.Body)
 	_ = badResp.Body.Close()
+	if err != nil {
+		t.Fatalf("read too-broad body: %v", err)
+	}
 	if strings.Contains(strings.ToLower(string(badBody)), "sql") || strings.Contains(strings.ToLower(string(badBody)), "dsn") {
 		t.Fatalf("too-broad response leaked infra detail: %s", string(badBody))
 	}

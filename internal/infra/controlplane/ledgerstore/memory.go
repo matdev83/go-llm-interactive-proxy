@@ -137,12 +137,13 @@ func (s *MemoryStore) Append(ctx context.Context, ev cp.Event) (cp.RecordResult,
 }
 
 func (s *MemoryStore) lookupBySeqLocked(seq int64) storedEvent {
-	for _, e := range s.events {
-		if e.seq == seq {
-			return e
-		}
+	// Sequence numbers are contiguous and 1-based (s.seq only increments and
+	// s.events is append-only; retention marks in place), so the event with seq
+	// lives at index seq-1. Fall back to zero for an out-of-range lookup.
+	if seq <= 0 || seq > int64(len(s.events)) {
+		return storedEvent{}
 	}
-	return storedEvent{}
+	return s.events[seq-1]
 }
 
 // ---- queries ----

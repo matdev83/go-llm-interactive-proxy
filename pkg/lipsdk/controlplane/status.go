@@ -92,6 +92,13 @@ const (
 	ErrCodeUnsafeEvidence    ErrorCode = "unsafe_evidence"
 )
 
+// HTTP-layer error codes for the operator query adapter (not control-plane query
+// classifications), kept as named constants so every response code is discoverable.
+const (
+	ErrCodeMethodNotAllowed        ErrorCode = "method_not_allowed"
+	ErrCodeControlPlaneUnavailable ErrorCode = "control_plane_unavailable"
+)
+
 // IsKnown reports whether c is one of the documented error codes.
 func (c ErrorCode) IsKnown() bool {
 	switch c {

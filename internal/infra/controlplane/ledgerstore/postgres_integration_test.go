@@ -78,7 +78,7 @@ func newPostgresStoreForTest(t *testing.T, dsn string) *DurableStore {
 		pgBuildMu.Unlock()
 		t.Fatal(berr)
 	}
-	if _, eerr := bootstrap.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", schemaName)); eerr != nil {
+	if _, eerr := bootstrap.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %q", schemaName)); eerr != nil {
 		_ = bootstrap.Close()
 		pgBuildMu.Unlock()
 		t.Fatalf("create schema %s: %v", schemaName, eerr)

@@ -388,27 +388,20 @@ func (s *DurableStore) ApplyRetention(ctx context.Context, cmd controlplane.Rete
 	}
 	cutoffUnix := cmd.Cutoff.UnixNano()
 
-	// Count rows that will transition, so the result reports Marked accurately.
-	notExpiredClause := fmt.Sprintf("(evidence_state NOT IN ('%s','%s'))", cp.EvidenceExpired, cp.EvidenceRedacted)
-	w := newWhereBuilder(s.dialect)
-	w.lte("occurred_at_unix", cutoffUnix)
-	w.addRaw(notExpiredClause)
-	selectSQL := "SELECT COUNT(*) FROM control_plane_events" + w.clause()
-	var marked int
-	if err := s.sqlDB.QueryRowContext(ctx, selectSQL, w.args...).Scan(&marked); err != nil {
-		return controlplane.RetentionResult{}, fmt.Errorf("%w: count retention: %v", controlplaneErrStorage(err), err)
-	}
-	if marked == 0 {
-		return controlplane.RetentionResult{Status: cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort}}, nil
-	}
-
+	// A single UPDATE transitions the eligible rows and reports the count via
+	// RowsAffected, avoiding a COUNT-then-UPDATE TOCTOU window (requirement 6.1).
 	updateSQL := s.buildRetentionUpdate(newState, newRedaction)
 	updateArgs := []any{string(newState), "{}", string(newRedaction), cutoffUnix}
-	if _, err := s.sqlDB.ExecContext(ctx, updateSQL, updateArgs...); err != nil {
+	res, err := s.sqlDB.ExecContext(ctx, updateSQL, updateArgs...)
+	if err != nil {
 		return controlplane.RetentionResult{}, fmt.Errorf("%w: apply retention: %v", controlplaneErrStorage(err), err)
 	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return controlplane.RetentionResult{}, fmt.Errorf("%w: apply retention rows affected: %v", controlplaneErrStorage(err), err)
+	}
 	return controlplane.RetentionResult{
-		Marked: marked,
+		Marked: int(affected),
 		Pruned: 0,
 		Status: cp.CapabilityStatus{State: cp.CapabilityReady, RecordingPolicy: cp.RecordingBestEffort},
 	}, nil

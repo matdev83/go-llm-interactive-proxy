@@ -74,3 +74,31 @@ func assertDirectImportsExclude(t *testing.T, pattern, substr, errMsg string) {
 		}
 	}
 }
+
+// assertDirectImportsExcludeExcept is like assertDirectImportsExclude but skips
+// packages whose import path contains exemptSubstr (legitimate consumers), so a
+// recursive pattern can cover a whole tree while exempting the intended consumer.
+func assertDirectImportsExcludeExcept(t *testing.T, pattern, substr, exemptSubstr, errMsg string) {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-test=false", "-json", pattern)
+	cmd.Dir = repoRoot(t)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var pkg goListPackage
+		if err := dec.Decode(&pkg); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if strings.Contains(pkg.ImportPath, exemptSubstr) {
+			continue
+		}
+		for _, imp := range pkg.Imports {
+			if strings.Contains(imp, substr) {
+				t.Fatalf("%s: %s directly imports %s", errMsg, pkg.ImportPath, imp)
+			}
+		}
+	}
+}

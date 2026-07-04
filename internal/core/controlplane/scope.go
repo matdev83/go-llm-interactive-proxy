@@ -22,10 +22,10 @@ type ScopeFlattener struct{}
 // NewScopeFlattener returns a stateless ScopeFlattener safe for concurrent use.
 func NewScopeFlattener() *ScopeFlattener { return &ScopeFlattener{} }
 
-// Flatten converts a safe view into a presence-aware snapshot. It panics only
+// MustFlatten converts a safe view into a presence-aware snapshot. It panics only
 // if the view carries oversized roles/claims/labels maps; callers that handle
 // untrusted input should use [ScopeFlattener.FlattenE] instead.
-func (f *ScopeFlattener) Flatten(view scope.PrincipalScopeView) cp.ScopeSnapshot {
+func (f *ScopeFlattener) MustFlatten(view scope.PrincipalScopeView) cp.ScopeSnapshot {
 	snap, err := f.FlattenE(view)
 	if err != nil {
 		panic(err)

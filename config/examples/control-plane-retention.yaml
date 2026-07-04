@@ -1,4 +1,4 @@
-# Control-plane memory recording with required pre-work posture and retention.
+# Control-plane recording with required pre-work posture and retention.
 # Demonstrates required_pre_work recording policy on a durable SQLite store so startup
 # fails closed when the backing store cannot satisfy readiness, plus a 7-day retention
 # window with strict redaction. Query exposure is off. Replace sqlite_path for your deployment.

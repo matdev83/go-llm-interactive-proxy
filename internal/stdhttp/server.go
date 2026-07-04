@@ -502,6 +502,15 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 	if !config.ControlPlaneQueryEffectivelyExposed(cfg) {
 		return
 	}
+	if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
+		if log != nil {
+			log.WarnContext(logCtx, "control-plane query config enabled but diagnostics shared_secret is empty; mounting disabled (query surface would be unauthenticated)",
+				slog.String("component", "control_plane"),
+				slog.String("notice", "shared_secret_required"),
+			)
+		}
+		return
+	}
 	if built == nil || built.ControlPlaneQueries == nil {
 		if log != nil {
 			log.WarnContext(logCtx, "control-plane query config enabled but no query service wired; mounting disabled",

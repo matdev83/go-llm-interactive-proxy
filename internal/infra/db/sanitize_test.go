@@ -61,3 +61,15 @@ func TestSanitizePostgresDSN_NoOpWhenClean(t *testing.T) {
 		t.Fatalf("clean DSN must be returned unchanged, got: %q", out)
 	}
 }
+
+func TestSanitizePostgresDSN_OnlyChannelBindingReducesToBase(t *testing.T) {
+	t.Parallel()
+	in := "postgres://u:p@host:5432/db?channel_binding=require"
+	out, err := SanitizePostgresDSN(in)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if want := "postgres://u:p@host:5432/db"; out != want {
+		t.Fatalf("only-channel_binding DSN must reduce to base without '?', got: %q want: %q", out, want)
+	}
+}

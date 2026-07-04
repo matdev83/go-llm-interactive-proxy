@@ -254,7 +254,9 @@ func buildControlPlaneStore(ctx context.Context, cfg *config.Config, override co
 			closeErr := sqlDB.Close()
 			return nil, nil, joinErr(fmt.Errorf("runtimebundle: control plane sqlite bun: %w", err), closeErr)
 		}
-		durable, err := buildDurableControlPlaneStore(ctx, bunDB)
+		child, cancel := context.WithTimeout(ctx, db.DefaultSqliteOpenMigrateTimeout)
+		defer cancel()
+		durable, err := buildDurableControlPlaneStore(child, bunDB)
 		if err != nil {
 			closeErr := bunDB.Close()
 			return nil, nil, joinErr(err, closeErr)

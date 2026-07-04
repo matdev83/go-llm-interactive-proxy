@@ -137,11 +137,12 @@ func validateControlPlane(cfg *Config) error {
 		return fmt.Errorf("control_plane.recording_policy: required_pre_work requires a durable store (sqlite or postgres)")
 	}
 
-	for _, cat := range cp.RequiredCategories {
+	for i, cat := range cp.RequiredCategories {
 		c := strings.ToLower(strings.TrimSpace(cat))
 		if !slices.Contains(legalControlPlaneCategories, c) {
 			return fmt.Errorf("control_plane.required_categories: unknown category %q (want one of %s)", cat, strings.Join(legalControlPlaneCategories, ", "))
 		}
+		cp.RequiredCategories[i] = c
 	}
 
 	redaction := strings.ToLower(strings.TrimSpace(cp.RedactionDefault))

@@ -83,7 +83,7 @@ func (c *RetentionController) Apply(ctx context.Context, cutoff time.Time, visib
 	res, err := c.store.ApplyRetention(ctx, cmd)
 	if err != nil {
 		c.degrade(cp.ReasonRetentionFailure)
-		return RetentionResult{}, fmt.Errorf("%w: retention apply: %v", ErrDegraded, err)
+		return RetentionResult{}, fmt.Errorf("%w: retention apply failed", ErrDegraded)
 	}
 	// The store guarantees idempotency at the data layer: repeated runs after
 	// the same cutoff produce no additional visible records (requirement 6.1,

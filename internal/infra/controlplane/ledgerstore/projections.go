@@ -56,14 +56,16 @@ func paginate[T any](items []sequenced[T], limit int, shape uint64, visibility c
 // ---- sessions ----
 
 type sessionGroup struct {
-	sessionID    string
-	lastActivity time.Time
-	scope        cp.ScopeSnapshot
-	scopeSeq     int64
-	usage        cp.UsageTotals
-	attempts     int
-	state        cp.EvidenceState
-	maxSeq       int64
+	sessionID     string
+	lastActivity  time.Time
+	scope         cp.ScopeSnapshot
+	scopeSeq      int64
+	fallbackScope cp.ScopeSnapshot
+	fallbackSeq   int64
+	usage         cp.UsageTotals
+	attempts      int
+	state         cp.EvidenceState
+	maxSeq        int64
 }
 
 // groupSessionsLocked walks recorded events under the read lock, applies common
@@ -98,9 +100,9 @@ func (s *MemoryStore) groupSessionsLocked(common cp.CommonFilters, unsupported m
 				g.scope = ev.Scope
 				g.scopeSeq = se.seq
 			}
-		} else if g.scopeSeq == 0 {
-			g.scope = ev.Scope
-			g.scopeSeq = se.seq
+		} else if se.seq > g.fallbackSeq {
+			g.fallbackScope = ev.Scope
+			g.fallbackSeq = se.seq
 		}
 		if ev.Usage != nil {
 			g.usage.InputTokens += ev.Usage.InputTokens
@@ -125,11 +127,15 @@ func (g *sessionGroup) toSummary() sequenced[cp.SessionSummary] {
 			CostNanoUnits: g.usage.CostNanoUnits,
 		}
 	}
+	scope := g.scope
+	if g.scopeSeq == 0 {
+		scope = g.fallbackScope
+	}
 	return sequenced[cp.SessionSummary]{
 		row: cp.SessionSummary{
 			SessionID:     g.sessionID,
 			LastActivity:  g.lastActivity,
-			Scope:         g.scope,
+			Scope:         scope,
 			UsageTotals:   totals,
 			AttemptCount:  g.attempts,
 			EvidenceState: g.state,

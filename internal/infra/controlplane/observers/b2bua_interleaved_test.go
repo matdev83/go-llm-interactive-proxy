@@ -112,4 +112,7 @@ func TestB2BUA_InterleavedStateUnsupportedWhenDelegateLacksIt(t *testing.T) {
 	if !got.IsEmpty() {
 		t.Fatalf("fetch on unsupported delegate must return zero state, got %#v", got)
 	}
+	if n := len(h.events()); n != 0 {
+		t.Fatalf("interleaved-state ops on unsupported delegate must not record control-plane events, got %d", n)
+	}
 }

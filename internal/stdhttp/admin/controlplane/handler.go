@@ -49,13 +49,17 @@ func NewHandler(opts Options) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
 		if queries == nil {
 			writeControlPlaneError(w, http.StatusNotFound, cp.ErrCodeDisabled)
 			return
 		}
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
-			writeControlPlaneError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+			writeControlPlaneError(w, http.StatusMethodNotAllowed, cp.ErrCodeMethodNotAllowed)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -67,7 +71,7 @@ func NewHandler(opts Options) http.Handler {
 		}
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
-			writeControlPlaneError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+			writeControlPlaneError(w, http.StatusMethodNotAllowed, cp.ErrCodeMethodNotAllowed)
 			return
 		}
 		status, err := queries.Status(r.Context())
@@ -165,7 +169,7 @@ func servePage(w http.ResponseWriter, r *http.Request, queries cp.Queries, defau
 	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
-		writeControlPlaneError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+		writeControlPlaneError(w, http.StatusMethodNotAllowed, cp.ErrCodeMethodNotAllowed)
 		return
 	}
 	limit, err := parseLimit(r)
@@ -307,7 +311,7 @@ func writeQueryError(w http.ResponseWriter, err error) {
 	case cp.ErrCodeUnsafeEvidence:
 		writeControlPlaneError(w, http.StatusBadRequest, code)
 	default:
-		writeControlPlaneError(w, http.StatusServiceUnavailable, "control_plane_unavailable")
+		writeControlPlaneError(w, http.StatusServiceUnavailable, cp.ErrCodeControlPlaneUnavailable)
 	}
 }
 

@@ -24,13 +24,18 @@ var unsafeSummarySubstrings = []string{
 	"bearer ",
 	"api key",
 	"api-key",
+	"api_key",
 	"apikey:",
+	"apikey=",
 	"oauth ",
 	"authorization:",
+	"authorization=",
 	"resume token",
 	"resume_token",
 	"secret:",
+	"secret=",
 	"password:",
+	"password=",
 }
 
 // ValidateEvent performs the core-level invariant checks for an Event before

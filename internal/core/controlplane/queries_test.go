@@ -154,6 +154,24 @@ func TestQueryServiceAcceptsTimeWindowWithinMax(t *testing.T) {
 	}
 }
 
+func TestQueryServiceRejectsInvertedTimeWindowWithoutMaxWindow(t *testing.T) {
+	t.Parallel()
+	store := &queryProbeStore{}
+	// maxWindow 0 means no too-broad bound, but an inverted range is still invalid.
+	qs, _ := newQueryService(store, true, 0)
+	from := time.Now()
+	to := from.Add(-time.Hour)
+	_, err := qs.Events(context.Background(), cp.EventQuery{
+		Common: cp.CommonFilters{TimeRange: cp.TimeRange{From: from, To: to}},
+	})
+	if !errors.Is(err, controlplane.ErrInvalidQuery) {
+		t.Fatalf("inverted time range must be invalid_query even without a max window, got %v", err)
+	}
+	if store.eventsCalled {
+		t.Fatalf("inverted time range must not reach the store")
+	}
+}
+
 func TestQueryServiceDelegatesUnsupportedFiltersFromStore(t *testing.T) {
 	t.Parallel()
 	// The store is responsible for reporting unsupported filters via
