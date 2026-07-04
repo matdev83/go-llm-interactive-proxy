@@ -44,6 +44,9 @@ func Validate(cfg *Config) error {
 	if err := validateObservability(cfg); err != nil {
 		return err
 	}
+	if err := validateControlPlane(cfg); err != nil {
+		return err
+	}
 	if err := validateDiagnosticsSecret(cfg); err != nil {
 		return err
 	}
@@ -432,6 +435,41 @@ func validateDiagnosticsPaths(cfg *Config) error {
 		}
 		mcd = norm(mcd)
 		if err := add(mcd); err != nil {
+			return err
+		}
+	}
+	// accounting.admin.path is a protected operator mount on the same mux and
+	// must satisfy the same dot-segment and overlap rules as the other
+	// diagnostics surfaces so the admin handler cannot register a conflicting
+	// pattern (the mount happens only when admin is enabled and the path is set).
+	if cfg.Accounting.Admin.Enabled {
+		aap := strings.TrimSpace(cfg.Accounting.Admin.Path)
+		if aap != "" {
+			if !strings.HasPrefix(aap, "/") {
+				return fmt.Errorf("accounting.admin.path: must start with /")
+			}
+			if err := rejectHTTPPathDotDot("accounting.admin.path", aap); err != nil {
+				return err
+			}
+			aap = norm(aap)
+			if err := add(aap); err != nil {
+				return err
+			}
+		}
+	}
+	// control_plane.query.path_prefix is a protected operator mount and must
+	// satisfy the same dot-segment and overlap rules as the other diagnostics
+	// surfaces so mountControlPlaneQuery cannot register a conflicting handler.
+	if ControlPlaneQueryEffectivelyExposed(cfg) {
+		cpp := strings.TrimSpace(cfg.ControlPlane.Query.PathPrefix)
+		if !strings.HasPrefix(cpp, "/") {
+			return fmt.Errorf("control_plane.query.path_prefix: must start with /")
+		}
+		if err := rejectHTTPPathDotDot("control_plane.query.path_prefix", cpp); err != nil {
+			return err
+		}
+		cpp = norm(cpp)
+		if err := add(cpp); err != nil {
 			return err
 		}
 	}

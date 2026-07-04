@@ -13,7 +13,10 @@ import (
 
 // OpenPostgres opens a PostgreSQL *sql.DB using the Bun pgdriver connector, pings
 // with ctx, and returns an owned handle. Empty DSN is rejected. Errors do not
-// include raw credentials.
+// include raw credentials. Common libpq DSN parameters that pgdriver does not
+// honor (for example channel_binding=require emitted by Neon) are stripped
+// before the connector is built so operators can paste managed-provider DSNs
+// directly into config.
 func OpenPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
 	if ctx == nil {
 		return nil, ErrNilContext
@@ -22,7 +25,11 @@ func OpenPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
 	if trimmed == "" {
 		return nil, ErrEmptyDSN
 	}
-	connector := pgdriver.NewConnector(pgdriver.WithDSN(trimmed))
+	sanitized, err := SanitizePostgresDSN(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("db: open postgres: sanitize dsn: %w", err)
+	}
+	connector := pgdriver.NewConnector(pgdriver.WithDSN(sanitized))
 	sqldb := sql.OpenDB(connector)
 	if err := sqldb.PingContext(ctx); err != nil {
 		openErr := redactOpenError(trimmed, "open postgres: ping", err)

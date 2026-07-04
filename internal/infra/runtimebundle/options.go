@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -39,6 +40,12 @@ type BuildOptions struct {
 	OutboundTracing bool
 	// Clock overrides time sources for the executor and routing-health circuit breaker. Tests only.
 	Clock func() time.Time
+	// ControlPlaneStoreOverride, when non-nil, replaces the configured control-plane
+	// store. When the override implements interface{ Close() error }, that Close is
+	// used as the closer and is disposed by Build on every error path exactly like
+	// the production store closer. Tests only; production leaves this nil so the
+	// store is built from config.
+	ControlPlaneStoreOverride controlplane.Store
 	// PluginRegistry selects which bundled factories Build uses for backends. Required; nil fails [Build].
 	PluginRegistry *pluginreg.Registry
 	// WireModel resolves default upstream model ids when computing the effective default route selector.

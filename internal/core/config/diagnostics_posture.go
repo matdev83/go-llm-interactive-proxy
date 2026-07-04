@@ -68,5 +68,8 @@ func protectedDiagnosticsSurfaces(cfg *Config) []string {
 	if cfg.Accounting.Admin.Enabled && strings.TrimSpace(cfg.Accounting.Admin.Path) != "" {
 		out = append(out, "token_accounting_admin")
 	}
+	if ControlPlaneQueryEffectivelyExposed(cfg) {
+		out = append(out, "control_plane_query")
+	}
 	return out
 }

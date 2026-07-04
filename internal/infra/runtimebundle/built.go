@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
@@ -53,4 +54,16 @@ type Built struct {
 	ModelRegistryRuntime *modelregistry.Runtime
 	// TokenAccountingAdmin is non-nil when accounting.admin.enabled wires the operator count service.
 	TokenAccountingAdmin *accountingapp.Service
+	// ControlPlaneQueries is non-nil when control_plane.query.enabled and the
+	// backing store opened successfully. stdhttp mounts the protected query
+	// surface only when this is non-nil and diagnostics posture allows it.
+	ControlPlaneQueries *controlplane.QueryService
+	// ControlPlaneStatus is non-nil when control_plane.enabled. It reports
+	// disabled, ready, degraded, or unavailable capability state for the
+	// protected status route and operator diagnostics (requirement 7.1).
+	ControlPlaneStatus *controlplane.Status
+	// ControlPlaneRetention is non-nil when control_plane.retention.enabled and
+	// the backing store opened successfully. stdhttp exposes operator retention
+	// actions through the protected admin handler when configured.
+	ControlPlaneRetention *controlplane.RetentionController
 }
