@@ -10,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/authevent"
 )
 
-func buildAuthEventDispatcher(cfg *config.Config, log *slog.Logger, opts *BuildOptions) (*coreauth.EventDispatcher, error) {
+func buildAuthEventDispatcher(cfg *config.Config, log *slog.Logger, opts *BuildOptions, wrapSink func(coreauth.EventSink) coreauth.EventSink) (*coreauth.EventDispatcher, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("runtimebundle: nil config")
 	}
@@ -42,6 +42,9 @@ func buildAuthEventDispatcher(cfg *config.Config, log *slog.Logger, opts *BuildO
 		sink = injected
 	default:
 		return nil, fmt.Errorf("runtimebundle: invalid auth.event_delivery %q", cfg.Auth.EventDelivery)
+	}
+	if wrapSink != nil {
+		sink = wrapSink(sink)
 	}
 	pol := coreauth.EventFailureBestEffort
 	if strings.EqualFold(strings.TrimSpace(cfg.Auth.EventFailurePolicy), "fail_closed") {

@@ -34,6 +34,10 @@ type Config struct {
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
+	// ControlPlane is the optional control-plane persistence/query/event-ledger
+	// capability. Disabled by default; enabled requires explicit startup
+	// validation (see validateControlPlane).
+	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
 	// ConfigDir is the directory containing the loaded config file. Set by [LoadFile];
 	// empty when Config is constructed without loading from disk.
 	ConfigDir string `yaml:"-"`

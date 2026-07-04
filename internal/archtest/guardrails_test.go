@@ -20,7 +20,13 @@ var lineBudgets = []struct {
 	// internal/core was raised from 32000 to 33000 for the admission-policy-decision-core
 	// spec, which adds the shared policy decision vocabulary, legality/evidence/timeout
 	// infrastructure, and stage-runner error taxonomy integration to the core layer.
-	{"internal/core", 33000},
+	// Raised from 33000 to 33500 for the control-plane-persistence-query-event-ledger
+	// spec Phase 1, which adds the core control-plane validation, status state, and
+	// store/clock/identity ports under internal/core/controlplane.
+	// Raised from 33500 to 35000 for the control-plane-persistence-query-event-ledger
+	// spec Phase 3, which adds the core scope flattener, event normalizer, recorder
+	// service, query service, and retention controller under internal/core/controlplane.
+	{"internal/core", 35000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

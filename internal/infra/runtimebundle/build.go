@@ -77,21 +77,43 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err := pluginreg.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
-	authEvents, err := buildAuthEventDispatcher(cfg, log, opts)
+	parent := context.Background()
+	if opts != nil && opts.StartupContext != nil {
+		parent = opts.StartupContext
+	}
+	// closers is the ordered disposal list for every resource Build opens. The
+	// control-plane store is opened first (in buildControlPlaneRuntime), so its
+	// closer is registered immediately and every later error path disposes it;
+	// otherwise durable sqlite/postgres handles leak when a later step fails.
+	closers := []func() error{}
+	controlPlane, err := buildControlPlaneRuntime(controlPlaneBuildInput{
+		StartupContext: parent,
+		Cfg:            cfg,
+		Log:            log,
+		Clock:          opts.Clock,
+		StoreOverride:  opts.ControlPlaneStoreOverride,
+	})
 	if err != nil {
 		return nil, err
+	}
+	if controlPlane != nil && controlPlane.closer != nil {
+		closers = append(closers, controlPlane.closer)
+	}
+	authEvents, err := buildAuthEventDispatcher(cfg, log, opts, controlPlane.wrapAuthSink)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
 	}
 	reg := opts.PluginRegistry
 	if err := validateBackendSecurityProfiles(cfg, reg); err != nil {
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	sap, err := buildSessionAuditPolicy(cfg)
 	if err != nil {
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	httpAuth, err := resolveHTTPAuthProviders(cfg, log, opts, authEvents, sap)
 	if err != nil {
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 
 	var bundle *metrics.Bundle
@@ -106,14 +128,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	upstream = wrapUpstreamClient(upstream, bundle, opts.OutboundTracing)
 
-	parent := context.Background()
-	if opts.StartupContext != nil {
-		parent = opts.StartupContext
-	}
-
 	startedCatalog, err := startModelCatalog(parent, cfg, upstream)
 	if err != nil {
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	var vendorCatalogRuntime *modelcatalog.CatalogRuntime
 	if startedCatalog != nil {
@@ -123,59 +140,47 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
 	}
 
-	closers := []func() error{}
 	if startedCatalog != nil {
 		closers = append(closers, startedCatalog.closers...)
 	}
 	backends, inventories, routePrefixes, err := buildBackends(cfg, reg, upstream, backendDeps)
 	if err != nil {
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(err, derr)
-		}
-		return nil, fmt.Errorf("runtimebundle: %w", err)
+		wrapped := fmt.Errorf("runtimebundle: %w", err)
+		return nil, withDisposedClosers(wrapped, closers)
 	}
 	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
 	if err != nil {
 		wrapped := fmt.Errorf("runtimebundle: model registry: %w", err)
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(wrapped, derr)
-		}
-		return nil, wrapped
+		return nil, withDisposedClosers(wrapped, closers)
 	}
 	closers = append(closers, modelRegistryClosers...)
 	if cfg.Accounting.StrictAuthoritative {
 		for id, be := range backends {
 			if be.FinalizeBilling == nil {
-				if derr := disposeClosers(closers); derr != nil {
-					return nil, errors.Join(fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id), derr)
-				}
-				return nil, fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id)
+				err := fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id)
+				return nil, withDisposedClosers(err, closers)
 			}
 		}
 	}
 	store, err := OpenContinuityStore(parent, cfg)
 	if err != nil {
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(fmt.Errorf("runtimebundle: %w", err), derr)
-		}
-		return nil, fmt.Errorf("runtimebundle: %w", err)
+		return nil, withDisposedClosers(fmt.Errorf("runtimebundle: %w", err), closers)
 	}
 	if c, ok := store.(interface{ Close() error }); ok {
 		closers = append(closers, c.Close)
 	}
+	store = controlPlane.wrapB2BUA(store)
 
 	ssRun, err := buildSecureSessionRuntime(secureSessionBuildInput{
-		StartupContext: parent,
-		Cfg:            cfg,
-		B2B:            store,
-		Log:            log,
-		Bundle:         bundle,
+		StartupContext:        parent,
+		Cfg:                   cfg,
+		B2B:                   store,
+		Log:                   log,
+		Bundle:                bundle,
+		ControlPlaneStoreWrap: controlPlane.wrapSecureSession,
 	})
 	if err != nil {
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(err, derr)
-		}
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	if ssRun.closer != nil {
 		closers = append(closers, ssRun.closer)
@@ -183,10 +188,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 
 	effectiveRoute, defBE, aliasResolver, err := resolveRouting(cfg, opts.WireModel)
 	if err != nil {
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(fmt.Errorf("runtimebundle: %w", err), derr)
-		}
-		return nil, fmt.Errorf("runtimebundle: %w", err)
+		return nil, withDisposedClosers(fmt.Errorf("runtimebundle: %w", err), closers)
 	}
 	capMap := make(capabilities.MapResolver, len(backends))
 	for id, be := range backends {
@@ -206,17 +208,14 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 
 	var exec *runtime.Executor
-	snap := buildRuntimeSnapshot(bus, cfg, opts, nowFn, func() auxreq.ExecutorRunner { return exec })
+	snap := buildRuntimeSnapshot(bus, cfg, opts, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane)
 	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
 	if err != nil {
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	tokenAccounting, accountingClosers, err := buildTokenAccountingRuntime(parent, cfg, nowFn, backends)
 	if err != nil {
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(err, derr)
-		}
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	closers = append(closers, accountingClosers...)
 	exec = &runtime.Executor{
@@ -242,10 +241,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		PolicyDiagnosticsEnabled: opts.PolicyDiagnosticsEnabled,
 	}
 	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
-		if derr := disposeClosers(closers); derr != nil {
-			return nil, errors.Join(err, derr)
-		}
-		return nil, err
+		return nil, withDisposedClosers(err, closers)
 	}
 	if tokenAccounting != nil {
 		exec.Preflight = tokenAccounting.Preflight
@@ -258,7 +254,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
 		if err != nil {
-			return nil, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
+			pricingErr := fmt.Errorf("runtimebundle: accounting pricing: %w", err)
+			return nil, withDisposedClosers(pricingErr, closers)
 		}
 		exec.AccountingPriceCatalog = catalog
 	}
@@ -300,6 +297,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ModelRegistry:         modelRegistry,
 		ModelRegistryRuntime:  modelRegistryRuntime,
 		TokenAccountingAdmin:  tokenAccountingAdmin(tokenAccounting),
+		ControlPlaneQueries:   controlPlane.queriesHandle(),
+		ControlPlaneStatus:    controlPlane.statusHandle(),
+		ControlPlaneRetention: controlPlane.retentionHandle(),
 	}, nil
 }
 
@@ -318,6 +318,16 @@ func disposeClosers(closers []func() error) error {
 		}
 	}
 	return out
+}
+
+// withDisposedClosers disposes closers and returns err unchanged on successful
+// disposal, or errors.Join(err, derr) when disposal fails. It treats a nil err
+// defensively so callers can pass build errors without a separate nil check.
+func withDisposedClosers(err error, closers []func() error) error {
+	if derr := disposeClosers(closers); derr != nil {
+		return errors.Join(err, derr)
+	}
+	return err
 }
 
 func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTracing bool) *http.Client {
@@ -478,6 +488,7 @@ func buildRuntimeSnapshot(
 	opts *BuildOptions,
 	nowFn func() time.Time,
 	execRunnerProvider func() auxreq.ExecutorRunner,
+	cp *controlPlaneRuntime,
 ) *extensions.RequestRuntimeSnapshot {
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.WorkspaceResolvers) > 0 {
@@ -524,8 +535,16 @@ func buildRuntimeSnapshot(
 		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
 	}
 	var usageObs usage.Observer = usage.NoopObserver{}
+	cpUsageObs := cp.usageObserver()
 	if len(opts.UsageObservers) > 0 {
-		usageObs = usage.ChainObservers(opts.UsageObservers...)
+		chain := make([]usage.Observer, 0, len(opts.UsageObservers)+1)
+		if cpUsageObs != nil {
+			chain = append(chain, cpUsageObs)
+		}
+		chain = append(chain, opts.UsageObservers...)
+		usageObs = usage.ChainObservers(chain...)
+	} else if cpUsageObs != nil {
+		usageObs = cpUsageObs
 	}
 	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
 	if len(opts.RawCaptureSinks) > 0 {
@@ -536,8 +555,16 @@ func buildRuntimeSnapshot(
 		trafficRedactors = slices.Clone(opts.TrafficRedactors)
 	}
 	var policyObs policydecision.Observer = policydecision.NoopObserver{}
+	cpPolicyObs := cp.policyObserver()
 	if len(opts.PolicyObservers) > 0 {
-		policyObs = policydecision.NewChainObserver(opts.PolicyObservers...)
+		chain := make([]policydecision.Observer, 0, len(opts.PolicyObservers)+1)
+		if cpPolicyObs != nil {
+			chain = append(chain, cpPolicyObs)
+		}
+		chain = append(chain, opts.PolicyObservers...)
+		policyObs = policydecision.NewChainObserver(chain...)
+	} else if cpPolicyObs != nil {
+		policyObs = cpPolicyObs
 	}
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
 	if opts.PolicyTimeoutBudgetSource != nil {

@@ -40,6 +40,12 @@ type secureSessionBuildInput struct {
 	B2B            b2bua.Store
 	Log            *slog.Logger
 	Bundle         *metrics.Bundle
+	// ControlPlaneStoreWrap, when non-nil, wraps the chosen secure-session
+	// app.Store before it is bound to the manager and recorder. The control-
+	// plane runtime uses this to project lifecycle events into the recorder
+	// while leaving authoritative secure-session behavior with the delegate
+	// (task 5.1; requirements 1.2, 1.3, 5.1, 8.1, 10.7).
+	ControlPlaneStoreWrap func(app.Store) app.Store
 }
 
 func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntime, error) {
@@ -135,11 +141,12 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 			}
 		}
 		mem := memory.New(memory.Options{})
-		rec, err := app.NewRecorder(mem)
+		wrappedStore := wrapSecureSessionStore(mem, in.ControlPlaneStoreWrap)
+		rec, err := app.NewRecorder(wrappedStore)
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
 		}
-		mgr, err := app.NewManager(mem, gen, lin, app.ManagerConfig{
+		mgr, err := app.NewManager(wrappedStore, gen, lin, app.ManagerConfig{
 			ResumeWindow:                   rw,
 			StoreDurable:                   false,
 			RequireDurableStore:            requireDurable,
@@ -173,15 +180,16 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: open secure session sqlite: %w", err)
 		}
-		rec, err := app.NewRecorder(db)
+		wrappedStore := wrapSecureSessionStore(db, in.ControlPlaneStoreWrap)
+		rec, err := app.NewRecorder(wrappedStore)
 		if err != nil {
-			wrapped := fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
+			recErr := fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
 			if cerr := db.Close(); cerr != nil {
-				return nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: close sqlite after recorder error: %w", cerr))
+				return nil, errors.Join(recErr, fmt.Errorf("runtimebundle: close sqlite after recorder error: %w", cerr))
 			}
-			return nil, wrapped
+			return nil, recErr
 		}
-		mgr, err := app.NewManager(db, gen, lin, app.ManagerConfig{
+		mgr, err := app.NewManager(wrappedStore, gen, lin, app.ManagerConfig{
 			ResumeWindow:                   rw,
 			StoreDurable:                   true,
 			RequireDurableStore:            requireDurable,
@@ -239,15 +247,16 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 			}
 			return nil, schemaErr
 		}
-		rec, err := app.NewRecorder(st)
+		wrappedStore := wrapSecureSessionStore(st, in.ControlPlaneStoreWrap)
+		rec, err := app.NewRecorder(wrappedStore)
 		if err != nil {
-			wrapped := fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
+			recErr := fmt.Errorf("runtimebundle: secure_session: new recorder: %w", err)
 			if cerr := st.Close(); cerr != nil {
-				return nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: close postgres store after recorder error: %w", cerr))
+				return nil, errors.Join(recErr, fmt.Errorf("runtimebundle: close postgres store after recorder error: %w", cerr))
 			}
-			return nil, wrapped
+			return nil, recErr
 		}
-		mgr, err := app.NewManager(st, gen, lin, app.ManagerConfig{
+		mgr, err := app.NewManager(wrappedStore, gen, lin, app.ManagerConfig{
 			ResumeWindow:                   rw,
 			StoreDurable:                   true,
 			RequireDurableStore:            requireDurable,
@@ -256,11 +265,11 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 			ResumeFingerprintPrincipalOnly: ss.ResumeTokenBindPrincipalOnly,
 		})
 		if err != nil {
-			wrapped := fmt.Errorf("runtimebundle: secure_session: new manager: %w", err)
+			mgrErr := fmt.Errorf("runtimebundle: secure_session: new manager: %w", err)
 			if cerr := st.Close(); cerr != nil {
-				return nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: close postgres store after manager error: %w", cerr))
+				return nil, errors.Join(mgrErr, fmt.Errorf("runtimebundle: close postgres store after manager error: %w", cerr))
 			}
-			return nil, wrapped
+			return nil, mgrErr
 		}
 		return &secureSessionRuntime{
 			manager:                    mgr,
@@ -286,4 +295,15 @@ func applySecureSessionToExecutor(e *runtime.Executor, ss *secureSessionRuntime)
 	e.SessionDenialMapper = lipapidenial.MapToSessionDenial
 	e.SecureSessionRequireWorkspaceID = ss.requireWorkspaceID
 	e.SecureSessionWorkspaceResolveFailClosed = ss.workspaceResolveFailClosed
+}
+
+// wrapSecureSessionStore applies an optional control-plane decorator to the
+// chosen secure-session app.Store. When wrap is nil (control plane disabled or
+// unavailable), the delegate is returned unchanged so existing secure-session
+// behavior is preserved (task 5.1; requirement 8.1, 8.4).
+func wrapSecureSessionStore(delegate app.Store, wrap func(app.Store) app.Store) app.Store {
+	if wrap == nil {
+		return delegate
+	}
+	return wrap(delegate)
 }
