@@ -1,0 +1,69 @@
+---
+type: reference
+title: Testing Strategy
+description: Test philosophy, suite topology, build tags, commands, and high-value test targets.
+stack: [go]
+tags: [testing, tdd, conformance, qa]
+status: active
+---
+
+# Testing Strategy
+
+## Philosophy
+
+Tests are executable contracts. Goal: make behavior, boundaries, and regressions explicit. Not maximum count.
+
+## Specification Bundle (Recoverability)
+
+1. **Tests** - executable behavior, invariants, regressions
+2. **Committed fixtures** - `testdata/` goldens, migration JSON, canonical event streams
+3. **Stable contracts** - `pkg/lipapi`, `pkg/lipsdk`
+4. **Steering & parity specs** - `.kiro/steering/`, `.kiro/specs/`
+5. **Scenario registry** - `docs/spec-bundle-index.md` with SB- IDs and doc/test cross-checks
+
+## Suite Topology
+
+### Unit Tests
+Package-local table-driven tests with named subtests. Use `t.Parallel()` when safe. Prefer `Example...` for stable contracts.
+
+### Integration Tests
+Composed tests with `httptest` + stub plugins/providers. Fast, deterministic, no real network. No `//go:build integration` tag on `integration_test.go` files - they run in default `go test ./...`.
+
+### Conformance & Golden Tests
+`testdata/` fixtures for canonical event streams, protocol payloads, selector parsing, capability errors, no-retry behavior.
+
+### Race & Fuzz
+Race detector required for stream pumps, cancellation-sensitive components, stores with shared state. Fuzz for parsers, decoders, selectors, protocol payload normalization.
+
+## Build Tags
+
+| Tag | Purpose | Default Suite |
+|---|---|---|
+| `precommit` | Hygiene checks + executor matrices | No (`make test-precommit-extra`) |
+| `integration` | Env-gated PostgreSQL tests | No (requires `LIP_TEST_POSTGRES_DSN`) |
+| (no tag) | All fast, deterministic tests | Yes |
+
+## Make Targets
+
+```
+make quality-checks   # fmt, tidy, build, vet, archtest
+make test             # quality-checks + unit + parity
+make test-unit        # go test -parallel=8 -timeout=10m ./...
+make parity-checks    # conformance (-tags=precommit,integration)
+make test-fuzz        # short fuzz smoke
+make test-race        # race detector (Linux CI; skipped on Windows)
+make test-precommit-extra  # hygiene + executor matrices
+make qa               # quality + full test + lint + vuln
+make bench            # benchmark smoke
+```
+
+## High-Value Test Targets
+
+- Canonical request/event translation
+- Frontend/backend matrix compatibility
+- Routing selector syntax, weights, parallel races, TTFT, circuit breaker
+- Pre-output failure swallowing
+- B2BUA A-leg continuity + B-leg lineage
+- Secure-session BeginTurn, resume denial, redaction
+- Stream cancellation, keepalive, panic isolation
+- Extension stage ordering, immutable snapshots
