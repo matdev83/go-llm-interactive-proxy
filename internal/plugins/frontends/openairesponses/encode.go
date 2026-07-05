@@ -196,6 +196,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 
 	var usageCol lipapi.Collected
 	var fullText strings.Builder
+	var fullReasoning strings.Builder
 	var assistantMedia []lipapi.Part
 
 	type toolStream struct {
@@ -413,7 +414,15 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 					msgParts = append(msgParts, streamMsgContent{Type: "input_file", FileID: p.FileRef, FileName: p.FileName})
 				}
 			}
-			out := make([]streamCompletedOut, 0, 1+len(toolOrder))
+			out := make([]streamCompletedOut, 0, 2+len(toolOrder))
+			if reasoning := fullReasoning.String(); reasoning != "" {
+				out = append(out, streamCompletedOut{
+					Type:    "reasoning",
+					ID:      "rs_" + rid,
+					Status:  "completed",
+					Summary: []streamReasoningSummary{{Type: "summary_text", Text: reasoning}},
+				})
+			}
 			out = append(out, streamCompletedOut{
 				Type:    "message",
 				ID:      mid,
@@ -461,6 +470,14 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				continue
 			}
 		case lipapi.EventReasoningDelta:
+			fullReasoning.WriteString(ev.Delta)
+			if err := flushSSE(w, fl, "response.reasoning_summary_text.delta", streamReasoningSummaryTextDelta{
+				Type:           "response.reasoning_summary_text.delta",
+				SequenceNumber: nextSeq(),
+				Delta:          ev.Delta,
+			}); err != nil {
+				return err
+			}
 		default:
 		}
 	}
@@ -487,7 +504,16 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 		"role":    "assistant",
 		"content": wireMessageContentParts(text, col.AssistantMedia),
 	}
-	out := []any{msgOut}
+	out := make([]any, 0, 2)
+	if reasoning := col.Reasoning.String(); reasoning != "" {
+		out = append(out, map[string]any{
+			"type":    "reasoning",
+			"id":      "rs_" + rid,
+			"status":  "completed",
+			"summary": []any{map[string]any{"type": "summary_text", "text": reasoning}},
+		})
+	}
+	out = append(out, msgOut)
 	for _, tc := range col.OrderedToolCalls() {
 		out = append(out, map[string]any{
 			"type":      "function_call",

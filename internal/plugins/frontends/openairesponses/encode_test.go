@@ -443,11 +443,82 @@ func TestWriteStreamSSE_reasoningDeltaDoesNotBreakCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := rec.Body.String()
-	if strings.Contains(s, "think-step") {
-		t.Fatalf("reasoning must not appear on Responses SSE wire in v1 subset; body=%q", s)
+	if !strings.Contains(s, "response.reasoning_summary_text.delta") {
+		t.Fatalf("missing response.reasoning_summary_text.delta event: %q", s)
+	}
+	if !strings.Contains(s, "think-step") {
+		t.Fatalf("missing think-step text: %q", s)
 	}
 	if !strings.Contains(s, "answer") || !strings.Contains(s, "response.completed") {
-		t.Fatalf("expected normal text completion; body=%q", s)
+		t.Fatalf("expected answer and response.completed; body=%q", s)
+	}
+}
+
+func TestWriteNonStreamJSON_reasoningOutputItem(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan "},
+		{Kind: lipapi.EventReasoningDelta, Delta: "step"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openairesponses.EncodeOptions{ResponseID: "resp_re_ns", MessageID: "msg_re_ns", CreatedAt: 1715620000}
+	if err := openairesponses.WriteNonStreamJSON(t.Context(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Output []struct {
+			Type    string `json:"type"`
+			ID      string `json:"id"`
+			Status  string `json:"status"`
+			Summary []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"summary"`
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Output) < 2 {
+		t.Fatalf("output: %+v", v.Output)
+	}
+	if v.Output[0].Type != "reasoning" {
+		t.Fatalf("output[0] type %q", v.Output[0].Type)
+	}
+	if v.Output[0].ID != "rs_resp_re_ns" {
+		t.Fatalf("output[0] id %q", v.Output[0].ID)
+	}
+	if v.Output[0].Status != "completed" {
+		t.Fatalf("output[0] status %q", v.Output[0].Status)
+	}
+	if len(v.Output[0].Summary) != 1 || v.Output[0].Summary[0].Type != "summary_text" || v.Output[0].Summary[0].Text != "plan step" {
+		t.Fatalf("summary: %+v", v.Output[0].Summary)
+	}
+	if v.Output[1].Type != "message" {
+		t.Fatalf("output[1] type %q", v.Output[1].Type)
+	}
+	var content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(v.Output[1].Content, &content); err != nil {
+		t.Fatal(err)
+	}
+	if len(content) != 1 || content[0].Text != "ans" {
+		t.Fatalf("message content: %+v", content)
 	}
 }
 

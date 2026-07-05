@@ -20,6 +20,12 @@ type streamOutputTextDelta struct {
 	Delta          string `json:"delta"`
 }
 
+type streamReasoningSummaryTextDelta struct {
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	Delta          string `json:"delta"`
+}
+
 type streamFuncArgsDelta struct {
 	Type           string `json:"type"`
 	SequenceNumber int    `json:"sequence_number"`
@@ -108,15 +114,21 @@ type streamContentPartAdded struct {
 	} `json:"part"`
 }
 
+type streamReasoningSummary struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 type streamCompletedOut struct {
-	Type      string             `json:"type"`
-	ID        string             `json:"id,omitempty"`
-	CallID    string             `json:"call_id,omitempty"`
-	Status    string             `json:"status,omitempty"`
-	Role      string             `json:"role,omitempty"`
-	Name      string             `json:"name,omitempty"`
-	Arguments string             `json:"arguments,omitempty"`
-	Content   []streamMsgContent `json:"content,omitempty"`
+	Type      string                   `json:"type"`
+	ID        string                   `json:"id,omitempty"`
+	CallID    string                   `json:"call_id,omitempty"`
+	Status    string                   `json:"status,omitempty"`
+	Role      string                   `json:"role,omitempty"`
+	Name      string                   `json:"name,omitempty"`
+	Arguments string                   `json:"arguments,omitempty"`
+	Content   []streamMsgContent       `json:"content,omitempty"`
+	Summary   []streamReasoningSummary `json:"summary,omitempty"`
 }
 
 type streamCompletedEvent struct {

@@ -76,6 +76,19 @@ func (m *Mapper) OutputTextDelta(delta string) error {
 	return m.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: delta})
 }
 
+func (m *Mapper) ReasoningDelta(delta string) error {
+	if err := m.ensureResponseStarted(); err != nil {
+		return err
+	}
+	if err := m.ensureMessageStarted(); err != nil {
+		return err
+	}
+	if delta == "" {
+		return nil
+	}
+	return m.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: delta})
+}
+
 func (m *Mapper) BeginCompleted() error {
 	if err := m.ensureResponseStarted(); err != nil {
 		return err

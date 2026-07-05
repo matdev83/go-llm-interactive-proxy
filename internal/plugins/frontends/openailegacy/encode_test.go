@@ -471,6 +471,76 @@ func TestWriteStreamSSE_toolCallDelta(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_reasoningAndTextDeltas(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "think"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openailegacy.EncodeOptions{CompletionID: "chatcmpl_reason_ut", CreatedAt: 1715620000}
+	if err := openailegacy.WriteStreamSSE(t.Context(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	var reasoningChunks, contentChunks []string
+	sawDone := false
+	for _, fr := range frames {
+		if fr.Data == "[DONE]" {
+			sawDone = true
+			continue
+		}
+		var v struct {
+			Choices []struct {
+				Delta *struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					Reasoning        string `json:"reasoning"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		if len(v.Choices) == 0 || v.Choices[0].Delta == nil {
+			continue
+		}
+		d := v.Choices[0].Delta
+		if d.ReasoningContent != "" || d.Reasoning != "" {
+			reasoningChunks = append(reasoningChunks, d.ReasoningContent)
+		}
+		if d.Content != "" {
+			contentChunks = append(contentChunks, d.Content)
+		}
+	}
+	if !sawDone {
+		t.Fatal("missing [DONE]")
+	}
+	if len(reasoningChunks) != 1 || reasoningChunks[0] != "think" {
+		t.Fatalf("reasoning chunks: %#v", reasoningChunks)
+	}
+	if len(contentChunks) != 1 || contentChunks[0] != "ans" {
+		t.Fatalf("content chunks: %#v", contentChunks)
+	}
+	s := rec.Body.String()
+	if !strings.Contains(s, `"reasoning_content":"think"`) || !strings.Contains(s, `"reasoning":"think"`) {
+		t.Fatalf("missing reasoning fields on wire: %q", s)
+	}
+	if !strings.Contains(s, `"content":"ans"`) {
+		t.Fatalf("missing content on wire: %q", s)
+	}
+}
+
 func TestWriteNonStreamJSON_assistantMediaContentArray(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

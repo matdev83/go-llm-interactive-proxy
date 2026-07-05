@@ -2,6 +2,7 @@ package openaicompat
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -71,8 +72,9 @@ func ChatCompletionEvents(comp openai.ChatCompletion) []lipapi.Event {
 	return events
 }
 
-// ReasoningTextFromMessage extracts reasoning text from the "reasoning" or
-// "reasoning_content" extra fields of a ChatCompletionMessage.
+// ReasoningTextFromMessage extracts reasoning text from the "reasoning",
+// "reasoning_content", or "reasoning_summary" extra fields of a
+// ChatCompletionMessage.
 func ReasoningTextFromMessage(msg openai.ChatCompletionMessage) string {
 	if msg.JSON.ExtraFields == nil {
 		return ""
@@ -89,10 +91,20 @@ func ReasoningTextFromMessage(msg openai.ChatCompletionMessage) string {
 			return s
 		}
 	}
+	if f, ok := msg.JSON.ExtraFields["reasoning_summary"]; ok && f.Valid() {
+		var s string
+		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
+			if strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
+	}
 	return ""
 }
 
-// ReasoningTextFromChunkDelta extracts reasoning text from a streaming chunk delta.
+// ReasoningTextFromChunkDelta extracts reasoning text from a streaming chunk
+// delta's "reasoning", "reasoning_content", or "reasoning_summary" extra
+// fields.
 func ReasoningTextFromChunkDelta(delta openai.ChatCompletionChunkChoiceDelta) string {
 	if delta.JSON.ExtraFields == nil {
 		return ""
@@ -107,6 +119,14 @@ func ReasoningTextFromChunkDelta(delta openai.ChatCompletionChunkChoiceDelta) st
 		var s string
 		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
 			return s
+		}
+	}
+	if f, ok := delta.JSON.ExtraFields["reasoning_summary"]; ok && f.Valid() {
+		var s string
+		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
+			if strings.TrimSpace(s) != "" {
+				return s
+			}
 		}
 	}
 	return ""

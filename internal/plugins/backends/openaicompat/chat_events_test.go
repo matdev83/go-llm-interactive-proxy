@@ -224,6 +224,28 @@ func TestReasoningTextFromMessage_reasoningContentKey(t *testing.T) {
 	}
 }
 
+func TestReasoningTextFromMessage_reasoningSummaryKey(t *testing.T) {
+	t.Parallel()
+	var msg openai.ChatCompletionMessage
+	msg.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"summary think"`),
+	}
+	if got := ReasoningTextFromMessage(msg); got != "summary think" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReasoningTextFromMessage_reasoningSummary_empty(t *testing.T) {
+	t.Parallel()
+	var msg openai.ChatCompletionMessage
+	msg.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"   "`),
+	}
+	if got := ReasoningTextFromMessage(msg); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
 func TestReasoningTextFromChunkDelta_empty(t *testing.T) {
 	t.Parallel()
 	var delta openai.ChatCompletionChunkChoiceDelta
@@ -240,6 +262,28 @@ func TestReasoningTextFromChunkDelta_reasoningKey(t *testing.T) {
 	}
 	if got := ReasoningTextFromChunkDelta(delta); got != "chunk think" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReasoningTextFromChunkDelta_reasoningSummaryKey(t *testing.T) {
+	t.Parallel()
+	var delta openai.ChatCompletionChunkChoiceDelta
+	delta.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"chunk summary"`),
+	}
+	if got := ReasoningTextFromChunkDelta(delta); got != "chunk summary" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReasoningTextFromChunkDelta_reasoningSummary_empty(t *testing.T) {
+	t.Parallel()
+	var delta openai.ChatCompletionChunkChoiceDelta
+	delta.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"   "`),
+	}
+	if got := ReasoningTextFromChunkDelta(delta); got != "" {
+		t.Fatalf("expected empty, got %q", got)
 	}
 }
 

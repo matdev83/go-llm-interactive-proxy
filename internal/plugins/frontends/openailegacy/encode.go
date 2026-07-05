@@ -71,9 +71,11 @@ type wireToolCallNS struct {
 }
 
 type wireDelta struct {
-	Role      string                `json:"role,omitempty"`
-	Content   string                `json:"content,omitempty"`
-	ToolCalls []wireLegacyToolDelta `json:"tool_calls,omitempty"`
+	Role             string                `json:"role,omitempty"`
+	Content          string                `json:"content,omitempty"`
+	ReasoningContent string                `json:"reasoning_content,omitempty"`
+	Reasoning        string                `json:"reasoning,omitempty"`
+	ToolCalls        []wireLegacyToolDelta `json:"tool_calls,omitempty"`
 }
 
 type wireLegacyToolDelta struct {
@@ -376,6 +378,12 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				continue
 			}
 		case lipapi.EventReasoningDelta:
+			st.choices[0].FinishReason = nil
+			st.delta = wireDelta{ReasoningContent: ev.Delta, Reasoning: ev.Delta}
+			st.choices[0].Delta = &st.delta
+			if err := stream.FlushSSEDataJSON(w, fl, st.chunk); err != nil {
+				return err
+			}
 		default:
 		}
 	}

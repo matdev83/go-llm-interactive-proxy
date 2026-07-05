@@ -350,6 +350,61 @@ func TestWriteNonStreamJSON_functionCallOutput(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_thoughtPart(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteStreamSSE(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var thoughtSeen, textSeen bool
+	for _, fr := range testkit.ParseRecorderSSE(rec) {
+		if fr.Data == "" || fr.Data == "[DONE]" {
+			continue
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(fr.Data), &body); err != nil {
+			t.Fatal(err)
+		}
+		cands, _ := body["candidates"].([]any)
+		if len(cands) == 0 {
+			continue
+		}
+		c0 := testkit.MustMapStringAny(t, cands[0])
+		content := testkit.MustMapStringAny(t, c0["content"])
+		parts := testkit.MustSliceAny(t, content["parts"])
+		for _, p := range parts {
+			pm := testkit.MustMapStringAny(t, p)
+			txt, _ := pm["text"].(string)
+			if txt == "plan" {
+				if thought, _ := pm["thought"].(bool); thought {
+					thoughtSeen = true
+				}
+			}
+			if txt == "ans" {
+				if _, ok := pm["thought"]; !ok {
+					textSeen = true
+				}
+			}
+		}
+	}
+	if !thoughtSeen {
+		t.Fatal("missing thought part with thought=true")
+	}
+	if !textSeen {
+		t.Fatal("missing normal text part without thought")
+	}
+}
+
 func TestWriteStreamSSE_usageDetails_defaultOmitsLipExtensions(t *testing.T) {
 	t.Parallel()
 	call := &lipapi.Call{
