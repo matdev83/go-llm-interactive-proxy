@@ -430,33 +430,33 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		case lipapi.EventResponseStarted, lipapi.EventMessageStarted:
 		case lipapi.EventUsageDelta:
 			usageCol.AccumulateUsage(ev)
-	case lipapi.EventTextDelta:
-		if err := closeReasoningItem(); err != nil {
-			return err
-		}
-		if err := openMessageItem(); err != nil {
-			return err
-		}
-		fullText.WriteString(ev.Delta)
-		if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{
-			Type:           "response.output_text.delta",
-			SequenceNumber: nextSeq(),
-			ItemID:         messageItemID,
-			OutputIndex:    messageOutputIndex,
-			Delta:          ev.Delta,
-		}); err != nil {
-			return err
-		}
-	case lipapi.EventToolCallStarted:
-		if err := closeReasoningItem(); err != nil {
-			return err
-		}
-		if st, ok := toolByCallID[ev.ToolCallID]; ok {
-			if ev.ToolName != "" {
-				st.Name = ev.ToolName
+		case lipapi.EventTextDelta:
+			if err := closeReasoningItem(); err != nil {
+				return err
 			}
-			break
-		}
+			if err := openMessageItem(); err != nil {
+				return err
+			}
+			fullText.WriteString(ev.Delta)
+			if err := flushSSE(w, fl, "response.output_text.delta", streamOutputTextDelta{
+				Type:           "response.output_text.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageItemID,
+				OutputIndex:    messageOutputIndex,
+				Delta:          ev.Delta,
+			}); err != nil {
+				return err
+			}
+		case lipapi.EventToolCallStarted:
+			if err := closeReasoningItem(); err != nil {
+				return err
+			}
+			if st, ok := toolByCallID[ev.ToolCallID]; ok {
+				if ev.ToolName != "" {
+					st.Name = ev.ToolName
+				}
+				break
+			}
 			st := &toolStream{
 				CallID:      ev.ToolCallID,
 				ItemID:      fcItemID(ev.ToolCallID),
@@ -496,26 +496,26 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
-	case lipapi.EventAssistantImageRef:
-		if err := closeReasoningItem(); err != nil {
-			return err
-		}
-		if err := openMessageItem(); err != nil {
-			return err
-		}
-		assistantMedia = append(assistantMedia, lipapi.Part{
-			Kind: lipapi.PartImageRef, ImageRef: ev.AssistantRef, ImageMIME: ev.AssistantMIME,
-		})
-	case lipapi.EventAssistantFileRef:
-		if err := closeReasoningItem(); err != nil {
-			return err
-		}
-		if err := openMessageItem(); err != nil {
-			return err
-		}
-		assistantMedia = append(assistantMedia, lipapi.Part{
-			Kind: lipapi.PartFileRef, FileRef: ev.AssistantRef, FileMIME: ev.AssistantMIME, FileName: ev.AssistantName,
-		})
+		case lipapi.EventAssistantImageRef:
+			if err := closeReasoningItem(); err != nil {
+				return err
+			}
+			if err := openMessageItem(); err != nil {
+				return err
+			}
+			assistantMedia = append(assistantMedia, lipapi.Part{
+				Kind: lipapi.PartImageRef, ImageRef: ev.AssistantRef, ImageMIME: ev.AssistantMIME,
+			})
+		case lipapi.EventAssistantFileRef:
+			if err := closeReasoningItem(); err != nil {
+				return err
+			}
+			if err := openMessageItem(); err != nil {
+				return err
+			}
+			assistantMedia = append(assistantMedia, lipapi.Part{
+				Kind: lipapi.PartFileRef, FileRef: ev.AssistantRef, FileMIME: ev.AssistantMIME, FileName: ev.AssistantName,
+			})
 		case lipapi.EventToolCallFinished:
 			st := toolByCallID[ev.ToolCallID]
 			if st == nil {
@@ -547,60 +547,60 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			}); err != nil {
 				return err
 			}
-	case lipapi.EventResponseFinished:
-		if err := closeReasoningItem(); err != nil {
-			return err
-		}
-		if err := closeMessageItem(); err != nil {
-			return err
-		}
-		out := make([]streamCompletedOut, nextOutIdx)
-		if reasoningStarted {
-			out[reasoningOutputIndex] = streamCompletedOut{
-				Type:    "reasoning",
-				ID:      reasoningItemID,
-				Status:  "completed",
-				Summary: []streamReasoningSummary{{Type: "summary_text", Text: fullReasoning.String()}},
+		case lipapi.EventResponseFinished:
+			if err := closeReasoningItem(); err != nil {
+				return err
 			}
-		}
-		if messageStarted {
-			out[messageOutputIndex] = streamCompletedOut{
-				Type:    "message",
-				ID:      messageItemID,
-				Status:  "completed",
-				Role:    "assistant",
-				Content: messageParts,
+			if err := closeMessageItem(); err != nil {
+				return err
 			}
-		}
-		for _, st := range toolOrder {
-			out[st.OutputIndex] = streamCompletedOut{
-				Type:      "function_call",
-				ID:        st.ItemID,
-				CallID:    st.CallID,
-				Name:      st.Name,
-				Arguments: st.Args.String(),
-				Status:    "completed",
+			out := make([]streamCompletedOut, nextOutIdx)
+			if reasoningStarted {
+				out[reasoningOutputIndex] = streamCompletedOut{
+					Type:    "reasoning",
+					ID:      reasoningItemID,
+					Status:  "completed",
+					Summary: []streamReasoningSummary{{Type: "summary_text", Text: fullReasoning.String()}},
+				}
 			}
-		}
+			if messageStarted {
+				out[messageOutputIndex] = streamCompletedOut{
+					Type:    "message",
+					ID:      messageItemID,
+					Status:  "completed",
+					Role:    "assistant",
+					Content: messageParts,
+				}
+			}
+			for _, st := range toolOrder {
+				out[st.OutputIndex] = streamCompletedOut{
+					Type:      "function_call",
+					ID:        st.ItemID,
+					CallID:    st.CallID,
+					Name:      st.Name,
+					Arguments: st.Args.String(),
+					Status:    "completed",
+				}
+			}
 
-		var completed streamCompletedEvent
-		completed.Type = "response.completed"
-		completed.SequenceNumber = nextSeq()
-		completed.Response.ID = rid
-		completed.Response.Object = "response"
-		completed.Response.CreatedAt = ts
-		completed.Response.Status = "completed"
-		completed.Response.Model = model
-		completed.Response.Output = out
-		completed.Response.Usage = wireResponsesUsage(usageCol, opts.ExposeLipUsageExtensions)
-		if err := flushSSE(w, fl, "response.completed", completed); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
-			return err
-		}
-		fl.Flush()
-		return nil
+			var completed streamCompletedEvent
+			completed.Type = "response.completed"
+			completed.SequenceNumber = nextSeq()
+			completed.Response.ID = rid
+			completed.Response.Object = "response"
+			completed.Response.CreatedAt = ts
+			completed.Response.Status = "completed"
+			completed.Response.Model = model
+			completed.Response.Output = out
+			completed.Response.Usage = wireResponsesUsage(usageCol, opts.ExposeLipUsageExtensions)
+			if err := flushSSE(w, fl, "response.completed", completed); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+				return err
+			}
+			fl.Flush()
+			return nil
 		case lipapi.EventError:
 			return lipapi.NewStreamError(ev.ErrorCode, ev.ErrorMessage)
 		case lipapi.EventWarning:
@@ -611,21 +611,21 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				fl.Flush()
 				continue
 			}
-	case lipapi.EventReasoningDelta:
-		if err := openReasoningItem(); err != nil {
-			return err
-		}
-		fullReasoning.WriteString(ev.Delta)
-		if err := flushSSE(w, fl, "response.reasoning_summary_text.delta", streamReasoningSummaryTextDelta{
-			Type:           "response.reasoning_summary_text.delta",
-			SequenceNumber: nextSeq(),
-			ItemID:         reasoningItemID,
-			OutputIndex:    reasoningOutputIndex,
-			SummaryIndex:   0,
-			Delta:          ev.Delta,
-		}); err != nil {
-			return err
-		}
+		case lipapi.EventReasoningDelta:
+			if err := openReasoningItem(); err != nil {
+				return err
+			}
+			fullReasoning.WriteString(ev.Delta)
+			if err := flushSSE(w, fl, "response.reasoning_summary_text.delta", streamReasoningSummaryTextDelta{
+				Type:           "response.reasoning_summary_text.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         reasoningItemID,
+				OutputIndex:    reasoningOutputIndex,
+				SummaryIndex:   0,
+				Delta:          ev.Delta,
+			}); err != nil {
+				return err
+			}
 		default:
 		}
 	}
