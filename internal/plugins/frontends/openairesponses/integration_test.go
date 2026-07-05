@@ -289,6 +289,9 @@ func TestIntegration_toolStubRoundTrip_streaming(t *testing.T) {
 		case "response.completed":
 			sawCompleted = true
 			for _, item := range cur.Response.Output {
+				if item.Type != "function_call" {
+					continue
+				}
 				if fc := item.AsFunctionCall(); fc.ID != "" {
 					fcName = fc.Name
 					fcArgs = fc.Arguments

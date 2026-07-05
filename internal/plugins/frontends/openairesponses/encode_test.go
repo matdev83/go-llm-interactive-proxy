@@ -322,6 +322,8 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	frames := testkit.ParseRecorderSSE(rec)
 	var seq []string
 	var doneText string
+	var firstTextDeltaItemID string
+	var firstTextDeltaOutputIndex int = -1
 	var completedUsage struct {
 		In    int `json:"input_tokens"`
 		Out   int `json:"output_tokens"`
@@ -344,6 +346,12 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 			d, _ := v["delta"].(string)
 			if d == "" {
 				t.Fatalf("empty delta in %s", fr.Data)
+			}
+			if firstTextDeltaItemID == "" {
+				firstTextDeltaItemID, _ = v["item_id"].(string)
+				if idx, ok := v["output_index"].(float64); ok {
+					firstTextDeltaOutputIndex = int(idx)
+				}
 			}
 		}
 		if typ == "response.output_text.done" {
@@ -377,11 +385,26 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	if deltaCount != 3 {
 		t.Fatalf("delta count %d seq %v", deltaCount, seq)
 	}
+	if firstTextDeltaItemID != "msg_stream_incr" || firstTextDeltaOutputIndex != 0 {
+		t.Fatalf("text delta item_id/output_index = %q/%d", firstTextDeltaItemID, firstTextDeltaOutputIndex)
+	}
 	if doneText != "hello world" {
 		t.Fatalf("done text %q", doneText)
 	}
 	if completedUsage.In != 7 || completedUsage.Out != 3 || completedUsage.Total != 10 {
 		t.Fatalf("usage %+v", completedUsage)
+	}
+	itemDoneIdx, completedIdx := -1, -1
+	for i, typ := range seq {
+		if typ == "response.output_item.done" && itemDoneIdx == -1 {
+			itemDoneIdx = i
+		}
+		if typ == "response.completed" {
+			completedIdx = i
+		}
+	}
+	if itemDoneIdx < 0 || completedIdx < 0 || itemDoneIdx >= completedIdx {
+		t.Fatalf("message output_item.done (idx %d) must precede response.completed (idx %d); seq %v", itemDoneIdx, completedIdx, seq)
 	}
 }
 
@@ -439,18 +462,76 @@ func TestWriteStreamSSE_reasoningDeltaDoesNotBreakCompletion(t *testing.T) {
 		Extensions: mustModelExt(t, "gpt-4o-mini"),
 	}
 	rec := httptest.NewRecorder()
-	if err := openairesponses.WriteStreamSSE(t.Context(), rec, call, es, openairesponses.EncodeOptions{ResponseID: "resp_re", CreatedAt: 1715620000}); err != nil {
+	opts := openairesponses.EncodeOptions{ResponseID: "resp_re", CreatedAt: 1715620000}
+	if err := openairesponses.WriteStreamSSE(t.Context(), rec, call, es, opts); err != nil {
 		t.Fatal(err)
 	}
-	s := rec.Body.String()
-	if !strings.Contains(s, "response.reasoning_summary_text.delta") {
-		t.Fatalf("missing response.reasoning_summary_text.delta event: %q", s)
+	frames := testkit.ParseRecorderSSE(rec)
+	var seq []string
+	var reasoningDelta, textDelta map[string]any
+	var completedOutput []any
+	for _, fr := range frames {
+		if fr.Data == "" || fr.Data == "[DONE]" {
+			continue
+		}
+		var v map[string]any
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		typ, _ := v["type"].(string)
+		if typ == "" {
+			continue
+		}
+		seq = append(seq, typ)
+		switch typ {
+		case "response.reasoning_summary_text.delta":
+			reasoningDelta = v
+		case "response.output_text.delta":
+			textDelta = v
+		case "response.completed":
+			resp, _ := v["response"].(map[string]any)
+			completedOutput, _ = resp["output"].([]any)
+		}
 	}
-	if !strings.Contains(s, "think-step") {
-		t.Fatalf("missing think-step text: %q", s)
+	wantSeq := []string{
+		"response.created",
+		"response.in_progress",
+		"response.output_item.added",
+		"response.reasoning_summary_part.added",
+		"response.reasoning_summary_text.delta",
+		"response.reasoning_summary_text.done",
+		"response.reasoning_summary_part.done",
+		"response.output_item.done",
+		"response.output_item.added",
+		"response.content_part.added",
+		"response.output_text.delta",
+		"response.output_text.done",
+		"response.content_part.done",
+		"response.output_item.done",
+		"response.completed",
 	}
-	if !strings.Contains(s, "answer") || !strings.Contains(s, "response.completed") {
-		t.Fatalf("expected answer and response.completed; body=%q", s)
+	if strings.Join(seq, ",") != strings.Join(wantSeq, ",") {
+		t.Fatalf("event sequence:\n got %v\nwant %v", seq, wantSeq)
+	}
+	if reasoningDelta == nil || reasoningDelta["item_id"] != "rs_resp_re" ||
+		reasoningDelta["output_index"] != float64(0) ||
+		reasoningDelta["summary_index"] != float64(0) ||
+		reasoningDelta["delta"] != "think-step" {
+		t.Fatalf("reasoning delta metadata: %+v", reasoningDelta)
+	}
+	if textDelta == nil || textDelta["item_id"] != "msg_resp_re" ||
+		textDelta["output_index"] != float64(1) ||
+		textDelta["delta"] != "answer" {
+		t.Fatalf("text delta metadata: %+v", textDelta)
+	}
+	if len(completedOutput) != 2 {
+		t.Fatalf("completed output len: %d", len(completedOutput))
+	}
+	if o0, _ := completedOutput[0].(map[string]any); o0 == nil || o0["type"] != "reasoning" {
+		t.Fatalf("completed output[0] must be reasoning: %+v", completedOutput[0])
+	}
+	if o1, _ := completedOutput[1].(map[string]any); o1 == nil || o1["type"] != "message" {
+		t.Fatalf("completed output[1] must be message: %+v", completedOutput[1])
 	}
 }
 

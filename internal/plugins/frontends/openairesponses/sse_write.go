@@ -17,12 +17,17 @@ func flushSSE(w io.Writer, fl http.Flusher, eventName string, payload any) error
 type streamOutputTextDelta struct {
 	Type           string `json:"type"`
 	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int64  `json:"output_index"`
 	Delta          string `json:"delta"`
 }
 
 type streamReasoningSummaryTextDelta struct {
 	Type           string `json:"type"`
 	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int64  `json:"output_index"`
+	SummaryIndex   int    `json:"summary_index"`
 	Delta          string `json:"delta"`
 }
 
@@ -62,6 +67,8 @@ type streamOutputItemDone struct {
 type streamOutputTextDone struct {
 	Type           string `json:"type"`
 	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int64  `json:"output_index"`
 	Text           string `json:"text"`
 }
 
@@ -107,6 +114,7 @@ type streamOutputItemAddedMsg struct {
 type streamContentPartAdded struct {
 	Type           string `json:"type"`
 	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
 	OutputIndex    int64  `json:"output_index"`
 	Part           struct {
 		Type string `json:"type"`
@@ -117,6 +125,76 @@ type streamContentPartAdded struct {
 type streamReasoningSummary struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+// streamReasoningItem is the reasoning output item shape used in
+// response.output_item.added/done and the completed output array.
+type streamReasoningItem struct {
+	Type    string                   `json:"type"` // "reasoning"
+	ID      string                   `json:"id"`
+	Status  string                   `json:"status"`
+	Summary []streamReasoningSummary `json:"summary"`
+}
+
+type streamOutputItemAddedReasoning struct {
+	Type           string              `json:"type"`
+	SequenceNumber int                 `json:"sequence_number"`
+	OutputIndex    int64               `json:"output_index"`
+	Item           streamReasoningItem `json:"item"`
+}
+
+type streamOutputItemDoneReasoning struct {
+	Type           string              `json:"type"`
+	SequenceNumber int                 `json:"sequence_number"`
+	OutputIndex    int64               `json:"output_index"`
+	Item           streamReasoningItem `json:"item"`
+}
+
+type streamReasoningSummaryPart struct {
+	Type string `json:"type"` // "summary_text"
+	Text string `json:"text"`
+}
+
+type streamReasoningSummaryPartAdded struct {
+	Type           string                     `json:"type"`
+	SequenceNumber int                        `json:"sequence_number"`
+	ItemID         string                     `json:"item_id"`
+	OutputIndex    int64                      `json:"output_index"`
+	SummaryIndex   int                        `json:"summary_index"`
+	Part           streamReasoningSummaryPart `json:"part"`
+}
+
+type streamReasoningSummaryPartDone struct {
+	Type           string                     `json:"type"`
+	SequenceNumber int                        `json:"sequence_number"`
+	ItemID         string                     `json:"item_id"`
+	OutputIndex    int64                      `json:"output_index"`
+	SummaryIndex   int                        `json:"summary_index"`
+	Part           streamReasoningSummaryPart `json:"part"`
+}
+
+type streamReasoningSummaryTextDone struct {
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int64  `json:"output_index"`
+	SummaryIndex   int    `json:"summary_index"`
+	Text           string `json:"text"`
+}
+
+type streamContentPartDone struct {
+	Type           string           `json:"type"`
+	SequenceNumber int              `json:"sequence_number"`
+	ItemID         string           `json:"item_id"`
+	OutputIndex    int64            `json:"output_index"`
+	Part           streamMsgContent `json:"part"`
+}
+
+type streamOutputItemDoneMessage struct {
+	Type           string            `json:"type"`
+	SequenceNumber int               `json:"sequence_number"`
+	OutputIndex    int64             `json:"output_index"`
+	Item           streamMessageItem `json:"item"`
 }
 
 type streamCompletedOut struct {
