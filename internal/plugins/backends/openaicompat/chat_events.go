@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaiusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/respjson"
 )
 
 // ChatCompletionEvents converts a non-streaming ChatCompletion response into
@@ -72,6 +73,39 @@ func ChatCompletionEvents(comp openai.ChatCompletion) []lipapi.Event {
 	return events
 }
 
+// firstReasoningField returns the reasoning text from the first key (in order)
+// whose extra field carries a usable raw JSON string. The boolean is true when
+// such a field was found, so callers preserve short-circuit semantics.
+//
+// The guard is on [respjson.Field.Raw] rather than [respjson.Field.Valid]:
+// openai-go's decoder records decoded extra string fields with an "invalid"
+// status yet still populates Raw, so Valid() would reject real reasoning
+// payloads. Omitted (Raw == "") and JSON null (Raw == "null") values are
+// skipped so later keys (e.g. reasoning_summary) are tried. When
+// requireNonSpace is true, whitespace-only values are skipped, which
+// "reasoning_summary" needs because it can carry placeholder space.
+func firstReasoningField(fields map[string]respjson.Field, requireNonSpace bool, keys ...string) (string, bool) {
+	for _, key := range keys {
+		f, ok := fields[key]
+		if !ok {
+			continue
+		}
+		raw := f.Raw()
+		if raw == "" || raw == respjson.Null {
+			continue
+		}
+		var s string
+		if json.Unmarshal([]byte(raw), &s) != nil {
+			continue
+		}
+		if requireNonSpace && strings.TrimSpace(s) == "" {
+			continue
+		}
+		return s, true
+	}
+	return "", false
+}
+
 // ReasoningTextFromMessage extracts reasoning text from the "reasoning",
 // "reasoning_content", or "reasoning_summary" extra fields of a
 // ChatCompletionMessage.
@@ -79,27 +113,11 @@ func ReasoningTextFromMessage(msg openai.ChatCompletionMessage) string {
 	if msg.JSON.ExtraFields == nil {
 		return ""
 	}
-	if f, ok := msg.JSON.ExtraFields["reasoning"]; ok && f.Valid() {
-		var s string
-		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
-			return s
-		}
+	if s, ok := firstReasoningField(msg.JSON.ExtraFields, false, "reasoning", "reasoning_content"); ok {
+		return s
 	}
-	if f, ok := msg.JSON.ExtraFields["reasoning_content"]; ok && f.Valid() {
-		var s string
-		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
-			return s
-		}
-	}
-	if f, ok := msg.JSON.ExtraFields["reasoning_summary"]; ok && f.Valid() {
-		var s string
-		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
-			if strings.TrimSpace(s) != "" {
-				return s
-			}
-		}
-	}
-	return ""
+	s, _ := firstReasoningField(msg.JSON.ExtraFields, true, "reasoning_summary")
+	return s
 }
 
 // ReasoningTextFromChunkDelta extracts reasoning text from a streaming chunk
@@ -109,25 +127,9 @@ func ReasoningTextFromChunkDelta(delta openai.ChatCompletionChunkChoiceDelta) st
 	if delta.JSON.ExtraFields == nil {
 		return ""
 	}
-	if f, ok := delta.JSON.ExtraFields["reasoning"]; ok && f.Raw() != "" {
-		var s string
-		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
-			return s
-		}
+	if s, ok := firstReasoningField(delta.JSON.ExtraFields, false, "reasoning", "reasoning_content"); ok {
+		return s
 	}
-	if f, ok := delta.JSON.ExtraFields["reasoning_content"]; ok && f.Raw() != "" {
-		var s string
-		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
-			return s
-		}
-	}
-	if f, ok := delta.JSON.ExtraFields["reasoning_summary"]; ok && f.Valid() {
-		var s string
-		if json.Unmarshal([]byte(f.Raw()), &s) == nil {
-			if strings.TrimSpace(s) != "" {
-				return s
-			}
-		}
-	}
-	return ""
+	s, _ := firstReasoningField(delta.JSON.ExtraFields, true, "reasoning_summary")
+	return s
 }
