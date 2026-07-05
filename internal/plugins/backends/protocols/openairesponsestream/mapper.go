@@ -76,6 +76,13 @@ func (m *Mapper) OutputTextDelta(delta string) error {
 	return m.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: delta})
 }
 
+// ReasoningDelta enqueues a reasoning text delta. ensureMessageStarted is not
+// message-content coupling: the canonical event sequence contract
+// (lipapi.ValidateEventSequence) treats EventReasoningDelta as a content-class
+// event that requires a preceding EventMessageStarted, so the mapper must open
+// the message frame before reasoning exactly as it does for text and tool
+// calls. Dropping it would produce streams that fail sequence validation
+// ("reasoning_delta before message_started").
 func (m *Mapper) ReasoningDelta(delta string) error {
 	if err := m.ensureResponseStarted(); err != nil {
 		return err

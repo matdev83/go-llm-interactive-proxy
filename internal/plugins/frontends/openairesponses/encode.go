@@ -302,6 +302,12 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			Part:           streamReasoningSummaryPart{Type: "summary_text", Text: ""},
 		})
 	}
+	// closeReasoningItem finalizes the open reasoning output item, if any.
+	// Invariant: any non-reasoning content event (text, tool call, assistant
+	// media, or response completion) must close an open reasoning item first so
+	// the reasoning item is finalized before the next item begins. Each such
+	// handler calls this at its top; the guard makes it idempotent, so adding a
+	// new content event kind only requires calling this once at its entry.
 	closeReasoningItem := func() error {
 		if !reasoningStarted || reasoningClosed {
 			return nil
@@ -554,6 +560,13 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			if err := closeMessageItem(); err != nil {
 				return err
 			}
+			// Build completed.output in output_index (announcement) order. The
+			// invariant is that every slot in [0, nextOutIdx) is populated exactly
+			// once: each open* closure increments nextOutIdx exactly once when it
+			// first opens an item, and every opened item (reasoning, message, tool)
+			// is placed here at its assigned index. A future code path that
+			// increments nextOutIdx without a matching assignment here would emit a
+			// zero-value {"type":""} entry on the wire, so guard any such addition.
 			out := make([]streamCompletedOut, nextOutIdx)
 			if reasoningStarted {
 				out[reasoningOutputIndex] = streamCompletedOut{
@@ -661,7 +674,13 @@ func buildWireResponse(ctx context.Context, call *lipapi.Call, es lipapi.EventSt
 			"summary": []any{map[string]any{"type": "summary_text", "text": reasoning}},
 		})
 	}
-	out = append(out, msgOut)
+	// Emit the message item only when it has content (text or assistant media),
+	// matching the streaming path's lazy message-item open. This avoids an
+	// empty assistant message item on reasoning-only or tool-only turns, which
+	// the OpenAI Responses shape does not carry.
+	if text != "" || len(col.AssistantMedia) > 0 {
+		out = append(out, msgOut)
+	}
 	for _, tc := range col.OrderedToolCalls() {
 		out = append(out, map[string]any{
 			"type":      "function_call",
