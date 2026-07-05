@@ -323,7 +323,7 @@ func TestWriteStreamSSE_incrementalTextDeltas(t *testing.T) {
 	var seq []string
 	var doneText string
 	var firstTextDeltaItemID string
-	var firstTextDeltaOutputIndex int = -1
+	firstTextDeltaOutputIndex := -1
 	var completedUsage struct {
 		In    int `json:"input_tokens"`
 		Out   int `json:"output_tokens"`
