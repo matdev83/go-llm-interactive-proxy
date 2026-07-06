@@ -36,6 +36,42 @@ func TestHandleEvent_thinkingDeltaFromJSON(t *testing.T) {
 	}
 }
 
+func TestHandleEvent_signatureDeltaFromJSON(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-123"}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	_ = s.handleEvent(u)
+	var got []string
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventReasoningSignatureDelta {
+			got = append(got, ev.Signature)
+		}
+	}
+	if len(got) != 1 || got[0] != "sig-123" {
+		t.Fatalf("signature deltas: %v", got)
+	}
+}
+
+func TestHandleEvent_signatureDeltaEmptyIsNoOp(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":""}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	_ = s.handleEvent(u)
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventReasoningSignatureDelta {
+			t.Fatalf("unexpected signature event: %+v", ev)
+		}
+	}
+}
+
 func TestHandleEvent_assistantImageURLContentBlockStart(t *testing.T) {
 	t.Parallel()
 	raw := `{"type":"content_block_start","index":0,"content_block":{"type":"image","source":{"type":"url","url":"https://cdn.example.com/out.png"}}}`

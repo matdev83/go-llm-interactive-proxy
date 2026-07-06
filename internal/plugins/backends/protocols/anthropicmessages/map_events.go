@@ -193,6 +193,12 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 					return err
 				}
 			}
+		case anthropic.SignatureDelta:
+			if t.Signature != "" {
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningSignatureDelta, Signature: t.Signature}); err != nil {
+					return err
+				}
+			}
 		}
 	case anthropic.ContentBlockStopEvent:
 		if s.activeToolID != "" {

@@ -405,6 +405,32 @@ func TestWriteStreamSSE_thoughtPart(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_reasoningSignatureDeltaNoOp(t *testing.T) {
+	t.Parallel()
+	call := &lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+	}
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	rec := httptest.NewRecorder()
+	if err := gemini.WriteStreamSSE(context.Background(), rec, call, es, gemini.EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "signature") {
+		t.Fatalf("stream body should not contain signature, got %q", body)
+	}
+	if !strings.Contains(body, "ans") {
+		t.Fatalf("stream body should still contain text output, got %q", body)
+	}
+}
+
 func TestWriteStreamSSE_usageDetails_defaultOmitsLipExtensions(t *testing.T) {
 	t.Parallel()
 	call := &lipapi.Call{

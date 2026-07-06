@@ -678,6 +678,38 @@ func TestWriteStreamSSE_toolCallEvents(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_reasoningSignatureDeltaNoOp(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openairesponses.EncodeOptions{ResponseID: "resp_signoop", MessageID: "msg_signoop", CreatedAt: 1715620000}
+	if err := openairesponses.WriteStreamSSE(t.Context(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	s := rec.Body.String()
+	if strings.Contains(s, "signature") {
+		t.Fatalf("stream body should not contain signature, got %q", s)
+	}
+	if !strings.Contains(s, "response.reasoning_summary_text.delta") {
+		t.Fatalf("reasoning delta should be present, got %q", s)
+	}
+	if !strings.Contains(s, "response.output_text.delta") {
+		t.Fatalf("text delta should be present, got %q", s)
+	}
+}
+
 func TestWriteNonStreamJSON_messageContentIncludesAssistantImageRef(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

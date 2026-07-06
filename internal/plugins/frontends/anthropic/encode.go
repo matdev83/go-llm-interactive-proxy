@@ -132,7 +132,9 @@ type anthropicSSEContentBlockStartThinking struct {
 }
 
 type anthropicSSEThinkingBlock struct {
-	Type string `json:"type"`
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
 }
 
 type anthropicSSEContentBlockStartTool struct {
@@ -188,6 +190,17 @@ type anthropicSSEDeltaThinking struct {
 type anthropicSSEThinkingDeltaInner struct {
 	Type     string `json:"type"`
 	Thinking string `json:"thinking"`
+}
+
+type anthropicSSEDeltaSignature struct {
+	Type  string                          `json:"type"`
+	Index int                             `json:"index"`
+	Delta anthropicSSESignatureDeltaInner `json:"delta"`
+}
+
+type anthropicSSESignatureDeltaInner struct {
+	Type      string `json:"type"`
+	Signature string `json:"signature"`
 }
 
 type anthropicSSEContentBlockStop struct {
@@ -349,6 +362,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	nextBlockIdx := 0
 	textBlockIdx := -1
 	thinkingBlockIdx := -1
+	thinkingSignature := ""
 	toolBlockIdx := make(map[string]int)
 	sawTool := false
 
@@ -408,7 +422,19 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		if thinkingBlockIdx < 0 {
 			return nil
 		}
-		cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: thinkingBlockIdx}
+		idx := thinkingBlockIdx
+		if thinkingSignature != "" {
+			d := anthropicSSEDeltaSignature{
+				Type:  "content_block_delta",
+				Index: idx,
+				Delta: anthropicSSESignatureDeltaInner{Type: "signature_delta", Signature: thinkingSignature},
+			}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
+				return err
+			}
+			thinkingSignature = ""
+		}
+		cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
 		thinkingBlockIdx = -1
 		return stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop)
 	}
@@ -510,6 +536,8 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
 				return err
 			}
+		case lipapi.EventReasoningSignatureDelta:
+			thinkingSignature = ev.Signature
 		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
 			if err := closeThinkingBlock(); err != nil {
 				return err
