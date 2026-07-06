@@ -21,6 +21,12 @@ import (
 // can drive it.
 type codexSpec struct {
 	cfg Config
+	// exe is the resolved Codex CLI executable path used to build the spawn
+	// command. It is resolved once in newBackend (production) or set to a
+	// placeholder when a ProcessStarter is injected (tests), so
+	// BuildSpawnCommand never re-resolves and never fails on a CI runner that
+	// lacks the real codex binary.
+	exe string
 }
 
 // codexManagedStream wraps a codexStream to release the runtime pool on Close.

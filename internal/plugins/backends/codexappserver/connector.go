@@ -165,20 +165,17 @@ func defaultInventoryModels() []modelinventory.Model {
 // New returns a runtime backend that invokes the Codex CLI app-server via stdio.
 func New(cfg Config) (execbackend.Backend, error) {
 	cfg.applyDefaults()
-
-	// Resolve executable for error surfacing (lazy: the backend resolves again
-	// on first Open, but we surface the error early so operators see it on startup).
-	_, exeErr := resolveExecutable(cfg.Executable)
-
-	return newBackend(cfg, true, exeErr, nil), nil
+	return newBackend(cfg, true, nil), nil
 }
 
 // NewWithStarter is like New but injects a custom ProcessStarter for testing.
 // Production code should use New; tests use this to inject a fakeProcess that
 // simulates the Codex app-server subprocess without spawning a real binary.
+// The executable is set to a placeholder so BuildSpawnCommand does not require
+// the real codex binary to be on PATH.
 func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend {
 	cfg.applyDefaults()
-	return newBackend(cfg, false, nil, starter)
+	return newBackend(cfg, false, starter)
 }
 
 // applyDefaults normalizes the config model field.
@@ -192,10 +189,22 @@ func (cfg *Config) applyDefaults() {
 // newBackend builds the execbackend.Backend struct from a normalized Config.
 // requireExplicitWorkspace controls whether the WorkspacePolicy requires an
 // explicit workspace (production) or allows fallback to the default (tests).
-// exeErr is surfaced from the Open closure so callers see startup errors early.
-// starter, if non-nil, overrides the default OS process starter (used by tests).
-func newBackend(cfg Config, requireExplicitWorkspace bool, exeErr error, starter acp.ProcessStarter) execbackend.Backend {
+// starter, if non-nil, overrides the default OS process starter (used by tests)
+// and selects test-mode executable resolution: the spec.exe is set to a
+// placeholder so BuildSpawnCommand does not require a real codex binary.
+func newBackend(cfg Config, requireExplicitWorkspace bool, starter acp.ProcessStarter) execbackend.Backend {
 	spec := &codexSpec{cfg: cfg}
+	var exeErr error
+	if starter != nil {
+		// Test mode: the fake starter ignores the command, so a placeholder exe
+		// is sufficient and avoids requiring codex on PATH (CI runners lack it).
+		spec.exe = "codex"
+	} else {
+		// Production: resolve once here so BuildSpawnCommand never re-resolves.
+		// exeErr is surfaced from the Open closure so operators see startup
+		// errors early instead of on first prompt.
+		spec.exe, exeErr = resolveExecutable(cfg.Executable)
+	}
 	workspace := acp.WorkspacePolicy{
 		DefaultDir:      cfg.DefaultWorkspace,
 		RequireExplicit: requireExplicitWorkspace,
