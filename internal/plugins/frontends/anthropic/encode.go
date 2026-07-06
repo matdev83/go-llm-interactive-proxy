@@ -411,7 +411,6 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}
 		thinkingBlockIdx = nextBlockIdx
 		nextBlockIdx++
-		thinkingSignature = ""
 		cb := anthropicSSEContentBlockStartThinking{
 			Type:         "content_block_start",
 			Index:        thinkingBlockIdx,

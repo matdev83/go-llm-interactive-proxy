@@ -53,6 +53,19 @@ const (
 	EventAssistantFileRef  EventKind = "assistant_file_ref"
 )
 
+// isContentClassKind reports kinds that must appear after both response_started
+// and message_started in the canonical stream. Keep this in sync with the
+// content-class group in the sequence validators below.
+func isContentClassKind(k EventKind) bool {
+	switch k {
+	case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta,
+		EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
+		EventAssistantImageRef, EventAssistantFileRef:
+		return true
+	}
+	return false
+}
+
 // Event is one canonical streaming item.
 type Event struct {
 	Kind EventKind
@@ -372,14 +385,6 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
-			EventAssistantImageRef, EventAssistantFileRef:
-			if !sawResponseStarted {
-				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
-			}
-			if !sawMessage {
-				return out, fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
-			}
 		case EventUsageDelta, EventWarning:
 			if !sawResponseStarted {
 				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
@@ -400,7 +405,15 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			out.FinishReason = ev.FinishReason
 			return out, nil
 		default:
-			return out, fmt.Errorf("unknown event kind %q", ev.Kind)
+			if !isContentClassKind(ev.Kind) {
+				return out, fmt.Errorf("unknown event kind %q", ev.Kind)
+			}
+			if !sawResponseStarted {
+				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
+			}
+			if !sawMessage {
+				return out, fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
+			}
 		}
 
 		switch ev.Kind {
@@ -414,9 +427,6 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
 			}
 			out.Reasoning.WriteString(ev.Delta)
-		case EventReasoningSignatureDelta:
-			// Signature is Anthropic-specific integrity metadata consumed only by
-			// the streaming Anthropic frontend; non-stream collection ignores it.
 		case EventToolCallStarted:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
 				return out, fmt.Errorf("%s without tool_call_id", EventToolCallStarted)
@@ -552,14 +562,6 @@ func ValidateEventSequence(events []Event) error {
 				return fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
-			EventAssistantImageRef, EventAssistantFileRef:
-			if !sawResponseStarted {
-				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
-			}
-			if !sawMessage {
-				return fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
-			}
 		case EventUsageDelta, EventWarning:
 			if !sawResponseStarted {
 				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
@@ -575,7 +577,15 @@ func ValidateEventSequence(events []Event) error {
 			}
 			return nil
 		default:
-			return fmt.Errorf("unknown event kind %q", ev.Kind)
+			if !isContentClassKind(ev.Kind) {
+				return fmt.Errorf("unknown event kind %q", ev.Kind)
+			}
+			if !sawResponseStarted {
+				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
+			}
+			if !sawMessage {
+				return fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
+			}
 		}
 	}
 	return fmt.Errorf("missing terminal event")
