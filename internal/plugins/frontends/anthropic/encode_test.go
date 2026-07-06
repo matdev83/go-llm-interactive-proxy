@@ -1016,6 +1016,53 @@ func TestWriteStreamSSE_thinkingSignatureEmitted(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_thinkingSignatureAccumulated(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig-chunk-1"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig-chunk-2"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_thinking_sig_acc"}); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	var signatureDeltas []string
+	for _, fr := range frames {
+		if fr.Event != "content_block_delta" {
+			continue
+		}
+		var v struct {
+			Delta struct {
+				Type      string `json:"type"`
+				Signature string `json:"signature"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		if v.Delta.Type == "signature_delta" {
+			signatureDeltas = append(signatureDeltas, v.Delta.Signature)
+		}
+	}
+	if len(signatureDeltas) != 1 {
+		t.Fatalf("want exactly one signature_delta, got %v", signatureDeltas)
+	}
+	if signatureDeltas[0] != "sig-chunk-1sig-chunk-2" {
+		t.Fatalf("signature_delta value %q, want concatenated signature", signatureDeltas[0])
+	}
+}
+
 func TestWriteStreamSSE_thinkingSignatureNoSignatureEvent(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

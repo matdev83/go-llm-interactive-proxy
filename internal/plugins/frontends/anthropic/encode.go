@@ -411,6 +411,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		}
 		thinkingBlockIdx = nextBlockIdx
 		nextBlockIdx++
+		thinkingSignature = ""
 		cb := anthropicSSEContentBlockStartThinking{
 			Type:         "content_block_start",
 			Index:        thinkingBlockIdx,
@@ -537,7 +538,10 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 		case lipapi.EventReasoningSignatureDelta:
-			thinkingSignature = ev.Signature
+			if err := openThinkingBlock(); err != nil {
+				return err
+			}
+			thinkingSignature += ev.Signature
 		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
 			if err := closeThinkingBlock(); err != nil {
 				return err

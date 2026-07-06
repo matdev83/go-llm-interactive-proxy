@@ -44,7 +44,9 @@ func TestHandleEvent_signatureDeltaFromJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &msgStream{}
-	_ = s.handleEvent(u)
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
 	var got []string
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventReasoningSignatureDelta {
@@ -64,7 +66,9 @@ func TestHandleEvent_signatureDeltaEmptyIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &msgStream{}
-	_ = s.handleEvent(u)
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
 	for _, ev := range stream.DrainPending(&s.pending) {
 		if ev.Kind == lipapi.EventReasoningSignatureDelta {
 			t.Fatalf("unexpected signature event: %+v", ev)
