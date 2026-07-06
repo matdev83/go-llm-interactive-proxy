@@ -125,6 +125,16 @@ type anthropicSSETextBlock struct {
 	Text string `json:"text"`
 }
 
+type anthropicSSEContentBlockStartThinking struct {
+	Type         string                    `json:"type"`
+	Index        int                       `json:"index"`
+	ContentBlock anthropicSSEThinkingBlock `json:"content_block"`
+}
+
+type anthropicSSEThinkingBlock struct {
+	Type string `json:"type"`
+}
+
 type anthropicSSEContentBlockStartTool struct {
 	Type         string                `json:"type"`
 	Index        int                   `json:"index"`
@@ -167,6 +177,17 @@ type anthropicSSEDeltaText struct {
 type anthropicSSETextDeltaInner struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+type anthropicSSEDeltaThinking struct {
+	Type  string                         `json:"type"`
+	Index int                            `json:"index"`
+	Delta anthropicSSEThinkingDeltaInner `json:"delta"`
+}
+
+type anthropicSSEThinkingDeltaInner struct {
+	Type     string `json:"type"`
+	Thinking string `json:"thinking"`
 }
 
 type anthropicSSEContentBlockStop struct {
@@ -327,6 +348,7 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 	var msgStarted bool
 	nextBlockIdx := 0
 	textBlockIdx := -1
+	thinkingBlockIdx := -1
 	toolBlockIdx := make(map[string]int)
 	sawTool := false
 
@@ -366,9 +388,37 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 		return stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb)
 	}
 
+	openThinkingBlock := func() error {
+		if thinkingBlockIdx >= 0 {
+			return nil
+		}
+		if err := flushMessageStart(); err != nil {
+			return err
+		}
+		thinkingBlockIdx = nextBlockIdx
+		nextBlockIdx++
+		cb := anthropicSSEContentBlockStartThinking{
+			Type:         "content_block_start",
+			Index:        thinkingBlockIdx,
+			ContentBlock: anthropicSSEThinkingBlock{Type: "thinking"},
+		}
+		return stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb)
+	}
+	closeThinkingBlock := func() error {
+		if thinkingBlockIdx < 0 {
+			return nil
+		}
+		cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: thinkingBlockIdx}
+		thinkingBlockIdx = -1
+		return stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop)
+	}
+
 	openToolBlock := func(callID, name string) error {
 		if _, ok := toolBlockIdx[callID]; ok {
 			return nil
+		}
+		if err := closeThinkingBlock(); err != nil {
+			return err
 		}
 		if err := flushMessageStart(); err != nil {
 			return err
@@ -434,6 +484,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 		case lipapi.EventTextDelta:
+			if err := closeThinkingBlock(); err != nil {
+				return err
+			}
 			if err := openTextBlock(); err != nil {
 				return err
 			}
@@ -445,7 +498,22 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
 				return err
 			}
+		case lipapi.EventReasoningDelta:
+			if err := openThinkingBlock(); err != nil {
+				return err
+			}
+			d := anthropicSSEDeltaThinking{
+				Type:  "content_block_delta",
+				Index: thinkingBlockIdx,
+				Delta: anthropicSSEThinkingDeltaInner{Type: "thinking_delta", Thinking: ev.Delta},
+			}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_delta", &d); err != nil {
+				return err
+			}
 		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
+			if err := closeThinkingBlock(); err != nil {
+				return err
+			}
 			idx := nextBlockIdx
 			nextBlockIdx++
 			src := &wireImageSource{Type: "url", URL: ev.AssistantRef}
@@ -469,6 +537,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return err
 			}
 		case lipapi.EventResponseFinished:
+			if err := closeThinkingBlock(); err != nil {
+				return err
+			}
 			if !msgStarted {
 				if err := openTextBlock(); err != nil {
 					return err
@@ -507,7 +578,6 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				fl.Flush()
 				continue
 			}
-		case lipapi.EventReasoningDelta:
 		default:
 		}
 	}

@@ -18,7 +18,7 @@
 // | instructions non-string | Rejected | decode_test.go |
 // | tools (function) | Supported (decode) | decode_test.go |
 // | Tool/reasoning on response wire | Supported (encode) | encode_test.go, integration_test.go |
-// | Reasoning on wire | Not encoded | — (spec risk; canonical EventReasoningDelta) |
+// | Reasoning on wire | Supported (encode) | encode_test.go |
 // | Multimodal input_text/image/file | Supported | decode_test.go, integration_test.go |
 package openairesponses
 

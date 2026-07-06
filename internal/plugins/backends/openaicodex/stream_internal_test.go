@@ -387,6 +387,59 @@ func TestHandleData_toolCallStream_callIDOnDelta(t *testing.T) {
 	}
 }
 
+func TestHandleData_reasoningSummaryTextDelta_emitsReasoningDelta(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	created := `{"type":"response.created","response":{"id":"resp_reasoning"}}`
+	summaryDelta := `{"type":"response.reasoning_summary_text.delta","delta":"summarizing"}`
+	for _, raw := range []string{created, summaryDelta} {
+		if err := s.mapper.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+	events := stream.DrainPending(&s.mapper.pending)
+	want := []lipapi.EventKind{
+		lipapi.EventResponseStarted,
+		lipapi.EventMessageStarted,
+		lipapi.EventReasoningDelta,
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events: %+v", events)
+	}
+	for i, kind := range want {
+		if events[i].Kind != kind {
+			t.Fatalf("event[%d] = %v, want %v", i, events[i].Kind, kind)
+		}
+	}
+	if events[2].Delta != "summarizing" {
+		t.Fatalf("reasoning delta = %q, want %q", events[2].Delta, "summarizing")
+	}
+}
+
+func TestHandleData_reasoningTextDelta_emitsReasoningDelta(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	created := `{"type":"response.created","response":{"id":"resp_reasoning"}}`
+	reasoningDelta := `{"type":"response.reasoning_text.delta","delta":"thinking"}`
+	for _, raw := range []string{created, reasoningDelta} {
+		if err := s.mapper.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+	events := stream.DrainPending(&s.mapper.pending)
+	var reasoning []lipapi.Event
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			reasoning = append(reasoning, ev)
+		}
+	}
+	if len(reasoning) != 1 || reasoning[0].Delta != "thinking" {
+		t.Fatalf("reasoning events = %+v", reasoning)
+	}
+}
+
 func TestHandleData_toolArgsBeforeAddedWaitForToolName(t *testing.T) {
 	t.Parallel()
 	s := testCodexStream()

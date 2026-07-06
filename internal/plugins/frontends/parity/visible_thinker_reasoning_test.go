@@ -49,13 +49,19 @@ func modelExt(tb testing.TB, key, model string) map[string]json.RawMessage {
 	return map[string]json.RawMessage{key: raw}
 }
 
-func assertVisibleThinkerWireLegality(t *testing.T, body string) {
+func assertVisibleThinkerWireLegality(t *testing.T, body string, expectReasoning bool) {
 	t.Helper()
 	if !strings.Contains(body, visibleExecutorText) {
 		t.Fatalf("executor text missing from wire body: %q", body)
 	}
-	if strings.Contains(body, visibleThinkerReasoning) {
-		t.Fatalf("thinker reasoning must not appear on wire in v1 subset; body=%q", body)
+	if expectReasoning {
+		if !strings.Contains(body, visibleThinkerReasoning) {
+			t.Fatalf("thinker reasoning must appear on wire; body=%q", body)
+		}
+	} else {
+		if strings.Contains(body, visibleThinkerReasoning) {
+			t.Fatalf("thinker reasoning must not appear on wire for this encoder; body=%q", body)
+		}
 	}
 	if strings.Contains(body, interleavedthinking.MemoOpenTag) || strings.Contains(body, interleavedthinking.MemoCloseTag) {
 		t.Fatalf("memo wrapper tags must not appear on wire; body=%q", body)
@@ -125,7 +131,7 @@ func TestVisibleThinkerReasoning_streamEncodesLegally(t *testing.T) {
 				t.Fatal(err)
 			}
 			body := rec.Body.String()
-			assertVisibleThinkerWireLegality(t, body)
+			assertVisibleThinkerWireLegality(t, body, true)
 			if !strings.Contains(body, tc.terminal) {
 				t.Fatalf("missing terminal marker %q; body=%q", tc.terminal, body)
 			}
@@ -137,9 +143,10 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 	t.Parallel()
 
 	type caseDef struct {
-		name   string
-		call   *lipapi.Call
-		encode func(context.Context, *httptest.ResponseRecorder, *lipapi.Call, lipapi.EventStream) error
+		name            string
+		call            *lipapi.Call
+		encode          func(context.Context, *httptest.ResponseRecorder, *lipapi.Call, lipapi.EventStream) error
+		expectReasoning bool
 	}
 
 	cases := []caseDef{
@@ -149,6 +156,7 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 			encode: func(ctx context.Context, rec *httptest.ResponseRecorder, call *lipapi.Call, es lipapi.EventStream) error {
 				return anthropic.WriteNonStreamJSON(ctx, rec, call, es, anthropic.EncodeOptions{MessageID: "msg_visible_thinker_ns"})
 			},
+			expectReasoning: false,
 		},
 		{
 			name: "gemini",
@@ -156,6 +164,7 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 			encode: func(ctx context.Context, rec *httptest.ResponseRecorder, call *lipapi.Call, es lipapi.EventStream) error {
 				return gemini.WriteNonStreamJSON(ctx, rec, call, es, gemini.EncodeOptions{})
 			},
+			expectReasoning: false,
 		},
 		{
 			name: "openailegacy",
@@ -166,6 +175,7 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 					CreatedAt:    1715620000,
 				})
 			},
+			expectReasoning: false,
 		},
 		{
 			name: "openairesponses",
@@ -177,6 +187,7 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 					CreatedAt:  1715620000,
 				})
 			},
+			expectReasoning: true,
 		},
 	}
 
@@ -188,7 +199,7 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 			if err := tc.encode(t.Context(), rec, tc.call, es); err != nil {
 				t.Fatal(err)
 			}
-			assertVisibleThinkerWireLegality(t, rec.Body.String())
+			assertVisibleThinkerWireLegality(t, rec.Body.String(), tc.expectReasoning)
 		})
 	}
 }

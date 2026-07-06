@@ -462,6 +462,258 @@ func TestWriteStreamSSE_toolUseBlock(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_thinkingBlock(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_thinking"}); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	var thinkingStartIdx *int
+	var thinkingDeltas []string
+	var thinkingStopSeen bool
+	var sawTextBeforeThinkingStop bool
+	var textDeltaSeen bool
+	for _, fr := range frames {
+		switch fr.Event {
+		case "content_block_start":
+			var v struct {
+				Index        int `json:"index"`
+				ContentBlock struct {
+					Type string `json:"type"`
+				} `json:"content_block"`
+			}
+			if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+				t.Fatal(err)
+			}
+			if v.ContentBlock.Type == "thinking" {
+				idx := v.Index
+				thinkingStartIdx = &idx
+			}
+		case "content_block_delta":
+			if !thinkingStopSeen {
+				var probe struct {
+					Delta struct {
+						Type string `json:"type"`
+					} `json:"delta"`
+				}
+				if err := json.Unmarshal([]byte(fr.Data), &probe); err != nil {
+					t.Fatal(err)
+				}
+				if probe.Delta.Type == "text_delta" {
+					sawTextBeforeThinkingStop = true
+				}
+			}
+			var v struct {
+				Index int `json:"index"`
+				Delta struct {
+					Type     string `json:"type"`
+					Thinking string `json:"thinking"`
+					Text     string `json:"text"`
+				} `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+				t.Fatal(err)
+			}
+			if v.Delta.Type == "thinking_delta" {
+				thinkingDeltas = append(thinkingDeltas, v.Delta.Thinking)
+			}
+			if v.Delta.Type == "text_delta" {
+				textDeltaSeen = true
+			}
+		case "content_block_stop":
+			var v struct {
+				Index int `json:"index"`
+			}
+			if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+				t.Fatal(err)
+			}
+			if thinkingStartIdx != nil && v.Index == *thinkingStartIdx {
+				thinkingStopSeen = true
+			}
+		}
+	}
+	if thinkingStartIdx == nil {
+		t.Fatal("missing thinking content_block_start")
+	}
+	if len(thinkingDeltas) != 1 || thinkingDeltas[0] != "plan" {
+		t.Fatalf("thinking deltas: %#v", thinkingDeltas)
+	}
+	if !thinkingStopSeen {
+		t.Fatal("missing thinking content_block_stop")
+	}
+	if sawTextBeforeThinkingStop {
+		t.Fatal("text_delta arrived before thinking block stopped")
+	}
+	if !textDeltaSeen {
+		t.Fatal("missing text_delta after thinking block")
+	}
+}
+
+// parseThinkingTransition inspects SSE frames for a thinking block followed by
+// another content block. It returns the 0-based frame positions of the thinking
+// content_block_start, its matching content_block_stop, and the first
+// subsequent non-thinking content_block_start, plus the thinking and next block
+// indices. -1 means the corresponding event was not found.
+func parseThinkingTransition(t *testing.T, frames []testkit.SSEFrame) (thinkStartFrame, thinkStopFrame, nextStartFrame, thinkIdx, nextIdx int) {
+	t.Helper()
+	thinkStartFrame, thinkStopFrame, nextStartFrame = -1, -1, -1
+	for i, fr := range frames {
+		switch fr.Event {
+		case "content_block_start":
+			var v struct {
+				Index        int `json:"index"`
+				ContentBlock struct {
+					Type string `json:"type"`
+				} `json:"content_block"`
+			}
+			if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+				t.Fatal(err)
+			}
+			if v.ContentBlock.Type == "thinking" {
+				if thinkStartFrame == -1 {
+					thinkStartFrame = i
+					thinkIdx = v.Index
+				}
+			} else if thinkStartFrame != -1 && nextStartFrame == -1 {
+				nextStartFrame = i
+				nextIdx = v.Index
+			}
+		case "content_block_stop":
+			var v struct {
+				Index int `json:"index"`
+			}
+			if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+				t.Fatal(err)
+			}
+			if thinkStartFrame != -1 && v.Index == thinkIdx && thinkStopFrame == -1 {
+				thinkStopFrame = i
+			}
+		}
+	}
+	return
+}
+
+func TestWriteStreamSSE_thinkingBlockThenTool(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventToolCallStarted, ToolCallID: "tu_rt", ToolName: "lookup"},
+		{Kind: lipapi.EventToolCallArgsDelta, ToolCallID: "tu_rt", Delta: `{"q":"go"}`},
+		{Kind: lipapi.EventToolCallFinished, ToolCallID: "tu_rt"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_thinking_tool"}); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	thinkStart, thinkStop, nextStart, thinkIdx, toolIdx := parseThinkingTransition(t, frames)
+	if thinkStart == -1 {
+		t.Fatal("missing thinking content_block_start")
+	}
+	if thinkStop == -1 {
+		t.Fatal("missing thinking content_block_stop")
+	}
+	if nextStart == -1 {
+		t.Fatal("missing tool content_block_start after thinking")
+	}
+	if thinkStop >= nextStart {
+		t.Fatalf("thinking content_block_stop (frame %d) must precede tool content_block_start (frame %d)", thinkStop, nextStart)
+	}
+	if thinkIdx == toolIdx {
+		t.Fatalf("thinking and tool blocks share index %d", thinkIdx)
+	}
+	var toolDeltas []int
+	for _, fr := range frames {
+		if fr.Event != "content_block_delta" {
+			continue
+		}
+		var v struct {
+			Index int `json:"index"`
+			Delta struct {
+				Type string `json:"type"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(fr.Data), &v); err != nil {
+			t.Fatal(err)
+		}
+		if v.Delta.Type == "input_json_delta" {
+			toolDeltas = append(toolDeltas, v.Index)
+		}
+	}
+	if len(toolDeltas) == 0 {
+		t.Fatal("missing input_json_delta")
+	}
+	for _, idx := range toolDeltas {
+		if idx != toolIdx {
+			t.Fatalf("input_json_delta index %d != tool block index %d", idx, toolIdx)
+		}
+	}
+}
+
+func TestWriteStreamSSE_thinkingBlockThenMedia(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventAssistantImageRef, AssistantRef: "https://img.example/x.png", AssistantMIME: "image/png"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route: lipapi.RouteIntent{Selector: "x:y"},
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")},
+		}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_thinking_media"}); err != nil {
+		t.Fatal(err)
+	}
+	frames := testkit.ParseRecorderSSE(rec)
+	thinkStart, thinkStop, nextStart, thinkIdx, mediaIdx := parseThinkingTransition(t, frames)
+	if thinkStart == -1 {
+		t.Fatal("missing thinking content_block_start")
+	}
+	if thinkStop == -1 {
+		t.Fatal("missing thinking content_block_stop")
+	}
+	if nextStart == -1 {
+		t.Fatal("missing media content_block_start after thinking")
+	}
+	if thinkStop >= nextStart {
+		t.Fatalf("thinking content_block_stop (frame %d) must precede media content_block_start (frame %d)", thinkStop, nextStart)
+	}
+	if thinkIdx == mediaIdx {
+		t.Fatalf("thinking and media blocks share index %d", thinkIdx)
+	}
+}
+
 func TestWriteNonStreamJSON_toolUseOutput(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

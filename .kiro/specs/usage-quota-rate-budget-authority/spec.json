@@ -1,0 +1,22 @@
+{
+  "feature_name": "usage-quota-rate-budget-authority",
+  "created_at": "2026-07-04T22:34:05.8014961+02:00",
+  "updated_at": "2026-07-04T23:13:28.5378399+02:00",
+  "language": "en",
+  "phase": "requirements-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": false,
+      "approved": false
+    },
+    "tasks": {
+      "generated": false,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false
+}

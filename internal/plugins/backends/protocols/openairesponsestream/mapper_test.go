@@ -366,6 +366,48 @@ func TestMapper_remapToolCallID_movesBufferedArgsOntoCanonicalID(t *testing.T) {
 	}
 }
 
+func TestMapper_reasoningDelta_emitsLifecycleAndReasoning(t *testing.T) {
+	t.Parallel()
+	m, q := newTestMapper()
+	if err := m.ReasoningDelta("thin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ReasoningDelta("king"); err != nil {
+		t.Fatal(err)
+	}
+	events := stream.DrainPending(q)
+	want := []lipapi.EventKind{
+		lipapi.EventResponseStarted,
+		lipapi.EventMessageStarted,
+		lipapi.EventReasoningDelta,
+		lipapi.EventReasoningDelta,
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events: %+v", events)
+	}
+	for i, kind := range want {
+		if events[i].Kind != kind {
+			t.Fatalf("event[%d] = %v, want %v", i, events[i].Kind, kind)
+		}
+	}
+	if events[2].Delta != "thin" || events[3].Delta != "king" {
+		t.Fatalf("deltas: %q %q", events[2].Delta, events[3].Delta)
+	}
+}
+
+func TestMapper_reasoningDelta_emptyIsNoOp(t *testing.T) {
+	t.Parallel()
+	m, q := newTestMapper()
+	if err := m.ReasoningDelta(""); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range stream.DrainPending(q) {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			t.Fatalf("expected no reasoning delta for empty input, got %+v", ev)
+		}
+	}
+}
+
 func TestMapper_remapToolCallID_noOpWhenIDsEqualOrEmpty(t *testing.T) {
 	t.Parallel()
 	m, q := newTestMapper()

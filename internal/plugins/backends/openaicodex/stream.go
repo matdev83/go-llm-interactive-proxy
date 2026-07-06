@@ -51,6 +51,10 @@ func (m *codexEventMapper) handleData(data string) error {
 		return m.handleResponseCreated(data)
 	case "response.output_text.delta":
 		return m.handleOutputTextDelta(data)
+	case "response.reasoning_summary_text.delta":
+		return m.handleReasoningDelta(data)
+	case "response.reasoning_text.delta":
+		return m.handleReasoningDelta(data)
 	case "response.completed":
 		return m.handleResponseCompleted(data)
 	case "error":
@@ -79,6 +83,16 @@ func (m *codexEventMapper) handleOutputTextDelta(data string) error {
 		return m.mapper.StreamError("tool_protocol_text_leak", "upstream emitted tool-call protocol as text", "upstream emitted tool-call protocol as text")
 	}
 	return m.mapper.OutputTextDelta(ev.Delta)
+}
+
+func (m *codexEventMapper) handleReasoningDelta(data string) error {
+	var ev struct {
+		Delta string `json:"delta"`
+	}
+	if err := json.Unmarshal([]byte(data), &ev); err != nil {
+		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
+	}
+	return m.mapper.ReasoningDelta(ev.Delta)
 }
 
 func looksLikeToolProtocolText(delta string) bool {

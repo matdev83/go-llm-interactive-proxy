@@ -224,6 +224,40 @@ func TestReasoningTextFromMessage_reasoningContentKey(t *testing.T) {
 	}
 }
 
+func TestReasoningTextFromMessage_reasoningSummaryKey(t *testing.T) {
+	t.Parallel()
+	var msg openai.ChatCompletionMessage
+	msg.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"summary think"`),
+	}
+	if got := ReasoningTextFromMessage(msg); got != "summary think" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReasoningTextFromMessage_reasoningSummary_empty(t *testing.T) {
+	t.Parallel()
+	var msg openai.ChatCompletionMessage
+	msg.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"   "`),
+	}
+	if got := ReasoningTextFromMessage(msg); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestReasoningTextFromMessage_reasoningContentDecoded(t *testing.T) {
+	t.Parallel()
+	raw := `{"role":"assistant","content":"answer","reasoning_content":"decoded think"}`
+	var msg openai.ChatCompletionMessage
+	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReasoningTextFromMessage(msg); got != "decoded think" {
+		t.Fatalf("decoded reasoning_content must be extracted; got %q", got)
+	}
+}
+
 func TestReasoningTextFromChunkDelta_empty(t *testing.T) {
 	t.Parallel()
 	var delta openai.ChatCompletionChunkChoiceDelta
@@ -240,6 +274,65 @@ func TestReasoningTextFromChunkDelta_reasoningKey(t *testing.T) {
 	}
 	if got := ReasoningTextFromChunkDelta(delta); got != "chunk think" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReasoningTextFromChunkDelta_reasoningSummaryKey(t *testing.T) {
+	t.Parallel()
+	var delta openai.ChatCompletionChunkChoiceDelta
+	delta.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"chunk summary"`),
+	}
+	if got := ReasoningTextFromChunkDelta(delta); got != "chunk summary" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReasoningTextFromChunkDelta_reasoningSummary_empty(t *testing.T) {
+	t.Parallel()
+	var delta openai.ChatCompletionChunkChoiceDelta
+	delta.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning_summary": respjson.NewField(`"   "`),
+	}
+	if got := ReasoningTextFromChunkDelta(delta); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestReasoningTextFromChunkDelta_nullReasoningFallsThroughToSummary(t *testing.T) {
+	t.Parallel()
+	var delta openai.ChatCompletionChunkChoiceDelta
+	delta.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning":         respjson.NewField(`null`),
+		"reasoning_summary": respjson.NewField(`"fallback summary"`),
+	}
+	if got := ReasoningTextFromChunkDelta(delta); got != "fallback summary" {
+		t.Fatalf("null reasoning must fall through to summary; got %q", got)
+	}
+}
+
+func TestReasoningTextFromMessage_nullReasoningFallsThroughToSummary(t *testing.T) {
+	t.Parallel()
+	var msg openai.ChatCompletionMessage
+	msg.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning":         respjson.NewField(`null`),
+		"reasoning_summary": respjson.NewField(`"fallback summary"`),
+	}
+	if got := ReasoningTextFromMessage(msg); got != "fallback summary" {
+		t.Fatalf("null reasoning must fall through to summary; got %q", got)
+	}
+}
+
+func TestReasoningTextFromChunkDelta_reasoningContentPreferredOverSummary(t *testing.T) {
+	t.Parallel()
+	var delta openai.ChatCompletionChunkChoiceDelta
+	delta.JSON.ExtraFields = map[string]respjson.Field{
+		"reasoning":         respjson.NewField(`null`),
+		"reasoning_content": respjson.NewField(`"raw think"`),
+		"reasoning_summary": respjson.NewField(`"summary"`),
+	}
+	if got := ReasoningTextFromChunkDelta(delta); got != "raw think" {
+		t.Fatalf("reasoning_content must win over summary; got %q", got)
 	}
 }
 

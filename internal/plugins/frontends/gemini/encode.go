@@ -31,6 +31,16 @@ func (s *gemStreamWireScratch) initFrame() {
 
 func (s *gemStreamWireScratch) flushTextDelta(w io.Writer, fl http.Flusher, delta string) error {
 	s.textParts[0].Text = delta
+	s.textParts[0].Thought = false
+	s.textParts[0].FunctionCall = nil
+	s.textParts[0].FileData = nil
+	s.cands[0].Content.Parts = s.textParts[:1]
+	return stream.FlushSSEDataJSON(w, fl, s.frame)
+}
+
+func (s *gemStreamWireScratch) flushThoughtDelta(w io.Writer, fl http.Flusher, delta string) error {
+	s.textParts[0].Text = delta
+	s.textParts[0].Thought = true
 	s.textParts[0].FunctionCall = nil
 	s.textParts[0].FileData = nil
 	s.cands[0].Content.Parts = s.textParts[:1]
@@ -45,6 +55,7 @@ func (s *gemStreamWireScratch) flushToolCall(w io.Writer, fl http.Flusher, name,
 	s.fc.Name = name
 	s.fc.Args = args
 	s.toolParts[0].Text = ""
+	s.toolParts[0].Thought = false
 	s.toolParts[0].FunctionCall = &s.fc
 	s.toolParts[0].FileData = nil
 	s.cands[0].Content.Parts = s.toolParts[:1]
@@ -56,6 +67,7 @@ func (s *gemStreamWireScratch) flushFileDataURI(w io.Writer, fl http.Flusher, ur
 		mime = "application/octet-stream"
 	}
 	s.textParts[0].Text = ""
+	s.textParts[0].Thought = false
 	s.textParts[0].FunctionCall = nil
 	s.textParts[0].FileData = &gemFileDataWire{MIMEType: mime, FileURI: uri}
 	s.cands[0].Content.Parts = s.textParts[:1]
@@ -88,6 +100,7 @@ type gemFileDataWire struct {
 
 type gemCandPart struct {
 	Text         string           `json:"text,omitempty"`
+	Thought      bool             `json:"thought,omitempty"`
 	FunctionCall *gemFuncCallWire `json:"functionCall,omitempty"`
 	FileData     *gemFileDataWire `json:"fileData,omitempty"`
 }
@@ -325,6 +338,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				continue
 			}
 		case lipapi.EventReasoningDelta:
+			if err := scratch.flushThoughtDelta(w, fl, ev.Delta); err != nil {
+				return err
+			}
 		default:
 		}
 	}
