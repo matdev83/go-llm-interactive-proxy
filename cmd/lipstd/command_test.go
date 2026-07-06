@@ -6,8 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func TestParseCommandName_defaultServe(t *testing.T) {
@@ -256,6 +262,27 @@ func TestRunCommand_checkConfig_dogfoodLocalStubExample(t *testing.T) {
 	}
 }
 
+func TestRunCommand_checkConfig_multiInstanceExample(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	cfgPath := filepath.Join("..", "..", "config", "config.multi-instance.example.yaml")
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandCheckConfig,
+		ConfigPath: cfgPath,
+		Output:     &out,
+		ErrorOut:   &errb,
+	})
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%s", code, errb.String())
+	}
+	if errb.Len() != 0 {
+		t.Fatalf("stderr: %s", errb.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("configuration is valid")) {
+		t.Fatalf("stdout: %s", out.String())
+	}
+}
+
 func TestRunCommand_routes_dogfoodLocalStubExample(t *testing.T) {
 	t.Parallel()
 	var out, errb bytes.Buffer
@@ -382,4 +409,247 @@ func TestParseArgs_autoResumeDurations(t *testing.T) {
 	if opts.StreamRecovery.CLIGracePeriod.String() != "2s" {
 		t.Fatalf("grace period=%s", opts.StreamRecovery.CLIGracePeriod)
 	}
+}
+
+func TestParseArgs_multiUserFlag(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		args []string
+		want *bool
+	}{
+		{name: "not_set", args: []string{"serve"}, want: nil},
+		{name: "prefix", args: []string{"--multi-user", "serve"}, want: new(true)},
+		{name: "tail", args: []string{"serve", "--multi-user"}, want: new(true)},
+		{name: "equals_true", args: []string{"serve", "--multi-user=true"}, want: new(true)},
+		{name: "explicit_false", args: []string{"serve", "--multi-user=false"}, want: new(false)},
+		{name: "prefix_then_tail_overrides", args: []string{"--multi-user=true", "serve", "--multi-user=false"}, want: new(false)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var usage bytes.Buffer
+			opts, err := ParseArgsFull(tc.args, &usage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opts.Name != CommandServe {
+				t.Fatalf("name=%q", opts.Name)
+			}
+			got := opts.MultiUser
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("want nil, got %v", *got)
+			case tc.want != nil && got == nil:
+				t.Fatalf("want %v, got nil", *tc.want)
+			case tc.want != nil && *tc.want != *got:
+				t.Fatalf("want %v, got %v", *tc.want, *got)
+			}
+		})
+	}
+}
+
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
+
+func TestRunCommand_serve_multiUserFlagInconsistentWithSingleUserConfig(t *testing.T) {
+	t.Parallel()
+	var out, errb bytes.Buffer
+	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandServe,
+		ConfigPath: cfgPath,
+		MultiUser:  new(true),
+		Output:     &out,
+		ErrorOut:   &errb,
+	})
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%s stdout=%s", code, errb.String(), out.String())
+	}
+	if !bytes.Contains(errb.Bytes(), []byte("--multi-user")) {
+		t.Fatalf("stderr should mention --multi-user: %q", errb.String())
+	}
+}
+
+func TestRunCommand_serve_multiUserConfigRequiresFlag(t *testing.T) {
+	t.Parallel()
+	cfgPath := writeMultiUserTempConfig(t)
+	var out, errb bytes.Buffer
+	code := RunCommand(context.Background(), CommandOptions{
+		Name:       CommandServe,
+		ConfigPath: cfgPath,
+		Output:     &out,
+		ErrorOut:   &errb,
+	})
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%s stdout=%s", code, errb.String(), out.String())
+	}
+	if !bytes.Contains(errb.Bytes(), []byte("--multi-user")) {
+		t.Fatalf("stderr should mention --multi-user: %q", errb.String())
+	}
+}
+
+func TestValidateServeMultiUserGate_multiUserConfigWithFlagPasses(t *testing.T) {
+	t.Parallel()
+	cfgPath := writeMultiUserTempConfig(t)
+	if err := validateServeMultiUserGate(cfgPath, new(true)); err != nil {
+		t.Fatalf("expected gate to pass with --multi-user=true on multi_user config: %v", err)
+	}
+}
+
+func TestValidateServeMultiUserGate_multiUserConfigRequiresFlag(t *testing.T) {
+	t.Parallel()
+	cfgPath := writeMultiUserTempConfig(t)
+	if err := validateServeMultiUserGate(cfgPath, nil); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
+		t.Fatalf("want ErrMultiUserFlagRequired, got %v", err)
+	}
+}
+
+func TestValidateServeMultiUserGate_multiUserConfigFlagFalseRejected(t *testing.T) {
+	t.Parallel()
+	cfgPath := writeMultiUserTempConfig(t)
+	if err := validateServeMultiUserGate(cfgPath, new(false)); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
+		t.Fatalf("explicit --multi-user=false must not satisfy multi_user: got %v", err)
+	}
+}
+
+func TestValidateServeMultiUserGate_singleUserConfigFlagTrueRejected(t *testing.T) {
+	t.Parallel()
+	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	if err := validateServeMultiUserGate(cfgPath, new(true)); !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
+		t.Fatalf("want ErrMultiUserFlagInconsistent, got %v", err)
+	}
+}
+
+// TestBuildBootstrap_multiUserConfigLocalStubPassesPosture confirms the gate
+// removal did not disable runtimebundle posture/security validation: a
+// multi_user config whose only enabled backend is local-stub (BackendAccessAny,
+// CredentialNone) still assembles successfully.
+func TestBuildBootstrap_multiUserConfigLocalStubPassesPosture(t *testing.T) {
+	t.Parallel()
+	cfgPath := writeMultiUserTempConfig(t)
+	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+		ConfigPath: cfgPath,
+		Mode:       runtimebundle.BootstrapServe,
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+		LogWriter:  io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if res.ShutdownTracing != nil {
+		_ = res.ShutdownTracing(context.Background())
+	}
+}
+
+func writeMultiUserTempConfig(t *testing.T) string {
+	t.Helper()
+	const cfg = `server:
+  address: "127.0.0.1:18080"
+  auth_mode: external
+access:
+  mode: multi_user
+auth:
+  handler: local_api_key
+  required_level: api_key
+  local_api_keys:
+    - key_id: k1
+      principal_id: p1
+      key: "test-key-at-least-16-chars"
+routing:
+  max_attempts: 3
+  default_route: "dogfood-local:stub-default"
+continuity:
+  in_memory: true
+  store: memory
+logging:
+  level: info
+  format: text
+diagnostics:
+  enabled: false
+hooks:
+  tool_reactor_error_policy: fail_open
+plugins:
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+    - id: openai-legacy
+      enabled: true
+      config: {}
+    - id: anthropic
+      enabled: true
+      config: {}
+    - id: gemini
+      enabled: true
+      config: {}
+  backends:
+    - id: openai-responses
+      enabled: false
+      config: {}
+    - id: openai-legacy
+      enabled: false
+      config: {}
+    - id: anthropic
+      enabled: false
+      config: {}
+    - id: gemini
+      enabled: false
+      config: {}
+    - id: bedrock
+      enabled: false
+      config: {}
+    - id: acp
+      enabled: false
+      config: {}
+    - id: openrouter
+      enabled: false
+      config: {}
+    - id: nvidia
+      enabled: false
+      config: {}
+    - id: opencode-go
+      enabled: false
+      config: {}
+    - id: opencode-zen
+      enabled: false
+      config: {}
+    - id: ollama
+      enabled: false
+      config: {}
+    - id: ollama-cloud
+      enabled: false
+      config: {}
+    - id: llamacpp
+      enabled: false
+      config: {}
+    - id: lmstudio
+      enabled: false
+      config: {}
+    - id: vllm
+      enabled: false
+      config: {}
+    - kind: local-stub
+      id: dogfood-local
+      enabled: true
+      config:
+        text: "[dogfood] local stub"
+        input_tokens: 3
+        output_tokens: 7
+  features:
+    - id: submit-noop
+      enabled: true
+      config: {}
+    - id: parts-noop
+      enabled: true
+      config: {}
+    - id: tool-reactor-noop
+      enabled: true
+      config: {}
+`
+	path := filepath.Join(t.TempDir(), "multi-user.yaml")
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

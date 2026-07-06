@@ -27,10 +27,29 @@ func TestBackendCredentialModeWireStrings(t *testing.T) {
 	}
 }
 
+func TestBackendAccessScopeWireStrings(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		scope lipsdk.BackendAccessScope
+		want  string
+	}{
+		{lipsdk.BackendAccessAny, "any"},
+		{lipsdk.BackendAccessLocalOnly, "local_only"},
+	}
+	for _, tc := range cases {
+		if string(tc.scope) != tc.want {
+			t.Fatalf("BackendAccessScope %s: got %q want %q", tc.want, string(tc.scope), tc.want)
+		}
+	}
+}
+
 func TestBackendSecurityProfileExportedFields(t *testing.T) {
 	t.Parallel()
-	p := lipsdk.BackendSecurityProfile{CredentialMode: lipsdk.CredentialStatic}
+	p := lipsdk.BackendSecurityProfile{CredentialMode: lipsdk.CredentialStatic, AccessScope: lipsdk.BackendAccessLocalOnly}
 	if p.CredentialMode != lipsdk.CredentialStatic {
+		t.Fatal(p)
+	}
+	if p.AccessScope != lipsdk.BackendAccessLocalOnly {
 		t.Fatal(p)
 	}
 }

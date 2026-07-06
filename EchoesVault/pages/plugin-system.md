@@ -13,6 +13,8 @@ status: active
 
 Explicit, static, per-composition-root. No DI containers, no reflection registries, no Go `plugin` package. `internal/pluginreg/` owns standard distribution registration.
 
+Backend registrations declare both credential posture and access scope. `BackendAccessLocalOnly` connectors are allowed only in single-user loopback deployments and are rejected during runtime bundle assembly when `access.mode: multi_user` is active.
+
 ```
 NewRegistry() -> InstallStandardBundleOn(reg, keys) -> reg.Build() -> runtimebundle.Built
 ```
@@ -38,9 +40,12 @@ Translate canonical requests into upstream calls. Map upstream responses into ca
 |---|---|
 | Hosted/Provider | `openairesponses`, `openailegacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openaicodex`, `opencodego`, `opencodezen` |
 | Local/Compatible | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub` |
+| Local-Agent (subprocess stdio) | `cursorcliacp`, `geminicliacp`, `agycliacp`, `codexappserver` |
 | Custom | `openaicompat` - operator-configured OpenAI/Anthropic-compatible rows |
 
 Shared helpers: `checkcfg/`, `credpool/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `opencodecommon/`, `protocols/`, `streampeek/`.
+
+Local-only standard backends currently include `acp`, `cursorcliacp`, `geminicliacp`, `agycliacp`, `openaicodex`, and `codexappserver` because they can involve local agent processes or private user OAuth/ChatGPT credentials.
 
 ## Feature Plugins (`internal/plugins/features/`)
 

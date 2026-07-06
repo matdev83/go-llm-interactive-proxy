@@ -965,6 +965,7 @@ func (s *Store) Summary(ctx context.Context, query domain.SummaryQuery) ([]domai
 		s.resume_eligible, s.a_leg_id, s.policy_version, s.transcript_enabled,
 		s.redaction_profile, s.audit_mode, s.usage_in, s.usage_out
 		FROM lip_secure_sessions s`
+	// 2 cond max (owner+workspace); 3 args max (2 cond + limit).
 	cond := make([]string, 0, 2)
 	args := make([]any, 0, 3)
 	if query.OwnerID != "" {

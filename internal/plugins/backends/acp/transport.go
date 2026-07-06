@@ -53,12 +53,16 @@ func readHTTPBodyLimited(r io.ReadCloser, max int) (b []byte, err error) {
 type Transport interface {
 	// CallUnary posts one JSON-RPC request and reads the full response body when
 	// status matches expectStatus (typically 200). For 204, body may be empty.
+	// For stdio transports, expectStatus is ignored.
 	CallUnary(ctx context.Context, body []byte, expectStatus int) ([]byte, error)
 	// CallPromptStream posts session/prompt and returns the response body stream (NDJSON).
 	CallPromptStream(ctx context.Context, body []byte) (io.ReadCloser, error)
 	// SendJSONRPC posts an arbitrary JSON-RPC object (e.g. response to an inbound
 	// server request during a prompt on HTTP transports that use POST per message).
 	SendJSONRPC(ctx context.Context, body []byte) error
+	// Close releases transport resources. HTTP transports are no-ops; stdio transports
+	// kill the subprocess and close pipes. Safe to call multiple times.
+	Close() error
 }
 
 // httpTransport implements Transport over POST {origin}/v1/acp (batch HTTP).
@@ -132,6 +136,8 @@ func (t *httpTransport) CallPromptStream(ctx context.Context, body []byte) (io.R
 	return resp.Body, nil
 }
 
+func (t *httpTransport) Close() error { return nil }
+
 func (t *httpTransport) SendJSONRPC(ctx context.Context, body []byte) (err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -159,7 +165,10 @@ func (t *httpTransport) SendJSONRPC(ctx context.Context, body []byte) (err error
 			}
 		}
 	}()
-	if _, copyErr := io.Copy(io.Discard, resp.Body); copyErr != nil {
+	// Discard the success body bounded by maxErrorSnippetBytes so a hostile or
+	// buggy endpoint cannot force unbounded allocation. The body is not consumed
+	// past this cap; resp.Body.Close() handles any remainder.
+	if _, copyErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorSnippetBytes)); copyErr != nil {
 		err = fmt.Errorf("acp: discard send jsonrpc body: %w", copyErr)
 	}
 	return err

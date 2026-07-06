@@ -125,17 +125,8 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 	case anthropic.ContentBlockStartEvent:
 		cb := v.ContentBlock
 		if media := assistantMediaEventsFromContentBlockStart(cb); len(media) > 0 {
-			if !s.sawResp {
-				s.sawResp = true
-				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
-					return err
-				}
-			}
-			if !s.sawMsg {
-				s.sawMsg = true
-				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-					return err
-				}
+			if err := s.ensureFrameStarted(); err != nil {
+				return err
 			}
 			for _, e := range media {
 				if err := s.pending.Push(e); err != nil {
@@ -161,17 +152,8 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 		switch t := d.AsAny().(type) {
 		case anthropic.TextDelta:
 			if t.Text != "" {
-				if !s.sawResp {
-					s.sawResp = true
-					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
-						return err
-					}
-				}
-				if !s.sawMsg {
-					s.sawMsg = true
-					if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
-						return err
-					}
+				if err := s.ensureFrameStarted(); err != nil {
+					return err
 				}
 				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: t.Text}); err != nil {
 					return err
@@ -189,12 +171,18 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 			}
 		case anthropic.ThinkingDelta:
 			if t.Thinking != "" {
+				if err := s.ensureFrameStarted(); err != nil {
+					return err
+				}
 				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: t.Thinking}); err != nil {
 					return err
 				}
 			}
 		case anthropic.SignatureDelta:
 			if t.Signature != "" {
+				if err := s.ensureFrameStarted(); err != nil {
+					return err
+				}
 				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningSignatureDelta, Signature: t.Signature}); err != nil {
 					return err
 				}
@@ -215,6 +203,26 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 			return err
 		}
 		s.terminal = true
+	}
+	return nil
+}
+
+// ensureFrameStarted emits ResponseStarted and MessageStarted if not already seen,
+// so content-class deltas and assistant media refs are never published before the
+// message frame. Mirrors the defensive establishment the TextDelta path already did
+// inline; shared here so ThinkingDelta and SignatureDelta behave consistently.
+func (s *msgStream) ensureFrameStarted() error {
+	if !s.sawResp {
+		s.sawResp = true
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventResponseStarted}); err != nil {
+			return err
+		}
+	}
+	if !s.sawMsg {
+		s.sawMsg = true
+		if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

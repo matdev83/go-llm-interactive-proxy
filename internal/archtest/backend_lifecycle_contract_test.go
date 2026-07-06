@@ -24,6 +24,10 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"vllm":         "openaicompat",
 		"opencodego":   "opencodecommon",
 		"opencodezen":  "opencodecommon",
+		// ACP CLI connectors delegate streaming to the shared acp.promptStream.
+		"cursorcliacp": "acp",
+		"geminicliacp": "acp",
+		"agycliacp":    "acp",
 	}
 	skipDirs := map[string]struct{}{
 		"credpool": {}, "openaicaps": {}, "openaicred": {}, "streampeek": {}, "checkcfg": {},

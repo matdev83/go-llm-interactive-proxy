@@ -14,6 +14,7 @@
       "go_list_pattern": "./cmd/lipstd",
       "classification": "aligned",
       "allowed_internal_core_imports": [
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
       ]
     },

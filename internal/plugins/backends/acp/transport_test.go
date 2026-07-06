@@ -138,3 +138,67 @@ func TestHTTPTransport_CallUnary_httpErrorUsesLimitedBody(t *testing.T) {
 		t.Fatalf("expected status in error: %s", msg)
 	}
 }
+
+func TestHTTPTransport_SendJSONRPC_successOK(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	tr, err := newHTTPTransport(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tr.SendJSONRPC(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)); err != nil {
+		t.Fatalf("SendJSONRPC ok response: %v", err)
+	}
+}
+
+func TestHTTPTransport_SendJSONRPC_successBoundedDiscardDoesNotError(t *testing.T) {
+	t.Parallel()
+
+	// Success body larger than the discard cap must not error — the discard is
+	// bounded to avoid unbounded allocation, but a capped success is still success.
+	over := maxErrorSnippetBytes + 4096
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, io.LimitReader(bytes.NewReader(bytes.Repeat([]byte("x"), over)), int64(over)))
+	}))
+	t.Cleanup(srv.Close)
+
+	tr, err := newHTTPTransport(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tr.SendJSONRPC(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)); err != nil {
+		t.Fatalf("SendJSONRPC bounded discard should not error: %v", err)
+	}
+}
+
+func TestHTTPTransport_SendJSONRPC_nonOKReturnsError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`busy`))
+	}))
+	t.Cleanup(srv.Close)
+
+	tr, err := newHTTPTransport(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = tr.SendJSONRPC(context.Background(), []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	if err == nil {
+		t.Fatal("expected error for non-200 SendJSONRPC")
+	}
+	if !strings.Contains(err.Error(), "HTTP 503") {
+		t.Fatalf("expected HTTP 503 in error: %s", err.Error())
+	}
+}

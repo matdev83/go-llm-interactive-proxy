@@ -12,8 +12,10 @@ status: active
 ## Startup Posture
 
 - `no_auth` is for explicit loopback single-user operation only
+- `single_user` is the default and permits only explicit loopback binds; `multi_user` requires config opt-in plus `lipstd serve --multi-user`
 - Standard HTTP startup refuses administrative/root-style execution
-- Backend factories declare credential posture so non-local deployments reject unknown or user-OAuth credentials early
+- Backend factories declare credential and access posture so multi-user deployments reject unknown, user-OAuth, and local-only connectors early
+- Local-only connectors include ACP/process-spawning backends, OpenAI Codex, and Codex App Server
 - Fail closed at composition or startup boundaries
 
 ## Transport Authentication
@@ -46,7 +48,7 @@ status: active
 | `internal/core/auth/` | Authentication logic |
 | `internal/core/securesession/` | Session authority, resume, denial |
 | `internal/core/safety/` | Safety checks |
-| `internal/pluginreg/` | Credential posture metadata |
+| `internal/pluginreg/` | Credential and access-scope posture metadata |
 | `internal/stdhttp/` | Transport auth, security guard |
 | `internal/infra/runtimebundle/` | Security policy checks at composition |
 | `pkg/lipsdk/auth/` | Auth SDK facades |
@@ -55,5 +57,5 @@ status: active
 ## Config Security
 
 - `http_client.trust_environment_proxy: false` when environment not trusted
-- `auth.access_mode` controls auth enforcement
+- `access.mode` controls deployment access posture
 - `auth.local_api_keys` for multi-user non-loopback deployments

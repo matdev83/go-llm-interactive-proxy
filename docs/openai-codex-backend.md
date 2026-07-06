@@ -17,6 +17,8 @@ plugins:
 
 ## Credentials
 
+This connector is single-user only. The standard distribution rejects it when `access.mode: multi_user` is enabled because its credentials are private user OAuth/ChatGPT material whether supplied through explicit tokens, `auth_json_path`, default Codex CLI discovery, or managed OAuth account files.
+
 - YAML: `access_token` (preferred) or `api_key`, plus optional `api_keys` / `credentials`.
 - Environment: `OPENAI_CODEX_ACCESS_TOKEN`, then numbered `_2`, `_3`, …; falls back to `OPENAI_CODEX_API_KEY` (+ `_N` variants) when access-token vars are unset.
 - When neither `access_token` nor `auth_json_path` is set, the connector reads `~/.codex/auth.json` if present (Codex CLI default).

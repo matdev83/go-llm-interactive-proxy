@@ -3,14 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
@@ -18,8 +21,7 @@ import (
 
 func printLipstdUsage(fs *flag.FlagSet) {
 	_, _ = fmt.Fprintf(fs.Output(),
-		"Usage: lipstd [--config path] "+
-			"[serve|check-config|routes|inventory] [--config path]\n\n",
+		"Usage: lipstd [--config path] [serve|check-config|routes|inventory]\n\n",
 	)
 	fs.PrintDefaults()
 }
@@ -37,6 +39,7 @@ type CommandOptions struct {
 	Name           CommandName
 	ConfigPath     string
 	StreamRecovery config.StreamRecoveryOverrides
+	MultiUser      *bool
 	Output         io.Writer
 	ErrorOut       io.Writer
 }
@@ -45,6 +48,7 @@ type ParsedArgs struct {
 	ConfigPath     string
 	Name           CommandName
 	StreamRecovery config.StreamRecoveryOverrides
+	MultiUser      *bool
 }
 
 func RunCommand(ctx context.Context, opts CommandOptions) int {
@@ -124,17 +128,12 @@ func flagTakesValue(a string) bool {
 	}
 }
 
+// hasInlineFlagValue reports whether a is a flag-shaped token that has its value
+// embedded after an '=' separator (e.g. "--config=./x.yaml"). The leading '-'
+// guard prevents treating positional arguments that contain '=' (e.g.
+// "something=other") as flag-with-embedded-value tokens.
 func hasInlineFlagValue(a string) bool {
-	return len(a) > 0 && a[0] == '-' && containsEqual(a)
-}
-
-func containsEqual(s string) bool {
-	for _, r := range s {
-		if r == '=' {
-			return true
-		}
-	}
-	return false
+	return len(a) > 0 && a[0] == '-' && strings.Contains(a, "=")
 }
 
 func ParseArgs(argv []string, usageOut io.Writer) (configPath string, name CommandName, err error) {
@@ -172,6 +171,8 @@ func parseCommandFlags(name string, args []string, usageOut io.Writer, out *Pars
 	fs.StringVar(&autoResume, "auto-resume", "", "enable stream auto-resume/recovery")
 	fs.StringVar(&idleTimeout, "auto-resume-idle-timeout", "", "auto-resume idle timeout")
 	fs.StringVar(&gracePeriod, "auto-resume-grace-period", "", "auto-resume grace period")
+	var multiUser bool
+	fs.BoolVar(&multiUser, "multi-user", false, "opt in to access.mode multi_user for serve")
 	fs.Usage = func() { printLipstdUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -179,6 +180,12 @@ func parseCommandFlags(name string, args []string, usageOut io.Writer, out *Pars
 	if extra := fs.Args(); len(extra) > 0 {
 		return fmt.Errorf("unexpected arguments: %v", extra)
 	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "multi-user" {
+			v := multiUser
+			out.MultiUser = &v
+		}
+	})
 	if autoResume != "" {
 		v, err := parseBoolFlag("auto-resume", autoResume)
 		if err != nil {
@@ -215,6 +222,14 @@ func parseBoolFlag(name, raw string) (bool, error) {
 }
 
 func runServeCommand(ctx context.Context, opts CommandOptions) int {
+	if err := validateServeMultiUserGate(opts.ConfigPath, opts.MultiUser); err != nil {
+		if errors.Is(err, accessmode.ErrMultiUserFlagRequired) || errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
+			_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd: %v\n", err)
+			return 2
+		}
+		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
+		return 1
+	}
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath:              opts.ConfigPath,
 		Mode:                    runtimebundle.BootstrapServe,
@@ -238,6 +253,24 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		return 1
 	}
 	return 0
+}
+
+// validateServeMultiUserGate enforces the --multi-user CLI flag consistency
+// against access.mode for serve mode. It is a CLI-layer concern: it loads the
+// config, resolves the effective access mode, and applies
+// [accessmode.ValidateServeModeGate] before heavy runtime assembly in
+// [runtimebundle.BuildBootstrap]. Runtime posture/security validation
+// (backend access scopes, credential modes) stays in runtimebundle.Build.
+func validateServeMultiUserGate(configPath string, multiUserFlag *bool) error {
+	cfg, err := config.LoadFile(configPath)
+	if err != nil {
+		return err
+	}
+	mode, err := cfg.EffectiveAccessMode()
+	if err != nil {
+		return fmt.Errorf("bootstrap access/auth: %w", err)
+	}
+	return accessmode.ValidateServeModeGate(mode, multiUserFlag)
 }
 
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {

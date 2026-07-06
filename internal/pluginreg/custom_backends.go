@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -206,23 +207,30 @@ func isReservedStandardBackendPrefix(prefix string) bool {
 	return ok
 }
 
+var (
+	standardPrefixSet     map[string]struct{}
+	standardPrefixSetOnce sync.Once
+)
+
 func standardBackendPrefixSet() map[string]struct{} {
-	backends := StandardBackendBundle(UpstreamAPIKeys{}).Backends
-	out := make(map[string]struct{}, len(backends))
-	for _, entry := range backends {
-		if IsCustomCompatibleBackendKind(entry.ID) {
-			continue
-		}
-		out[entry.ID] = struct{}{}
-		be, err := entry.Factory(yaml.Node{}, nil, BackendFactoryDeps{})
-		if err != nil {
-			continue
-		}
-		for _, prefix := range be.BackendPrefixes {
-			if prefix = strings.TrimSpace(prefix); prefix != "" {
-				out[prefix] = struct{}{}
+	standardPrefixSetOnce.Do(func() {
+		backends := StandardBackendBundle(UpstreamAPIKeys{}).Backends
+		standardPrefixSet = make(map[string]struct{}, len(backends))
+		for _, entry := range backends {
+			if IsCustomCompatibleBackendKind(entry.ID) {
+				continue
+			}
+			standardPrefixSet[entry.ID] = struct{}{}
+			be, err := entry.Factory(yaml.Node{}, nil, BackendFactoryDeps{})
+			if err != nil {
+				continue
+			}
+			for _, prefix := range be.BackendPrefixes {
+				if prefix = strings.TrimSpace(prefix); prefix != "" {
+					standardPrefixSet[prefix] = struct{}{}
+				}
 			}
 		}
-	}
-	return out
+	})
+	return standardPrefixSet
 }

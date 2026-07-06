@@ -24,6 +24,13 @@ func newClient(baseURL string, hc *http.Client, log *slog.Logger) (*client, erro
 	return &client{t: t, log: log}, nil
 }
 
+// newClientFromTransport constructs a client from any Transport implementation,
+// enabling stdio and future transport variants to share the same client logic
+// (handshake, session/prompt, cancel) without re-implementing the HTTP transport.
+func newClientFromTransport(t Transport, log *slog.Logger) *client {
+	return &client{t: t, log: log}
+}
+
 func (c *client) rpcID() int64 {
 	return c.nextID.Add(1)
 }

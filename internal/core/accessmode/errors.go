@@ -18,6 +18,9 @@ var (
 	ErrMultiUserUnknownHandler       = errors.New("access.mode: multi_user unknown auth.handler")
 	ErrMultiUserUnknownRequiredLevel = errors.New("access.mode: multi_user unknown auth.required_level")
 	ErrMultiUserInternalUnknownMode  = errors.New("access.mode: internal error, unknown mode")
+
+	ErrMultiUserFlagRequired     = errors.New("access.mode: multi_user requires the --multi-user flag on serve")
+	ErrMultiUserFlagInconsistent = errors.New("access.mode: --multi-user flag is inconsistent with non-multi_user config")
 )
 
 // ErrMalformedListenAddress is returned by [ClassifyListenAddress] when the address is not

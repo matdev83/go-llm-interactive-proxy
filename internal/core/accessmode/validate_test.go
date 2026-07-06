@@ -8,11 +8,16 @@ import (
 
 func TestValidatePosture_singleUserLoopbackOnly(t *testing.T) {
 	t.Parallel()
-	if err := ValidatePosture(PostureInput{
-		Mode:   ModeSingleUser,
-		Listen: ListenClassification{Raw: "127.0.0.1:1", Surface: SurfaceLoopback},
-	}); err != nil {
-		t.Fatal(err)
+	for _, raw := range []string{"127.0.0.1:1", "127.0.0.2:1", "[::1]:1", "localhost:1"} {
+		t.Run("allows_"+raw, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidatePosture(PostureInput{
+				Mode:   ModeSingleUser,
+				Listen: ListenClassification{Raw: raw, Surface: SurfaceLoopback},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 	for _, tc := range []struct {
 		name string

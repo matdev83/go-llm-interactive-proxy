@@ -66,7 +66,7 @@ Driven adapters are responsible for:
 - mapping upstream responses into canonical events,
 - keeping provider SDKs and wire models at the edge,
 - translating infrastructure failures into core-understandable errors,
-- declaring credential posture metadata for startup validation where the standard bundle can enforce trust boundaries,
+- declaring credential and access-scope posture metadata for startup validation where the standard bundle can enforce trust boundaries,
 - exposing model inventory and capability metadata through SDK/core seams when available.
 
 No backend may require provider SDK types to cross into `pkg/lipapi`, `pkg/lipsdk`, or `internal/core`.
