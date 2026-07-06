@@ -5,6 +5,10 @@ package lipapi
 //
 // Aligned with streaming-first execution: lifecycle frames alone do not commit;
 // user-visible deltas and tool argument streaming do.
+//
+// EventReasoningSignatureDelta is intentionally excluded: it is Anthropic
+// integrity metadata that arrives after reasoning text (which already commits),
+// not user-visible output content.
 func OutputCommitted(ev Event) bool {
 	switch ev.Kind {
 	case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta,

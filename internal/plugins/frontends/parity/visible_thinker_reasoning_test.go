@@ -203,3 +203,34 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 		})
 	}
 }
+
+func TestVisibleThinkerSignature_streamAnthropicRoundTrip(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: visibleThinkerReasoning},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig-roundtrip"},
+		{Kind: lipapi.EventTextDelta, Delta: visibleExecutorText},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := visibleThinkerCall(modelExt(t, "anthropic.model", "claude-3-5-haiku-20241022"))
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(t.Context(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_sig_parity"}); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	assertVisibleThinkerWireLegality(t, body, true)
+	if !strings.Contains(body, "event: message_stop") {
+		t.Fatalf("missing terminal message_stop; body=%q", body)
+	}
+	if !strings.Contains(body, `"signature":""`) {
+		t.Fatalf("thinking content_block_start should carry an empty signature field; body=%q", body)
+	}
+	if !strings.Contains(body, `"type":"signature_delta"`) {
+		t.Fatalf("missing signature_delta on wire; body=%q", body)
+	}
+	if !strings.Contains(body, `"signature":"sig-roundtrip"`) {
+		t.Fatalf("signature_delta should carry the original signature; body=%q", body)
+	}
+}

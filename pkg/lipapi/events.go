@@ -34,17 +34,18 @@ func DefaultCollectLimits() CollectLimits {
 type EventKind string
 
 const (
-	EventResponseStarted   EventKind = "response_started"
-	EventMessageStarted    EventKind = "message_started"
-	EventTextDelta         EventKind = "text_delta"
-	EventReasoningDelta    EventKind = "reasoning_delta"
-	EventToolCallStarted   EventKind = "tool_call_started"
-	EventToolCallArgsDelta EventKind = "tool_call_args_delta"
-	EventToolCallFinished  EventKind = "tool_call_finished"
-	EventUsageDelta        EventKind = "usage_delta"
-	EventWarning           EventKind = "warning"
-	EventError             EventKind = "error"
-	EventResponseFinished  EventKind = "response_finished"
+	EventResponseStarted         EventKind = "response_started"
+	EventMessageStarted          EventKind = "message_started"
+	EventTextDelta               EventKind = "text_delta"
+	EventReasoningDelta          EventKind = "reasoning_delta"
+	EventReasoningSignatureDelta EventKind = "reasoning_signature_delta"
+	EventToolCallStarted         EventKind = "tool_call_started"
+	EventToolCallArgsDelta       EventKind = "tool_call_args_delta"
+	EventToolCallFinished        EventKind = "tool_call_finished"
+	EventUsageDelta              EventKind = "usage_delta"
+	EventWarning                 EventKind = "warning"
+	EventError                   EventKind = "error"
+	EventResponseFinished        EventKind = "response_finished"
 
 	// Assistant-side multimodal references (streaming). Adapters emit these instead of
 	// overloading text_delta when the vendor returns image/file output items.
@@ -52,14 +53,30 @@ const (
 	EventAssistantFileRef  EventKind = "assistant_file_ref"
 )
 
+// isContentClassKind reports kinds that must appear after both response_started
+// and message_started in the canonical stream. Keep this in sync with the
+// content-class group in the sequence validators below.
+func isContentClassKind(k EventKind) bool {
+	switch k {
+	case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta,
+		EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
+		EventAssistantImageRef, EventAssistantFileRef:
+		return true
+	}
+	return false
+}
+
 // Event is one canonical streaming item.
 type Event struct {
 	Kind EventKind
 
 	MessageIndex int
 	Delta        string
-	ToolCallID   string
-	ToolName     string
+	// Signature carries the Anthropic thinking-block signature on
+	// EventReasoningSignatureDelta; it is empty for other kinds.
+	Signature  string
+	ToolCallID string
+	ToolName   string
 
 	// Usage fields apply to EventUsageDelta. InputTokens and OutputTokens are
 	// retained as the compatibility totals used by existing frontends.
@@ -139,6 +156,9 @@ func ValidateEventEnvelope(ev *Event) error {
 		return err
 	}
 	if err := validateStringField("AssistantName", ev.AssistantName, MaxRefStringBytes); err != nil {
+		return err
+	}
+	if err := validateStringField("Signature", ev.Signature, MaxRefStringBytes); err != nil {
 		return err
 	}
 	if err := ev.Accounting.validate("Accounting"); err != nil {
@@ -365,14 +385,6 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 				return out, fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
-			EventAssistantImageRef, EventAssistantFileRef:
-			if !sawResponseStarted {
-				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
-			}
-			if !sawMessage {
-				return out, fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
-			}
 		case EventUsageDelta, EventWarning:
 			if !sawResponseStarted {
 				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
@@ -393,7 +405,15 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			out.FinishReason = ev.FinishReason
 			return out, nil
 		default:
-			return out, fmt.Errorf("unknown event kind %q", ev.Kind)
+			if !isContentClassKind(ev.Kind) {
+				return out, fmt.Errorf("unknown event kind %q", ev.Kind)
+			}
+			if !sawResponseStarted {
+				return out, fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
+			}
+			if !sawMessage {
+				return out, fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
+			}
 		}
 
 		switch ev.Kind {
@@ -542,14 +562,6 @@ func ValidateEventSequence(events []Event) error {
 				return fmt.Errorf("%s before %s", EventMessageStarted, EventResponseStarted)
 			}
 			sawMessage = true
-		case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
-			EventAssistantImageRef, EventAssistantFileRef:
-			if !sawResponseStarted {
-				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
-			}
-			if !sawMessage {
-				return fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
-			}
 		case EventUsageDelta, EventWarning:
 			if !sawResponseStarted {
 				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
@@ -565,7 +577,15 @@ func ValidateEventSequence(events []Event) error {
 			}
 			return nil
 		default:
-			return fmt.Errorf("unknown event kind %q", ev.Kind)
+			if !isContentClassKind(ev.Kind) {
+				return fmt.Errorf("unknown event kind %q", ev.Kind)
+			}
+			if !sawResponseStarted {
+				return fmt.Errorf("%s before %s", ev.Kind, EventResponseStarted)
+			}
+			if !sawMessage {
+				return fmt.Errorf("%s before %s", ev.Kind, EventMessageStarted)
+			}
 		}
 	}
 	return fmt.Errorf("missing terminal event")

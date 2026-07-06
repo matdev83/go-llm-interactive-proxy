@@ -541,6 +541,35 @@ func TestWriteStreamSSE_reasoningAndTextDeltas(t *testing.T) {
 	}
 }
 
+func TestWriteStreamSSE_reasoningSignatureDeltaNoOp(t *testing.T) {
+	t.Parallel()
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "think"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig"},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "gpt-4o-mini"),
+	}
+	rec := httptest.NewRecorder()
+	opts := openailegacy.EncodeOptions{CompletionID: "chatcmpl_signoop", CreatedAt: 1715620000}
+	if err := openailegacy.WriteStreamSSE(t.Context(), rec, call, es, opts); err != nil {
+		t.Fatal(err)
+	}
+	s := rec.Body.String()
+	if strings.Contains(s, "signature") {
+		t.Fatalf("stream body should not contain signature, got %q", s)
+	}
+	if !strings.Contains(s, `"reasoning_content":"think"`) || !strings.Contains(s, `"content":"ans"`) {
+		t.Fatalf("reasoning and text output should be unchanged, got %q", s)
+	}
+}
+
 func TestWriteNonStreamJSON_assistantMediaContentArray(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{
