@@ -107,7 +107,7 @@ func (f *FileSnapshotStore) Save(ctx context.Context, snapshot modelcatalog.Snap
 		return fmt.Errorf("modelsdev cache marshal: %w", err)
 	}
 	dir := filepath.Dir(f.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("modelsdev cache mkdir: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, "catalog-*.tmp")

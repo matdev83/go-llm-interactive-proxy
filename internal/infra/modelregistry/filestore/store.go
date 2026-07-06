@@ -51,7 +51,7 @@ func (s *Store) Save(ctx context.Context, snap modelregistry.Snapshot) error {
 		return err
 	}
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("modelregistry cache mkdir: %w", err)
 	}
 	if snap.Models == nil {
