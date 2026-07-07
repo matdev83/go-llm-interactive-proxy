@@ -77,7 +77,11 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 
 	prep.traceID, prep.baseline, prep.aLeg, prep.ctx, err = e.prepareSubmitAndALeg(prep.ctx, bus, call)
 	if err != nil {
-		prep.execSpan.End()
+		// Route through finalize so the lip.executor.execute span records the
+		// prepare-submit failure (RecordError + SetStatus) before ending, matching
+		// the former inline Execute defer. Execute does not call finalize when
+		// prepareRequest returns an error (prep is nil), so the span ends here.
+		prep.finalize(err)
 		return nil, noop, fmt.Errorf("executor: prepare submit: %w", err)
 	}
 
