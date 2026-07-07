@@ -84,8 +84,10 @@ Recoverability is defined by the specification bundle: tests, `testdata/` golden
 - `pkg/lipsdk/` - stable plugin SDK contracts and standard distribution requirements.
 - `internal/core/` - runtime orchestration, routing, continuity, secure sessions, hooks/extensions, stream handling, policy, accounting, config, admin, diagnostics, and safety.
 - `internal/plugins/` - bundled frontend, backend, feature, compatibility, and protocol-helper packages.
-- `internal/pluginreg/` - explicit standard bundle registration and backend factory helpers.
-- `internal/infra/runtimebundle/` and `internal/stdhttp/` - runtime assembly and HTTP mounting/serving.
+- `internal/standardplugins/` - standard bundle registration tables, per-backend factory helpers, and `InstallStandardBundleOn`.
+- `internal/featurebundle/` - feature merge surface (`MergeFeatureSurface` over SDK hook slices).
+- `internal/pluginreg/` - explicit per-composition-root registry and backend factory helpers.
+- `internal/infra/runtimebundle/` and `internal/stdhttp/` - runtime assembly (executor, hook bus, stores) and HTTP mounting/serving.
 - `internal/infra/` - logging, HTTP client tuning, metrics, tracing, DB, model catalog/registry, routing health, tokenization/accounting, and auth-event plumbing.
 - `internal/refbackend/`, `internal/refclient/`, `internal/testkit/` - emulators, reference clients, fixtures, stubs, and conformance helpers for tests.
 - `internal/archtest/`, `internal/qa/`, `scripts/`, `.githooks/`, `.github/workflows/` - guardrails and quality automation.

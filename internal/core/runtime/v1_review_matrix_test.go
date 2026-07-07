@@ -33,16 +33,15 @@ func TestV1Matrix_submitHook_receivesTraceID(t *testing.T) {
 		got = &cp
 		return sdk.SubmitDecision{}, nil
 	}}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{SubmitHooks: []sdk.SubmitHook{sub}}),
-		Rand:  routing.NewSeededRng(4),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{SubmitHooks: []sdk.SubmitHook{sub}})
+	ex.Rand = routing.NewSeededRng(4)
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -90,28 +89,27 @@ func TestV1Matrix_requestHook_metaChangesOnRecvReplacementBLeg(t *testing.T) {
 			return nil
 		},
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"bad": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return &flakyThenEOFStream{
-						first: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
-						then:  lipapi.RecoverablePreOutputError(errors.New("recv fail")),
-					}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &flakyThenEOFStream{
+					first: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
+					then:  lipapi.RecoverablePreOutputError(errors.New("recv fail")),
+				}, nil
 			},
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -202,30 +200,29 @@ func TestV1Matrix_requestHookMutationNotCompoundedAcrossRecvFailover(t *testing.
 		},
 	}
 	var partLens []int
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"bad": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					partLens = append(partLens, len(call.Messages[0].Parts))
-					return &flakyThenEOFStream{
-						first: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
-						then:  lipapi.RecoverablePreOutputError(errors.New("recv fail")),
-					}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{RequestPartHooks: []sdk.RequestPartHook{reqHook}})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				partLens = append(partLens, len(call.Messages[0].Parts))
+				return &flakyThenEOFStream{
+					first: []lipapi.Event{{Kind: lipapi.EventResponseStarted}},
+					then:  lipapi.RecoverablePreOutputError(errors.New("recv fail")),
+				}, nil
 			},
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					partLens = append(partLens, len(call.Messages[0].Parts))
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				partLens = append(partLens, len(call.Messages[0].Parts))
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}

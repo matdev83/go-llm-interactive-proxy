@@ -59,33 +59,32 @@ func TestExecutor_submitHook_routeSelector_usedForPlanning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var backendOpened atomic.Value
-	ex := &runtime.Executor{
-		Store: st,
-		Bus: executorSubmitHooksBus(submitRouteRewrite{
-			to: "backendB:model-x",
-		}),
-		Backends: map[string]execbackend.Backend{
-			"backendA": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					backendOpened.Store("A")
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = executorSubmitHooksBus(submitRouteRewrite{
+		to: "backendB:model-x",
+	})
+	ex.Backends = map[string]execbackend.Backend{
+		"backendA": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendOpened.Store("A")
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
-			"backendB": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					backendOpened.Store("B")
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"backendB": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendOpened.Store("B")
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -123,32 +122,31 @@ func TestExecutor_selectorAlias_opensMappedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	var backendOpened atomic.Value
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             hooks.New(hooks.Config{}),
-		SelectorAliases: ar,
-		Backends: map[string]execbackend.Backend{
-			"backendA": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					backendOpened.Store("A")
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.SelectorAliases = ar
+	ex.Backends = map[string]execbackend.Backend{
+		"backendA": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendOpened.Store("A")
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
-			"backendB": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					backendOpened.Store("B")
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"backendB": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendOpened.Store("B")
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -179,20 +177,19 @@ func TestExecutor_submitHook_oversizedCall_rejectedBeforeBackendOpen(t *testing.
 		t.Fatal(err)
 	}
 	var opens int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   executorSubmitHooksBus(submitInflateUserText{}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opens, 1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = executorSubmitHooksBus(submitInflateUserText{})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				atomic.AddInt32(&opens, 1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}

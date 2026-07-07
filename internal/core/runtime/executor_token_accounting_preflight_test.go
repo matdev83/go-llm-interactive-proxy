@@ -54,20 +54,19 @@ func TestExecutorRequiredPreflightRejectsBeforeBackendOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{}, errors.New("counter unavailable")
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeStrict}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opens, 1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Preflight = accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+		return accountingapp.CountResult{}, errors.New("counter unavailable")
+	}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeStrict})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				atomic.AddInt32(&opens, 1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -90,20 +89,19 @@ func TestExecutorAdvisoryPreflightUnavailableProceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{}, errors.New("counter unavailable")
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opens, 1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Preflight = accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+		return accountingapp.CountResult{}, errors.New("counter unavailable")
+	}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				atomic.AddInt32(&opens, 1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -129,28 +127,27 @@ func TestExecutorPreflightOutputClampAppliesBeforeBackendOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	var openedMaxOutput int
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{InputTokens: 3, TotalTokens: 3}, nil
-		}), accountingpreflight.Config{
-			Enabled:              true,
-			Mode:                 accountingpreflight.ModeStrict,
-			MaxOutputTokens:      5,
-			ClampMaxOutputTokens: true,
-		}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if call.Options.MaxOutputTokens == nil {
-						t.Fatal("Backend.Open received nil MaxOutputTokens")
-					}
-					openedMaxOutput = *call.Options.MaxOutputTokens
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Preflight = accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+		return accountingapp.CountResult{InputTokens: 3, TotalTokens: 3}, nil
+	}), accountingpreflight.Config{
+		Enabled:              true,
+		Mode:                 accountingpreflight.ModeStrict,
+		MaxOutputTokens:      5,
+		ClampMaxOutputTokens: true,
+	})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if call.Options.MaxOutputTokens == nil {
+					t.Fatal("Backend.Open received nil MaxOutputTokens")
+				}
+				openedMaxOutput = *call.Options.MaxOutputTokens
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -181,29 +178,28 @@ func TestExecutorRequestSizeRoutingUsesTokenAccountingPreflightWhenEnabled(t *te
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             hooks.New(hooks.Config{}),
-		Rand:            routing.NewSeededRng(1),
-		CatalogResolver: tokenAccountingCatalogResolver{},
-		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			return accountingapp.CountResult{InputTokens: 35, TotalTokens: 35}, nil
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory}),
-		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 5},
-		Backends: map[string]execbackend.Backend{
-			"small": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = "small"
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.CatalogResolver = tokenAccountingCatalogResolver{}
+	ex.Preflight = accountingpreflight.NewChecker(preflightCountFunc(func(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+		return accountingapp.CountResult{InputTokens: 35, TotalTokens: 35}, nil
+	}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
+	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: true, tokens: 5}
+	ex.Backends = map[string]execbackend.Backend{
+		"small": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = "small"
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
-			"large": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = "large"
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"large": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = "large"
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -230,34 +226,33 @@ func TestExecutorRequestSizePreflightUsesHybridParallelLeaf(t *testing.T) {
 	}
 	var countedMu sync.Mutex
 	var counted []string
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Preflight: accountingpreflight.NewChecker(preflightCountFunc(func(_ context.Context, in accountingapp.CountCallInput) (accountingapp.CountResult, error) {
-			countedMu.Lock()
-			defer countedMu.Unlock()
-			counted = append(counted, in.Backend+":"+in.Model)
-			return accountingapp.CountResult{InputTokens: 3, TotalTokens: 3}, nil
-		}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory}),
-		Backends: map[string]execbackend.Backend{
-			"exec-a": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Preflight = accountingpreflight.NewChecker(preflightCountFunc(func(_ context.Context, in accountingapp.CountCallInput) (accountingapp.CountResult, error) {
+		countedMu.Lock()
+		defer countedMu.Unlock()
+		counted = append(counted, in.Backend+":"+in.Model)
+		return accountingapp.CountResult{InputTokens: 3, TotalTokens: 3}, nil
+	}), accountingpreflight.Config{Enabled: true, Mode: accountingpreflight.ModeAdvisory})
+	ex.Backends = map[string]execbackend.Backend{
+		"exec-a": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
-			"exec-b": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"exec-b": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
-			"thinker": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"thinker": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}

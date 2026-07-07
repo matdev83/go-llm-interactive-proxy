@@ -56,23 +56,23 @@ func phase6SecureExecutor(t *testing.T, sink *phase6SessionSink) *runtime.Execut
 	}
 	disp := coreauth.NewEventDispatcher(sink, coreauth.EventFailureBestEffort)
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{})
-	return &runtime.Executor{
-		Store:              st,
-		Bus:                hooks.New(hooks.Config{}),
-		RuntimeSnapshot:    snap,
-		Now:                func() time.Time { return time.Unix(3000, 0).UTC() },
-		AuthEvents:         disp,
-		SessionAuditPolicy: coreauth.SessionAuditPolicy{},
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.Now = func() time.Time { return time.Unix(3000, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = coreauth.SessionAuditPolicy{}
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
+	return ex
 }
 
 // TestPhase6_sessionStartEvidenceDerivedFromScopeAndSecretFree proves that when an authoritative

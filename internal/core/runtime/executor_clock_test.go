@@ -7,7 +7,7 @@ import (
 
 func TestExecutor_now_usesWallClockWhenNowNil(t *testing.T) {
 	t.Parallel()
-	e := &Executor{}
+	e := TestExecutor()
 	before := time.Now()
 	got := e.now()
 	after := time.Now()

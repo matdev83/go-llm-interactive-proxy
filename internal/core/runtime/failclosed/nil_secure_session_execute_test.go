@@ -19,19 +19,18 @@ func TestExecutor_Execute_nilSecureSessionFailsClosedWithoutRuntimeTestHook(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					panic("backend must not open when secure session is nil")
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				panic("backend must not open when secure session is nil")
 			},
 		},
-		Rand: routing.NewSeededRng(3),
 	}
+	ex.Rand = routing.NewSeededRng(3)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{

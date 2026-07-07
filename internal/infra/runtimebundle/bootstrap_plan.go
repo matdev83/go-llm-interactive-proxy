@@ -143,14 +143,14 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: hook composition: %w", err)
 	}
-	merged.Hooks.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
+	merged.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
 
 	app, err := NewBootstrapApp(BootstrapOptions{
 		Config:        cfg,
 		Logger:        logger,
 		Registrations: regs,
 		Mandatory:     in.Mandatory,
-		Hooks:         merged.Hooks,
+		Hooks:         hooksConfigFromMerged(merged),
 		Lifecycles:    merged.Lifecycles,
 	})
 	if err != nil {

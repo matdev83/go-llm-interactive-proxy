@@ -114,19 +114,18 @@ func TestExecutor_OpenAttempt_ShapesThinkerCallBeforeOpen(t *testing.T) {
 		gotMu.Unlock()
 	}
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"thinker-be": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture,
-			),
-			"unused-exec": recoverableInterleavedBackend(nil),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"thinker-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture,
+		),
+		"unused-exec": recoverableInterleavedBackend(nil),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."}
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)
@@ -190,19 +189,18 @@ func TestExecutor_OpenAttempt_InjectorCallReceivesMemoBeforeOpen(t *testing.T) {
 		gotMu.Unlock()
 	}
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"exec-be": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture,
-			),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
-		MemoStore:         memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"exec-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture,
+		),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.MemoStore = memoStore
 
 	// Seed an A-leg via a valid selector whose executor branch is reachable first.
 	first := interleavedBaseCall("[thinker]other-be:m^exec-be:m")
@@ -314,23 +312,22 @@ func TestExecutor_OpenAttempt_ThinkerCycleCursorAdvancesAfterSuccessfulOpen(t *t
 		}
 	}
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"bad": recoverableInterleavedBackend(capture("bad")),
-			"ok": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture("ok"),
-			),
-			"thinker-be": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				func(lipapi.Call) {},
-			),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": recoverableInterleavedBackend(capture("bad")),
+		"ok": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture("ok"),
+		),
+		"thinker-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			func(lipapi.Call) {},
+		),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 
 	selector := "[thinker]thinker-be:m^bad:m^ok:m"
 	wantSeq := []interleavedstate.CycleEntry{
@@ -399,24 +396,23 @@ func TestExecutor_OpenAttempt_MemoCommitWaitsForSuccessfulOpen(t *testing.T) {
 		}
 	}
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"bad": recoverableInterleavedBackend(nil),
-			"ok": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture("ok"),
-			),
-			"thinker-be": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				func(lipapi.Call) {},
-			),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
-		MemoStore:         memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": recoverableInterleavedBackend(nil),
+		"ok": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture("ok"),
+		),
+		"thinker-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			func(lipapi.Call) {},
+		),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.MemoStore = memoStore
 
 	call := interleavedBaseCall("ok:m")
 	firstStream, err := ex.Execute(context.Background(), call)
@@ -495,19 +491,18 @@ func TestExecutor_OpenAttempt_NonThinkerSelectorInert(t *testing.T) {
 		gotMu.Unlock()
 	}
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"stub": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture,
-			),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
-		MemoStore:         memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture,
+		),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
+	ex.MemoStore = memoStore
 
 	call := interleavedBaseCall("stub:m")
 	stream, err := ex.Execute(context.Background(), call)
@@ -561,17 +556,16 @@ func TestExecutor_OpenAttempt_DisabledConfigInertForTools(t *testing.T) {
 		gotMu.Unlock()
 	}
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"thinker-be": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture,
-			),
-			"unused-exec": recoverableInterleavedBackend(nil),
-		},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"thinker-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture,
+		),
+		"unused-exec": recoverableInterleavedBackend(nil),
 	}
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
@@ -699,20 +693,19 @@ func TestExecutor_OpenAttempt_InterleavedShapingRunsAfterTransformsBeforeComplet
 		}},
 	})
 
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Rand:            routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"thinker-be": *interleavedBackend(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture,
-			),
-			"unused-exec": recoverableInterleavedBackend(nil),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"thinker-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture,
+		),
+		"unused-exec": recoverableInterleavedBackend(nil),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."}
 
 	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
 	stream, err := ex.Execute(context.Background(), call)

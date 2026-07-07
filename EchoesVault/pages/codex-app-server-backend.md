@@ -129,7 +129,7 @@ The model is **not** passed via CLI flags — it is sent in the `turn/start` JSO
 
 ## Plugin Registration
 
-Registered in `internal/pluginreg/standard_table.go` and `internal/pluginreg/backends_acp_cli.go` as backend ID `openai-codex-app-server` with model prefix `openai/`.
+Registered in `internal/standardplugins/standard_table.go` and `internal/standardplugins/backends_acp_cli.go` as backend ID `openai-codex-app-server` with model prefix `openai/`.
 
 Default inventory models: `auto`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.2`.
 

@@ -20,7 +20,7 @@ func TestResolveRequestScope_trustedScopeWins(t *testing.T) {
 	}
 	ctx := scope.WithScope(context.Background(), trusted)
 	ctx = execview.WithPrincipal(ctx, execview.PrincipalView{ID: "legacy-loses"})
-	ex := &Executor{}
+	ex := TestExecutor()
 	s, p, ok := ex.resolveRequestScope(ctx)
 	if !ok {
 		t.Fatal("expected scope resolved")
@@ -43,7 +43,7 @@ func TestResolveRequestScope_legacyPrincipalFallback(t *testing.T) {
 		Roles:       []string{"ops"},
 		Claims:      map[string]string{"tenant": "a"},
 	})
-	ex := &Executor{}
+	ex := TestExecutor()
 	s, p, ok := ex.resolveRequestScope(ctx)
 	if !ok {
 		t.Fatal("expected scope resolved from legacy principal")
@@ -78,7 +78,8 @@ func TestResolveRequestScope_legacyPrincipalFallback(t *testing.T) {
 // identity produces an explicit local single-user scope (requirement 1.4, 2.4, 4.2).
 func TestResolveRequestScope_localSyntheticFallback(t *testing.T) {
 	t.Parallel()
-	ex := &Executor{SyntheticLocalPrincipal: true}
+	ex := TestExecutor()
+	ex.SyntheticLocalPrincipal = true
 	s, p, ok := ex.resolveRequestScope(context.Background())
 	if !ok {
 		t.Fatal("expected synthetic local scope")
@@ -104,7 +105,8 @@ func TestResolveRequestScope_localSyntheticFallback(t *testing.T) {
 // identity is present and local synthesis is disabled (preserves prior behavior).
 func TestResolveRequestScope_noIdentityNoSynthetic(t *testing.T) {
 	t.Parallel()
-	ex := &Executor{SyntheticLocalPrincipal: false}
+	ex := TestExecutor()
+	ex.SyntheticLocalPrincipal = false
 	_, _, ok := ex.resolveRequestScope(context.Background())
 	if ok {
 		t.Fatal("expected no scope when no identity and no synthetic fallback")
@@ -116,7 +118,8 @@ func TestResolveRequestScope_noIdentityNoSynthetic(t *testing.T) {
 func TestResolveRequestScope_emptyLegacyPrincipalFallsThrough(t *testing.T) {
 	t.Parallel()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "  "})
-	ex := &Executor{SyntheticLocalPrincipal: true}
+	ex := TestExecutor()
+	ex.SyntheticLocalPrincipal = true
 	s, _, ok := ex.resolveRequestScope(ctx)
 	if !ok {
 		t.Fatal("expected synthetic fallback")

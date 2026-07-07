@@ -11,9 +11,11 @@ import (
 
 func TestRetryRecvStream_tryReplacement_blockedAfterMandatoryRecorderFailure(t *testing.T) {
 	t.Parallel()
+	ex := TestExecutor()
+	ex.SecureSessionRecordingMandatory = true
 	s := &retryRecvStream{
 		secureRecvRecordingHardStop: true,
-		executor:                    &Executor{SecureSessionRecordingMandatory: true},
+		executor:                    ex,
 		cand:                        routing.AttemptCandidate{Key: "cand-1"},
 		traceID:                     "tr-mand",
 		aLegID:                      "a-mand",

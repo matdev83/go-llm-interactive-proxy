@@ -40,14 +40,13 @@ func TestExecutor_localStubFromStandardRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"dogfood-stub": be,
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"dogfood-stub": be,
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "dogfood-stub:stub-default"},
 		Messages: []lipapi.Message{{

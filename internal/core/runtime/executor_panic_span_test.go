@@ -27,16 +27,15 @@ func TestExecutor_executeSpan_recordsErrorWhenOpenPanicExhaustsCandidates(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(7),
-		Backends: map[string]execbackend.Backend{
-			"only": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					panic("open boom")
-				},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(7)
+	ex.Backends = map[string]execbackend.Backend{
+		"only": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				panic("open boom")
 			},
 		},
 	}

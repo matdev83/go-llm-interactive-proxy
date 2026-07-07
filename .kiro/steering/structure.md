@@ -54,10 +54,15 @@ Core rules:
 ### 2a. Standard distribution assembly (not “another core”)
 
 `internal/pluginreg/`
-- explicit per-composition-root registration for the standard distribution (`NewRegistry` + `InstallStandardBundleOn(reg, keys)`)
-- standard frontend/backend/feature bundle tables; exact standard plugin registration lives in `standard_table.go`
-- per-family `*_install.go` factory helpers
+- explicit per-composition-root registration for the standard distribution (`NewRegistry` + `InstallStandardBundleOn(reg, keys)` via `internal/standardplugins`)
 - registry validation helpers, default wire metadata used by routing defaults, and backend credential/access-scope posture metadata
+
+`internal/standardplugins/`
+- standard frontend/backend/feature bundle tables (`standard_table.go`); per-family `*_install.go` factory helpers
+- `InstallStandardBundleOn`, `ResolveUpstreamAPIKeysFromEnv`, `DefaultWireModel`
+
+`internal/featurebundle/`
+- feature merge surface: `MergeFeatureSurface` merges SDK hook slices and extension contributions from configured features (no `internal/core/hooks` import)
 
 `internal/infra/runtimebundle/`
 - composes a runnable `Built` from config + registrations: executor, continuity and secure-session stores, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
@@ -142,7 +147,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 - Frontend/API behavior: `internal/plugins/frontends/`
 - Backend provider behavior: `internal/plugins/backends/`
 - Bundled store / persistence plugin seams: `internal/plugins/stores/`; current core continuity stores: `internal/core/continuity/`
-- Standard distribution registration tables: `internal/pluginreg/`
+- Standard distribution registration tables: `internal/standardplugins/`
 - Lipstd HTTP wiring: `internal/stdhttp/`
 - Wiring executor + continuity + shared clients from config: `internal/infra/runtimebundle/`
 - Canonical model changes: `pkg/lipapi/`
@@ -151,7 +156,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 - Stream semantics and collectors: `internal/core/stream/` and `internal/core/streamrecovery/`
 - Config semantics for the runtime: `internal/core/config/`
 - Secure-session authority, resume policy, and session diagnostics: `internal/core/securesession/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`
-- Extension-platform stages and SDK facade assembly: `internal/core/extensions/`, `pkg/lipsdk/*`, `internal/pluginreg/`
+- Extension-platform stages and SDK facade assembly: `internal/core/extensions/`, `pkg/lipsdk/*`, `internal/featurebundle/`, `internal/infra/runtimebundle/`
 - Model catalog/registry and capability inventory: `internal/core/modelcatalog/`, `internal/core/modelregistry/`, `internal/infra/modelcatalog/`, `internal/infra/modelregistry/`, `pkg/lipsdk/modelinventory/`
 - Token accounting / usage: `internal/core/tokenaccounting/`, `internal/infra/tokenaccounting/`, `internal/infra/tokenizers/`, `pkg/lipsdk/usage/`
 - Observability and supporting infra: `internal/infra/` or feature plugins

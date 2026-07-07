@@ -48,8 +48,9 @@ func controlPlaneBuilt(t *testing.T, cfg *config.Config) *runtimebundle.Built {
 		DefaultPageSize: cfg.ControlPlane.Query.DefaultPageSize,
 		MaxPageSize:     cfg.ControlPlane.Query.MaxPageSize,
 	})
+	ex := runtime.TestExecutor()
 	return &runtimebundle.Built{
-		Executor:            &runtime.Executor{},
+		Executor:            ex,
 		PluginRegistry:      pluginreg.NewRegistry(),
 		ControlPlaneQueries: queries,
 		ControlPlaneStatus:  status,

@@ -30,25 +30,24 @@ func TestOpenPlannedCandidate_MaxAttemptsDoesNotPersistCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"exec": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
-					Operation: lipapi.OperationOpenAIChatCompletions,
-					Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
-				}),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("backend must not open when attempt budget is exhausted")
-					return nil, nil
-				},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"exec": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("backend must not open when attempt budget is exhausted")
+				return nil, nil
 			},
 		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "think"},
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	ttft := newTTFTBudget(ex.now(), sel)
 	_, err = ex.tryPlanOpenOnce(attemptOpenParams{
 		ctx:         ctx,
@@ -97,24 +96,23 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailPreservesInterleavedState(t *testing
 		Operation: lipapi.OperationOpenAIChatCompletions,
 		Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
 	})
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"fail1": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return ParallelPreWinFailStream{}, nil
-			}},
-			"fail2": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return ParallelPreWinFailStream{}, nil
-			}},
-			"good": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				t.Fatal("good backend must not open when parallel soft-fails without failover arm")
-				return nil, nil
-			}},
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"fail1": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return ParallelPreWinFailStream{}, nil
+		}},
+		"fail2": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return ParallelPreWinFailStream{}, nil
+		}},
+		"good": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			t.Fatal("good backend must not open when parallel soft-fails without failover arm")
+			return nil, nil
+		}},
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 	seededCycle := interleavedstate.CycleState{
 		SelectorKey: "thinker-be:m^parallel:fail1:m!fail2:m",
 		Sequence: []interleavedstate.CycleEntry{
@@ -184,33 +182,32 @@ func TestTryPlanOpenOnce_ParallelAllLegsFailFailoverToPrimaryInSamePass(t *testi
 		Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
 	})
 	var goodOpens int
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"fail1": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return ParallelPreWinFailStream{}, nil
-			}},
-			"fail2": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return ParallelPreWinFailStream{}, nil
-			}},
-			"good": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				goodOpens++
-				return lipapi.NewFixedEventStream([]lipapi.Event{
-					{Kind: lipapi.EventResponseStarted},
-					{Kind: lipapi.EventMessageStarted},
-					{Kind: lipapi.EventTextDelta, Delta: "good-wins"},
-					{Kind: lipapi.EventResponseFinished},
-				}), nil
-			}},
-			"thinker-be": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				t.Fatal("thinker branch must not open when parallel soft-fails into primary failover")
-				return nil, nil
-			}},
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"fail1": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return ParallelPreWinFailStream{}, nil
+		}},
+		"fail2": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return ParallelPreWinFailStream{}, nil
+		}},
+		"good": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			goodOpens++
+			return lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventTextDelta, Delta: "good-wins"},
+				{Kind: lipapi.EventResponseFinished},
+			}), nil
+		}},
+		"thinker-be": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			t.Fatal("thinker branch must not open when parallel soft-fails into primary failover")
+			return nil, nil
+		}},
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 	interleaved := interleavedstate.State{Cycle: interleavedstate.CycleState{
 		SelectorKey: "thinker-be:m^parallel:fail1:m!fail2:m|good:m",
 		Sequence: []interleavedstate.CycleEntry{
@@ -288,36 +285,35 @@ func TestTryPlanOpenOnce_ThinkerRecoverableOpenFailureDoesNotPersistCycleAdvance
 	})
 	var opensMu sync.Mutex
 	var opened []string
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"bad-thinker": {
-				Caps: caps, TransportCaps: transport,
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if cand.InterleavedRole != interleavedstate.RoleThinker {
-						t.Fatalf("first open role: got %q want thinker", cand.InterleavedRole)
-					}
-					opensMu.Lock()
-					opened = append(opened, "bad-thinker")
-					opensMu.Unlock()
-					return nil, lipapi.RecoverablePreOutputError(errors.New("thinker down"))
-				},
-			},
-			"exec-be": {
-				Caps: caps, TransportCaps: transport,
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opensMu.Lock()
-					opened = append(opened, "exec-be")
-					opensMu.Unlock()
-					t.Fatal("executor must not open in same tryPlanOpenOnce pass after thinker recoverable open failure")
-					return nil, nil
-				},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"bad-thinker": {
+			Caps: caps, TransportCaps: transport,
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if cand.InterleavedRole != interleavedstate.RoleThinker {
+					t.Fatalf("first open role: got %q want thinker", cand.InterleavedRole)
+				}
+				opensMu.Lock()
+				opened = append(opened, "bad-thinker")
+				opensMu.Unlock()
+				return nil, lipapi.RecoverablePreOutputError(errors.New("thinker down"))
 			},
 		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
+		"exec-be": {
+			Caps: caps, TransportCaps: transport,
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opensMu.Lock()
+				opened = append(opened, "exec-be")
+				opensMu.Unlock()
+				t.Fatal("executor must not open in same tryPlanOpenOnce pass after thinker recoverable open failure")
+				return nil, nil
+			},
+		},
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 	thinkerIdx := 1
 	seededCycle := interleavedstate.CycleState{
 		SelectorKey: "bad-thinker:m^exec-be:m",
@@ -396,29 +392,28 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 		t.Fatal(err)
 	}
 	var backendOpens int
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"exec": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
-					Operation: lipapi.OperationOpenAIChatCompletions,
-					Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
-				}),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					backendOpens++
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"exec": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				backendOpens++
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "think"},
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	ttft := newTTFTBudget(ex.now(), sel)
 	budget := &attemptBudget{max: 8}
 	_, err = ex.tryPlanOpenOnce(attemptOpenParams{
@@ -473,22 +468,21 @@ func TestTryPlanOpenOnce_ParallelBudgetRejectsAllPreservesCycle(t *testing.T) {
 		Operation: lipapi.OperationOpenAIChatCompletions,
 		Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
 	})
-	ex := &Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"a": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				t.Fatal("parallel leg must not open when budget rejects all entries")
-				return nil, nil
-			}},
-			"b": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				t.Fatal("parallel leg must not open when budget rejects all entries")
-				return nil, nil
-			}},
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "Think step by step."},
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"a": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			t.Fatal("parallel leg must not open when budget rejects all entries")
+			return nil, nil
+		}},
+		"b": {Caps: caps, TransportCaps: transport, Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			t.Fatal("parallel leg must not open when budget rejects all entries")
+			return nil, nil
+		}},
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 	seededCycle := interleavedstate.CycleState{
 		SelectorKey: "thinker-be:m^a:m!b:m",
 		Sequence: []interleavedstate.CycleEntry{

@@ -27,30 +27,29 @@ func TestExecutor_capabilityNegotiatePanic_excludesCandidateThenOpensNext(t *tes
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(3),
-		Backends: map[string]execbackend.Backend{
-			"panicaps": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
-					panic("negotiate caps boom")
-				},
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("panicaps Open must not run after capability panic")
-					return nil, errors.New("unexpected")
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(3)
+	ex.Backends = map[string]execbackend.Backend{
+		"panicaps": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
+				panic("negotiate caps boom")
 			},
-			"good": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = cand.Primary.Backend
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("panicaps Open must not run after capability panic")
+				return nil, errors.New("unexpected")
+			},
+		},
+		"good": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = cand.Primary.Backend
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -80,27 +79,26 @@ func TestExecutor_openPanic_preOutput_swallowedFailoverToSecondBackend(t *testin
 		t.Fatal(err)
 	}
 	var opens []string
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(5),
-		Backends: map[string]execbackend.Backend{
-			"badopen": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens = append(opens, "badopen")
-					panic("open boom")
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(5)
+	ex.Backends = map[string]execbackend.Backend{
+		"badopen": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens = append(opens, "badopen")
+				panic("open boom")
 			},
-			"good": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens = append(opens, "good")
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"good": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens = append(opens, "good")
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -166,27 +164,26 @@ func TestExecutor_recvPanic_preOutput_failoverToSecondBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens []string
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(9),
-		Backends: map[string]execbackend.Backend{
-			"badrecv": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens = append(opens, "badrecv")
-					return recvPanicStream{}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(9)
+	ex.Backends = map[string]execbackend.Backend{
+		"badrecv": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens = append(opens, "badrecv")
+				return recvPanicStream{}, nil
 			},
-			"good": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens = append(opens, "good")
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"good": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens = append(opens, "good")
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -260,17 +257,16 @@ func TestExecutor_recvPanic_postOutput_notRecoverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens int
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(13),
-		Backends: map[string]execbackend.Backend{
-			"sole": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens++
-					return &deltaThenRecvPanicStream{}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(13)
+	ex.Backends = map[string]execbackend.Backend{
+		"sole": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens++
+				return &deltaThenRecvPanicStream{}, nil
 			},
 		},
 	}
@@ -330,16 +326,15 @@ func TestExecutor_streamClosePanic_returnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(17),
-		Backends: map[string]execbackend.Backend{
-			"sole": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return &finishThenClosePanicStream{}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(17)
+	ex.Backends = map[string]execbackend.Backend{
+		"sole": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &finishThenClosePanicStream{}, nil
 			},
 		},
 	}
@@ -371,17 +366,16 @@ func TestExecutor_streamClosePanic_logsIsolatedCrashDiagnosticsAtDebug(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(17),
-		Log:   log,
-		Backends: map[string]execbackend.Backend{
-			"sole": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return &finishThenClosePanicStream{}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(17)
+	ex.Log = log
+	ex.Backends = map[string]execbackend.Backend{
+		"sole": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &finishThenClosePanicStream{}, nil
 			},
 		},
 	}

@@ -102,26 +102,25 @@ func TestExecutor_contextLimit_failoverToLargerLimitBackend(t *testing.T) {
 	se := modelcatalog.DefaultSizeEstimator{}
 	el := modelcatalog.NewEligibilityResolver(se)
 	var opened string
-	ex := &runtime.Executor{
-		Store:               st,
-		Bus:                 hooks.New(hooks.Config{}),
-		Rand:                routing.NewSeededRng(2),
-		CatalogResolver:     contextLimitCatalogResolver{},
-		EligibilityResolver: el,
-		Backends: map[string]execbackend.Backend{
-			"smallctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("smallctx must be skipped by context limit")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.CatalogResolver = contextLimitCatalogResolver{}
+	ex.EligibilityResolver = el
+	ex.Backends = map[string]execbackend.Backend{
+		"smallctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("smallctx must be skipped by context limit")
+				return nil, nil
 			},
-			"bigctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = "bigctx"
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"bigctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = "bigctx"
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -147,25 +146,24 @@ func TestExecutor_requestSizeConstraints_failoverToEligibleBackend(t *testing.T)
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store:                 st,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(2),
-		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 11},
-		Backends: map[string]execbackend.Backend{
-			"smallctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("smallctx must be skipped by max_context")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: true, tokens: 11}
+	ex.Backends = map[string]execbackend.Backend{
+		"smallctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("smallctx must be skipped by max_context")
+				return nil, nil
 			},
-			"bigctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = cand.Key
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"bigctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = cand.Key
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -191,25 +189,24 @@ func TestExecutor_requestSizeConstraints_supportsSuffixes(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store:                 st,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(2),
-		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 250001},
-		Backends: map[string]execbackend.Backend{
-			"smallctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("smallctx must be skipped by max_context suffix")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: true, tokens: 250001}
+	ex.Backends = map[string]execbackend.Backend{
+		"smallctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("smallctx must be skipped by max_context suffix")
+				return nil, nil
 			},
-			"bigctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = cand.Key
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"bigctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = cand.Key
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -235,25 +232,24 @@ func TestExecutor_requestSizeConstraints_failOpenWhenEstimateUnavailable(t *test
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store:                 st,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(2),
-		RequestTokenEstimator: fixedRequestTokenEstimator{available: false, tokens: 11},
-		Backends: map[string]execbackend.Backend{
-			"smallctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = cand.Key
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: false, tokens: 11}
+	ex.Backends = map[string]execbackend.Backend{
+		"smallctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = cand.Key
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
-			"bigctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("fail-open should keep first constrained branch eligible")
-					return nil, nil
-				},
+		},
+		"bigctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("fail-open should keep first constrained branch eligible")
+				return nil, nil
 			},
 		},
 	}
@@ -279,33 +275,32 @@ func TestExecutor_requestSizeConstraints_preservedDuringRecvReplacement(t *testi
 		t.Fatal(err)
 	}
 	opened := []string{}
-	ex := &runtime.Executor{
-		Store:                 st,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(2),
-		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 11},
-		Backends: map[string]execbackend.Backend{
-			"smallctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("smallctx must remain skipped during recv replacement")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: true, tokens: 11}
+	ex.Backends = map[string]execbackend.Backend{
+		"smallctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("smallctx must remain skipped during recv replacement")
+				return nil, nil
 			},
-			"bigctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = append(opened, cand.Key)
-					if len(opened) == 1 {
-						return &errorEventStream{err: &lipapi.UpstreamFailure{
-							Phase:        lipapi.PhasePreOutput,
-							Recoverable:  true,
-							Reason:       "recv replacement trigger",
-							CandidateKey: cand.Key,
-						}}, nil
-					}
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"bigctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = append(opened, cand.Key)
+				if len(opened) == 1 {
+					return &errorEventStream{err: &lipapi.UpstreamFailure{
+						Phase:        lipapi.PhasePreOutput,
+						Recoverable:  true,
+						Reason:       "recv replacement trigger",
+						CandidateKey: cand.Key,
+					}}, nil
+				}
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -335,19 +330,18 @@ func TestExecutor_contextLimit_allCandidatesExcluded_returnsSentinel(t *testing.
 	}
 	se := modelcatalog.DefaultSizeEstimator{}
 	el := modelcatalog.NewEligibilityResolver(se)
-	ex := &runtime.Executor{
-		Store:               st,
-		Bus:                 hooks.New(hooks.Config{}),
-		Rand:                routing.NewSeededRng(3),
-		CatalogResolver:     contextLimitCatalogResolver{},
-		EligibilityResolver: el,
-		Backends: map[string]execbackend.Backend{
-			"smallctx": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("must not open")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(3)
+	ex.CatalogResolver = contextLimitCatalogResolver{}
+	ex.EligibilityResolver = el
+	ex.Backends = map[string]execbackend.Backend{
+		"smallctx": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("must not open")
+				return nil, nil
 			},
 		},
 	}
@@ -408,19 +402,18 @@ func TestExecutor_downgrade_reResolvesCatalogFactsBeforeEligibility(t *testing.T
 	se := modelcatalog.DefaultSizeEstimator{}
 	el := modelcatalog.NewEligibilityResolver(se)
 	var opened string
-	ex := &runtime.Executor{
-		Store:               st,
-		Bus:                 hooks.New(hooks.Config{}),
-		Rand:                routing.NewSeededRng(7),
-		CatalogResolver:     twoPhaseLimitAfterDowngradeResolver{},
-		EligibilityResolver: el,
-		Backends: map[string]execbackend.Backend{
-			"only": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = "only"
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(7)
+	ex.CatalogResolver = twoPhaseLimitAfterDowngradeResolver{}
+	ex.EligibilityResolver = el
+	ex.Backends = map[string]execbackend.Backend{
+		"only": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = "only"
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}

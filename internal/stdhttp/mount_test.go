@@ -58,8 +58,10 @@ func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {
 	t.Parallel()
 	cfg := tokenAccountingAdminTestConfig(true)
 	svc := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
+	ex := runtime.TestExecutor()
+	ex.AdminCountService = svc
 	built := &runtimebundle.Built{
-		Executor:             &runtime.Executor{AdminCountService: svc},
+		Executor:             ex,
 		PluginRegistry:       pluginreg.NewRegistry(),
 		TokenAccountingAdmin: svc,
 	}
@@ -94,7 +96,8 @@ func TestTokenAccountingAdminMountedWithDiagnosticsSecret(t *testing.T) {
 func TestTokenAccountingAdminDisabledNotRegistered(t *testing.T) {
 	t.Parallel()
 	cfg := tokenAccountingAdminTestConfig(false)
-	built := &runtimebundle.Built{Executor: &runtime.Executor{}, PluginRegistry: pluginreg.NewRegistry()}
+	ex := runtime.TestExecutor()
+	built := &runtimebundle.Built{Executor: ex, PluginRegistry: pluginreg.NewRegistry()}
 	app := mustRuntimeApp(t, cfg)
 	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
 	if err != nil {
@@ -116,8 +119,10 @@ func TestTokenAccountingAdminMountedBodyLimitDoesNotEchoContent(t *testing.T) {
 	cfg := tokenAccountingAdminTestConfig(true)
 	cfg.Accounting.Admin.MaxBodyBytes = 16
 	svc := accountingapp.NewService(accountingapp.ServiceConfig{Mode: accountingapp.ModeLocalOnly}, nil, fixedLocalCounter{})
+	ex := runtime.TestExecutor()
+	ex.AdminCountService = svc
 	built := &runtimebundle.Built{
-		Executor:             &runtime.Executor{AdminCountService: svc},
+		Executor:             ex,
 		PluginRegistry:       pluginreg.NewRegistry(),
 		TokenAccountingAdmin: svc,
 	}
@@ -219,7 +224,8 @@ func TestNewStandardHandler_diagnosticsHealthzMounted(t *testing.T) {
 		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz", SharedSecret: "secretsecret"},
 		Plugins:     config.PluginsConfig{},
 	}
-	built := &runtimebundle.Built{Executor: &runtime.Executor{}, PluginRegistry: pluginreg.NewRegistry()}
+	ex := runtime.TestExecutor()
+	built := &runtimebundle.Built{Executor: ex, PluginRegistry: pluginreg.NewRegistry()}
 	app := mustRuntimeApp(t, cfg)
 	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
 	if err != nil {

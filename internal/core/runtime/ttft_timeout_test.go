@@ -82,12 +82,12 @@ func ttftTestExecutor(t *testing.T, backends map[string]execbackend.Backend) *Ex
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Backends: backends,
-		Rand:     routing.NewSeededRng(1),
-	}
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = backends
+	ex.Rand = routing.NewSeededRng(1)
+	return ex
 }
 
 func ttftTestCall(selector string) *lipapi.Call {

@@ -2,36 +2,13 @@ package runtime
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	"strings"
 	"sync"
-	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
-	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
-	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
-	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
-	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
@@ -49,123 +26,21 @@ func (*noCopy) Unlock() {}
 var secureSessionTestPrepare = func(*Executor) {}
 
 // Executor orchestrates hooks, capability negotiation, routing, B2BUA, and backend attempts.
+// Fields are grouped by concern; promoted fields preserve the historical flat access API.
 type Executor struct {
-	_     noCopy //nolint:unused
-	Store b2bua.Store
-	Bus   *hooks.Bus
-	// RuntimeSnapshot is the per-build execution binding published on each request context.
-	// When non-nil, it must not be mutated after the executor is handed to concurrent callers;
-	// see [extensions.RequestRuntimeSnapshot].
-	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
-	Backends        map[string]execbackend.Backend // key: routing.Primary.Backend (non-empty)
-	// ALegLifecycle coordinates cancellation and teardown for all B-legs under one A-leg.
-	// Nil is initialized lazily on first execution or explicit cancellation.
-	ALegLifecycle *leglifecycle.Coordinator
-	// Rand supplies weighted routing rolls. Typical *rand/v2.Rand-backed values are not safe for
-	// concurrent use; rng() wraps a non-nil Rand accordingly.
-	Rand routing.Rng
-	Now  func() time.Time
-	// Log, when non-nil, receives structured orchestration decisions (diag.LogDecision).
-	Log *slog.Logger
+	_ noCopy //nolint:unused
+	CoreRuntime
+	RoutingRuntime
+	SecurityRuntime
+	AccountingRuntime
+	ObservabilityRuntime
+	ExtensionRuntime
+	InterleavedRuntime
 
-	// MaxAttempts caps B-leg opens per logical request (open + recv replacement). Zero means 3.
-	MaxAttempts int
-	// DefaultBackend resolves model-only selectors using routing.ApplyModelOnlyBackends (from config default_route).
-	DefaultBackend string
-	// SelectorAliases rewrites the request route selector before routing.Parse (nil or empty rules: no-op).
-	SelectorAliases *routing.AliasResolver
-	// CapsResolver, when set, supplies candidate-aware caps for negotiation; otherwise each
-	// Backend's ResolveCaps / Caps is used via [execbackend.EffectiveCaps].
-	CapsResolver capabilities.Resolver
-	// CatalogResolver, when set, supplies catalog/override facts and narrowed effective caps for negotiation.
-	CatalogResolver CatalogResolver
-	// EligibilityResolver, when set, applies context-limit checks after successful negotiation.
-	EligibilityResolver EligibilityResolver
-	// RequestTokenEstimator, when set, evaluates per-leaf min/max context routing constraints before backend open.
-	RequestTokenEstimator RequestTokenEstimator
-	// CandidateHealth, when set, supplies unhealthy routing keys merged into planner options.
-	CandidateHealth policy.CandidateHealth
-	// RouteObserver, when set, receives coarse routing decisions (non-blocking contract).
-	RouteObserver lipsdk.RouteObserver
-	// RouteTrace, when set, records recent routing decisions for diagnostics HTTP handlers.
-	RouteTrace *diag.RouteTraceBuffer
-	// AffinityStore persists route-wide session/client sticky backend bindings when selectors request affinity.
-	AffinityStore affinity.Store
-	// AffinityMissingIdentity controls explicit affinity when the requested identity is unavailable.
-	AffinityMissingIdentity affinity.MissingIdentityPolicy
-	// MaxPendingWireEvents caps backend pending event queues per stream (0 = unlimited).
-	MaxPendingWireEvents int
-	// StreamRecovery controls opt-in mitigation of upstream streams that end without response_finished.
-	StreamRecovery streamrecovery.Config
-	// TransportFallbackPolicy controls operation+transport matching before backend open.
-	// Zero defaults to compatibility and preserves legacy behavior for undeclared transport caps.
-	TransportFallbackPolicy lipapi.TransportFallbackPolicy
-	// AccountingPriceCatalog estimates cost for usage deltas when providers do not report cost.
-	AccountingPriceCatalog accounting.PriceCatalog
-	// Preflight evaluates token-accounting admission checks before backend attempts.
-	Preflight *accountingpreflight.Checker
-	// StreamUsage reconstructs scoped usage from stream events and local/proxy counting.
-	StreamUsage *accountingstream.Reconstructor
-	// Ledger records token-accounting usage facts without prescribing durable storage.
-	Ledger accountingledger.Recorder
-	// LedgerWriteRequired fail-closes completed streams when ledger writes fail.
-	LedgerWriteRequired bool
-	// TokenAccountingObservability records bounded token-accounting telemetry dimensions.
-	TokenAccountingObservability *accountingobs.Stats
-	// AdminCountService serves operator token-count requests when admin counting is enabled.
-	AdminCountService *accountingapp.Service
-	// Metrics receives coarse executor observations when non-nil.
-	Metrics MetricsSink
-	// ExtensionMetrics records extension pipeline stage timings when non-nil (Prometheus when enabled).
-	ExtensionMetrics extensions.StageMetrics
-	// PolicyDiagnosticsEnabled controls whether privileged-visibility policy decision records may
-	// leave the core through the runtime evidence emitter. Default false withholds privileged
-	// records (requirement 7.4).
-	PolicyDiagnosticsEnabled bool
-	// CompletionBufferLimits overrides completion-gate buffering bounds (tests). Zero MaxEvents uses SDK defaults.
-	CompletionBufferLimits completion.BufferLimits
-	// secureSessionMu guards lazy initialization of SecureSession in the test hook path.
-	secureSessionMu sync.Mutex
 	lifecycleMu     sync.Mutex
-
-	// SecureSession authorizes turns via BeginTurn before submit hooks; required for all executor prepares.
-	SecureSession *app.Manager
-	// SyntheticLocalPrincipal when true supplies stable local-dev principal for unauthenticated requests
-	// (composition root: loopback listen address + non-durable memory secure-session store only).
-	SyntheticLocalPrincipal bool
-	// SecureSessionRecorder receives transcript/usage/audit activity after gate success and on stream recv.
-	SecureSessionRecorder app.GateRecording
-	// SecureSessionRecordingMandatory fail-closes prepare and treats post-output recorder failures as terminal
-	// for the committed attempt (no silent recv-phase B-leg replacement).
-	SecureSessionRecordingMandatory bool
-	// SessionDenialMapper maps secure-session policy errors to stable client-facing [lipapi] session
-	// denials when the secure prepare path is used. Wired at the composition root (not in [Executor]
-	// by default); set to nil to surface underlying errors without translation.
-	SessionDenialMapper func(error) error
-	// SecureSessionMetrics records secure-session create/resume/denial and recorder outcomes when non-nil.
-	SecureSessionMetrics SecureSessionMetrics
-	// SecureSessionRequireWorkspaceID sets WorkspaceMatchRequired on secure BeginTurn when true
-	// (from secure_session.require_workspace_id).
-	SecureSessionRequireWorkspaceID bool
-	// SecureSessionWorkspaceResolveFailClosed when true rejects prepare if workspace resolution errors
-	// (from secure_session.workspace_resolve_on_error: fail_closed).
-	SecureSessionWorkspaceResolveFailClosed bool
-
-	// AuthEvents delivers auth and session-start audit events; nil skips executor-side emission (tests).
-	AuthEvents *auth.EventDispatcher
-	// SessionAuditPolicy labels session-start events; ignored when AuthEvents is nil.
-	SessionAuditPolicy auth.SessionAuditPolicy
-
-	// InterleavedConfig carries resolved interleaved-thinking settings used to shape candidate
-	// calls before capability negotiation. When Instructions is empty, thinker shaping is inert.
-	// Wired by the runtime bundle (task 7.1); tests set it directly.
-	InterleavedConfig interleavedthinking.ShapeConfig
-	// MemoStore is the bounded core-owned memo store used for executor memo injection. When nil,
-	// executor candidates are returned unchanged. Wired by the runtime bundle (task 7.1).
-	MemoStore interleavedthinking.MemoStore
-
-	rngOnce    sync.Once
-	lockedRand routing.Rng // lazy: mutex-serialized view of Rand
+	rngOnce         sync.Once
+	lockedRand      routing.Rng
+	secureSessionMu sync.Mutex
 }
 
 func (e *Executor) capsForAttempt(
@@ -231,125 +106,13 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 		cleanup()
 	}()
 
-	selStr := strings.TrimSpace(prep.baseline.Route.Selector)
-	if e.SelectorAliases != nil {
-		selStr = e.SelectorAliases.Resolve(selStr)
-	}
-	sel, err := routing.Parse(selStr)
+	plan, err := e.buildRoutePlan(prep)
 	if err != nil {
-		return nil, fmt.Errorf("executor: parse route selector: %w", err)
+		return nil, err
 	}
-	routing.ApplyModelOnlyBackends(sel, e.DefaultBackend)
-	if routing.SelectorHasEmptyBackend(sel) {
-		return nil, fmt.Errorf("executor: %w", lipapi.ErrUnresolvedModelOnlySelector)
-	}
-	budget := &attemptBudget{max: e.effectiveMaxAttempts(), used: 0}
-	ttft := newTTFTBudget(e.now(), sel)
-	session := &routing.SessionRoutingState{FirstRequestConsumed: prep.aLeg.WeightedFirstConsumed}
-	excluded := map[string]struct{}{}
-	requestSize := e.requestSizeEstimateForRouting(prep.ctx, sel, prep.baseline)
-	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, prep.recvViews, prep.recvViewsOK)
+	out, err := e.openInitialAttempt(prep, plan)
 	if err != nil {
-		return nil, fmt.Errorf("executor: affinity identity: %w", err)
+		return nil, err
 	}
-	interleaved, err := e.loadInterleavedState(prep.ctx, prep.aLeg.ALegID)
-	if err != nil {
-		return nil, fmt.Errorf("executor: load interleaved state: %w", err)
-	}
-	var lastReject lipapi.NegotiationResult
-	var lastTransportReject lipapi.TransportNegotiationResult
-	var contextLimitExhaustion bool
-	var lastParallelFailure error
-	rng := e.rng()
-	for {
-		if err := prep.ctx.Err(); err != nil {
-			return nil, err
-		}
-		if err := prep.aScope.Err(); err != nil {
-			return nil, err
-		}
-		out, err := e.tryPlanOpenOnce(attemptOpenParams{
-			ctx:                      prep.ctx,
-			bus:                      prep.bus,
-			traceID:                  prep.traceID,
-			aLegID:                   prep.aLeg.ALegID,
-			aScope:                   prep.aScope,
-			baseline:                 prep.baseline,
-			sel:                      sel,
-			requestSize:              requestSize,
-			session:                  session,
-			excluded:                 excluded,
-			rng:                      rng,
-			budget:                   budget,
-			ttft:                     &ttft,
-			isRetryPath:              false,
-			lastReject:               &lastReject,
-			lastTransportReject:      &lastTransportReject,
-			lastParallelFailure:      &lastParallelFailure,
-			affinityKey:              affinityKey,
-			affinitySet:              affinityKeyOK,
-			isContextLimitExhaustion: &contextLimitExhaustion,
-			interleaved:              interleaved,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("executor: plan or open attempt: %w", err)
-		}
-		if !out.opened {
-			interleaved = out.interleaved
-			continue
-		}
-		if !out.registered {
-			if err := prep.aScope.RegisterBLeg(prep.ctx, leglifecycle.BLegHandle{
-				ID:      out.bleg.BLegID,
-				Attempt: lifecycleAttempt(out.stream),
-			}); err != nil {
-				if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
-					_ = out.stream.Close()
-				}
-				return nil, err
-			}
-		}
-		rs := &retryRecvStream{
-			executor:      e,
-			bus:           prep.bus,
-			baseline:      prep.baseline,
-			budget:        budget,
-			ttft:          &ttft,
-			aLegID:        prep.aLeg.ALegID,
-			traceID:       prep.traceID,
-			sel:           sel,
-			requestSize:   requestSize,
-			session:       session,
-			excluded:      excluded,
-			rng:           rng,
-			bleg:          out.bleg,
-			cand:          out.cand,
-			affinityKey:   affinityKey,
-			affinitySet:   affinityKeyOK,
-			recvViews:     prep.recvViews,
-			recvViewsOK:   prep.recvViewsOK,
-			routePrefs:    prep.routePrefs,
-			secureTurn:    prep.secureTurn,
-			secureTurnOK:  prep.secureTurnOK,
-			accounting:    newAttemptAccountingTracker(e.now()),
-			recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-			aScope:        prep.aScope,
-			interleaved:   out.interleaved,
-		}
-		rs.storeInner(out.stream)
-		if e.shouldWrapHiddenInterleavedThinker(out.cand) {
-			rs.holdALegEnd = true
-			rec := e.newThinkerRecorder(out.cand, prep.baseline)
-			prep.streamReturned = true
-			return newHiddenInterleavedStream(rs, rec, out.interleaved), nil
-		}
-		if e.shouldWrapVisibleInterleavedThinker(out.cand) {
-			rs.holdALegEnd = true
-			rec := e.newThinkerRecorder(out.cand, prep.baseline)
-			prep.streamReturned = true
-			return newVisibleInterleavedStream(rs, rec, out.interleaved), nil
-		}
-		prep.streamReturned = true
-		return rs, nil
-	}
+	return e.assembleExecutorStream(prep, plan, out)
 }

@@ -16,7 +16,7 @@ import (
 // characterization for the executor collaborator extraction.
 func TestExecutor_execute_nilStoreReturnsInvalidArguments(t *testing.T) {
 	t.Parallel()
-	exec := &runtime.Executor{}
+	exec := runtime.TestExecutor()
 	_, err := exec.Execute(context.Background(), &lipapi.Call{ID: "test"})
 	if err == nil || !strings.Contains(err.Error(), "invalid arguments") {
 		t.Fatalf("want invalid arguments, got %v", err)
@@ -27,7 +27,7 @@ func TestExecutor_execute_nilStoreReturnsInvalidArguments(t *testing.T) {
 // validation path (executor.go:229-230).
 func TestExecutor_execute_nilCallReturnsInvalidArguments(t *testing.T) {
 	t.Parallel()
-	exec := &runtime.Executor{}
+	exec := runtime.TestExecutor()
 	_, err := exec.Execute(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "invalid arguments") {
 		t.Fatalf("want invalid arguments, got %v", err)
@@ -43,10 +43,9 @@ func TestExecutor_execute_callValidateFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-	}
+	exec := runtime.TestExecutor()
+	exec.Store = st
+	exec.Bus = hooks.New(hooks.Config{})
 	_, err = exec.Execute(context.Background(), &lipapi.Call{})
 	if err == nil || !strings.Contains(err.Error(), "executor: validate call") {
 		t.Fatalf("want validate call error, got %v", err)

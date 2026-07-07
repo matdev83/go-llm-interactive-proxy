@@ -77,17 +77,16 @@ func TestMountALegCancel_cancelsRuntimeBLeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	inner := &stdCancelStream{closed: make(chan struct{})}
-	ex := &runtime.Executor{
-		Store:         st,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          routing.NewSeededRng(1),
-		ALegLifecycle: leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second}),
-		Backends: map[string]execbackend.Backend{
-			"managed": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return inner, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.ALegLifecycle = leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: time.Second})
+	ex.Backends = map[string]execbackend.Backend{
+		"managed": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return inner, nil
 			},
 		},
 	}

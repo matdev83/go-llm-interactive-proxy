@@ -11,7 +11,7 @@ status: active
 
 ## Registration Model
 
-Explicit, static, per-composition-root. No DI containers, no reflection registries, no Go `plugin` package. `internal/pluginreg/` owns standard distribution registration.
+Explicit, static, per-composition-root. No DI containers, no reflection registries, no Go `plugin` package. `internal/pluginreg/` owns the registry type (`NewRegistry`, `RegisterBackend`/`RegisterFrontend`/`RegisterFeature`, `BuildBackend`/`BuildFeatureBundle`); `internal/standardplugins/` owns the standard distribution registration tables and `InstallStandardBundleOn`. Feature merge lives in `internal/featurebundle/`; the hook bus (`hooks.New`, `BuildFeatureHooks`) is constructed in `internal/infra/runtimebundle/`.
 
 Backend registrations declare both credential posture and access scope. `BackendAccessLocalOnly` connectors are allowed only in single-user loopback deployments and are rejected during runtime bundle assembly when `access.mode: multi_user` is active.
 

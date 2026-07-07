@@ -56,13 +56,12 @@ func TestExecutor_prepareSubmitAndALeg_preservesTraceOnSubmitError(t *testing.T)
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:           b2,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		SecureSession:   mgr,
-		Now:             func() time.Time { return time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC) }
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{
 			ClientSessionID: "client-1",
@@ -104,12 +103,11 @@ func TestExecutor_prepareSubmitAndALeg_sessionOpenHintsNotTrustedAsAuthority(t *
 		SessionOpeners: []session.Opener{opener},
 		Workspace:      workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:           b2,
-		RuntimeSnapshot: snap,
-		Now:             func() time.Time { return time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC) },
-		SecureSession:   mgr,
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.RuntimeSnapshot = snap
+	ex.Now = func() time.Time { return time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC) }
+	ex.SecureSession = mgr
 	bus := hooks.New(hooks.Config{})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{

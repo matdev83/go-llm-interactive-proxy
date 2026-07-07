@@ -29,22 +29,21 @@ func TestExecutor_transportRejectSpan_recordsDecisionAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:                   st,
-		Bus:                     hooks.New(hooks.Config{}),
-		TransportFallbackPolicy: lipapi.TransportFallbackExact,
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"stub": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
-					Operation: lipapi.OperationOpenAIChatCompletions,
-					Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
-				}),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("backend must not open after transport reject")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.TransportFallbackPolicy = lipapi.TransportFallbackExact
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("backend must not open after transport reject")
+				return nil, nil
 			},
 		},
 	}

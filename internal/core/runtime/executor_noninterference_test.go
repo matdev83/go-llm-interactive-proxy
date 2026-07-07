@@ -54,12 +54,11 @@ func nonInterferenceExecutor(t *testing.T, backends map[string]execbackend.Backe
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(0),
-		Backends: backends,
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(0)
+	ex.Backends = backends
 	if interleavedEnabled {
 		ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step."}
 		ex.MemoStore = interleavedthinking.NewMemoStore(4096)

@@ -88,28 +88,36 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		return nil, closers, err
 	}
 	closers = append(closers, accountingClosers...)
-	exec := &runtime.Executor{
-		Store:                    in.Persistence.Store,
-		Bus:                      bctx.Bus,
-		RuntimeSnapshot:          in.Ext.Snap,
-		Backends:                 in.Model.Backends,
-		ALegLifecycle:            leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
-		MaxAttempts:              cfg.Routing.MaxAttempts,
-		DefaultBackend:           defBE,
-		SelectorAliases:          aliasResolver,
-		CapsResolver:             capMap,
-		Rand:                     routing.NewSeededRng(seed),
-		Now:                      in.NowFn,
-		CandidateHealth:          routinghealth.CandidateHealthFromConfig(cfg, in.NowFn),
-		RouteObserver:            routeObserverFor(log),
-		AffinityStore:            affinitymem.New(),
-		AffinityMissingIdentity:  affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
-		Log:                      log,
-		MaxPendingWireEvents:     cfg.Server.MaxPendingWireEvents,
-		StreamRecovery:           streamRecovery,
-		TransportFallbackPolicy:  config.EffectiveTransportFallbackPolicy(cfg),
-		PolicyDiagnosticsEnabled: opts.Policy.PolicyDiagnosticsEnabled,
-	}
+	exec := runtime.NewExecutor(runtime.ExecutorConfig{
+		Core: runtime.CoreRuntime{
+			Store:                in.Persistence.Store,
+			Backends:             in.Model.Backends,
+			ALegLifecycle:        leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
+			Rand:                 routing.NewSeededRng(seed),
+			Now:                  in.NowFn,
+			MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
+			StreamRecovery:       streamRecovery,
+		},
+		Routing: runtime.RoutingRuntime{
+			MaxAttempts:             cfg.Routing.MaxAttempts,
+			DefaultBackend:          defBE,
+			SelectorAliases:         aliasResolver,
+			CapsResolver:            capMap,
+			CandidateHealth:         routinghealth.CandidateHealthFromConfig(cfg, in.NowFn),
+			RouteObserver:           routeObserverFor(log),
+			AffinityStore:           affinitymem.New(),
+			AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
+			TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
+		},
+		Observability: runtime.ObservabilityRuntime{
+			Log:                      log,
+			PolicyDiagnosticsEnabled: opts.Policy.PolicyDiagnosticsEnabled,
+		},
+		Extension: runtime.ExtensionRuntime{
+			Bus:             bctx.Bus,
+			RuntimeSnapshot: in.Ext.Snap,
+		},
+	})
 	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
 		return nil, closers, err
 	}

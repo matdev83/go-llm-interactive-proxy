@@ -144,20 +144,19 @@ func TestExecutor_ParallelCommitMemoFailureEndsALegScope(t *testing.T) {
 	lc := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	innerMemo := interleavedthinking.NewMemoStore(4096)
 	memoStore := &failUpdateMemoStore{inner: innerMemo}
-	ex := &runtime.Executor{
-		Store:         st,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          routing.NewSeededRng(2),
-		ALegLifecycle: lc,
-		Backends:      backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "hidden",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.ALegLifecycle = lc
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "hidden",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 	selector := "[thinker]thinker-be:m^fast-exec:m!slow-exec:m|recovery:m"
 
 	first := seedThinkerFirstCall(t, st, selector)

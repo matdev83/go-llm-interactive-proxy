@@ -59,12 +59,11 @@ func newExecutorWithBackend(tb testing.TB, backendID string, be execbackend.Back
 	if err != nil {
 		tb.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(42),
-		Backends: map[string]execbackend.Backend{backendID: be},
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(42)
+	ex.Backends = map[string]execbackend.Backend{backendID: be}
 	testkit.WireConformanceExecutorSecureSession(tb, ex)
 	return ex
 }

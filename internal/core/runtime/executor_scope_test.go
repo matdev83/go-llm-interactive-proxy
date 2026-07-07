@@ -41,14 +41,13 @@ func TestExecutor_OpenContext_carriesTrustedScopeInViews(t *testing.T) {
 	}
 	var openCtx context.Context
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"openai": scopeTestBackendOpenCapture(&openCtx, &opens),
-		},
-		Rand: routing.NewSeededRng(3),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": scopeTestBackendOpenCapture(&openCtx, &opens),
 	}
+	ex.Rand = routing.NewSeededRng(3)
 	trusted := scope.PrincipalScopeView{
 		SubjectKind: scope.SubjectHuman,
 		PrincipalID: scope.Known("scope-user"),
@@ -92,14 +91,13 @@ func TestExecutor_OpenContext_legacyPrincipalDerivesScope(t *testing.T) {
 	}
 	var openCtx context.Context
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"openai": scopeTestBackendOpenCapture(&openCtx, &opens),
-		},
-		Rand: routing.NewSeededRng(3),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": scopeTestBackendOpenCapture(&openCtx, &opens),
 	}
+	ex.Rand = routing.NewSeededRng(3)
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "transport-user"})
 	stream, err := ex.Execute(ctx, &lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},
@@ -134,32 +132,31 @@ func TestExecutor_MultiAttempt_sharesRequestScope(t *testing.T) {
 	}
 	var firstOpenCtx, secondOpenCtx context.Context
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"fail": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					firstOpenCtx = ctx
-					return nil, fmt.Errorf("boom: %w", lipapi.ErrRecoverablePreOutput)
-				},
-			},
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					secondOpenCtx = ctx
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"fail": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				firstOpenCtx = ctx
+				return nil, fmt.Errorf("boom: %w", lipapi.ErrRecoverablePreOutput)
 			},
 		},
-		Rand: routing.NewSeededRng(2),
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				secondOpenCtx = ctx
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
 	}
+	ex.Rand = routing.NewSeededRng(2)
 	trusted := scope.PrincipalScopeView{
 		SubjectKind: scope.SubjectHuman,
 		PrincipalID: scope.Known("shared-user"),
@@ -204,28 +201,27 @@ func TestExecutor_MultiAttempt_recoversOnPreOutputError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"fail": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return nil, fmt.Errorf("boom: %w", lipapi.ErrRecoverablePreOutput)
-				},
-			},
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"fail": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, fmt.Errorf("boom: %w", lipapi.ErrRecoverablePreOutput)
 			},
 		},
-		Rand: routing.NewSeededRng(2),
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
 	}
+	ex.Rand = routing.NewSeededRng(2)
 	stream, err := ex.Execute(context.Background(), &lipapi.Call{
 		Route:    lipapi.RouteIntent{Selector: "fail:gpt-4|ok:gpt-4"},
 		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},

@@ -65,19 +65,18 @@ func TestExecutor_HiddenInterleavedEndToEnd(t *testing.T) {
 		}),
 	}
 
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "hidden",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "hidden",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 
 	first := interleavedBaseCall(selector)
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -277,19 +276,18 @@ func TestExecutor_VisibleInterleavedEndToEnd(t *testing.T) {
 		}),
 	}
 
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "visible",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "visible",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 
 	first := interleavedBaseCall(selector)
 	firstStream, err := ex.Execute(context.Background(), first)
@@ -503,19 +501,18 @@ func TestExecutor_VisibleMemoReinjectsOnLaterNormalExecutorTurn(t *testing.T) {
 		}),
 	}
 
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "visible",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "visible",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 
 	collectTurn := func(origin, prev, call *lipapi.Call) {
 		t.Helper()

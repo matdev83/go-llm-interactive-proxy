@@ -30,22 +30,21 @@ func TestIntegration_openaiCodexURIReasoningEffortOverridesBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	var captured lipapi.Call
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]execbackend.Backend{
-			"openai-codex": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityReasoning, lipapi.CapabilityTools),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					captured = call
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventTextDelta, Delta: "ok"},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(42)
+	ex.Backends = map[string]execbackend.Backend{
+		"openai-codex": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityReasoning, lipapi.CapabilityTools),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				captured = call
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventTextDelta, Delta: "ok"},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}

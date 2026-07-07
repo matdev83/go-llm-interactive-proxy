@@ -39,9 +39,8 @@ type hexagonalBaselineBacklog struct {
 }
 
 // TestHexagonalMigrationBaselineIncludesAllClassifications ensures the migration
-// register still models aligned, extract, and exception coexistence (introduce-
-// hexagonal-architecture task 7.2); shrinking to a single class is a deliberate
-// doc+test change, not silent drift.
+// register still models the closure target: aligned packages present and zero
+// exception entries after arch review final closure.
 func TestHexagonalMigrationBaselineIncludesAllClassifications(t *testing.T) {
 	t.Parallel()
 
@@ -70,8 +69,12 @@ func TestHexagonalMigrationBaselineIncludesAllClassifications(t *testing.T) {
 			t.Fatalf("unexpected classification %q for %s", row.Classification, row.GoListPattern)
 		}
 	}
-	if aligned == 0 || extract == 0 || exception == 0 {
-		t.Fatalf("baseline must include at least one aligned, one extract, and one exception package (got aligned=%d extract=%d exception=%d)",
+	if aligned == 0 {
+		t.Fatalf("baseline must include at least one aligned package (got aligned=%d extract=%d exception=%d)",
+			aligned, extract, exception)
+	}
+	if exception != 0 {
+		t.Fatalf("baseline must have zero exception packages after closure (got aligned=%d extract=%d exception=%d)",
 			aligned, extract, exception)
 	}
 }

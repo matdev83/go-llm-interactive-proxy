@@ -56,27 +56,27 @@ func scopeEmissionExecutor(t *testing.T, uobs usage.Observer, tobs sdktraffic.Ob
 		UsageObserver:   uobs,
 		TrafficObserver: tobs,
 	})
-	return &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{
-							Kind:         lipapi.EventUsageDelta,
-							InputTokens:  3,
-							RawUsageJSON: `{"usage":true}`,
-						},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{
+						Kind:         lipapi.EventUsageDelta,
+						InputTokens:  3,
+						RawUsageJSON: `{"usage":true}`,
+					},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
+	return ex
 }
 
 // TestRuntime_usageEvidence_carriesScope proves the usage observer receives the authoritative

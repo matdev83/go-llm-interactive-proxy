@@ -28,16 +28,15 @@ func TestExecutor_AlegCancellationCancelsManagedBLegBeforeClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	inner := &managedBlockingStream{ready: make(chan struct{})}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"managed": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return inner, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"managed": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return inner, nil
 			},
 		},
 	}
@@ -77,17 +76,16 @@ func TestExecutor_AlegCancellationRecordsEstimatedBillingMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := &billingMarkerRecorder{}
-	ex := &runtime.Executor{
-		Store:                 st,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(1),
-		SecureSessionRecorder: rec,
-		Backends: map[string]execbackend.Backend{
-			"managed": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return &managedBlockingStream{ready: make(chan struct{})}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.SecureSessionRecorder = rec
+	ex.Backends = map[string]execbackend.Backend{
+		"managed": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &managedBlockingStream{ready: make(chan struct{})}, nil
 			},
 		},
 	}
@@ -136,31 +134,30 @@ func TestExecutor_AlegCancellationPersistsAuthoritativeFinalBilling(t *testing.T
 	}
 	rec := &billingMarkerRecorder{}
 	var finalIn execbackend.BillingFinalizationInput
-	ex := &runtime.Executor{
-		Store:                 st,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(1),
-		SecureSessionRecorder: rec,
-		Backends: map[string]execbackend.Backend{
-			"managed": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return &managedBlockingStream{ready: make(chan struct{})}, nil
-				},
-				FinalizeBilling: func(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
-					if err := ctx.Err(); err != nil {
-						return lipapi.Event{}, err
-					}
-					finalIn = in
-					return lipapi.Event{
-						Kind:         lipapi.EventUsageDelta,
-						InputTokens:  2,
-						OutputTokens: 3,
-						TotalTokens:  5,
-						CostSource:   "provider_reported",
-						RawUsageJSON: `{"provider":"final"}`,
-					}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.SecureSessionRecorder = rec
+	ex.Backends = map[string]execbackend.Backend{
+		"managed": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &managedBlockingStream{ready: make(chan struct{})}, nil
+			},
+			FinalizeBilling: func(ctx context.Context, in execbackend.BillingFinalizationInput) (lipapi.Event, error) {
+				if err := ctx.Err(); err != nil {
+					return lipapi.Event{}, err
+				}
+				finalIn = in
+				return lipapi.Event{
+					Kind:         lipapi.EventUsageDelta,
+					InputTokens:  2,
+					OutputTokens: 3,
+					TotalTokens:  5,
+					CostSource:   "provider_reported",
+					RawUsageJSON: `{"provider":"final"}`,
+				}, nil
 			},
 		},
 	}
@@ -209,25 +206,24 @@ func TestExecutor_AlegCancellationBlocksRecvPhaseReplacementBeforeOpen(t *testin
 	}
 	lc := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store:         st,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          routing.NewSeededRng(1),
-		ALegLifecycle: lc,
-		Backends: map[string]execbackend.Backend{
-			"bad": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return &recoverableBeforeOutputStream{}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.ALegLifecycle = lc
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return &recoverableBeforeOutputStream{}, nil
 			},
-			"waste": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"waste": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -263,23 +259,22 @@ func TestExecutor_RegisterBLegFailureDoesNotDoubleCancelStream(t *testing.T) {
 	}
 	lc := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
 	inner := &managedBlockingStream{ready: make(chan struct{})}
-	ex := &runtime.Executor{
-		Store:         st,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          routing.NewSeededRng(1),
-		ALegLifecycle: lc,
-		Backends: map[string]execbackend.Backend{
-			"managed": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if call.Session.ALegID == "" {
-						return nil, errors.New("missing a-leg id")
-					}
-					if err := lc.CancelALeg(ctx, call.Session.ALegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
-						return nil, err
-					}
-					return inner, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.ALegLifecycle = lc
+	ex.Backends = map[string]execbackend.Backend{
+		"managed": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if call.Session.ALegID == "" {
+					return nil, errors.New("missing a-leg id")
+				}
+				if err := lc.CancelALeg(ctx, call.Session.ALegID, leglifecycle.CancelCause{Kind: leglifecycle.CancelExplicit}); err != nil {
+					return nil, err
+				}
+				return inner, nil
 			},
 		},
 	}

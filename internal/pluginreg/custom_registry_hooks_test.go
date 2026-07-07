@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -38,11 +38,11 @@ func TestBuildFeatureHooks_usesExplicitRegistryNotDefault(t *testing.T) {
 		Config:      lipsdk.ConfigPayload{Node: cfgNode},
 	}}
 
-	if _, _, err := featurebundle.BuildFeatureHooks(reg, regs); err != nil {
+	if _, _, err := runtimebundle.BuildFeatureHooks(reg, regs); err != nil {
 		t.Fatal(err)
 	}
 	empty := pluginreg.NewRegistry()
-	if _, _, err := featurebundle.BuildFeatureHooks(empty, regs); err == nil {
+	if _, _, err := runtimebundle.BuildFeatureHooks(empty, regs); err == nil {
 		t.Fatal("expected empty registry to miss custom-only feature factory")
 	}
 }

@@ -71,32 +71,31 @@ func NewStubExecutorWithDeltas(t *testing.T, caps lipapi.BackendCaps, deltas []s
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]execbackend.Backend{
-			"stub": {
-				Caps: caps,
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if capture != nil {
-						capture.Store("last", call)
-					}
-					_ = ctx
-					_ = cand
-					prefix := stubToolPrefixEvents(call)
-					evs := make([]lipapi.Event, 0, 2+len(prefix)+len(deltas)+1)
-					evs = append(evs,
-						lipapi.Event{Kind: lipapi.EventResponseStarted},
-						lipapi.Event{Kind: lipapi.EventMessageStarted},
-					)
-					evs = append(evs, prefix...)
-					for _, d := range deltas {
-						evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
-					}
-					evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
-					return lipapi.NewFixedEventStream(evs), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(42)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": {
+			Caps: caps,
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if capture != nil {
+					capture.Store("last", call)
+				}
+				_ = ctx
+				_ = cand
+				prefix := stubToolPrefixEvents(call)
+				evs := make([]lipapi.Event, 0, 2+len(prefix)+len(deltas)+1)
+				evs = append(evs,
+					lipapi.Event{Kind: lipapi.EventResponseStarted},
+					lipapi.Event{Kind: lipapi.EventMessageStarted},
+				)
+				evs = append(evs, prefix...)
+				for _, d := range deltas {
+					evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: d})
+				}
+				evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
+				return lipapi.NewFixedEventStream(evs), nil
 			},
 		},
 	}
@@ -110,32 +109,31 @@ func NewStubExecutor(t *testing.T, caps lipapi.BackendCaps, text string, capture
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]execbackend.Backend{
-			"stub": {
-				Caps: caps,
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if capture != nil {
-						capture.Store("last", call)
-					}
-					_ = ctx
-					_ = cand
-					prefix := stubToolPrefixEvents(call)
-					evs := make([]lipapi.Event, 0, 2+len(prefix)+2)
-					evs = append(evs,
-						lipapi.Event{Kind: lipapi.EventResponseStarted},
-						lipapi.Event{Kind: lipapi.EventMessageStarted},
-					)
-					evs = append(evs, prefix...)
-					evs = append(evs,
-						lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
-						lipapi.Event{Kind: lipapi.EventResponseFinished},
-					)
-					return lipapi.NewFixedEventStream(evs), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(42)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": {
+			Caps: caps,
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if capture != nil {
+					capture.Store("last", call)
+				}
+				_ = ctx
+				_ = cand
+				prefix := stubToolPrefixEvents(call)
+				evs := make([]lipapi.Event, 0, 2+len(prefix)+2)
+				evs = append(evs,
+					lipapi.Event{Kind: lipapi.EventResponseStarted},
+					lipapi.Event{Kind: lipapi.EventMessageStarted},
+				)
+				evs = append(evs, prefix...)
+				evs = append(evs,
+					lipapi.Event{Kind: lipapi.EventTextDelta, Delta: text},
+					lipapi.Event{Kind: lipapi.EventResponseFinished},
+				)
+				return lipapi.NewFixedEventStream(evs), nil
 			},
 		},
 	}

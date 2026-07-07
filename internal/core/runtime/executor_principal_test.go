@@ -21,24 +21,23 @@ func TestExecutor_OpenContext_carriesTransportPrincipalInViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	var openCtx context.Context
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					openCtx = ctx
-					_ = call
-					_ = cand
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				openCtx = ctx
+				_ = call
+				_ = cand
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(3),
 	}
+	ex.Rand = routing.NewSeededRng(3)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{

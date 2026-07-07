@@ -15,7 +15,7 @@ The durable source of truth is split by purpose:
 
 The Go proxy is a streaming-first control plane between multiple client-facing APIs and multiple backend API families. Frontend adapters decode wire protocols to `pkg/lipapi` canonical calls. Backend adapters translate canonical calls to provider or emulator calls and return canonical event streams. Core orchestration stays provider-agnostic.
 
-The standard distribution (`cmd/lipstd`) wires the official plugin set through `internal/pluginreg`, `internal/infra/runtimebundle`, and `internal/stdhttp`. Core packages do not import concrete plugins or provider SDKs.
+The standard distribution (`cmd/lipstd`) wires the official plugin set through `internal/standardplugins`, `internal/featurebundle`, `internal/infra/runtimebundle`, and `internal/stdhttp`. Core packages do not import concrete plugins or provider SDKs.
 
 ## Runtime flow
 
@@ -80,13 +80,13 @@ See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage tabl
 2. initialize tracing and logging;
 3. create an isolated `pluginreg.Registry` with `pluginreg.NewRegistry`;
 4. resolve default upstream API keys from environment variables;
-5. install the standard bundle on that registry;
+5. install the standard bundle on that registry via `standardplugins.InstallStandardBundleOn`;
 6. validate mandatory bundled factories;
-7. merge configured feature bundles into hooks and extension surfaces;
+7. merge configured feature bundles with `featurebundle.MergeFeatureSurface` and build hooks in `runtimebundle` (`BuildFeatureHooks`);
 8. build `runtime.App` and `runtimebundle.Built`;
 9. run the HTTP server with `stdhttp.RunWithRuntime`.
 
-The registry is composition-root state, not core global state. Static standard-bundle tables remain under `internal/pluginreg`; future bundle work should keep startup explicit and avoid package-level mutable registries.
+The registry is composition-root state, not core global state. Static standard-bundle tables live under `internal/standardplugins`; feature merge is `internal/featurebundle`; hook bus construction stays in `internal/infra/runtimebundle`. Startup remains explicit — no package-level mutable registries.
 
 ## Diagnostics and operations
 
@@ -107,4 +107,11 @@ Permanent rules:
 - Capability mismatches fail explicitly.
 - Advanced request, response, tool, capture, memory, verifier, and safety features use SDK seams before core logic changes.
 
-Architecture tests under `internal/archtest` and related package tests enforce many of these boundaries. Update tests and steering together when a boundary intentionally changes.
+Architecture tests under `internal/archtest` and related package tests enforce many of these boundaries. Run `make arch-report` for a deterministic snapshot of package sizes, import fan-out, and hexagonal baseline classifications. See also:
+
+- [`docs/core-boundaries.md`](core-boundaries.md) — core admission checklist
+- [`docs/enterprise-extension-boundaries.md`](enterprise-extension-boundaries.md) — enterprise integration seams
+- [`docs/feature-bridge-retirement-checklist.md`](feature-bridge-retirement-checklist.md) — native `FeatureBundle` migration status
+- [`docs/architecture-guardrails.md`](architecture-guardrails.md) — automated guardrails and PR checklist
+
+**Single-module layout:** the repository intentionally ships one `go.mod`. Boundary tests enforce SDK isolation and dependency direction; a module split is deferred until concrete distribution pain appears.

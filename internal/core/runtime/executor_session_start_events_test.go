@@ -57,15 +57,14 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_newSecureSession_emitsOnce(t
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                hooks.New(hooks.Config{}),
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(3000, 0).UTC() },
-		AuthEvents:         disp,
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(3000, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithFrontendID(
 		execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-a", DisplayName: "Alice"}),
 		"anthropic",
@@ -121,15 +120,14 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_proxySessionIDNotRawClientHi
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                hooks.New(hooks.Config{}),
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(3000, 0).UTC() },
-		AuthEvents:         disp,
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(3000, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithFrontendID(
 		execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-a", DisplayName: "Alice"}),
 		"anthropic",
@@ -171,15 +169,14 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeDoesNotDuplicate(t *te
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                hooks.New(hooks.Config{}),
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(3100, 0).UTC() },
-		AuthEvents:         disp,
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(3100, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-b"})
 	call1 := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "resume-hint"},
@@ -232,15 +229,14 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_resumeTokenNotLeakedIntoEven
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                hooks.New(hooks.Config{}),
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(3200, 0).UTC() },
-		AuthEvents:         disp,
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(3200, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-c"})
 	const secretMarker = "resume-proof-SECRET-MARKER-99331"
 	call := &lipapi.Call{
@@ -307,16 +303,15 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_syntheticPrincipal_emitsPart
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                   b2,
-		Bus:                     hooks.New(hooks.Config{}),
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		Now:                     func() time.Time { return time.Unix(3300, 0).UTC() },
-		AuthEvents:              disp,
-		SessionAuditPolicy:      testSessionAuditPolicy(),
-		SyntheticLocalPrincipal: true,
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(3300, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
+	ex.SyntheticLocalPrincipal = true
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "synth-hint"},
 		Messages: []lipapi.Message{{
@@ -356,15 +351,14 @@ func TestExecutor_prepareSubmitAndALeg_sessionStart_failClosed_propagates(t *tes
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                hooks.New(hooks.Config{}),
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(3400, 0).UTC() },
-		AuthEvents:         disp,
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(3400, 0).UTC() }
+	ex.AuthEvents = disp
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-fc"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "fc-hint"},

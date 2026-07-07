@@ -59,24 +59,23 @@ func interleavedSecureExecutor(t *testing.T, backends map[string]execbackend.Bac
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWorkspaceResolver{}}),
 	})
-	ex := &runtime.Executor{
-		Store:                   st,
-		Bus:                     hooks.New(hooks.Config{}),
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
-		SyntheticLocalPrincipal: false,
-		Rand:                    routing.NewSeededRng(2),
-		Backends:                backends,
-		Now:                     func() time.Time { return time.Unix(3000, 0) },
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "hidden",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: interleavedthinking.NewMemoStore(4096),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
+	ex.SyntheticLocalPrincipal = false
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.Now = func() time.Time { return time.Unix(3000, 0) }
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "hidden",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = interleavedthinking.NewMemoStore(4096)
 	return ex, st
 }
 
@@ -341,21 +340,20 @@ func TestExecutor_InterleavedStaleSelectorResetPreservesMemo(t *testing.T) {
 	capture := func(c lipapi.Call) { gotCall = c }
 
 	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"exec-be": *interleavedBackendWithStream(caps, capture, func() lipapi.ManagedEventStream {
-				return executorTextStream("exec answer")
-			}),
-		},
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"exec-be": *interleavedBackendWithStream(caps, capture, func() lipapi.ManagedEventStream {
+			return executorTextStream("exec answer")
+		}),
 	}
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		RegularTurnsRemaining: 2,
+	}
+	ex.MemoStore = memoStore
 
 	first := interleavedBaseCall(oldSelector)
 	firstStream, err := ex.Execute(context.Background(), first)
