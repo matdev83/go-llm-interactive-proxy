@@ -26,9 +26,11 @@ type UpstreamAPIKeys struct {
 }
 
 // ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
-// OPENROUTER_API_KEY, NVIDIA_API_KEY, HUGGINGFACE_API_KEY plus numbered suffixes (_1, _2, _3, …) until the first missing or
-// empty value. OpenRouter, NVIDIA, and Hugging Face use _1-indexed numbering for consistency with
-// OPENROUTER_API_KEY_1, NVIDIA_API_KEY_1, HUGGINGFACE_API_KEY_1, etc.
+// OPENROUTER_API_KEY, NVIDIA_API_KEY, HUGGINGFACE_API_KEY plus numbered suffixes until the first
+// missing or empty value. The bare env var fills the first slot. OpenAI, Anthropic, and Gemini read
+// suffixes starting at _2 (an explicit _1 is not read for them); OpenRouter, NVIDIA, and Hugging Face
+// use _1-indexed numbering for consistency with OPENROUTER_API_KEY_1, NVIDIA_API_KEY_1,
+// HUGGINGFACE_API_KEY_1, etc.
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
 func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 	return UpstreamAPIKeys{
