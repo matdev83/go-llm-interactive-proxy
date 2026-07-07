@@ -2,55 +2,17 @@ package runtimebundle
 
 import (
 	"context"
-	crand "crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"slices"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
-	affinitymem "github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity/memorystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	corestate "github.com/matdev83/go-llm-interactive-proxy/internal/core/state"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
-	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
-	coreworkspace "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
-	modelregistryfile "github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelregistry/filestore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
-	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
 
 // Build assembles continuity store, executor, and closers for the standard distribution.
@@ -81,6 +43,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts != nil && opts.StartupContext != nil {
 		parent = opts.StartupContext
 	}
+	bctx := buildContext{Cfg: cfg, Bus: bus, Log: log, Opts: opts, Parent: parent}
 	// closers is the ordered disposal list for every resource Build opens. The
 	// control-plane store is opened first (in buildControlPlaneRuntime), so its
 	// closer is registered immediately and every later error path disposes it;
@@ -99,215 +62,64 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if controlPlane != nil && controlPlane.closer != nil {
 		closers = append(closers, controlPlane.closer)
 	}
-	authEvents, err := buildAuthEventDispatcher(cfg, log, opts, controlPlane.wrapAuthSink)
-	if err != nil {
-		return nil, withDisposedClosers(err, closers)
-	}
 	reg := opts.PluginRegistry
-	if err := validateBackendSecurityProfiles(cfg, reg); err != nil {
-		return nil, withDisposedClosers(err, closers)
-	}
-	sap, err := buildSessionAuditPolicy(cfg)
-	if err != nil {
-		return nil, withDisposedClosers(err, closers)
-	}
-	httpAuth, err := resolveHTTPAuthProviders(cfg, log, opts, authEvents, sap)
+	sec, err := buildSecurityRuntime(bctx, controlPlane)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
 
-	var bundle *metrics.Bundle
-	if cfg.Observability.Metrics.Enabled {
-		bundle = metrics.NewBundle(cfg)
-	}
+	obs := buildObservabilityRuntime(bctx)
 
-	tune := httpclient.TransportTuneFromConfig(cfg)
-	upstream := httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)
-	if opts.HTTPClient != nil {
-		upstream = opts.HTTPClient
-	}
-	upstream = wrapUpstreamClient(upstream, bundle, opts.OutboundTracing)
-
-	startedCatalog, err := startModelCatalog(parent, cfg, upstream)
+	model, closers, err := buildModelRuntime(bctx, obs.Upstream, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
-	var vendorCatalogRuntime *modelcatalog.CatalogRuntime
-	if startedCatalog != nil {
-		vendorCatalogRuntime = startedCatalog.Runtime
-	}
-	backendDeps := pluginreg.BackendFactoryDeps{
-		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
-	}
-
-	if startedCatalog != nil {
-		closers = append(closers, startedCatalog.closers...)
-	}
-	backends, inventories, routePrefixes, err := buildBackends(cfg, reg, upstream, backendDeps)
-	if err != nil {
-		wrapped := fmt.Errorf("runtimebundle: %w", err)
-		return nil, withDisposedClosers(wrapped, closers)
-	}
-	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
-	if err != nil {
-		wrapped := fmt.Errorf("runtimebundle: model registry: %w", err)
-		return nil, withDisposedClosers(wrapped, closers)
-	}
-	closers = append(closers, modelRegistryClosers...)
-	if cfg.Accounting.StrictAuthoritative {
-		for id, be := range backends {
-			if be.FinalizeBilling == nil {
-				err := fmt.Errorf("runtimebundle: accounting strict_authoritative requires billing finalizer for backend %q", id)
-				return nil, withDisposedClosers(err, closers)
-			}
-		}
-	}
-	store, err := OpenContinuityStore(parent, cfg)
-	if err != nil {
-		return nil, withDisposedClosers(fmt.Errorf("runtimebundle: %w", err), closers)
-	}
-	if c, ok := store.(interface{ Close() error }); ok {
-		closers = append(closers, c.Close)
-	}
-	store = controlPlane.wrapB2BUA(store)
-
-	ssRun, err := buildSecureSessionRuntime(secureSessionBuildInput{
-		StartupContext:        parent,
-		Cfg:                   cfg,
-		B2B:                   store,
-		Log:                   log,
-		Bundle:                bundle,
-		ControlPlaneStoreWrap: controlPlane.wrapSecureSession,
-	})
+	persist, closers, err := buildPersistenceRuntime(bctx, controlPlane, obs.Bundle, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
-	}
-	if ssRun.closer != nil {
-		closers = append(closers, ssRun.closer)
-	}
-
-	effectiveRoute, defBE, aliasResolver, err := resolveRouting(cfg, opts.WireModel)
-	if err != nil {
-		return nil, withDisposedClosers(fmt.Errorf("runtimebundle: %w", err), closers)
-	}
-	capMap := make(capabilities.MapResolver, len(backends))
-	for id, be := range backends {
-		capMap[id] = func(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call) lipapi.BackendCaps {
-			return execbackend.EffectiveCaps(ctx, be, call, cand)
-		}
-	}
-
-	var seed int64
-	if err := binary.Read(crand.Reader, binary.LittleEndian, &seed); err != nil {
-		seed = time.Now().UnixNano()
 	}
 
 	nowFn := time.Now
 	if opts.Clock != nil {
 		nowFn = opts.Clock
 	}
-
 	var exec *runtime.Executor
-	snap := buildRuntimeSnapshot(bus, cfg, opts, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane)
-	streamRecovery, err := streamRecoveryConfigFromConfig(cfg)
+	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane)
+	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
+		Bctx:          bctx,
+		NowFn:         nowFn,
+		Ext:           ext,
+		Model:         model,
+		Persistence:   persist,
+		Security:      sec,
+		Observability: &obs,
+		ControlPlane:  controlPlane,
+	}, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
-	tokenAccounting, accountingClosers, err := buildTokenAccountingRuntime(parent, cfg, nowFn, backends)
-	if err != nil {
-		return nil, withDisposedClosers(err, closers)
-	}
-	closers = append(closers, accountingClosers...)
-	exec = &runtime.Executor{
-		Store:                    store,
-		Bus:                      bus,
-		RuntimeSnapshot:          snap,
-		Backends:                 backends,
-		ALegLifecycle:            leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
-		MaxAttempts:              cfg.Routing.MaxAttempts,
-		DefaultBackend:           defBE,
-		SelectorAliases:          aliasResolver,
-		CapsResolver:             capMap,
-		Rand:                     routing.NewSeededRng(seed),
-		Now:                      nowFn,
-		CandidateHealth:          routinghealth.CandidateHealthFromConfig(cfg, nowFn),
-		RouteObserver:            routeObserverFor(log),
-		AffinityStore:            affinitymem.New(),
-		AffinityMissingIdentity:  affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
-		Log:                      log,
-		MaxPendingWireEvents:     cfg.Server.MaxPendingWireEvents,
-		StreamRecovery:           streamRecovery,
-		TransportFallbackPolicy:  config.EffectiveTransportFallbackPolicy(cfg),
-		PolicyDiagnosticsEnabled: opts.PolicyDiagnosticsEnabled,
-	}
-	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
-		return nil, withDisposedClosers(err, closers)
-	}
-	if tokenAccounting != nil {
-		exec.Preflight = tokenAccounting.Preflight
-		exec.StreamUsage = tokenAccounting.StreamUsage
-		exec.Ledger = tokenAccounting.Ledger
-		exec.LedgerWriteRequired = cfg.Accounting.Ledger.WritePolicy == "required"
-		exec.TokenAccountingObservability = tokenAccounting.Observability
-		exec.AdminCountService = tokenAccounting.Admin
-	}
-	if len(cfg.Accounting.Pricing.Models) > 0 {
-		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
-		if err != nil {
-			pricingErr := fmt.Errorf("runtimebundle: accounting pricing: %w", err)
-			return nil, withDisposedClosers(pricingErr, closers)
-		}
-		exec.AccountingPriceCatalog = catalog
-	}
-	exec.AuthEvents = authEvents
-	exec.SessionAuditPolicy = sap
-	applySecureSessionToExecutor(exec, ssRun)
-	ssStore := strings.TrimSpace(cfg.SecureSession.Store)
-	if ssStore == "" {
-		ssStore = "memory"
-	}
-	exec.SyntheticLocalPrincipal = cfg.SingleUserLocalMode() && strings.EqualFold(ssStore, "memory")
-	if bundle != nil {
-		exec.Metrics = bundle.ExecutorSink()
-		exec.ExtensionMetrics = bundle.ExtensionStageSink()
-		exec.SecureSessionMetrics = bundle.SecureSessionMetricsSink()
-		if tokenAccounting != nil && tokenAccounting.Observability != nil {
-			tokenAccounting.Observability.SetSink(bundle.TokenAccountingObservabilitySink())
-		}
-	}
-	secureSessionStore := ssRun.appStore
-	if opts.SecureSessionStore != nil {
-		secureSessionStore = opts.SecureSessionStore
-	}
-	catalogRuntime := attachModelCatalog(exec, startedCatalog, cfg)
+	exec = execRun.Exec
 	return &Built{
-		Executor:              exec,
-		Store:                 store,
+		Executor:              execRun.Exec,
+		Store:                 persist.Store,
 		Closers:               closers,
-		UpstreamHTTP:          upstream,
-		RoutePrefixes:         routePrefixes,
+		UpstreamHTTP:          obs.Upstream,
+		RoutePrefixes:         model.RoutePrefixes,
 		PluginRegistry:        reg,
-		EffectiveDefaultRoute: effectiveRoute,
-		Metrics:               bundle,
-		RuntimeSnapshot:       snap,
-		HTTPAuthProviders:     httpAuth,
-		SecureSessionStore:    secureSessionStore,
-		AuthEventDispatcher:   authEvents,
-		CatalogRuntime:        catalogRuntime,
-		ModelRegistry:         modelRegistry,
-		ModelRegistryRuntime:  modelRegistryRuntime,
-		TokenAccountingAdmin:  tokenAccountingAdmin(tokenAccounting),
+		EffectiveDefaultRoute: execRun.EffectiveRoute,
+		Metrics:               obs.Bundle,
+		RuntimeSnapshot:       ext.Snap,
+		HTTPAuthProviders:     sec.HTTPAuth,
+		SecureSessionStore:    execRun.SecureSessionStore,
+		AuthEventDispatcher:   sec.AuthEvents,
+		CatalogRuntime:        execRun.CatalogRuntime,
+		ModelRegistry:         model.Registry,
+		ModelRegistryRuntime:  model.RegistryRuntime,
+		TokenAccountingAdmin:  execRun.TokenAccountingAdmin,
 		ControlPlaneQueries:   controlPlane.queriesHandle(),
 		ControlPlaneStatus:    controlPlane.statusHandle(),
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 	}, nil
-}
-
-func tokenAccountingAdmin(r *tokenAccountingRuntime) *accountingapp.Service {
-	if r == nil {
-		return nil
-	}
-	return r.Admin
 }
 
 func disposeClosers(closers []func() error) error {
@@ -330,79 +142,6 @@ func withDisposedClosers(err error, closers []func() error) error {
 	return err
 }
 
-func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTracing bool) *http.Client {
-	if client == nil {
-		return nil
-	}
-	rt := client.Transport
-	if rt == nil {
-		rt = httpclient.DefaultTransport()
-	}
-	wrapped := rt
-	if bundle != nil && bundle.Upstream != nil {
-		wrapped = bundle.Upstream.WrapUpstreamRoundTripper(wrapped)
-	}
-	if outboundTracing {
-		wrapped = tracing.WrapTransport(true, wrapped)
-	}
-	if wrapped == rt {
-		return client
-	}
-	c := *client
-	c.Transport = wrapped
-	return &c
-}
-
-func startModelRegistryRuntime(
-	parent context.Context,
-	cfg *config.Config,
-	inventories []modelregistry.BackendInventory,
-) (*modelregistry.Runtime, *modelregistry.Registry, []func() error, error) {
-	var cache modelregistry.Cache
-	if path := strings.TrimSpace(cfg.ModelInventory.CachePath); path != "" {
-		cache = modelregistryfile.New(path)
-	}
-	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
-		Inventories: inventories,
-		Cache:       cache,
-	})
-	if err := rt.Start(parent); err != nil {
-		return nil, nil, nil, err
-	}
-	reg := rt.ActiveRegistry()
-	if reg == nil {
-		return nil, nil, nil, modelregistry.ErrSnapshotUnavailable
-	}
-	closers := []func() error{}
-	if cfg.ModelInventory.EffectiveRefreshEnabled() && hasRefreshableModelInventory(inventories) {
-		interval := cfg.ModelInventory.RefreshIntervalDuration()
-		if interval > 0 {
-			refreshCtx, refreshCancel := context.WithCancel(parent)
-			var refreshWG sync.WaitGroup
-			runModelRegistryRefreshLoop(refreshCtx, rt, interval, &refreshWG)
-			closers = append(closers, func() error {
-				refreshCancel()
-				refreshWG.Wait()
-				return nil
-			})
-		}
-	}
-	return rt, reg, closers, nil
-}
-
-func hasRefreshableModelInventory(inventories []modelregistry.BackendInventory) bool {
-	for _, inv := range inventories {
-		if inv.Provider == nil {
-			continue
-		}
-		if static, ok := inv.Provider.(modelinventory.StaticInventory); ok && static.StaticInventory() {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
 // BuildExecutor wires enabled backends from configuration into a core executor with production
 // defaults. Prefer Build for a structured composition result.
 func BuildExecutor(
@@ -416,176 +155,4 @@ func BuildExecutor(
 		return nil, nil, nil, err
 	}
 	return b.Executor, b.Store, b.Closers, nil
-}
-
-func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {
-	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, config.StreamRecoveryOverrides{})
-	if err != nil {
-		return streamrecovery.Config{}, fmt.Errorf("runtimebundle: stream recovery config: %w", err)
-	}
-	return streamrecovery.Config{
-		Enabled:     eff.Enabled,
-		IdleTimeout: eff.IdleTimeout,
-		GracePeriod: eff.GracePeriod,
-		EmitWarning: eff.EmitWarning,
-	}, nil
-}
-
-func buildBackends(
-	cfg *config.Config,
-	reg *pluginreg.Registry,
-	upstream *http.Client,
-	backendDeps pluginreg.BackendFactoryDeps,
-) (map[string]execbackend.Backend, []modelregistry.BackendInventory, []string, error) {
-	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
-	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
-	rawPrefixes := make([]string, 0, len(cfg.Plugins.Backends))
-	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
-	for _, p := range cfg.Plugins.Backends {
-		if !p.Enabled {
-			continue
-		}
-		fid := p.FactoryID()
-		iid := p.InstanceID()
-		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
-		}
-		backends[iid] = be
-		rawPrefixes = append(rawPrefixes, be.BackendPrefixes...)
-		inventories = append(inventories, modelregistry.BackendInventory{
-			BackendID:       iid,
-			Kind:            fid,
-			BackendPrefixes: be.BackendPrefixes,
-			Provider:        be.ModelInventory,
-			FetchTimeout:    modelInventoryFetchTimeout,
-		})
-	}
-	routePrefixes := routing.FilterRoutePrefixes(rawPrefixes)
-	return backends, inventories, routePrefixes, nil
-}
-
-func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {
-	if wireModel == nil {
-		wireModel = pluginreg.DefaultWireModel
-	}
-	rawDefaultRoute := config.EffectiveDefaultRouteSelector(cfg, wireModel)
-	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
-	if err != nil {
-		return "", "", nil, fmt.Errorf("model_aliases: %w", err)
-	}
-	effectiveRoute := aliasResolver.Resolve(rawDefaultRoute)
-	defBE, err := routing.DefaultBackendFromRouteSelector(effectiveRoute)
-	if err != nil {
-		return "", "", nil, err
-	}
-	return effectiveRoute, defBE, aliasResolver, nil
-}
-
-func buildRuntimeSnapshot(
-	bus *hooks.Bus,
-	cfg *config.Config,
-	opts *BuildOptions,
-	nowFn func() time.Time,
-	execRunnerProvider func() auxreq.ExecutorRunner,
-	cp *controlPlaneRuntime,
-) *extensions.RequestRuntimeSnapshot {
-	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
-	if len(opts.WorkspaceResolvers) > 0 {
-		ss := cfg.SecureSession
-		secureOn := cfg.SecureSessionEffectivelyEnabled()
-		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
-		failClosedWS := secureOn && resolveFailClosed
-		if failClosedWS {
-			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
-		} else {
-			ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
-		}
-	}
-	var openers []session.Opener
-	if len(opts.SessionOpeners) > 0 {
-		openers = slices.Clone(opts.SessionOpeners)
-	}
-	var catalogFilters []toolcatalog.Filter
-	if len(opts.ToolCatalogFilters) > 0 {
-		catalogFilters = slices.Clone(opts.ToolCatalogFilters)
-	}
-	var toolPolicies []toolpolicy.Policy
-	if len(opts.ToolCallPolicies) > 0 {
-		toolPolicies = slices.Clone(opts.ToolCallPolicies)
-	}
-	var reqTransforms []request.Transform
-	if len(opts.RequestTransforms) > 0 {
-		reqTransforms = slices.Clone(opts.RequestTransforms)
-	}
-	var preReqs []prerequest.Handler
-	if len(opts.PreRequestHandlers) > 0 {
-		preReqs = slices.Clone(opts.PreRequestHandlers)
-	}
-	var routeHints []routehint.Provider
-	if len(opts.RouteHintProviders) > 0 {
-		routeHints = slices.Clone(opts.RouteHintProviders)
-	}
-	var compGates []completion.Gate
-	if len(opts.CompletionGates) > 0 {
-		compGates = slices.Clone(opts.CompletionGates)
-	}
-	var trafficObs traffic.Observer = traffic.NoopObserver{}
-	if len(opts.TrafficObservers) > 0 {
-		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
-	}
-	var usageObs usage.Observer = usage.NoopObserver{}
-	cpUsageObs := cp.usageObserver()
-	if len(opts.UsageObservers) > 0 {
-		chain := make([]usage.Observer, 0, len(opts.UsageObservers)+1)
-		if cpUsageObs != nil {
-			chain = append(chain, cpUsageObs)
-		}
-		chain = append(chain, opts.UsageObservers...)
-		usageObs = usage.ChainObservers(chain...)
-	} else if cpUsageObs != nil {
-		usageObs = cpUsageObs
-	}
-	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
-	if len(opts.RawCaptureSinks) > 0 {
-		trafficRaw = traffic.MultiRawCapture(opts.RawCaptureSinks...)
-	}
-	var trafficRedactors []traffic.Redactor
-	if len(opts.TrafficRedactors) > 0 {
-		trafficRedactors = slices.Clone(opts.TrafficRedactors)
-	}
-	var policyObs policydecision.Observer = policydecision.NoopObserver{}
-	cpPolicyObs := cp.policyObserver()
-	if len(opts.PolicyObservers) > 0 {
-		chain := make([]policydecision.Observer, 0, len(opts.PolicyObservers)+1)
-		if cpPolicyObs != nil {
-			chain = append(chain, cpPolicyObs)
-		}
-		chain = append(chain, opts.PolicyObservers...)
-		policyObs = policydecision.NewChainObserver(chain...)
-	} else if cpPolicyObs != nil {
-		policyObs = cpPolicyObs
-	}
-	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
-	if opts.PolicyTimeoutBudgetSource != nil {
-		budgetSrc = opts.PolicyTimeoutBudgetSource
-	}
-	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:               corestate.NewMem(nowFn),
-		Aux:                 auxreq.NewClient(execRunnerProvider),
-		Workspace:           ws,
-		SessionOpeners:      openers,
-		ToolCatalogFilters:  catalogFilters,
-		ToolCallPolicies:    toolPolicies,
-		RequestTransforms:   reqTransforms,
-		PreRequestHandlers:  preReqs,
-		RouteHintProviders:  routeHints,
-		CompletionGates:     compGates,
-		TrafficObserver:     trafficObs,
-		UsageObserver:       usageObs,
-		RawCapture:          trafficRaw,
-		TrafficRedactors:    trafficRedactors,
-		PolicyObserver:      policyObs,
-		TimeoutBudgetSource: budgetSrc,
-	})
 }

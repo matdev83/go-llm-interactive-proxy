@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"io"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -88,5 +89,43 @@ func TestBuild_ControlPlaneCloserDisposedOnStreamRecoveryFailure(t *testing.T) {
 	}
 	if !store.closed.Load() {
 		t.Fatal("control-plane store closer must be disposed when Build fails at stream recovery config")
+	}
+}
+
+// TestBuild_ControlPlaneCloserDisposedOnPricingFailure covers the latest Build
+// failure point: accounting.NewPriceCatalog runs after the token-accounting
+// closer is registered, so closers holds the control-plane store plus model,
+// continuity, secure-session, and token-accounting handles. Locks the disposal
+// invariant for the pricing error path before the Phase 2 build-unit extraction
+// moves it into buildExecutorRuntime.
+func TestBuild_ControlPlaneCloserDisposedOnPricingFailure(t *testing.T) { //nolint:paralleltest // self-contained: documented Not parallel
+	store := &closeObservableStore{fakeRetentionStore: &fakeRetentionStore{}}
+	cfg := &config.Config{
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		ControlPlane: config.ControlPlaneConfig{
+			Enabled:         true,
+			Store:           "memory",
+			RecordingPolicy: "best_effort",
+		},
+		Accounting: config.AccountingConfig{
+			Pricing: config.AccountingPricingConfig{
+				Models: []config.AccountingModelPriceConfig{{Model: "x"}}, // empty Backend -> NewPriceCatalog fails
+			},
+		},
+	}
+	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
+		PluginRegistry:            pluginreg.NewRegistry(),
+		ControlPlaneStoreOverride: store,
+	})
+	if err == nil {
+		t.Fatal("expected Build to fail on accounting pricing with empty model backend")
+	}
+	if !strings.Contains(err.Error(), "runtimebundle: accounting pricing") {
+		t.Fatalf("expected pricing error, got %v", err)
+	}
+	if !store.closed.Load() {
+		t.Fatal("control-plane store closer must be disposed when Build fails at accounting pricing (latest step)")
 	}
 }
