@@ -21,9 +21,17 @@ type CriticalFileBudget struct {
 // internal/stdhttp/server.go, the remaining file is ~206 lines. The 300-line
 // budget is therefore calibrated against the reduced post-split scope, not the
 // historical 608-line value, to lock the reduction and prevent re-bloat.
+//
+// build.go is a special case: the 591-line figure is the pre-decomposition
+// historical size. After arch review Phase 2 (Tasks 2.2-2.7) extracted the
+// observability/security/model/persistence/extension/executor build units out of
+// internal/infra/runtimebundle/build.go, the remaining file is the ~158-line
+// Build orchestrator plus dispose/BuildExecutor helpers. The 200-line budget is
+// calibrated against the reduced post-decomposition scope to lock the reduction
+// and prevent the orchestrator from re-absorbing build-unit logic.
 var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 480},
-	{Path: "internal/infra/runtimebundle/build.go", Max: 680},
+	{Path: "internal/infra/runtimebundle/build.go", Max: 200},
 	{Path: "internal/infra/runtimebundle/options.go", Max: 130},
 	{Path: "internal/pluginreg/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
