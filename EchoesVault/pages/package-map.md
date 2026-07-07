@@ -60,7 +60,9 @@ status: active
 
 | Package | Responsibility |
 |---|---|
-| `internal/pluginreg/` | Explicit registry, `InstallStandardBundleOn`, standard frontend/backend/feature tables, factory helpers, key resolution |
+| `internal/pluginreg/` | Explicit registry: `NewRegistry`, `RegisterBackend`/`RegisterFrontend`/`RegisterFeature`, `BuildBackend`/`BuildFeatureBundle`, `ValidateBundledFactories`, `EffectiveAPIKeys` |
+| `internal/standardplugins/` | Standard distribution: `InstallStandardBundleOn`, standard frontend/backend/feature tables, per-backend factory helpers, `ResolveUpstreamAPIKeysFromEnv`, `DefaultWireModel` |
+| `internal/featurebundle/` | Feature merge surface: `MergeFeatureSurface`, `BuildFeatureHooks` |
 | `internal/infra/runtimebundle/` | Composes `Built` from config + registrations: executor, stores, HTTP client, health, model, accounting |
 | `internal/stdhttp/` | HTTP mounting, auth/principal, security guard, recovery, diagnostics, access logs, `Run`/`RunWithRuntime` |
 

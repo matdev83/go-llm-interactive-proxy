@@ -3,6 +3,7 @@ package pluginreg_test
 import (
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftoolpolicy"
@@ -61,7 +62,7 @@ func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 			Config:      lipsdk.ConfigPayload{Node: empty},
 		})
 	}
-	m, err := reg.MergeFeatureSurface(regs)
+	m, err := featurebundle.MergeFeatureSurface(reg, regs)
 	if err != nil {
 		t.Fatal(err)
 	}

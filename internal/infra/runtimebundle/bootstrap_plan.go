@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -48,7 +49,7 @@ type BootstrapResult struct {
 	Logger          *slog.Logger
 	Registry        *pluginreg.Registry
 	Registrations   []lipsdk.Registration
-	FeatureSurface  pluginreg.MergedFeatureSurface
+	FeatureSurface  featurebundle.MergedFeatureSurface
 	App             *BootstrapApp
 	Built           *Built
 	ShutdownTracing func(context.Context) error
@@ -137,7 +138,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
-	merged, err := reg.MergeFeatureSurface(regs)
+	merged, err := featurebundle.MergeFeatureSurface(reg, regs)
 	if err != nil {
 		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: hook composition: %w", err)

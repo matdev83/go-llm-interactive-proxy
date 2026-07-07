@@ -4,11 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,10 +18,10 @@ func TestBuildFeatureHooks_usesExplicitRegistryNotDefault(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterFeature(
 		factoryID,
-		featurebundle.FeatureFactoryFromHooks(func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+		func(n yaml.Node) (lipfeature.FeatureBundle, error) {
 			_ = n
-			return hooks.Config{}, nil, nil
-		}),
+			return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+		},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -39,11 +38,11 @@ func TestBuildFeatureHooks_usesExplicitRegistryNotDefault(t *testing.T) {
 		Config:      lipsdk.ConfigPayload{Node: cfgNode},
 	}}
 
-	if _, _, err := reg.BuildFeatureHooks(regs); err != nil {
+	if _, _, err := featurebundle.BuildFeatureHooks(reg, regs); err != nil {
 		t.Fatal(err)
 	}
 	empty := pluginreg.NewRegistry()
-	if _, _, err := empty.BuildFeatureHooks(regs); err == nil {
+	if _, _, err := featurebundle.BuildFeatureHooks(empty, regs); err == nil {
 		t.Fatal("expected empty registry to miss custom-only feature factory")
 	}
 }

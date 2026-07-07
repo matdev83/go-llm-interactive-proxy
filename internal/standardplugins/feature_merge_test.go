@@ -8,8 +8,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,16 +19,19 @@ func TestBuildFeatureHooks_partialBundlesLeaveOtherChainsAbsent(t *testing.T) {
 	submitFacID := "test-fac-submit-" + strings.ReplaceAll(t.Name(), "/", "-")
 	toolFacID := "test-fac-tool-" + strings.ReplaceAll(t.Name(), "/", "-")
 
-	if err := reg.RegisterFeature(submitFacID, featurebundle.FeatureFactoryFromHooks(func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+	if err := reg.RegisterFeature(submitFacID, func(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		cfg, err := submitnoop.DecodeHookConfig(n)
 		if err != nil {
-			return hooks.Config{}, nil, err
+			return lipfeature.FeatureBundle{}, err
 		}
-		return hooks.Config{SubmitHooks: []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)}}, nil, nil
-	})); err != nil {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			SubmitHooks:   []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)},
+		}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterFeature(toolFacID, featurebundle.FeatureFactoryFromHooks(featureToolReactorNoop)); err != nil {
+	if err := reg.RegisterFeature(toolFacID, featureToolReactorNoop); err != nil {
 		t.Fatal(err)
 	}
 
@@ -36,7 +39,7 @@ func TestBuildFeatureHooks_partialBundlesLeaveOtherChainsAbsent(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	hookCfg, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
+	hookCfg, _, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "inst-submit", FactoryKind: submitFacID, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "inst-tool", FactoryKind: toolFacID, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})

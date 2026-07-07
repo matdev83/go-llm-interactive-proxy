@@ -242,8 +242,9 @@ func (r *Registry) MountFrontend(id string, mux *http.ServeMux, opts lipsdk.Fron
 	)
 }
 
-// BuildFeatureHooks merges enabled feature plugins into hook configuration; see [Registry.MergeFeatureSurface]
-// for session openers and workspace resolvers. [Registry.BuildFeatureBundle] constructs one bundle from YAML.
+// BuildFeatureBundle constructs one feature bundle from YAML by dispatching to the registered
+// feature factory. The featurebundle package provides MergeFeatureSurface for merging multiple
+// bundles into hook configuration plus extension slices.
 func (r *Registry) BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error) {
 	factoryKey = strings.TrimSpace(factoryKey)
 	r.mu.RLock()

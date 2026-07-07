@@ -10,10 +10,10 @@ This document expands the request lifecycle in `docs/architecture.md` for agents
 2. `routing.ValidateModelAliasesConfig` rejects invalid alias rules before serving.
 3. `tracing.Init` and `logging.NewLogger` create process infrastructure.
 4. `pluginreg.NewRegistry` creates an isolated registry for this process.
-5. `pluginreg.ResolveUpstreamAPIKeysFromEnv` reads fallback hosted-provider keys.
-6. `pluginreg.InstallStandardBundleOn` installs official backend, frontend, feature, and auth-renderer factories.
+5. `standardplugins.ResolveUpstreamAPIKeysFromEnv` reads fallback hosted-provider keys.
+6. `standardplugins.InstallStandardBundleOn` installs official backend, frontend, feature, and auth-renderer factories.
 7. `config.RegistrationsFromConfig` selects configured plugin instances.
-8. `Registry.MergeFeatureSurface` builds hook and extension chains from configured feature plugins.
+8. `featurebundle.MergeFeatureSurface` builds hook and extension chains from configured feature plugins.
 9. `runtimebundle.NewBootstrapApp` and `runtimebundle.Build` assemble the executor, stores, model catalog, metrics, tracing client, health, diagnostics, and HTTP-facing runtime bundle.
 10. `stdhttp.RunWithRuntime` mounts frontends and diagnostics and serves until context cancellation.
 

@@ -35,8 +35,8 @@ status: active
 
 ## Credential Management
 
-- `internal/pluginreg/keys.go` - supported provider env vars and numbering rules
-- `pluginreg.ResolveUpstreamAPIKeysFromEnv` - resolves once at startup
+- `internal/standardplugins/keys.go` - supported provider env vars and numbering rules
+- `standardplugins.ResolveUpstreamAPIKeysFromEnv` - resolves once at startup
 - OpenAI Codex `auth.json` managed-OAuth files must be `0600` (reject group/other-readable)
 - Symlinked managed-OAuth account files skipped
 

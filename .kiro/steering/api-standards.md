@@ -31,7 +31,7 @@ Backend compatibility is grouped by adapter family:
 - local/OpenAI-compatible runtimes: Ollama (`ollama` / `ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`,
 - operator-defined custom OpenAI/Anthropic-compatible backend rows.
 
-Exact support is code-owned by `internal/pluginreg/standard_table.go` and `pkg/lipsdk/standard_bundle.go`; docs should link to those files rather than duplicating row-level truth everywhere.
+Exact support is code-owned by `internal/standardplugins/standard_table.go` and `pkg/lipsdk/standard_bundle.go`; docs should link to those files rather than duplicating row-level truth everywhere.
 
 ## Canonical contract guidance
 

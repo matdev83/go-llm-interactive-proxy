@@ -1,9 +1,10 @@
-package pluginreg
+package featurebundle
 
 import (
 	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -39,20 +40,21 @@ type MergedFeatureSurface struct {
 }
 
 // MergeFeatureSurface merges enabled feature plugins into hook configuration plus extension slices.
-func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
+// It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
+func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
 	nFeat := 0
-	for _, reg := range registrations {
-		if reg.Kind == lipsdk.PluginKindFeature && reg.Enabled {
+	for _, regEntry := range registrations {
+		if regEntry.Kind == lipsdk.PluginKindFeature && regEntry.Enabled {
 			nFeat++
 		}
 	}
 	bundles := make([]lipfeature.FeatureBundle, 0, nFeat)
-	for _, reg := range registrations {
-		if reg.Kind != lipsdk.PluginKindFeature || !reg.Enabled {
+	for _, regEntry := range registrations {
+		if regEntry.Kind != lipsdk.PluginKindFeature || !regEntry.Enabled {
 			continue
 		}
-		factoryKey := reg.RegistryFactoryKey()
-		b, err := r.BuildFeatureBundle(factoryKey, reg.Config.Node)
+		factoryKey := regEntry.RegistryFactoryKey()
+		b, err := reg.BuildFeatureBundle(factoryKey, regEntry.Config.Node)
 		if err != nil {
 			return MergedFeatureSurface{}, err
 		}
@@ -135,9 +137,9 @@ func (r *Registry) MergeFeatureSurface(registrations []lipsdk.Registration) (Mer
 }
 
 // BuildFeatureHooks merges enabled feature plugins into hook bus configuration (brownfield API).
-// For the full surface including session openers and workspace resolvers, use [Registry.MergeFeatureSurface].
-func (r *Registry) BuildFeatureHooks(registrations []lipsdk.Registration) (hooks.Config, []lipplugin.Lifecycle, error) {
-	m, err := r.MergeFeatureSurface(registrations)
+// For the full surface including session openers and workspace resolvers, use [MergeFeatureSurface].
+func BuildFeatureHooks(reg *pluginreg.Registry, registrations []lipsdk.Registration) (hooks.Config, []lipplugin.Lifecycle, error) {
+	m, err := MergeFeatureSurface(reg, registrations)
 	if err != nil {
 		return hooks.Config{}, nil, err
 	}
