@@ -1,9 +1,15 @@
 # Example: multi-key credential pool vs. multiple backend *instances*.
 #
-# Network + access: `server.address: ":8080"` binds all interfaces. That requires access.mode
-# multi_user plus strong auth (see config/config.yaml commented scenarios). This file is an
-# upstream-credential layout example only — add access/auth blocks before using it as a full
-# production config, or narrow server.address to loopback for local experiments.
+# This file is an upstream-credential layout example. It binds loopback (127.0.0.1:8080) so it
+# passes `lipstd check-config` as-is; the focus is the `plugins.backends` credential-pool vs.
+# multiple-instance layout below.
+#
+# For a non-loopback (all-interfaces) production deployment, build out from this baseline by setting:
+#   - server.address to a non-loopback bind (e.g. ":8080")
+#   - access.mode: multi_user with authentication (auth.handler + required_level beyond none; see
+#     config/config.yaml commented scenarios), and start serve with `lipstd serve --multi-user`
+#   - diagnostics.shared_secret (>=12 chars), since protected diagnostics surfaces on a non-loopback
+#     bind require it
 #
 # - One runtime backend `id` is one upstream deployment (same adapter + base URL + parameters).
 #   Multiple API keys for that same target go in `api_key` + `api_keys` (ordered pool), not in
@@ -14,7 +20,7 @@
 #   (e.g. different `base_url`, region, or provider account), not for each spare API key.
 # Copy/adapt for your environment; do not commit real secrets.
 server:
-  address: ":8080"
+  address: "127.0.0.1:8080"
 
 logging:
   level: info
@@ -41,7 +47,18 @@ plugins:
     - id: openai-responses
       enabled: true
       config: {}
+    - id: openai-legacy
+      enabled: true
+      config: {}
+    - id: anthropic
+      enabled: true
+      config: {}
+    - id: gemini
+      enabled: true
+      config: {}
   backends:
+    # Focus of this example: two openai-responses *instances* — one with an ordered
+    # api_key/api_keys pool for a single deployment, one targeting a separate upstream.
     - kind: openai-responses
       id: openai-primary
       enabled: true
@@ -57,6 +74,53 @@ plugins:
         # Second *instance*: different upstream target (example: tenant-specific gateway).
         base_url: https://openai-gateway.example.corp/v1
         api_key: ${OPENAI_API_KEY_CORP_GATEWAY}
+    # Mandatory standard backend registrations (disabled; present so this file passes
+    # `lipstd check-config` like the other config/examples/*.yaml).
+    - id: openai-responses
+      enabled: false
+      config: {}
+    - id: openai-legacy
+      enabled: false
+      config: {}
+    - id: anthropic
+      enabled: false
+      config: {}
+    - id: gemini
+      enabled: false
+      config: {}
+    - id: bedrock
+      enabled: false
+      config: {}
+    - id: acp
+      enabled: false
+      config: {}
+    - id: openrouter
+      enabled: false
+      config: {}
+    - id: nvidia
+      enabled: false
+      config: {}
+    - id: opencode-go
+      enabled: false
+      config: {}
+    - id: opencode-zen
+      enabled: false
+      config: {}
+    - id: ollama
+      enabled: false
+      config: {}
+    - id: ollama-cloud
+      enabled: false
+      config: {}
+    - id: llamacpp
+      enabled: false
+      config: {}
+    - id: lmstudio
+      enabled: false
+      config: {}
+    - id: vllm
+      enabled: false
+      config: {}
   features:
     - id: submit-noop
       enabled: true

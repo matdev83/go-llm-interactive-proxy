@@ -540,6 +540,9 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 			if err := openThinkingBlock(); err != nil {
 				return err
 			}
+			if len(thinkingSignature)+len(ev.Signature) > lipapi.MaxRefStringBytes {
+				return fmt.Errorf("anthropic: thinking signature exceeds %d byte limit", lipapi.MaxRefStringBytes)
+			}
 			thinkingSignature += ev.Signature
 		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
 			if err := closeThinkingBlock(); err != nil {

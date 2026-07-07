@@ -22,6 +22,7 @@ func main() {
 		Name:           parsed.Name,
 		ConfigPath:     parsed.ConfigPath,
 		StreamRecovery: parsed.StreamRecovery,
+		MultiUser:      parsed.MultiUser,
 		Output:         os.Stdout,
 		ErrorOut:       os.Stderr,
 	})

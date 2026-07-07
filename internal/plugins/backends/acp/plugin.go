@@ -31,9 +31,6 @@ type Config struct {
 	// ServerRequest handles inbound JSON-RPC from the agent during a prompt (stdio parity).
 	ServerRequest ServerRequestHandler
 
-	// History is reserved for transcript-style prompts coordinated with core/B2BUA.
-	History HistoryCoordinator
-
 	// Log is optional; when set, the connector may emit debug logs (e.g. best-effort cancel RPC failures).
 	Log *slog.Logger
 }
@@ -64,10 +61,6 @@ func New(cfg Config) execbackend.Backend {
 		}
 	}
 	c := cli
-	hist := cfg.History
-	if hist == nil {
-		hist = noopHistoryCoordinator{}
-	}
 	mapper := mergeMapperOptions(cfg)
 	cancelProf := mergeCancelProfile(cfg)
 	return execbackend.Backend{
@@ -93,11 +86,6 @@ func New(cfg Config) execbackend.Backend {
 				return nil, err
 			}
 			callPtr := &call
-			var err error
-			callPtr, err = hist.PreparePrompt(ctx, callPtr)
-			if err != nil {
-				return nil, fmt.Errorf("acp: prepare prompt: %w", err)
-			}
 			hp := mergeHandshakeProfile(cfg, callPtr)
 			if err := runHandshake(ctx, c, hp); err != nil {
 				return nil, err

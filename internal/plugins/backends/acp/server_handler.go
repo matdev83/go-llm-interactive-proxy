@@ -3,6 +3,8 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 )
 
 // ServerRequestHandler answers inbound JSON-RPC requests from the agent (e.g. permissions,
@@ -28,22 +30,12 @@ func serverHandlerOrDefault(h ServerRequestHandler) ServerRequestHandler {
 }
 
 func isInboundServerRequest(probe map[string]any) bool {
-	if probe == nil {
-		return false
-	}
-	method, ok := probe["method"].(string)
-	if !ok || method == "" {
-		return false
-	}
-	if method == "session/update" {
-		return false
-	}
-	if probe["result"] != nil || probe["error"] != nil {
-		return false
-	}
-	id := probe["id"]
-	return id != nil
+	return IsInboundServerRequest(probe, acpServerRequestExclusions)
 }
+
+// acpServerRequestExclusions are ACP methods that carry an id but must be
+// treated as notifications/responses, not inbound server requests.
+var acpServerRequestExclusions = []string{"session/update"}
 
 func replyServerRequestJSON(id json.RawMessage, result any) ([]byte, error) {
 	res := map[string]any{
@@ -52,4 +44,59 @@ func replyServerRequestJSON(id json.RawMessage, result any) ([]byte, error) {
 		"result":  result,
 	}
 	return json.Marshal(res)
+}
+
+// replyServerRequestErrorJSON builds a JSON-RPC error response (code -32601)
+// for an unhandled server-initiated request, matching the Python base connector's
+// behavior of writing a method-not-found error back to the agent instead of
+// terminating the stream.
+func replyServerRequestErrorJSON(id json.RawMessage, code int, message string) ([]byte, error) {
+	res := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+		},
+	}
+	return json.Marshal(res)
+}
+
+// ExtractServerRequestProbe extracts the method, id, and params from an inbound
+// JSON-RPC server-request probe, preparing them for a ServerRequestHandler
+// invocation. It is the shared extraction preamble used by both the ACP
+// promptStream and the Codex codexStream server-request handlers, which
+// previously duplicated this logic. The error-handling policy (send a -32601
+// error response and continue vs. terminate the stream) stays with each caller.
+//
+// Returns:
+//   - method: the JSON-RPC method string.
+//   - id: the marshaled id bytes (json.RawMessage), or nil when dropped.
+//   - params: the marshaled params bytes, or nil when absent.
+//   - dropped: true when the probe carries no id (a notification to drop, not a
+//     request to answer).
+//   - err: non-nil when the method is missing or id/params marshaling fails.
+//
+// The label prefixes error messages (e.g. "acp", "codex").
+func ExtractServerRequestProbe(label string, probe map[string]any) (method string, id, params json.RawMessage, dropped bool, err error) {
+	method, _ = probe["method"].(string)
+	if strings.TrimSpace(method) == "" {
+		return "", nil, nil, false, fmt.Errorf("%s: inbound JSON-RPC missing method", label)
+	}
+	idRaw, ok := probe["id"]
+	if !ok || idRaw == nil {
+		return method, nil, nil, true, nil
+	}
+	idBytes, mErr := json.Marshal(idRaw)
+	if mErr != nil {
+		return method, nil, nil, false, fmt.Errorf("%s: marshal inbound request id: %w", label, mErr)
+	}
+	if p, ok := probe["params"]; ok {
+		b, pErr := json.Marshal(p)
+		if pErr != nil {
+			return method, idBytes, nil, false, fmt.Errorf("%s: marshal inbound request params: %w", label, pErr)
+		}
+		params = b
+	}
+	return method, idBytes, params, false, nil
 }

@@ -57,7 +57,7 @@ Core rules:
 - explicit per-composition-root registration for the standard distribution (`NewRegistry` + `InstallStandardBundleOn(reg, keys)`)
 - standard frontend/backend/feature bundle tables; exact standard plugin registration lives in `standard_table.go`
 - per-family `*_install.go` factory helpers
-- registry validation helpers, default wire metadata used by routing defaults, and backend credential-posture metadata
+- registry validation helpers, default wire metadata used by routing defaults, and backend credential/access-scope posture metadata
 
 `internal/infra/runtimebundle/`
 - composes a runnable `Built` from config + registrations: executor, continuity and secure-session stores, shared upstream HTTP client, health/observer seams, model/catalog support, token accounting, and security policy checks
@@ -170,6 +170,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 - Request/response mutation logic must live behind hooks or extension stages, not in the routing engine.
 - Feature plugins should depend on `pkg/lipsdk` contracts, not `internal/core` implementation packages.
 - Security startup checks belong in config/runtimebundle/stdhttp composition boundaries, not inside protocol codecs.
+- Backend local-only access-scope enforcement belongs in standard registration/runtimebundle policy, not inside protocol codecs.
 - Concrete dependency construction belongs in composition roots or adapter constructors, not in core workflow methods.
 
 ## Naming and import conventions

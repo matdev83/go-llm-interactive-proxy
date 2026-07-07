@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,6 +75,50 @@ func TestHandleEvent_signatureDeltaEmptyIsNoOp(t *testing.T) {
 			t.Fatalf("unexpected signature event: %+v", ev)
 		}
 	}
+}
+
+func TestHandleEvent_thinkingDeltaEstablishesFrame(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+	got := kindsOf(stream.DrainPending(&s.pending))
+	want := []lipapi.EventKind{lipapi.EventResponseStarted, lipapi.EventMessageStarted, lipapi.EventReasoningDelta}
+	if !slices.Equal(got, want) {
+		t.Fatalf("kinds = %v, want %v", got, want)
+	}
+}
+
+func TestHandleEvent_signatureDeltaEstablishesFrame(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-xyz"}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+	got := kindsOf(stream.DrainPending(&s.pending))
+	want := []lipapi.EventKind{lipapi.EventResponseStarted, lipapi.EventMessageStarted, lipapi.EventReasoningSignatureDelta}
+	if !slices.Equal(got, want) {
+		t.Fatalf("kinds = %v, want %v", got, want)
+	}
+}
+
+func kindsOf(events []lipapi.Event) []lipapi.EventKind {
+	out := make([]lipapi.EventKind, 0, len(events))
+	for _, ev := range events {
+		out = append(out, ev.Kind)
+	}
+	return out
 }
 
 func TestHandleEvent_assistantImageURLContentBlockStart(t *testing.T) {

@@ -6,9 +6,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/lmstudio"
@@ -175,9 +179,21 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendBedrock(n, upstream)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialWorkload}},
+		{ID: codexappserver.ID, Factory: func(n yaml.Node, _ *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendCodexAppServer(n, nil)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone, AccessScope: BackendAccessLocalOnly}},
 		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendACP(n, upstream)
-		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic, AccessScope: BackendAccessLocalOnly}},
+		{ID: cursorcliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendCursorCLIACP(n, nil)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone, AccessScope: BackendAccessLocalOnly}},
+		{ID: geminicliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendGeminiCLIACP(n, nil)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone, AccessScope: BackendAccessLocalOnly}},
+		{ID: agycliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendAGYCLIACP(n, nil)
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone, AccessScope: BackendAccessLocalOnly}},
 		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenRouter(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
@@ -195,7 +211,7 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
 		{ID: openaicodex.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenAICodex(n, upstream, keys)
-		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic}},
+		}, Profile: BackendSecurityProfile{CredentialMode: CredentialStatic, AccessScope: BackendAccessLocalOnly}},
 		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client, _ BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOllama(n, upstream, keys)
 		}, Profile: BackendSecurityProfile{CredentialMode: CredentialNone}},

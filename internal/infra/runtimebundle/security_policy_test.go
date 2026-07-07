@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func registerProfiledBackend(t *testing.T, reg *pluginreg.Registry, factoryID string, mode pluginreg.BackendCredentialMode) {
+func registerBackendWithProfile(t *testing.T, reg *pluginreg.Registry, factoryID string, profile pluginreg.BackendSecurityProfile) {
 	t.Helper()
 	err := reg.RegisterBackendWithProfile(factoryID, func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{
@@ -30,7 +30,7 @@ func registerProfiledBackend(t *testing.T, reg *pluginreg.Registry, factoryID st
 				return nil, nil
 			},
 		}, nil
-	}, pluginreg.BackendSecurityProfile{CredentialMode: mode})
+	}, profile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func buildWithProfiledBackend(t *testing.T, address string, authMode config.Auth
 	t.Helper()
 	factoryID := "profiled-" + strings.ReplaceAll(t.Name(), "/", "-")
 	reg := pluginreg.NewRegistry()
-	registerProfiledBackend(t, reg, factoryID, mode)
+	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{CredentialMode: mode})
 	cfg := &config.Config{
 		Server:     config.ServerConfig{Address: address, AuthMode: authMode},
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
@@ -152,7 +152,7 @@ func TestBuild_oauthUserBackendAllowedWhenSingleUserAccessExternalAuthLoopback(t
 	t.Parallel()
 	factoryID := "profiled-oauth-single-user-external-loopback"
 	reg := pluginreg.NewRegistry()
-	registerProfiledBackend(t, reg, factoryID, pluginreg.CredentialOAuthUser)
+	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialOAuthUser})
 	cfg := &config.Config{
 		Access:     config.AccessConfig{Mode: "single_user"},
 		Server:     config.ServerConfig{Address: "127.0.0.1:8080", AuthMode: config.AuthModeExternal},
@@ -179,6 +179,85 @@ func TestBuild_oauthUserBackendAllowedWhenSingleUserAccessExternalAuthLoopback(t
 	})
 	if err != nil {
 		t.Fatalf("single_user access with external auth on loopback must allow oauth_user backend: %v", err)
+	}
+}
+
+func TestBuild_localOnlyBackend_allowsOnSingleUserLoopback(t *testing.T) {
+	t.Parallel()
+	factoryID := "profiled-local-only-single-user"
+	reg := pluginreg.NewRegistry()
+	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{
+		CredentialMode: pluginreg.CredentialStatic,
+		AccessScope:    pluginreg.BackendAccessLocalOnly,
+	})
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "localhost:8080"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+			Kind: factoryID, ID: "be", Enabled: true,
+		}}},
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
+	if err != nil {
+		t.Fatalf("single-user loopback should allow local-only backend: %v", err)
+	}
+}
+
+func TestBuild_localOnlyBackend_rejectsOnMultiUser(t *testing.T) {
+	t.Parallel()
+	factoryID := "profiled-local-only-multi-user"
+	reg := pluginreg.NewRegistry()
+	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{
+		CredentialMode: pluginreg.CredentialStatic,
+		AccessScope:    pluginreg.BackendAccessLocalOnly,
+	})
+	cfg := &config.Config{
+		Access:     config.AccessConfig{Mode: "multi_user"},
+		Server:     config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal},
+		Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+			Kind: factoryID, ID: "be", Enabled: true,
+		}}},
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+		RemoteDecider:  &testkit.StubRemoteDecider{},
+	})
+	if err == nil || !errors.Is(err, runtimebundle.ErrLocalOnlyBackendDisallowedMultiUser) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrLocalOnlyBackendDisallowedMultiUser, err)
+	}
+	if !strings.Contains(err.Error(), `instance "be"`) || !strings.Contains(err.Error(), `factory "`+factoryID+`"`) {
+		t.Fatalf("error should include instance and factory: %v", err)
+	}
+}
+
+func TestBuild_unsupportedBackendAccessScope_rejects(t *testing.T) {
+	t.Parallel()
+	factoryID := "profiled-unsupported-access-scope"
+	reg := pluginreg.NewRegistry()
+	registerBackendWithProfile(t, reg, factoryID, pluginreg.BackendSecurityProfile{
+		CredentialMode: pluginreg.CredentialStatic,
+		AccessScope:    pluginreg.BackendAccessScope("totally_bogus"),
+	})
+	cfg := &config.Config{
+		Access:     config.AccessConfig{Mode: "multi_user"},
+		Server:     config.ServerConfig{Address: "0.0.0.0:8080", AuthMode: config.AuthModeExternal},
+		Auth:       config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"},
+		Routing:    config.RoutingConfig{MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true},
+		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{{
+			Kind: factoryID, ID: "be", Enabled: true,
+		}}},
+	}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+		RemoteDecider:  &testkit.StubRemoteDecider{},
+	})
+	if err == nil || !errors.Is(err, runtimebundle.ErrUnsupportedBackendAccessScope) {
+		t.Fatalf("want %v, got %v", runtimebundle.ErrUnsupportedBackendAccessScope, err)
 	}
 }
 

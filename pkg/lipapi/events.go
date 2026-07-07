@@ -34,10 +34,16 @@ func DefaultCollectLimits() CollectLimits {
 type EventKind string
 
 const (
-	EventResponseStarted         EventKind = "response_started"
-	EventMessageStarted          EventKind = "message_started"
-	EventTextDelta               EventKind = "text_delta"
-	EventReasoningDelta          EventKind = "reasoning_delta"
+	EventResponseStarted EventKind = "response_started"
+	EventMessageStarted  EventKind = "message_started"
+	EventTextDelta       EventKind = "text_delta"
+	EventReasoningDelta  EventKind = "reasoning_delta"
+	// EventReasoningSignatureDelta carries a provider-specific thinking-block
+	// signature (Anthropic extended-thinking integrity metadata) as a canonical
+	// carrier distinct from reasoning text. The value is provider-specific and is
+	// ignored by non-Anthropic frontends via their default switch case; the carrier
+	// is canonical. Mirrors the EventReasoningDelta precedent of carrying provider
+	// reasoning text through the canonical stream.
 	EventReasoningSignatureDelta EventKind = "reasoning_signature_delta"
 	EventToolCallStarted         EventKind = "tool_call_started"
 	EventToolCallArgsDelta       EventKind = "tool_call_args_delta"

@@ -77,11 +77,15 @@ status: active
 | `internal/plugins/backends/anthropic/` | Anthropic backend adapter |
 | `internal/plugins/backends/gemini/` | Gemini backend adapter |
 | `internal/plugins/backends/bedrock/` | AWS Bedrock backend adapter |
-| `internal/plugins/backends/acp/` | ACP (Anthropic Client Protocol) backend |
+| `internal/plugins/backends/acp/` | ACP (Agent Client Protocol) backend — shared infrastructure for subprocess stdio connectors |
+| `internal/plugins/backends/cursorcliacp/` | Cursor CLI ACP connector (subprocess stdio) |
+| `internal/plugins/backends/geminicliacp/` | Gemini CLI ACP connector (subprocess stdio) |
+| `internal/plugins/backends/agycliacp/` | AGY CLI ACP connector (subprocess stdio) |
 | `internal/plugins/backends/openrouter/` | OpenRouter backend adapter |
 | `internal/plugins/backends/nvidia/` | NVIDIA backend adapter |
 | `internal/plugins/backends/huggingface/` | Hugging Face backend adapter |
 | `internal/plugins/backends/openaicodex/` | OpenAI Codex backend adapter |
+| `internal/plugins/backends/codexappserver/` | OpenAI Codex CLI app-server backend (local-agent stdio, Codex JSON-RPC protocol) |
 | `internal/plugins/backends/opencodego/` | OpenCode Go backend adapter |
 | `internal/plugins/backends/opencodezen/` | OpenCode Zen backend adapter |
 | `internal/plugins/backends/ollama/` | Ollama backend adapter |

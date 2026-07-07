@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
@@ -142,6 +143,32 @@ func TestWriteStreamSSE_thinkingSignatureAccumulated(t *testing.T) {
 	}
 	if signatureDeltas[0] != "sig-chunk-1sig-chunk-2" {
 		t.Fatalf("signature_delta value %q, want concatenated signature", signatureDeltas[0])
+	}
+}
+
+func TestWriteStreamSSE_thinkingSignatureAccumulationBounded(t *testing.T) {
+	t.Parallel()
+	chunk := strings.Repeat("s", lipapi.MaxRefStringBytes/2+1)
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: chunk},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: chunk},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_thinking_sig_bound"})
+	if err == nil {
+		t.Fatal("expected error when accumulated signature exceeds MaxRefStringBytes")
+	}
+	if !strings.Contains(err.Error(), "thinking signature") {
+		t.Fatalf("expected thinking signature error, got %v", err)
 	}
 }
 

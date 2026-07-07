@@ -17,7 +17,9 @@ server:
 
 # --- Access and authentication (see internal/core/config/access_auth_model.go) ---
 # Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).
-# single_user allows only loopback binds; all-interfaces (0.0.0.0, ::, or bare :port) requires multi_user plus strong auth.
+# single_user allows only explicit loopback binds (127/8, ::1, or localhost). All-interfaces
+# (0.0.0.0, ::, or bare :port) requires access.mode: multi_user, strong auth, and `lipstd serve --multi-user`.
+# Multi-user disables local-only connectors: ACP/process-spawning backends, OpenAI Codex, and Codex App Server.
 #
 # (A) Default OSS single-user (effective when access/auth are omitted): loopback + local_noop + structured auth/session events.
 # access:
@@ -31,7 +33,8 @@ server:
 #   # event_delivery: default   # structured log sink (default) | disabled | custom (custom needs BuildOptions.AuthEventSink)
 #   # fail_closed (see (B) below) denies the request if the auth-event sink errors; best_effort ignores sink errors.
 #
-# (B) Multi-user + local API keys (shared host); use loopback or non-loopback listen only with server.auth_mode: external.
+# (B) Multi-user + local API keys (shared host); start with `lipstd serve --multi-user`.
+# Use loopback or non-loopback listen only with server.auth_mode: external.
 # access:
 #   mode: multi_user
 # server:

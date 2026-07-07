@@ -15,6 +15,7 @@ $allowed = @(
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
+    "internal/plugins/backends/acp/transport_stdio.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)

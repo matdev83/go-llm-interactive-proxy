@@ -54,6 +54,19 @@ type BootstrapResult struct {
 	OutboundTracing bool
 }
 
+// shutdownTracing invokes the provided shutdown func with a value-preserving
+// downstream ctx detached from caller cancellation. Used in BuildBootstrap
+// error paths so tracing teardown completes even when the request is canceled
+// mid-startup. Resolves golang-context rule 7 (context.Background only at
+// top-level), rule 8 (never create Background mid-request), and rule 11
+// (use context.WithoutCancel for background work that outlives the parent).
+func shutdownTracing(ctx context.Context, shutdown func(context.Context) error) {
+	if shutdown == nil {
+		return
+	}
+	_ = shutdown(context.WithoutCancel(ctx))
+}
+
 // BuildBootstrap centralizes standard-distribution startup used by lipstd inspect and serve paths.
 func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResult, error) {
 	var out BootstrapResult
@@ -104,7 +117,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	logger, err := logging.NewLogger(cfg.Logging, logOut,
 		logging.WithOTELTraceAttrs(cfg.Observability.Tracing.Enabled))
 	if err != nil {
-		_ = traceRes.Shutdown(context.Background())
+		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: logger init: %w", err)
 	}
 	out.Logger = logger
@@ -112,12 +125,12 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	reg := pluginreg.NewRegistry()
 	apiKeys := pluginreg.ResolveUpstreamAPIKeysFromEnv()
 	if err := standardbundle.InstallOn(reg, apiKeys); err != nil {
-		_ = traceRes.Shutdown(context.Background())
+		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: plugin registration: %w", err)
 	}
 	if len(in.Mandatory) > 0 {
 		if err := reg.ValidateBundledFactories(in.Mandatory); err != nil {
-			_ = traceRes.Shutdown(context.Background())
+			shutdownTracing(ctx, traceRes.Shutdown)
 			return out, fmt.Errorf("runtimebundle: registry factory validation: %w", err)
 		}
 	}
@@ -125,7 +138,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	regs := config.RegistrationsFromConfig(cfg)
 	merged, err := reg.MergeFeatureSurface(regs)
 	if err != nil {
-		_ = traceRes.Shutdown(context.Background())
+		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: hook composition: %w", err)
 	}
 	merged.Hooks.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
@@ -139,7 +152,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 		Lifecycles:    merged.Lifecycles,
 	})
 	if err != nil {
-		_ = traceRes.Shutdown(context.Background())
+		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: runtime wiring: %w", err)
 	}
 
@@ -167,7 +180,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 			TrafficRedactors:   merged.TrafficRedactors,
 		})
 		if err != nil {
-			_ = traceRes.Shutdown(context.Background())
+			shutdownTracing(ctx, traceRes.Shutdown)
 			return out, fmt.Errorf("runtimebundle: runtime assembly: %w", err)
 		}
 		out.Built = built

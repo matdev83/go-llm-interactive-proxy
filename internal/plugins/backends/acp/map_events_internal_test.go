@@ -54,6 +54,8 @@ func (u *unarySpyTransport) SendJSONRPC(ctx context.Context, body []byte) error 
 	return nil
 }
 
+func (u *unarySpyTransport) Close() error { return nil }
+
 func (u *unarySpyTransport) last() context.Context {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -99,6 +101,38 @@ func (sendErrTransport) CallPromptStream(context.Context, []byte) (io.ReadCloser
 }
 
 func (sendErrTransport) SendJSONRPC(context.Context, []byte) error { return errSendJSONRPC }
+
+func (sendErrTransport) Close() error { return nil }
+
+// captureRPCTransport records the last JSON-RPC body sent via SendJSONRPC so tests
+// can verify the error response shape without a live subprocess.
+type captureRPCTransport struct {
+	mu       sync.Mutex
+	lastBody []byte
+}
+
+func (c *captureRPCTransport) CallUnary(context.Context, []byte, int) ([]byte, error) {
+	return nil, nil
+}
+
+func (c *captureRPCTransport) CallPromptStream(context.Context, []byte) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (c *captureRPCTransport) SendJSONRPC(_ context.Context, body []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastBody = body
+	return nil
+}
+
+func (c *captureRPCTransport) Close() error { return nil }
+
+func (c *captureRPCTransport) lastSentBody() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastBody
+}
 
 type readOnceThenErr struct {
 	data []byte
@@ -245,20 +279,64 @@ func TestPromptStream_decodeInboundLineMalformedJSON(t *testing.T) {
 func TestPromptStream_handleInboundServerRequestHandlerFail(t *testing.T) {
 	t.Parallel()
 	line := `{"jsonrpc":"2.0","id":5,"method":"vendor/extra","params":{}}` + "\n"
-	cli := &client{t: &unarySpyTransport{}}
+	cap := &captureRPCTransport{}
+	cli := &client{t: cap}
+	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mergeMapperOptions(Config{}), errServerRequestHandler{}, mergeCancelProfile(Config{}), 0)
+
+	// The handler returns an error, but the stream should NOT terminate. Instead a
+	// JSON-RPC -32601 error response is sent back to the agent and the stream continues.
+	// Since no content events were emitted, the scanner reaches EOF and returns
+	// io.ErrUnexpectedEOF (not a handler error).
+	_, err := s.Recv(context.Background())
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("expected io.ErrUnexpectedEOF (stream continues after error response), got %v", err)
+	}
+
+	// Verify the -32601 error response was sent.
+	sent := cap.lastSentBody()
+	if sent == nil {
+		t.Fatal("expected a JSON-RPC error response to be sent")
+	}
+	var resp struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Result any `json:"result"`
+	}
+	if err := json.Unmarshal(sent, &resp); err != nil {
+		t.Fatalf("unmarshal sent response: %v", err)
+	}
+	if resp.Error == nil {
+		t.Fatalf("expected error field in response, got %s", sent)
+	}
+	if resp.Error.Code != -32601 {
+		t.Fatalf("error code = %d, want -32601", resp.Error.Code)
+	}
+	if !strings.Contains(resp.Error.Message, errTestHandler.Error()) {
+		t.Fatalf("error message = %q, want it to contain %q", resp.Error.Message, errTestHandler.Error())
+	}
+	if resp.Result != nil {
+		t.Fatalf("expected no result field in error response, got %v", resp.Result)
+	}
+}
+
+func TestPromptStream_handleInboundServerRequestHandlerFail_sendError(t *testing.T) {
+	t.Parallel()
+	line := `{"jsonrpc":"2.0","id":5,"method":"vendor/extra","params":{}}` + "\n"
+	cli := &client{t: sendErrTransport{}}
 	s := newPromptNDJSONStream(context.Background(), io.NopCloser(strings.NewReader(line)), cli, "sid", 1, "mid", mergeMapperOptions(Config{}), errServerRequestHandler{}, mergeCancelProfile(Config{}), 0)
 	_, err := s.Recv(context.Background())
 	if err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected error when sending error response fails")
 	}
-	if !strings.Contains(err.Error(), "acp: handle inbound server request") {
+	if !strings.Contains(err.Error(), "acp: send inbound server error response") {
 		t.Fatalf("got %v", err)
 	}
-	if !strings.Contains(err.Error(), "acp: handle inbound server request method") {
-		t.Fatalf("got %v", err)
-	}
-	if !errors.Is(err, errTestHandler) {
-		t.Fatalf("expected underlying handler error, got %v", err)
+	if !errors.Is(err, errSendJSONRPC) {
+		t.Fatalf("expected underlying send error, got %v", err)
 	}
 }
 

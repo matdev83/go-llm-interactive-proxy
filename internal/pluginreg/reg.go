@@ -33,6 +33,8 @@ type BackendFactory func(n yaml.Node, upstreamHTTP *http.Client, deps BackendFac
 // (see [lipsdk.BackendCredentialMode], [lipsdk.BackendSecurityProfile]).
 type BackendCredentialMode = lipsdk.BackendCredentialMode
 
+type BackendAccessScope = lipsdk.BackendAccessScope
+
 type BackendSecurityProfile = lipsdk.BackendSecurityProfile
 
 // Credential posture re-exports for call sites that register through [Registry].
@@ -42,6 +44,9 @@ const (
 	CredentialOAuthUser = lipsdk.CredentialOAuthUser
 	CredentialNone      = lipsdk.CredentialNone
 	CredentialUnknown   = lipsdk.CredentialUnknown
+
+	BackendAccessAny       = lipsdk.BackendAccessAny
+	BackendAccessLocalOnly = lipsdk.BackendAccessLocalOnly
 )
 
 // FeatureFactory builds a versioned feature bundle from opaque plugin YAML.
@@ -109,6 +114,13 @@ func (r *Registry) RegisterBackendWithProfile(id string, fn BackendFactory, prof
 	}
 	if profile.CredentialMode == "" {
 		profile.CredentialMode = CredentialUnknown
+	}
+	if profile.AccessScope == "" {
+		// Default to BackendAccessAny for compatibility. This default is safe for
+		// cloud/upstream HTTP backends but unsafe for process-spawning or local-user-context
+		// backends, which MUST declare BackendAccessLocalOnly explicitly instead of relying
+		// on this default; see pkg/lipsdk.BackendAccessAny.
+		profile.AccessScope = BackendAccessAny
 	}
 	r.backends[id] = fn
 	r.backendProfiles[id] = profile
