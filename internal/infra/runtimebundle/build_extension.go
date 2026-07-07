@@ -49,84 +49,84 @@ func buildRuntimeSnapshot(
 	cp *controlPlaneRuntime,
 ) *extensions.RequestRuntimeSnapshot {
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
-	if len(opts.WorkspaceResolvers) > 0 {
+	if len(opts.Extensions.WorkspaceResolvers) > 0 {
 		ss := cfg.SecureSession
 		secureOn := cfg.SecureSessionEffectivelyEnabled()
 		resolveFailClosed := strings.ToLower(strings.TrimSpace(ss.WorkspaceResolveOnError)) == "fail_closed"
 		failClosedWS := secureOn && resolveFailClosed
 		if failClosedWS {
-			ws = coreworkspace.NewStrictChain(opts.WorkspaceResolvers)
+			ws = coreworkspace.NewStrictChain(opts.Extensions.WorkspaceResolvers)
 		} else {
-			ws = coreworkspace.NewResolverChain(opts.WorkspaceResolvers)
+			ws = coreworkspace.NewResolverChain(opts.Extensions.WorkspaceResolvers)
 		}
 	}
 	var openers []session.Opener
-	if len(opts.SessionOpeners) > 0 {
-		openers = slices.Clone(opts.SessionOpeners)
+	if len(opts.Extensions.SessionOpeners) > 0 {
+		openers = slices.Clone(opts.Extensions.SessionOpeners)
 	}
 	var catalogFilters []toolcatalog.Filter
-	if len(opts.ToolCatalogFilters) > 0 {
-		catalogFilters = slices.Clone(opts.ToolCatalogFilters)
+	if len(opts.Extensions.ToolCatalogFilters) > 0 {
+		catalogFilters = slices.Clone(opts.Extensions.ToolCatalogFilters)
 	}
 	var toolPolicies []toolpolicy.Policy
-	if len(opts.ToolCallPolicies) > 0 {
-		toolPolicies = slices.Clone(opts.ToolCallPolicies)
+	if len(opts.Extensions.ToolCallPolicies) > 0 {
+		toolPolicies = slices.Clone(opts.Extensions.ToolCallPolicies)
 	}
 	var reqTransforms []request.Transform
-	if len(opts.RequestTransforms) > 0 {
-		reqTransforms = slices.Clone(opts.RequestTransforms)
+	if len(opts.Extensions.RequestTransforms) > 0 {
+		reqTransforms = slices.Clone(opts.Extensions.RequestTransforms)
 	}
 	var preReqs []prerequest.Handler
-	if len(opts.PreRequestHandlers) > 0 {
-		preReqs = slices.Clone(opts.PreRequestHandlers)
+	if len(opts.Extensions.PreRequestHandlers) > 0 {
+		preReqs = slices.Clone(opts.Extensions.PreRequestHandlers)
 	}
 	var routeHints []routehint.Provider
-	if len(opts.RouteHintProviders) > 0 {
-		routeHints = slices.Clone(opts.RouteHintProviders)
+	if len(opts.Extensions.RouteHintProviders) > 0 {
+		routeHints = slices.Clone(opts.Extensions.RouteHintProviders)
 	}
 	var compGates []completion.Gate
-	if len(opts.CompletionGates) > 0 {
-		compGates = slices.Clone(opts.CompletionGates)
+	if len(opts.Extensions.CompletionGates) > 0 {
+		compGates = slices.Clone(opts.Extensions.CompletionGates)
 	}
 	var trafficObs traffic.Observer = traffic.NoopObserver{}
-	if len(opts.TrafficObservers) > 0 {
-		trafficObs = traffic.ChainObservers(opts.TrafficObservers...)
+	if len(opts.Extensions.TrafficObservers) > 0 {
+		trafficObs = traffic.ChainObservers(opts.Extensions.TrafficObservers...)
 	}
 	var usageObs usage.Observer = usage.NoopObserver{}
 	cpUsageObs := cp.usageObserver()
-	if len(opts.UsageObservers) > 0 {
-		chain := make([]usage.Observer, 0, len(opts.UsageObservers)+1)
+	if len(opts.Extensions.UsageObservers) > 0 {
+		chain := make([]usage.Observer, 0, len(opts.Extensions.UsageObservers)+1)
 		if cpUsageObs != nil {
 			chain = append(chain, cpUsageObs)
 		}
-		chain = append(chain, opts.UsageObservers...)
+		chain = append(chain, opts.Extensions.UsageObservers...)
 		usageObs = usage.ChainObservers(chain...)
 	} else if cpUsageObs != nil {
 		usageObs = cpUsageObs
 	}
 	var trafficRaw traffic.RawCaptureSink = traffic.DisabledRawCapture{}
-	if len(opts.RawCaptureSinks) > 0 {
-		trafficRaw = traffic.MultiRawCapture(opts.RawCaptureSinks...)
+	if len(opts.Extensions.RawCaptureSinks) > 0 {
+		trafficRaw = traffic.MultiRawCapture(opts.Extensions.RawCaptureSinks...)
 	}
 	var trafficRedactors []traffic.Redactor
-	if len(opts.TrafficRedactors) > 0 {
-		trafficRedactors = slices.Clone(opts.TrafficRedactors)
+	if len(opts.Extensions.TrafficRedactors) > 0 {
+		trafficRedactors = slices.Clone(opts.Extensions.TrafficRedactors)
 	}
 	var policyObs policydecision.Observer = policydecision.NoopObserver{}
 	cpPolicyObs := cp.policyObserver()
-	if len(opts.PolicyObservers) > 0 {
-		chain := make([]policydecision.Observer, 0, len(opts.PolicyObservers)+1)
+	if len(opts.Policy.PolicyObservers) > 0 {
+		chain := make([]policydecision.Observer, 0, len(opts.Policy.PolicyObservers)+1)
 		if cpPolicyObs != nil {
 			chain = append(chain, cpPolicyObs)
 		}
-		chain = append(chain, opts.PolicyObservers...)
+		chain = append(chain, opts.Policy.PolicyObservers...)
 		policyObs = policydecision.NewChainObserver(chain...)
 	} else if cpPolicyObs != nil {
 		policyObs = cpPolicyObs
 	}
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
-	if opts.PolicyTimeoutBudgetSource != nil {
-		budgetSrc = opts.PolicyTimeoutBudgetSource
+	if opts.Policy.PolicyTimeoutBudgetSource != nil {
+		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		State:               corestate.NewMem(nowFn),

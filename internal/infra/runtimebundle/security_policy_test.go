@@ -127,7 +127,7 @@ func buildWithProfiledBackend(t *testing.T, address string, authMode config.Auth
 	if !config.IsExplicitLoopbackListenAddress(address) {
 		cfg.Access = config.AccessConfig{Mode: "multi_user"}
 		cfg.Auth = config.AuthConfig{Handler: "remote", RequiredLevel: "api_key"}
-		opts.RemoteDecider = &testkit.StubRemoteDecider{}
+		opts.Auth.RemoteDecider = &testkit.StubRemoteDecider{}
 	}
 	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
 	return err
@@ -175,7 +175,7 @@ func TestBuild_oauthUserBackendAllowedWhenSingleUserAccessExternalAuthLoopback(t
 	}
 	_, err = runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider:  &testkit.StubRemoteDecider{},
+		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
 	if err != nil {
 		t.Fatalf("single_user access with external auth on loopback must allow oauth_user backend: %v", err)
@@ -224,7 +224,7 @@ func TestBuild_localOnlyBackend_rejectsOnMultiUser(t *testing.T) {
 	}
 	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider:  &testkit.StubRemoteDecider{},
+		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
 	if err == nil || !errors.Is(err, runtimebundle.ErrLocalOnlyBackendDisallowedMultiUser) {
 		t.Fatalf("want %v, got %v", runtimebundle.ErrLocalOnlyBackendDisallowedMultiUser, err)
@@ -254,7 +254,7 @@ func TestBuild_unsupportedBackendAccessScope_rejects(t *testing.T) {
 	}
 	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider:  &testkit.StubRemoteDecider{},
+		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
 	if err == nil || !errors.Is(err, runtimebundle.ErrUnsupportedBackendAccessScope) {
 		t.Fatalf("want %v, got %v", runtimebundle.ErrUnsupportedBackendAccessScope, err)

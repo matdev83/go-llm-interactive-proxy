@@ -164,20 +164,24 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 
 	if in.Mode == BootstrapServe {
 		built, err := Build(cfg, app.HookBus(), logger, &BuildOptions{
-			PluginRegistry:     reg,
-			OutboundTracing:    traceRes.Active,
-			SessionOpeners:     merged.SessionOpeners,
-			WorkspaceResolvers: merged.WorkspaceResolvers,
-			ToolCatalogFilters: merged.ToolCatalogFilters,
-			ToolCallPolicies:   merged.ToolCallPolicies,
-			RequestTransforms:  merged.RequestTransforms,
-			PreRequestHandlers: merged.PreRequestHandlers,
-			RouteHintProviders: merged.RouteHintProviders,
-			CompletionGates:    merged.CompletionGates,
-			TrafficObservers:   merged.TrafficObservers,
-			UsageObservers:     merged.UsageObservers,
-			RawCaptureSinks:    merged.RawCaptureSinks,
-			TrafficRedactors:   merged.TrafficRedactors,
+			PluginRegistry: reg,
+			Infra: InfraOptions{
+				OutboundTracing: traceRes.Active,
+			},
+			Extensions: ExtensionsOptions{
+				SessionOpeners:     merged.SessionOpeners,
+				WorkspaceResolvers: merged.WorkspaceResolvers,
+				ToolCatalogFilters: merged.ToolCatalogFilters,
+				ToolCallPolicies:   merged.ToolCallPolicies,
+				RequestTransforms:  merged.RequestTransforms,
+				PreRequestHandlers: merged.PreRequestHandlers,
+				RouteHintProviders: merged.RouteHintProviders,
+				CompletionGates:    merged.CompletionGates,
+				TrafficObservers:   merged.TrafficObservers,
+				UsageObservers:     merged.UsageObservers,
+				RawCaptureSinks:    merged.RawCaptureSinks,
+				TrafficRedactors:   merged.TrafficRedactors,
+			},
 		})
 		if err != nil {
 			shutdownTracing(ctx, traceRes.Shutdown)

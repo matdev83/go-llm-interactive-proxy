@@ -43,7 +43,7 @@ func mergeAuthErrorRenderersByFrontend(reg *pluginreg.Registry, opts *BuildOptio
 		}
 	}
 	if opts != nil {
-		for k, v := range opts.AuthErrorRenderersByFrontend {
+		for k, v := range opts.Auth.AuthErrorRenderersByFrontend {
 			if v == nil {
 				continue
 			}
@@ -69,8 +69,8 @@ func needsInjectedRemoteDecider(h sdkauth.HandlerKind, rl sdkauth.RequiredLevel)
 
 func resolveHTTPAuthProviders(cfg *config.Config, log *slog.Logger, opts *BuildOptions, authEvents *coreauth.EventDispatcher, sap coreauth.SessionAuditPolicy) ([]httpauth.Provider, error) {
 	// Non-empty override with only nil entries must not bypass composed config auth (security).
-	if opts != nil && httpAuthProvidersHasNonNil(opts.HTTPAuthProviders) {
-		return slices.Clone(opts.HTTPAuthProviders), nil
+	if opts != nil && httpAuthProvidersHasNonNil(opts.Auth.HTTPAuthProviders) {
+		return slices.Clone(opts.Auth.HTTPAuthProviders), nil
 	}
 	return composeHTTPAuthProviders(cfg, log, opts, authEvents, sap)
 }
@@ -92,14 +92,14 @@ func composeHTTPAuthProviders(cfg *config.Config, log *slog.Logger, opts *BuildO
 	if opts == nil {
 		return nil, fmt.Errorf("runtimebundle: nil BuildOptions")
 	}
-	if needsInjectedRemoteDecider(sap.HandlerKind, sap.RequiredLevel) && opts.RemoteDecider == nil {
+	if needsInjectedRemoteDecider(sap.HandlerKind, sap.RequiredLevel) && opts.Auth.RemoteDecider == nil {
 		return nil, fmt.Errorf("%w", ErrRemoteDeciderRequired)
 	}
 
 	pa := coreauth.PolicyAuthenticator{
 		Handler:  sap.HandlerKind,
 		Required: sap.RequiredLevel,
-		Remote:   opts.RemoteDecider,
+		Remote:   opts.Auth.RemoteDecider,
 	}
 	if log != nil {
 		pa.OnRemoteDecideError = func(ctx context.Context, err error) {
@@ -109,7 +109,7 @@ func composeHTTPAuthProviders(cfg *config.Config, log *slog.Logger, opts *BuildO
 
 	switch sap.HandlerKind {
 	case sdkauth.HandlerLocalNoop:
-		osIdent := opts.OSIdentity
+		osIdent := opts.Auth.OSIdentity
 		if osIdent == nil {
 			osIdent = &osidentity.Provider{}
 		}
@@ -156,7 +156,7 @@ func composeHTTPAuthProviders(cfg *config.Config, log *slog.Logger, opts *BuildO
 		HandlerKind:   sap.HandlerKind,
 		RequiredLevel: sap.RequiredLevel,
 	}
-	prov := stdhttpauth.NewPolicyProvider(&pa, authEvents, pol, opts.AuthErrorRenderer)
+	prov := stdhttpauth.NewPolicyProvider(&pa, authEvents, pol, opts.Auth.AuthErrorRenderer)
 	if byFe := mergeAuthErrorRenderersByFrontend(opts.PluginRegistry, opts); len(byFe) > 0 {
 		prov.RendererByFrontend = byFe
 	}

@@ -108,7 +108,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		MaxPendingWireEvents:     cfg.Server.MaxPendingWireEvents,
 		StreamRecovery:           streamRecovery,
 		TransportFallbackPolicy:  config.EffectiveTransportFallbackPolicy(cfg),
-		PolicyDiagnosticsEnabled: opts.PolicyDiagnosticsEnabled,
+		PolicyDiagnosticsEnabled: opts.Policy.PolicyDiagnosticsEnabled,
 	}
 	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
 		return nil, closers, err
@@ -145,8 +145,8 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		}
 	}
 	secureSessionStore := in.Persistence.SecureSession.appStore
-	if opts.SecureSessionStore != nil {
-		secureSessionStore = opts.SecureSessionStore
+	if opts.Diagnostics.SecureSessionStore != nil {
+		secureSessionStore = opts.Diagnostics.SecureSessionStore
 	}
 	catalogRuntime := attachModelCatalog(exec, in.Model.StartedCatalog, cfg)
 	return &executorRuntime{

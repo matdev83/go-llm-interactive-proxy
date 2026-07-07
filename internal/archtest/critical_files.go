@@ -29,10 +29,17 @@ type CriticalFileBudget struct {
 // Build orchestrator plus dispose/BuildExecutor helpers. The 200-line budget is
 // calibrated against the reduced post-decomposition scope to lock the reduction
 // and prevent the orchestrator from re-absorbing build-unit logic.
+//
+// options.go is a special case: the 106-line figure is the pre-grouping size.
+// After arch review Task 2.8 grouped the flat ~30-field BuildOptions bag into
+// domain sub-structs (Startup/Infra/Auth/Extensions/Policy/Diagnostics/Testing),
+// the file is ~165 lines (sub-struct definitions plus moved doc comments). The
+// 200-line budget accommodates the grouped form and leaves room for future
+// group fields without re-bloating the flat bag (F-06).
 var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 480},
 	{Path: "internal/infra/runtimebundle/build.go", Max: 200},
-	{Path: "internal/infra/runtimebundle/options.go", Max: 130},
+	{Path: "internal/infra/runtimebundle/options.go", Max: 200},
 	{Path: "internal/pluginreg/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
 	{Path: "internal/stdhttp/server.go", Max: 300},

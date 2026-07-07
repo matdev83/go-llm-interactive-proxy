@@ -68,7 +68,7 @@ func TestSecureSessionE2E_sqliteRestart_resumeSurvivesProcessClose(t *testing.T)
 	buildOpts := func() *runtimebundle.BuildOptions {
 		return &runtimebundle.BuildOptions{
 			PluginRegistry: pluginreg.NewRegistry(),
-			Clock:          func() time.Time { return ch.t },
+			Testing:        runtimebundle.TestingOptions{Clock: func() time.Time { return ch.t }},
 		}
 	}
 

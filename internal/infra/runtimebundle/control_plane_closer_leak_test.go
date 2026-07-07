@@ -49,8 +49,10 @@ func TestBuild_ControlPlaneCloserDisposedOnEarlyFailure(t *testing.T) { //nolint
 		Auth: config.AuthConfig{EventDelivery: "bogus"}, // forces buildAuthEventDispatcher to fail after the store opens
 	}
 	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
-		PluginRegistry:            pluginreg.NewRegistry(),
-		ControlPlaneStoreOverride: store,
+		PluginRegistry: pluginreg.NewRegistry(),
+		Testing: TestingOptions{
+			ControlPlaneStoreOverride: store,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected Build to fail on invalid auth.event_delivery")
@@ -81,8 +83,10 @@ func TestBuild_ControlPlaneCloserDisposedOnStreamRecoveryFailure(t *testing.T) {
 		},
 	}
 	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
-		PluginRegistry:            pluginreg.NewRegistry(),
-		ControlPlaneStoreOverride: store,
+		PluginRegistry: pluginreg.NewRegistry(),
+		Testing: TestingOptions{
+			ControlPlaneStoreOverride: store,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected Build to fail on invalid stream_recovery idle_timeout")
@@ -116,8 +120,10 @@ func TestBuild_ControlPlaneCloserDisposedOnPricingFailure(t *testing.T) { //noli
 		},
 	}
 	_, err := Build(cfg, hooks.New(hooks.Config{}), slog.New(slog.NewTextHandler(io.Discard, nil)), &BuildOptions{
-		PluginRegistry:            pluginreg.NewRegistry(),
-		ControlPlaneStoreOverride: store,
+		PluginRegistry: pluginreg.NewRegistry(),
+		Testing: TestingOptions{
+			ControlPlaneStoreOverride: store,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected Build to fail on accounting pricing with empty model backend")

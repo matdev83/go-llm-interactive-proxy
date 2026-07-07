@@ -15,8 +15,8 @@ func buildAuthEventDispatcher(cfg *config.Config, log *slog.Logger, opts *BuildO
 		return nil, fmt.Errorf("runtimebundle: nil config")
 	}
 	var injected coreauth.EventSink
-	if opts != nil && opts.AuthEventSink != nil {
-		injected = opts.AuthEventSink
+	if opts != nil && opts.Auth.AuthEventSink != nil {
+		injected = opts.Auth.AuthEventSink
 	}
 	mode := strings.ToLower(strings.TrimSpace(cfg.Auth.EventDelivery))
 	if mode == "" {

@@ -84,7 +84,7 @@ func TestBuild_nonLoopbackExplicitBindDisablesSyntheticLocalPrincipal(t *testing
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		RemoteDecider:  &testkit.StubRemoteDecider{},
+		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestBuild_nonLoopback_unauthenticatedExecuteSessionDenial(t *testing.T) {
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider:  &testkit.StubRemoteDecider{},
+		Auth:           runtimebundle.AuthOptions{RemoteDecider: &testkit.StubRemoteDecider{}},
 	})
 	if err != nil {
 		t.Fatal(err)

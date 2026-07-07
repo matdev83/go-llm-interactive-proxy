@@ -54,8 +54,8 @@ func TestBuild_ControlPlaneClockFlowsToRecorder(t *testing.T) {
 		testkit.DiscardLogger(),
 		&runtimebundle.BuildOptions{
 			PluginRegistry: pluginreg.NewRegistry(),
-			AuthEventSink:  noopAuthSink{},
-			Clock:          clockFn,
+			Auth:           runtimebundle.AuthOptions{AuthEventSink: noopAuthSink{}},
+			Testing:        runtimebundle.TestingOptions{Clock: clockFn},
 		},
 	)
 	if err != nil {
