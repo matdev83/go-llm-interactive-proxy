@@ -292,14 +292,17 @@ func exportedSymbols(pkgDir string) (int, error) {
 	return count, nil
 }
 
-func countFileLines(path string) (int, error) {
+func countFileLines(path string) (n int, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
-	var n int
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {

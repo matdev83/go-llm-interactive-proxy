@@ -498,13 +498,16 @@ func countNonTestGoLines(dir string) (int, error) {
 
 // countFileLines returns the number of lines in a single file. Used for per-file
 // critical-file budgets and the architecture report.
-func countFileLines(path string) (int, error) {
+func countFileLines(path string) (n int, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
-	var n int
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 	sc := bufio.NewScanner(f)
 	// Raise the per-line buffer so long generated/fixture-style lines are still
 	// counted; budgets are approximate architectural mass, not exact SLOC.

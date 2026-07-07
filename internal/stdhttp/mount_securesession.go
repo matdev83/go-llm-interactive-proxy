@@ -31,7 +31,7 @@ func mountSecureSessionDiagnostics(in mountSecureSessionDiagnosticsInput) error 
 	logCtx := in.LogCtx
 	secureOn := cfg.SecureSessionEffectivelyEnabled()
 	exposeSummaries := cfg.SecureSession.DiagnosticsExposeSummaries
-	if !(secureOn && exposeSummaries && built.SecureSessionStore != nil) {
+	if !secureOn || !exposeSummaries || built.SecureSessionStore == nil {
 		return nil
 	}
 	p := strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix)
