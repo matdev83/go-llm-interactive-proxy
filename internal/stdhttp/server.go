@@ -125,6 +125,9 @@ func releaseBuiltResources(log *slog.Logger, built *runtimebundle.Built, once *s
 	if built == nil || once == nil {
 		return
 	}
+	if log == nil {
+		log = slog.Default()
+	}
 	once.Do(func() { runClosers(log, built.Closers) })
 }
 

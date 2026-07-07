@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -117,6 +118,9 @@ func prepareStandardHandler(
 		return out, fmt.Errorf("stdhttp: mount frontends: %w", err)
 	}
 	if err := app.Start(ctx); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		app.Shutdown(shutdownCtx)
 		releaseClosers()
 		return out, fmt.Errorf("stdhttp: start app: %w", err)
 	}
