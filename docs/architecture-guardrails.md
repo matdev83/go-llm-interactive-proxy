@@ -50,3 +50,22 @@ Run `go test ./internal/archtest/...` and full `go test ./...` (also invoked fro
 When a deliberate feature requires a larger core or composition layer, raise the limits in `guardrails_test.go` and record the rationale in ADR 0005 or a short note in the PR.
 
 This applies to both the tree-level `lineBudgets` and the per-file `criticalFileBudgets`. Any increase to a critical-file budget must include a short rationale comment next to the table entry explaining why the single-file hotspot is growing rather than being decomposed. Prefer decomposing the file over raising its budget.
+
+## Core admission checklist
+
+Before adding a new `internal/core/*` package or moving code into an existing one, consult [`docs/core-boundaries.md`](core-boundaries.md) and answer the 6-question admission checklist. Include a short justification in the PR when adding a new core package. The `TestCorePackagesHaveDocGo` archtest requires every top-level `internal/core/*` package to have a `doc.go` explaining its boundary.
+
+## Architecture PR checklist
+
+When reviewing broad or architecture-adjacent changes, use this checklist:
+
+- [ ] Does this change keep provider/protocol details out of core?
+- [ ] Does this change avoid new global state, `init()` registration, and lazy singleton registries?
+- [ ] Does this change keep canonical streaming as the primary execution path?
+- [ ] Does this change add a new core package? If yes, why does it belong in core? (See [`docs/core-boundaries.md`](core-boundaries.md).)
+- [ ] Does this change widen public contracts (`pkg/lipapi` / `pkg/lipsdk`)? If yes, is it versionable and minimal?
+- [ ] Does this change increase architecture budgets? If yes, is the reason documented?
+
+## Enterprise extension boundaries
+
+Enterprise features attach through stable seams (`pkg/lipsdk` facades, `BuildOptions`, control-plane ports, hook bus, secure-session authority) and must not edit `runtime.Executor` or import deep runtime internals. See [`docs/enterprise-extension-boundaries.md`](enterprise-extension-boundaries.md) for the allowed and forbidden integration points.

@@ -22,6 +22,20 @@ jobs:
       - name: Quality checks
         run: make quality-checks
 
+      - name: Architecture report (advisory artifact)
+        # Write to RUNNER_TEMP (outside the repo tree) so the generated artifact
+        # does not land in the repo root and trip TestRootHygiene_MarkdownFiles,
+        # which only permits AGENTS.md and README.md at root.
+        run: make arch-report > "$RUNNER_TEMP/arch-report.md"
+        continue-on-error: true
+
+      - name: Upload architecture report
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-report
+          path: ${{ runner.temp }}/arch-report.md
+        if: always()
+
       # Conformance/parity suites live under ./internal/testkit/conformance/... and run here (no duplicate step).
       - name: Unit tests
         run: go test -parallel=8 -tags=precommit,integration ./...
