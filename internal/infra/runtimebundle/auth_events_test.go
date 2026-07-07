@@ -73,7 +73,7 @@ func TestBuild_authEventDelivery_customUsesInjectedSink(t *testing.T) {
 	custom := &sliceSink{}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		AuthEventSink:  custom,
+		Auth:           runtimebundle.AuthOptions{AuthEventSink: custom},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestBuild_authEventDelivery_defaultRejectsAuthEventSink(t *testing.T) {
 	}
 	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		AuthEventSink:  &sliceSink{},
+		Auth:           runtimebundle.AuthOptions{AuthEventSink: &sliceSink{}},
 	})
 	if err == nil || !errors.Is(err, runtimebundle.ErrAuthEventSinkDisallowed) {
 		t.Fatalf("want %v, got %v", runtimebundle.ErrAuthEventSinkDisallowed, err)
@@ -114,7 +114,7 @@ func TestBuild_authEventDelivery_disabledRejectsAuthEventSink(t *testing.T) {
 	}
 	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		AuthEventSink:  &sliceSink{},
+		Auth:           runtimebundle.AuthOptions{AuthEventSink: &sliceSink{}},
 	})
 	if err == nil || !errors.Is(err, runtimebundle.ErrAuthEventSinkDisallowed) {
 		t.Fatalf("want %v, got %v", runtimebundle.ErrAuthEventSinkDisallowed, err)
@@ -150,7 +150,7 @@ func TestBuild_authEventFailurePolicy_failClosed(t *testing.T) {
 	}
 	b2, err := runtimebundle.Build(cfg2, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-		AuthEventSink:  errSink,
+		Auth:           runtimebundle.AuthOptions{AuthEventSink: errSink},
 	})
 	if err != nil {
 		t.Fatal(err)

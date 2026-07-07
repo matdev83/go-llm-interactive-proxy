@@ -80,8 +80,8 @@ func TestBuildRuntimeBundle_PolicyObserverWiresConfigured(t *testing.T) {
 	cap1 := &capturePolicyObserver{}
 	cap2 := &capturePolicyObserver{}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry:  pluginreg.NewRegistry(),
-		PolicyObservers: []policydecision.Observer{cap1, cap2},
+		PluginRegistry: pluginreg.NewRegistry(),
+		Policy:         runtimebundle.PolicyOptions{PolicyObservers: []policydecision.Observer{cap1, cap2}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,8 +115,8 @@ func TestBuildRuntimeBundle_PolicyTimeoutBudgetWiresConfigured(t *testing.T) {
 	t.Parallel()
 	cfg := minimalPolicyBuildConfig()
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry:            pluginreg.NewRegistry(),
-		PolicyTimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 250 * time.Millisecond},
+		PluginRegistry: pluginreg.NewRegistry(),
+		Policy:         runtimebundle.PolicyOptions{PolicyTimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 250 * time.Millisecond}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,9 +134,11 @@ func TestBuildRuntimeBundle_PolicyDiagnosticsWiresConfigured(t *testing.T) {
 	t.Parallel()
 	cfg := minimalPolicyBuildConfig()
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry:            pluginreg.NewRegistry(),
-		PolicyDiagnosticsEnabled:  true,
-		PolicyTimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 250 * time.Millisecond},
+		PluginRegistry: pluginreg.NewRegistry(),
+		Policy: runtimebundle.PolicyOptions{
+			PolicyDiagnosticsEnabled:  true,
+			PolicyTimeoutBudgetSource: extensions.StaticTimeoutBudgetSource{Budget: 250 * time.Millisecond},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

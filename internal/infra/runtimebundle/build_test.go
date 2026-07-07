@@ -88,7 +88,7 @@ func TestBuild_respectsHTTPClientInBuildOptions(t *testing.T) {
 	}
 	custom := &http.Client{}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		HTTPClient:     custom,
+		Infra:          runtimebundle.InfraOptions{HTTPClient: custom},
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
 	if err != nil {
@@ -120,7 +120,7 @@ func TestBuild_wrapsCustomHTTPClientForUpstreamMetrics(t *testing.T) {
 		}, nil
 	})}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		HTTPClient:     custom,
+		Infra:          runtimebundle.InfraOptions{HTTPClient: custom},
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
 	if err != nil {

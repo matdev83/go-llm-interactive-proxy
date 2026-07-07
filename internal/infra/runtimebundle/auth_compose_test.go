@@ -239,8 +239,10 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		AuthErrorRenderersByFrontend: map[string]httpauth.AuthErrorRenderer{
-			"openai_compatible": wireRendererB{},
+		Auth: runtimebundle.AuthOptions{
+			AuthErrorRenderersByFrontend: map[string]httpauth.AuthErrorRenderer{
+				"openai_compatible": wireRendererB{},
+			},
 		},
 	})
 	if err != nil {
@@ -313,9 +315,11 @@ func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		OSIdentity: fixedOSIdentity{snap: coreauth.OSIdentitySnapshot{
-			PrincipalID: "compose-test-user",
-		}},
+		Auth: runtimebundle.AuthOptions{
+			OSIdentity: fixedOSIdentity{snap: coreauth.OSIdentitySnapshot{
+				PrincipalID: "compose-test-user",
+			}},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -476,8 +480,10 @@ func TestBuild_HTTPAuthProvidersOnlyNil_fallsBackToComposedAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry:    reg,
-		HTTPAuthProviders: []httpauth.Provider{nil},
+		PluginRegistry: reg,
+		Auth: runtimebundle.AuthOptions{
+			HTTPAuthProviders: []httpauth.Provider{nil},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -524,10 +530,12 @@ func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider: &testkit.StubRemoteDecider{
-			Decision: sdkauth.Decision{
-				Outcome:   sdkauth.OutcomeAllow,
-				Principal: execview.PrincipalView{ID: "remote-allow-p"},
+		Auth: runtimebundle.AuthOptions{
+			RemoteDecider: &testkit.StubRemoteDecider{
+				Decision: sdkauth.Decision{
+					Outcome:   sdkauth.OutcomeAllow,
+					Principal: execview.PrincipalView{ID: "remote-allow-p"},
+				},
 			},
 		},
 	})
@@ -571,8 +579,10 @@ func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider: &testkit.StubRemoteDecider{
-			Decision: sdkauth.Decision{Outcome: sdkauth.OutcomeDeny, ReasonCode: "remote_denied"},
+		Auth: runtimebundle.AuthOptions{
+			RemoteDecider: &testkit.StubRemoteDecider{
+				Decision: sdkauth.Decision{Outcome: sdkauth.OutcomeDeny, ReasonCode: "remote_denied"},
+			},
 		},
 	})
 	if err != nil {
@@ -613,10 +623,12 @@ func TestBuild_remoteStub_challengeTerminates(t *testing.T) {
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		RemoteDecider: &testkit.StubRemoteDecider{
-			Decision: sdkauth.Decision{
-				Outcome:   sdkauth.OutcomeChallenge,
-				Challenge: sdkauth.Challenge{Kind: sdkauth.ChallengeSSORequired, Summary: "sso"},
+		Auth: runtimebundle.AuthOptions{
+			RemoteDecider: &testkit.StubRemoteDecider{
+				Decision: sdkauth.Decision{
+					Outcome:   sdkauth.OutcomeChallenge,
+					Challenge: sdkauth.Challenge{Kind: sdkauth.ChallengeSSORequired, Summary: "sso"},
+				},
 			},
 		},
 	})

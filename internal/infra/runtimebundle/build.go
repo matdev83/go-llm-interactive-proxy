@@ -40,8 +40,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 	parent := context.Background()
-	if opts != nil && opts.StartupContext != nil {
-		parent = opts.StartupContext
+	if opts != nil && opts.Startup.StartupContext != nil {
+		parent = opts.Startup.StartupContext
 	}
 	bctx := buildContext{Cfg: cfg, Bus: bus, Log: log, Opts: opts, Parent: parent}
 	// closers is the ordered disposal list for every resource Build opens. The
@@ -53,8 +53,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		StartupContext: parent,
 		Cfg:            cfg,
 		Log:            log,
-		Clock:          opts.Clock,
-		StoreOverride:  opts.ControlPlaneStoreOverride,
+		Clock:          opts.Testing.Clock,
+		StoreOverride:  opts.Testing.ControlPlaneStoreOverride,
 	})
 	if err != nil {
 		return nil, err
@@ -80,8 +80,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 
 	nowFn := time.Now
-	if opts.Clock != nil {
-		nowFn = opts.Clock
+	if opts.Testing.Clock != nil {
+		nowFn = opts.Testing.Clock
 	}
 	var exec *runtime.Executor
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane)

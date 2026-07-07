@@ -28,10 +28,10 @@ func buildObservabilityRuntime(bctx buildContext) observabilityRuntime {
 	}
 	tune := httpclient.TransportTuneFromConfig(cfg)
 	upstream := httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)
-	if opts.HTTPClient != nil {
-		upstream = opts.HTTPClient
+	if opts.Infra.HTTPClient != nil {
+		upstream = opts.Infra.HTTPClient
 	}
-	upstream = wrapUpstreamClient(upstream, bundle, opts.OutboundTracing)
+	upstream = wrapUpstreamClient(upstream, bundle, opts.Infra.OutboundTracing)
 	return observabilityRuntime{Bundle: bundle, Upstream: upstream}
 }
 

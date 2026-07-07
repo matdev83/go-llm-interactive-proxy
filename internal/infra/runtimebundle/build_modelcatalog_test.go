@@ -101,7 +101,7 @@ func TestBuild_openCodeWithModelCatalogDisabledUsesStaticVendorResolver(t *testi
 	}
 	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		HTTPClient:     srv.Client(),
+		Infra:          runtimebundle.InfraOptions{HTTPClient: srv.Client()},
 	})
 	if err != nil {
 		t.Fatal(err)

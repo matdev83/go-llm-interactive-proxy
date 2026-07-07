@@ -68,7 +68,7 @@ func TestBuild_startupContextCanceled_continuityPostgres(t *testing.T) {
 	}
 	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		StartupContext: startupCtx,
+		Startup:        runtimebundle.StartupOptions{StartupContext: startupCtx},
 	})
 	if err == nil {
 		t.Fatal("expected build error")
