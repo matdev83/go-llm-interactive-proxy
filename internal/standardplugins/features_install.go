@@ -1,7 +1,6 @@
 package standardplugins
 
 import (
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
@@ -18,7 +17,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -29,60 +27,74 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func featureSubmitNoop(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featureSubmitNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	cfg, err := submitnoop.DecodeHookConfig(n)
 	if err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	lifes := []lipplugin.Lifecycle{}
+	bundle := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		SubmitHooks:   []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)},
+	}
 	if cfg.LifecycleProbe {
-		lifes = append(lifes, &submitnoop.LifecycleProbe{})
+		bundle.Lifecycles = append(bundle.Lifecycles, &submitnoop.LifecycleProbe{})
 	}
-	return hooks.Config{SubmitHooks: []sdk.SubmitHook{submitnoop.NewSubmitHookWithConfig(cfg)}}, lifes, nil
+	return bundle, nil
 }
 
-func featurePartsNoop(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featurePartsNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err := requireEmptyFeatureYAML(partsnoop.ID, n); err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	return hooks.Config{
+	return lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
 		RequestPartHooks:  []sdk.RequestPartHook{partsnoop.NewRequestPartHook()},
 		ResponsePartHooks: []sdk.ResponsePartHook{partsnoop.NewResponsePartHook()},
-	}, nil, nil
+	}, nil
 }
 
-func featureToolReactorNoop(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featureToolReactorNoop(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	if err := requireEmptyFeatureYAML(toolreactornoop.ID, n); err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	return hooks.Config{ToolReactors: []sdk.ToolReactor{toolreactornoop.NewToolReactor()}}, nil, nil
+	return lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		ToolReactors:  []sdk.ToolReactor{toolreactornoop.NewToolReactor()},
+	}, nil
 }
 
-func featureRefSubmit(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featureRefSubmit(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	cfg, err := refsubmit.DecodeConfig(n)
 	if err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	return hooks.Config{SubmitHooks: []sdk.SubmitHook{refsubmit.NewSubmitHook(cfg)}}, nil, nil
+	return lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		SubmitHooks:   []sdk.SubmitHook{refsubmit.NewSubmitHook(cfg)},
+	}, nil
 }
 
-func featureRefParts(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featureRefParts(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	cfg, err := refparts.DecodeConfig(n)
 	if err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	return hooks.Config{
+	return lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
 		RequestPartHooks:  []sdk.RequestPartHook{refparts.NewRequestPartHook(cfg)},
 		ResponsePartHooks: []sdk.ResponsePartHook{refparts.NewResponsePartHook(cfg)},
-	}, nil, nil
+	}, nil
 }
 
-func featureRefTool(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featureRefTool(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	cfg, err := reftool.DecodeConfig(n)
 	if err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	return hooks.Config{ToolReactors: []sdk.ToolReactor{reftool.NewToolReactor(cfg)}}, nil, nil
+	return lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		ToolReactors:  []sdk.ToolReactor{reftool.NewToolReactor(cfg)},
+	}, nil
 }
 
 func featureRefAutoappend(n yaml.Node) (lipfeature.FeatureBundle, error) {
@@ -164,12 +176,13 @@ func featurePreRequestPolicy(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	}, nil
 }
 
-func featureCodexClientCompat(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+func featureCodexClientCompat(n yaml.Node) (lipfeature.FeatureBundle, error) {
 	cfg, err := codexclientcompat.DecodeConfig(n)
 	if err != nil {
-		return hooks.Config{}, nil, err
+		return lipfeature.FeatureBundle{}, err
 	}
-	return hooks.Config{
+	return lipfeature.FeatureBundle{
+		SchemaVersion:    lipfeature.SchemaVersionV1,
 		RequestPartHooks: []sdk.RequestPartHook{codexclientcompat.NewRequestPartHook(cfg)},
-	}, nil, nil
+	}, nil
 }

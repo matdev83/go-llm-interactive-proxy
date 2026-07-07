@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/anthropic"
@@ -139,25 +138,25 @@ type Bundle struct {
 func StandardBundle() Bundle {
 	return Bundle{
 		Frontends: []FrontendRegistration{
-			{ID: frontopenairesponses.ID, Mount: mountOpenAIResponses},
-			{ID: frontopenailegacy.ID, Mount: mountOpenAILegacy},
-			{ID: frontanthropic.ID, Mount: mountAnthropic},
-			{ID: frontgemini.ID, Mount: mountGemini},
+			{ID: frontopenairesponses.ID, Mount: frontopenairesponses.Mount},
+			{ID: frontopenailegacy.ID, Mount: frontopenailegacy.Mount},
+			{ID: frontanthropic.ID, Mount: frontanthropic.Mount},
+			{ID: frontgemini.ID, Mount: frontgemini.Mount},
 		},
 		Features: []FeatureRegistration{
-			{ID: submitnoop.ID, Factory: featurebundle.FeatureFactoryFromHooks(featureSubmitNoop)},
-			{ID: partsnoop.ID, Factory: featurebundle.FeatureFactoryFromHooks(featurePartsNoop)},
-			{ID: toolreactornoop.ID, Factory: featurebundle.FeatureFactoryFromHooks(featureToolReactorNoop)},
-			{ID: refsubmit.ID, Factory: featurebundle.FeatureFactoryFromHooks(featureRefSubmit)},
-			{ID: refparts.ID, Factory: featurebundle.FeatureFactoryFromHooks(featureRefParts)},
-			{ID: reftool.ID, Factory: featurebundle.FeatureFactoryFromHooks(featureRefTool)},
+			{ID: submitnoop.ID, Factory: featureSubmitNoop},
+			{ID: partsnoop.ID, Factory: featurePartsNoop},
+			{ID: toolreactornoop.ID, Factory: featureToolReactorNoop},
+			{ID: refsubmit.ID, Factory: featureRefSubmit},
+			{ID: refparts.ID, Factory: featureRefParts},
+			{ID: reftool.ID, Factory: featureRefTool},
 			{ID: refautoappend.ID, Factory: featureRefAutoappend},
 			{ID: reftoolpolicy.ID, Factory: featureRefToolPolicy},
 			{ID: refworkspaceguard.ID, Factory: featureRefWorkspaceGuard},
 			{ID: reftraffictranscript.ID, Factory: featureRefTrafficTranscript},
 			{ID: refverifier.ID, Factory: featureRefVerifier},
 			{ID: prerequestpolicy.ID, Factory: featurePreRequestPolicy},
-			{ID: codexclientcompat.ID, Factory: featurebundle.FeatureFactoryFromHooks(featureCodexClientCompat)},
+			{ID: codexclientcompat.ID, Factory: featureCodexClientCompat},
 		},
 	}
 }

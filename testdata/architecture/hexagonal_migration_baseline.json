@@ -4,7 +4,9 @@
   "retired_exceptions": [
     "internal/pluginreg used to import internal/core/runtime for backend construction types; retired after the executor-outbound adapter surface moved to internal/core/execbackend (introduce-hexagonal-architecture task 3).",
     "internal/stdhttp no longer imports internal/core/b2bua or internal/core/hooks after the stdhttp/server.go concern split and removal of the stdhttp.BuildExecutor wrapper (arch review Phase 0/1); both were used only by the deleted wire.go.",
-    "internal/pluginreg no longer imports internal/core/config after standard bundle tables, installers, per-backend factories, env-key resolution, and default wire model moved to internal/standardplugins (arch review Phase 3). The feature bridge (FeatureFactoryFromHooks) moved to internal/featurebundle."
+    "internal/pluginreg no longer imports internal/core/config after standard bundle tables, installers, per-backend factories, env-key resolution, and default wire model moved to internal/standardplugins (arch review Phase 3). The feature bridge (FeatureFactoryFromHooks) moved to internal/featurebundle.",
+    "internal/pluginreg reclassified from exception to aligned after the feature merge surface (MergedFeatureSurface + Registry methods) moved to internal/featurebundle as free functions and the FeatureFactoryFromHooks bridge was deleted (arch review remaining tasks). The internal/core/hooks import is gone.",
+    "internal/standardplugins reclassified from exception to aligned after frontend mount functions moved to frontend packages and all 7 hook-only features converted to native FeatureBundle, removing the internal/core/hooks import."
   ],
   "packages": [
     {
@@ -36,53 +38,33 @@
     },
     {
       "go_list_pattern": "./internal/pluginreg",
-      "classification": "exception",
-      "justification": "Registry owns factory maps and the feature-surface merge/wrapping for hooks and extension slices. Standard bundle tables and installers moved to internal/standardplugins (Phase 3); the bridge moved to internal/featurebundle.",
-      "retirement_trigger": "Narrow or retire when the feature merge surface (feature_merge_surface.go) moves behind a composition-local helper or a slimmer SDK-facing merger surface, removing the internal/core/hooks import.",
+      "classification": "aligned",
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-      ],
-      "backlog": {
-        "owner": "standard-distribution",
-        "next_extraction": "Move feature_merge_surface.go (MergedFeatureSurface + Registry merge methods) to internal/featurebundle so pluginreg drops internal/core/hooks",
-        "retirement_target": "registry = registry only; classification -> aligned",
-        "blocking_dependencies": ["feature merge surface relocation requires converting Registry methods to free functions"],
-        "status": "planned"
-      }
+      ]
     },
     {
       "go_list_pattern": "./internal/standardplugins",
-      "classification": "exception",
-      "justification": "Standard distribution bundle tables, installers, per-backend factories, env-key resolution, and default wire model. Owns all concrete plugin imports (backends, frontends, features).",
-      "retirement_trigger": "Narrow when frontend mount functions move to their frontend packages (Task 3.3), reducing the concrete frontend import surface.",
+      "classification": "aligned",
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-      ],
-      "backlog": {
-        "owner": "standard-distribution",
-        "next_extraction": "Move frontend mount functions (mountOpenAIResponses etc.) to frontend packages; convert 3 noop features from bridge to native FeatureBundle",
-        "retirement_target": "classification -> aligned with narrowed concrete-import surface",
-        "blocking_dependencies": ["frontend Mount(mux, opts) per-package API"],
-        "status": "planned"
-      }
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+      ]
     },
     {
       "go_list_pattern": "./internal/featurebundle",
       "classification": "exception",
-      "justification": "Legacy hook-to-FeatureBundle bridge (FeatureFactoryFromHooks). The only internal/core import is hooks for the bridge's hooks.Config input type.",
-      "retirement_trigger": "Retire when all 7 hook-only features are converted to native FeatureBundle factories and the bridge is deleted.",
+      "justification": "Feature merge surface (MergedFeatureSurface + MergeFeatureSurface). The only internal/core import is hooks for MergedFeatureSurface.Hooks (hooks.Config).",
+      "retirement_trigger": "Retire when MergedFeatureSurface.Hooks is replaced with SDK hook slices directly, removing the internal/core/hooks import.",
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
       ],
       "backlog": {
         "owner": "feature-platform",
-        "next_extraction": "Convert 3 noop features (submit-noop, parts-noop, tool-reactor-noop) to native FeatureBundle; then convert 4 reference features; then delete the bridge",
-        "retirement_target": "classification -> aligned or package deleted",
-        "blocking_dependencies": ["noop feature native conversion (Phase 6)"],
+        "next_extraction": "Replace MergedFeatureSurface.Hooks (hooks.Config) with individual SDK hook slices to drop internal/core/hooks",
+        "retirement_target": "classification -> aligned",
+        "blocking_dependencies": ["MergedFeatureSurface consumer (bootstrap_plan.go) must adapt to new shape"],
         "status": "planned"
       }
     },

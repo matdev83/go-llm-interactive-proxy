@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -40,7 +41,7 @@ func TestFeatureHooksFromReferenceConfig_chainsAndPassThrough(t *testing.T) {
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
-	hookCfg, _, err := reg.BuildFeatureHooks(regs)
+	hookCfg, _, err := featurebundle.BuildFeatureHooks(reg, regs)
 	if err != nil {
 		t.Fatalf("feature hooks: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestFeatureHooksFromRegistrations_unknownEnabledFeature(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 
-	_, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
+	_, _, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "unknown-feature", Enabled: true},
 	})
 	if err == nil {
@@ -103,7 +104,7 @@ func TestNewBootstrapApp_withComposedHooks(t *testing.T) {
 		t.Fatalf("model_aliases: %v", err)
 	}
 	regs := config.RegistrationsFromConfig(cfg)
-	hookCfg, _, err := reg.BuildFeatureHooks(regs)
+	hookCfg, _, err := featurebundle.BuildFeatureHooks(reg, regs)
 	if err != nil {
 		t.Fatalf("feature hooks: %v", err)
 	}

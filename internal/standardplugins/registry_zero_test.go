@@ -7,10 +7,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,9 +43,9 @@ func TestRegistry_zeroValueRegisterFeature(t *testing.T) {
 	t.Parallel()
 	var r Registry
 	id := "zero-value-feature-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterFeature(id, featurebundle.FeatureFactoryFromHooks(func(yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
-		return hooks.Config{}, nil, nil
-	})); err != nil {
+	if err := r.RegisterFeature(id, func(yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

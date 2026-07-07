@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
@@ -81,7 +82,7 @@ func TestBuildFeatureHooks_rejectsUnknownNoopConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := testRegistryWithStdBundle(t)
-	_, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
+	_, _, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err == nil {
@@ -96,7 +97,7 @@ func TestBuildFeatureHooks_acceptsEmptyConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := testRegistryWithStdBundle(t)
-	_, _, err := reg.BuildFeatureHooks([]lipsdk.Registration{
+	_, _, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err != nil {
@@ -111,7 +112,7 @@ func TestBuildFeatureHooks_submitNoopLifecycleProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := testRegistryWithStdBundle(t)
-	hookCfg, lifes, err := reg.BuildFeatureHooks([]lipsdk.Registration{
+	hookCfg, lifes, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err != nil {
@@ -149,7 +150,7 @@ func TestBuildFeatureHooks_submitNoopOrderFromConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := testRegistryWithStdBundle(t)
-	hookCfg, lifes, err := reg.BuildFeatureHooks([]lipsdk.Registration{
+	hookCfg, lifes, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "submit-noop", Enabled: true, Config: lipsdk.ConfigPayload{Node: n}},
 	})
 	if err != nil {
