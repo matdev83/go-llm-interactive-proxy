@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -12,18 +13,23 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/archtest"
 )
 
 const hexagonalBaselineRelPath = "testdata/architecture/hexagonal_migration_baseline.json"
 
-var hotspotFiles = []string{
-	"internal/core/runtime/executor.go",
-	"internal/infra/runtimebundle/build.go",
-	"internal/infra/runtimebundle/options.go",
-	"internal/stdhttp/server.go",
-	"internal/pluginreg/standard_table.go",
-	"internal/pluginreg/reg.go",
-}
+// hotspotFiles is derived from the same CriticalFileBudgets used by the
+// architecture guardrails so the advisory report and the machine-checked budgets
+// cannot drift apart.
+var hotspotFiles = func() []string {
+	files := make([]string, len(archtest.CriticalFileBudgets))
+	for i, b := range archtest.CriticalFileBudgets {
+		files[i] = b.Path
+	}
+	return files
+}()
 
 type pkgMeta struct {
 	ImportPath string
@@ -44,19 +50,25 @@ type baselineEntry struct {
 }
 
 type baselineBacklog struct {
-	NextExtraction string `json:"next_extraction"`
+	Owner            string `json:"owner"`
+	NextExtraction   string `json:"next_extraction"`
+	RetirementTarget string `json:"retirement_target"`
+	Status           string `json:"status"`
 }
 
 func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	root, err := repoRoot()
 	if err != nil {
 		fatal(err)
 	}
-	modPath, err := modulePath(root)
+	modPath, err := modulePath(ctx, root)
 	if err != nil {
 		fatal(err)
 	}
-	pkgs, err := packageImportGraph(root)
+	pkgs, err := packageImportGraph(ctx, root)
 	if err != nil {
 		fatal(err)
 	}
@@ -230,9 +242,11 @@ func writeBaselineClassifications(b *strings.Builder, root string) {
 	fmt.Fprintln(b, "| Package | Class | Retirement target / next extraction |")
 	fmt.Fprintln(b, "| --- | --- | --- |")
 	for _, row := range doc.Packages {
-		notes := row.RetirementTrigger
+		var notes string
 		if row.Backlog != nil {
-			notes = row.Backlog.NextExtraction
+			notes = row.Backlog.RetirementTarget + " → " + row.Backlog.NextExtraction
+		} else {
+			notes = row.RetirementTrigger
 		}
 		fmt.Fprintf(b, "| `%s` | %s | %s |\n",
 			strings.TrimPrefix(row.GoListPattern, "./"), row.Classification, notes)
@@ -314,8 +328,8 @@ func countFileLines(path string) (n int, err error) {
 	return n, nil
 }
 
-func modulePath(root string) (string, error) {
-	cmd := exec.Command("go", "list", "-m")
+func modulePath(ctx context.Context, root string) (string, error) {
+	cmd := exec.CommandContext(ctx, "go", "list", "-e", "-m")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
@@ -324,8 +338,8 @@ func modulePath(root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func packageImportGraph(root string) ([]pkgMeta, error) {
-	cmd := exec.Command("go", "list", "-json", "-test=false", "./...")
+func packageImportGraph(ctx context.Context, root string) ([]pkgMeta, error) {
+	cmd := exec.CommandContext(ctx, "go", "list", "-e", "-json", "-test=false", "./...")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {

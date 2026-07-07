@@ -119,6 +119,9 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 				if row.Backlog == nil {
 					t.Fatalf("%s: classification %s requires a non-empty backlog", row.GoListPattern, row.Classification)
 				}
+				if strings.TrimSpace(row.Backlog.Owner) == "" {
+					t.Fatalf("%s: backlog.owner must be non-empty", row.GoListPattern)
+				}
 				if strings.TrimSpace(row.Backlog.NextExtraction) == "" {
 					t.Fatalf("%s: backlog.next_extraction must be non-empty", row.GoListPattern)
 				}
@@ -145,7 +148,7 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 func directInternalCoreImports(t *testing.T, repoRootDir, listPattern string) []string {
 	t.Helper()
 
-	cmd := exec.Command("go", "list", "-json", "-test=false", listPattern)
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-e", "-json", "-test=false", listPattern)
 	cmd.Dir = repoRootDir
 	out, err := cmd.Output()
 	if err != nil {

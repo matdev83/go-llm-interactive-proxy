@@ -52,38 +52,24 @@ func TestLineComplexityBudgets(t *testing.T) {
 // criticalFileBudgets locks single-file gravity wells from silently re-bloating.
 // These complement the tree-level lineBudgets above. Budgets are non-test line counts
 // measured with the same bufio.Scanner methodology as countNonTestGoLines.
-// Raise only with a short rationale comment (see docs/architecture-guardrails.md).
-var criticalFileBudgets = []struct {
-	file string
-	max  int
-}{
-	// Baselines measured 2026-07-07: executor.go 416, build.go 591, options.go 106,
-	// standard_table.go 272, reg.go 263, server.go 608. Budgets leave ~15% headroom.
-	// server.go was 608 lines before the internal/stdhttp/server.go concern split
-	// (arch review Task 1.3) dropped it to ~206; budget tightened from 700 to 300 to
-	// lock the reduction and prevent the listener/lifecycle file from re-bloating.
-	{"internal/core/runtime/executor.go", 480},
-	{"internal/infra/runtimebundle/build.go", 680},
-	{"internal/infra/runtimebundle/options.go", 130},
-	{"internal/pluginreg/standard_table.go", 320},
-	{"internal/pluginreg/reg.go", 320},
-	{"internal/stdhttp/server.go", 300},
-}
+// Rationale and values are maintained in CriticalFileBudgets so make arch-report
+// reports the same hotspot list.
+var criticalFileBudgets = CriticalFileBudgets
 
 func TestCriticalFileLineBudgets(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	for _, b := range criticalFileBudgets {
-		t.Run(strings.ReplaceAll(b.file, "/", "_"), func(t *testing.T) {
+		t.Run(strings.ReplaceAll(b.Path, "/", "_"), func(t *testing.T) {
 			t.Parallel()
-			n, err := countFileLines(filepath.Join(root, b.file))
+			n, err := countFileLines(filepath.Join(root, b.Path))
 			if err != nil {
-				t.Fatalf("%s: %v", b.file, err)
+				t.Fatalf("%s: %v", b.Path, err)
 			}
-			if n > b.max {
-				t.Fatalf("%s: %d non-test lines exceeds critical-file budget %d (see docs/architecture-guardrails.md)", b.file, n, b.max)
+			if n > b.Max {
+				t.Fatalf("%s: %d non-test lines exceeds critical-file budget %d (see docs/architecture-guardrails.md)", b.Path, n, b.Max)
 			}
-			t.Logf("%s: %d/%d lines", b.file, n, b.max)
+			t.Logf("%s: %d/%d lines", b.Path, n, b.Max)
 		})
 	}
 }
