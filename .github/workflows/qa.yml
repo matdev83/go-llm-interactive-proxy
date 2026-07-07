@@ -22,6 +22,17 @@ jobs:
       - name: Quality checks
         run: make quality-checks
 
+      - name: Architecture report (advisory artifact)
+        run: make arch-report > arch-report.md
+        continue-on-error: true
+
+      - name: Upload architecture report
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-report
+          path: arch-report.md
+        if: always()
+
       # Conformance/parity suites live under ./internal/testkit/conformance/... and run here (no duplicate step).
       - name: Unit tests
         run: go test -parallel=8 -tags=precommit,integration ./...
