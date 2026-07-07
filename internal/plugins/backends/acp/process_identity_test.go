@@ -82,9 +82,9 @@ func TestStillSameProcess_StartTimeMismatch(t *testing.T) {
 	// return the real start time of init/kthreadd when our atomic fake-PID
 	// counter collides with a real OS pid, making the previous t.Logf-shrug
 	// assertion order- and machine-dependent.
-	origFn := processStartTimeFn
-	processStartTimeFn = func(int) time.Time { return time.Time{} }
-	t.Cleanup(func() { processStartTimeFn = origFn })
+	origFn := processStartTimeFn.Load().(func(int) time.Time)
+	processStartTimeFn.Store(func(int) time.Time { return time.Time{} })
+	t.Cleanup(func() { processStartTimeFn.Store(origFn) })
 
 	proc := newFakeProcess(t)
 	id := ProcessIdentity{

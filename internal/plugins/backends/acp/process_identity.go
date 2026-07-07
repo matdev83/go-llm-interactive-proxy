@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,18 +20,27 @@ type ProcessIdentity struct {
 }
 
 // processStartTimeFn is the package-level indirection used by stillSameProcess
-// to retrieve a process's OS start time. Tests override this variable to make
-// identity-check tests deterministic on platforms where the atomic fake-PID
-// counter in tests can collide with real OS processes (e.g., fake PID 1 == init,
-// PID 2 == kthreadd on Linux), causing /proc reads to return real start times.
-// Production callers should not modify this; the var is unexported and only
-// the package's own tests touch it via t.Cleanup.
-var processStartTimeFn = platformProcessStartTime
+// to retrieve a process's OS start time. Tests override it to make identity-check
+// tests deterministic on platforms where the atomic fake-PID counter in tests
+// can collide with real OS processes (e.g., fake PID 1 == init, PID 2 == kthreadd
+// on Linux), causing /proc reads to return real start times.
+//
+// It is an atomic.Value because production reads it from stale-kill timer
+// goroutines (scheduleStaleKill → KillRuntime → stillSameProcess → processStartTime)
+// while tests concurrently Store a mock and restore the original via t.Cleanup.
+// A plain var would data-race under -race with parallel tests; atomic.Value
+// makes the read and write safely concurrent. Stores must use the exact type
+// func(int) time.Time.
+var processStartTimeFn atomic.Value
+
+func init() {
+	processStartTimeFn.Store(platformProcessStartTime)
+}
 
 // processStartTime returns the OS process start time for pid, or zero time if
 // unavailable on this platform. This is platform-specific and best-effort.
 func processStartTime(pid int) time.Time {
-	return processStartTimeFn(pid)
+	return processStartTimeFn.Load().(func(int) time.Time)(pid)
 }
 
 // normalizeExeKey resolves symlinks and lowercases (on case-insensitive platforms)
