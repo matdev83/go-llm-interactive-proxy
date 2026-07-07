@@ -36,8 +36,16 @@ type CriticalFileBudget struct {
 // the file is ~165 lines (sub-struct definitions plus moved doc comments). The
 // 200-line budget accommodates the grouped form and leaves room for future
 // group fields without re-bloating the flat bag (F-06).
+//
+// executor.go is a special case: the 416-line figure is the pre-extraction size.
+// After arch review Phase 4 Task 4.3 extracted the RequestPreparer (phases 1-9,
+// 62 lines of validation/snapshot/secure-session/tracing/submit/A-leg/lifecycle/
+// exec-views/route-prefs) into executor_prepare_request.go, the file is ~355 lines.
+// The 380-line budget accommodates the reduced scope and leaves headroom for
+// the remaining Execute body (route planning + attempt loop + stream assembly),
+// which is already well-factored via tryPlanOpenOnce and other helper methods.
 var CriticalFileBudgets = []CriticalFileBudget{
-	{Path: "internal/core/runtime/executor.go", Max: 480},
+	{Path: "internal/core/runtime/executor.go", Max: 380},
 	{Path: "internal/infra/runtimebundle/build.go", Max: 200},
 	{Path: "internal/infra/runtimebundle/options.go", Max: 200},
 	{Path: "internal/standardplugins/standard_table.go", Max: 320},
