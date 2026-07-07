@@ -49,6 +49,45 @@ func TestLineComplexityBudgets(t *testing.T) {
 	}
 }
 
+// criticalFileBudgets locks single-file gravity wells from silently re-bloating.
+// These complement the tree-level lineBudgets above. Budgets are non-test line counts
+// measured with the same bufio.Scanner methodology as countNonTestGoLines.
+// Raise only with a short rationale comment (see docs/architecture-guardrails.md).
+var criticalFileBudgets = []struct {
+	file string
+	max  int
+}{
+	// Baselines measured 2026-07-07: executor.go 416, build.go 591, options.go 106,
+	// standard_table.go 272, reg.go 263, server.go 608. Budgets leave ~15% headroom.
+	// server.go was 608 lines before the internal/stdhttp/server.go concern split
+	// (arch review Task 1.3) dropped it to ~206; budget tightened from 700 to 300 to
+	// lock the reduction and prevent the listener/lifecycle file from re-bloating.
+	{"internal/core/runtime/executor.go", 480},
+	{"internal/infra/runtimebundle/build.go", 680},
+	{"internal/infra/runtimebundle/options.go", 130},
+	{"internal/pluginreg/standard_table.go", 320},
+	{"internal/pluginreg/reg.go", 320},
+	{"internal/stdhttp/server.go", 300},
+}
+
+func TestCriticalFileLineBudgets(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	for _, b := range criticalFileBudgets {
+		t.Run(strings.ReplaceAll(b.file, "/", "_"), func(t *testing.T) {
+			t.Parallel()
+			n, err := countFileLines(filepath.Join(root, b.file))
+			if err != nil {
+				t.Fatalf("%s: %v", b.file, err)
+			}
+			if n > b.max {
+				t.Fatalf("%s: %d non-test lines exceeds critical-file budget %d (see docs/architecture-guardrails.md)", b.file, n, b.max)
+			}
+			t.Logf("%s: %d/%d lines", b.file, n, b.max)
+		})
+	}
+}
+
 func TestStandardBundlePackagesHaveNoInitFunctions(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -447,21 +486,36 @@ func countNonTestGoLines(dir string) (int, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		f, err := os.Open(path)
+		n, err := countFileLines(path)
 		if err != nil {
 			return err
 		}
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			total++
-		}
-		closeErr := f.Close()
-		if err := sc.Err(); err != nil {
-			return err
-		}
-		return closeErr
+		total += n
+		return nil
 	})
 	return total, err
+}
+
+// countFileLines returns the number of lines in a single file. Used for per-file
+// critical-file budgets and the architecture report.
+func countFileLines(path string) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	var n int
+	sc := bufio.NewScanner(f)
+	// Raise the per-line buffer so long generated/fixture-style lines are still
+	// counted; budgets are approximate architectural mass, not exact SLOC.
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		n++
+	}
+	if err := sc.Err(); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 func hasInitFunc(path string) bool {

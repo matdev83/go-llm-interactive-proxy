@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -27,6 +27,11 @@ ifeq ($(OS),Windows_NT)
 else
 	@bash scripts/quality-checks.sh
 endif
+
+# Advisory architecture metrics report (non-failing). Run on demand to spot
+# hotspot/line/import drift.
+arch-report:
+	@$(GO) run ./scripts/arch-report.go
 
 regex-hotpath-check:
 ifeq ($(OS),Windows_NT)

@@ -22,11 +22,20 @@ type hexagonalBaselineFile struct {
 }
 
 type hexagonalBaselineEntry struct {
-	GoListPattern              string   `json:"go_list_pattern"`
-	Classification             string   `json:"classification"`
-	Justification              string   `json:"justification"`
-	RetirementTrigger          string   `json:"retirement_trigger"`
-	AllowedInternalCoreImports []string `json:"allowed_internal_core_imports"`
+	GoListPattern              string                    `json:"go_list_pattern"`
+	Classification             string                    `json:"classification"`
+	Justification              string                    `json:"justification"`
+	RetirementTrigger          string                    `json:"retirement_trigger"`
+	AllowedInternalCoreImports []string                  `json:"allowed_internal_core_imports"`
+	Backlog                    *hexagonalBaselineBacklog `json:"backlog,omitempty"`
+}
+
+type hexagonalBaselineBacklog struct {
+	Owner                string   `json:"owner"`
+	NextExtraction       string   `json:"next_extraction"`
+	RetirementTarget     string   `json:"retirement_target"`
+	BlockingDependencies []string `json:"blocking_dependencies"`
+	Status               string   `json:"status"`
 }
 
 // TestHexagonalMigrationBaselineIncludesAllClassifications ensures the migration
@@ -45,8 +54,8 @@ func TestHexagonalMigrationBaselineIncludesAllClassifications(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("decode baseline: %v", err)
 	}
-	if doc.SchemaVersion != 2 {
-		t.Fatalf("unsupported schema_version %d (expected 2)", doc.SchemaVersion)
+	if doc.SchemaVersion != 3 {
+		t.Fatalf("unsupported schema_version %d (expected 3)", doc.SchemaVersion)
 	}
 	var aligned, extract, exception int
 	for _, row := range doc.Packages {
@@ -83,8 +92,8 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("decode baseline: %v", err)
 	}
-	if doc.SchemaVersion != 2 {
-		t.Fatalf("unsupported schema_version %d (expected 2)", doc.SchemaVersion)
+	if doc.SchemaVersion != 3 {
+		t.Fatalf("unsupported schema_version %d (expected 3)", doc.SchemaVersion)
 	}
 
 	for _, row := range doc.Packages {
@@ -104,6 +113,20 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 			if row.Classification == "exception" {
 				if strings.TrimSpace(row.RetirementTrigger) == "" {
 					t.Fatalf("%s: classification exception requires non-empty retirement_trigger", row.GoListPattern)
+				}
+			}
+			if row.Classification == "extract" || row.Classification == "exception" {
+				if row.Backlog == nil {
+					t.Fatalf("%s: classification %s requires a non-empty backlog", row.GoListPattern, row.Classification)
+				}
+				if strings.TrimSpace(row.Backlog.NextExtraction) == "" {
+					t.Fatalf("%s: backlog.next_extraction must be non-empty", row.GoListPattern)
+				}
+				if strings.TrimSpace(row.Backlog.RetirementTarget) == "" {
+					t.Fatalf("%s: backlog.retirement_target must be non-empty", row.GoListPattern)
+				}
+				if strings.TrimSpace(row.Backlog.Status) == "" {
+					t.Fatalf("%s: backlog.status must be non-empty", row.GoListPattern)
 				}
 			}
 

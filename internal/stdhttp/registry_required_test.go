@@ -75,27 +75,6 @@ func TestMountBundledFrontends_nilRegistry(t *testing.T) {
 	}
 }
 
-func TestRun_nilPluginRegistry(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	cfg := &coreconfig.Config{
-		Server:     coreconfig.ServerConfig{Address: "127.0.0.1:0"},
-		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3},
-		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
-	}
-	app, err := runtime.New(runtime.Options{Config: cfg, Logger: testkit.DiscardLogger()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = Run(ctx, cfg, app, testkit.DiscardLogger(), nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "nil plugin registry") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestRunWithRuntime_nilPluginRegistryInBuilt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

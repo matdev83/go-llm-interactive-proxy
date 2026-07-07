@@ -204,3 +204,31 @@ func TestMountBundledFrontends_explicitRegistryMissingFrontend(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// TestNewStandardHandler_diagnosticsHealthzMounted locks the diagnostics mount block in
+// prepareStandardHandler: when Diagnostics.Enabled is true with a HealthPath, GET <health>
+// returns 200 through the assembled standard handler. Characterization for the
+// internal/stdhttp/server.go concern split (arch review Task 1.3/1.4).
+func TestNewStandardHandler_diagnosticsHealthzMounted(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server:      config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:     config.RoutingConfig{DefaultRoute: "stub:model"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz", SharedSecret: "secretsecret"},
+		Plugins:     config.PluginsConfig{},
+	}
+	built := &runtimebundle.Built{Executor: &runtime.Executor{}, PluginRegistry: pluginreg.NewRegistry()}
+	app := mustRuntimeApp(t, cfg)
+	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanup(context.Background()) })
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("healthz status %d body=%s", rr.Code, rr.Body.String())
+	}
+}

@@ -3,10 +3,13 @@ package tracing
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	corehttp "github.com/matdev83/go-llm-interactive-proxy/internal/core/http"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestInit_tracingDisabled(t *testing.T) {
@@ -55,5 +58,44 @@ func Test_spanName_coarse(t *testing.T) {
 	}
 	if got := spanName(r); got != "POST /v1" {
 		t.Fatalf("spanName = %q", got)
+	}
+}
+
+// TestInit_tracingEnabled_installsProvidersAndPropagator locks the enabled-tracing path of
+// [Init]: it must install an sdk trace provider and the tracecontext+baggage propagator on the
+// global OpenTelemetry handles. Migrated from stdhttp.TestRun_initializesTracingAndOutboundPropagation
+// when the orphaned stdhttp.Run convenience wrapper was removed (arch review Phase 1 Task 1.1);
+// BuildBootstrap calls this same Init for the canonical serve path.
+func TestInit_tracingEnabled_installsProvidersAndPropagator(t *testing.T) { //nolint:paralleltest // mutates global OpenTelemetry providers
+	originalProvider := otel.GetTracerProvider()
+	originalPropagator := otel.GetTextMapPropagator()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(originalProvider)
+		otel.SetTextMapPropagator(originalPropagator)
+	})
+	cfg := &config.Config{
+		Observability: config.ObservabilityConfig{
+			Tracing: config.TracingConfig{Enabled: true},
+		},
+	}
+	res, err := Init(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Active {
+		t.Fatal("expected tracing active")
+	}
+	if _, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); !ok {
+		t.Fatalf("expected sdk tracer provider, got %T", otel.GetTracerProvider())
+	}
+	got := slices.Clone(otel.GetTextMapPropagator().Fields())
+	want := []string{"traceparent", "tracestate", "baggage"}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected tracecontext+baggage propagator fields, got %v", got)
+	}
+	if err := res.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

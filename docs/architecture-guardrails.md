@@ -18,6 +18,7 @@ Stage four (extension platform) adds the **legal extension pipeline**, brownfiel
 | Check | Location |
 | --- | --- |
 | Non-test line budgets for key trees | [`internal/archtest/guardrails_test.go`](../internal/archtest/guardrails_test.go) |
+| Per-file critical-file budgets for single-file gravity wells (`executor.go`, `runtimebundle/build.go`, `runtimebundle/options.go`, `stdhttp/server.go`, `pluginreg/standard_table.go`, `pluginreg/reg.go`) | same (`TestCriticalFileLineBudgets`) |
 | No `func init()` in `internal/pluginreg` and `cmd/lipstd` (non-test `.go` files) | same |
 | `internal/infra/runtimebundle` production code must not reference `pluginreg.Default` (AST selector) | same |
 | `internal/infra/runtimebundle` and `internal/stdhttp` production code must not call `InstallStandardBundleOn` / `RegisterStandardBundle` | same |
@@ -40,8 +41,12 @@ Circuit breaker behavior (what counts as failure, recovery) is documented in [`r
 
 Run `go test ./internal/archtest/...` and full `go test ./...` (also invoked from `make quality-checks` / CI).
 
+**Architecture metrics report (advisory):** `make arch-report` prints a deterministic Markdown snapshot of non-test lines per package, hotspot file sizes, direct internal import fan-out/fan-in, exported symbol counts for `pkg/lipapi` / `pkg/lipsdk`, and the current hexagonal baseline classifications. It is an on-demand report and is not part of the default CI gate. Use it to spot drift before it becomes painful.
+
 **Scope caveats:** AST checks match import-local names (`pluginreg.Default` / `sync.Once`, not renamed imports). `pluginreg.DefaultWireModel` and other `pluginreg.Default*` identifiers are allowed. Package-level `sync.Once` is forbidden in the three wiring roots even when unrelated to plugins, to keep lazy singleton registration from creeping back in. In-function `sync.Once` elsewhere (for example `stdhttp` shutdown coordination) is allowed; `cmd/lipstd` additionally forbids combining `sync.Once` with standard-bundle install calls in one file.
 
 ## Updating budgets
 
 When a deliberate feature requires a larger core or composition layer, raise the limits in `guardrails_test.go` and record the rationale in ADR 0005 or a short note in the PR.
+
+This applies to both the tree-level `lineBudgets` and the per-file `criticalFileBudgets`. Any increase to a critical-file budget must include a short rationale comment next to the table entry explaining why the single-file hotspot is growing rather than being decomposed. Prefer decomposing the file over raising its budget.
