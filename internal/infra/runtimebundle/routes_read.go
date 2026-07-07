@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
 // RoutesSnapshot is a config-derived operator read model (no provider I/O).
@@ -42,7 +43,7 @@ func RoutesSnapshotFrom(cfg *config.Config, reg *pluginreg.Registry) (RoutesSnap
 	if reg == nil {
 		return RoutesSnapshot{}, fmt.Errorf("runtimebundle: nil registry")
 	}
-	raw := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	raw := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
 	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
 	if err != nil {
 		return RoutesSnapshot{}, fmt.Errorf("runtimebundle: model_aliases: %w", err)

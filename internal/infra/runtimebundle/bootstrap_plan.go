@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg/standardbundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -103,7 +104,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
 		return out, err
 	}
-	if err := pluginreg.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
+	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
 		return out, fmt.Errorf("runtimebundle: %w", err)
 	}
 
@@ -123,7 +124,7 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	out.Logger = logger
 
 	reg := pluginreg.NewRegistry()
-	apiKeys := pluginreg.ResolveUpstreamAPIKeysFromEnv()
+	apiKeys := standardplugins.ResolveUpstreamAPIKeysFromEnv()
 	if err := standardbundle.InstallOn(reg, apiKeys); err != nil {
 		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: plugin registration: %w", err)

@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
@@ -241,7 +242,7 @@ func TestRunWithRuntime_appStartReceivesRunContext(t *testing.T) {
 	}
 
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{
@@ -276,7 +277,7 @@ func TestRunWithRuntime_metricsEnabledRequiresBuiltMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	built, err := runtimebundle.Build(cfg, app.HookBus(), log, &runtimebundle.BuildOptions{PluginRegistry: reg})

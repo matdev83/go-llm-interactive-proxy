@@ -22,7 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -180,7 +180,7 @@ func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, 
 
 func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {
 	if wireModel == nil {
-		wireModel = pluginreg.DefaultWireModel
+		wireModel = standardplugins.DefaultWireModel
 	}
 	rawDefaultRoute := config.EffectiveDefaultRouteSelector(cfg, wireModel)
 	aliasResolver, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))

@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -22,7 +23,7 @@ func TestBuild_postgresBothStores_closersAndNoMigration(t *testing.T) {
 		t.Skipf("set %s (or legacy %s) to run integration test", testkit.LIPTestPostgresDSN, testkit.LIPManagedPostgresDSN)
 	}
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{

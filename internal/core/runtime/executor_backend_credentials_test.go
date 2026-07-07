@@ -23,9 +23,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	openaibe "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	refopenai "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -57,7 +57,7 @@ func parseBearer(r *http.Request) string {
 func TestExecutor_openAIResponses_candidateKeyStable_singleVsMultiKey(t *testing.T) {
 	t.Parallel()
 	const continuityKey = "cred-cand-probe"
-	model := pluginreg.DefaultWireModel(openaibe.ID)
+	model := standardplugins.DefaultWireModel(openaibe.ID)
 	selector := "openai-responses:" + model
 
 	run := func(t *testing.T, apiKey string, apiKeys []string) string {
@@ -139,7 +139,7 @@ func TestExecutor_openAIResponses_attemptLineageOmitsCredentialMaterial(t *testi
 	const continuityKey = "cred-lineage-hygiene"
 	const secretA = "__POOL_LINEAGE_SECRET_A__"
 	const secretB = "__POOL_LINEAGE_SECRET_B__"
-	selector := "openai-responses:" + pluginreg.DefaultWireModel(openaibe.ID)
+	selector := "openai-responses:" + standardplugins.DefaultWireModel(openaibe.ID)
 
 	srv := httptest.NewServer(refopenai.NewHandler(refopenai.Config{}))
 	t.Cleanup(srv.Close)
@@ -215,7 +215,7 @@ func TestExecutor_openAIResponses_attemptLineageOmitsCredentialMaterial(t *testi
 func TestExecutor_openAIResponses_multiKeyPostOutputTruncatedStream_noThirdUpstreamHTTP(t *testing.T) {
 	t.Parallel()
 	const continuityKey = "cred-post-output-stream"
-	selector := "openai-responses:" + pluginreg.DefaultWireModel(openaibe.ID)
+	selector := "openai-responses:" + standardplugins.DefaultWireModel(openaibe.ID)
 
 	var reqs atomic.Int32
 	// Minimal SSE: text delta commits output; then kill TCP — no response.completed / [DONE].

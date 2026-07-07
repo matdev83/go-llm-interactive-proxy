@@ -5,13 +5,14 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg/standardbundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 func TestInstallOn_validatesStandardRequirements(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := standardbundle.InstallOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardbundle.InstallOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.ValidateBundledFactories(lipsdk.StandardDistributionRequirements()); err != nil {
@@ -21,7 +22,7 @@ func TestInstallOn_validatesStandardRequirements(t *testing.T) {
 
 func TestInstallOn_nilRegistry(t *testing.T) {
 	t.Parallel()
-	if err := standardbundle.InstallOn(nil, pluginreg.UpstreamAPIKeys{}); err == nil {
+	if err := standardbundle.InstallOn(nil, standardplugins.UpstreamAPIKeys{}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -42,7 +43,7 @@ func TestBundleExposesStandardTables(t *testing.T) {
 
 func TestBackendBundleExposesBackends(t *testing.T) {
 	t.Parallel()
-	b := standardbundle.BackendBundle(pluginreg.UpstreamAPIKeys{})
+	b := standardbundle.BackendBundle(standardplugins.UpstreamAPIKeys{})
 	if len(b.Backends) == 0 {
 		t.Fatal("expected backend registrations")
 	}
