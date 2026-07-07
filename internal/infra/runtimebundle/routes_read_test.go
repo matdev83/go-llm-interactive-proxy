@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
 func TestRoutesSnapshotFrom_matchesEffectiveDefaultRoute(t *testing.T) {
@@ -22,10 +23,10 @@ func TestRoutesSnapshotFrom_matchesEffectiveDefaultRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
-	raw := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	raw := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
 	ar, err := routing.NewAliasResolver(routing.ModelAliasRulesFromConfig(cfg))
 	if err != nil {
 		t.Fatal(err)

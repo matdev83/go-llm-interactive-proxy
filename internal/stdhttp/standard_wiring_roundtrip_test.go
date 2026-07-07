@@ -11,8 +11,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
@@ -74,7 +74,7 @@ models:
 		t.Fatal("expected backend instance oai-upstream-int")
 	}
 
-	route := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	route := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
 	if want := "oai-upstream-int:gpt-4o-mini"; route != want {
 		t.Fatalf("effective route %q want %q", route, want)
 	}

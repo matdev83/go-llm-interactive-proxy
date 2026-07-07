@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftraffictranscript"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +26,7 @@ var proofReferenceIDs = []string{
 func TestProofReferenceFeatures_buildEmptyYAML(t *testing.T) {
 	t.Parallel()
 	reg := &pluginreg.Registry{}
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -46,7 +47,7 @@ func TestProofReferenceFeatures_buildEmptyYAML(t *testing.T) {
 func TestProofReferenceFeatures_mergeSurface(t *testing.T) {
 	t.Parallel()
 	reg := &pluginreg.Registry{}
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var regs []lipsdk.Registration

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
@@ -12,7 +12,7 @@ func TestCredentialedBackendCandidates_selectsOnlyConfiguredRemoteBackends(t *te
 	t.Parallel()
 
 	candidates, skipped := credentialedBackendCandidates(
-		pluginreg.UpstreamAPIKeys{
+		standardplugins.UpstreamAPIKeys{
 			OpenAI:     []string{"openai-key"},
 			OpenRouter: []string{"openrouter-key"},
 			Nvidia:     []string{"nvidia-key"},
@@ -46,7 +46,7 @@ func TestCredentialedBackendCandidates_skipsBedrockWithoutCompleteAWSCredentialS
 	t.Parallel()
 
 	candidates, skipped := credentialedBackendCandidates(
-		pluginreg.UpstreamAPIKeys{},
+		standardplugins.UpstreamAPIKeys{},
 		awsEnvironment{Region: "us-east-1", AccessKeyID: true},
 	)
 

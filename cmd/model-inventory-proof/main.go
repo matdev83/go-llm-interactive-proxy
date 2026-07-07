@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openrouter"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
@@ -72,11 +73,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	keys := pluginreg.ResolveUpstreamAPIKeysFromEnv()
+	keys := standardplugins.ResolveUpstreamAPIKeysFromEnv()
 	candidates, skipped := credentialedBackendCandidates(keys, detectAWSEnvironment())
 
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, keys); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, keys); err != nil {
 		writeFatal(err)
 	}
 
@@ -97,7 +98,7 @@ func main() {
 	}
 }
 
-func credentialedBackendCandidates(keys pluginreg.UpstreamAPIKeys, awsEnv awsEnvironment) ([]backendCandidate, []skipReport) {
+func credentialedBackendCandidates(keys standardplugins.UpstreamAPIKeys, awsEnv awsEnvironment) ([]backendCandidate, []skipReport) {
 	staticBackends := []struct {
 		id     string
 		env    string

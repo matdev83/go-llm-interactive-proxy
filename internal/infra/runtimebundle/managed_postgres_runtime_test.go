@@ -12,13 +12,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestBuild_continuityPostgres_unreachableDoesNotFallback(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	const secret = "NEVER_EMBED_THIS_SECRET"
@@ -51,7 +52,7 @@ func TestBuild_continuityPostgres_unreachableDoesNotFallback(t *testing.T) {
 func TestBuild_startupContextCanceled_continuityPostgres(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	startupCtx, cancel := context.WithCancel(context.Background())
@@ -81,7 +82,7 @@ func TestBuild_startupContextCanceled_continuityPostgres(t *testing.T) {
 func TestBuild_disposesContinuityWhenSecureSessionFails(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	tmp := t.TempDir()
@@ -115,7 +116,7 @@ func TestBuild_disposesContinuityWhenSecureSessionFails(t *testing.T) {
 func TestBuild_secureSessionPostgres_unreachableDurableAuditDoesNotFallback(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	const secret = "NEVER_EMBED_SS_SECRET"

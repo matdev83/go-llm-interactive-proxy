@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -21,7 +22,7 @@ const unifiedPolicyRoute = "stub:unified-policy-model"
 func testRegistryWithStdBundle(t *testing.T) *pluginreg.Registry {
 	t.Helper()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	return reg
@@ -39,7 +40,7 @@ func TestOmittedRoute_openaiResponses_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
-	route := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	route := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
 	if route != unifiedPolicyRoute {
 		t.Fatalf("effective route %q", route)
 	}
@@ -113,7 +114,7 @@ func TestOmittedRoute_openaiLegacy_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
-	route := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	route := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()
@@ -149,7 +150,7 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
-	route := config.EffectiveDefaultRouteSelector(cfg, pluginreg.DefaultWireModel)
+	route := config.EffectiveDefaultRouteSelector(cfg, standardplugins.DefaultWireModel)
 	var cap sync.Map
 	ex := testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "ok", &cap)
 	mux := http.NewServeMux()

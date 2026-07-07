@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelcatalog/modelsdev"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
@@ -21,7 +22,7 @@ import (
 func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -68,7 +69,7 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 func TestBuild_openCodeWithModelCatalogDisabledUsesStaticVendorResolver(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{OpenCodeGo: []string{"test-key"}}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{OpenCodeGo: []string{"test-key"}}); err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +123,7 @@ func TestBuild_openCodeWithModelCatalogDisabledUsesStaticVendorResolver(t *testi
 func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -192,7 +193,7 @@ func closeRuntimeBuilt(t *testing.T, b *runtimebundle.Built) {
 func TestBuild_modelCatalog_enabled_missingCachePath_validationFails(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node

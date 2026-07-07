@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
@@ -15,7 +16,7 @@ import (
 func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -55,7 +56,7 @@ func TestBuild_twoInstancesSameFactoryKind(t *testing.T) {
 func TestBuild_customBackendsRejectDuplicatePrefixBeforeModelRegistry(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var node yaml.Node
@@ -65,8 +66,8 @@ func TestBuild_customBackendsRejectDuplicatePrefixBeforeModelRegistry(t *testing
 	cfg := &config.Config{
 		Routing: config.RoutingConfig{MaxAttempts: 3},
 		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
-			{Kind: pluginreg.CustomOpenAILegacyCompatibleID, ID: "provider-chat", Enabled: true, Config: node},
-			{Kind: pluginreg.CustomOpenAIResponsesCompatibleID, ID: "provider-responses", Enabled: true, Config: node},
+			{Kind: standardplugins.CustomOpenAILegacyCompatibleID, ID: "provider-chat", Enabled: true, Config: node},
+			{Kind: standardplugins.CustomOpenAIResponsesCompatibleID, ID: "provider-responses", Enabled: true, Config: node},
 		}},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
@@ -85,7 +86,7 @@ func TestBuild_customBackendsRejectDuplicatePrefixBeforeModelRegistry(t *testing
 func TestBuild_customBackendsRejectReservedStandardPrefix(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var node yaml.Node
@@ -95,7 +96,7 @@ func TestBuild_customBackendsRejectReservedStandardPrefix(t *testing.T) {
 	cfg := &config.Config{
 		Routing: config.RoutingConfig{MaxAttempts: 3},
 		Plugins: config.PluginsConfig{Backends: []config.PluginConfig{
-			{Kind: pluginreg.CustomOpenAILegacyCompatibleID, ID: "nvidia-copy", Enabled: true, Config: node},
+			{Kind: standardplugins.CustomOpenAILegacyCompatibleID, ID: "nvidia-copy", Enabled: true, Config: node},
 		}},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
