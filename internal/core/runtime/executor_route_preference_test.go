@@ -24,8 +24,8 @@ func TestExecutor_execute_routePreferenceDrivesPlanner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var preferredOpens int32
-	var otherOpens int32
+	var preferredOpens atomic.Int32
+	var otherOpens atomic.Int32
 	ex := &runtime.Executor{
 		Store: st,
 		Bus:   hooks.New(hooks.Config{}),
@@ -33,7 +33,7 @@ func TestExecutor_execute_routePreferenceDrivesPlanner(t *testing.T) {
 			"preferred": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&preferredOpens, 1)
+					preferredOpens.Add(1)
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -43,7 +43,7 @@ func TestExecutor_execute_routePreferenceDrivesPlanner(t *testing.T) {
 			"other": {
 				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&otherOpens, 1)
+					otherOpens.Add(1)
 					return lipapi.NewFixedEventStream([]lipapi.Event{
 						{Kind: lipapi.EventResponseStarted},
 						{Kind: lipapi.EventResponseFinished},
@@ -66,10 +66,10 @@ func TestExecutor_execute_routePreferenceDrivesPlanner(t *testing.T) {
 	if _, err := lipapi.Collect(context.Background(), stream); err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	if atomic.LoadInt32(&preferredOpens) == 0 {
+	if preferredOpens.Load() == 0 {
 		t.Fatal("expected preferred backend to be opened; route preference was not honored by the planner")
 	}
-	if atomic.LoadInt32(&otherOpens) > 0 {
+	if otherOpens.Load() > 0 {
 		t.Fatal("expected other backend to NOT be opened when preference is honored on first attempt")
 	}
 }
