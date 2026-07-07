@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -25,22 +25,25 @@ type ProcessIdentity struct {
 // can collide with real OS processes (e.g., fake PID 1 == init, PID 2 == kthreadd
 // on Linux), causing /proc reads to return real start times.
 //
-// It is an atomic.Value because production reads it from stale-kill timer
-// goroutines (scheduleStaleKill → KillRuntime → stillSameProcess → processStartTime)
-// while tests concurrently Store a mock and restore the original via t.Cleanup.
-// A plain var would data-race under -race with parallel tests; atomic.Value
-// makes the read and write safely concurrent. Stores must use the exact type
-// func(int) time.Time.
-var processStartTimeFn atomic.Value
-
-func init() {
-	processStartTimeFn.Store(platformProcessStartTime)
-}
+// It is guarded by processStartTimeMu because production reads it from
+// stale-kill timer goroutines (scheduleStaleKill -> KillRuntime ->
+// stillSameProcess -> processStartTime) while tests concurrently swap in a mock
+// and restore the original via t.Cleanup. A plain var would data-race under
+// -race with parallel tests; the RWMutex allows concurrent reads (multiple
+// stale-kill goroutines) and exclusive writes (test setup/restore). Production
+// callers should not modify this.
+var (
+	processStartTimeMu sync.RWMutex
+	processStartTimeFn = platformProcessStartTime
+)
 
 // processStartTime returns the OS process start time for pid, or zero time if
 // unavailable on this platform. This is platform-specific and best-effort.
 func processStartTime(pid int) time.Time {
-	return processStartTimeFn.Load().(func(int) time.Time)(pid)
+	processStartTimeMu.RLock()
+	fn := processStartTimeFn
+	processStartTimeMu.RUnlock()
+	return fn(pid)
 }
 
 // normalizeExeKey resolves symlinks and lowercases (on case-insensitive platforms)

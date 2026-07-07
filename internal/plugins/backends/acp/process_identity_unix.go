@@ -127,7 +127,7 @@ func readBootTime() time.Time {
 	if err != nil {
 		return time.Time{}
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimRight(line, "\r")
 		if len(line) > 6 && line[:6] == "btime " {
 			secs, ok := parseUint(line[6:])
