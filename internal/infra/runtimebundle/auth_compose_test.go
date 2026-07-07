@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	stdhttpauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
@@ -34,7 +35,7 @@ func (o fixedOSIdentity) Current(ctx context.Context) (coreauth.OSIdentitySnapsh
 func TestBuild_defaultComposedLocalNoop_principalNotEmpty(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -76,7 +77,7 @@ func TestBuild_defaultComposedLocalNoop_principalNotEmpty(t *testing.T) {
 func TestBuild_minimalSingleUser_HTTPAuthProviders_nonEmpty(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -128,7 +129,7 @@ func TestBuild_registryAuthErrorRendererByFrontend_wiresPolicyProvider(t *testin
 	if err := reg.RegisterAuthErrorRenderer("openai_compatible", wireRendererA{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -173,7 +174,7 @@ func TestBuild_authErrorRenderers_registryIdCaseFoldsToLower(t *testing.T) {
 	if err := reg.RegisterAuthErrorRenderer("OpenAI_Compatible", wireRendererA{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -218,7 +219,7 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 	if err := reg.RegisterAuthErrorRenderer("openai_compatible", wireRendererA{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -261,7 +262,7 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 func TestBuild_remoteAuthPolicyRequiresRemoteDecider(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -294,7 +295,7 @@ func TestBuild_remoteAuthPolicyRequiresRemoteDecider(t *testing.T) {
 func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -349,7 +350,7 @@ func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 func TestBuild_multiUserLocalAPIKey_middlewareAllowsValidBearer(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -406,7 +407,7 @@ func TestBuild_multiUserLocalAPIKey_middlewareAllowsValidBearer(t *testing.T) {
 func TestBuild_multiUserLocalAPIKey_middlewareDeniesWithoutBearer(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -451,7 +452,7 @@ func TestBuild_multiUserLocalAPIKey_middlewareDeniesWithoutBearer(t *testing.T) 
 func TestBuild_HTTPAuthProvidersOnlyNil_fallsBackToComposedAuth(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -506,7 +507,7 @@ func TestBuild_HTTPAuthProvidersOnlyNil_fallsBackToComposedAuth(t *testing.T) {
 func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -555,7 +556,7 @@ func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node
@@ -599,7 +600,7 @@ func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 func TestBuild_remoteStub_challengeTerminates(t *testing.T) {
 	t.Parallel()
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBackendsOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBackendsOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	var empty yaml.Node

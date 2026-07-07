@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftoolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftraffictranscript"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -72,7 +73,7 @@ func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 func TestInventoryHandler_withRegistry_refAutoappend_hasStageOccupancyAndPrivileges(t *testing.T) {
 	t.Parallel()
 	reg := &pluginreg.Registry{}
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -132,7 +133,7 @@ func TestInventoryHandler_withRegistry_refAutoappend_hasStageOccupancyAndPrivile
 func TestInventoryHandler_withRegistry_refToolPolicy_listsCatalogFilterAndToolPolicy(t *testing.T) {
 	t.Parallel()
 	reg := &pluginreg.Registry{}
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -214,7 +215,7 @@ func TestInventoryHandler_withRegistry_refToolPolicy_listsCatalogFilterAndToolPo
 func TestInventoryHandler_refTrafficTranscript_inventoryJSONOmitsDefaultRedactSubstring(t *testing.T) {
 	t.Parallel()
 	reg := &pluginreg.Registry{}
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -282,7 +283,7 @@ func TestInventoryHandler_refVerifierPrivilegesExposeCompletionGate(t *testing.T
 	t.Parallel()
 	const refVerifierID = "ref-verifier-stub"
 	reg := &pluginreg.Registry{}
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{

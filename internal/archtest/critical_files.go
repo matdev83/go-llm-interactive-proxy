@@ -40,7 +40,7 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 480},
 	{Path: "internal/infra/runtimebundle/build.go", Max: 200},
 	{Path: "internal/infra/runtimebundle/options.go", Max: 200},
-	{Path: "internal/pluginreg/standard_table.go", Max: 320},
+	{Path: "internal/standardplugins/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
 	{Path: "internal/stdhttp/server.go", Max: 300},
 }

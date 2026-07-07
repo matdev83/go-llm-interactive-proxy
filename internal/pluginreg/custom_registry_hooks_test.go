@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
@@ -18,7 +19,7 @@ func TestBuildFeatureHooks_usesExplicitRegistryNotDefault(t *testing.T) {
 	reg := pluginreg.NewRegistry()
 	if err := reg.RegisterFeature(
 		factoryID,
-		pluginreg.FeatureFactoryFromHooks(func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
+		featurebundle.FeatureFactoryFromHooks(func(n yaml.Node) (hooks.Config, []lipplugin.Lifecycle, error) {
 			_ = n
 			return hooks.Config{}, nil, nil
 		}),

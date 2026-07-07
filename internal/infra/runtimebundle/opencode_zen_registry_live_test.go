@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -17,13 +18,13 @@ func TestOpenCodeZenLive_modelsAreVendorEnrichedInCentralRegistry(t *testing.T) 
 	if testing.Short() {
 		t.Skip("live OpenCode Zen registry test")
 	}
-	keys := pluginreg.ResolveUpstreamAPIKeysFromEnv()
+	keys := standardplugins.ResolveUpstreamAPIKeysFromEnv()
 	if len(keys.OpenCodeZen) == 0 {
 		t.Skip("OPENCODE_API_KEY or OPENCODE_ZEN_API_KEY is required")
 	}
 
 	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, keys); err != nil {
+	if err := standardplugins.InstallStandardBundleOn(reg, keys); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
