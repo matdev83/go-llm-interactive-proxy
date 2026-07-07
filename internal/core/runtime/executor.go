@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
@@ -35,8 +33,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 )
 
 var _ lipsdk.ExecutorView = (*Executor)(nil)
@@ -226,69 +222,16 @@ func (e *Executor) policyEvidenceEmitter(snap *extensions.RequestRuntimeSnapshot
 const otelScopeExecutor = "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 
 func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.EventStream, err error) {
-	if e == nil || e.Store == nil || call == nil {
-		return nil, fmt.Errorf("executor: invalid arguments")
+	prep, cleanup, perr := e.prepareRequest(ctx, call)
+	if perr != nil {
+		return nil, perr
 	}
-	if e.Bus == nil {
-		return nil, fmt.Errorf("executor: nil hook bus")
-	}
-	bus := e.Bus
-	if err := call.Validate(); err != nil {
-		return nil, fmt.Errorf("executor: validate call: %w", err)
-	}
-	if ctx == nil {
-		return nil, lipapi.ErrNilContext
-	}
-	if e.RuntimeSnapshot != nil {
-		ctx = extensions.WithRequestRuntimeSnapshot(ctx, e.RuntimeSnapshot)
-	}
-	e.secureSessionMu.Lock()
-	if e.SecureSession == nil {
-		secureSessionTestPrepare(e)
-	}
-	secureSessionReady := e.SecureSession != nil
-	e.secureSessionMu.Unlock()
-	if !secureSessionReady {
-		return nil, fmt.Errorf("executor: secure session manager is required")
-	}
-	ctx, execSpan := otel.Tracer(otelScopeExecutor).Start(ctx, "lip.executor.execute")
 	defer func() {
-		if err != nil {
-			execSpan.RecordError(err)
-			execSpan.SetStatus(codes.Error, err.Error())
-		}
-		execSpan.End()
+		prep.finalize(err)
+		cleanup()
 	}()
-	traceID, baseline, aLeg, ctx, err := e.prepareSubmitAndALeg(ctx, bus, call)
-	if err != nil {
-		return nil, fmt.Errorf("executor: prepare submit: %w", err)
-	}
-	lifecycle := e.lifecycleCoordinator()
-	aScope := lifecycle.StartALeg(aLeg.ALegID)
-	streamReturned := false
-	defer func() {
-		if streamReturned || aScope == nil {
-			return
-		}
-		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
-		defer cleanupCancel()
-		_ = aScope.Cancel(cleanupCtx, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
-		aScope.End()
-	}()
-	var recvViews execctx.Views
-	recvViewsOK := false
-	if v, ok := execctx.FromContext(ctx); ok {
-		recvViews = v
-		recvViewsOK = true
-	}
-	var secureTurn execctx.SecureSessionTurn
-	secureTurnOK := false
-	if st, ok := execctx.SecureSessionTurnFromContext(ctx); ok {
-		secureTurn = st
-		secureTurnOK = true
-	}
-	routePrefs := slices.Clone(execctx.RouteCandidatePreferences(ctx))
-	selStr := strings.TrimSpace(baseline.Route.Selector)
+
+	selStr := strings.TrimSpace(prep.baseline.Route.Selector)
 	if e.SelectorAliases != nil {
 		selStr = e.SelectorAliases.Resolve(selStr)
 	}
@@ -302,14 +245,14 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	}
 	budget := &attemptBudget{max: e.effectiveMaxAttempts(), used: 0}
 	ttft := newTTFTBudget(e.now(), sel)
-	session := &routing.SessionRoutingState{FirstRequestConsumed: aLeg.WeightedFirstConsumed}
+	session := &routing.SessionRoutingState{FirstRequestConsumed: prep.aLeg.WeightedFirstConsumed}
 	excluded := map[string]struct{}{}
-	requestSize := e.requestSizeEstimateForRouting(ctx, sel, baseline)
-	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, recvViews, recvViewsOK)
+	requestSize := e.requestSizeEstimateForRouting(prep.ctx, sel, prep.baseline)
+	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, prep.recvViews, prep.recvViewsOK)
 	if err != nil {
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)
 	}
-	interleaved, err := e.loadInterleavedState(ctx, aLeg.ALegID)
+	interleaved, err := e.loadInterleavedState(prep.ctx, prep.aLeg.ALegID)
 	if err != nil {
 		return nil, fmt.Errorf("executor: load interleaved state: %w", err)
 	}
@@ -319,33 +262,32 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 	var lastParallelFailure error
 	rng := e.rng()
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := prep.ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := aScope.Err(); err != nil {
+		if err := prep.aScope.Err(); err != nil {
 			return nil, err
 		}
 		out, err := e.tryPlanOpenOnce(attemptOpenParams{
-			ctx:                 ctx,
-			bus:                 bus,
-			traceID:             traceID,
-			aLegID:              aLeg.ALegID,
-			aScope:              aScope,
-			baseline:            baseline,
-			sel:                 sel,
-			requestSize:         requestSize,
-			session:             session,
-			excluded:            excluded,
-			rng:                 rng,
-			budget:              budget,
-			ttft:                &ttft,
-			isRetryPath:         false,
-			lastReject:          &lastReject,
-			lastTransportReject: &lastTransportReject,
-			lastParallelFailure: &lastParallelFailure,
-			affinityKey:         affinityKey,
-			affinitySet:         affinityKeyOK,
-			// Persists across failover iterations so ExpandFailover can map to ErrAllCandidatesContextLimitExceeded.
+			ctx:                      prep.ctx,
+			bus:                      prep.bus,
+			traceID:                  prep.traceID,
+			aLegID:                   prep.aLeg.ALegID,
+			aScope:                   prep.aScope,
+			baseline:                 prep.baseline,
+			sel:                      sel,
+			requestSize:              requestSize,
+			session:                  session,
+			excluded:                 excluded,
+			rng:                      rng,
+			budget:                   budget,
+			ttft:                     &ttft,
+			isRetryPath:              false,
+			lastReject:               &lastReject,
+			lastTransportReject:      &lastTransportReject,
+			lastParallelFailure:      &lastParallelFailure,
+			affinityKey:              affinityKey,
+			affinitySet:              affinityKeyOK,
 			isContextLimitExhaustion: &contextLimitExhaustion,
 			interleaved:              interleaved,
 		})
@@ -357,7 +299,7 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			continue
 		}
 		if !out.registered {
-			if err := aScope.RegisterBLeg(ctx, leglifecycle.BLegHandle{
+			if err := prep.aScope.RegisterBLeg(prep.ctx, leglifecycle.BLegHandle{
 				ID:      out.bleg.BLegID,
 				Attempt: lifecycleAttempt(out.stream),
 			}); err != nil {
@@ -368,49 +310,46 @@ func (e *Executor) Execute(ctx context.Context, call *lipapi.Call) (_ lipapi.Eve
 			}
 		}
 		rs := &retryRecvStream{
-			executor:    e,
-			bus:         bus,
-			baseline:    baseline,
-			budget:      budget,
-			ttft:        &ttft,
-			aLegID:      aLeg.ALegID,
-			traceID:     traceID,
-			sel:         sel,
-			requestSize: requestSize,
-			session:     session,
-			excluded:    excluded,
-			rng:         rng,
-			bleg:        out.bleg,
-			cand:        out.cand,
-			affinityKey: affinityKey,
-			affinitySet: affinityKeyOK,
-
-			recvViews:   recvViews,
-			recvViewsOK: recvViewsOK,
-			routePrefs:  routePrefs,
-
-			secureTurn:   secureTurn,
-			secureTurnOK: secureTurnOK,
-
+			executor:      e,
+			bus:           prep.bus,
+			baseline:      prep.baseline,
+			budget:        budget,
+			ttft:          &ttft,
+			aLegID:        prep.aLeg.ALegID,
+			traceID:       prep.traceID,
+			sel:           sel,
+			requestSize:   requestSize,
+			session:       session,
+			excluded:      excluded,
+			rng:           rng,
+			bleg:          out.bleg,
+			cand:          out.cand,
+			affinityKey:   affinityKey,
+			affinitySet:   affinityKeyOK,
+			recvViews:     prep.recvViews,
+			recvViewsOK:   prep.recvViewsOK,
+			routePrefs:    prep.routePrefs,
+			secureTurn:    prep.secureTurn,
+			secureTurnOK:  prep.secureTurnOK,
 			accounting:    newAttemptAccountingTracker(e.now()),
 			recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-			aScope:        aScope,
+			aScope:        prep.aScope,
 			interleaved:   out.interleaved,
 		}
 		rs.storeInner(out.stream)
 		if e.shouldWrapHiddenInterleavedThinker(out.cand) {
 			rs.holdALegEnd = true
-			rec := e.newThinkerRecorder(out.cand, baseline)
-			streamReturned = true
+			rec := e.newThinkerRecorder(out.cand, prep.baseline)
+			prep.streamReturned = true
 			return newHiddenInterleavedStream(rs, rec, out.interleaved), nil
 		}
 		if e.shouldWrapVisibleInterleavedThinker(out.cand) {
 			rs.holdALegEnd = true
-			rec := e.newThinkerRecorder(out.cand, baseline)
-			streamReturned = true
+			rec := e.newThinkerRecorder(out.cand, prep.baseline)
+			prep.streamReturned = true
 			return newVisibleInterleavedStream(rs, rec, out.interleaved), nil
 		}
-		streamReturned = true
+		prep.streamReturned = true
 		return rs, nil
 	}
 }
