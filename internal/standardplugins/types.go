@@ -8,15 +8,17 @@ import (
 // them unqualified. These are type/const aliases (zero-cost) preserving the same
 // identifiers the moved code used when it lived in package pluginreg.
 
-type Registry = pluginreg.Registry
-type BackendFactory = pluginreg.BackendFactory
-type FeatureFactory = pluginreg.FeatureFactory
-type FrontendMount = pluginreg.FrontendMount
-type BackendSecurityProfile = pluginreg.BackendSecurityProfile
-type BackendFactoryDeps = pluginreg.BackendFactoryDeps
-type BackendCredentialMode = pluginreg.BackendCredentialMode
-type BackendAccessScope = pluginreg.BackendAccessScope
-type ModelVendorResolver = pluginreg.ModelVendorResolver
+type (
+	Registry               = pluginreg.Registry
+	BackendFactory         = pluginreg.BackendFactory
+	FeatureFactory         = pluginreg.FeatureFactory
+	FrontendMount          = pluginreg.FrontendMount
+	BackendSecurityProfile = pluginreg.BackendSecurityProfile
+	BackendFactoryDeps     = pluginreg.BackendFactoryDeps
+	BackendCredentialMode  = pluginreg.BackendCredentialMode
+	BackendAccessScope     = pluginreg.BackendAccessScope
+	ModelVendorResolver    = pluginreg.ModelVendorResolver
+)
 
 const (
 	CredentialStatic    = pluginreg.CredentialStatic
