@@ -60,7 +60,7 @@ func DefaultFrontendIDFromRequest(r *http.Request) string {
 	switch {
 	case strings.HasPrefix(p, "/v1beta/") || strings.HasPrefix(p, "/v1beta1/"):
 		return "gemini"
-	// Anthropic Messages API — must precede generic /v1/ (see pluginreg/frontends_install.go).
+	// Anthropic Messages API — must precede generic /v1/ (see standardplugins/standard_table.go frontend mount order).
 	case strings.HasPrefix(p, "/v1/messages"):
 		return "anthropic"
 	case strings.HasPrefix(p, "/anthropic/"):

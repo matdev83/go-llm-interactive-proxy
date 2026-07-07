@@ -57,7 +57,7 @@ If your feature needs raw bytes or completion-wide control, declare the matching
 
 ## Hook-only plugins and `FeatureBundle` migration
 
-Brownfield rule (design **§15**): existing hook-only plugins remain valid. Registration builds a [`pkg/lipsdk/feature.FeatureBundle`](../../pkg/lipsdk/feature/bundle.go) — often via `FeatureFactoryFromHooks` and YAML decoded into `hooks.Config` (see [`internal/plugins/features/README.md`](../internal/plugins/features/README.md)).
+Brownfield rule (design **§15**): existing hook-only plugins remain valid. Registration builds a [`pkg/lipsdk/feature.FeatureBundle`](../../pkg/lipsdk/feature/bundle.go) directly from YAML-decoded config (see [`internal/plugins/features/README.md`](../internal/plugins/features/README.md)). The legacy `FeatureFactoryFromHooks` bridge has been retired; all bundled features now return `FeatureBundle` natively.
 
 - Empty bundle slices mean **that stage is absent** for that plugin; core must not invent fallback behavior per plugin.
 - New seams (session openers, catalog filters, gates, traffic, etc.) are **additional** fields on the same bundle type; migrate incrementally.

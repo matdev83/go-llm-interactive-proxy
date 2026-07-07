@@ -16,7 +16,7 @@ The standard distribution, `cmd/lipstd`, serves bundled HTTP frontends, routes t
 
 ## Standard distribution
 
-Exact registration is code-owned by [`internal/pluginreg/standard_table.go`](internal/pluginreg/standard_table.go); mandatory distribution subset is in [`pkg/lipsdk/standard_bundle.go`](pkg/lipsdk/standard_bundle.go).
+Exact registration is code-owned by [`internal/standardplugins/standard_table.go`](internal/standardplugins/standard_table.go); mandatory distribution subset is in [`pkg/lipsdk/standard_bundle.go`](pkg/lipsdk/standard_bundle.go).
 
 | Surface | Bundled support |
 | --- | --- |
@@ -36,7 +36,7 @@ go run ./cmd/lipstd inventory --config ./config/examples/dogfood-local-stub.yaml
 go run ./cmd/lipstd serve --config ./config/examples/dogfood-local-stub.yaml
 ```
 
-For hosted providers, use [`config/config.yaml`](config/config.yaml) as the sample and provide API keys through YAML or environment variables. `pluginreg.ResolveUpstreamAPIKeysFromEnv` resolves the supported provider env vars and numbered variants once at startup; see [`internal/pluginreg/keys.go`](internal/pluginreg/keys.go) for the exact names and numbering rules.
+For hosted providers, use [`config/config.yaml`](config/config.yaml) as the sample and provide API keys through YAML or environment variables. `standardplugins.ResolveUpstreamAPIKeysFromEnv` resolves the supported provider env vars and numbered variants once at startup; see [`internal/standardplugins/keys.go`](internal/standardplugins/keys.go) for the exact names and numbering rules.
 
 ```bash
 go run ./cmd/lipstd --config ./config/config.yaml

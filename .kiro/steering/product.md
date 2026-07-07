@@ -43,7 +43,7 @@ The runtime targets several backend families:
 - local and compatible runtimes: Ollama (`ollama` / `ollama-cloud`), llama.cpp, LM Studio, vLLM, `localstub`,
 - custom OpenAI/Anthropic-compatible backend rows configured by operators.
 
-Exact standard-bundle registration belongs in `internal/pluginreg/standard_table.go`; mandatory distribution ids belong in `pkg/lipsdk/standard_bundle.go`.
+Exact standard-bundle registration belongs in `internal/standardplugins/standard_table.go`; mandatory distribution ids belong in `pkg/lipsdk/standard_bundle.go`.
 
 ### 3. Canonical-in-the-middle translation
 
