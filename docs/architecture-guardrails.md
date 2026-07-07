@@ -53,7 +53,7 @@ This applies to both the tree-level `lineBudgets` and the per-file `criticalFile
 
 ## Core admission checklist
 
-Before adding a new `internal/core/*` package or moving code into an existing one, consult [`docs/core-boundaries.md`](core-boundaries.md) and answer the 6-question admission checklist. Include a short justification in the PR when adding a new core package. The `TestCorePackagesHaveDocGo` archtest requires every core package to have a `doc.go` explaining its boundary.
+Before adding a new `internal/core/*` package or moving code into an existing one, consult [`docs/core-boundaries.md`](core-boundaries.md) and answer the 6-question admission checklist. Include a short justification in the PR when adding a new core package. The `TestCorePackagesHaveDocGo` archtest requires every top-level `internal/core/*` package to have a `doc.go` explaining its boundary.
 
 ## Architecture PR checklist
 

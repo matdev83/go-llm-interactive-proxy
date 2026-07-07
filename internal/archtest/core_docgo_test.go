@@ -27,7 +27,10 @@ func TestCorePackagesHaveDocGo(t *testing.T) {
 		}
 		dir := filepath.Join(coreDir, e.Name())
 		hasNonTestGo := false
-		subEntries, _ := os.ReadDir(dir)
+		subEntries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", dir, err)
+		}
 		for _, f := range subEntries {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") || strings.HasSuffix(f.Name(), "_test.go") {
 				continue

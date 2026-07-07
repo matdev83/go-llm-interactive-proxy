@@ -1,6 +1,6 @@
 # Core package boundaries
 
-This document classifies every `internal/core/*` package so contributors can decide whether new code belongs in core or at an edge (adapter, plugin, composition root, or feature).
+This document classifies every top-level `internal/core/*` package so contributors can decide whether new code belongs in core or at an edge (adapter, plugin, composition root, or feature). Nested sub-packages (e.g. `internal/core/securesession/app`) inherit their parent package's classification and are not listed individually.
 
 ## Classification scheme
 
