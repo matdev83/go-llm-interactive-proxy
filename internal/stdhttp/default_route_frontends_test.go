@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -185,7 +186,7 @@ func TestBuildExecutor_defaultBackendFromEffectiveRoute(t *testing.T) {
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	cfg.Continuity = config.ContinuityConfig{InMemory: true}
-	exec, _, _, err := BuildExecutor(cfg, nil, testkit.DiscardLogger(), reg)
+	exec, _, _, err := runtimebundle.BuildExecutor(cfg, nil, testkit.DiscardLogger(), reg)
 	if err != nil {
 		t.Fatal(err)
 	}

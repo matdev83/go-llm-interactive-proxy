@@ -58,7 +58,7 @@ type App struct {
 	lifecycles    []lipplugin.Lifecycle
 }
 
-// New validates bootstrap wiring without starting the HTTP server (see cmd/lipstd and stdhttp.Run).
+// New validates bootstrap wiring without starting the HTTP server (see cmd/lipstd and stdhttp.RunWithRuntime).
 // It does not validate coreconfig.Config field semantics; load YAML and run config.Validate upstream.
 func New(opts Options) (*App, error) {
 	if opts.Config == nil {
@@ -103,7 +103,7 @@ func (a *App) Registrations() []lipsdk.Registration {
 	return out
 }
 
-// Start logs hook chain lengths and starts plugin lifecycles. The bundled HTTP server is started by stdhttp.Run from cmd/lipstd.
+// Start logs hook chain lengths and starts plugin lifecycles. The bundled HTTP server is started by stdhttp.RunWithRuntime from cmd/lipstd.
 func (a *App) Start(ctx context.Context) error {
 	ns, nrq, nrs, nt := a.HookBus().HookChainLengths()
 	a.logger.Debug("runtime bootstrap",

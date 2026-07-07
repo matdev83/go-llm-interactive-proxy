@@ -1,8 +1,9 @@
 {
-  "schema_version": 2,
-  "description": "Machine-checked migration register: direct internal/core imports per package (go list -test=false). Edit intentionally when wiring boundaries move; see .kiro/specs/introduce-hexagonal-architecture/design.md. schema_version 2: exception entries require retirement_trigger; see retired_exceptions for completed allowance removals.",
+  "schema_version": 3,
+  "description": "Machine-checked migration register: direct internal/core imports per package (go list -test=false). Edit intentionally when wiring boundaries move; see .kiro/specs/introduce-hexagonal-architecture/design.md. schema_version 3: exception entries require retirement_trigger; extract and exception entries require a backlog{owner,next_extraction,retirement_target,blocking_dependencies,status}; see retired_exceptions for completed allowance removals.",
   "retired_exceptions": [
-    "internal/pluginreg used to import internal/core/runtime for backend construction types; retired after the executor-outbound adapter surface moved to internal/core/execbackend (introduce-hexagonal-architecture task 3)."
+    "internal/pluginreg used to import internal/core/runtime for backend construction types; retired after the executor-outbound adapter surface moved to internal/core/execbackend (introduce-hexagonal-architecture task 3).",
+    "internal/stdhttp no longer imports internal/core/b2bua or internal/core/hooks after the stdhttp/server.go concern split and removal of the stdhttp.BuildExecutor wrapper (arch review Phase 0/1); both were used only by the deleted wire.go."
   ],
   "packages": [
     {
@@ -22,10 +23,8 @@
       "go_list_pattern": "./internal/stdhttp",
       "classification": "aligned",
       "allowed_internal_core_imports": [
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/http",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
@@ -44,7 +43,14 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-      ]
+      ],
+      "backlog": {
+        "owner": "standard-distribution",
+        "next_extraction": "Phase 3: move standard bundle tables + installers to internal/standardplugins; move feature-bundle merge to internal/featurebundle; move frontend mounts to frontend packages",
+        "retirement_target": "registry = registry only; classification -> aligned",
+        "blocking_dependencies": ["frontend mount relocation (Task 3.3)"],
+        "status": "planned"
+      }
     },
     {
       "go_list_pattern": "./internal/infra/runtimebundle",
@@ -87,7 +93,14 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/workspace"
-      ]
+      ],
+      "backlog": {
+        "owner": "runtime/composition",
+        "next_extraction": "Phase 2: split Build into buildObservability/buildSecurity/buildModel/buildPersistence/buildExtension/buildExecutor runtime units behind the same Build facade",
+        "retirement_target": "classification -> aligned with a narrowed internal/core import set",
+        "blocking_dependencies": [],
+        "status": "planned"
+      }
     },
     {
       "go_list_pattern": "./internal/core/runtime",
@@ -147,7 +160,14 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/lineage",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
-      ]
+      ],
+      "backlog": {
+        "owner": "core/extensions",
+        "next_extraction": "Move snapshot/merge helpers behind a composition-local helper or a slimmer SDK-facing merger surface (Phase 2/6)",
+        "retirement_target": "classification -> aligned",
+        "blocking_dependencies": ["feature-bundle migration (Phase 6)"],
+        "status": "planned"
+      }
     }
   ]
 }

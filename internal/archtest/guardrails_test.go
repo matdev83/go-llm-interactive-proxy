@@ -49,6 +49,31 @@ func TestLineComplexityBudgets(t *testing.T) {
 	}
 }
 
+// criticalFileBudgets locks single-file gravity wells from silently re-bloating.
+// These complement the tree-level lineBudgets above. Budgets are non-test line counts
+// measured with the same bufio.Scanner methodology as countNonTestGoLines.
+// Rationale and values are maintained in CriticalFileBudgets so make arch-report
+// reports the same hotspot list.
+var criticalFileBudgets = CriticalFileBudgets
+
+func TestCriticalFileLineBudgets(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	for _, b := range criticalFileBudgets {
+		t.Run(strings.ReplaceAll(b.Path, "/", "_"), func(t *testing.T) {
+			t.Parallel()
+			n, err := countFileLines(filepath.Join(root, b.Path))
+			if err != nil {
+				t.Fatalf("%s: %v", b.Path, err)
+			}
+			if n > b.Max {
+				t.Fatalf("%s: %d non-test lines exceeds critical-file budget %d (see docs/architecture-guardrails.md)", b.Path, n, b.Max)
+			}
+			t.Logf("%s: %d/%d lines", b.Path, n, b.Max)
+		})
+	}
+}
+
 func TestStandardBundlePackagesHaveNoInitFunctions(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -447,21 +472,39 @@ func countNonTestGoLines(dir string) (int, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		f, err := os.Open(path)
+		n, err := countFileLines(path)
 		if err != nil {
 			return err
 		}
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			total++
-		}
-		closeErr := f.Close()
-		if err := sc.Err(); err != nil {
-			return err
-		}
-		return closeErr
+		total += n
+		return nil
 	})
 	return total, err
+}
+
+// countFileLines returns the number of lines in a single file. Used for per-file
+// critical-file budgets and the architecture report.
+func countFileLines(path string) (n int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	sc := bufio.NewScanner(f)
+	// Raise the per-line buffer so long generated/fixture-style lines are still
+	// counted; budgets are approximate architectural mass, not exact SLOC.
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		n++
+	}
+	if err := sc.Err(); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 func hasInitFunc(path string) bool {

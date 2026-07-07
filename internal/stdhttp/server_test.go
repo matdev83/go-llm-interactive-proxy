@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,9 +21,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 var errTestStartFail = errors.New("test start fail")
@@ -138,31 +134,6 @@ func TestRunWithRuntime_invokesClosersOnAppStartFailure(t *testing.T) {
 	}
 	if atomic.LoadInt32(&closerRuns) != 1 {
 		t.Fatalf("closer runs=%d want 1", closerRuns)
-	}
-}
-
-func TestRun_wrapsBuildNilConfig(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	cfg := &coreconfig.Config{
-		Server:     coreconfig.ServerConfig{Address: "127.0.0.1:0"},
-		Routing:    coreconfig.RoutingConfig{MaxAttempts: 3},
-		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
-	}
-	app, err := runtime.New(runtime.Options{Config: cfg, Logger: testkit.DiscardLogger()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = Run(ctx, nil, app, testkit.DiscardLogger(), pluginreg.NewRegistry())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "stdhttp: build runtime") {
-		t.Fatalf("error %q missing build runtime context", err.Error())
-	}
-	inner := errors.Unwrap(err)
-	if inner == nil || !strings.Contains(inner.Error(), "runtimebundle: nil config") {
-		t.Fatalf("want runtimebundle inner, got inner=%v err=%v", inner, err)
 	}
 }
 
@@ -434,62 +405,6 @@ func TestRunWithRuntime_listenAndServePanic_logsIsolatedCrashAttrs(t *testing.T)
 	}
 	if !foundWorkerMsg {
 		t.Fatalf("expected listenAndServe worker isolated panic log, got %q", logBuf.String())
-	}
-}
-
-func TestRun_initializesTracingAndOutboundPropagation(t *testing.T) { //nolint:paralleltest // mutates global OpenTelemetry providers
-	originalProvider := otel.GetTracerProvider()
-	originalPropagator := otel.GetTextMapPropagator()
-	t.Cleanup(func() {
-		otel.SetTracerProvider(originalProvider)
-		otel.SetTextMapPropagator(originalPropagator)
-	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cfg := &coreconfig.Config{
-		Server: coreconfig.ServerConfig{Address: "127.0.0.1:0"},
-		Routing: coreconfig.RoutingConfig{
-			MaxAttempts:  3,
-			DefaultRoute: "openai-responses:gpt-4o-mini",
-		},
-		Continuity: coreconfig.ContinuityConfig{InMemory: true, Store: "memory"},
-		Observability: coreconfig.ObservabilityConfig{
-			Tracing: coreconfig.TracingConfig{Enabled: true},
-		},
-	}
-	log := testkit.DiscardLogger()
-	app, err := runtime.New(runtime.Options{
-		Config:     cfg,
-		Logger:     log,
-		Lifecycles: []lipplugin.Lifecycle{cancelSensitiveLifecycle{}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg := pluginreg.NewRegistry()
-	if err := pluginreg.InstallStandardBundleOn(reg, pluginreg.UpstreamAPIKeys{}); err != nil {
-		t.Fatal(err)
-	}
-	otel.SetTracerProvider(sdktrace.NewTracerProvider())
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
-	err = Run(ctx, cfg, app, log, reg)
-	if err == nil {
-		t.Fatal("expected error when ctx is cancelled before startup")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if _, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); !ok {
-		t.Fatalf("expected tracing.Init to install sdk tracer provider, got %T", otel.GetTracerProvider())
-	}
-	fields := otel.GetTextMapPropagator().Fields()
-	got := slices.Clone(fields)
-	want := []string{"traceparent", "tracestate", "baggage"}
-	slices.Sort(got)
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Fatalf("expected tracing.Init to install tracecontext+baggage propagator fields, got %v", fields)
 	}
 }
 
