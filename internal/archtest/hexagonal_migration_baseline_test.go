@@ -24,6 +24,7 @@ type hexagonalBaselineFile struct {
 type hexagonalBaselineEntry struct {
 	GoListPattern              string                    `json:"go_list_pattern"`
 	Classification             string                    `json:"classification"`
+	Role                       string                    `json:"role,omitempty"`
 	Justification              string                    `json:"justification"`
 	RetirementTrigger          string                    `json:"retirement_trigger"`
 	AllowedInternalCoreImports []string                  `json:"allowed_internal_core_imports"`
@@ -112,6 +113,13 @@ func TestHexagonalMigrationBaselineMatchesGoList(t *testing.T) {
 			}
 			if _, ok := validClass[row.Classification]; !ok {
 				t.Fatalf("invalid classification %q for %s", row.Classification, row.GoListPattern)
+			}
+			validRoles := map[string]struct{}{"": {}, "composition_root": {}}
+			if _, ok := validRoles[row.Role]; !ok {
+				t.Fatalf("%s: invalid role %q (allowed: empty or \"composition_root\")", row.GoListPattern, row.Role)
+			}
+			if row.Role == "composition_root" && row.Classification != "aligned" {
+				t.Fatalf("%s: role composition_root requires classification aligned, got %q", row.GoListPattern, row.Classification)
 			}
 			if row.Classification == "exception" {
 				if strings.TrimSpace(row.RetirementTrigger) == "" {
