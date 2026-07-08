@@ -6,7 +6,7 @@
 // [github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth.CandidateHealthFromConfig].
 //
 // Upstream HTTP: backends that call providers over HTTP receive the client from [Build] (see
-// [BuildOptions.HTTPClient]; default tuned client from httpclient.TransportTuneFromConfig plus
+// [BuildOptions.Infra.HTTPClient]; default tuned client from httpclient.TransportTuneFromConfig plus
 // httpclient.StandardWithTrustEnvironment / StandardWithTune).
 //
 // Routing health: when config sets routing.health.circuit_breaker.enabled, the executor's

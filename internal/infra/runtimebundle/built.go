@@ -23,10 +23,10 @@ type Built struct {
 	Store    b2bua.Store
 	Closers  []func() error
 	// EffectiveDefaultRoute is the selector used when clients omit explicit routing (see config.EffectiveDefaultRouteSelector), after model_aliases expansion when configured.
-	// [Build] sets this from config and BuildOptions.WireModel (or pluginreg.DefaultWireModel when WireModel is nil).
+	// [Build] sets this from config and BuildOptions.WireModel (or standardplugins.DefaultWireModel when WireModel is nil).
 	EffectiveDefaultRoute string
 	// UpstreamHTTP is the shared outbound HTTP client passed to backends that need upstream HTTP.
-	// Successful [Build] always sets this (explicit [BuildOptions.HTTPClient] or the default from httpclient).
+	// Successful [Build] always sets this (explicit [BuildOptions.Infra.HTTPClient] or the default from httpclient).
 	UpstreamHTTP *http.Client
 	// RoutePrefixes are backend route-selector prefixes accepted from frontend protocol model fields.
 	RoutePrefixes []string
@@ -41,7 +41,7 @@ type Built struct {
 	// HTTPAuthProviders is copied from [BuildOptions] for stdhttp wiring (transport auth, R4).
 	HTTPAuthProviders []httpauth.Provider
 	// SecureSessionStore is optional; when non-nil with secure-session diagnostics config, stdhttp
-	// mounts operator session routes (see [BuildOptions.SecureSessionStore]).
+	// mounts operator session routes (see [BuildOptions.Diagnostics.SecureSessionStore]).
 	SecureSessionStore app.Store
 	// AuthEventDispatcher emits auth decision and session-start events per config policy.
 	// Always non-nil after [Build]; the underlying sink may be nil when event delivery is disabled.

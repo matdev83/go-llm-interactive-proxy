@@ -285,16 +285,18 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 	}
 }
 
-func applySecureSessionToExecutor(e *runtime.Executor, ss *secureSessionRuntime) {
-	if e == nil || ss == nil {
-		return
+func securityRuntimeFromSecureSession(ss *secureSessionRuntime) runtime.SecurityRuntime {
+	if ss == nil {
+		return runtime.SecurityRuntime{}
 	}
-	e.SecureSession = ss.manager
-	e.SecureSessionRecorder = ss.recorder
-	e.SecureSessionRecordingMandatory = ss.recordingMandatory
-	e.SessionDenialMapper = lipapidenial.MapToSessionDenial
-	e.SecureSessionRequireWorkspaceID = ss.requireWorkspaceID
-	e.SecureSessionWorkspaceResolveFailClosed = ss.workspaceResolveFailClosed
+	return runtime.SecurityRuntime{
+		SecureSession:                           ss.manager,
+		SecureSessionRecorder:                   ss.recorder,
+		SecureSessionRecordingMandatory:         ss.recordingMandatory,
+		SessionDenialMapper:                     lipapidenial.MapToSessionDenial,
+		SecureSessionRequireWorkspaceID:         ss.requireWorkspaceID,
+		SecureSessionWorkspaceResolveFailClosed: ss.workspaceResolveFailClosed,
+	}
 }
 
 // wrapSecureSessionStore applies an optional control-plane decorator to the

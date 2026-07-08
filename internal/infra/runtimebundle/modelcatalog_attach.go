@@ -121,32 +121,27 @@ func openCodeVendorResolver(cat *modelcatalog.CatalogRuntime) pluginreg.ModelVen
 	return opencodecatalog.NewOpenCodeVendorResolver(modelcatalog.StaticActiveSnapshotProvider{}, true)
 }
 
-func wireModelCatalogExecutor(exec *runtime.Executor, cat *modelcatalog.CatalogRuntime, cfg *config.Config) {
-	if exec == nil || cat == nil || cfg == nil || !cfg.ModelCatalog.Enabled {
-		return
+func routingRuntimeFromModelCatalog(rr runtime.RoutingRuntime, cat *modelcatalog.CatalogRuntime, cfg *config.Config) runtime.RoutingRuntime {
+	if cat == nil || cfg == nil || !cfg.ModelCatalog.Enabled {
+		return rr
 	}
 	sizeEstimator := modelcatalog.DefaultSizeEstimator{}
 	ovr := modelcatalog.NewOverrideResolver(OverrideSetFromModelCatalog(cfg.ModelCatalog))
-	exec.CatalogResolver = modelcatalog.NewCatalogResolver(
-		nil,
-		ovr,
-		true,
-		cat,
-	)
-	exec.EligibilityResolver = modelcatalog.NewEligibilityResolver(sizeEstimator)
-	exec.RequestTokenEstimator = sizeEstimator
+	rr.CatalogResolver = modelcatalog.NewCatalogResolver(nil, ovr, true, cat)
+	rr.EligibilityResolver = modelcatalog.NewEligibilityResolver(sizeEstimator)
+	rr.RequestTokenEstimator = sizeEstimator
+	return rr
 }
 
-// attachModelCatalog wires executor catalog resolvers when model_catalog.enabled requests it.
+// attachModelCatalog returns the catalog runtime and enriched routing runtime when model_catalog.enabled requests it.
 // Catalog I/O must already be started via [startModelCatalog].
 func attachModelCatalog(
-	exec *runtime.Executor,
+	rr runtime.RoutingRuntime,
 	started *startedModelCatalog,
 	cfg *config.Config,
-) *modelcatalog.CatalogRuntime {
+) (runtime.RoutingRuntime, *modelcatalog.CatalogRuntime) {
 	if started == nil {
-		return nil
+		return rr, nil
 	}
-	wireModelCatalogExecutor(exec, started.Runtime, cfg)
-	return started.Runtime
+	return routingRuntimeFromModelCatalog(rr, started.Runtime, cfg), started.Runtime
 }

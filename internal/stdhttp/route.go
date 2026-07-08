@@ -6,7 +6,7 @@ import (
 )
 
 // DefaultRouteSelector returns the routing selector used by frontends when X-LIP-Route is absent.
-// It delegates to config.EffectiveDefaultRouteSelector with pluginreg.DefaultWireModel so default
+// It delegates to config.EffectiveDefaultRouteSelector with standardplugins.DefaultWireModel so default
 // models are registry-owned, not duplicated in frontend handlers.
 //
 // Prefer using [runtimebundle.Built.EffectiveDefaultRoute] from [runtimebundle.Build] so HTTP wiring
