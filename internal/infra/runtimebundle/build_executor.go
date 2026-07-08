@@ -51,14 +51,13 @@ type executorBuildInput struct {
 	ControlPlane  *controlPlaneRuntime
 }
 
-// buildExecutorRuntime runs the executor-assembly sequence formerly inline in
-// [Build]: routing resolution, capability map, RNG seed, stream-recovery config,
-// token-accounting runtime, executor struct construction, interleaved-thinking
-// application, token-accounting/price-catalog/auth/session/metrics/secure-session
-// wiring, synthetic-local-principal flag, model-catalog attach, and the optional
-// BuildOptions.SecureSessionStore override. It appends token-accounting closers
-// to closers and returns the updated slice. Error wrapping matches the former
-// inline block exactly.
+// buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
+// capability map, RNG seed, stream-recovery config, token-accounting runtime,
+// interleaved-thinking config, price catalog, auth/session/metrics/secure-session
+// wiring, synthetic-local-principal flag, and model-catalog resolver attachment.
+// All values are computed before [runtime.NewExecutor] so NewExecutor is a strong
+// invariant boundary: no post-construction field mutation occurs.
+// It appends token-accounting closers to closers and returns the updated slice.
 func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*executorRuntime, []func() error, error) {
 	bctx := in.Bctx
 	cfg, log, opts, parent := bctx.Cfg, bctx.Log, bctx.Opts, bctx.Parent
@@ -88,6 +87,71 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		return nil, closers, err
 	}
 	closers = append(closers, accountingClosers...)
+
+	// Compute interleaved-thinking config before construction.
+	interleaved, err := interleavedExecutorRuntime(cfg)
+	if err != nil {
+		return nil, closers, err
+	}
+
+	// Compute accounting runtime fields.
+	accountingRT := runtime.AccountingRuntime{
+		LedgerWriteRequired: cfg.Accounting.Ledger.WritePolicy == "required",
+	}
+	if tokenAccounting != nil {
+		accountingRT.Preflight = tokenAccounting.Preflight
+		accountingRT.StreamUsage = tokenAccounting.StreamUsage
+		accountingRT.Ledger = tokenAccounting.Ledger
+		accountingRT.TokenAccountingObservability = tokenAccounting.Observability
+		accountingRT.AdminCountService = tokenAccounting.Admin
+	}
+	if len(cfg.Accounting.Pricing.Models) > 0 {
+		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
+		if err != nil {
+			return nil, closers, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
+		}
+		accountingRT.AccountingPriceCatalog = catalog
+	}
+
+	// Compute security runtime from secure-session + auth.
+	securityRT := securityRuntimeFromSecureSession(in.Persistence.SecureSession)
+	securityRT.AuthEvents = in.Security.AuthEvents
+	securityRT.SessionAuditPolicy = in.Security.SAP
+	ssStore := strings.TrimSpace(cfg.SecureSession.Store)
+	if ssStore == "" {
+		ssStore = "memory"
+	}
+	securityRT.SyntheticLocalPrincipal = cfg.SingleUserLocalMode() && strings.EqualFold(ssStore, "memory")
+
+	// Compute observability runtime with metrics sinks.
+	obsRT := runtime.ObservabilityRuntime{
+		Log:                      log,
+		PolicyDiagnosticsEnabled: opts.Policy.PolicyDiagnosticsEnabled,
+	}
+	if in.Observability.Bundle != nil {
+		obsRT.Metrics = in.Observability.Bundle.ExecutorSink()
+		obsRT.ExtensionMetrics = in.Observability.Bundle.ExtensionStageSink()
+		securityRT.SecureSessionMetrics = in.Observability.Bundle.SecureSessionMetricsSink()
+		if tokenAccounting != nil && tokenAccounting.Observability != nil {
+			tokenAccounting.Observability.SetSink(in.Observability.Bundle.TokenAccountingObservabilitySink())
+		}
+	}
+
+	// Build routing runtime; model catalog resolvers are attached before construction.
+	routingRT := runtime.RoutingRuntime{
+		MaxAttempts:             cfg.Routing.MaxAttempts,
+		DefaultBackend:          defBE,
+		SelectorAliases:         aliasResolver,
+		CapsResolver:            capMap,
+		CandidateHealth:         routinghealth.CandidateHealthFromConfig(cfg, in.NowFn),
+		RouteObserver:           routeObserverFor(log),
+		AffinityStore:           affinitymem.New(),
+		AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
+		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
+	}
+	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
+
+	// Construct executor with all fields set — no post-construction mutation.
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
@@ -98,65 +162,21 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 			MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
 			StreamRecovery:       streamRecovery,
 		},
-		Routing: runtime.RoutingRuntime{
-			MaxAttempts:             cfg.Routing.MaxAttempts,
-			DefaultBackend:          defBE,
-			SelectorAliases:         aliasResolver,
-			CapsResolver:            capMap,
-			CandidateHealth:         routinghealth.CandidateHealthFromConfig(cfg, in.NowFn),
-			RouteObserver:           routeObserverFor(log),
-			AffinityStore:           affinitymem.New(),
-			AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
-			TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
-		},
-		Observability: runtime.ObservabilityRuntime{
-			Log:                      log,
-			PolicyDiagnosticsEnabled: opts.Policy.PolicyDiagnosticsEnabled,
-		},
+		Routing:       routingRT,
+		Security:      securityRT,
+		Accounting:    accountingRT,
+		Observability: obsRT,
 		Extension: runtime.ExtensionRuntime{
 			Bus:             bctx.Bus,
 			RuntimeSnapshot: in.Ext.Snap,
 		},
+		Interleaved: interleaved,
 	})
-	if err := applyInterleavedToExecutor(exec, cfg); err != nil {
-		return nil, closers, err
-	}
-	if tokenAccounting != nil {
-		exec.Preflight = tokenAccounting.Preflight
-		exec.StreamUsage = tokenAccounting.StreamUsage
-		exec.Ledger = tokenAccounting.Ledger
-		exec.LedgerWriteRequired = cfg.Accounting.Ledger.WritePolicy == "required"
-		exec.TokenAccountingObservability = tokenAccounting.Observability
-		exec.AdminCountService = tokenAccounting.Admin
-	}
-	if len(cfg.Accounting.Pricing.Models) > 0 {
-		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
-		if err != nil {
-			return nil, closers, fmt.Errorf("runtimebundle: accounting pricing: %w", err)
-		}
-		exec.AccountingPriceCatalog = catalog
-	}
-	exec.AuthEvents = in.Security.AuthEvents
-	exec.SessionAuditPolicy = in.Security.SAP
-	applySecureSessionToExecutor(exec, in.Persistence.SecureSession)
-	ssStore := strings.TrimSpace(cfg.SecureSession.Store)
-	if ssStore == "" {
-		ssStore = "memory"
-	}
-	exec.SyntheticLocalPrincipal = cfg.SingleUserLocalMode() && strings.EqualFold(ssStore, "memory")
-	if in.Observability.Bundle != nil {
-		exec.Metrics = in.Observability.Bundle.ExecutorSink()
-		exec.ExtensionMetrics = in.Observability.Bundle.ExtensionStageSink()
-		exec.SecureSessionMetrics = in.Observability.Bundle.SecureSessionMetricsSink()
-		if tokenAccounting != nil && tokenAccounting.Observability != nil {
-			tokenAccounting.Observability.SetSink(in.Observability.Bundle.TokenAccountingObservabilitySink())
-		}
-	}
+
 	secureSessionStore := in.Persistence.SecureSession.appStore
 	if opts.Diagnostics.SecureSessionStore != nil {
 		secureSessionStore = opts.Diagnostics.SecureSessionStore
 	}
-	catalogRuntime := attachModelCatalog(exec, in.Model.StartedCatalog, cfg)
 	return &executorRuntime{
 		Exec:                 exec,
 		EffectiveRoute:       effectiveRoute,

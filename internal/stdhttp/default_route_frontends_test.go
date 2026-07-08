@@ -182,16 +182,18 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	}
 }
 
-func TestBuildExecutor_defaultBackendFromEffectiveRoute(t *testing.T) {
+func TestBuild_defaultBackendFromEffectiveRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	cfg.Continuity = config.ContinuityConfig{InMemory: true}
-	exec, _, _, err := runtimebundle.BuildExecutor(cfg, nil, testkit.DiscardLogger(), reg)
+	b, err := runtimebundle.Build(cfg, nil, testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exec.DefaultBackend != "stub" {
-		t.Fatalf("DefaultBackend %q want stub", exec.DefaultBackend)
+	if b.Executor.DefaultBackend != "stub" {
+		t.Fatalf("DefaultBackend %q want stub", b.Executor.DefaultBackend)
 	}
 }

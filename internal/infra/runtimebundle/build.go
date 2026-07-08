@@ -8,11 +8,9 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
@@ -141,19 +139,4 @@ func withDisposedClosers(err error, closers []func() error) error {
 		return errors.Join(err, derr)
 	}
 	return err
-}
-
-// BuildExecutor wires enabled backends from configuration into a core executor with production
-// defaults. Prefer Build for a structured composition result.
-func BuildExecutor(
-	cfg *config.Config,
-	bus *hooks.Bus,
-	log *slog.Logger,
-	reg *pluginreg.Registry,
-) (*runtime.Executor, b2bua.Store, []func() error, error) {
-	b, err := Build(cfg, bus, log, &BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return b.Executor, b.Store, b.Closers, nil
 }

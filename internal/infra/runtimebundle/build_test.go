@@ -23,7 +23,7 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func TestBuildExecutor_productionClockAndRNG(t *testing.T) {
+func TestBuild_productionClockAndRNG(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{

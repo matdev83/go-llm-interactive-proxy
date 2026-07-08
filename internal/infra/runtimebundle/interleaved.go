@@ -36,18 +36,13 @@ func interleavedRuntimeFromConfig(cfg *config.Config) (interleavedRuntime, error
 	}, nil
 }
 
-func applyInterleavedToExecutor(exec *runtime.Executor, cfg *config.Config) error {
-	if exec == nil {
-		return nil
-	}
+func interleavedExecutorRuntime(cfg *config.Config) (runtime.InterleavedRuntime, error) {
 	interleaved, err := interleavedRuntimeFromConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("runtimebundle: interleaved: %w", err)
+		return runtime.InterleavedRuntime{}, fmt.Errorf("runtimebundle: interleaved: %w", err)
 	}
-	if interleaved.memoStore == nil {
-		return nil
-	}
-	exec.InterleavedConfig = interleaved.shape
-	exec.MemoStore = interleaved.memoStore
-	return nil
+	return runtime.InterleavedRuntime{
+		InterleavedConfig: interleaved.shape,
+		MemoStore:         interleaved.memoStore,
+	}, nil
 }

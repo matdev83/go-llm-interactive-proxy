@@ -26,7 +26,7 @@ type CriticalFileBudget struct {
 // historical size. After arch review Phase 2 (Tasks 2.2-2.7) extracted the
 // observability/security/model/persistence/extension/executor build units out of
 // internal/infra/runtimebundle/build.go, the remaining file is the ~158-line
-// Build orchestrator plus dispose/BuildExecutor helpers. The 200-line budget is
+// Build orchestrator plus dispose helpers. The 200-line budget is
 // calibrated against the reduced post-decomposition scope to lock the reduction
 // and prevent the orchestrator from re-absorbing build-unit logic.
 //
