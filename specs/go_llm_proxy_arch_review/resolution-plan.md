@@ -28,61 +28,32 @@ Guiding constraints:
 
 ### Task 0.1 — Generate architecture metrics report
 
-Create a script or Go test helper that outputs:
-
-- non-test Go lines by package;
-- non-test Go lines by file;
-- direct import count per package;
-- top internal fan-out packages;
-- top internal fan-in packages;
-- exported symbol count for `pkg/lipapi` and `pkg/lipsdk`;
-- current hexagonal baseline classifications.
-
-Suggested path:
-
-```text
-internal/archtest/report_test.go          // tests/metrics helpers
-scripts/arch-report.go or scripts/arch-report.ps1
-```
+> **Status: Completed.** `scripts/arch-report.go` and `internal/archtest/hexagonal_migration_baseline_test.go` produce deterministic JSON + Markdown output via `make arch-report`. Reports package/file line counts, import fan-out/fan-in, exported symbol counts, and hexagonal baseline classifications.
 
 Acceptance criteria:
 
-- `make arch-report` or equivalent produces deterministic Markdown/JSON output.
-- Report does not fail CI initially.
-- Output highlights `runtimebundle`, `pluginreg`, `stdhttp`, and `runtime.Executor` hotspots.
+- ~~`make arch-report` or equivalent produces deterministic Markdown/JSON output.~~ **Done** — `make arch-report` outputs JSON + Markdown.
+- ~~Report does not fail CI initially.~~ **Done** — report is advisory.
+- ~~Output highlights `runtimebundle`, `pluginreg`, `stdhttp`, and `runtime.Executor` hotspots.~~ **Done** — hotspot table includes all four.
 
 ### Task 0.2 — Add critical-file warning budgets
 
-Add advisory warnings or tests for high-risk files:
-
-- `internal/core/runtime/executor.go`
-- `internal/infra/runtimebundle/build.go`
-- `internal/infra/runtimebundle/options.go`
-- `internal/stdhttp/server.go`
-- `internal/pluginreg/standard_table.go`
+> **Status: Completed.** `internal/archtest/critical_files.go` defines `CriticalFileBudgets` (single source of truth for both the guardrail test and arch-report). Budgets lock post-refactor sizes for `executor.go` (150), `build.go` (200), `options.go` (200), `standard_table.go` (320), `reg.go` (320), `server.go` (300).
 
 Acceptance criteria:
 
-- Budgets are initially warnings or generous limits.
-- Any future budget increase must include a short rationale.
-- The check is not noisy enough to block useful development immediately.
+- ~~Budgets are initially warnings or generous limits.~~ **Done** — machine-checked via `TestCriticalFileLineBudgets`.
+- ~~Any future budget increase must include a short rationale.~~ **Done** — rationale comments in `critical_files.go`.
+- ~~The check is not noisy enough to block useful development immediately.~~ **Done** — generous headroom.
 
 ### Task 0.3 — Convert `extract` baseline entries into actionable backlog
 
-The hexagonal baseline already marks `runtimebundle` and `internal/core/extensions` as `extract` and `pluginreg` as `exception`.
-
-Add fields or a companion Markdown file with:
-
-- owner/area;
-- next intended extraction;
-- retirement target;
-- blocking dependencies;
-- status.
+> **Status: Completed.** `testdata/architecture/hexagonal_migration_baseline.json` now includes `role`, `backlog`, `retired_exceptions`, and `status` fields. All former `extract`/`exception` entries have been reclassified to `aligned` or retired. `TestHexagonalMigrationBaseline` requires zero `exception` entries.
 
 Acceptance criteria:
 
-- Every `extract` or `exception` classification has a linked task or plan item.
-- The baseline stops being only a snapshot and becomes a controlled migration register.
+- ~~Every `extract` or `exception` classification has a linked task or plan item.~~ **Done** — all reclassified to `aligned` or retired.
+- ~~The baseline stops being only a snapshot and becomes a controlled migration register.~~ **Done** — baseline includes role/backlog/status.
 
 ---
 
@@ -94,73 +65,51 @@ Acceptance criteria:
 
 ### Task 1.1 — Make `runtimebundle.Build + stdhttp.RunWithRuntime` the canonical path
 
-`stdhttp.Run` already documents that composition roots should normally build once and then call `RunWithRuntime`. Formalize that.
-
-Implementation options:
-
-- Keep `Run` but mark it compatibility/convenience only.
-- Move `Run` to a test/helper path if production no longer uses it.
-- Remove `Run` if it has no meaningful call sites and this is acceptable before v1.
+> **Status: Completed.** `cmd/lipstd` uses `runtimebundle.BuildBootstrap` → `stdhttp.RunWithRuntime` as the single explicit build path. No duplicate runtime assembly pass exists.
 
 Acceptance criteria:
 
-- `cmd/lipstd` uses one explicit build path.
-- Tests use the same path or clearly named test helpers.
-- No duplicate runtime assembly pass exists in production startup.
+- ~~`cmd/lipstd` uses one explicit build path.~~ **Done** — `BuildBootstrap` + `RunWithRuntime`.
+- ~~Tests use the same path or clearly named test helpers.~~ **Done** — test helpers use `Build` / `BuildBootstrap`.
+- ~~No duplicate runtime assembly pass exists in production startup.~~ **Done**.
 
 ### Task 1.2 — Remove or deprecate `stdhttp.BuildExecutor`
 
-`internal/stdhttp/wire.go` is a thin wrapper around `runtimebundle.BuildExecutor`.
+> **Status: Completed.** Both `stdhttp.BuildExecutor` and `runtimebundle.BuildExecutor` were deleted. The canonical path is now `runtimebundle.Build` directly.
 
-Steps:
+`internal/stdhttp/wire.go` was a thin wrapper around `runtimebundle.BuildExecutor` (also now deleted).
 
-1. Search all call sites.
-2. Replace internal call sites with `runtimebundle.BuildExecutor` or preferably `runtimebundle.Build`.
-3. Delete wrapper if unused, or mark deprecated if a stable internal compatibility seam is needed.
+Steps (done):
+
+1. Searched all call sites.
+2. Replaced internal call sites with `runtimebundle.Build`.
+3. Deleted both wrappers — no stable internal compatibility seam was needed.
 
 Acceptance criteria:
 
-- One fewer redundant wiring API.
+- ~~One fewer redundant wiring API.~~ Two fewer: both `stdhttp.BuildExecutor` and `runtimebundle.BuildExecutor` removed.
 - No change in runtime behavior.
 
 ### Task 1.3 — Split `stdhttp/server.go` by concern without changing package
 
-Move functions/blocks into focused files:
-
-```text
-internal/stdhttp/server.go
-internal/stdhttp/handler.go
-internal/stdhttp/middleware.go
-internal/stdhttp/mount_diagnostics.go
-internal/stdhttp/mount_metrics.go
-internal/stdhttp/mount_admin.go
-internal/stdhttp/mount_securesession.go
-internal/stdhttp/mount_frontends.go
-```
-
-Do not create subpackages unless import cycles or clear ownership reasons appear.
+> **Status: Completed.** `server.go` split into `handler.go`, `middleware.go`, `mount_diagnostics.go`, `mount_metrics.go`, `mount_admin.go`, `mount_securesession.go`, `mount_frontends.go`. Same exported API, middleware order, routes, and shutdown behavior.
 
 Acceptance criteria:
 
-- Same exported API.
-- Same middleware order.
-- Same mounted routes.
-- Same shutdown/closer behavior.
-- `server.go` becomes primarily listener lifecycle and `RunWithRuntime`.
+- ~~Same exported API.~~ **Done**.
+- ~~Same middleware order.~~ **Done** — preserved by split.
+- ~~Same mounted routes.~~ **Done**.
+- ~~Same shutdown/closer behavior.~~ **Done**.
+- ~~`server.go` becomes primarily listener lifecycle and `RunWithRuntime`.~~ **Done** — ~206 lines, budget 300.
 
 ### Task 1.4 — Add route/middleware preservation tests if missing
 
-Before or during `stdhttp` extraction, add tests that assert:
-
-- diagnostics require shared-secret protection where expected;
-- metrics path behavior unchanged;
-- frontend routes are mounted;
-- middleware order preserves panic recovery, auth, trace/request ID, access logs, metrics/tracing.
+> **Status: Completed.** Route/middleware preservation tests added across `mount_test.go`, `control_plane_mount_test.go`, `cancel_test.go`, and frontend-specific integration tests.
 
 Acceptance criteria:
 
-- Refactor has test coverage for route/middleware behavior.
-- No route accidentally becomes public/unprotected.
+- ~~Refactor has test coverage for route/middleware behavior.~~ **Done**.
+- ~~No route accidentally becomes public/unprotected.~~ **Done** — shared-secret protection tested.
 
 ---
 
@@ -172,115 +121,83 @@ Acceptance criteria:
 
 ### Task 2.1 — Introduce explicit build context/result structs
 
-Create internal structs such as:
-
-```go
-type buildContext struct {
-    Cfg *config.Config
-    Log *slog.Logger
-    Opts normalizedBuildOptions
-    Parent context.Context
-    Closers closerStack
-}
-
-type observabilityRuntime struct { ... }
-type securityRuntime struct { ... }
-type modelRuntime struct { ... }
-type backendRuntime struct { ... }
-type persistenceRuntime struct { ... }
-type extensionRuntime struct { ... }
-type executorRuntime struct { ... }
-```
+> **Status: Completed.** Build decomposed into focused build units: `build_executor.go`, `build_observability.go`, `build_security.go`, `build_model.go`, `build_persistence.go`, `build_extensions.go`. Each accepts config/inputs and returns sub-runtime values.
 
 Acceptance criteria:
 
-- Closer handling remains LIFO and error-safe.
-- Startup error paths still dispose resources.
-- Existing tests continue to pass.
+- ~~Closer handling remains LIFO and error-safe.~~ **Done** — `closerStack` preserves LIFO disposal.
+- ~~Startup error paths still dispose resources.~~ **Done** — error paths dispose in reverse order.
+- ~~Existing tests continue to pass.~~ **Done**.
 
 ### Task 2.2 — Extract observability and HTTP client construction
 
-Move metrics bundle creation, upstream HTTP tuning, metrics wrapping, and outbound tracing wrapping into one build unit.
-
-Suggested function:
-
-```go
-func buildObservabilityRuntime(ctx buildContext) (observabilityRuntime, error)
-```
+> **Status: Completed.** Observability/HTTP client construction extracted into `build_observability.go`.
 
 Acceptance criteria:
 
-- All HTTP-client wrapping remains behaviorally identical.
-- Tracing and Prometheus behavior unchanged.
-- Build body shrinks.
+- ~~All HTTP-client wrapping remains behaviorally identical.~~ **Done**.
+- ~~Tracing and Prometheus behavior unchanged.~~ **Done**.
+- ~~Build body shrinks.~~ **Done** — `build.go` reduced to ~158-line orchestrator.
 
 ### Task 2.3 — Extract auth/security runtime construction
 
-Move auth event dispatcher, session audit policy, HTTP auth providers, backend security profile validation, OS identity, remote decider, and auth renderers into a focused security/auth build unit.
+> **Status: Completed.** Auth/security construction extracted into `build_security.go` and `secure_session.go`.
 
 Acceptance criteria:
 
-- Auth startup failures preserve current error messages as much as practical.
-- Local/noop and remote auth behavior unchanged.
-- Backend local-only access-scope checks remain centralized.
+- ~~Auth startup failures preserve current error messages as much as practical.~~ **Done**.
+- ~~Local/noop and remote auth behavior unchanged.~~ **Done**.
+- ~~Backend local-only access-scope checks remain centralized.~~ **Done**.
 
 ### Task 2.4 — Extract model catalog/registry runtime
 
-Move model catalog startup, backend inventory integration, model registry runtime, refresh loop, and registry closers into a model runtime builder.
+> **Status: Completed.** Model catalog construction extracted into `modelcatalog_attach.go` and `build_model.go`.
 
 Acceptance criteria:
 
-- Model inventory refresh behavior unchanged.
-- Cache behavior unchanged.
-- Closers registered correctly.
+- ~~Model inventory refresh behavior unchanged.~~ **Done**.
+- ~~Cache behavior unchanged.~~ **Done**.
+- ~~Closers registered correctly.~~ **Done**.
 
 ### Task 2.5 — Extract persistence runtime
 
-Move continuity store opening, secure-session store construction, control-plane store wrapping, and B2BUA wrapping into persistence/security-specific units.
+> **Status: Completed.** Persistence construction extracted into `build_persistence.go` and `secure_session.go`.
 
 Acceptance criteria:
 
-- SQLite/Postgres/memory behavior unchanged.
-- TTL/max-leg semantics unchanged.
-- Secure-session diagnostics store remains available to `Built`.
+- ~~SQLite/Postgres/memory behavior unchanged.~~ **Done**.
+- ~~TTL/max-leg semantics unchanged.~~ **Done**.
+- ~~Secure-session diagnostics store remains available to `Built`.~~ **Done**.
 
 ### Task 2.6 — Extract extension runtime snapshot building
 
-Move `buildRuntimeSnapshot` and option merging into a dedicated extension runtime builder.
+> **Status: Completed.** Extension runtime snapshot building extracted into `build_extensions.go` and `build_feature_hooks.go`.
 
 Acceptance criteria:
 
-- Snapshot remains immutable per build generation.
-- Feature-bundle surfaces are cloned/merged as before.
-- Traffic, usage, policy observer composition unchanged.
+- ~~Snapshot remains immutable per build generation.~~ **Done**.
+- ~~Feature-bundle surfaces are cloned/merged as before.~~ **Done** — `MergeFeatureSurface` uses `MergeBundles`/`Append`.
+- ~~Traffic, usage, policy observer composition unchanged.~~ **Done**.
 
 ### Task 2.7 — Extract executor construction
 
-Move the `runtime.Executor` field assembly into one focused function that accepts already-built sub-runtimes.
+> **Status: Completed.** Executor construction extracted into `build_executor.go`. All fields now pass through `ExecutorConfig` grouped structs — `NewExecutor` is a strong invariant boundary with no post-construction mutation.
 
 Acceptance criteria:
 
-- Executor receives the same fields/values.
-- Error paths still dispose resources.
-- `Build` reads as orchestration over build units.
+- ~~Executor receives the same fields/values.~~ **Done** — all fields via `ExecutorConfig`.
+- ~~Error paths still dispose resources.~~ **Done**.
+- ~~`Build` reads as orchestration over build units.~~ **Done** — `build.go` is ~158-line orchestrator.
 
 ### Task 2.8 — Normalize `BuildOptions`
 
-Add grouped options and migrate internal code to use normalized groups.
-
-Possible staged strategy:
-
-1. Define grouped options.
-2. Add `normalizeBuildOptions(old BuildOptions) normalizedBuildOptions`.
-3. Keep old fields for compatibility.
-4. Migrate call sites gradually.
-5. Remove old fields before v1 if feasible.
+> **Status: Completed.** `BuildOptions` grouped into `Startup`, `Infra`, `Auth`, `Extensions`, `Policy`, `Diagnostics`, `Testing` sub-structs in `options.go`.
 
 Acceptance criteria:
 
-- Internal build units consume grouped options.
-- Tests clarify production vs testing overrides.
-- No behavior change.
+- ~~Internal build units consume grouped options.~~ **Done**.
+- ~~Tests clarify production vs testing overrides.~~ **Done**.
+- ~~No behavior change.~~ **Done**.
 
 ---
 
@@ -292,77 +209,52 @@ Acceptance criteria:
 
 ### Task 3.1 — Define target package ownership
 
-Choose final package names. Suggested options:
-
-Option A:
-
-```text
-internal/pluginreg
-internal/standardplugins
-internal/featurebundle
-```
-
-Option B:
-
-```text
-internal/pluginreg
-internal/pluginreg/standard
-internal/pluginreg/featuremerge
-```
-
-Option A is cleaner conceptually. Option B is less disruptive but keeps everything visually under pluginreg.
-
-Recommended: **Option A** if no import-cycle problems appear.
+> **Status: Completed.** **Option A** chosen: `internal/pluginreg` (registry type), `internal/standardplugins` (standard bundle tables/install), `internal/featurebundle` (feature merge surface).
 
 Acceptance criteria:
 
-- Architecture docs updated with the chosen ownership.
-- `pluginreg` is explicitly described as registry only.
+- ~~Architecture docs updated with the chosen ownership.~~ **Done** — `docs/architecture.md`, EchoesVault pages updated.
+- ~~`pluginreg` is explicitly described as registry only.~~ **Done** — package doc and `architecture-guardrails.md` reflect this.
 
 ### Task 3.2 — Move standard bundle tables out of `pluginreg`
 
-Move `StandardBundle`, `StandardBackendBundle`, standard frontend/backend/feature registration entries, and concrete plugin imports into a standard distribution package.
+> **Status: Completed.** `standard_table.go` and `*_install.go` files moved to `internal/standardplugins/`. `pluginreg` retains only the registry type. `standardplugins/types.go` alias trampoline removed; all references qualified with `pluginreg.X`.
 
 Acceptance criteria:
 
-- Concrete plugin imports no longer live in the narrow registry package.
-- Standard bundle install still happens explicitly from `cmd/lipstd` or standard composition root.
-- Architecture tests updated to allow concrete plugin imports only in the standard bundle package.
+- ~~Concrete plugin imports no longer live in the narrow registry package.~~ **Done**.
+- ~~Standard bundle install still happens explicitly from `cmd/lipstd` or standard composition root.~~ **Done** — `standardplugins.InstallStandardBundleOn`.
+- ~~Architecture tests updated to allow concrete plugin imports only in the standard bundle package.~~ **Done**.
 
 ### Task 3.3 — Move frontend mount functions closer to frontend ownership
 
-Move `mountOpenAIResponses`, `mountOpenAILegacy`, `mountAnthropic`, and `mountGemini` into frontend packages or the new standard bundle package.
-
-Preferred medium approach:
-
-- Each frontend package exposes `Mount(mux, opts)`.
-- Standard bundle registers `frontopenairesponses.Mount`, etc.
+> **Status: Completed.** Each frontend package exposes `Mount(mux, opts)`. Standard bundle tables in `standardplugins/standard_table.go` register the mount functions.
 
 Acceptance criteria:
 
-- Mount paths are protocol-owned.
-- Repeated handler field wiring is reduced.
-- No generic abstraction unless it clearly reduces code.
+- ~~Mount paths are protocol-owned.~~ **Done** — `frontopenairesponses.Mount`, etc.
+- ~~Repeated handler field wiring is reduced.~~ **Done**.
+- ~~No generic abstraction unless it clearly reduces code.~~ **Done**.
 
 ### Task 3.4 — Move feature-bundle merge/migration helpers
 
-Move `FeatureFactoryFromHooks` and hook-to-bundle compatibility logic out of registry.
+> **Status: Completed.** `FeatureFactoryFromHooks` deleted. All 13 bundled features return `lipfeature.FeatureBundle` directly. `internal/core/hooks` import removed from `standardplugins` and `featurebundle`. Feature merge lives in `internal/featurebundle/merge_surface.go`.
 
 Acceptance criteria:
 
-- Registry package does not import `internal/core/hooks` solely for migration wrapping.
-- New feature plugins use native `FeatureBundle` factories.
-- Hook bridge has an explicit retirement target.
+- ~~Registry package does not import `internal/core/hooks` solely for migration wrapping.~~ **Done** — bridge fully retired.
+- ~~New feature plugins use native `FeatureBundle` factories.~~ **Done**.
+- ~~Hook bridge has an explicit retirement target.~~ **Done** — bridge deleted; see `docs/feature-bridge-retirement-checklist.md`.
 
 ### Task 3.5 — Narrow or retire `pluginreg` exception baseline
 
-Update `testdata/architecture/hexagonal_migration_baseline.json` after the split.
+> **Status: Completed.** `pluginreg`, `featurebundle`, `runtimebundle`, and `internal/core/extensions` all reclassified to `aligned`. Zero `exception` entries remain. `runtimebundle` has `role: composition_root`.
 
 Acceptance criteria:
 
-- `pluginreg` classification moves from `exception` to `aligned` or at least has fewer allowed `internal/core` imports.
-- Retirement trigger is either satisfied or narrowed.
-- Tests enforce the new boundary.
+- ~~`pluginreg` classification moves from `exception` to `aligned`.~~ **Done** — `aligned`.
+- ~~Retirement trigger is either satisfied or narrowed.~~ **Done** — all retired.
+- ~~Tests enforce the new boundary.~~ **Done** — `TestHexagonalMigrationBaseline` requires zero exceptions.
 
 ---
 
@@ -374,119 +266,69 @@ Acceptance criteria:
 
 ### Task 4.1 — Add characterization tests around `Execute`
 
-Before extraction, ensure tests cover:
-
-- call validation failure;
-- nil context behavior;
-- secure-session required behavior;
-- selector alias resolution;
-- model-only selector defaulting;
-- unresolved model-only failure;
-- pre-output failover;
-- no retry after output begins;
-- B-leg lifecycle registration/cancellation;
-- route preference behavior;
-- affinity identity behavior;
-- stream recovery behavior;
-- accounting preflight/ledger failure behavior;
-- interleaved-thinking wrapper selection.
+> **Status: Completed.** `executor_characterization_matrix_test.go` maps all 14 listed scenarios to existing tests. Tests lock behavior before and during the executor refactor.
 
 Acceptance criteria:
 
-- Tests lock behavior before refactor.
-- Refactor can be reviewed as mechanical extraction.
+- ~~Tests lock behavior before refactor.~~ **Done** — characterization matrix covers all 14 scenarios.
+- ~~Refactor can be reviewed as mechanical extraction.~~ **Done**.
 
 ### Task 4.2 — Group executor fields
 
-Introduce internal grouped structs:
-
-```go
-type RoutingRuntime struct { ... }
-type SecurityRuntime struct { ... }
-type AccountingRuntime struct { ... }
-type ObservabilityRuntime struct { ... }
-type ExtensionRuntime struct { ... }
-type InterleavedRuntime struct { ... }
-```
-
-Migrate `Executor` fields gradually. Compatibility can be preserved by keeping exported fields temporarily if tests or packages set them directly.
+> **Status: Completed.** Grouped structs introduced: `CoreRuntime`, `RoutingRuntime`, `SecurityRuntime`, `AccountingRuntime`, `ObservabilityRuntime`, `ExtensionRuntime`, `InterleavedRuntime`. All embedded in `Executor`. `ExecutorConfig` groups all dependencies; `NewExecutor(cfg)` is the constructor. ~76 test files migrated from `&Executor{...}` literals to `NewTestExecutor` + options.
 
 Acceptance criteria:
 
-- Field count in `Executor` decreases or is grouped semantically.
-- Runtimebundle executor construction becomes clearer.
-- Tests setting fields are migrated to builders/helpers.
+- ~~Field count in `Executor` decreases or is grouped semantically.~~ **Done** — 7 grouped structs, mutex fields only on `Executor`.
+- ~~Runtimebundle executor construction becomes clearer.~~ **Done** — all fields via `ExecutorConfig`.
+- ~~Tests setting fields are migrated to builders/helpers.~~ **Done** — `internal/testkit/executor_builder.go`.
 
 ### Task 4.3 — Extract request preparation
 
-Create a request preparation collaborator that handles:
-
-- call validation;
-- runtime snapshot attachment;
-- secure-session readiness and begin-turn path;
-- submit hooks;
-- A-leg preparation;
-- context enrichment.
+> **Status: Completed.** `prepareRequest` extracted as a named method in `executor.go`. Handles validation, snapshot attachment, secure-session begin-turn, submit hooks, A-leg preparation, context enrichment.
 
 Acceptance criteria:
 
-- `Execute` delegates preparation to a named component.
-- Existing error wrapping remains stable enough for tests/operators.
+- ~~`Execute` delegates preparation to a named component.~~ **Done** — `e.prepareRequest(ctx, call)`.
+- ~~Existing error wrapping remains stable enough for tests/operators.~~ **Done**.
 
 ### Task 4.4 — Extract route planning setup
 
-Create a route planning setup component that handles:
-
-- selector aliasing;
-- parse/default backend;
-- attempt budget;
-- TTFT budget;
-- session routing state;
-- excluded set;
-- request-size estimate;
-- affinity key;
-- route preferences;
-- interleaved state loading if it belongs to planning.
+> **Status: Completed.** `buildRoutePlan` + `routePlanState` extracted into `executor_route_plan.go`. Handles selector aliasing, default backend, attempt/TTFT budgets, session routing state, excluded set, request-size estimate, affinity key, route preferences.
 
 Acceptance criteria:
 
-- Route setup can be unit-tested without backend opens.
-- `Execute` loop starts with a compact planning state object.
+- ~~Route setup can be unit-tested without backend opens.~~ **Done** — `executor_route_plan.go` is independently testable.
+- ~~`Execute` loop starts with a compact planning state object.~~ **Done** — `routePlanState`.
 
 ### Task 4.5 — Extract attempt opening
 
-Move planning/opening attempt logic behind a collaborator that receives planning state and returns an opened stream or a continue/failure decision.
+> **Status: Completed.** `openInitialAttempt` extracted into `executor_open_loop.go`. Contains tryPlanOpenOnce + B-leg register logic. Receives planning state, returns opened stream or error.
 
 Acceptance criteria:
 
-- Capability negotiation and context-limit behavior unchanged.
-- B-leg lifecycle behavior unchanged.
-- Parallel/race/failover behavior unchanged.
+- ~~Capability negotiation and context-limit behavior unchanged.~~ **Done**.
+- ~~B-leg lifecycle behavior unchanged.~~ **Done**.
+- ~~Parallel/race/failover behavior unchanged.~~ **Done**.
 
 ### Task 4.6 — Extract stream assembly
 
-Move retry stream creation and wrapper decisions into a stream assembler:
-
-- retry stream fields;
-- accounting tracker;
-- recovery policy;
-- secure-turn propagation;
-- interleaved hidden/visible wrapping.
+> **Status: Completed.** `assembleExecutorStream` extracted into `executor_assemble_stream.go`. Handles retry stream creation, accounting tracker, recovery policy, secure-turn propagation, interleaved hidden/visible wrapping.
 
 Acceptance criteria:
 
-- `Execute` ends by delegating to stream assembly.
-- Stream behavior unchanged.
-- New assembler tests cover wrapper selection and stream state.
+- ~~`Execute` ends by delegating to stream assembly.~~ **Done** — `e.assembleExecutorStream(prep, plan, out)`.
+- ~~Stream behavior unchanged.~~ **Done**.
+- ~~New assembler tests cover wrapper selection and stream state.~~ **Done**.
 
 ### Task 4.7 — Add executor file budget
 
-After extraction, set a reasonable file budget for `executor.go` and maybe sub-files.
+> **Status: Completed.** `executor.go` budget set to 150 lines in `CriticalFileBudgets`. Current size: ~118 lines (delegate-only `Execute` + helpers).
 
 Acceptance criteria:
 
-- New code cannot casually re-bloat `executor.go`.
-- Budget changes require rationale.
+- ~~New code cannot casually re-bloat `executor.go`.~~ **Done** — `TestCriticalFileLineBudgets` enforces 150-line cap.
+- ~~Budget changes require rationale.~~ **Done** — rationale in `critical_files.go`.
 
 ---
 
@@ -498,45 +340,30 @@ Acceptance criteria:
 
 ### Task 5.1 — Classify existing core packages
 
-Create a short table in `docs/architecture.md` or a new `docs/core-boundaries.md`:
-
-| Package | Classification | Reason it belongs in core | Adapter leakage risk |
-| --- | --- | --- | --- |
-| `runtime` | use-case orchestration | executes canonical calls | high |
-| `routing` | policy | cross-protocol route semantics | medium |
-| `b2bua` | policy/state seam | continuity semantics | medium |
-| `diag` | canonical diagnostics contract/support | operator views | medium |
-| ... | ... | ... | ... |
+> **Status: Completed.** `docs/core-boundaries.md` created with the full classification table.
 
 Acceptance criteria:
 
-- New contributors have clear guidance.
-- Ambiguous packages are identified.
+- ~~New contributors have clear guidance.~~ **Done** — `docs/core-boundaries.md`.
+- ~~Ambiguous packages are identified.~~ **Done**.
 
 ### Task 5.2 — Add core admission checklist
 
-Add to PR template or architecture docs:
-
-- Is this cross-protocol product policy?
-- Does it import or mention provider-specific concepts?
-- Is it HTTP/operator presentation rather than policy?
-- Could it be a plugin/feature/adapter?
-- Does it do durable I/O directly?
-- Is the interface defined where consumed?
+> **Status: Completed.** Core admission checklist added to `docs/core-boundaries.md` and `docs/architecture-guardrails.md`.
 
 Acceptance criteria:
 
-- Architecture review becomes repeatable.
-- Core additions include a short justification.
+- ~~Architecture review becomes repeatable.~~ **Done**.
+- ~~Core additions include a short justification.~~ **Done**.
 
 ### Task 5.3 — Add package-doc rule for new core packages
 
-Architecture test can require `doc.go` or package comment for new `internal/core/*` packages, at least for non-trivial ones.
+> **Status: Completed.** Architecture test enforces `doc.go` or package comment for `internal/core/*` packages.
 
 Acceptance criteria:
 
-- New core package explains its boundary.
-- Package purpose is reviewable without reading all code.
+- ~~New core package explains its boundary.~~ **Done** — enforced by archtest.
+- ~~Package purpose is reviewable without reading all code.~~ **Done**.
 
 ---
 
@@ -548,30 +375,30 @@ Acceptance criteria:
 
 ### Task 6.1 — Inventory hook-only feature factories
 
-List all feature factories still using hook-only adapters.
+> **Status: Completed.** `docs/feature-bridge-retirement-checklist.md` created with full inventory. All 13 bundled features migrated to native `FeatureBundle`.
 
 Acceptance criteria:
 
-- A Markdown checklist exists.
-- Each item has migrate/keep/drop decision.
+- ~~A Markdown checklist exists.~~ **Done**.
+- ~~Each item has migrate/keep/drop decision.~~ **Done** — all migrated.
 
 ### Task 6.2 — Convert bundled features to native `FeatureBundle`
 
-For each reference/noop feature, return `FeatureBundle` directly where practical.
+> **Status: Completed.** All 13 bundled features return `lipfeature.FeatureBundle` directly. `FeatureFactoryFromHooks` deleted.
 
 Acceptance criteria:
 
-- `FeatureFactoryFromHooks` usage drops.
-- Tests confirm feature registration and behavior unchanged.
+- ~~`FeatureFactoryFromHooks` usage drops.~~ **Done** — usage is zero (deleted).
+- ~~Tests confirm feature registration and behavior unchanged.~~ **Done**.
 
 ### Task 6.3 — Retire or quarantine legacy bridge
 
-Move bridge to a compatibility package or delete when no longer needed.
+> **Status: Completed.** `FeatureFactoryFromHooks` deleted. `internal/core/hooks` import removed from `standardplugins` and `featurebundle`. Hexagonal baseline narrowed (both reclassified to `aligned`).
 
 Acceptance criteria:
 
-- Registry package no longer imports core hooks for legacy bridging.
-- Architecture baseline narrows accordingly.
+- ~~Registry package no longer imports core hooks for legacy bridging.~~ **Done**.
+- ~~Architecture baseline narrows accordingly.~~ **Done** — `aligned` classification.
 
 ---
 
@@ -583,45 +410,31 @@ Acceptance criteria:
 
 ### Task 7.1 — Add architecture PR checklist
 
-Suggested checklist:
-
-```md
-- [ ] Does this change keep provider/protocol details out of core?
-- [ ] Does this change avoid new global state, init registration, and lazy singleton registries?
-- [ ] Does this change keep canonical streaming as the primary execution path?
-- [ ] Does this change add a new core package? If yes, why does it belong in core?
-- [ ] Does this change widen public contracts? If yes, is it versionable and minimal?
-- [ ] Does this change increase architecture budgets? If yes, is the reason documented?
-```
+> **Status: Completed.** Architecture PR checklist added to `docs/architecture-guardrails.md`.
 
 Acceptance criteria:
 
-- Checklist exists in PR template or contributor docs.
-- Reviewers use it for broad changes.
+- ~~Checklist exists in PR template or contributor docs.~~ **Done** — `docs/architecture-guardrails.md`.
+- ~~Reviewers use it for broad changes.~~ **Done**.
 
 ### Task 7.2 — Add architecture drift report to CI artifacts
 
-CI can publish arch metrics without failing initially.
+> **Status: Completed.** `make arch-report` produces deterministic JSON + Markdown. CI publishes arch-report as an artifact.
 
 Acceptance criteria:
 
-- A contributor can see file/package growth over time.
-- Hotspots become visible before they become painful.
+- ~~A contributor can see file/package growth over time.~~ **Done** — arch-report tracks hotspots.
+- ~~Hotspots become visible before they become painful.~~ **Done**.
 
 ### Task 7.3 — Define enterprise overlay boundary
 
-Given your stated open-core direction, define where enterprise features attach:
-
-- OSS core emits events or exposes stable extension seams.
-- Enterprise package/binary registers features through `pkg/lipsdk` and composition root options.
-- Enterprise should not import deep runtime internals unless a deliberate internal extension boundary exists.
-- Audit/search/billing/SSO/user provisioning should attach via SDK seams, control-plane ports, or standard composition options, not by editing `runtime.Executor` directly.
+> **Status: Completed.** `docs/enterprise-extension-boundaries.md` created with allowed/forbidden integration points.
 
 Acceptance criteria:
 
-- A document such as `docs/enterprise-extension-boundaries.md` exists.
-- It lists allowed and forbidden integration points.
-- It prevents enterprise code from becoming a parallel fork of core.
+- ~~A document such as `docs/enterprise-extension-boundaries.md` exists.~~ **Done**.
+- ~~It lists allowed and forbidden integration points.~~ **Done**.
+- ~~It prevents enterprise code from becoming a parallel fork of core.~~ **Done**.
 
 ---
 
@@ -629,40 +442,50 @@ Acceptance criteria:
 
 ### First pull request group — very low risk
 
-1. Add architecture metrics report.
-2. Add critical-file warning budgets.
-3. Split `stdhttp/server.go` by file/concern without changing APIs.
-4. Deprecate/remove `stdhttp.BuildExecutor` if feasible.
+> **Status: All completed.**
+
+1. ~~Add architecture metrics report.~~ **Done**.
+2. ~~Add critical-file warning budgets.~~ **Done**.
+3. ~~Split `stdhttp/server.go` by file/concern without changing APIs.~~ **Done**.
+4. ~~Deprecate/remove `stdhttp.BuildExecutor` if feasible.~~ **Done** — both `stdhttp.BuildExecutor` and `runtimebundle.BuildExecutor` deleted; `runtimebundle.Build` is the canonical builder.
 
 ### Second pull request group — composition cleanup
 
-1. Normalize `runtimebundle.BuildOptions` internally.
-2. Extract observability/auth/model/persistence/extension/executor build units.
-3. Add tests for resource cleanup and startup error paths.
+> **Status: All completed.**
+
+1. ~~Normalize `runtimebundle.BuildOptions` internally.~~ **Done**.
+2. ~~Extract observability/auth/model/persistence/extension/executor build units.~~ **Done**.
+3. ~~Add tests for resource cleanup and startup error paths.~~ **Done**.
 
 ### Third pull request group — registry split
 
-1. Create standard bundle package.
-2. Move `standard_table.go` and installer code.
-3. Move feature bridge out of registry.
-4. Narrow hexagonal baseline exception.
+> **Status: All completed.**
+
+1. ~~Create standard bundle package.~~ **Done** — `internal/standardplugins/`.
+2. ~~Move `standard_table.go` and installer code.~~ **Done**.
+3. ~~Move feature bridge out of registry.~~ **Done** — bridge deleted.
+4. ~~Narrow hexagonal baseline exception.~~ **Done** — zero exceptions.
 
 ### Fourth pull request group — executor internals
 
-1. Add characterization tests.
-2. Group executor fields.
-3. Extract request preparation.
-4. Extract route planning setup.
-5. Extract attempt opening.
-6. Extract stream assembly.
-7. Add executor file budget.
+> **Status: All completed.**
+
+1. ~~Add characterization tests.~~ **Done**.
+2. ~~Group executor fields.~~ **Done**.
+3. ~~Extract request preparation.~~ **Done**.
+4. ~~Extract route planning setup.~~ **Done**.
+5. ~~Extract attempt opening.~~ **Done**.
+6. ~~Extract stream assembly.~~ **Done**.
+7. ~~Add executor file budget.~~ **Done** — 150 lines.
 
 ### Fifth pull request group — governance and enterprise boundary
 
-1. Add core admission checklist.
-2. Add package-doc rule for new core packages.
-3. Define enterprise overlay boundary.
-4. Add CI architecture report artifact.
+> **Status: All completed.**
+
+1. ~~Add core admission checklist.~~ **Done**.
+2. ~~Add package-doc rule for new core packages.~~ **Done**.
+3. ~~Define enterprise overlay boundary.~~ **Done**.
+4. ~~Add CI architecture report artifact.~~ **Done**.
 
 ---
 
@@ -670,12 +493,14 @@ Acceptance criteria:
 
 The de-slopification effort can be considered successful when:
 
-- `runtimebundle.Build` is a readable orchestration facade over smaller build units.
-- `pluginreg` no longer owns concrete standard bundle tables and legacy feature migration logic.
-- `runtime.Executor` still exposes `Execute`, but internal concerns are grouped and testable.
-- `stdhttp` is split by HTTP concern and no longer mixes all server behavior in one file.
-- Architecture tests cover not only forbidden imports, but also critical file/package drift.
-- The hexagonal baseline has fewer `extract`/`exception` entries or more precise retirement targets.
-- No behavior changes are visible to clients.
-- The project remains Go-idiomatic: explicit construction, small interfaces, no DI container, no reflection magic, no hidden registration.
+- ✅ `runtimebundle.Build` is a readable orchestration facade over smaller build units.
+- ✅ `pluginreg` no longer owns concrete standard bundle tables and legacy feature migration logic.
+- ✅ `runtime.Executor` still exposes `Execute`, but internal concerns are grouped and testable.
+- ✅ `stdhttp` is split by HTTP concern and no longer mixes all server behavior in one file.
+- ✅ Architecture tests cover not only forbidden imports, but also critical file/package drift.
+- ✅ The hexagonal baseline has fewer `extract`/`exception` entries or more precise retirement targets.
+- ✅ No behavior changes are visible to clients.
+- ✅ The project remains Go-idiomatic: explicit construction, small interfaces, no DI container, no reflection magic, no hidden registration.
+
+**All acceptance criteria met. The de-slopification effort is complete.**
 

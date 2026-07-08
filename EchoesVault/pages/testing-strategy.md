@@ -57,6 +57,18 @@ make qa               # quality + full test + lint + vuln
 make bench            # benchmark smoke
 ```
 
+## Architecture Guardrail Tests
+
+`internal/archtest/` enforces architectural invariants via AST inspection and dependency analysis:
+
+- **Line complexity budgets** — tree-level and critical-file budgets prevent re-bloating gravity wells.
+- **Hexagonal migration baseline** — requires zero `exception` entries; all packages `aligned` or retired.
+- **Composition-root rules** — no `sync.Once` + standard-bundle install, no package-level registries, no `pluginreg.Default` in runtimebundle.
+- **Executor construction invariant** — `TestExecutorConstructionNoPostConstructionMutation` ensures no post-construction field mutations on `runtime.Executor` after `NewExecutor`; all fields must pass through `ExecutorConfig`.
+- **Policy diagnostics isolation** — `PolicyDiagnosticsEnabled` must not be referenced from frontend/stdhttp.
+- **Core boundary rules** — core must not import concrete plugins, vendor SDKs, or stdhttp.
+- **Public contract isolation** — `pkg/lipapi` and `pkg/lipsdk` must not depend on internal packages or vendor SDKs.
+
 ## High-Value Test Targets
 
 - Canonical request/event translation
@@ -67,3 +79,4 @@ make bench            # benchmark smoke
 - Secure-session BeginTurn, resume denial, redaction
 - Stream cancellation, keepalive, panic isolation
 - Extension stage ordering, immutable snapshots
+- Executor construction invariant (no post-construction mutation)

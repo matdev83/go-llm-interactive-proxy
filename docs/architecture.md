@@ -82,7 +82,7 @@ See `docs/extension-points.md` and `docs/plugin-authoring.md` for the stage tabl
 4. resolve default upstream API keys from environment variables;
 5. install the standard bundle on that registry via `standardplugins.InstallStandardBundleOn`;
 6. validate mandatory bundled factories;
-7. merge configured feature bundles with `featurebundle.MergeFeatureSurface` and build hooks in `runtimebundle` (`BuildFeatureHooks`);
+7. merge configured feature bundles with `featurebundle.MergeFeatureSurface` (simplified via `MergeBundles`/`Append` helpers) and build hooks in `runtimebundle` (`BuildFeatureHooks`);
 8. build `runtime.App` and `runtimebundle.Built`;
 9. run the HTTP server with `stdhttp.RunWithRuntime`.
 
