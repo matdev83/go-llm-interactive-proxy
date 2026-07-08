@@ -6,7 +6,7 @@ import (
 	"go.uber.org/goleak"
 )
 
-// TestMain guards this package. standardbundle uses the same OpenCensus ignore in its TestMain.
+// TestMain guards this package. The OpenCensus ignore handles a transitive global worker.
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m,
 		// OpenCensus registers a global stats worker via init; not owned by this package.

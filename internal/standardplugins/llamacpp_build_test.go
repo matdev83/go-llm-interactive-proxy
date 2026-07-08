@@ -7,25 +7,26 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
 	"gopkg.in/yaml.v3"
 )
 
 func TestStandardBackends_includeLlamacppFactory(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	p, ok := reg.BackendSecurityProfile(llamacpp.ID)
-	if !ok || p.CredentialMode != CredentialNone {
+	if !ok || p.CredentialMode != pluginreg.CredentialNone {
 		t.Fatalf("profile for %q: ok=%v mode=%q", llamacpp.ID, ok, p.CredentialMode)
 	}
 }
 
 func TestBuildBackend_llamacpp_emptyConfig(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +34,7 @@ func TestBuildBackend_llamacpp_emptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(`{}`), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(llamacpp.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(llamacpp.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestBuildBackend_llamacpp_catalogMapsModels(t *testing.T) {
 	}))
 	t.Cleanup(catalogSrv.Close)
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ discovery:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(llamacpp.ID, node, modelsSrv.Client(), BackendFactoryDeps{})
+	b, err := reg.BuildBackend(llamacpp.ID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

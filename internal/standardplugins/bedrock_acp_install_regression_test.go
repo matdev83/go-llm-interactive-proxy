@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"gopkg.in/yaml.v3"
@@ -46,7 +47,7 @@ func Test_backendACP_buildsFromYAML(t *testing.T) {
 
 func Test_registryBuildBedrockAndACP_afterHostedKeyChanges(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func Test_registryBuildBedrockAndACP_afterHostedKeyChanges(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(acpRaw), &acpNode); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reg.BuildBackend(acp.ID, acpNode, nil, BackendFactoryDeps{}); err != nil {
+	if _, err := reg.BuildBackend(acp.ID, acpNode, nil, pluginreg.BackendFactoryDeps{}); err != nil {
 		t.Fatalf("acp BuildBackend: %v", err)
 	}
 
@@ -68,7 +69,7 @@ secret_access_key: SECRETTEST
 	if err := yaml.Unmarshal([]byte(brRaw), &brNode); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reg.BuildBackend(bedrock.ID, brNode, nil, BackendFactoryDeps{}); err != nil {
+	if _, err := reg.BuildBackend(bedrock.ID, brNode, nil, pluginreg.BackendFactoryDeps{}); err != nil {
 		t.Fatalf("bedrock BuildBackend: %v", err)
 	}
 }

@@ -35,7 +35,7 @@ type BuildOptions struct {
 	// every call site.
 	PluginRegistry *pluginreg.Registry
 	// WireModel resolves default upstream model ids when computing the effective
-	// default route selector. When nil, Build uses pluginreg.DefaultWireModel
+	// default route selector. When nil, Build uses standardplugins.DefaultWireModel
 	// (standard distribution).
 	WireModel config.WireModelForBackend
 

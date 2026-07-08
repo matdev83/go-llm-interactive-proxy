@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaicodex"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
@@ -63,7 +64,7 @@ func TestOpenAICodexBackendFactory_buildsFromYAMLAndHitsRefEmulator(t *testing.T
 	srv := refbackend.New(refbackend.Config{Token: "sk-codex", OutputText: "wired-ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func TestOpenAICodexBackendFactory_buildsFromYAMLAndHitsRefEmulator(t *testing.T
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestOpenAICodexBackendFactory_buildsFromYAMLAndHitsRefEmulator(t *testing.T
 func TestOpenAICodexBackendFactory_configuredModelsFlowToInventory(t *testing.T) {
 	t.Parallel()
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +130,7 @@ models:
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, nil, BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestOpenAICodexBackendFactory_authJSONPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +165,7 @@ func TestOpenAICodexBackendFactory_authJSONPath(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +190,7 @@ func TestOpenAICodexBackendFactory_apiKeysFirstKeyUsed(t *testing.T) {
 	srv := refbackend.New(refbackend.Config{Token: "first-key", OutputText: "ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestOpenAICodexBackendFactory_apiKeysFirstKeyUsed(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +220,7 @@ func TestOpenAICodexBackendFactory_credentialsAPIKey(t *testing.T) {
 	srv := refbackend.New(refbackend.Config{Token: "cred-token", OutputText: "ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +229,7 @@ func TestOpenAICodexBackendFactory_credentialsAPIKey(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +250,7 @@ func TestOpenAICodexBackendFactory_envFallbackWhenYAMLHasNoKeys(t *testing.T) {
 	srv := refbackend.New(refbackend.Config{Token: "env-codex", OutputText: "ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{OpenAICodex: []string{"env-codex", "env-codex-2"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +259,7 @@ func TestOpenAICodexBackendFactory_envFallbackWhenYAMLHasNoKeys(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +280,7 @@ func TestOpenAICodexBackendFactory_ignoresDefaultTemperatureYAML(t *testing.T) {
 	srv := refbackend.New(refbackend.Config{Token: "sk-codex", OutputText: "ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +289,7 @@ func TestOpenAICodexBackendFactory_ignoresDefaultTemperatureYAML(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +312,7 @@ func TestOpenAICodexBackendFactory_transportHTTPSFromYAML(t *testing.T) {
 	srv := refbackend.New(refbackend.Config{Token: "sk-codex", OutputText: "ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +321,7 @@ func TestOpenAICodexBackendFactory_transportHTTPSFromYAML(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +342,7 @@ func TestOpenAICodexBackendFactory_invalidTransportFromYAML(t *testing.T) {
 
 	ts := httptest.NewServer(refbackend.New(refbackend.Config{Token: "sk-codex"}).Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +351,7 @@ func TestOpenAICodexBackendFactory_invalidTransportFromYAML(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +383,7 @@ func TestOpenAICodexBackendFactory_apiKeyAliasForAccessToken(t *testing.T) {
 	srv := refbackend.New(refbackend.Config{Token: "from-api-key", OutputText: "ok"})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +392,7 @@ func TestOpenAICodexBackendFactory_apiKeyAliasForAccessToken(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend("openai-codex", cfg, ts.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

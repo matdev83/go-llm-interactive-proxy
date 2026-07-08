@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"gopkg.in/yaml.v3"
@@ -14,14 +15,14 @@ import (
 
 func TestRegistry_zeroValueRegisterBackend(t *testing.T) {
 	t.Parallel()
-	var r Registry
+	var r pluginreg.Registry
 	id := "zero-value-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}); err == nil {
 		t.Fatal("expected duplicate registration error")
@@ -30,7 +31,7 @@ func TestRegistry_zeroValueRegisterBackend(t *testing.T) {
 
 func TestRegistry_zeroValueRegisterFrontend(t *testing.T) {
 	t.Parallel()
-	var r Registry
+	var r pluginreg.Registry
 	id := "zero-value-frontend-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := r.RegisterFrontend(id, func(*http.ServeMux, lipsdk.FrontendMountOptions) error {
 		return nil
@@ -41,7 +42,7 @@ func TestRegistry_zeroValueRegisterFrontend(t *testing.T) {
 
 func TestRegistry_zeroValueRegisterFeature(t *testing.T) {
 	t.Parallel()
-	var r Registry
+	var r pluginreg.Registry
 	id := "zero-value-feature-" + strings.ReplaceAll(t.Name(), "/", "-")
 	if err := r.RegisterFeature(id, func(yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1}, nil
@@ -60,7 +61,7 @@ func (noopWireAuthRenderer) RenderAuthError(ctx context.Context, in lipsdk.AuthE
 
 func TestRegistry_RegisterAuthErrorRenderer_duplicate(t *testing.T) {
 	t.Parallel()
-	r := NewRegistry()
+	r := pluginreg.NewRegistry()
 	if err := r.RegisterAuthErrorRenderer("gemini", noopWireAuthRenderer{}); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestRegistry_RegisterAuthErrorRenderer_duplicate(t *testing.T) {
 
 func TestRegistry_RegisterAuthErrorRenderer_nilSkips(t *testing.T) {
 	t.Parallel()
-	r := NewRegistry()
+	r := pluginreg.NewRegistry()
 	if err := r.RegisterAuthErrorRenderer("anthropic", nil); err != nil {
 		t.Fatal(err)
 	}

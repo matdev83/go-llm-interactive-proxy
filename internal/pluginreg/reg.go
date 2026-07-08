@@ -1,4 +1,6 @@
-// Package pluginreg holds registry-driven factories for the standard distribution (backends, frontends, features).
+// Package pluginreg holds the registry and factory-contract types for plugin registration
+// (backends, frontends, features). The standard distribution tables now live under
+// internal/standardplugins; this package provides the registry mechanism itself.
 package pluginreg
 
 import (

@@ -4,7 +4,7 @@ import "strings"
 
 // WireModelForBackend resolves the default model token for a backend factory id (plugin kind)
 // when synthesizing a fallback route selector. Supplied at composition time (typically
-// pluginreg.DefaultWireModel) so policy stays independent of HTTP mounting.
+// standardplugins.DefaultWireModel) so policy stays independent of HTTP mounting.
 type WireModelForBackend func(factoryID string) string
 
 // EffectiveDefaultRouteSelector returns the selector used when clients omit explicit routing

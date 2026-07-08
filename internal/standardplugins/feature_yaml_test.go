@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"gopkg.in/yaml.v3"
 )
 
-func testRegistryWithStdBundle(t *testing.T) *Registry {
+func testRegistryWithStdBundle(t *testing.T) *pluginreg.Registry {
 	t.Helper()
-	r := NewRegistry()
+	r := pluginreg.NewRegistry()
 	if err := InstallStandardBundleOn(r, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}

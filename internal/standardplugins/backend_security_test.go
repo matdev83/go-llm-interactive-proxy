@@ -5,33 +5,34 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"gopkg.in/yaml.v3"
 )
 
 func TestBackendSecurityProfile_roundTrip(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
-	if err := reg.RegisterBackendWithProfile("oauth", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	reg := pluginreg.NewRegistry()
+	if err := reg.RegisterBackendWithProfile("oauth", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
-	}, BackendSecurityProfile{CredentialMode: CredentialOAuthUser, AccessScope: BackendAccessLocalOnly}); err != nil {
+	}, pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialOAuthUser, AccessScope: pluginreg.BackendAccessLocalOnly}); err != nil {
 		t.Fatal(err)
 	}
 	profile, ok := reg.BackendSecurityProfile("oauth")
 	if !ok {
 		t.Fatal("expected profile")
 	}
-	if profile.CredentialMode != CredentialOAuthUser {
+	if profile.CredentialMode != pluginreg.CredentialOAuthUser {
 		t.Fatalf("credential mode: got %q", profile.CredentialMode)
 	}
-	if profile.AccessScope != BackendAccessLocalOnly {
+	if profile.AccessScope != pluginreg.BackendAccessLocalOnly {
 		t.Fatalf("access scope: got %q", profile.AccessScope)
 	}
 }
 
 func TestRegisterBackend_defaultsUnknownCredentialMode(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
-	if err := reg.RegisterBackend("legacy", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	reg := pluginreg.NewRegistry()
+	if err := reg.RegisterBackend("legacy", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -40,34 +41,34 @@ func TestRegisterBackend_defaultsUnknownCredentialMode(t *testing.T) {
 	if !ok {
 		t.Fatal("expected profile")
 	}
-	if profile.CredentialMode != CredentialUnknown {
+	if profile.CredentialMode != pluginreg.CredentialUnknown {
 		t.Fatalf("credential mode: got %q", profile.CredentialMode)
 	}
-	if profile.AccessScope != BackendAccessAny {
+	if profile.AccessScope != pluginreg.BackendAccessAny {
 		t.Fatalf("access scope: got %q", profile.AccessScope)
 	}
 }
 
 func TestRegisterBackendWithProfile_defaultsAnyAccessScope(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
-	if err := reg.RegisterBackendWithProfile("static", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	reg := pluginreg.NewRegistry()
+	if err := reg.RegisterBackendWithProfile("static", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
-	}, BackendSecurityProfile{CredentialMode: CredentialStatic}); err != nil {
+	}, pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}); err != nil {
 		t.Fatal(err)
 	}
 	profile, ok := reg.BackendSecurityProfile("static")
 	if !ok {
 		t.Fatal("expected profile")
 	}
-	if profile.AccessScope != BackendAccessAny {
+	if profile.AccessScope != pluginreg.BackendAccessAny {
 		t.Fatalf("access scope: got %q", profile.AccessScope)
 	}
 }
 
 func TestBackendSecurityProfile_unregisteredFactoryIsNotFound(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	_, ok := reg.BackendSecurityProfile("factory-never-registered")
 	if ok {
 		t.Fatal("expected no profile for factory id that was never registered")
@@ -84,31 +85,31 @@ func TestBackendSecurityProfile_unregisteredFactoryIsNotFound(t *testing.T) {
 // Do not relax this contract without an approved spec change.
 func TestBackendAccessAny_defaultIsUnsafeForLocalTrustBackends(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
-	if err := reg.RegisterBackendWithProfile("local-trust-default", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	reg := pluginreg.NewRegistry()
+	if err := reg.RegisterBackendWithProfile("local-trust-default", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
-	}, BackendSecurityProfile{CredentialMode: CredentialStatic}); err != nil {
+	}, pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}); err != nil {
 		t.Fatal(err)
 	}
 	profile, ok := reg.BackendSecurityProfile("local-trust-default")
 	if !ok {
 		t.Fatal("expected profile")
 	}
-	if profile.AccessScope != BackendAccessAny {
+	if profile.AccessScope != pluginreg.BackendAccessAny {
 		t.Fatalf("empty AccessScope must default to BackendAccessAny for compatibility, got %q", profile.AccessScope)
 	}
 	// Local-trust backends must opt into BackendAccessLocalOnly explicitly; the registry
 	// does not infer it, which is exactly why the default is unsafe for such backends.
-	if err := reg.RegisterBackendWithProfile("local-trust-explicit", func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+	if err := reg.RegisterBackendWithProfile("local-trust-explicit", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 		return execbackend.Backend{}, nil
-	}, BackendSecurityProfile{CredentialMode: CredentialStatic, AccessScope: BackendAccessLocalOnly}); err != nil {
+	}, pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessLocalOnly}); err != nil {
 		t.Fatal(err)
 	}
 	explicit, ok := reg.BackendSecurityProfile("local-trust-explicit")
 	if !ok {
 		t.Fatal("expected profile")
 	}
-	if explicit.AccessScope != BackendAccessLocalOnly {
+	if explicit.AccessScope != pluginreg.BackendAccessLocalOnly {
 		t.Fatalf("explicit local-only declaration must round-trip, got %q", explicit.AccessScope)
 	}
 }

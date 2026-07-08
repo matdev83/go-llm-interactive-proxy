@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/modeldiscover"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicompat"
@@ -221,7 +222,7 @@ func standardBackendPrefixSet() map[string]struct{} {
 				continue
 			}
 			standardPrefixSet[entry.ID] = struct{}{}
-			be, err := entry.Factory(yaml.Node{}, nil, BackendFactoryDeps{})
+			be, err := entry.Factory(yaml.Node{}, nil, pluginreg.BackendFactoryDeps{})
 			if err != nil {
 				continue
 			}

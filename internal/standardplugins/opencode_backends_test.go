@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/opencodecommon/catalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -85,7 +86,7 @@ func TestOpenCodeBackendFactory_usesExplicitVendorResolverDependency(t *testing.
 	idx := modelcatalog.NewSnapshotIndex(map[string]modelcatalog.ModelFacts{
 		"xiaomi/mimo-v2.5": {Source: modelcatalog.FactSourceCatalog},
 	})
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestOpenCodeBackendFactory_usesExplicitVendorResolverDependency(t *testing.
 	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend("opencode-go", cfg, srv.Client(), BackendFactoryDeps{
+	be, err := reg.BuildBackend("opencode-go", cfg, srv.Client(), pluginreg.BackendFactoryDeps{
 		ModelVendorResolver: catalog.NewOpenCodeVendorResolver(
 			modelcatalog.StaticActiveSnapshotProvider{Index: idx},
 			true,
@@ -129,7 +130,7 @@ func TestOpenCodeBackendFactory_goAndZenAreSeparateConnectors(t *testing.T) {
 
 	goSrv, goAuth := opencodeModelServer(t, `{"data":[{"id":"kimi-k2.7-code"}]}`)
 	zenSrv, zenAuth := opencodeModelServer(t, `{"data":[{"id":"gpt-5.4"}]}`)
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{
 		OpenCodeGo:  []string{"go-key"},
 		OpenCodeZen: []string{"zen-key"},
@@ -184,13 +185,13 @@ func opencodeModelServer(t *testing.T, body string) (*httptest.Server, *string) 
 	return srv, &auth
 }
 
-func buildOpenCodeBackendForTest(t *testing.T, reg *Registry, id string, srv *httptest.Server) execbackend.Backend {
+func buildOpenCodeBackendForTest(t *testing.T, reg *pluginreg.Registry, id string, srv *httptest.Server) execbackend.Backend {
 	t.Helper()
 	var cfg yaml.Node
 	if err := yaml.Unmarshal([]byte("base_url: "+srv.URL+"\n"), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(id, cfg, srv.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend(id, cfg, srv.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatalf("BuildBackend(%q): %v", id, err)
 	}

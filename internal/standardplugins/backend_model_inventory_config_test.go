@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
@@ -14,7 +15,7 @@ import (
 func TestBuildBackend_openAIResponses_usesInlineModelInventory(t *testing.T) {
 	t.Parallel()
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +33,7 @@ models:
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestBuildBackend_openAIResponses_usesFileModelInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestBuildBackend_openAIResponses_usesFileModelInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestBuildBackend_openAIResponses_pathOnlyDefaultsToFileModelInventory(t *te
 		t.Fatal(err)
 	}
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestBuildBackend_openAIResponses_pathOnlyDefaultsToFileModelInventory(t *te
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestBuildBackend_openAIResponses_fileModelInventoryAcceptsModelsAlias(t *te
 		t.Fatal(err)
 	}
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestBuildBackend_openAIResponses_fileModelInventoryAcceptsModelsAlias(t *te
 		t.Fatal(err)
 	}
 
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
