@@ -217,7 +217,7 @@ Extract internal collaborators while preserving `Executor.Execute`:
 
 `stdhttp.Run` itself documents that composition roots should normally call `runtimebundle.Build` once and then pass the built runtime to `RunWithRuntime`.
 
-`internal/stdhttp/wire.go` exposes a thin `BuildExecutor` wrapper over `runtimebundle.BuildExecutor`.
+`internal/stdhttp/wire.go` exposed a thin `BuildExecutor` wrapper over `runtimebundle.BuildExecutor` (both now deleted).
 
 ### Why this is a smell
 
@@ -236,14 +236,14 @@ Split by concern inside the same package first:
 - `mount_securesession.go` — secure-session diagnostics;
 - `mount_frontends.go` — bundled frontend mounting.
 
-Also decide whether `Run` and `BuildExecutor` are deprecated convenience APIs or still first-class.
+Also decide whether `Run` is a deprecated convenience API or still first-class (BuildExecutor wrappers were deleted).
 
 ### Acceptance criteria
 
 - No route/middleware behavior changes.
 - `RunWithRuntime` remains the main serve path.
 - `Run` is documented as compatibility convenience or removed if unused.
-- `BuildExecutor` wrapper is removed if no external/internal value remains.
+- `BuildExecutor` wrapper is removed (done — both `stdhttp.BuildExecutor` and `runtimebundle.BuildExecutor` deleted).
 - Server file size and function size decrease materially.
 
 ---

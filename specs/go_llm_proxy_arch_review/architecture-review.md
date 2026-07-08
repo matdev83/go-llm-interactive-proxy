@@ -451,8 +451,8 @@ The main hexagonal weakness is not dependency inversion in the classic sense. It
 
 | Area | Opportunity |
 | --- | --- |
-| `stdhttp.Run` | Already removed. The canonical path is `Build + RunWithRuntime` / `runtimebundle.BuildExecutor`; use that directly. |
-| `stdhttp.BuildExecutor` | Already removed. The underlying `runtimebundle.BuildExecutor` is the canonical builder; use it directly. |
+| `stdhttp.Run` | Already removed. The canonical path is `Build + RunWithRuntime`; use `runtimebundle.Build` directly. |
+| `stdhttp.BuildExecutor` | Already removed. `runtimebundle.BuildExecutor` was also deleted; use `runtimebundle.Build` directly. |
 | Frontend mount wiring | Move per-frontend mount functions into frontend packages or introduce a small common mount helper. |
 | `runtimebundle.BuildOptions` | Group fields by concern to reduce mental overhead and misuse. |
 | Feature hook bridge | Track and retire hook-only bridge after feature bundles are first-class everywhere. |

@@ -33,10 +33,10 @@ The review was based on static inspection of the following repository files and 
 | `internal/infra/runtimebundle/build.go` | Main composition hotspot. Builds control plane, auth events, auth providers, metrics, HTTP client, model catalog, backends, model registry, continuity store, secure-session runtime, route defaults, executor, accounting, and extension snapshot. |
 | `internal/infra/runtimebundle/options.go` | Wide `BuildOptions` bag spanning startup context, HTTP client, tracing, testing clock, control-plane override, registry, wire model, auth providers, deciders, session/workspace/traffic/usage/policy extension surfaces, and secure-session diagnostics store. |
 | `internal/stdhttp/server.go` | Post-split listener and lifecycle manager. Mounting and middleware composition moved to `handler.go` and `mount_*.go`; the server file now only starts/stops the HTTP listener and wires the cleaned-up handler. |
-| `internal/stdhttp/wire.go` | Removed in this refactor. The `stdhttp.BuildExecutor` wrapper was deleted; use `internal/infra/runtimebundle/build.go` directly. |
+| `internal/stdhttp/wire.go` | Removed in this refactor. The `stdhttp.BuildExecutor` wrapper was deleted; `runtimebundle.BuildExecutor` was also deleted; use `runtimebundle.Build` directly. |
 | `internal/pluginreg/reg.go` | Registry implementation and contracts. Also stores backend credential/security metadata and auth error renderers. |
-| `internal/pluginreg/standard_table.go` | Imports all bundled frontends, backends, and feature plugins to assemble the standard distribution table. Correct as a composition boundary, but too broad for a narrow “registry” package over time. |
-| `internal/pluginreg/featurebundle.go` | Transitional hook-only to feature-bundle adapter. Useful for migration, but should not remain a permanent bridge if the target is a clean SDK feature bundle model. |
+| `internal/standardplugins/standard_table.go` | Imports all bundled frontends, backends, and feature plugins to assemble the standard distribution table (moved from `internal/pluginreg`). |
+| `internal/featurebundle/merge_surface.go` | Feature merge surface (`MergeFeatureSurface` via `MergeBundles`/`Append` helpers). The transitional `FeatureFactoryFromHooks` bridge was deleted; all features now return native `FeatureBundle`. |
 | `internal/pluginreg/frontends_install.go` | Repetitive frontend mount wiring; small but visible DRY opportunity. |
 | `internal/core/runtime/executor.go` | Core orchestration hotspot. `Executor` has many fields and `Execute` coordinates validation, runtime snapshot, secure session, A-leg lifecycle, route parsing, planning/opening, failover, retry stream, accounting/recovery/interleaved wrappers. |
 

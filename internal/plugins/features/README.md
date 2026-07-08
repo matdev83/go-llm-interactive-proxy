@@ -3,7 +3,7 @@
 ## Composition boundary
 
 - **Registry:** [`internal/pluginreg`](../../pluginreg) registers a `FeatureFactory` per feature plugin id (see `RegisterFeature` on `Registry`). The factory receives opaque YAML (`yaml.Node`) and returns a versioned [`pkg/lipsdk/feature.FeatureBundle`](../../../pkg/lipsdk/feature/bundle.go) (hook chains plus optional `lipplugin.Lifecycle` values). Standard in-repo wiring in [`internal/standardplugins/features_install.go`](../../standardplugins/features_install.go) decodes YAML and returns `FeatureBundle` directly; the legacy `FeatureFactoryFromHooks` bridge has been retired.
-- **Feature packages** (`internal/plugins/features/<name>`) implement hook interfaces from `pkg/lipsdk/hooks`. They must not import `internal/core/runtime`, frontends, or backends. Wiring into HTTP or the executor stays in `cmd/` and `internal/pluginreg`.
+- **Feature packages** (`internal/plugins/features/<name>`) implement hook interfaces from `pkg/lipsdk/hooks`. They must not import `internal/core/runtime`, frontends, or backends. Wiring into HTTP or the executor stays in `cmd/` and `internal/standardplugins`.
 
 ## Constructor naming
 
