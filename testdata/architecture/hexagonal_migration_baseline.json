@@ -61,6 +61,7 @@
     {
       "go_list_pattern": "./internal/infra/runtimebundle",
       "classification": "aligned",
+      "role": "composition_root",
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting",

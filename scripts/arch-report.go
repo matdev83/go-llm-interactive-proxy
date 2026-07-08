@@ -45,6 +45,7 @@ type baselineFile struct {
 type baselineEntry struct {
 	GoListPattern     string           `json:"go_list_pattern"`
 	Classification    string           `json:"classification"`
+	Role              string           `json:"role,omitempty"`
 	RetirementTrigger string           `json:"retirement_trigger"`
 	Backlog           *baselineBacklog `json:"backlog,omitempty"`
 }
@@ -239,8 +240,8 @@ func writeBaselineClassifications(b *strings.Builder, root string) {
 		return
 	}
 
-	fmt.Fprintln(b, "| Package | Class | Retirement target / next extraction |")
-	fmt.Fprintln(b, "| --- | --- | --- |")
+	fmt.Fprintln(b, "| Package | Class | Role | Retirement target / next extraction |")
+	fmt.Fprintln(b, "| --- | --- | --- | --- |")
 	for _, row := range doc.Packages {
 		var notes string
 		if row.Backlog != nil {
@@ -248,8 +249,12 @@ func writeBaselineClassifications(b *strings.Builder, root string) {
 		} else {
 			notes = row.RetirementTrigger
 		}
-		fmt.Fprintf(b, "| `%s` | %s | %s |\n",
-			strings.TrimPrefix(row.GoListPattern, "./"), row.Classification, notes)
+		role := row.Role
+		if role == "" {
+			role = "-"
+		}
+		fmt.Fprintf(b, "| `%s` | %s | %s | %s |\n",
+			strings.TrimPrefix(row.GoListPattern, "./"), row.Classification, role, notes)
 	}
 	fmt.Fprintln(b)
 }
