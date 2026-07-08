@@ -10,14 +10,15 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 	"gopkg.in/yaml.v3"
 )
 
-func customCompatibleRegistry(t *testing.T) *Registry {
+func customCompatibleRegistry(t *testing.T) *pluginreg.Registry {
 	t.Helper()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ api_key: yaml-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAILegacyCompatibleID, node, modelsSrv.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend(CustomOpenAILegacyCompatibleID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ api_key: yaml-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, modelsSrv.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ models:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, nil, BackendFactoryDeps{})
+	be, err := reg.BuildBackend(CustomOpenAIResponsesCompatibleID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ api_key: yaml-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, modelsSrv.Client(), BackendFactoryDeps{})
+	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, modelsSrv.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ models:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, BackendFactoryDeps{})
+	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestBuildBackend_customAnthropicCompatible_missingBaseURLUsesCustomPrefix(t
 	if err := yaml.Unmarshal([]byte("backend_prefix: my-anthropic\napi_key: yaml-key\n"), &node); err != nil {
 		t.Fatal(err)
 	}
-	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, BackendFactoryDeps{})
+	be, err := reg.BuildBackend(CustomAnthropicCompatibleID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

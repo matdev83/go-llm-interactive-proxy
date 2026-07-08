@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	refbackend "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/ollama"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/ollama"
@@ -16,13 +17,13 @@ import (
 
 func TestStandardBackends_includeOllamaFactory(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{ollama.ID, ollama.CloudID} {
 		p, ok := reg.BackendSecurityProfile(id)
-		if !ok || p.CredentialMode != CredentialNone {
+		if !ok || p.CredentialMode != pluginreg.CredentialNone {
 			t.Fatalf("profile for %q: ok=%v mode=%q", id, ok, p.CredentialMode)
 		}
 	}
@@ -30,7 +31,7 @@ func TestStandardBackends_includeOllamaFactory(t *testing.T) {
 
 func TestBuildBackend_ollamaCloud_emptyConfig(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestBuildBackend_ollamaCloud_emptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.CloudID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(ollama.CloudID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestBuildBackend_ollamaCloud_discoveryLocalDisabled(t *testing.T) {
 	}))
 	t.Cleanup(cloud.Close)
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ discovery:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.CloudID, node, local.Client(), BackendFactoryDeps{})
+	b, err := reg.BuildBackend(ollama.CloudID, node, local.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ discovery:
 
 func TestBuildBackend_ollama_emptyConfig(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestBuildBackend_ollama_emptyConfig(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(ollama.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +140,7 @@ func TestBuildBackend_ollama_discoveryCloudDisabled(t *testing.T) {
 	}))
 	t.Cleanup(cloud.Close)
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ discovery:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(ollama.ID, node, local.Client(), BackendFactoryDeps{})
+	b, err := reg.BuildBackend(ollama.ID, node, local.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

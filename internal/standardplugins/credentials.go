@@ -3,6 +3,7 @@ package standardplugins
 import (
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 )
 
@@ -36,7 +37,7 @@ func hostedCredentials(rows []hostedCredentialYAML) []credpool.Credential {
 }
 
 func inventoryAPIKeys(apiKey string, apiKeys []string, credentials []hostedCredentialYAML, fallback []string) []string {
-	out := EffectiveAPIKeys(apiKey, apiKeys, fallback)
+	out := pluginreg.EffectiveAPIKeys(apiKey, apiKeys, fallback)
 	for _, cred := range hostedCredentials(credentials) {
 		if secret := strings.TrimSpace(cred.Secret); secret != "" {
 			out = append(out, secret)

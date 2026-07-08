@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 )
 
 func clearNumberedEnv(t *testing.T, prefix string) {
@@ -201,7 +203,7 @@ func TestResolveUpstreamAPIKeysFromEnv_huggingFaceNumberedFrom1(t *testing.T) {
 
 func TestEffectiveAPIKeys_yamlOverridesEnvList(t *testing.T) {
 	t.Parallel()
-	got := EffectiveAPIKeys("from-yaml", nil, []string{"env1", "env2"})
+	got := pluginreg.EffectiveAPIKeys("from-yaml", nil, []string{"env1", "env2"})
 	want := []string{"from-yaml"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)

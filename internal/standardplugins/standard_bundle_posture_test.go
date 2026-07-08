@@ -3,6 +3,7 @@ package standardplugins
 import (
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
@@ -13,7 +14,7 @@ import (
 
 func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +26,7 @@ func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.
 			if !ok {
 				t.Fatalf("missing security profile for bundled backend factory %q", id)
 			}
-			if p.CredentialMode == CredentialUnknown || p.CredentialMode == "" {
+			if p.CredentialMode == pluginreg.CredentialUnknown || p.CredentialMode == "" {
 				t.Fatalf("bundled backend %q must declare explicit non-unknown posture, got %q", id, p.CredentialMode)
 			}
 		})
@@ -34,7 +35,7 @@ func TestInstallStandardBackendsOn_declaresExplicitNonUnknownPosture(t *testing.
 
 func TestStandardBackends_localOnlyConnectorsDeclareLocalOnlyScope(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestStandardBackends_localOnlyConnectorsDeclareLocalOnlyScope(t *testing.T)
 			if !ok {
 				t.Fatalf("missing security profile for bundled backend factory %q", id)
 			}
-			if p.AccessScope != BackendAccessLocalOnly {
+			if p.AccessScope != pluginreg.BackendAccessLocalOnly {
 				t.Fatalf("bundled backend %q must be local-only, got %q", id, p.AccessScope)
 			}
 		})

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/nvidia"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
@@ -18,7 +19,7 @@ import (
 
 func TestBuildBackend_openAIResponses_multiKeyYAML_oneInstance(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{OpenAI: []string{"env-should-not-apply"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ api_keys:
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ api_keys:
 
 func TestBuildBackend_nvidia_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{Nvidia: []string{"nvapi-a", "nvapi-b"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestBuildBackend_nvidia_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(nvidia.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(nvidia.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestBuildBackend_huggingface_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{HuggingFace: []string{"hf-a", "hf-b"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestBuildBackend_huggingface_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(huggingface.ID, node, srv.Client(), BackendFactoryDeps{})
+	b, err := reg.BuildBackend(huggingface.ID, node, srv.Client(), pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func hostedBuildTestCall() lipapi.Call {
 
 func TestBuildBackend_openAIResponses_envDefaultsWhenYAMLHasNoKeys(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{OpenAI: []string{"a", "b"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestBuildBackend_openAIResponses_envDefaultsWhenYAMLHasNoKeys(t *testing.T)
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(openairesponses.ID, node, nil, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, nil, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestBuildBackend_openAIResponses_envDefaultsWhenYAMLHasNoKeys(t *testing.T)
 func TestBuildBackend_openAIResponses_modelInventoryUsesUpstreamHTTPClient(t *testing.T) {
 	t.Parallel()
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ api_key: test-key
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reg.BuildBackend(openairesponses.ID, node, client, BackendFactoryDeps{})
+	b, err := reg.BuildBackend(openairesponses.ID, node, client, pluginreg.BackendFactoryDeps{})
 	if err != nil {
 		t.Fatal(err)
 	}

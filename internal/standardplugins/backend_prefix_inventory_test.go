@@ -5,13 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"gopkg.in/yaml.v3"
 )
 
 func TestStandardBackends_exposeInventoryPrefixes(t *testing.T) {
 	t.Parallel()
 
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +25,7 @@ func TestStandardBackends_exposeInventoryPrefixes(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(standardBackendBuildYAML(id)), &node); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil, BackendFactoryDeps{})
+			be, err := reg.BuildBackend(id, node, nil, pluginreg.BackendFactoryDeps{})
 			if err != nil {
 				t.Fatalf("BuildBackend(%q) error = %v", id, err)
 			}
@@ -59,11 +60,11 @@ func TestReservedStandardBackendPrefixes_coverStandardBackendPrefixes(t *testing
 			if err := yaml.Unmarshal([]byte(standardBackendBuildYAML(id)), &node); err != nil {
 				t.Fatal(err)
 			}
-			reg := NewRegistry()
+			reg := pluginreg.NewRegistry()
 			if err := InstallStandardBackendsOn(reg, UpstreamAPIKeys{}); err != nil {
 				t.Fatal(err)
 			}
-			be, err := reg.BuildBackend(id, node, nil, BackendFactoryDeps{})
+			be, err := reg.BuildBackend(id, node, nil, pluginreg.BackendFactoryDeps{})
 			if err != nil {
 				t.Fatalf("BuildBackend(%q) error = %v", id, err)
 			}

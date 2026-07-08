@@ -184,6 +184,10 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 		filepath.Join(root, "internal", "infra", "runtimebundle"),
 		filepath.Join(root, "internal", "stdhttp"),
 	}
+	// bootstrap_plan.go is the single allowed call site for InstallStandardBundleOn
+	// inside the runtimebundle composition root (BuildBootstrap startup helper).
+	// All other runtimebundle and stdhttp files must not install the standard bundle.
+	allowedFile := filepath.Join(root, "internal", "infra", "runtimebundle", "bootstrap_plan.go")
 	for _, dir := range dirs {
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			t.Parallel()
@@ -198,6 +202,9 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 				if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 					return nil
 				}
+				if path == allowedFile {
+					return nil // bootstrap_plan.go is the composition-root startup path
+				}
 				src, err := os.ReadFile(path)
 				if err != nil {
 					return err
@@ -211,7 +218,7 @@ func TestCompositionLayersDoNotRegisterStandardBundle(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(bad) != 0 {
-				t.Fatalf("%s: forbid standard bundle installation in composition layer (install in cmd/lipstd or tests, pass registry in): %s", dir, strings.Join(bad, "\n"))
+				t.Fatalf("%s: forbid standard bundle installation in composition layer (only bootstrap_plan.go may install; install in cmd/lipstd or tests, pass registry in): %s", dir, strings.Join(bad, "\n"))
 			}
 		})
 	}
