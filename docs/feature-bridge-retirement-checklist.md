@@ -29,4 +29,4 @@ This document tracks the conversion of hook-only feature factories to native `Fe
 
 `FeatureFactoryFromHooks` (formerly in `internal/featurebundle/featurebundle.go`) has been **deleted**. All 13 bundled features now return `lipfeature.FeatureBundle` directly. The `internal/core/hooks` import has been removed from `internal/standardplugins` and `internal/featurebundle`.
 
-The `internal/featurebundle` package now contains only the merge surface (`MergeFeatureSurface` + `MergedFeatureSurface` with SDK hook slices). `BuildFeatureHooks` and `hooks.New` live in `internal/infra/runtimebundle` (composition root).
+The `internal/featurebundle` package now contains the merge surface (`MergeFeatureSurface` + `MergedFeatureSurface` with SDK hook slices, simplified via `MergeBundles`/`Append` helpers). `BuildFeatureHooks` and `hooks.New` live in `internal/infra/runtimebundle` (composition root). The `internal/pluginreg/standardbundle` façade package has been deleted; `bootstrap_plan.go` calls `standardplugins.InstallStandardBundleOn` directly.
