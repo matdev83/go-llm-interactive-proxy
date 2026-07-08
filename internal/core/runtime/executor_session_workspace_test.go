@@ -42,23 +42,22 @@ func TestExecutor_backendOpenContext_hasSessionLabelsAndWorkspace(t *testing.T) 
 		Workspace:      coreworkspace.NewResolverChain([]lipworkspace.Resolver{memWS{}}),
 	})
 	var openCtx context.Context
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					openCtx = ctx
-					_ = call
-					_ = cand
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				openCtx = ctx
+				_ = call
+				_ = cand
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(3),
 	}
+	ex.Rand = routing.NewSeededRng(3)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{

@@ -237,15 +237,14 @@ func TestOpen_routeParamsReachCodexPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &coreruntime.Executor{
-		Store:                   st,
-		SecureSession:           secure,
-		SyntheticLocalPrincipal: true,
-		Bus:                     hooks.New(hooks.Config{}),
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			backend.ID: be,
-		},
+	ex := coreruntime.TestExecutor()
+	ex.Store = st
+	ex.SecureSession = secure
+	ex.SyntheticLocalPrincipal = true
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		backend.ID: be,
 	}
 	call := sampleCall()
 	call.Route.Selector = "openai-codex:gpt-5.4-mini?reasoning_effort=xhigh"
@@ -290,15 +289,14 @@ func TestOpen_rejectsUnsupportedGenerationParamsWithoutCompatExt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &coreruntime.Executor{
-		Store:                   st,
-		SecureSession:           secure,
-		SyntheticLocalPrincipal: true,
-		Bus:                     hooks.New(hooks.Config{}),
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			backend.ID: be,
-		},
+	ex := coreruntime.TestExecutor()
+	ex.Store = st
+	ex.SecureSession = secure
+	ex.SyntheticLocalPrincipal = true
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		backend.ID: be,
 	}
 	maxTok := 512
 	call := sampleCall()
@@ -337,15 +335,14 @@ func TestOpen_compatDropsUnsupportedGenerationParamsFromClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &coreruntime.Executor{
-		Store:                   st,
-		SecureSession:           secure,
-		SyntheticLocalPrincipal: true,
-		Bus:                     hooks.New(hooks.Config{}),
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			backend.ID: be,
-		},
+	ex := coreruntime.TestExecutor()
+	ex.Store = st
+	ex.SecureSession = secure
+	ex.SyntheticLocalPrincipal = true
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		backend.ID: be,
 	}
 	maxTok := 512
 	temp := 0.2
@@ -400,15 +397,14 @@ func TestOpen_stripsOpenAIProviderModelPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &coreruntime.Executor{
-		Store:                   st,
-		SecureSession:           secure,
-		SyntheticLocalPrincipal: true,
-		Bus:                     hooks.New(hooks.Config{}),
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			backend.ID: be,
-		},
+	ex := coreruntime.TestExecutor()
+	ex.Store = st
+	ex.SecureSession = secure
+	ex.SyntheticLocalPrincipal = true
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		backend.ID: be,
 	}
 	call := sampleCall()
 	call.Route.Selector = "openai-codex:openai/gpt-5.4-mini?reasoning_effort=low"
@@ -451,15 +447,14 @@ func TestOpen_normalizesToolSchemaAdditionalPropertiesForStrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &coreruntime.Executor{
-		Store:                   st,
-		SecureSession:           secure,
-		SyntheticLocalPrincipal: true,
-		Bus:                     hooks.New(hooks.Config{}),
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			backend.ID: be,
-		},
+	ex := coreruntime.TestExecutor()
+	ex.Store = st
+	ex.SecureSession = secure
+	ex.SyntheticLocalPrincipal = true
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		backend.ID: be,
 	}
 	call := sampleCall()
 	call.Route.Selector = "openai-codex:gpt-5.4-mini"
@@ -524,15 +519,14 @@ func TestOpen_chatCompletionsToolCallRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &coreruntime.Executor{
-		Store:                   st,
-		SecureSession:           secure,
-		SyntheticLocalPrincipal: true,
-		Bus:                     hooks.New(hooks.Config{}),
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			backend.ID: be,
-		},
+	ex := coreruntime.TestExecutor()
+	ex.Store = st
+	ex.SecureSession = secure
+	ex.SyntheticLocalPrincipal = true
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		backend.ID: be,
 	}
 	call := sampleCall()
 	call.Route.Selector = "openai-codex:gpt-5.4-mini"
@@ -613,15 +607,14 @@ func TestOpen_routeSelectorRoutesArbitraryCodexModels(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ex := &coreruntime.Executor{
-				Store:                   st,
-				SecureSession:           secure,
-				SyntheticLocalPrincipal: true,
-				Bus:                     hooks.New(hooks.Config{}),
-				Rand:                    routing.NewSeededRng(1),
-				Backends: map[string]execbackend.Backend{
-					backend.ID: be,
-				},
+			ex := coreruntime.TestExecutor()
+			ex.Store = st
+			ex.SecureSession = secure
+			ex.SyntheticLocalPrincipal = true
+			ex.Bus = hooks.New(hooks.Config{})
+			ex.Rand = routing.NewSeededRng(1)
+			ex.Backends = map[string]execbackend.Backend{
+				backend.ID: be,
 			}
 			call := sampleCall()
 			call.Route.Selector = "openai-codex:" + model + "?reasoning_effort=low"

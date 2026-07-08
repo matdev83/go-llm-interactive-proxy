@@ -165,15 +165,14 @@ func completionEvents(text string) []lipapi.Event {
 func TestParallelRace_FirstNonWhitespaceTokenWins(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"slow": delayedBackend(200*time.Millisecond, completionEvents("slow-response")),
-			"fast": parallelBackend(completionEvents("fast-response")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"slow": delayedBackend(200*time.Millisecond, completionEvents("slow-response")),
+		"fast": parallelBackend(completionEvents("fast-response")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("slow:model!fast:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -197,15 +196,14 @@ func TestParallelRace_WhitespaceIgnoredForWinnerElection(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "  \n\t  "},
 	}
 	realEvents := completionEvents("real-answer")
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"ws":   parallelBackend(wsEvents),
-			"real": parallelBackend(realEvents),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"ws":   parallelBackend(wsEvents),
+		"real": parallelBackend(realEvents),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("ws:model!real:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -235,16 +233,15 @@ func TestParallelRace_HandicapSchedulingStartsHighFirst(t *testing.T) {
 			},
 		}
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"a": trackingBackend("a", completionEvents("a-resp")),
-			"b": trackingBackend("b", completionEvents("b-resp")),
-			"c": trackingBackend("c", completionEvents("c-resp")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"a": trackingBackend("a", completionEvents("a-resp")),
+		"b": trackingBackend("b", completionEvents("b-resp")),
+		"c": trackingBackend("c", completionEvents("c-resp")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("[handicap=3]a:model![handicap=1]b:model!c:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -279,15 +276,14 @@ func TestParallelRace_HandicapShortCircuitOnEarlyWinner(t *testing.T) {
 			return lipapi.NewFixedEventStream(completionEvents("slow")), nil
 		},
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"fast": fastBackend,
-			"slow": slowBackend,
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"fast": fastBackend,
+		"slow": slowBackend,
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("[handicap=10]fast:model!slow:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -309,28 +305,27 @@ func TestParallelRace_MaxAttemptsBoundsParallelOpensDeterministically(t *testing
 	st := parallelStore(t)
 	var opensA atomic.Int32
 	var opensB atomic.Int32
-	ex := &runtime.Executor{
-		Store:       st,
-		Bus:         hooks.New(hooks.Config{}),
-		MaxAttempts: 1,
-		Backends: map[string]execbackend.Backend{
-			"a": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opensA.Add(1)
-					return lipapi.NewFixedEventStream(completionEvents("a")), nil
-				},
-			},
-			"b": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opensB.Add(1)
-					return lipapi.NewFixedEventStream(completionEvents("b")), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.MaxAttempts = 1
+	ex.Backends = map[string]execbackend.Backend{
+		"a": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opensA.Add(1)
+				return lipapi.NewFixedEventStream(completionEvents("a")), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
+		"b": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opensB.Add(1)
+				return lipapi.NewFixedEventStream(completionEvents("b")), nil
+			},
+		},
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("a:model!b:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -368,15 +363,14 @@ func TestParallelRace_HandicapFastForwardOnTerminalFailure(t *testing.T) {
 			return lipapi.NewFixedEventStream(completionEvents("ok")), nil
 		},
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"fail": failBackend,
-			"ok":   okBackend,
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"fail": failBackend,
+		"ok":   okBackend,
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("[handicap=10]fail:model!ok:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -397,15 +391,14 @@ func TestParallelRace_PerLegTTFTTimeoutElimination(t *testing.T) {
 		{Kind: lipapi.EventResponseStarted},
 		{Kind: lipapi.EventMessageStarted},
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"slow": delayedBackend(60*time.Second, slowEvents),
-			"fast": parallelBackend(completionEvents("fast")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"slow": delayedBackend(60*time.Second, slowEvents),
+		"fast": parallelBackend(completionEvents("fast")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("[ttft_timeout=1]slow:model!fast:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -425,15 +418,14 @@ func TestParallelRace_TTFTTimeoutActuallyKillsLeg(t *testing.T) {
 	// with it the slow leg's context is cancelled and the slightly-delayed backend wins.
 	t.Parallel()
 	st := parallelStore(t)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"stuck": delayedBackend(60*time.Second, completionEvents("stuck")),
-			"ok":    delayedBackend(200*time.Millisecond, completionEvents("ok")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"stuck": delayedBackend(60*time.Second, completionEvents("stuck")),
+		"ok":    delayedBackend(200*time.Millisecond, completionEvents("ok")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	s, err := ex.Execute(ctx, parallelCall("[ttft_timeout=1]stuck:model!ok:model"))
@@ -452,14 +444,13 @@ func TestParallelRace_TTFTTimeoutActuallyKillsLeg(t *testing.T) {
 func TestParallelRace_KeepaliveEmittedWhileWaiting(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"slow": delayedTailBackend(2*time.Second, "ok"),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"slow": delayedTailBackend(2*time.Second, "ok"),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("slow:model!slow:model2"))
 	if err != nil {
 		t.Fatal(err)
@@ -532,16 +523,15 @@ func TestParallelRace_CancelLosersBeforeClose(t *testing.T) {
 			return lipapi.NewFixedEventStream(completionEvents("winner")), nil
 		},
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"winner": slowWinnerBackend,
-			"loser1": cancelableBackend,
-			"loser2": cancelableBackend,
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"winner": slowWinnerBackend,
+		"loser1": cancelableBackend,
+		"loser2": cancelableBackend,
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(t.Context(), parallelCall("winner:model!loser1:model!loser2:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -575,34 +565,33 @@ func TestParallelRace_WinnerPathLoserCleanupExactOnce(t *testing.T) {
 	slowReady := make(chan struct{}, 1)
 	slowRelease := make(chan struct{})
 	defer close(slowRelease)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"winner": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					winnerStream = &parallelRaceCleanupStream{
-						waitReady: slowReady,
-						events:    completionEvents("winner"),
-					}
-					return winnerStream, nil
-				},
-			},
-			"loser": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					loserStream = &parallelRaceCleanupStream{
-						blockNotify:  slowReady,
-						blockRelease: slowRelease,
-						events:       completionEvents("loser"),
-					}
-					return loserStream, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"winner": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				winnerStream = &parallelRaceCleanupStream{
+					waitReady: slowReady,
+					events:    completionEvents("winner"),
+				}
+				return winnerStream, nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
+		"loser": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				loserStream = &parallelRaceCleanupStream{
+					blockNotify:  slowReady,
+					blockRelease: slowRelease,
+					events:       completionEvents("loser"),
+				}
+				return loserStream, nil
+			},
+		},
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("winner:model!loser:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -634,28 +623,27 @@ func TestParallelRace_CloseWhileRecvBlockedIsRaceSafe(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
 	releaseTail := make(chan struct{})
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"winner": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return &blockingTailStream{
-						events: []lipapi.Event{
-							{Kind: lipapi.EventResponseStarted},
-							{Kind: lipapi.EventMessageStarted},
-							{Kind: lipapi.EventTextDelta, Delta: "winner"},
-							{Kind: lipapi.EventResponseFinished},
-						},
-						releaseTail: releaseTail,
-					}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"winner": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &blockingTailStream{
+					events: []lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventTextDelta, Delta: "winner"},
+						{Kind: lipapi.EventResponseFinished},
+					},
+					releaseTail: releaseTail,
+				}, nil
 			},
-			"loser": delayedBackend(2*time.Second, completionEvents("loser")),
 		},
-		Rand: routing.NewSeededRng(1),
+		"loser": delayedBackend(2*time.Second, completionEvents("loser")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(t.Context(), parallelCall("winner:model!loser:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -752,16 +740,15 @@ func (s *blockingTailStream) Close() error { return nil }
 func TestParallelRace_FailoverToNextArmWhenNoWinner(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"fail1": errorBackend(errors.New("fail1")),
-			"fail2": errorBackend(errors.New("fail2")),
-			"ok":    parallelBackend(completionEvents("fallback")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"fail1": errorBackend(errors.New("fail1")),
+		"fail2": errorBackend(errors.New("fail2")),
+		"ok":    parallelBackend(completionEvents("fallback")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("fail1:model!fail2:model|ok:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -778,15 +765,14 @@ func TestParallelRace_FailoverToNextArmWhenNoWinner(t *testing.T) {
 func TestParallelRace_AllLegFailuresSurfaceJoinedError(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"fail1": errorBackend(errors.New("fail one")),
-			"fail2": errorBackend(errors.New("fail two")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"fail1": errorBackend(errors.New("fail one")),
+		"fail2": errorBackend(errors.New("fail two")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	_, err := ex.Execute(context.Background(), parallelCall("fail1:model!fail2:model"))
 	if err == nil {
 		t.Fatal("expected execute error for all-failing parallel arm")
@@ -804,26 +790,25 @@ func TestParallelRace_NoFailoverAfterWinnerOutputCommitted(t *testing.T) {
 	st := parallelStore(t)
 	var fallbackOpens atomic.Int32
 	fallbackOpenedCh := make(chan struct{}, 8)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"a": parallelBackend(completionEvents("winner")),
-			"b": delayedBackend(250*time.Millisecond, completionEvents("other")),
-			"fallback": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					fallbackOpens.Add(1)
-					select {
-					case fallbackOpenedCh <- struct{}{}:
-					default:
-					}
-					return lipapi.NewFixedEventStream(completionEvents("fallback")), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"a": parallelBackend(completionEvents("winner")),
+		"b": delayedBackend(250*time.Millisecond, completionEvents("other")),
+		"fallback": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				fallbackOpens.Add(1)
+				select {
+				case fallbackOpenedCh <- struct{}{}:
+				default:
+				}
+				return lipapi.NewFixedEventStream(completionEvents("fallback")), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("a:model!b:model|fallback:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -855,15 +840,14 @@ func TestParallelRace_ReasoningDeltaWins(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "after-reasoning"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"reason": parallelBackend(reasoningEvents),
-			"slow":   delayedBackend(500*time.Millisecond, completionEvents("slow")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"reason": parallelBackend(reasoningEvents),
+		"slow":   delayedBackend(500*time.Millisecond, completionEvents("slow")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("reason:model!slow:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -892,19 +876,18 @@ func TestParallelRace_ReasoningDeltaWins(t *testing.T) {
 func TestParallelRace_FailoverArmsAreNotFlattenedIntoSingleRace(t *testing.T) {
 	t.Parallel()
 	st := parallelStore(t)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			// First failover arm (parallel): should race only these two.
-			"a": delayedBackend(120*time.Millisecond, completionEvents("first-arm-a")),
-			"b": delayedBackend(140*time.Millisecond, completionEvents("first-arm-b")),
-			// Second failover arm (parallel): must not participate unless first arm fully fails.
-			"c": parallelBackend(completionEvents("second-arm-c")),
-			"d": parallelBackend(completionEvents("second-arm-d")),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		// First failover arm (parallel): should race only these two.
+		"a": delayedBackend(120*time.Millisecond, completionEvents("first-arm-a")),
+		"b": delayedBackend(140*time.Millisecond, completionEvents("first-arm-b")),
+		// Second failover arm (parallel): must not participate unless first arm fully fails.
+		"c": parallelBackend(completionEvents("second-arm-c")),
+		"d": parallelBackend(completionEvents("second-arm-d")),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	s, err := ex.Execute(context.Background(), parallelCall("a:model!b:model|c:model!d:model"))
 	if err != nil {
 		t.Fatal(err)
@@ -924,30 +907,29 @@ func TestParallelRace_RecordsLoserAttemptLineage(t *testing.T) {
 	st := parallelStore(t)
 	var loserOpened atomic.Int32
 	openGate := make(chan struct{})
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"winner": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					<-openGate
-					return lipapi.NewFixedEventStream(completionEvents("winner")), nil
-				},
-			},
-			"loser": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					loserOpened.Add(1)
-					return &cancelTrackingStream{
-						events: completionEvents("loser"),
-						delay:  2 * time.Second,
-					}, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"winner": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				<-openGate
+				return lipapi.NewFixedEventStream(completionEvents("winner")), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
+		"loser": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				loserOpened.Add(1)
+				return &cancelTrackingStream{
+					events: completionEvents("loser"),
+					delay:  2 * time.Second,
+				}, nil
+			},
+		},
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	go func() {
 		for {
 			if loserOpened.Load() > 0 {

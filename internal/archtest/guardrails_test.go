@@ -79,6 +79,7 @@ func TestStandardBundlePackagesHaveNoInitFunctions(t *testing.T) {
 	root := repoRoot(t)
 	dirs := []string{
 		filepath.Join(root, "internal", "pluginreg"),
+		filepath.Join(root, "internal", "standardplugins"),
 		filepath.Join(root, "cmd", "lipstd"),
 	}
 	for _, dir := range dirs {

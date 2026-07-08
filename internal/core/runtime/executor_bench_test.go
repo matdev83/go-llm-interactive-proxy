@@ -33,16 +33,15 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 		b.Fatal(err)
 	}
 	events := benchEvents(32)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(42),
-		Backends: map[string]execbackend.Backend{
-			"stub": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream(events), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(42)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream(events), nil
 			},
 		},
 	}

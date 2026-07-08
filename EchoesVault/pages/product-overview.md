@@ -34,7 +34,7 @@ Universal translation, routing, and control plane for AI clients. Sits between A
 
 ## Standard Distribution (`cmd/lipstd`)
 
-Serves bundled HTTP frontends, routes through canonical [lipapi](canonical-contracts.md) requests/events, wires official backends and feature plugins via explicit registration (`internal/pluginreg/`).
+Serves bundled HTTP frontends, routes through canonical [lipapi](canonical-contracts.md) requests/events, wires official backends and feature plugins via explicit registration (`internal/standardplugins/` tables installed onto an `internal/pluginreg/` registry).
 
 ## Relationship to Python LIP
 

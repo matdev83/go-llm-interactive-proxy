@@ -20,3 +20,7 @@ The standard distribution must stay statically linked while avoiding central `sw
 - Duplicate ids must be rejected at registration time (see registry validation tasks).
 - Operator-facing behavior for routing cooldown and observability is configured in YAML (`routing.health`, executor logging) and documented in the main README “Current state” section and [`docs/routing-health-circuit-breaker.md`](../routing-health-circuit-breaker.md).
 - Architecture budgets and import guardrails are enforced in [`internal/archtest`](../../internal/archtest/guardrails_test.go) and ADR 0005.
+
+## Updates
+
+- **2026-07-08 (arch review final closure):** The standard bundle registration tables (`standard_table.go`, `*_install.go`) and `InstallStandardBundleOn` moved from `internal/pluginreg` to `internal/standardplugins`. The registry value type (`pluginreg.Registry`, `NewRegistry`, `BuildBackend`, `BuildFeatureBundle`) remains in `internal/pluginreg`. Feature merge lives in `internal/featurebundle` (`MergeFeatureSurface` over SDK hook slices); `BuildFeatureHooks` and `hooks.New` construction moved to `internal/infra/runtimebundle` (composition root). The registry-driven composition decision above is unchanged — only the package locations of the standard tables and hook-bus construction narrowed. See `docs/architecture.md` and `testdata/architecture/hexagonal_migration_baseline.json` (schema v3) for the current map.

@@ -57,26 +57,25 @@ func TestClient_suppressedSubmitSkipped(t *testing.T) {
 		}),
 	})
 	mgr := mustSecureManager(t, st)
-	ex = &runtime.Executor{
-		Store:                   st,
-		Bus:                     bus,
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: true,
-		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex = runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = true
+	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 
 	ctx := context.Background()
 	call := &lipapi.Call{
@@ -123,24 +122,23 @@ func TestClient_Stream_auxiliaryDepthIncremented(t *testing.T) {
 	})
 	lineageStore := mustMemStore(t)
 	mgr := mustSecureManager(t, lineageStore)
-	ex = &runtime.Executor{
-		Store:                   lineageStore,
-		Bus:                     bus,
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: true,
-		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					depthSeen.Store(int32(execctx.AuxiliaryDepth(ctx)))
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex = runtime.TestExecutor()
+	ex.Store = lineageStore
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = true
+	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				depthSeen.Store(int32(execctx.AuxiliaryDepth(ctx)))
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(2),
 	}
+	ex.Rand = routing.NewSeededRng(2)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
@@ -169,24 +167,23 @@ func TestClient_lineageExtension(t *testing.T) {
 	var captured lipapi.Call
 	lineageStore := mustMemStore(t)
 	mgr := mustSecureManager(t, lineageStore)
-	ex = &runtime.Executor{
-		Store:                   lineageStore,
-		Bus:                     bus,
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: true,
-		SessionDenialMapper:     lipapidenial.MapToSessionDenial,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					captured = call
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex = runtime.TestExecutor()
+	ex.Store = lineageStore
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = true
+	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				captured = call
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(3),
 	}
+	ex.Rand = routing.NewSeededRng(3)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{

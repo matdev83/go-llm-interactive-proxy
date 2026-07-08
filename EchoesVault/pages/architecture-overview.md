@@ -18,7 +18,7 @@ Five primary zones:
 4. Official backend & feature plugins (`internal/plugins/backends/`, `internal/plugins/features/`)
 5. Test and operational support (`internal/refbackend/`, `internal/refclient/`, `internal/testkit/`)
 
-Around them: standard distribution assembly (`internal/pluginreg/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`).
+Around them: standard distribution assembly (`internal/standardplugins/`, `internal/featurebundle/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`) plus the explicit registry type in `internal/pluginreg/`.
 
 ## Hexagonal Mapping
 
@@ -26,7 +26,7 @@ Around them: standard distribution assembly (`internal/pluginreg/`, `internal/in
 - **Application/use-case orchestration:** executor, routing, continuity, extension pipeline
 - **Driving adapters:** HTTP frontends, CLI, admin/diagnostic surfaces
 - **Driven adapters:** backend plugins, stores, model/catalog providers, tokenizers, metrics/tracing
-- **Composition roots:** `cmd/lipstd/`, `internal/pluginreg/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`
+- **Composition roots:** `cmd/lipstd/`, `internal/standardplugins/`, `internal/infra/runtimebundle/`, `internal/stdhttp/` (with `internal/pluginreg/` providing the registry type)
 
 ## Core Ownership Rules
 

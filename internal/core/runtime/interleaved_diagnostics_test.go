@@ -40,20 +40,19 @@ func TestExecutor_InterleavedDiagnostics_HiddenFlowObservesTransitionsWithoutMem
 	logBuf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		Log:      log,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "hidden",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.Log = log
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "hidden",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -116,24 +115,23 @@ func TestExecutor_InterleavedDiagnostics_ExpiredMemoEmitsExpiredWithoutBody(t *t
 	logBuf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"exec-be": *interleavedBackendWithStream(
-				lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				capture,
-				nil,
-			),
-		},
-		Log: log,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"exec-be": *interleavedBackendWithStream(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			capture,
+			nil,
+		),
 	}
+	ex.Log = log
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		RegularTurnsRemaining: 2,
+	}
+	ex.MemoStore = memoStore
 
 	first := interleavedBaseCall("[thinker]exec-be:m^exec-be:m")
 	firstStream, err := ex.Execute(context.Background(), first)

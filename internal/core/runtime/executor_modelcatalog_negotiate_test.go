@@ -64,29 +64,28 @@ func TestExecutor_catalogNarrowsCaps_firstCandidateRejected_secondOpens(t *testi
 	}
 	var opened string
 	rt := diag.NewRouteTraceBuffer(16)
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             hooks.New(hooks.Config{}),
-		Rand:            routing.NewSeededRng(1),
-		RouteTrace:      rt,
-		CatalogResolver: narrowVisionCatalogResolver{},
-		Backends: map[string]execbackend.Backend{
-			"narrow": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityVision),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					t.Fatal("narrow must not open after vision-removed negotiation reject")
-					return nil, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.RouteTrace = rt
+	ex.CatalogResolver = narrowVisionCatalogResolver{}
+	ex.Backends = map[string]execbackend.Backend{
+		"narrow": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityVision),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				t.Fatal("narrow must not open after vision-removed negotiation reject")
+				return nil, nil
 			},
-			"wide": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityVision),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = cand.Primary.Backend
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"wide": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityVision),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = cand.Primary.Backend
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -142,19 +141,18 @@ func TestExecutor_catalogDisabled_noResolver_usesBackendCaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"only": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityVision),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = "only"
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"only": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityVision),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = "only"
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}

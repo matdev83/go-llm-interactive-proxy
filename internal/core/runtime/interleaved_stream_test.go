@@ -83,19 +83,18 @@ func TestExecutor_HiddenInterleavedContinuation_EmitsExecutorOnlyAndStoresMemo(t
 		}),
 	}
 
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "hidden",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "hidden",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 
 	selector := "[thinker]thinker-be:m^exec-be:m"
 	first := interleavedBaseCall(selector)
@@ -187,19 +186,18 @@ func interleavedVisibleExecutor(t *testing.T, backends map[string]execbackend.Ba
 		t.Fatal(err)
 	}
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "visible",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "visible",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 	return ex, st
 }
 
@@ -421,19 +419,18 @@ func interleavedExecutor(t *testing.T, backends map[string]execbackend.Backend) 
 		t.Fatal(err)
 	}
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(2),
-		Backends: backends,
-		InterleavedConfig: interleavedthinking.ShapeConfig{
-			Instructions:          "Think step by step.",
-			StreamToClient:        "hidden",
-			MaxMemoBytes:          4096,
-			RegularTurnsRemaining: 2,
-		},
-		MemoStore: memoStore,
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = backends
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{
+		Instructions:          "Think step by step.",
+		StreamToClient:        "hidden",
+		MaxMemoBytes:          4096,
+		RegularTurnsRemaining: 2,
 	}
+	ex.MemoStore = memoStore
 	return ex, st
 }
 

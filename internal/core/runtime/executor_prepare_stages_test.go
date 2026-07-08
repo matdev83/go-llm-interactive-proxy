@@ -52,21 +52,20 @@ func TestExecutor_toolCatalogFilter_beforeBackendOpen(t *testing.T) {
 		ToolCatalogFilters: []toolcatalog.Filter{dropToolNamed{name: "b"}},
 	})
 	var toolsSeen int
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					toolsSeen = len(call.Tools)
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				toolsSeen = len(call.Tools)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
@@ -125,23 +124,22 @@ func TestExecutor_toolPolicy_recvHydratesMetaFromExecctx(t *testing.T) {
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		ToolCallPolicies: []toolpolicy.Policy{spy},
 	})
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "t"},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "t"},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "client-hint-1"},
 		Route:   lipapi.RouteIntent{Selector: "openai:gpt-4"},
@@ -191,20 +189,19 @@ func TestExecutor_toolPolicy_deniesStreamToolCall(t *testing.T) {
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		ToolCallPolicies: []toolpolicy.Policy{denyToolPolicy{name: "blocked"}},
 	})
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "blocked"}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "blocked"}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ContinuityKey: "ck-tool-policy-deny-lineage"},
 		Route:   lipapi.RouteIntent{Selector: "openai:gpt-4"},
@@ -257,20 +254,19 @@ func TestExecutor_reftoolpolicy_proofBundle_deniesEmittedBlockedTool(t *testing.
 		ToolCatalogFilters: []toolcatalog.Filter{reftoolpolicy.NewToolCatalogFilter(cfg)},
 		ToolCallPolicies:   []toolpolicy.Policy{reftoolpolicy.NewToolCallPolicy(cfg)},
 	})
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "blocked"}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventToolCallStarted, ToolCallID: "call-1", ToolName: "blocked"}}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
@@ -306,35 +302,34 @@ func TestExecutor_usageObserverReceivesUsageDeltas(t *testing.T) {
 	obs := &captureUsage{}
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{UsageObserver: obs})
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{
-							Kind:             lipapi.EventUsageDelta,
-							InputTokens:      3,
-							OutputTokens:     5,
-							CacheReadTokens:  2,
-							CacheWriteTokens: 1,
-							ReasoningTokens:  4,
-							TotalTokens:      8,
-							CostNanoUnits:    9,
-							Currency:         "USD",
-							CostSource:       "estimated",
-							RawUsageJSON:     `{"usage":true}`,
-						},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{
+						Kind:             lipapi.EventUsageDelta,
+						InputTokens:      3,
+						OutputTokens:     5,
+						CacheReadTokens:  2,
+						CacheWriteTokens: 1,
+						ReasoningTokens:  4,
+						TotalTokens:      8,
+						CostNanoUnits:    9,
+						Currency:         "USD",
+						CostSource:       "estimated",
+						RawUsageJSON:     `{"usage":true}`,
+					},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
@@ -370,23 +365,22 @@ func TestExecutor_reftraffictranscript_usageLedgerCapturesAttemptLineage(t *test
 	ledger := reftraffictranscript.NewUsageLedger()
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{UsageObserver: ledger})
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 1},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 1},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
@@ -437,24 +431,23 @@ func TestExecutor_usageObserverReceivesEstimatedCostWhenProviderOmitsCost(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:                  st,
-		Bus:                    bus,
-		RuntimeSnapshot:        snap,
-		AccountingPriceCatalog: catalog,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventUsageDelta, InputTokens: 1_000_000, OutputTokens: 1_000_000},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.AccountingPriceCatalog = catalog
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventUsageDelta, InputTokens: 1_000_000, OutputTokens: 1_000_000},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{

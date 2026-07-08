@@ -1,12 +1,13 @@
-package standardplugins
+package runtimebundle
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -15,7 +16,7 @@ import (
 
 func TestBuildFeatureHooks_partialBundlesLeaveOtherChainsAbsent(t *testing.T) {
 	t.Parallel()
-	reg := NewRegistry()
+	reg := pluginreg.NewRegistry()
 	submitFacID := "test-fac-submit-" + strings.ReplaceAll(t.Name(), "/", "-")
 	toolFacID := "test-fac-tool-" + strings.ReplaceAll(t.Name(), "/", "-")
 
@@ -31,7 +32,12 @@ func TestBuildFeatureHooks_partialBundlesLeaveOtherChainsAbsent(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.RegisterFeature(toolFacID, featureToolReactorNoop); err != nil {
+	if err := reg.RegisterFeature(toolFacID, func(n yaml.Node) (lipfeature.FeatureBundle, error) {
+		return lipfeature.FeatureBundle{
+			SchemaVersion: lipfeature.SchemaVersionV1,
+			ToolReactors:  []sdk.ToolReactor{toolreactornoop.NewToolReactor()},
+		}, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,7 +45,7 @@ func TestBuildFeatureHooks_partialBundlesLeaveOtherChainsAbsent(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("{}"), &cfgNode); err != nil {
 		t.Fatal(err)
 	}
-	hookCfg, _, err := featurebundle.BuildFeatureHooks(reg, []lipsdk.Registration{
+	hookCfg, _, err := BuildFeatureHooks(reg, []lipsdk.Registration{
 		{Kind: lipsdk.PluginKindFeature, ID: "inst-submit", FactoryKind: submitFacID, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 		{Kind: lipsdk.PluginKindFeature, ID: "inst-tool", FactoryKind: toolFacID, Enabled: true, Config: lipsdk.ConfigPayload{Node: cfgNode}},
 	})

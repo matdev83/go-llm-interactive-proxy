@@ -21,26 +21,25 @@ func TestExecutor_candidateHealthSkipsUnhealthyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opened string
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(2),
-		CandidateHealth: policy.StaticUnhealthy{
-			"bad:m": {},
-		},
-		Backends: map[string]execbackend.Backend{
-			"bad": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					panic("unhealthy candidate must not open")
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(2)
+	ex.CandidateHealth = policy.StaticUnhealthy{
+		"bad:m": {},
+	}
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				panic("unhealthy candidate must not open")
 			},
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = cand.Primary.Backend + ":" + cand.Primary.Model
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+		},
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = cand.Primary.Backend + ":" + cand.Primary.Model
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}
@@ -68,13 +67,12 @@ func TestExecutor_allCandidatesUnhealthy_returnsErrNoEligibleCandidate(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             hooks.New(hooks.Config{}),
-		Rand:            routing.NewSeededRng(11),
-		CandidateHealth: policy.StaticUnhealthy{"arm1:m": {}, "arm2:m": {}},
-		Backends:        map[string]execbackend.Backend{},
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(11)
+	ex.CandidateHealth = policy.StaticUnhealthy{"arm1:m": {}, "arm2:m": {}}
+	ex.Backends = map[string]execbackend.Backend{}
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ContinuityKey: "no-eligible"},
 		Route:   lipapi.RouteIntent{Selector: "arm1:m|arm2:m"},

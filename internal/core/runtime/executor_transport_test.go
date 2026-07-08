@@ -21,29 +21,28 @@ func TestExecutor_transportExact_acceptsDeclaredSupport(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens int32
-	ex := &runtime.Executor{
-		Store:                   st,
-		Bus:                     hooks.New(hooks.Config{}),
-		TransportFallbackPolicy: lipapi.TransportFallbackExact,
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"stub": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
-					Operation: lipapi.OperationOpenAIChatCompletions,
-					Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
-				}),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opens, 1)
-					if call.Invocation.TransportMode != lipapi.TransportModeStreaming {
-						t.Fatalf("transport mode = %q", call.Invocation.TransportMode)
-					}
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.TransportFallbackPolicy = lipapi.TransportFallbackExact
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
+			}),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				atomic.AddInt32(&opens, 1)
+				if call.Invocation.TransportMode != lipapi.TransportModeStreaming {
+					t.Fatalf("transport mode = %q", call.Invocation.TransportMode)
+				}
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -80,22 +79,21 @@ func TestExecutor_transportExact_rejectsMissingSupport(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens int32
-	ex := &runtime.Executor{
-		Store:                   st,
-		Bus:                     hooks.New(hooks.Config{}),
-		TransportFallbackPolicy: lipapi.TransportFallbackExact,
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"stub": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
-					Operation: lipapi.OperationOpenAIChatCompletions,
-					Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
-				}),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opens, 1)
-					return nil, lipapi.ErrTransportReject
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.TransportFallbackPolicy = lipapi.TransportFallbackExact
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				atomic.AddInt32(&opens, 1)
+				return nil, lipapi.ErrTransportReject
 			},
 		},
 	}
@@ -129,24 +127,23 @@ func TestExecutor_transportCompatibility_preservesOmittedCaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens int32
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"legacy": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					atomic.AddInt32(&opens, 1)
-					if call.Invocation.TransportMode != lipapi.TransportModeNonStreaming {
-						t.Fatalf("transport mode = %q", call.Invocation.TransportMode)
-					}
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"legacy": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				atomic.AddInt32(&opens, 1)
+				if call.Invocation.TransportMode != lipapi.TransportModeNonStreaming {
+					t.Fatalf("transport mode = %q", call.Invocation.TransportMode)
+				}
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}

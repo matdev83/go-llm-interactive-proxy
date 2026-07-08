@@ -143,20 +143,19 @@ func NewStubExecutorWithSecureSession(t *testing.T, opts SecureSessionStubExecut
 			},
 		}
 	}
-	ex := &runtime.Executor{
-		Store:                                   lineageStore,
-		Bus:                                     bus,
-		RuntimeSnapshot:                         snap,
-		Rand:                                    rng,
-		Now:                                     nowFn,
-		Backends:                                be,
-		SecureSession:                           mgr,
-		SecureSessionRecorder:                   opts.SecureSessionRecorder,
-		SecureSessionRecordingMandatory:         opts.SecureSessionRecordingMandatory,
-		SessionDenialMapper:                     lipapidenial.MapToSessionDenial,
-		SecureSessionRequireWorkspaceID:         opts.SecureSessionRequireWorkspaceID,
-		SecureSessionWorkspaceResolveFailClosed: opts.SecureSessionWorkspaceResolveFailClosed,
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = lineageStore
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Rand = rng
+	ex.Now = nowFn
+	ex.Backends = be
+	ex.SecureSession = mgr
+	ex.SecureSessionRecorder = opts.SecureSessionRecorder
+	ex.SecureSessionRecordingMandatory = opts.SecureSessionRecordingMandatory
+	ex.SessionDenialMapper = lipapidenial.MapToSessionDenial
+	ex.SecureSessionRequireWorkspaceID = opts.SecureSessionRequireWorkspaceID
+	ex.SecureSessionWorkspaceResolveFailClosed = opts.SecureSessionWorkspaceResolveFailClosed
 	return ex
 }
 

@@ -82,14 +82,13 @@ func TestExecutor_prepareSubmitAndALeg_preRequestRunsBeforeRouteHint(t *testing.
 		PreRequestHandlers: []prerequest.Handler{prereqOrderSpy{order: &order}},
 		RouteHintProviders: []routehint.Provider{hint},
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                bus,
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(4200, 0).UTC() },
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(4200, 0).UTC() }
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-pre-route"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "pre-route-hint"},
@@ -127,14 +126,13 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_propagatesIsNewForNewT
 		Workspace:         workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 		RequestTransforms: []request.Transform{spy},
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                bus,
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(4000, 0).UTC() },
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(4000, 0).UTC() }
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-meta-new"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "meta-new-hint"},
@@ -179,14 +177,13 @@ func TestExecutor_prepareSubmitAndALeg_requestMetaSession_resumeTurnIsNotNew(t *
 		Workspace:         workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 		RequestTransforms: []request.Transform{spy},
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:              b2,
-		Bus:                bus,
-		RuntimeSnapshot:    snap,
-		SecureSession:      mgr,
-		Now:                func() time.Time { return time.Unix(4100, 0).UTC() },
-		SessionAuditPolicy: testSessionAuditPolicy(),
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(4100, 0).UTC() }
+	ex.SessionAuditPolicy = testSessionAuditPolicy()
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-meta-resume"})
 	call1 := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "meta-resume-hint"},

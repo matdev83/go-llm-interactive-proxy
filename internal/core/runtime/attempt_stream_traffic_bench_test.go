@@ -39,7 +39,8 @@ func benchRetryRecvForTrafficEmit() (*retryRecvStream, lipapi.Event, sdk.PartMet
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		TrafficObserver: nopBenchTrafficObserver{},
 	})
-	ex := &Executor{RuntimeSnapshot: snap}
+	ex := TestExecutor()
+	ex.RuntimeSnapshot = snap
 	s := &retryRecvStream{
 		executor: ex,
 		cand: routing.AttemptCandidate{

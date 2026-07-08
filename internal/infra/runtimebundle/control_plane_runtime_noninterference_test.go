@@ -77,13 +77,12 @@ func cpExecutor(t *testing.T, rt *controlPlaneRuntime, backends map[string]execb
 		be.Open = tr.wrap(id, be.Open)
 		backends[id] = be
 	}
-	ex := &runtime.Executor{
-		Store:    store,
-		Bus:      hooks.New(hooks.Config{}),
-		Backends: backends,
-		Rand:     routing.NewSeededRng(1),
-		Now:      func() time.Time { return time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC) },
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = backends
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Now = func() time.Time { return time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC) }
 	wireSecureSessionForTest(t, ex)
 	return ex, delegate, tr
 }

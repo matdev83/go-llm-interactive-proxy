@@ -22,25 +22,24 @@ func TestExecutor_concurrentExecute_sharedEmptyHooksBus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					_ = ctx
-					_ = call
-					_ = cand
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				_ = ctx
+				_ = call
+				_ = cand
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.WrapRandV2(randv2.New(randv2.NewPCG(99, 0))),
 	}
+	ex.Rand = routing.WrapRandV2(randv2.New(randv2.NewPCG(99, 0)))
 
 	const n = 64
 	var wg sync.WaitGroup
@@ -84,14 +83,13 @@ func TestExecutor_concurrentExecute_sharedRand_weighted(t *testing.T) {
 			{Kind: lipapi.EventResponseFinished},
 		}), nil
 	}
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Rand:  routing.WrapRandV2(r),
-		Backends: map[string]execbackend.Backend{
-			"a": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
-			"b": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
-		},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.WrapRandV2(r)
+	ex.Backends = map[string]execbackend.Backend{
+		"a": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
+		"b": {Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming), Open: open},
 	}
 	const n = 64
 	var wg sync.WaitGroup

@@ -54,15 +54,14 @@ func TestParallelRace_ParentContextCancelReturnsPromptlyWhileLegsBlock(t *testin
 		streamsMu sync.Mutex
 		streams   []*ignoreCtxBlockingStream
 	)
-	ex := &runtime.Executor{
-		Store: st,
-		Bus:   hooks.New(hooks.Config{}),
-		Backends: map[string]execbackend.Backend{
-			"a": blockingRecvBackend(&streams, &streamsMu),
-			"b": blockingRecvBackend(&streams, &streamsMu),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Backends = map[string]execbackend.Backend{
+		"a": blockingRecvBackend(&streams, &streamsMu),
+		"b": blockingRecvBackend(&streams, &streamsMu),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

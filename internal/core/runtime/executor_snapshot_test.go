@@ -23,31 +23,30 @@ func TestExecute_publishesRuntimeSnapshotOnContext(t *testing.T) {
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{Generation: 42})
 	var sawGen atomic.Int32
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             bus,
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					_ = call
-					_ = cand
-					rs := extensions.RequestRuntimeSnapshotFromContext(ctx)
-					if rs == nil {
-						t.Error("Open: want non-nil RequestRuntimeSnapshot on context")
-					} else {
-						sawGen.Store(int32(rs.Generation()))
-					}
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				_ = call
+				_ = cand
+				rs := extensions.RequestRuntimeSnapshotFromContext(ctx)
+				if rs == nil {
+					t.Error("Open: want non-nil RequestRuntimeSnapshot on context")
+				} else {
+					sawGen.Store(int32(rs.Generation()))
+				}
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-		Rand: routing.NewSeededRng(1),
 	}
+	ex.Rand = routing.NewSeededRng(1)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{

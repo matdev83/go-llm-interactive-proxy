@@ -24,22 +24,21 @@ func TestExecutorStreamRecovery_postOutputEOFEmitsWarningFinishNoRetry(t *testin
 		t.Fatal(err)
 	}
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store:          st,
-		Bus:            hooks.New(hooks.Config{}),
-		Rand:           routing.NewSeededRng(1),
-		StreamRecovery: streamrecovery.Config{Enabled: true, EmitWarning: true},
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventTextDelta, Delta: "partial"},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.StreamRecovery = streamrecovery.Config{Enabled: true, EmitWarning: true}
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventTextDelta, Delta: "partial"},
+				}), nil
 			},
 		},
 	}
@@ -78,28 +77,27 @@ func TestExecutorStreamRecovery_preOutputIdleCancelsAndFailsOver(t *testing.T) {
 	}
 	slow := &idleBlockingStream{}
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store:          st,
-		Bus:            hooks.New(hooks.Config{}),
-		Rand:           routing.NewSeededRng(1),
-		StreamRecovery: streamrecovery.Config{Enabled: true, IdleTimeout: 5 * time.Millisecond},
-		Backends: map[string]execbackend.Backend{
-			"slow": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return slow, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.StreamRecovery = streamrecovery.Config{Enabled: true, IdleTimeout: 5 * time.Millisecond}
+	ex.Backends = map[string]execbackend.Backend{
+		"slow": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return slow, nil
 			},
-			"fast": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+		},
+		"fast": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -134,18 +132,17 @@ func TestExecutorStreamRecovery_postOutputIdleEmitsWarningFinishNoRetry(t *testi
 		{Kind: lipapi.EventTextDelta, Delta: "partial"},
 	}}
 	var opens atomic.Int32
-	ex := &runtime.Executor{
-		Store:          st,
-		Bus:            hooks.New(hooks.Config{}),
-		Rand:           routing.NewSeededRng(1),
-		StreamRecovery: streamrecovery.Config{Enabled: true, IdleTimeout: 5 * time.Millisecond, EmitWarning: true},
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return idle, nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.StreamRecovery = streamrecovery.Config{Enabled: true, IdleTimeout: 5 * time.Millisecond, EmitWarning: true}
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return idle, nil
 			},
 		},
 	}

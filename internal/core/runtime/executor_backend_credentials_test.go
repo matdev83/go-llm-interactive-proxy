@@ -78,12 +78,11 @@ func TestExecutor_openAIResponses_candidateKeyStable_singleVsMultiKey(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		ex := &runtime.Executor{
-			Store:    st,
-			Bus:      hooks.New(hooks.Config{}),
-			Rand:     routing.NewSeededRng(7),
-			Backends: map[string]execbackend.Backend{openaibe.ID: be},
-		}
+		ex := runtime.TestExecutor()
+		ex.Store = st
+		ex.Bus = hooks.New(hooks.Config{})
+		ex.Rand = routing.NewSeededRng(7)
+		ex.Backends = map[string]execbackend.Backend{openaibe.ID: be}
 		call := &lipapi.Call{
 			Session: lipapi.SessionRef{ContinuityKey: continuityKey},
 			Route:   lipapi.RouteIntent{Selector: selector},
@@ -156,12 +155,11 @@ func TestExecutor_openAIResponses_attemptLineageOmitsCredentialMaterial(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(11),
-		Backends: map[string]execbackend.Backend{openaibe.ID: be},
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(11)
+	ex.Backends = map[string]execbackend.Backend{openaibe.ID: be}
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ContinuityKey: continuityKey},
 		Route:   lipapi.RouteIntent{Selector: selector},
@@ -272,12 +270,11 @@ func TestExecutor_openAIResponses_multiKeyPostOutputTruncatedStream_noThirdUpstr
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex := &runtime.Executor{
-		Store:    st,
-		Bus:      hooks.New(hooks.Config{}),
-		Rand:     routing.NewSeededRng(13),
-		Backends: map[string]execbackend.Backend{openaibe.ID: be},
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(13)
+	ex.Backends = map[string]execbackend.Backend{openaibe.ID: be}
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ContinuityKey: continuityKey},
 		Route:   lipapi.RouteIntent{Selector: selector},

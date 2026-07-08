@@ -66,19 +66,18 @@ func TestExecutor_downgrade_noEligibility_routeTraceUsesPostDowngradeFacts(t *te
 		t.Fatal(err)
 	}
 	trace := diag.NewRouteTraceBuffer(16)
-	ex := &runtime.Executor{
-		Store:           st,
-		Bus:             hooks.New(hooks.Config{}),
-		Rand:            routing.NewSeededRng(11),
-		RouteTrace:      trace,
-		CatalogResolver: downgradeRouteTraceCatalogResolver{},
-		// EligibilityResolver intentionally nil: regression covers facts refresh on this path.
-		Backends: map[string]execbackend.Backend{
-			"rb": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(11)
+	ex.RouteTrace = trace
+	ex.CatalogResolver = downgradeRouteTraceCatalogResolver{}
+	// EligibilityResolver intentionally nil = regression covers facts refresh on this path.
+	ex.Backends = map[string]execbackend.Backend{
+		"rb": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}

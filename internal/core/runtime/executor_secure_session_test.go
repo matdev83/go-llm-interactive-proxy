@@ -110,13 +110,12 @@ func TestExecutor_prepareSubmitAndALeg_secure_newSession_replacesForgedALeg(t *t
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:           b2,
-		Bus:             hooks.New(hooks.Config{}),
-		RuntimeSnapshot: snap,
-		SecureSession:   mgr,
-		Now:             func() time.Time { return time.Unix(1700, 0) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(1700, 0) }
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-z"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{
@@ -178,14 +177,13 @@ func TestExecutor_prepareSubmitAndALeg_secure_requireWorkspaceID_denies(t *testi
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                           b2,
-		Bus:                             hooks.New(hooks.Config{}),
-		RuntimeSnapshot:                 snap,
-		SecureSession:                   mgr,
-		SecureSessionRequireWorkspaceID: true,
-		Now:                             func() time.Time { return time.Unix(1900, 0) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SecureSessionRequireWorkspaceID = true
+	ex.Now = func() time.Time { return time.Unix(1900, 0) }
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-z"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "hint"},
@@ -220,14 +218,13 @@ func TestExecutor_prepareSubmitAndALeg_secure_workspaceFailClosed_skipsSubmitHoo
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		Workspace: workspace.NewStrictChain([]lipworkspace.Resolver{errWorkspaceResolver{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                                   b2,
-		Bus:                                     bus,
-		RuntimeSnapshot:                         snap,
-		SecureSession:                           mgr,
-		SecureSessionWorkspaceResolveFailClosed: true,
-		Now:                                     func() time.Time { return time.Unix(1950, 0) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SecureSessionWorkspaceResolveFailClosed = true
+	ex.Now = func() time.Time { return time.Unix(1950, 0) }
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-z"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "hint"},
@@ -259,13 +256,12 @@ func TestExecutor_prepareSubmitAndALeg_secure_invalidResumeIsDenial(t *testing.T
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:           b2,
-		Bus:             hooks.New(hooks.Config{}),
-		RuntimeSnapshot: snap,
-		SecureSession:   mgr,
-		Now:             func() time.Time { return time.Unix(1800, 0) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(1800, 0) }
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-z"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{
@@ -299,35 +295,34 @@ func TestExecutor_secureSession_failoverTwoOpens_memoryLatestTraceReflectsSecond
 	})
 	clock := time.Unix(2000, 0).UTC()
 	var capturedAuthoritative string
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:           b2,
-		Bus:             hooks.New(hooks.Config{}),
-		RuntimeSnapshot: snap,
-		SecureSession:   mgr,
-		Now:             func() time.Time { return clock },
-		Rand:            routing.NewSeededRng(2),
-		Backends: map[string]execbackend.Backend{
-			"bad": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
-				},
-			},
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if v, ok := execctx.FromContext(ctx); ok && v.Session.AuthoritativeSessionID != "" {
-						capturedAuthoritative = v.Session.AuthoritativeSessionID
-					}
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return clock }
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"bad": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, lipapi.RecoverablePreOutputError(errors.New("temp"))
 			},
 		},
-	})
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if v, ok := execctx.FromContext(ctx); ok && v.Session.AuthoritativeSessionID != "" {
+					capturedAuthoritative = v.Session.AuthoritativeSessionID
+				}
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-trace-2"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "hint-trace-2"},
@@ -371,29 +366,28 @@ func TestExecutor_secureSession_Open_recordsOutcomeMemory(t *testing.T) {
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
 	var capturedAuthoritative string
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:           b2,
-		Bus:             hooks.New(hooks.Config{}),
-		RuntimeSnapshot: snap,
-		SecureSession:   mgr,
-		Now:             func() time.Time { return time.Unix(2100, 0) },
-		Rand:            routing.NewSeededRng(3),
-		Backends: map[string]execbackend.Backend{
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					if v, ok := execctx.FromContext(ctx); ok {
-						capturedAuthoritative = v.Session.AuthoritativeSessionID
-					}
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.Now = func() time.Time { return time.Unix(2100, 0) }
+	ex.Rand = routing.NewSeededRng(3)
+	ex.Backends = map[string]execbackend.Backend{
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(ctx context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				if v, ok := execctx.FromContext(ctx); ok {
+					capturedAuthoritative = v.Session.AuthoritativeSessionID
+				}
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-	})
+	}
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: "user-outcome"})
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "hint-o"},
@@ -433,14 +427,13 @@ func TestExecutor_prepareSubmitAndALeg_syntheticLocalPrincipalWhenEnabled(t *tes
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                   b2,
-		Bus:                     hooks.New(hooks.Config{}),
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: true,
-		Now:                     func() time.Time { return time.Unix(2200, 0) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = true
+	ex.Now = func() time.Time { return time.Unix(2200, 0) }
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{
 			ClientSessionID: "c1",
@@ -482,14 +475,13 @@ func TestExecutor_prepareSubmitAndALeg_missingPrincipalWithoutSynthetic(t *testi
 	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                   b2,
-		Bus:                     hooks.New(hooks.Config{}),
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: false,
-		Now:                     func() time.Time { return time.Unix(2210, 0) },
-	})
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = false
+	ex.Now = func() time.Time { return time.Unix(2210, 0) }
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "c1"},
 		Messages: []lipapi.Message{{
@@ -518,28 +510,27 @@ func TestExecutor_Execute_unauthenticatedSyntheticPrincipal_reachesBackend(t *te
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
 	var opens atomic.Int32
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                   b2,
-		Bus:                     hooks.New(hooks.Config{}),
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: true,
-		Now:                     func() time.Time { return time.Unix(2300, 0) },
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventMessageStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = true
+	ex.Now = func() time.Time { return time.Unix(2300, 0) }
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-	})
+	}
 	ctx := context.Background()
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "unsynth"},
@@ -573,27 +564,26 @@ func TestExecutor_Execute_unauthenticatedNoSynthetic_deniedWithoutBackendOpen(t 
 		Workspace: workspace.NewResolverChain([]lipworkspace.Resolver{voidWS{}}),
 	})
 	var opens atomic.Int32
-	ex := setSecureSessionDenialMapper(&Executor{
-		Store:                   b2,
-		Bus:                     hooks.New(hooks.Config{}),
-		RuntimeSnapshot:         snap,
-		SecureSession:           mgr,
-		SyntheticLocalPrincipal: false,
-		Now:                     func() time.Time { return time.Unix(2310, 0) },
-		Rand:                    routing.NewSeededRng(1),
-		Backends: map[string]execbackend.Backend{
-			"ok": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opens.Add(1)
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseStarted},
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := setSecureSessionDenialMapper(TestExecutor())
+	ex.Store = b2
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.SecureSession = mgr
+	ex.SyntheticLocalPrincipal = false
+	ex.Now = func() time.Time { return time.Unix(2310, 0) }
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"ok": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opens.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
-	})
+	}
 	ctx := context.Background()
 	call := &lipapi.Call{
 		Session: lipapi.SessionRef{ClientSessionID: "nosynth"},
@@ -630,7 +620,8 @@ func (recorderFake) RecordPostHookStreamEvent(context.Context, app.StreamEventRe
 
 func TestExecutor_secureSessionRecorder_fieldAssignable(t *testing.T) {
 	t.Parallel()
-	ex := &Executor{SecureSessionRecorder: recorderFake{}}
+	ex := TestExecutor()
+	ex.SecureSessionRecorder = recorderFake{}
 	if ex.SecureSessionRecorder == nil {
 		t.Fatal("expected recorder")
 	}

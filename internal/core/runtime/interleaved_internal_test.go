@@ -149,11 +149,10 @@ func TestPersistCapturedMemo_ReplacesMemoAndDeletesPrevious(t *testing.T) {
 		t.Fatal(err)
 	}
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex := &Executor{
-		Store:             st,
-		MemoStore:         memoStore,
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "think"},
-	}
+	ex := TestExecutor()
+	ex.Store = st
+	ex.MemoStore = memoStore
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	scope := interleavedthinking.Scope(aLeg.ALegID)
 	state := interleavedstate.State{}
 
@@ -207,11 +206,10 @@ func TestPersistCapturedMemo_RollbackOnPersistFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	memoStore := interleavedthinking.NewMemoStore(4096)
-	ex := &Executor{
-		Store:             st,
-		MemoStore:         memoStore,
-		InterleavedConfig: interleavedthinking.ShapeConfig{Instructions: "think"},
-	}
+	ex := TestExecutor()
+	ex.Store = st
+	ex.MemoStore = memoStore
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "think"}
 	scope := interleavedthinking.Scope(aLeg.ALegID)
 	oldRef, err := memoStore.Put(ctx, scope, interleavedthinking.MemoState{Memo: "keep-me"})
 	if err != nil {

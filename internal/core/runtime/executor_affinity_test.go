@@ -49,13 +49,12 @@ func TestExecutorSessionAffinityBindsAfterOutputCommitAndReusesBackend(t *testin
 	}
 	affStore := memorystore.New()
 	opens := map[string]int{"a": 0, "b": 0}
-	ex := &runtime.Executor{
-		Store:         store,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          &sequenceRng{vals: []int{1, 0}},
-		AffinityStore: affStore,
-		Backends:      affinityTestBackends(opens, nil, "a"),
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = &sequenceRng{vals: []int{1, 0}}
+	ex.AffinityStore = affStore
+	ex.Backends = affinityTestBackends(opens, nil, "a")
 	clientID := uniqueSessionID(t)
 	call := affinityTestCall("{session_sticky}[weight=1]a:m^[weight=1]b:m", clientID)
 	stream, err := ex.Execute(context.Background(), call)
@@ -92,13 +91,12 @@ func TestExecutorClientAffinitySpansDistinctSessionsForPrincipal(t *testing.T) {
 	}
 	affStore := memorystore.New()
 	opens := map[string]int{"a": 0, "b": 0}
-	ex := &runtime.Executor{
-		Store:         store,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          &sequenceRng{vals: []int{1, 0}},
-		AffinityStore: affStore,
-		Backends:      affinityTestBackends(opens, nil, "a"),
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = &sequenceRng{vals: []int{1, 0}}
+	ex.AffinityStore = affStore
+	ex.Backends = affinityTestBackends(opens, nil, "a")
 	ctx := execview.WithPrincipal(context.Background(), execview.PrincipalView{ID: uniqueSessionID(t)})
 	for _, sessionID := range []string{"s1", "s2"} {
 		stream, err := ex.Execute(ctx, affinityTestCall("{client_sticky}[weight=1]a:m^[weight=1]b:m", sessionID))
@@ -122,14 +120,13 @@ func TestExecutorAffinityResetsUnhealthyBindingAndRebindsReplacement(t *testing.
 	}
 	affStore := memorystore.New()
 	opens := map[string]int{"a": 0, "b": 0}
-	ex := &runtime.Executor{
-		Store:           store,
-		Bus:             hooks.New(hooks.Config{}),
-		Rand:            routing.NewSeededRng(0),
-		AffinityStore:   affStore,
-		CandidateHealth: policy.StaticUnhealthy{"b:m": {}},
-		Backends:        affinityTestBackends(opens, nil, "a"),
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(0)
+	ex.AffinityStore = affStore
+	ex.CandidateHealth = policy.StaticUnhealthy{"b:m": {}}
+	ex.Backends = affinityTestBackends(opens, nil, "a")
 	clientID := uniqueSessionID(t)
 	resume := prepareSessionResume(t, ex, clientID)
 	key := affinity.Key{Scope: affinity.ScopeSession, ID: resume.authoritativeID}
@@ -167,14 +164,13 @@ func TestExecutorAffinityResetsContextIneligibleBinding(t *testing.T) {
 	}
 	affStore := memorystore.New()
 	opens := map[string]int{"small": 0, "large": 0}
-	ex := &runtime.Executor{
-		Store:                 store,
-		Bus:                   hooks.New(hooks.Config{}),
-		Rand:                  routing.NewSeededRng(0),
-		AffinityStore:         affStore,
-		RequestTokenEstimator: fixedRequestTokenEstimator{available: true, tokens: 11},
-		Backends:              affinityTestBackends(opens, nil, "small", "a"),
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(0)
+	ex.AffinityStore = affStore
+	ex.RequestTokenEstimator = fixedRequestTokenEstimator{available: true, tokens: 11}
+	ex.Backends = affinityTestBackends(opens, nil, "small", "a")
 	clientID := uniqueSessionID(t)
 	resume := prepareSessionResume(t, ex, clientID)
 	key := affinity.Key{Scope: affinity.ScopeSession, ID: resume.authoritativeID}
@@ -213,15 +209,14 @@ func TestExecutorAffinityDoesNotBindPreOutputFailures(t *testing.T) {
 	affStore := memorystore.New()
 	temp := errors.New("temporary")
 	opens := map[string]int{"bad": 0, "ok": 0}
-	ex := &runtime.Executor{
-		Store:         store,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          routing.NewSeededRng(0),
-		AffinityStore: affStore,
-		Backends: affinityTestBackends(opens, map[string]error{
-			"bad": lipapi.RecoverablePreOutputError(temp),
-		}, "a"),
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(0)
+	ex.AffinityStore = affStore
+	ex.Backends = affinityTestBackends(opens, map[string]error{
+		"bad": lipapi.RecoverablePreOutputError(temp),
+	}, "a")
 	clientID := uniqueSessionID(t)
 	call := affinityTestCall("{session_sticky}bad:m|ok:m", clientID)
 	stream, err := ex.Execute(context.Background(), call)
@@ -250,14 +245,13 @@ func TestExecutorAffinityRecordsRouteTrace(t *testing.T) {
 	affStore := memorystore.New()
 	opens := map[string]int{"a": 0, "b": 0}
 	trace := diag.NewRouteTraceBuffer(8)
-	ex := &runtime.Executor{
-		Store:         store,
-		Bus:           hooks.New(hooks.Config{}),
-		Rand:          &sequenceRng{vals: []int{1}},
-		AffinityStore: affStore,
-		RouteTrace:    trace,
-		Backends:      affinityTestBackends(opens, nil, "a"),
-	}
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = &sequenceRng{vals: []int{1}}
+	ex.AffinityStore = affStore
+	ex.RouteTrace = trace
+	ex.Backends = affinityTestBackends(opens, nil, "a")
 	stream, err := ex.Execute(context.Background(), affinityTestCall("{session_sticky}[weight=1]a:m^[weight=1]b:m", uniqueSessionID(t)))
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +280,8 @@ func TestExecutorAffinityRecordsRouteTrace(t *testing.T) {
 
 func TestExecutorAffinityMissingIdentityPolicy(t *testing.T) {
 	t.Parallel()
-	ex := &runtime.Executor{AffinityMissingIdentity: affinity.MissingIdentityFailClosed}
+	ex := runtime.TestExecutor()
+	ex.AffinityMissingIdentity = affinity.MissingIdentityFailClosed
 	_, _, err := ex.ResolveAffinityKeyForTest(routing.AffinitySession, execctx.Views{}, true)
 	if !errors.Is(err, affinity.ErrIdentityRequired) {
 		t.Fatalf("got %v want ErrIdentityRequired", err)

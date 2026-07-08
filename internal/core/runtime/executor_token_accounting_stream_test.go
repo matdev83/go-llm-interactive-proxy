@@ -323,27 +323,27 @@ func newStreamAccountingExecutor(t *testing.T, opts streamAccountingOptions) *ru
 			{Kind: lipapi.EventResponseFinished, FinishReason: "stop"},
 		}), nil
 	}
-	return &runtime.Executor{
-		Store:                           store,
-		Bus:                             hooks.New(hooks.Config{ResponsePartHooks: opts.ResponseHooks}),
-		Rand:                            routing.NewSeededRng(1),
-		StreamUsage:                     accountingstream.New(counter, accountingstream.Config{}),
-		Ledger:                          opts.Ledger,
-		TokenAccountingObservability:    obs,
-		LedgerWriteRequired:             opts.LedgerWriteRequired,
-		SecureSessionRecordingMandatory: false,
-		SecureSessionRecorder:           opts.SecureSessionRecorder,
-		Backends: map[string]execbackend.Backend{
-			"openai": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: open,
-			},
-			"other": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: open,
-			},
+	ex := runtime.TestExecutor()
+	ex.Store = store
+	ex.Bus = hooks.New(hooks.Config{ResponsePartHooks: opts.ResponseHooks})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
+	ex.Ledger = opts.Ledger
+	ex.TokenAccountingObservability = obs
+	ex.LedgerWriteRequired = opts.LedgerWriteRequired
+	ex.SecureSessionRecordingMandatory = false
+	ex.SecureSessionRecorder = opts.SecureSessionRecorder
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: open,
+		},
+		"other": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: open,
 		},
 	}
+	return ex
 }
 
 type failingLedger struct{ err error }

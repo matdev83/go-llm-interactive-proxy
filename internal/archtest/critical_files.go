@@ -38,14 +38,12 @@ type CriticalFileBudget struct {
 // group fields without re-bloating the flat bag (F-06).
 //
 // executor.go is a special case: the 416-line figure is the pre-extraction size.
-// After arch review Phase 4 Task 4.3 extracted the RequestPreparer (phases 1-9,
-// 62 lines of validation/snapshot/secure-session/tracing/submit/A-leg/lifecycle/
-// exec-views/route-prefs) into executor_prepare_request.go, the file is ~355 lines.
-// The 380-line budget accommodates the reduced scope and leaves headroom for
-// the remaining Execute body (route planning + attempt loop + stream assembly),
-// which is already well-factored via tryPlanOpenOnce and other helper methods.
+// After arch review Phase 4 (Tasks 4.2-4.6) grouped executor fields, extracted
+// buildRoutePlan/openInitialAttempt/assembleExecutorStream collaborators, and
+// slimmed Execute to a delegate-only entrypoint (~112 lines). The 150-line budget
+// locks the reduction and prevents re-bloat.
 var CriticalFileBudgets = []CriticalFileBudget{
-	{Path: "internal/core/runtime/executor.go", Max: 380},
+	{Path: "internal/core/runtime/executor.go", Max: 150},
 	{Path: "internal/infra/runtimebundle/build.go", Max: 200},
 	{Path: "internal/infra/runtimebundle/options.go", Max: 200},
 	{Path: "internal/standardplugins/standard_table.go", Max: 320},

@@ -16,7 +16,7 @@ Stage two review ([`stage2_code_review.md`](../../.kiro/specs/archive/go-core-re
    - `internal/stdhttp`
    - `internal/infra/runtimebundle`
 
-2. **No `init()` in the standard bundle registration path** — Production registration code under `internal/pluginreg` and `cmd/lipstd` must not use `func init()`. The standard binary should own an explicit `*pluginreg.Registry` (`NewRegistry` + `InstallStandardBundleOn(reg)` + validation) and thread that registry into `runtimebundle.Build` / HTTP wiring. Composition roots and wiring layers must not depend on package-level default registry state (see ADR 0001 and `internal/archtest`). Test-only `init()` in `*_test.go` remains allowed.
+2. **No `init()` in the standard bundle registration path** — Production registration code under `internal/pluginreg`, `internal/standardplugins`, and `cmd/lipstd` must not use `func init()`. The standard binary should own an explicit `*pluginreg.Registry` (`NewRegistry` + `InstallStandardBundleOn(reg)` + validation) and thread that registry into `runtimebundle.Build` / HTTP wiring. Composition roots and wiring layers must not depend on package-level default registry state (see ADR 0001 and `internal/archtest`). Test-only `init()` in `*_test.go` remains allowed.
 
 3. **Core import boundary** — `internal/core` must not depend on `internal/plugins/...` (enforced by `go list` dependency tests in `internal/core/runtime`).
 

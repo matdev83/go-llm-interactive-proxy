@@ -84,8 +84,11 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ex := TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
 	s := &retryRecvStream{
-		executor: &Executor{Store: st, Bus: bus},
+		executor: ex,
 		bus:      bus,
 		baseline: lipapi.Call{
 			Route:    lipapi.RouteIntent{Selector: "openai:gpt-4"},

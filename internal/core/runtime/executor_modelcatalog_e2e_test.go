@@ -44,21 +44,20 @@ func TestExecutor_catalogNoMatch_opensWithBackendCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opened bool
-	ex := &runtime.Executor{
-		Store:               st,
-		Bus:                 hooks.New(hooks.Config{}),
-		Rand:                routing.NewSeededRng(1),
-		EligibilityResolver: modelcatalog.NewEligibilityResolver(modelcatalog.DefaultSizeEstimator{}),
-		CatalogResolver:     noMatchCatalogResolver{},
-		Backends: map[string]execbackend.Backend{
-			"be": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					opened = true
-					return lipapi.NewFixedEventStream([]lipapi.Event{
-						{Kind: lipapi.EventResponseFinished},
-					}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.EligibilityResolver = modelcatalog.NewEligibilityResolver(modelcatalog.DefaultSizeEstimator{})
+	ex.CatalogResolver = noMatchCatalogResolver{}
+	ex.Backends = map[string]execbackend.Backend{
+		"be": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened = true
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
 			},
 		},
 	}
@@ -109,18 +108,17 @@ func TestExecutor_sequentialExecutes_seeNewCatalogGenerations(t *testing.T) {
 		t.Fatal(err)
 	}
 	sgr := &snapshotGenResolver{}
-	ex := &runtime.Executor{
-		Store:               st,
-		Bus:                 hooks.New(hooks.Config{}),
-		Rand:                routing.NewSeededRng(1),
-		EligibilityResolver: modelcatalog.NewEligibilityResolver(modelcatalog.DefaultSizeEstimator{}),
-		CatalogResolver:     sgr,
-		Backends: map[string]execbackend.Backend{
-			"be": {
-				Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
-				Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-					return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
-				},
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.Rand = routing.NewSeededRng(1)
+	ex.EligibilityResolver = modelcatalog.NewEligibilityResolver(modelcatalog.DefaultSizeEstimator{})
+	ex.CatalogResolver = sgr
+	ex.Backends = map[string]execbackend.Backend{
+		"be": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
 			},
 		},
 	}

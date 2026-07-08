@@ -50,15 +50,15 @@ func phase6ExecutorWithObservers(t *testing.T, uobs usage.Observer, tobs sdktraf
 		UsageObserver:   uobs,
 		TrafficObserver: tobs,
 	})
-	return &runtime.Executor{
-		Store:           st,
-		Bus:             hooks.New(hooks.Config{}),
-		RuntimeSnapshot: snap,
-		Backends: map[string]execbackend.Backend{
-			"openai": phase6BackendOpenCapture(openCtx, opens),
-		},
-		Rand: routing.NewSeededRng(1),
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = hooks.New(hooks.Config{})
+	ex.RuntimeSnapshot = snap
+	ex.Backends = map[string]execbackend.Backend{
+		"openai": phase6BackendOpenCapture(openCtx, opens),
 	}
+	ex.Rand = routing.NewSeededRng(1)
+	return ex
 }
 
 // TestPhase6_streamingAndNonStreamingCarrySameScope proves the authoritative scope visible at the
