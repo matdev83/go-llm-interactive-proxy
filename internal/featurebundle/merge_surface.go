@@ -1,8 +1,6 @@
 package featurebundle
 
 import (
-	"slices"
-
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -43,9 +41,40 @@ type MergedFeatureSurface struct {
 	TrafficRedactors       []traffic.Redactor
 }
 
-// MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
-// It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
-func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
+// Append concatenates all fields from bundle b into the receiver. This is the single
+// merge point: every new FeatureBundle field requires exactly one append line here.
+func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
+	m.SubmitHooks = append(m.SubmitHooks, b.SubmitHooks...)
+	m.RequestPartHooks = append(m.RequestPartHooks, b.RequestPartHooks...)
+	m.ResponsePartHooks = append(m.ResponsePartHooks, b.ResponsePartHooks...)
+	m.ToolReactors = append(m.ToolReactors, b.ToolReactors...)
+	m.Lifecycles = append(m.Lifecycles, b.Lifecycles...)
+	m.SessionOpeners = append(m.SessionOpeners, b.SessionOpeners...)
+	m.WorkspaceResolvers = append(m.WorkspaceResolvers, b.WorkspaceResolvers...)
+	m.ToolCatalogFilters = append(m.ToolCatalogFilters, b.ToolCatalogFilters...)
+	m.ToolCallPolicies = append(m.ToolCallPolicies, b.ToolCallPolicies...)
+	m.RequestTransforms = append(m.RequestTransforms, b.RequestTransforms...)
+	m.PreRequestHandlers = append(m.PreRequestHandlers, b.PreRequestHandlers...)
+	m.RouteHintProviders = append(m.RouteHintProviders, b.RouteHintProviders...)
+	m.CompletionGates = append(m.CompletionGates, b.CompletionGates...)
+	m.TrafficObservers = append(m.TrafficObservers, b.TrafficObservers...)
+	m.UsageObservers = append(m.UsageObservers, b.UsageObservers...)
+	m.RawCaptureSinks = append(m.RawCaptureSinks, b.RawCaptureSinks...)
+	m.TrafficRedactors = append(m.TrafficRedactors, b.TrafficRedactors...)
+}
+
+// MergeBundles concatenates one or more FeatureBundles into a single MergedFeatureSurface,
+// preserving bundle order across all slice fields.
+func MergeBundles(bundles ...lipfeature.FeatureBundle) MergedFeatureSurface {
+	var out MergedFeatureSurface
+	for _, b := range bundles {
+		out.Append(b)
+	}
+	return out
+}
+
+// buildEnabledFeatureBundles builds FeatureBundles from enabled feature registrations in order.
+func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.Registration) ([]lipfeature.FeatureBundle, error) {
 	nFeat := 0
 	for _, regEntry := range registrations {
 		if regEntry.Kind == lipsdk.PluginKindFeature && regEntry.Enabled {
@@ -60,84 +89,19 @@ func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registr
 		factoryKey := regEntry.RegistryFactoryKey()
 		b, err := reg.BuildFeatureBundle(factoryKey, regEntry.Config.Node)
 		if err != nil {
-			return MergedFeatureSurface{}, err
+			return nil, err
 		}
 		bundles = append(bundles, b)
 	}
-	var submitLen, reqLen, respLen, toolLen, lifeLen, openLen, wsLen, catLen, polLen, rtxLen, preLen, rhLen, cgLen int
-	var trafficObsLen, usageObsLen, rawLen, redLen int
-	for _, b := range bundles {
-		submitLen += len(b.SubmitHooks)
-		reqLen += len(b.RequestPartHooks)
-		respLen += len(b.ResponsePartHooks)
-		toolLen += len(b.ToolReactors)
-		lifeLen += len(b.Lifecycles)
-		openLen += len(b.SessionOpeners)
-		wsLen += len(b.WorkspaceResolvers)
-		catLen += len(b.ToolCatalogFilters)
-		polLen += len(b.ToolCallPolicies)
-		rtxLen += len(b.RequestTransforms)
-		preLen += len(b.PreRequestHandlers)
-		rhLen += len(b.RouteHintProviders)
-		cgLen += len(b.CompletionGates)
-		trafficObsLen += len(b.TrafficObservers)
-		usageObsLen += len(b.UsageObservers)
-		rawLen += len(b.RawCaptureSinks)
-		redLen += len(b.TrafficRedactors)
+	return bundles, nil
+}
+
+// MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
+// It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
+func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
+	bundles, err := buildEnabledFeatureBundles(reg, registrations)
+	if err != nil {
+		return MergedFeatureSurface{}, err
 	}
-	submitHooks := slices.Grow([]sdk.SubmitHook(nil), submitLen)
-	reqHooks := slices.Grow([]sdk.RequestPartHook(nil), reqLen)
-	respHooks := slices.Grow([]sdk.ResponsePartHook(nil), respLen)
-	toolHooks := slices.Grow([]sdk.ToolReactor(nil), toolLen)
-	lifes := slices.Grow([]lipplugin.Lifecycle(nil), lifeLen)
-	openers := slices.Grow([]session.Opener(nil), openLen)
-	resolvers := slices.Grow([]workspace.Resolver(nil), wsLen)
-	catalog := slices.Grow([]toolcatalog.Filter(nil), catLen)
-	policies := slices.Grow([]toolpolicy.Policy(nil), polLen)
-	transforms := slices.Grow([]request.Transform(nil), rtxLen)
-	preReqs := slices.Grow([]prerequest.Handler(nil), preLen)
-	routeHints := slices.Grow([]routehint.Provider(nil), rhLen)
-	compGates := slices.Grow([]completion.Gate(nil), cgLen)
-	trafficObs := slices.Grow([]traffic.Observer(nil), trafficObsLen)
-	usageObs := slices.Grow([]usage.Observer(nil), usageObsLen)
-	rawSinks := slices.Grow([]traffic.RawCaptureSink(nil), rawLen)
-	redactors := slices.Grow([]traffic.Redactor(nil), redLen)
-	for _, b := range bundles {
-		submitHooks = append(submitHooks, b.SubmitHooks...)
-		reqHooks = append(reqHooks, b.RequestPartHooks...)
-		respHooks = append(respHooks, b.ResponsePartHooks...)
-		toolHooks = append(toolHooks, b.ToolReactors...)
-		lifes = append(lifes, b.Lifecycles...)
-		openers = append(openers, b.SessionOpeners...)
-		resolvers = append(resolvers, b.WorkspaceResolvers...)
-		catalog = append(catalog, b.ToolCatalogFilters...)
-		policies = append(policies, b.ToolCallPolicies...)
-		transforms = append(transforms, b.RequestTransforms...)
-		preReqs = append(preReqs, b.PreRequestHandlers...)
-		routeHints = append(routeHints, b.RouteHintProviders...)
-		compGates = append(compGates, b.CompletionGates...)
-		trafficObs = append(trafficObs, b.TrafficObservers...)
-		usageObs = append(usageObs, b.UsageObservers...)
-		rawSinks = append(rawSinks, b.RawCaptureSinks...)
-		redactors = append(redactors, b.TrafficRedactors...)
-	}
-	return MergedFeatureSurface{
-		SubmitHooks:        submitHooks,
-		RequestPartHooks:   reqHooks,
-		ResponsePartHooks:  respHooks,
-		ToolReactors:       toolHooks,
-		Lifecycles:         lifes,
-		SessionOpeners:     openers,
-		WorkspaceResolvers: resolvers,
-		ToolCatalogFilters: catalog,
-		ToolCallPolicies:   policies,
-		RequestTransforms:  transforms,
-		PreRequestHandlers: preReqs,
-		RouteHintProviders: routeHints,
-		CompletionGates:    compGates,
-		TrafficObservers:   trafficObs,
-		UsageObservers:     usageObs,
-		RawCaptureSinks:    rawSinks,
-		TrafficRedactors:   redactors,
-	}, nil
+	return MergeBundles(bundles...), nil
 }
