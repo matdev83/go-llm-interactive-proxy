@@ -2,15 +2,15 @@
 
 ## Introduction
 
-The usage, quota, rate, and budget authority feature turns LLM Interactive Proxy token accounting from passive measurement into enforceable operator control. Operators and service owners running the proxy as an enterprise gateway need to prevent runaway spend, enforce tenant/project/user allowances, throttle abusive or accidental traffic, and explain enforcement outcomes through the same safe evidence model used for sessions, attempts, usage, policy decisions, and audit records.
+The usage, quota, rate, and budget authority feature turns LLM Interactive Proxy token accounting from passive measurement into enforceable operator control. Operators and service owners running the proxy in local or centralized enterprise deployments need to prevent runaway spend, enforce tenant/project/user allowances, throttle abusive or accidental traffic, and explain enforcement outcomes through the same safe evidence model used for sessions, attempts, usage, policy decisions, and audit records.
 
 Today the Go runtime can count tokens, reconcile usage planes, estimate cost from pricing data, persist token-accounting ledger facts, expose safe principal/scope attribution, emit policy decision evidence, and query control-plane lifecycle records. It does not yet enforce spend budgets, token/request quotas, rate windows, or usage reservations. This feature defines the user-observable behavior required for enforceable accounting authority while preserving streaming-first execution, protocol compatibility, B2BUA lineage, safe attribution, and explicit fail-open/fail-closed posture.
 
 ## Boundary Context
 
-- **In scope**: scope-attributed usage aggregation, configured quota windows, configured rate windows, spend budgets and spend caps, preflight reservation and admission outcomes, post-stream reconciliation, estimated-vs-authoritative usage handling, concurrency-safe enforcement behavior, operator-visible readiness/degraded states, and policy/control-plane evidence for allowed, denied, clamped, reserved, reconciled, and unavailable accounting outcomes.
+- **In scope**: scope-attributed usage breakdowns, configured quota windows, configured rate windows, spend budgets and spend caps, preflight reservation and admission outcomes, post-stream reconciliation, estimated-vs-authoritative usage handling, concurrency-safe enforcement behavior, operator-visible readiness/degraded states, and policy/control-plane evidence for allowed, denied, clamped, reserved, reconciled, and unavailable accounting outcomes.
 - **Out of scope**: invoices, payment collection, provider billing integration, marketplace billing, OAuth/SAML/SCIM provisioning, user-directory management, web administration UI, reporting charts, PII/prompt-injection/content-safety policy engines, and forwarding budget or quota state to backend providers or client protocols by default.
-- **Adjacent expectations**: principal/scope attribution supplies safe grouping dimensions; admission-policy decision semantics supply stable allow/deny/annotate evidence; control-plane persistence and query supply durable evidence and historical windows; token accounting supplies usage and cost inputs; future admin/provisioning features may manage rules but are not required for this feature to enforce configured rules.
+- **Adjacent expectations**: principal/scope attribution supplies safe grouping dimensions; admission-policy decision semantics supply stable allow/deny/annotate evidence; control-plane persistence and query supply durable evidence and historical windows; token accounting supplies usage and cost inputs; future admin/provisioning features may manage rules but are not required for this feature to enforce configured rules; provider-local quota headers or credential cooldowns remain provider-adapter facts unless explicitly projected into proxy-level authority evidence.
 - **Revalidation triggers**: request admission timing, token accounting, usage observers, policy decision evidence, control-plane usage queries, secure-session authority, B2BUA attempt lineage, cancellation billing markers, startup security posture, streaming behavior, and no-retry-after-first-output semantics must be revalidated when this feature changes enforcement behavior.
 
 ## Requirements
@@ -26,8 +26,8 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 5. The LLM Interactive Proxy shall not use raw bearer tokens, API keys, OAuth tokens, resume tokens, raw transport headers, or unvetted claims as accounting authority dimensions.
 6. When multiple accounting rules match the same request, the LLM Interactive Proxy shall make the set of matched rule identifiers and selected enforcement outcome visible in operator evidence.
 
-### Requirement 2: Usage Aggregation and Accounting State
-**Objective:** As an operator, I want usage to be aggregated by safe business dimensions and time windows, so that enforcement decisions and usage views reflect the same accounting state.
+### Requirement 2: Usage Breakdown and Accounting State
+**Objective:** As an operator, I want usage to be broken down by safe business dimensions and time windows, so that enforcement decisions and usage views reflect the same accounting state.
 
 #### Acceptance Criteria
 1. When usage is recorded for a request or backend attempt, the LLM Interactive Proxy shall make token, request, and cost dimensions available for aggregation by supported safe scope, backend, model, route, accounting plane, and time-window dimensions.
@@ -36,6 +36,7 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 4. When multiple usage planes are available for the same request, the LLM Interactive Proxy shall identify which usage plane is used for enforceable accounting and which planes remain advisory evidence.
 5. When provider-reported usage, local estimated usage, reserved usage, and reconciled usage differ, the LLM Interactive Proxy shall preserve enough operator evidence to explain the selected enforceable amount.
 6. If no matching usage exists for a valid aggregation query, the LLM Interactive Proxy shall return an empty or zero result with a recorded availability state rather than inventing usage.
+7. When historical usage totals and live enforcement state are both available, the LLM Interactive Proxy shall distinguish historical aggregates from remaining-limit authority so query consumers do not treat advisory evidence as active enforcement state.
 
 ### Requirement 3: Quota Window Enforcement
 **Objective:** As a service owner, I want token and request quotas over time windows, so that teams and users cannot exceed configured allowances.
@@ -83,6 +84,7 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 6. Where the request estimate is unavailable, invalid, or outside supported accounting dimensions, the LLM Interactive Proxy shall apply the matching rule's configured estimate-unavailable behavior.
 7. When no strict accounting rule requires reservation, the LLM Interactive Proxy shall not create a misleading enforceable reservation while still allowing advisory accounting evidence to be recorded.
 8. When the LLM Interactive Proxy estimates request size for route planning, candidate eligibility, or diagnostics without committing backend execution, the LLM Interactive Proxy shall not create, consume, or mutate quota, budget, rate, or spend reservations.
+9. When a preflight admission check reads existing usage or reservation state, the LLM Interactive Proxy shall report whether the decision used live enforceable state, historical evidence, estimated state, or unavailable state.
 
 ### Requirement 7: Post-Stream Reconciliation and Reservation Settlement
 **Objective:** As an operator, I want reserved usage to be reconciled with actual usage, so that accounting windows remain accurate after streaming, cancellation, and provider finalization.
@@ -95,6 +97,8 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 5. If usage reconstruction fails after client-visible output has started, the LLM Interactive Proxy shall record the accounting failure without silently retrying or replacing the committed backend attempt.
 6. When final provider-reported usage arrives after estimated usage was used for an initial settlement, the LLM Interactive Proxy shall preserve both the prior estimate and the final authoritative adjustment in operator evidence.
 7. If no reservation exists for a request that produces usage, the LLM Interactive Proxy shall still record usage evidence and update applicable accounting windows according to configured enforcement behavior.
+8. If settlement is retried for the same logical request and backend attempt, the LLM Interactive Proxy shall avoid double-counting usage, spend, released reservations, or overage evidence.
+9. When a backend attempt loses a race or is swallowed before client-visible output, the LLM Interactive Proxy shall release, settle, or mark any associated reservation according to configured accounting rules without attributing surfaced usage to that non-surfaced attempt.
 
 ### Requirement 8: Estimated, Authoritative, and Unavailable Accounting Authority
 **Objective:** As a platform operator, I want enforcement to distinguish estimated and authoritative usage, so that policy posture is explicit when exact provider data is unavailable.
@@ -131,6 +135,7 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 7. While accounting authority is disabled, the LLM Interactive Proxy shall preserve existing token accounting and request execution behavior without applying quota, rate, or budget enforcement.
 8. When accounting authority rules are configured, the LLM Interactive Proxy shall validate rule identifiers, scope dimensions, time windows, limits, currencies, authority requirements, and failure behavior before serving protected traffic.
 9. If strict accounting authority requires atomic window or reservation behavior that the active backing capability cannot provide, the LLM Interactive Proxy shall report the authority as unavailable or fail closed according to configured startup posture rather than silently downgrading strict enforcement.
+10. Where accounting authority is enabled with an advisory-only backing capability, the LLM Interactive Proxy shall expose that enforcement is advisory rather than strict before operators rely on it.
 
 ### Requirement 11: Concurrent Requests, Attempts, and Streaming Invariants
 **Objective:** As a client and operator, I want enforcement to stay correct under concurrent traffic and multi-attempt routing, so that accounting controls do not corrupt streaming or lineage behavior.
@@ -168,3 +173,4 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 5. The LLM Interactive Proxy shall not implement PII detection, prompt-injection detection, harmful-content detection, dangerous-tool policy, or other content-safety policy engines as part of this feature.
 6. The LLM Interactive Proxy shall not forward accounting rule definitions, budget state, quota state, rate state, or control-plane evidence to backend providers or client-facing protocol responses by default.
 7. The LLM Interactive Proxy shall preserve existing routing, capability negotiation, secure-session authority, protocol translation, and streaming behavior unless an accounting decision explicitly denies, clamps, reserves, or reports advisory evidence at a legal lifecycle position.
+8. The LLM Interactive Proxy shall not treat backend-provider quota headers, provider account cooldowns, or provider-specific rate-limit metadata as proxy-level tenant, project, department, user, or budget authority unless an explicit safe mapping is configured.

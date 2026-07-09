@@ -251,3 +251,352 @@ Key design decisions to make early:
 4. Executor integration points for preflight admission and post-stream settlement.
 5. Evidence/query model for rule decisions, remaining limits, reserved amounts, and reconciliations.
 6. Startup/degraded behavior for strict vs advisory accounting authority.
+
+---
+
+# Implementation Gap Analysis Refresh: Usage, Quota, Rate, and Budget Authority
+
+Generated: 2026-07-08T23:55:00+02:00
+
+## Status
+
+- Requirements source: `.kiro/specs/usage-quota-rate-budget-authority/requirements.md`
+- Metadata source: `.kiro/specs/usage-quota-rate-budget-authority/spec.json`
+- Requirements approval state: generated but not approved (`approvals.requirements.approved=false`). This analysis proceeds because gap validation can inform final requirement approval and design.
+- Analysis scope: brownfield implementation gap against the current Go codebase after principal/scope, admission-policy decision, and control-plane event-ledger foundations landed.
+
+## Current State Investigation
+
+### Existing Foundations
+
+1. **Token counting and model-limit preflight exist**
+   - `internal/core/tokenaccounting/preflight/preflight.go:37` defines preflight configuration for max input, max output, context limits, strict/advisory posture, and max-output clamping.
+   - `internal/core/tokenaccounting/preflight/preflight.go:76` evaluates token counts before an attempt and returns allow/deny/warning/clamp decisions.
+   - `internal/core/runtime/executor_open_attempt.go:328` runs this token preflight before route-attempt acquisition and backend open.
+   - Gap: this is not a quota/rate/budget authority. It has no rule matching by scope, no windows, no reservation, no budget state, and no remaining-limit query model.
+
+2. **The same preflight checker is used for side-effect-free routing estimates**
+   - `internal/core/runtime/executor_open_attempt.go:559` calls `Preflight.Check` to estimate request size for routing constraints.
+   - Requirement 6.8 says routing estimates must not create, consume, or mutate quota, budget, rate, or spend reservations.
+   - Constraint: accounting authority must keep estimate/check operations separate from side-effectful reservation or admission state changes.
+
+3. **Token accounting ledger and stream reconstruction exist**
+   - `internal/core/tokenaccounting/ledger/ledger.go:12` defines per-request/per-attempt usage ledger records by usage plane.
+   - `internal/core/runtime/attempt_stream.go:931` records reconstructed/final usage events into the ledger after stream processing.
+   - `internal/core/runtime/attempt_stream.go:988` records partial token-accounting evidence for unavailable/failure paths.
+   - Gap: the ledger is append/list-oriented usage evidence. It does not provide atomic counters, reservation lifecycle, window reset behavior, spend state, or remaining-limit authority.
+
+4. **Cost estimation exists but not spend enforcement**
+   - `internal/core/accounting/accounting.go:21` defines token usage and provider cost inputs.
+   - `internal/core/accounting/accounting.go:124` estimates cost from provider-reported cost or configured model pricing.
+   - Gap: no configured budget rules, spend windows, currency conversion posture, budget reservations, or strict/advisory budget decisions exist.
+
+5. **Safe scope attribution exists and is suitable for rule dimensions**
+   - The principal/scope foundation provides `pkg/lipsdk/scope` and request-context scope snapshots.
+   - Control-plane query contracts carry presence-aware scope filters in `pkg/lipsdk/controlplane/query.go:41`.
+   - Gap: no accounting rule matcher consumes these dimensions to decide quota/rate/budget outcomes.
+
+6. **Policy decision vocabulary and observers exist**
+   - `pkg/lipsdk/policydecision/types.go:10` defines allow/deny/skip/error outcomes.
+   - `pkg/lipsdk/policydecision/types.go:52` defines fail-open/fail-closed behavior.
+   - `pkg/lipsdk/policydecision/record.go:14` defines safe decision evidence with trace, A-leg/B-leg, attempt, stage, outcome, effect, reason, client category/message, and scope.
+   - Gap: there is no accounting-specific provider/service producing quota/rate/budget decisions or reason taxonomy through this vocabulary.
+
+7. **Control-plane event and query substrate exists**
+   - `pkg/lipsdk/controlplane/details.go:108` defines usage detail with token, cost, accounting authority, and cost-source fields.
+   - `pkg/lipsdk/controlplane/query.go:89` defines usage queries and `pkg/lipsdk/controlplane/query.go:99` defines usage aggregate queries.
+   - `internal/core/controlplane/ports.go:13` defines append/query/retention/readiness ports for the event ledger.
+   - `internal/infra/controlplane/observers/usage_observer.go:10` records usage observations into control-plane evidence and is intentionally fail-open.
+   - `internal/infra/controlplane/observers/policy_observer.go:10` records policy decisions into control-plane evidence and is intentionally fail-open.
+   - Gap: current control-plane detail/query shapes can show usage and policy facts, but not current remaining quota/budget/rate state, reserved amounts, settlement adjustments, reset/retry context, overage, or accounting rule identity as first-class accounting authority views.
+
+8. **Runtime construction has accounting grouping but no authority seam**
+   - `internal/core/runtime/executor_config.go:73` groups token-accounting admission, stream reconstruction, ledger hooks, and admin count service under `AccountingRuntime`.
+   - `internal/infra/runtimebundle/token_accounting.go:37` builds token counters, preflight, stream usage reconstruction, memory/durable ledger, observability, and admin count service.
+   - Gap: no executor field or runtimebundle builder exists for an accounting authority admission/reservation/settlement service.
+
+9. **Config exists for passive accounting, not authority rules**
+   - `internal/core/config/model.go:46` defines accounting config for enabled/mode/count timeout/tokenizer/preflight/ledger/admin/observability/strict authoritative/pricing.
+   - There are no quota, rate, allowance, spend-cap, budget, reservation, or authority-rule config fields.
+   - Existing control-plane tests intentionally keep enterprise enforcement fields out of `ControlPlaneConfig`.
+
+10. **Only provider-specific quota/rate-like code exists**
+    - `internal/plugins/backends/openaicodex/managed_oauth_quota.go:11` persists Codex quota headers for managed OAuth accounts.
+    - `internal/plugins/backends/openaicodex/managed_oauth_store.go:173` marks a Codex account rate-limited for backend credential selection.
+    - Constraint: these are backend-local provider-account behaviors and should not be mistaken for proxy-level scope-attributed quota/rate/budget enforcement.
+
+## Requirement-to-Asset Map
+
+| Requirement | Existing assets | Gap tag | Notes |
+| --- | --- | --- | --- |
+| 1. Scope-attributed accounting authority | PrincipalScopeView, control-plane scope filters, request scope propagation | Missing | Need rule matcher over safe scope/backend/model/route/label dimensions and known/unknown semantics. |
+| 2. Usage breakdown and accounting state | token ledger, control-plane UsageRow/UsageAggregate, cost estimation | Partial / Constraint | Historical usage exists; live authority state, reservations, remaining limits, and authority selection do not. |
+| 3. Quota window enforcement | token usage totals and request lineage | Missing | Need quota rules, window counters, reset behavior, strict/advisory outcomes, and atomic updates. |
+| 4. Rate window enforcement | none for proxy-level traffic; Codex backend cooldown is provider-local | Missing | Need request-rate windows, retry context, and scoped counters. |
+| 5. Spend budget and spend cap enforcement | price catalog and cost estimation | Partial | Need spend rules, budget windows, currency posture, strict/advisory decisions, and cost-unavailable behavior. |
+| 6. Preflight reservation and admission | executor pre-backend point, token preflight, policy decision evidence | Partial / Constraint | Existing preflight can deny before backend open, but is also used for routing estimates and must remain side-effect-free there. |
+| 7. Post-stream reconciliation and settlement | stream usage reconstruction, partial/final ledger writes | Partial | Need reservation settlement, adjustment, release, overage, and cancellation semantics. |
+| 8. Estimated/authoritative/unavailable authority | UsageAuthority metadata, strict authoritative config, cost source strings | Partial | Need rule-level authority requirements and deterministic conflict resolution. |
+| 9. Policy decisions, client outcomes, evidence | policydecision SDK, runtime policy observer, frontend error mapping patterns | Partial | Need accounting reason taxonomy, client-safe categories/messages, and legal denial mapping. |
+| 10. Failure/degraded/startup posture | config validation, runtimebundle startup checks, control-plane status | Partial | Need authority readiness, backing capability checks, fail-open/fail-closed per rule, and strict startup posture. |
+| 11. Concurrent requests, attempts, streaming invariants | B2BUA lineage, route attempt budget, no-retry-after-output tests | Partial / High risk | Need atomic admission under concurrency and no double counting for retries/races/losers. |
+| 12. Operator visibility and query behavior | control-plane query/status, token admin count service | Partial | Need live remaining limit/rate/reservation state separate from historical usage aggregates. |
+| 13. Privacy, safety, exclusions | scope safety, control-plane redaction, observer fail-open behavior | Partial | Need prove new authority evidence carries no raw prompts, secrets, provider payloads, or unsafe rule internals. |
+
+## Key Integration Challenges
+
+1. **Side-effect-free estimates vs side-effectful admission**
+   - Routing uses token preflight for estimates. Authority reservation must not be hidden inside this path.
+   - Design should distinguish estimate, evaluate, reserve, settle, and query operations.
+
+2. **Atomicity under concurrency**
+   - Requirements demand preventing concurrent requests from exceeding strict windows.
+   - Existing ledgers append evidence; they do not provide compare-and-reserve semantics for live counters.
+
+3. **Attempt lineage and reservation scope**
+   - A logical request can create multiple B-legs before output through failover or racing.
+   - Design must decide whether reservations are request-level, attempt-level, or both, and how losers/swallowed attempts release or settle state.
+
+4. **Post-output non-interference**
+   - After client-visible output begins, later accounting failures must not trigger retry or replacement.
+   - Settlement failures should become operator-visible authority/control-plane evidence, not hidden execution control flow.
+
+5. **Control-plane detail shape**
+   - Current usage/policy DTOs lack fields for rule IDs, matched dimensions, reset time, retry context, limit/consumed/reserved/remaining amounts, and settlement adjustments.
+   - Design must decide whether to extend usage/policy details, add accounting-specific details, or expose dedicated status/query DTOs.
+
+6. **Configuration and management boundary**
+   - Requirements need configured rules but explicitly exclude web admin/user provisioning/billing workflows.
+   - Design should define a minimal operator-configured rule source without pre-implementing future GUI/provisioning features.
+
+7. **Currency and authority posture**
+   - Cost estimation supports provider-reported and estimated cost, but budget rules require explicit behavior for missing prices, currency mismatch, and authority requirements.
+
+8. **Fail-open/fail-closed and readiness semantics**
+   - Strict enforcement needs readiness before serving protected traffic; advisory mode can degrade safely.
+   - Memory-only state may satisfy local/single-process operation but may be insufficient for multi-instance strict budgets unless explicitly reported.
+
+## Implementation Approach Options
+
+### Option A: Extend Existing Token Accounting Preflight and Ledger
+
+**Shape**
+- Add quota/rate/budget fields under existing accounting config.
+- Expand token-accounting preflight to evaluate rules and possibly deny before backend open.
+- Extend ledger/control-plane usage aggregates to approximate windows.
+
+**Pros**
+- Fastest path for advisory or single-process limits.
+- Reuses current counting, pricing, stream reconstruction, ledger, and runtime wiring.
+- Minimal new package surface.
+
+**Cons**
+- High risk of adding side effects to a checker that is already used for routing estimates.
+- Existing ledger is not an atomic reservation/window store.
+- Measurement and enforcement responsibilities would become tangled.
+- Hard to support strict concurrency guarantees and post-stream settlement cleanly.
+
+**Fit**
+- Acceptable only for a narrow transitional/advisory MVP. Weak fit for the full approved requirements.
+
+### Option B: Create a New Accounting Authority Capability
+
+**Shape**
+- Add a distinct accounting authority capability for rule matching, window state, reservations, admission decisions, settlement, status, and queries.
+- Add memory and durable authority stores with explicit atomic reservation semantics.
+- Integrate with runtime before backend open and after stream finalization.
+
+**Pros**
+- Clean separation between passive measurement and enforceable authority.
+- Testable domain rules and store contracts.
+- Better fit for strict concurrency, reservation, settlement, and readiness behavior.
+- Avoids side effects in token preflight estimate path.
+
+**Cons**
+- More design and implementation surface.
+- Needs careful integration with existing token accounting, control-plane evidence, and frontend error mapping.
+- Must avoid duplicating usage facts already recorded by token ledger/control-plane.
+
+**Fit**
+- Strong fit for full requirements if delivered incrementally.
+
+### Option C: Hybrid Authority Reusing Measurement and Evidence
+
+**Shape**
+- Create a distinct accounting authority domain/app service for rules, decisions, reservations, windows, and settlement.
+- Reuse token accounting for estimates and final usage reconstruction.
+- Reuse price catalog for spend calculations.
+- Reuse policydecision/control-plane evidence for operator visibility.
+- Add only narrow runtime and config wiring needed for authority admission and settlement.
+
+**Pros**
+- Keeps measurement and enforcement separate while reusing mature foundations.
+- Preserves current preflight and routing-estimate semantics.
+- Aligns with product boundaries: core-owned protocol-neutral authority, adapters own storage/query details.
+- Supports incremental phases: rule model, in-memory store, runtime admission, settlement, durable store/query.
+
+**Cons**
+- Requires clear naming to avoid two competing accounting concepts.
+- Requires careful correlation across token ledger, authority windows, policy evidence, and control-plane queries.
+- More planning needed for store atomicity and multi-attempt settlement.
+
+**Fit**
+- Best balanced option for design exploration.
+
+### Option D: Implement as Feature Plugin Only
+
+**Shape**
+- Use pre-request hooks/policy observers/usage observers to implement rules externally to core runtime.
+
+**Pros**
+- Keeps core smaller.
+- Exercises extension-platform seams for custom enterprise policies.
+
+**Cons**
+- Usage observers are fail-open and post-facto; they cannot provide strict synchronous enforcement.
+- Strict reservation and settlement require privileged runtime timing and lineage awareness.
+- Hard to guarantee no double-counting across failover/racing attempts.
+
+**Fit**
+- Useful later for custom rule providers, but insufficient for core authority foundation.
+
+## Effort and Risk
+
+- **Estimated effort**: XL (2+ weeks). The feature spans rule semantics, config validation, runtime admission, stream settlement, live state, durable atomicity, evidence/query extensions, and frontend-safe denial mapping.
+- **Risk**: High. Main risks are atomic reservations under concurrency, multi-attempt settlement correctness, strict fail-closed readiness, and preserving streaming/no-retry invariants.
+- **Primary mitigation**: design and test the authority rule/window/reservation model separately before runtime wiring; keep reservation side effects out of token preflight and routing estimates.
+
+## Research Needed for Design Phase
+
+1. **Window algorithm and semantics**
+   - Decide fixed window, sliding window, token bucket, or hybrid behavior per quota/rate/budget rule type.
+
+2. **Reservation lifecycle**
+   - Decide request-level vs attempt-level reservations, loser release, swallowed attempt handling, cancellation settlement, and overage policy.
+
+3. **Atomic durable store strategy**
+   - Research SQLite and PostgreSQL transaction/upsert patterns for scoped windows and reservations without leaking SQL/Bun types into core contracts.
+
+4. **Config/rule source shape**
+   - Decide whether rules live under `accounting.authority`, a sibling top-level block, or a future provider-managed rule source.
+
+5. **Evidence/query model**
+   - Decide whether to extend control-plane usage/policy DTOs or add accounting-specific decision/status DTOs for remaining limits, reservations, reset context, and settlements.
+
+6. **Client denial mapping**
+   - Identify stable frontend error categories/messages for quota exceeded, rate limited, budget exceeded, accounting unavailable, and reservation failed.
+
+7. **Strict-authoritative interaction**
+   - Clarify how current `AccountingConfig.StrictAuthoritative` relates to rule-level authority requirements for estimated vs provider-reported usage/cost.
+
+8. **Single-process vs multi-instance posture**
+   - Decide which store modes may satisfy strict enforcement and how disabled/degraded/unavailable states are reported for unsupported deployments.
+
+## Recommended Design Focus
+
+Design should evaluate Option C first: a distinct accounting authority capability that reuses token accounting, price catalog, policydecision evidence, and control-plane recording/query, with explicit admission/reservation and settlement seams in runtime. Option A can remain a reduced-scope fallback for advisory-only MVP behavior; Option D should be reserved for custom policy providers after the core authority foundation exists.
+
+---
+
+# Design Discovery and Synthesis: Usage, Quota, Rate, and Budget Authority
+
+Generated: 2026-07-09T00:05:45+02:00
+
+## Summary
+
+- **Feature**: `usage-quota-rate-budget-authority`
+- **Discovery Scope**: Complex integration / existing-system extension
+- **Key Findings**:
+  - The feature should be a distinct `usageauthority` bounded context, not an expansion of token-counting preflight.
+  - Existing token accounting, pricing, policydecision, scope, and control-plane evidence should be reused as inputs/projections rather than duplicated.
+  - Strict enforcement requires atomic reservation and settlement semantics that the append-only token ledger and control-plane event ledger do not provide today.
+
+## Research Log
+
+### Runtime Integration Points
+- **Context**: Requirements require deny/reserve before backend work and reconcile after stream finalization.
+- **Sources Consulted**: `internal/core/runtime/executor_open_attempt.go`, `internal/core/runtime/attempt_stream.go`, `internal/core/runtime/executor_config.go`.
+- **Findings**:
+  - Token preflight already runs before route-attempt acquisition and backend open.
+  - The same preflight checker is also used for side-effect-free routing size estimates.
+  - Final and partial usage evidence is available from the stream path after provider/local reconstruction.
+- **Implications**:
+  - Authority admission must be a separate side-effectful runtime seam, not hidden inside token preflight.
+  - Settlement must be idempotent and attached to logical request plus B-leg lineage.
+
+### Existing Measurement and Evidence
+- **Context**: Requirements need usage and cost inputs plus operator-visible evidence.
+- **Sources Consulted**: `internal/core/tokenaccounting`, `internal/core/accounting`, `pkg/lipsdk/policydecision`, `pkg/lipsdk/controlplane`, `internal/infra/controlplane/observers`.
+- **Findings**:
+  - Token accounting provides counts, reconstructed usage, usage planes, durable ledger records, and strict ledger-write behavior.
+  - Cost estimation provides provider-reported and price-catalog estimated cost sources.
+  - Policydecision and control-plane can carry safe decision/evidence records, but current DTOs lack accounting-specific state such as remaining, reserved, reset, retry, and settlement fields.
+- **Implications**:
+  - Design should extend evidence/query contracts narrowly for accounting authority instead of creating a separate diagnostic universe.
+
+### Hexagonal Boundary Evaluation
+- **Context**: The feature combines pure policy, orchestration, stores, runtime seams, and admin query surfaces.
+- **Sources Consulted**: `.kiro/steering/structure.md`, `.kiro/steering/tech.md`, `golang-hexagonal-architecture` skill.
+- **Findings**:
+  - Pure rule matching, window math, and reservation invariants belong in domain code.
+  - Admission, reservation, settlement, evidence emission, and readiness sequencing belong in app/use-case code.
+  - Stores and HTTP/query adapters must translate infrastructure and wire details at the edge.
+- **Implications**:
+  - Use bounded-context-first packages under `internal/core/usageauthority/{domain,app}` and `internal/infra/usageauthority/authoritystore`.
+
+## Architecture Pattern Evaluation
+
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| Extend token accounting | Add rules and windows into current token preflight and ledger | Fast for advisory limits | Side effects in estimate path, weak atomicity, responsibility bloat | Rejected for full requirements |
+| New authority capability | Separate domain/app/store/query authority | Clear ownership, strict concurrency possible | More files and contracts | Viable but should reuse existing evidence |
+| Hybrid authority | New authority domain/app, reuse counting, pricing, policydecision, control-plane | Best boundary fit, preserves existing semantics | Requires careful correlation | Selected for design |
+| Feature plugin only | Implement rules via hooks and observers | Keeps core smaller | Cannot guarantee strict synchronous reservations or settlement | Deferred to future custom providers |
+
+## Design Decisions
+
+### Decision: Use a distinct `usageauthority` bounded context
+- **Context**: Requirements cover enforcement authority, not passive measurement.
+- **Alternatives Considered**:
+  1. Extend `tokenaccounting/preflight` with budget/quota/rate rules.
+  2. Create `internal/core/usageauthority` with domain and app subpackages.
+- **Selected Approach**: Create `usageauthority` for rules, windows, reservations, admission, settlement, readiness, and status/query DTOs.
+- **Rationale**: Keeps measurement separate from enforcement and matches the hexagonal bounded-context guidance.
+- **Trade-offs**: More new files, but cleaner task boundaries and lower risk of corrupting routing estimate semantics.
+- **Follow-up**: Add architecture tests that prevent SQL/Bun/provider SDK imports from `internal/core/usageauthority`.
+
+### Decision: Build authority state instead of relying on append-only ledgers
+- **Context**: Strict quota/rate/budget enforcement must be atomic under concurrent requests.
+- **Alternatives Considered**:
+  1. Query token/control-plane ledgers for every decision.
+  2. Maintain live authority windows and reservations with idempotent settlement.
+- **Selected Approach**: Use a live authority state store for windows and reservations, and emit ledgers/control-plane evidence as projections.
+- **Rationale**: Historical event ledgers are evidence sources, not atomic admission counters.
+- **Trade-offs**: Requires store contracts and durable migrations, but supports strict enforcement.
+- **Follow-up**: Validate memory and SQLite store contracts first; gate Postgres strict mode behind integration tests.
+
+### Decision: Expose accounting evidence through policydecision and control-plane extensions
+- **Context**: Operators need decision, remaining limit, and settlement visibility.
+- **Alternatives Considered**:
+  1. Encode everything as generic policy records.
+  2. Add accounting-specific control-plane detail/query DTOs while emitting policy-compatible decision records.
+- **Selected Approach**: Emit policydecision records for allow/deny/advisory effects and add control-plane accounting detail/status/query DTOs for live authority state.
+- **Rationale**: Policydecision remains the denial/effect vocabulary, while control-plane handles query-ready accounting state.
+- **Trade-offs**: Requires control-plane contract shape changes and revalidation.
+- **Follow-up**: Keep raw rule internals and provider payloads out of public DTOs.
+
+## Risks & Mitigations
+
+- Atomic reservation bugs under concurrency - mitigate with domain tests, store contract tests, and race-oriented runtime tests.
+- Double settlement across retries or parallel losers - mitigate with reservation IDs and idempotency keys based on logical request, B-leg, and rule.
+- Side effects during routing estimates - mitigate with separate estimator and authority admission seams plus tests proving estimates do not mutate state.
+- Strict mode on insufficient backing store - mitigate with startup readiness validation and explicit advisory/degraded status.
+- Evidence contract sprawl - mitigate by adding only accounting-specific control-plane fields required by requirements and keeping policydecision reason taxonomy bounded.
+
+## References
+
+- `.kiro/steering/product.md` - product control-plane and routing priorities.
+- `.kiro/steering/tech.md` - explicit wiring, context, persistence, startup posture, and dependency policy.
+- `.kiro/steering/structure.md` - package map and token accounting / usage ownership guidance.
+- `.kiro/steering/api-standards.md` - protocol legality and frontend error mapping rules.
+- `.kiro/steering/routing-and-orchestration.md` - B2BUA lineage, no-retry-after-output, and routing estimate constraints.
