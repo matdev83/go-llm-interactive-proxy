@@ -40,12 +40,13 @@ Defined in `AGENTS.md` Skill Loading. Maps work categories to golang-specific sk
 | Continuous integration | `golang-continuous-integration` |
 | Benchmarking, profiling | `golang-benchmark` |
 
-## Local Skill Inventory (`.opencode/skills/`)
+## Local Skill Inventory
 
-49 local skill directories are present:
-- **32 Go skills:** 31 `golang-*` directories plus `golang-simplify/`, invoked by repo rules as `go-simplify` for refactor-only work.
-- **14 `kiro-*` skills:** spec discovery, specs, implementation, review, validation, verification, steering, and debugging.
-- **3 `echoes-*` skills:** vault daily log append, page create/update, and page search.
+Agent-specific skill directories are intentionally split so each agent can load repo skills without making Codex see duplicate skill names:
+
+- `.cursor/skills/`: 29 Go skill directories for Cursor-style agents.
+- `.opencode/skills/`: 49 local skill directories: 29 Go skills, 17 `kiro-*` skills, and 3 `echoes-*` skills.
+- `.codex/skills/`: Codex-only companion Go skills not already present in `.cursor/skills/`.
 
 Additional globally available skills may exist outside `.opencode/skills/`; do not document them as project-local unless their files are present in this repository.
 
