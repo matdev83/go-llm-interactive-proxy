@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/codexreasoning"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -111,7 +112,15 @@ func (s *codexStream) mapNotification(probe map[string]any) ([]lipapi.Event, err
 		}
 		return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: delta}}, nil
 
-	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
+	case "item/reasoning/summaryTextDelta":
+		delta, _ := params["delta"].(string)
+		delta = codexreasoning.StripEmptyHTMLCommentMarkers(delta)
+		if delta == "" {
+			return nil, nil
+		}
+		return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: delta}}, nil
+
+	case "item/reasoning/textDelta":
 		delta, _ := params["delta"].(string)
 		if delta == "" {
 			return nil, nil

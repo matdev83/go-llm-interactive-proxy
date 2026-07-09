@@ -417,6 +417,47 @@ func TestHandleData_reasoningSummaryTextDelta_emitsReasoningDelta(t *testing.T) 
 	}
 }
 
+func TestHandleData_reasoningSummaryTextDelta_stripsEmptyHTMLCommentMarker(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	created := `{"type":"response.created","response":{"id":"resp_reasoning"}}`
+	summaryDelta := `{"type":"response.reasoning_summary_text.delta","delta":"**Planning Phase 1**\n\n<!--"}`
+	for _, raw := range []string{created, summaryDelta} {
+		if err := s.mapper.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+	events := stream.DrainPending(&s.mapper.pending)
+	var reasoning []lipapi.Event
+	for _, ev := range events {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			reasoning = append(reasoning, ev)
+		}
+	}
+	if len(reasoning) != 1 || reasoning[0].Delta != "**Planning Phase 1**\n\n" {
+		t.Fatalf("reasoning events = %+v", reasoning)
+	}
+}
+
+func TestHandleData_reasoningSummaryTextDelta_suppressesSplitCommentClose(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	created := `{"type":"response.created","response":{"id":"resp_reasoning"}}`
+	summaryDelta := `{"type":"response.reasoning_summary_text.delta","delta":" -->"}`
+	for _, raw := range []string{created, summaryDelta} {
+		if err := s.mapper.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			t.Fatalf("expected no reasoning delta for split comment close, got %+v", ev)
+		}
+	}
+}
+
 func TestHandleData_reasoningTextDelta_emitsReasoningDelta(t *testing.T) {
 	t.Parallel()
 	s := testCodexStream()
