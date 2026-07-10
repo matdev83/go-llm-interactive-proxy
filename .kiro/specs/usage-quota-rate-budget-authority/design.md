@@ -131,9 +131,9 @@ graph TB
 - Domain policy: rules, matchers, windows, amounts, decisions, reservations, settlements, idempotency keys, and authority states.
 - App/use-case orchestration: admission/reservation, settlement/release, status queries, readiness, fail-open/fail-closed sequencing, evidence emission.
 - Driving adapters: protected control-plane/admin query routes and runtime executor calls into concrete services.
-- Driven adapters: memory/durable authority stores, config rule source, evidence publishers, cost/usage input adapters.
+- Driven adapters: memory/durable authority stores, config rule source, evidence publishers. Cost and usage estimates are computed by the runtime driving adapter and passed in via `AdmissionInput`/`SettleInput`, not pulled through app ports.
 - Composition root: `internal/infra/runtimebundle` builds stores, rule source, app services, query services, and runtime dependencies.
-- Ports/query seams: authority app defines `RuleSource`, `StateStore`, `EvidenceSink`, `CostEstimator`, `UsageReader`, `Clock`, and `IDGenerator` only where multiple real adapters or fakes are needed.
+- Ports/query seams: authority app defines `RuleSource`, `StateStore`, `EvidenceSink`, and `Clock` only where multiple real adapters or fakes are needed. Cost/usage inputs arrive via `AdmissionInput`/`SettleInput` from the runtime driving adapter; reservation IDs derive from `ReservationKey` (no `IDGenerator` port).
 
 **Project Boundary Questions**
 
@@ -303,10 +303,10 @@ Strict configured rules require a backing capability that can atomically reserve
 | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7 | Usage breakdown, authority state, and historical vs live distinction | Query Service, Accounting Authority DTOs, Evidence Sink | AuthorityQueries, ControlPlaneQuery | Settlement, Status |
 | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 | Quota windows | Rule Domain, State Store, Admission Service | Reserve, QueryStatus | Admission |
 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6 | Rate windows and retry context | Rule Domain, State Store, Error Mapper | Reserve, DecisionEvidence | Admission |
-| 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 | Budget and spend cap enforcement | Cost Adapter, Rule Domain, State Store | CostEstimator, Reserve | Admission, Settlement |
+| 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 | Budget and spend cap enforcement | Rule Domain, State Store, Runtime Integration | Reserve | Admission, Settlement |
 | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9 | Preflight admission and reservation | Runtime Integration, Admission Service | Admit | Admission |
 | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9 | Post-stream settlement and release | Settlement Service, State Store, Runtime Integration | Settle, Release | Settlement |
-| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 | Estimated, authoritative, unavailable authority | Usage Input Adapter, Cost Adapter, Rule Domain | UsageEvidence, CostEstimator | Admission, Settlement |
+| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 | Estimated, authoritative, unavailable authority | Rule Domain, Runtime Integration | Admit, Settle | Admission, Settlement |
 | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 | Policy-compatible decisions and client-safe outcomes | Evidence Sink, Runtime Error Mapper, Frontend Error Mapping | DecisionEvidence | Admission |
 | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10 | Failure, degraded, startup posture | Readiness Service, Config Validation, Runtimebundle | CheckReadiness, Status | State Lifecycle |
 | 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7 | Concurrency, attempts, streaming invariants | State Store, Settlement Service, Runtime Integration | Reserve, Settle | Admission, Settlement |
@@ -318,7 +318,7 @@ Strict configured rules require a backing capability that can atomically reserve
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
 | Rule Domain | Domain | Pure rule, matcher, amount, and window invariants | 1, 3, 4, 5, 8, 13 | scope DTOs P0 | State |
-| Admission Service | App | Evaluate rules and reserve before backend open | 1, 3, 4, 5, 6, 9, 10, 11 | RuleSource P0, StateStore P0, CostEstimator P1 | Service |
+| Admission Service | App | Evaluate rules and reserve before backend open | 1, 3, 4, 5, 6, 9, 10, 11 | RuleSource P0, StateStore P0 | Service |
 | Settlement Service | App | Reconcile final or partial usage idempotently | 7, 8, 10, 11 | StateStore P0, EvidenceSink P1 | Service |
 | Authority Query Service | App | Serve live status and decisions | 2, 10, 12 | StateStore P0 | Service |
 | Authority State Store | Driven adapter port | Atomic windows, reservations, status, idempotency | 3, 4, 5, 7, 10, 11, 12 | Clock P1 | State |
@@ -391,7 +391,6 @@ Strict configured rules require a backing capability that can atomically reserve
 - Inbound: runtime executor - pre-backend admission request (P0)
 - Outbound: RuleSource - current configured rules (P0)
 - Outbound: StateStore - atomic reserve and status reads (P0)
-- Outbound: CostEstimator - estimated spend for budget rules (P1)
 - Outbound: EvidenceSink - policy/control-plane evidence (P1)
 
 **Contracts**: Service [x]

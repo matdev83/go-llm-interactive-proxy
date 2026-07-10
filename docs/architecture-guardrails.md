@@ -65,6 +65,7 @@ When reviewing broad or architecture-adjacent changes, use this checklist:
 - [ ] Does this change add a new core package? If yes, why does it belong in core? (See [`docs/core-boundaries.md`](core-boundaries.md).)
 - [ ] Does this change widen public contracts (`pkg/lipapi` / `pkg/lipsdk`)? If yes, is it versionable and minimal?
 - [ ] Does this change increase architecture budgets? If yes, is the reason documented?
+- [ ] Does this change add a new control-plane evidence guard? If yes, is it regression-locked at all four layers (SDK → core → normalizer → recorder)? See [`controlplane-evidence.md`](controlplane-evidence.md) for the per-guard coverage map and Go templates.
 
 ## Enterprise extension boundaries
 

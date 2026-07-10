@@ -26,7 +26,15 @@ var lineBudgets = []struct {
 	// Raised from 33500 to 35000 for the control-plane-persistence-query-event-ledger
 	// spec Phase 3, which adds the core scope flattener, event normalizer, recorder
 	// service, query service, and retention controller under internal/core/controlplane.
-	{"internal/core", 35000},
+	// Raised from 35000 to 38000 for the usage-quota-rate-budget-authority spec,
+	// which adds the usageauthority bounded context under internal/core.
+	// Raised from 38000 to 38500 to accommodate the full implementation of the
+	// usage-quota-rate-budget-authority spec, including runtime admission/settlement
+	// integration and the usageauthority bounded context under internal/core.
+	// Raised from 38500 to 38800 to accommodate the authority reservation leak-fix
+	// additions to internal/core/runtime (recv-loop/handler/interleaved/parallel
+	// leak-path hardening and the executor recv-handler settlement chokepoint).
+	{"internal/core", 38800},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

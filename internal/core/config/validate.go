@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 )
 
 // Validate checks plugin identity rules and continuity/store consistency after decoding.
@@ -457,6 +455,23 @@ func validateDiagnosticsPaths(cfg *Config) error {
 			}
 		}
 	}
+	// accounting.authority.query.path_prefix is a protected operator mount on
+	// the same mux and must satisfy the same dot-segment and overlap rules as
+	// the other diagnostics surfaces so the authority handler cannot register a
+	// conflicting pattern.
+	if AuthorityQueryEffectivelyExposed(cfg) {
+		aqp := strings.TrimSpace(cfg.Accounting.Authority.Query.PathPrefix)
+		if !strings.HasPrefix(aqp, "/") {
+			return fmt.Errorf("accounting.authority.query.path_prefix: must start with /")
+		}
+		if err := rejectHTTPPathDotDot("accounting.authority.query.path_prefix", aqp); err != nil {
+			return err
+		}
+		aqp = norm(aqp)
+		if err := add(aqp); err != nil {
+			return err
+		}
+	}
 	// control_plane.query.path_prefix is a protected operator mount and must
 	// satisfy the same dot-segment and overlap rules as the other diagnostics
 	// surfaces so mountControlPlaneQuery cannot register a conflicting handler.
@@ -827,167 +842,4 @@ func validateModelInventory(cfg *Config) error {
 		return fmt.Errorf("model_inventory.fetch_timeout: must be a positive duration")
 	}
 	return nil
-}
-
-func validateAccounting(cfg *Config) error {
-	if cfg == nil {
-		return nil
-	}
-	a := &cfg.Accounting
-	mode := strings.ToLower(strings.TrimSpace(a.Mode))
-	if mode == "" {
-		mode = "provider_first"
-		a.Mode = mode
-	}
-	switch mode {
-	case "provider_first", "local_only", "provider_required", "advisory":
-	default:
-		return fmt.Errorf("accounting.mode: want provider_first, local_only, provider_required, or advisory, got %q", a.Mode)
-	}
-	if raw := strings.TrimSpace(a.CountTimeout); raw != "" {
-		d, err := time.ParseDuration(raw)
-		if err != nil {
-			return fmt.Errorf("accounting.count_timeout: invalid duration %q", raw)
-		}
-		if d <= 0 {
-			return fmt.Errorf("accounting.count_timeout: duration must be positive")
-		}
-	}
-	if err := validateAccountingTokenizer(a); err != nil {
-		return err
-	}
-	if mode == "provider_required" && hasLocalTokenizerFallback(a.Tokenizer) {
-		return fmt.Errorf("accounting.mode: provider_required cannot configure local tokenizer fallback")
-	}
-	if err := validateAccountingPreflight(a); err != nil {
-		return err
-	}
-	if err := validateAccountingLedger(a); err != nil {
-		return err
-	}
-	if err := validateAccountingAdmin(a); err != nil {
-		return err
-	}
-	if len(a.Pricing.Models) > 0 {
-		_, err := accounting.NewPriceCatalog(AccountingPriceCatalogConfig(a.Pricing))
-		if err != nil {
-			return fmt.Errorf("accounting.pricing: %w", err)
-		}
-	}
-	return nil
-}
-
-func validateAccountingTokenizer(a *AccountingConfig) error {
-	if strings.Contains(a.Tokenizer.DefaultEncoding, "\x00") {
-		return fmt.Errorf("accounting.tokenizer.default_encoding: must not contain NUL")
-	}
-	for model, encoding := range a.Tokenizer.ModelMappings {
-		if strings.TrimSpace(model) == "" {
-			return fmt.Errorf("accounting.tokenizer.model_mappings: model key must be non-empty")
-		}
-		if strings.TrimSpace(encoding) == "" {
-			return fmt.Errorf("accounting.tokenizer.model_mappings[%q]: encoding must be non-empty", model)
-		}
-		if strings.Contains(model, "\x00") || strings.Contains(encoding, "\x00") {
-			return fmt.Errorf("accounting.tokenizer.model_mappings[%q]: must not contain NUL", model)
-		}
-	}
-	return nil
-}
-
-func hasLocalTokenizerFallback(t AccountingTokenizerConfig) bool {
-	return strings.TrimSpace(t.DefaultEncoding) != "" || len(t.ModelMappings) > 0
-}
-
-func validateAccountingPreflight(a *AccountingConfig) error {
-	mode := strings.ToLower(strings.TrimSpace(a.Preflight.Mode))
-	if mode == "" {
-		return nil
-	}
-	switch mode {
-	case "required", "advisory":
-	default:
-		return fmt.Errorf("accounting.preflight.mode: want required or advisory, got %q", a.Preflight.Mode)
-	}
-	for _, chk := range []struct {
-		name  string
-		value int64
-	}{
-		{"max_input_tokens", a.Preflight.MaxInputTokens},
-		{"max_output_tokens", a.Preflight.MaxOutputTokens},
-		{"max_context_tokens", a.Preflight.MaxContextTokens},
-	} {
-		if chk.value < 0 {
-			return fmt.Errorf("accounting.preflight.%s: must be >= 0", chk.name)
-		}
-	}
-	return nil
-}
-
-func validateAccountingLedger(a *AccountingConfig) error {
-	store := strings.ToLower(strings.TrimSpace(a.Ledger.Store))
-	if store == "" {
-		store = "memory"
-		a.Ledger.Store = store
-	}
-	switch store {
-	case "memory", "sqlite", "postgres":
-	default:
-		return fmt.Errorf("accounting.ledger.store: want memory, sqlite, or postgres, got %q", a.Ledger.Store)
-	}
-	if store == "sqlite" && strings.TrimSpace(a.Ledger.SQLitePath) == "" {
-		return fmt.Errorf("accounting.ledger.sqlite_path: required when store is \"sqlite\"")
-	}
-	if store == "postgres" && strings.TrimSpace(a.Ledger.PostgresDSN) == "" {
-		return fmt.Errorf("accounting.ledger.postgres_dsn: required when store is \"postgres\"")
-	}
-	if store != "postgres" && strings.TrimSpace(a.Ledger.PostgresDSN) != "" {
-		return fmt.Errorf("accounting.ledger.postgres_dsn: may only be set when store is \"postgres\" (got %q)", store)
-	}
-	policy := strings.ToLower(strings.TrimSpace(a.Ledger.WritePolicy))
-	if policy == "" {
-		policy = "required"
-		a.Ledger.WritePolicy = policy
-	}
-	if policy != "required" && policy != "best_effort" {
-		return fmt.Errorf("accounting.ledger.write_policy: want required or best_effort, got %q", a.Ledger.WritePolicy)
-	}
-	return nil
-}
-
-func validateAccountingAdmin(a *AccountingConfig) error {
-	if !a.Admin.Enabled {
-		return nil
-	}
-	path := strings.TrimSpace(a.Admin.Path)
-	if path == "" {
-		return fmt.Errorf("accounting.admin.path: required when admin is enabled")
-	}
-	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("accounting.admin.path: must start with /")
-	}
-	if a.Admin.MaxBodyBytes < 0 {
-		return fmt.Errorf("accounting.admin.max_body_bytes: must be >= 0")
-	}
-	return nil
-}
-
-func AccountingPriceCatalogConfig(cfg AccountingPricingConfig) accounting.PriceCatalogConfig {
-	models := make([]accounting.ModelPriceConfig, 0, len(cfg.Models))
-	for _, row := range cfg.Models {
-		models = append(models, accounting.ModelPriceConfig{
-			Backend:              row.Backend,
-			Model:                row.Model,
-			InputPer1M:           row.InputPer1M,
-			CachedInputPer1M:     row.CachedInputPer1M,
-			CacheWriteInputPer1M: row.CacheWriteInputPer1M,
-			OutputPer1M:          row.OutputPer1M,
-			ReasoningOutputPer1M: row.ReasoningOutputPer1M,
-		})
-	}
-	return accounting.PriceCatalogConfig{
-		Version:  cfg.CatalogVersion,
-		Currency: cfg.Currency,
-		Models:   models,
-	}
 }

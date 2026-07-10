@@ -1,0 +1,81 @@
+package domain
+
+import "fmt"
+
+type AmountUnit string
+
+const (
+	AmountUnitRequests         AmountUnit = "requests"
+	AmountUnitInputTokens      AmountUnit = "input_tokens"
+	AmountUnitOutputTokens     AmountUnit = "output_tokens"
+	AmountUnitCacheReadTokens  AmountUnit = "cache_read_tokens"
+	AmountUnitCacheWriteTokens AmountUnit = "cache_write_tokens"
+	AmountUnitReasoningTokens  AmountUnit = "reasoning_tokens"
+	AmountUnitTotalTokens      AmountUnit = "total_tokens"
+	AmountUnitMoneyNano        AmountUnit = "money_nano"
+)
+
+func (u AmountUnit) IsKnown() bool {
+	switch u {
+	case AmountUnitRequests, AmountUnitInputTokens, AmountUnitOutputTokens, AmountUnitCacheReadTokens,
+		AmountUnitCacheWriteTokens, AmountUnitReasoningTokens, AmountUnitTotalTokens, AmountUnitMoneyNano:
+		return true
+	default:
+		return false
+	}
+}
+
+type Amount struct {
+	Unit     AmountUnit
+	Value    int64
+	Currency string
+}
+
+// PreflightUsage carries per-unit pre-backend estimates used during admission
+// when configured rules enforce dimensions other than input tokens.
+type PreflightUsage struct {
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	ReasoningTokens  int64
+	TotalTokens      int64
+}
+
+func (p PreflightUsage) AmountForUnit(unit AmountUnit) (Amount, bool) {
+	switch unit {
+	case AmountUnitInputTokens:
+		return Amount{Unit: unit, Value: p.InputTokens}, true
+	case AmountUnitOutputTokens:
+		output := p.OutputTokens
+		if output < 0 {
+			output = 0
+		}
+		return Amount{Unit: unit, Value: output}, true
+	case AmountUnitCacheReadTokens:
+		return Amount{Unit: unit, Value: p.CacheReadTokens}, true
+	case AmountUnitCacheWriteTokens:
+		return Amount{Unit: unit, Value: p.CacheWriteTokens}, true
+	case AmountUnitReasoningTokens:
+		return Amount{Unit: unit, Value: p.ReasoningTokens}, true
+	case AmountUnitTotalTokens:
+		value := p.TotalTokens
+		if value == 0 {
+			value = p.InputTokens + p.OutputTokens + p.CacheReadTokens + p.CacheWriteTokens + p.ReasoningTokens
+		}
+		return Amount{Unit: unit, Value: value}, true
+	default:
+		return Amount{}, false
+	}
+}
+
+func (a Amount) IsMoney() bool {
+	return a.Unit == AmountUnitMoneyNano
+}
+
+func (a Amount) String() string {
+	if a.IsMoney() {
+		return fmt.Sprintf("%d %s %s", a.Value, a.Unit, a.Currency)
+	}
+	return fmt.Sprintf("%d %s", a.Value, a.Unit)
+}

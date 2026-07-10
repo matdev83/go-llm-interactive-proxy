@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -79,6 +81,15 @@ type AccountingRuntime struct {
 	LedgerWriteRequired          bool
 	TokenAccountingObservability *accountingobs.Stats
 	AdminCountService            *accountingapp.Service
+	UsageAuthority               UsageAuthorityService
+}
+
+// UsageAuthorityService is the runtime-owned boundary for accounting authority
+// admission, settlement, release, and bounded query access.
+type UsageAuthorityService interface {
+	Admit(ctx context.Context, in authorityapp.AdmissionInput) (authorityapp.AdmissionResult, error)
+	Settle(ctx context.Context, in authorityapp.SettleInput) (authorityapp.SettleResult, error)
+	Release(ctx context.Context, in authorityapp.ReleaseInput) (authorityapp.ReleaseResult, error)
 }
 
 // ObservabilityRuntime carries structured logging, metrics, and diagnostics toggles.

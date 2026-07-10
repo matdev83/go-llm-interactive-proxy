@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
@@ -61,6 +62,22 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if controlPlane != nil && controlPlane.closer != nil {
 		closers = append(closers, controlPlane.closer)
 	}
+	// policyObs is assembled once and shared by the runtime snapshot and the
+	// usage-authority evidence sink so authority decisions fan to the same
+	// observer chain (operator observers + control-plane adapter) without
+	// duplicating control-plane events.
+	policyObs := assemblePolicyObserverChain(opts, controlPlane)
+	usageAuthority, usageClosers, err := buildUsageAuthorityRuntime(parent, cfg, log, opts, controlPlane, policyObs)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
+	}
+	if usageClosers != nil {
+		closers = append(closers, usageClosers...)
+	}
+	var usageAuthorityHandle *authorityapp.Service
+	if usageAuthority != nil {
+		usageAuthorityHandle = usageAuthority.Service
+	}
 	reg := opts.PluginRegistry
 	sec, err := buildSecurityRuntime(bctx, controlPlane)
 	if err != nil {
@@ -83,16 +100,17 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		nowFn = opts.Testing.Clock
 	}
 	var exec *runtime.Executor
-	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane)
+	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs)
 	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
-		Bctx:          bctx,
-		NowFn:         nowFn,
-		Ext:           ext,
-		Model:         model,
-		Persistence:   persist,
-		Security:      sec,
-		Observability: &obs,
-		ControlPlane:  controlPlane,
+		Bctx:           bctx,
+		NowFn:          nowFn,
+		Ext:            ext,
+		Model:          model,
+		Persistence:    persist,
+		Security:       sec,
+		Observability:  &obs,
+		ControlPlane:   controlPlane,
+		UsageAuthority: usageAuthorityHandle,
 	}, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
@@ -118,6 +136,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneQueries:   controlPlane.queriesHandle(),
 		ControlPlaneStatus:    controlPlane.statusHandle(),
 		ControlPlaneRetention: controlPlane.retentionHandle(),
+		UsageAuthority:        usageAuthorityHandle,
 	}, nil
 }
 

@@ -21,6 +21,7 @@ import (
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -41,14 +42,15 @@ type executorRuntime struct {
 // executorBuildInput groups the upstream unit results consumed by
 // [buildExecutorRuntime].
 type executorBuildInput struct {
-	Bctx          buildContext
-	NowFn         func() time.Time
-	Ext           *extensionRuntime
-	Model         *modelRuntime
-	Persistence   *persistenceRuntime
-	Security      *securityRuntime
-	Observability *observabilityRuntime
-	ControlPlane  *controlPlaneRuntime
+	Bctx           buildContext
+	NowFn          func() time.Time
+	Ext            *extensionRuntime
+	Model          *modelRuntime
+	Persistence    *persistenceRuntime
+	Security       *securityRuntime
+	Observability  *observabilityRuntime
+	ControlPlane   *controlPlaneRuntime
+	UsageAuthority *authorityapp.Service
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -104,6 +106,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.Ledger = tokenAccounting.Ledger
 		accountingRT.TokenAccountingObservability = tokenAccounting.Observability
 		accountingRT.AdminCountService = tokenAccounting.Admin
+	}
+	if in.UsageAuthority != nil {
+		accountingRT.UsageAuthority = in.UsageAuthority
 	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))

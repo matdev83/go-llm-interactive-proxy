@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 )
 
 // openInitialAttempt runs the pre-output attempt-open loop until a backend
@@ -55,6 +56,12 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 				if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 					_ = out.stream.Close()
 				}
+				// RegisterBLeg failed, so the freshly-admitted reservation carried in
+				// out.authority is never stored into a holder field on this path and
+				// would otherwise be orphaned. Release it with ReleaseKindSwallowed,
+				// mirroring the swallowed-authority release sites in executor_recv_loop.
+				l := newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand)
+				l.Release(prep.ctx, authorityapp.ReleaseKindSwallowed)
 				return attemptOpenResult{}, err
 			}
 		}

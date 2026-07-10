@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -38,6 +39,7 @@ type parallelLeg struct {
 	cand        routing.AttemptCandidate
 	bleg        b2bua.BLegRecord
 	stream      lipapi.ManagedEventStream
+	authority   authorityLifecycle
 	delay       time.Duration
 	recvErr     error
 	interleaved interleavedstate.State
@@ -51,6 +53,22 @@ func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
 	for _, leg := range legs {
 		scope.ReleaseBLeg(leg.bleg.BLegID)
 	}
+}
+
+// releaseLosers composes the parallel-race loser cleanup sequence: cancel/close
+// the loser streams, release each loser's authority reservation with
+// ReleaseKindLosing, then drop the loser B-legs from the A-leg scope. It returns
+// the cancelLosers error so callers can fold stream-cleanup failures into their
+// aggregated error exactly as the prior hand-written blocks did. The per-leg
+// authority release and releaseBLegs are best-effort (the owner's Release and
+// ReleaseBLeg are individually guarded), matching the previous behavior.
+func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
+	err := cancelLosers(ctx, legs)
+	for _, leg := range legs {
+		leg.authority.Release(ctx, authorityapp.ReleaseKindLosing)
+	}
+	releaseBLegs(aScope, legs)
+	return err
 }
 
 func (e *Executor) tryOpenParallelGroup(
@@ -87,6 +105,10 @@ func (e *Executor) tryOpenParallelGroup(
 	})
 
 	if p.budget != nil {
+		// Parallel legs reserve attempt-budget slots up front so a no-winner iteration does
+		// not over-open. The N slots are intentionally NOT refunded when the race produces no
+		// winner: every leg that opened represents a genuine backend attempt, so counting them
+		// as consumed is correct back-pressure. Refunding would under-count real attempts.
 		limited := make([]legEntry, 0, len(entries))
 		for _, entry := range entries {
 			if !p.budget.tryAcquire() {
@@ -221,6 +243,10 @@ func (e *Executor) tryOpenParallelGroup(
 						default:
 						}
 					}
+					// legs[idx].authority is not assigned until after RegisterBLeg succeeds, so
+					// release the just-opened local reservation (out.authority) before returning.
+					l := newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, entry.cand)
+					l.Release(ctx, authorityapp.ReleaseKindLosing)
 					return
 				}
 			}
@@ -236,6 +262,7 @@ func (e *Executor) tryOpenParallelGroup(
 			mu.Lock()
 			legs[idx].stream = out.stream
 			legs[idx].bleg = out.bleg
+			legs[idx].authority = newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand)
 			legs[idx].interleaved = out.interleaved
 			legs[idx].memoUpdate = out.memoUpdate
 			if winnerIdx >= 0 {
@@ -313,6 +340,25 @@ func (e *Executor) tryOpenParallelGroup(
 	case <-winnerCh:
 	case <-ctx.Done():
 		raceCancel()
+		// Defensively clean up legs that already opened before ctx was canceled. We must not
+		// wg.Wait here: a leg may be blocked in a backend Recv that ignores ctx, and the race
+		// contract is to return promptly on ctx cancellation. Snapshot the already-opened
+		// legs under the mutex (stream != nil iff the leg opened and stored its authority),
+		// then release their authority, cancel/close their streams, and drop them from the
+		// A-leg scope. Legs still opening observe the canceled ctx and bail out on their own.
+		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+		defer cleanupCancel()
+		mu.Lock()
+		openedLegs := make([]*parallelLeg, 0, len(legs))
+		for i := range legs {
+			if legs[i].stream != nil {
+				openedLegs = append(openedLegs, &legs[i])
+			}
+		}
+		mu.Unlock()
+		if len(openedLegs) > 0 {
+			_ = e.releaseLosers(cleanupCtx, p.aScope, openedLegs)
+		}
 		return zero, ctx.Err()
 	}
 
@@ -325,6 +371,13 @@ func (e *Executor) tryOpenParallelGroup(
 	mu.Unlock()
 
 	if fatal != nil {
+		cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
+		defer cleanupCancel()
+		for i := range legs {
+			if legs[i].stream != nil {
+				legs[i].authority.Release(cleanupCtx, authorityapp.ReleaseKindLosing)
+			}
+		}
 		return zero, fmt.Errorf("executor: parallel race aborted: %w", fatal)
 	}
 
@@ -356,10 +409,9 @@ func (e *Executor) tryOpenParallelGroup(
 		if len(failedLegs) > 0 {
 			cleanupCtx, cleanupCancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 			defer cleanupCancel()
-			if cerr := cancelLosers(cleanupCtx, failedLegs); cerr != nil {
+			if cerr := e.releaseLosers(cleanupCtx, p.aScope, failedLegs); cerr != nil {
 				parallelFailure = errors.Join(parallelFailure, cerr)
 			}
-			releaseBLegs(p.aScope, failedLegs)
 		}
 		if skipped := len(candidates) - len(legs); skipped > 0 {
 			parallelFailure = errors.Join(parallelFailure,
@@ -390,8 +442,7 @@ func (e *Executor) tryOpenParallelGroup(
 				toClean = append(toClean, &legs[i])
 			}
 		}
-		cleanupErr := cancelLosers(cleanupCtx, toClean)
-		releaseBLegs(p.aScope, toClean)
+		cleanupErr := e.releaseLosers(cleanupCtx, p.aScope, toClean)
 		return zero, errors.Join(err, cleanupErr)
 	}
 	legs[winner].interleaved = committedInterleaved
@@ -443,8 +494,7 @@ func (e *Executor) tryOpenParallelGroup(
 			}()
 			cancelCtx, cancel := detachedCleanupContext(ctx, cancelLosersTimeout)
 			defer cancel()
-			cleanupErr = cancelLosers(cancelCtx, losers)
-			releaseBLegs(p.aScope, losers)
+			cleanupErr = e.releaseLosers(cancelCtx, p.aScope, losers)
 		}()
 	}
 
@@ -459,6 +509,7 @@ func (e *Executor) tryOpenParallelGroup(
 		},
 		bleg:        legs[winner].bleg,
 		cand:        legs[winner].cand,
+		authority:   legs[winner].authority.state,
 		interleaved: legs[winner].interleaved,
 	}, nil
 }

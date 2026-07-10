@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -74,6 +75,7 @@ type attemptOpenResult struct {
 	stream     lipapi.ManagedEventStream
 	bleg       b2bua.BLegRecord
 	cand       routing.AttemptCandidate
+	authority  attemptAuthorityState
 	// interleaved is the interleaved-thinking state after this attempt, with the cycle cursor
 	// advanced and memo reference updated when shaping persisted them. Callers thread it back
 	// into the next attempt-open iteration so retry/failover continues from the current state.
@@ -325,7 +327,9 @@ func (e *Executor) openPlannedCandidate(
 	}
 	cat := catalogRouteTraceIfEnabled(e, facts, res, elig, eligRan)
 	e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+	var preflightDecision accountingpreflight.Decision
 	if decision, ok := e.runPreflight(p.ctx, p.traceID, attempt, c, facts.Facts); ok {
+		preflightDecision = decision
 		if !decision.Allowed {
 			return zero, fmt.Errorf("executor: token accounting preflight: %w", decision.Err)
 		}
@@ -334,6 +338,11 @@ func (e *Executor) openPlannedCandidate(
 			attempt.Options.MaxOutputTokens = &adjusted
 		}
 	}
+	precheckState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, b2bua.BLegRecord{}, attempt, c, preflightDecision, true)
+	if err != nil {
+		return zero, err
+	}
+	_ = precheckState // precheck is estimate-only; state is not carried forward
 	if !p.budget.tryAcquire() {
 		return zero, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
 	}
@@ -343,10 +352,37 @@ func (e *Executor) openPlannedCandidate(
 		}
 		p.session.FirstRequestConsumed = true
 	}
+	// NextBLeg allocates a B-leg seq before the authoritative admit; on a subsequent admit
+	// failure that seq is intentionally NOT restored. Orphaned seqToBLeg entries are
+	// functionally invisible (only RecordAttempt reads them, never for a rolled-back b-leg;
+	// LoadAttempts needs no contiguous seqs) and reclaimed on A-leg eviction. Rollback was
+	// rejected: it breaks the stable continuity.Store contract (contract test pins the method
+	// set), nextSeq-- is ABA-unsafe; a delete-only variant-B touches ~9-11 files for cosmetic tidiness.
 	bleg, err := e.Store.NextBLeg(p.ctx, p.aLegID)
 	if err != nil {
+		// tryAcquire already consumed a routing attempt slot; refund it so a
+		// failed B-leg allocation does not permanently consume an attempt.
+		p.budget.release()
 		return zero, fmt.Errorf("executor: next b-leg: %w", err)
 	}
+	authState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, bleg, attempt, c, preflightDecision, false)
+	if err != nil {
+		// The estimate-only precheck passed and consumed a routing attempt slot, but
+		// the authoritative admit failed (e.g. strict store ErrReservationConflict when
+		// the live window is full). Refund the budget slot so a backend that never opens
+		// does not permanently consume an attempt. The b2bua Store exposes no B-leg
+		// sequence rollback API, so the seq allocated by NextBLeg is not restored here.
+		p.budget.release()
+		return zero, err
+	}
+	releaseKind := authorityapp.ReleaseKindLosing
+	opened := false
+	defer func() {
+		if !opened {
+			l := newAuthorityLifecycle(e.authorityService(), e.Log, authState, c)
+			l.Release(p.ctx, releaseKind)
+		}
+	}()
 	hookCtx := p.ctx
 	if e != nil && e.Log != nil {
 		hookCtx = hooks.WithDiagnosticsLogger(p.ctx, e.Log)
@@ -427,6 +463,7 @@ func (e *Executor) openPlannedCandidate(
 					Reason:    ttftAttemptReason(ttftScope),
 					DetailErr: tf,
 				}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
+				releaseKind = authorityapp.ReleaseKindSwallowed
 				p.excluded[c.Key] = struct{}{}
 				return noOpen, nil
 			}
@@ -459,6 +496,7 @@ func (e *Executor) openPlannedCandidate(
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
 			)
+			releaseKind = authorityapp.ReleaseKindSwallowed
 			p.excluded[c.Key] = struct{}{}
 			return noOpen, nil
 		}
@@ -524,7 +562,8 @@ func (e *Executor) openPlannedCandidate(
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
 	e.logInterleavedRouteSelected(p.ctx, p.traceID, bleg.BLegID, c)
-	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c, interleaved: interleaved, memoUpdate: memoUpdate}, nil
+	opened = true
+	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c, authority: authState, interleaved: interleaved, memoUpdate: memoUpdate}, nil
 }
 
 func (e *Executor) lookupAffinityBinding(ctx context.Context, traceID string, sel *routing.Selector, key affinity.Key, keyOK bool) (string, bool, error) {
