@@ -346,3 +346,38 @@ func TestMapNotification_dispatch(t *testing.T) {
 		})
 	}
 }
+
+func TestMapNotification_reasoningSummaryTextDelta_stripsEmptyHTMLCommentMarker(t *testing.T) {
+	t.Parallel()
+	s := &codexStream{}
+
+	evs, err := s.mapNotification(map[string]any{
+		"method": "item/reasoning/summaryTextDelta",
+		"params": map[string]any{"delta": "**Planning Phase 1**\n\n<!-- -->"},
+	})
+	if err != nil {
+		t.Fatalf("mapNotification: %v", err)
+	}
+	if len(evs) != 1 || evs[0].Kind != lipapi.EventReasoningDelta {
+		t.Fatalf("events = %+v", evs)
+	}
+	if evs[0].Delta != "**Planning Phase 1**\n\n" {
+		t.Fatalf("delta = %q", evs[0].Delta)
+	}
+}
+
+func TestMapNotification_reasoningSummaryTextDelta_suppressesSplitCommentClose(t *testing.T) {
+	t.Parallel()
+	s := &codexStream{}
+
+	evs, err := s.mapNotification(map[string]any{
+		"method": "item/reasoning/summaryTextDelta",
+		"params": map[string]any{"delta": " -->"},
+	})
+	if err != nil {
+		t.Fatalf("mapNotification: %v", err)
+	}
+	if len(evs) != 0 {
+		t.Fatalf("expected split comment close to be suppressed, got %+v", evs)
+	}
+}
