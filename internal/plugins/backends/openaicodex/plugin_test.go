@@ -1226,9 +1226,21 @@ func TestModelInventory_builtinWhenNoneConfigured(t *testing.T) {
 	for _, m := range snap.Models {
 		got = append(got, m.NativeID)
 	}
-	want := []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("builtin codex native IDs = %#v, want exactly %#v", got, want)
+	if len(got) == 0 {
+		t.Fatal("builtin inventory is empty; expected shipped fallback slugs")
+	}
+	// The built-in inventory now comes from the shipped fallback snapshot
+	// (auto-discovered catalog), not a hardcoded list.
+	for _, want := range []string{"gpt-5.5", "gpt-5.6-sol"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("builtin codex native IDs %v missing %q", got, want)
+		}
+	}
+	// CLI-only and legacy slugs are not routable.
+	for _, absent := range []string{"gpt-5.3-codex-spark", "gpt-5.1-codex"} {
+		if slices.Contains(got, absent) {
+			t.Fatalf("builtin codex native IDs %v should not contain %q", got, absent)
+		}
 	}
 }
 

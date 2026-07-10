@@ -26,7 +26,10 @@ var lineBudgets = []struct {
 	// Raised from 33500 to 35000 for the control-plane-persistence-query-event-ledger
 	// spec Phase 3, which adds the core scope flattener, event normalizer, recorder
 	// service, query service, and retention controller under internal/core/controlplane.
-	{"internal/core", 35000},
+	// Raised from 35000 to 35200 to accommodate internal/core/codexcatalog, the
+	// auto-discovered Codex model catalog (parser, fallback snapshot, discovery,
+	// binary resolver) shared by the openai-codex and codex app-server connectors.
+	{"internal/core", 35200},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

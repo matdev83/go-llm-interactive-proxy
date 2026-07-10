@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
@@ -25,13 +26,9 @@ const vendorPrefix = "openai"
 // handshakeClientName is the client name sent during initialize.
 const handshakeClientName = "llm-interactive-proxy"
 
-// defaultModels is the fallback model list matching Python's _DEFAULT_CODEX_MODEL_IDS.
-var defaultModels = []string{
-	"auto",
-	"gpt-5.4",
-	"gpt-5.3-codex",
-	"gpt-5.2",
-}
+// autoModelSentinel is the routing sentinel meaning "let the Codex app-server
+// pick the model server-side". It is a protocol sentinel, not a catalog slug.
+const autoModelSentinel = "auto"
 
 // autoAcceptMethods are server-initiated JSON-RPC request methods that this
 // headless proxy auto-accepts. Every other method fails closed via decline.
@@ -50,6 +47,12 @@ type Config struct {
 	acp.ConnectorConfig
 	// ConfigOverrides are -c key=value overrides passed between "app-server" and "--stdio".
 	ConfigOverrides []string
+	// ModelCatalog is the auto-discovered Codex model catalog used for the
+	// built-in model inventory. May be nil (e.g. tests without DI); the
+	// connector then loads the shipped fallback snapshot. No model slugs are
+	// hardcoded — the inventory is the "auto" sentinel plus the catalog's
+	// routable slugs.
+	ModelCatalog *codexcatalog.Catalog
 }
 
 // resolveExecutable finds the Codex CLI binary, with cross-platform fallbacks.
@@ -155,11 +158,29 @@ func stripOpenAIModelPrefix(model string) string {
 // isAutoModel returns true when the model is empty or "auto".
 func isAutoModel(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
-	return m == "" || m == "auto"
+	return m == "" || m == autoModelSentinel
 }
 
-func defaultInventoryModels() []modelinventory.Model {
-	return acp.DefaultInventoryModels(vendorPrefix, defaultModels)
+// defaultInventoryModels builds the built-in inventory from the auto-discovered
+// catalog: the "auto" routing sentinel plus the catalog's routable slugs. When
+// the catalog is nil (e.g. tests without DI), the shipped fallback snapshot is
+// loaded so no model slugs are hardcoded here.
+func defaultInventoryModels(cat *codexcatalog.Catalog) []modelinventory.Model {
+	ids := []string{autoModelSentinel}
+	ids = append(ids, catalogRoutableSlugs(cat)...)
+	return acp.DefaultInventoryModels(vendorPrefix, ids)
+}
+
+// catalogRoutableSlugs returns the catalog's routable slugs, loading the shipped
+// fallback snapshot when cat is nil.
+func catalogRoutableSlugs(cat *codexcatalog.Catalog) []string {
+	if cat != nil {
+		return cat.RoutableSlugs()
+	}
+	if fallback, err := codexcatalog.LoadFallback(""); err == nil {
+		return fallback.RoutableSlugs()
+	}
+	return nil
 }
 
 // New returns a runtime backend that invokes the Codex CLI app-server via stdio.
@@ -181,7 +202,7 @@ func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend 
 // applyDefaults normalizes the config model field.
 func (cfg *Config) applyDefaults() {
 	if cfg.Model == "" {
-		cfg.Model = "auto"
+		cfg.Model = autoModelSentinel
 	}
 	cfg.Model = stripOpenAIModelPrefix(cfg.Model)
 }
@@ -226,7 +247,7 @@ func newBackend(cfg Config, requireExplicitWorkspace bool, starter acp.ProcessSt
 		BackendPrefixes: []string{ID},
 		ModelInventory: modelinventory.StaticProvider{
 			Source: modelinventory.SourceStaticBuiltin,
-			Models: defaultInventoryModels(),
+			Models: defaultInventoryModels(cfg.ModelCatalog),
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			_ = cand
