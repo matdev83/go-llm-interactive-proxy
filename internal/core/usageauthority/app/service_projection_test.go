@@ -16,20 +16,23 @@ func TestProjectAccountingEvidence(t *testing.T) {
 	now := time.Unix(123, 0).UTC()
 	status := domain.AuthorityStatus{State: domain.AuthorityStateReady, Reason: domain.StatusReasonNone}
 	input := Evidence{
-		At:              now,
-		Correlation:     controlplane.Correlation{TraceID: "trace-1", RequestID: "request-1", ALegID: "a-1", BLegID: "b-1", AttemptSeq: 3, BackendID: "backend-1", Model: "model-1"},
-		Scope:           principalScope(),
-		RuleID:          "tenant.requests",
-		RuleType:        "quota",
-		Outcome:         controlplane.AccountingOutcomeReserve,
-		ReasonCode:      policydecision.AccountingReasonReserved,
-		ReservationID:   "reservation-1",
-		SettlementState: controlplane.AccountingSettlementPending,
-		Unit:            "requests",
-		Limit:           10,
-		Consumed:        6,
-		Reserved:        4,
-		Adjustment:      -1,
+		At:               now,
+		Correlation:      controlplane.Correlation{TraceID: "trace-1", RequestID: "request-1", ALegID: "a-1", BLegID: "b-1", AttemptSeq: 3, BackendID: "backend-1", Model: "model-1"},
+		Scope:            principalScope(),
+		RuleID:           "tenant.requests",
+		RuleType:         "quota",
+		Outcome:          controlplane.AccountingOutcomeReserve,
+		ReasonCode:       policydecision.AccountingReasonReserved,
+		ReservationID:    "reservation-1",
+		SettlementState:  controlplane.AccountingSettlementPending,
+		Unit:             "requests",
+		Limit:            10,
+		Consumed:         6,
+		Reserved:         4,
+		Adjustment:       -1,
+		Stage:            feature.StageIDPreRequest,
+		BackendAttempted: false,
+		OutputCommitted:  false,
 	}
 
 	record, ok := ProjectPolicyDecision(status, true, input)
@@ -38,6 +41,12 @@ func TestProjectAccountingEvidence(t *testing.T) {
 	}
 	if record.Stage != feature.StageIDPreRequest {
 		t.Fatalf("projected policy decision must use a legal stage: %#v", record)
+	}
+	if record.Provider.Stage != feature.StageIDPreRequest {
+		t.Fatalf("projected provider stage lost admission lifecycle: %#v", record.Provider)
+	}
+	if record.BackendAttempted || record.OutputCommitted {
+		t.Fatalf("admission projection must stay pre-backend and pre-output: %#v", record)
 	}
 	if record.Annotations["accounting.rule_id"] != "tenant.requests" {
 		t.Fatalf("rule annotation lost: %#v", record.Annotations)
@@ -81,5 +90,27 @@ func TestProjectAccountingEvidence(t *testing.T) {
 	}
 	if err := ev.Validate(); err != nil {
 		t.Fatalf("projected controlplane event must be legal: %v", err)
+	}
+
+	late := input
+	late.Stage = feature.StageIDAttemptLifecycle
+	late.BackendAttempted = true
+	late.OutputCommitted = true
+
+	lateRecord, ok := ProjectPolicyDecision(status, true, late)
+	if !ok {
+		t.Fatalf("late accounting projection must succeed")
+	}
+	if lateRecord.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("late accounting stage must follow the runtime lifecycle: %#v", lateRecord)
+	}
+	if lateRecord.Provider.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("late accounting provider stage must match the runtime lifecycle: %#v", lateRecord.Provider)
+	}
+	if !lateRecord.BackendAttempted || !lateRecord.OutputCommitted {
+		t.Fatalf("late accounting projection must preserve backend/output commitment flags: %#v", lateRecord)
+	}
+	if err := policydecision.ValidateRecord(lateRecord); err != nil {
+		t.Fatalf("late accounting projected policydecision must stay legal: %v", err)
 	}
 }

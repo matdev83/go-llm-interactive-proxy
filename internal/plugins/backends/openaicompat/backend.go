@@ -56,10 +56,11 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 		return newConfigErrorBackend(spec.ID, fmt.Errorf("%s: credentials: %w", spec.ID, err))
 	}
 	return execbackend.Backend{
-		Caps:            openaicaps.HostedFull,
-		TransportCaps:   hostedTransportCaps(),
-		BackendPrefixes: []string{spec.ID},
-		ModelInventory:  spec.Inventory,
+		Caps:                    openaicaps.HostedFull,
+		TransportCaps:           hostedTransportCaps(),
+		BackendPrefixes:         []string{spec.ID},
+		EnforcesMaxOutputTokens: true,
+		ModelInventory:          spec.Inventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
 			return openaicaps.ForHostedModel(resolveModel(spec, cand, call))
 		},

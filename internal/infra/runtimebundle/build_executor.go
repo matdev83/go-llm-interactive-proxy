@@ -109,6 +109,11 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
+		cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
+		if err != nil {
+			return nil, closers, err
+		}
+		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))

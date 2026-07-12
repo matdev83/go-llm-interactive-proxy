@@ -32,20 +32,24 @@ func projectAuthorityEvidence(status domain.AuthorityStatus, reserved bool, in E
 	authority := resolveAuthoritySource(status, reserved, in)
 	snapshot := scopeSnapshot(in.Scope)
 	correlation := in.Correlation
+	stage := in.Stage
+	if stage == "" {
+		stage = feature.StageIDPreRequest
+	}
 
 	record, ok := policydecision.ProjectAccountingRecord(policydecision.Record{
 		TraceID:          correlation.TraceID,
 		ALegID:           correlation.ALegID,
 		BLegID:           correlation.BLegID,
 		AttemptSeq:       correlation.AttemptSeq,
-		Stage:            feature.StageIDPreRequest,
-		Provider:         policydecision.ProviderRef{ID: sourceName, Stage: feature.StageIDPreRequest},
+		Stage:            stage,
+		Provider:         policydecision.ProviderRef{ID: sourceName, Stage: stage},
 		Outcome:          p.PolicyOutcome,
 		Effect:           p.Effect,
 		Visibility:       policydecisionVisibility(visibilityLevel),
 		Scope:            in.Scope.Clone(),
-		OutputCommitted:  false,
-		BackendAttempted: false,
+		OutputCommitted:  in.OutputCommitted,
+		BackendAttempted: in.BackendAttempted,
 	}, policydecision.AccountingProjection{
 		ReasonCode:       in.ReasonCode,
 		RuleID:           in.RuleID,
@@ -55,6 +59,39 @@ func projectAuthorityEvidence(status domain.AuthorityStatus, reserved bool, in E
 	})
 	if !ok {
 		return policyAndControlPlane{}, fmt.Errorf("usage authority evidence: invalid policydecision projection")
+	}
+	if len(in.MatchedRuleIDs) > 0 {
+		if record.Annotations == nil {
+			record.Annotations = make(map[string]string)
+		}
+		ids := make([]string, 0, len(in.MatchedRuleIDs))
+		for _, id := range in.MatchedRuleIDs {
+			if strings.TrimSpace(id) == "" || len(ids) >= 32 {
+				continue
+			}
+			ids = append(ids, id)
+		}
+		if len(ids) > 0 {
+			record.Annotations["accounting.rule_ids"] = strings.Join(ids, ",")
+		}
+	}
+	if in.RequestedMax.Unit != "" {
+		if record.Annotations == nil {
+			record.Annotations = make(map[string]string)
+		}
+		record.Annotations["accounting.requested_max"] = in.RequestedMax.String()
+	}
+	if in.EffectiveMax.Unit != "" {
+		if record.Annotations == nil {
+			record.Annotations = make(map[string]string)
+		}
+		record.Annotations["accounting.effective_max"] = in.EffectiveMax.String()
+	}
+	if strings.TrimSpace(in.ClampReason) != "" {
+		if record.Annotations == nil {
+			record.Annotations = make(map[string]string)
+		}
+		record.Annotations["accounting.clamp_reason"] = strings.TrimSpace(in.ClampReason)
 	}
 
 	event := controlplane.Event{
@@ -134,6 +171,8 @@ func sourceEventKey(in Evidence) string {
 		strconv.Itoa(in.Correlation.AttemptSeq),
 		in.RuleID,
 		in.ReservationID,
+		in.SourceKind,
+		strconv.Itoa(in.SourceSequence),
 		string(in.Outcome),
 		string(in.ReasonCode),
 	}

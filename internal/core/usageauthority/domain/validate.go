@@ -68,6 +68,13 @@ func (r Rule) Validate() error {
 	if err := r.Limit.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRule, err)
 	}
+	unit := r.Unit
+	if unit == "" {
+		unit = r.Limit.Unit
+	}
+	if unit != r.Limit.Unit {
+		return fmt.Errorf("%w: rule unit %q does not match limit unit %q", ErrInvalidRule, unit, r.Limit.Unit)
+	}
 	if err := r.Match.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRule, err)
 	}
@@ -79,7 +86,7 @@ func (r Rule) Validate() error {
 
 	switch r.Kind {
 	case RuleKindBudget, RuleKindSpendCap:
-		if r.Unit != AmountUnitMoneyNano || !r.Limit.IsMoney() {
+		if unit != AmountUnitMoneyNano || !r.Limit.IsMoney() {
 			return fmt.Errorf("%w: budget and spend-cap rules must use money nano-unit amounts with currency", ErrInvalidRule)
 		}
 		if strings.TrimSpace(r.Currency) == "" || strings.TrimSpace(r.Limit.Currency) == "" {
@@ -89,7 +96,7 @@ func (r Rule) Validate() error {
 			return fmt.Errorf("%w: currency mismatch %q != %q", ErrInvalidRule, r.Currency, r.Limit.Currency)
 		}
 	case RuleKindQuota, RuleKindRate:
-		if r.Unit == AmountUnitMoneyNano || r.Limit.IsMoney() || strings.TrimSpace(r.Currency) != "" || strings.TrimSpace(r.Limit.Currency) != "" {
+		if unit == AmountUnitMoneyNano || r.Limit.IsMoney() || strings.TrimSpace(r.Currency) != "" || strings.TrimSpace(r.Limit.Currency) != "" {
 			return fmt.Errorf("%w: quota and rate rules must not use money", ErrInvalidRule)
 		}
 	default:

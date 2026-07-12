@@ -59,7 +59,7 @@ func TestAppendDecisionMirrorsLimitWindow(t *testing.T) {
 			Correlation: limitRow.Correlation,
 			Scope:       limitRow.Scope,
 		}
-		store.c.appendDecision(discardMutationLog{}, snapshot, limitRow, "res-1",
+		store.c.appendDecision(discardMutationLog{}, snapshot, limitRow, "res-1", "",
 			controlplane.AccountingOutcomeReserve, "reserved",
 			controlplane.AccountingAuthoritySourceReserved,
 			controlplane.AccountingSettlementPending,
@@ -115,7 +115,7 @@ func TestAppendDecisionMirrorsLimitWindow(t *testing.T) {
 			Correlation: limitRow.Correlation,
 			Scope:       limitRow.Scope,
 		}
-		store.c.appendDecision(discardMutationLog{}, snapshot, limitRow, "res-2",
+		store.c.appendDecision(discardMutationLog{}, snapshot, limitRow, "res-2", "",
 			controlplane.AccountingOutcomeReserve, "reserved",
 			controlplane.AccountingAuthoritySourceReserved,
 			controlplane.AccountingSettlementPending,

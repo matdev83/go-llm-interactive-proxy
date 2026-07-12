@@ -476,6 +476,71 @@ func TestDimensionKeyRejectsInvalidPolicyLabelKeys(t *testing.T) {
 	}
 }
 
+// TestDimensionKeyIncludesCredential pins requirement 1.2: the credential
+// authority dimension must participate in the dimension key so distinct
+// credentials produce distinct accounting windows, while preserving the
+// known-vs-unknown presence semantics used by every other scope dimension.
+func TestDimensionKeyIncludesCredential(t *testing.T) {
+	t.Parallel()
+
+	withCredential := Dimensions{
+		Principal:  scope.Known("principal-a"),
+		Credential: scope.Known("cred-a"),
+	}
+	withoutCredential := Dimensions{
+		Principal:  scope.Known("principal-a"),
+		Credential: scope.Unknown(),
+	}
+	if withCredential.Key() == withoutCredential.Key() {
+		t.Fatalf("credential must distinguish keys:\nwith:    %s\nwithout: %s", withCredential.Key(), withoutCredential.Key())
+	}
+
+	knownEmpty := Dimensions{Credential: scope.Known("")}
+	unknown := Dimensions{Credential: scope.Unknown()}
+	if knownEmpty.Key() == unknown.Key() {
+		t.Fatalf("known-empty and unknown credential keys should differ: %s", knownEmpty.Key())
+	}
+
+	sameA := Dimensions{Credential: scope.Known("cred-a")}
+	sameB := Dimensions{Credential: scope.Known("cred-a")}
+	if sameA.Key() != sameB.Key() {
+		t.Fatalf("equal credentials produced different keys:\n%s\n%s", sameA.Key(), sameB.Key())
+	}
+}
+
+// TestDimensionsMatcherCredentialMatches pins the credential matcher
+// behavior and the backward-compat wildcard: an unconfigured (zero)
+// Credential matcher must match any credential exactly as before, while a
+// configured matcher follows the same known/unknown/match-unknown rules as
+// every other dimension.
+func TestDimensionsMatcherCredentialMatches(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		matcher DimensionMatcher
+		actual  scope.Value
+		want    bool
+	}{
+		{name: "unconfigured matcher matches known", matcher: DimensionMatcher{}, actual: scope.Known("cred-a"), want: true},
+		{name: "unconfigured matcher matches unknown", matcher: DimensionMatcher{}, actual: scope.Unknown(), want: true},
+		{name: "known value matches equal", matcher: DimensionMatcher{Value: scope.Known("cred-a")}, actual: scope.Known("cred-a"), want: true},
+		{name: "known value rejects different", matcher: DimensionMatcher{Value: scope.Known("cred-a")}, actual: scope.Known("cred-b"), want: false},
+		{name: "known value rejects unknown", matcher: DimensionMatcher{Value: scope.Known("cred-a")}, actual: scope.Unknown(), want: false},
+		{name: "match-unknown matches unknown", matcher: DimensionMatcher{MatchUnknown: true}, actual: scope.Unknown(), want: true},
+		{name: "match-unknown rejects known", matcher: DimensionMatcher{MatchUnknown: true}, actual: scope.Known("cred-a"), want: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := DimensionsMatcher{Credential: tt.matcher}
+			if got := m.Matches(Dimensions{Credential: tt.actual}); got != tt.want {
+				t.Fatalf("Matches() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSettlementKeyRejectsDuplicateEmptyInputs(t *testing.T) {
 	t.Parallel()
 
@@ -583,6 +648,17 @@ func TestRuleValidationEnforcesKindUnitAndCurrency(t *testing.T) {
 			},
 			want: "currency mismatch",
 		},
+		{
+			name: "rule unit must match limit unit",
+			rule: Rule{
+				ID:    "quota-unit-mismatch",
+				Kind:  RuleKindQuota,
+				Mode:  RuleModeStrict,
+				Unit:  AmountUnitRequests,
+				Limit: Amount{Unit: AmountUnitInputTokens, Value: 1},
+			},
+			want: "does not match limit unit",
+		},
 	}
 
 	for _, tt := range tests {
@@ -603,6 +679,37 @@ func TestRuleValidationEnforcesKindUnitAndCurrency(t *testing.T) {
 				t.Fatalf("Validate() error = %q, want substring %q", err.Error(), tt.want)
 			}
 		})
+	}
+}
+
+func TestEvaluateRulesAdvisoryAuthorityUnavailableNeverBlocksStrictAllow(t *testing.T) {
+	t.Parallel()
+
+	advisory := Rule{
+		ID:                   "advisory-authoritative",
+		Kind:                 RuleKindQuota,
+		Mode:                 RuleModeAdvisory,
+		Unit:                 AmountUnitRequests,
+		Limit:                Amount{Unit: AmountUnitRequests, Value: 10},
+		AuthorityRequirement: AuthorityRequirementAuthoritative,
+	}
+	strict := Rule{
+		ID:    "strict-allow",
+		Kind:  RuleKindQuota,
+		Mode:  RuleModeStrict,
+		Unit:  AmountUnitRequests,
+		Limit: Amount{Unit: AmountUnitRequests, Value: 10},
+	}
+	got := EvaluateRules([]Rule{advisory, strict}, EvaluationContext{
+		Amount:       Amount{Unit: AmountUnitRequests, Value: 1},
+		RequestCount: Amount{Unit: AmountUnitRequests, Value: 1},
+		Authority:    AuthorityLevelEstimated,
+	})
+	if len(got.Matches) != 2 || got.Matches[0].Outcome != DecisionOutcomeUnavailable {
+		t.Fatalf("matches = %#v, want advisory unavailable match retained", got.Matches)
+	}
+	if got.Selected.Outcome != DecisionOutcomeAllow || len(got.Selected.RuleIDs) != 2 {
+		t.Fatalf("selected outcome = %#v, want strict allow", got.Selected)
 	}
 }
 
@@ -646,6 +753,177 @@ func TestEvaluationIgnoresNonMatchingRule(t *testing.T) {
 	}
 	if got.Selected.Outcome != DecisionOutcomeAllow {
 		t.Fatalf("selected outcome = %q, want allow", got.Selected.Outcome)
+	}
+}
+
+// TestAuthoritativeOnlyRuleEstimatedEvidenceMatchesUnavailable pins finding 5
+// and requirement 8.3: an authoritative-only rule evaluated against estimated
+// evidence must still MATCH (appear in Matches and matched RuleIDs) and report
+// an authority-unavailable outcome, rather than being silently dropped from
+// evidence. The app resolves the unavailable posture via configured failure
+// behavior; the domain only reports the outcome.
+func TestAuthoritativeOnlyRuleEstimatedEvidenceMatchesUnavailable(t *testing.T) {
+	t.Parallel()
+
+	rule := Rule{
+		ID:                   "budget-authoritative",
+		Kind:                 RuleKindBudget,
+		Mode:                 RuleModeStrict,
+		Unit:                 AmountUnitMoneyNano,
+		Currency:             "usd",
+		Limit:                Amount{Unit: AmountUnitMoneyNano, Value: 100, Currency: "usd"},
+		AuthorityRequirement: AuthorityRequirementAuthoritative,
+	}
+	ctx := EvaluationContext{
+		Dimensions: Dimensions{Tenant: scope.Known("tenant-a")},
+		Spend:      Amount{Unit: AmountUnitMoneyNano, Value: 50, Currency: "usd"},
+		Authority:  AuthorityLevelEstimated,
+		At:         time.Unix(3600, 0).UTC(),
+	}
+
+	got := EvaluateRules([]Rule{rule}, ctx)
+	if len(got.Matches) != 1 {
+		t.Fatalf("matched rules = %d, want 1 (authoritative-only rule must match on estimated evidence)", len(got.Matches))
+	}
+	if got.Matches[0].RuleID != "budget-authoritative" {
+		t.Fatalf("matched rule = %q, want budget-authoritative", got.Matches[0].RuleID)
+	}
+	if got.Matches[0].Outcome != DecisionOutcomeUnavailable {
+		t.Fatalf("outcome = %q, want unavailable", got.Matches[0].Outcome)
+	}
+	if got.Selected.Outcome != DecisionOutcomeUnavailable {
+		t.Fatalf("selected outcome = %q, want unavailable", got.Selected.Outcome)
+	}
+	if got.Selected.RuleID != "budget-authoritative" {
+		t.Fatalf("selected rule = %q, want budget-authoritative", got.Selected.RuleID)
+	}
+	if len(got.Selected.RuleIDs) != 1 || got.Selected.RuleIDs[0] != "budget-authoritative" {
+		t.Fatalf("selected RuleIDs = %#v, want [budget-authoritative]", got.Selected.RuleIDs)
+	}
+}
+
+// TestAuthoritativeOnlyRuleAuthoritativeEvidenceEvaluatesNormally pins the
+// counterpart: when authoritative evidence is available, an authoritative-only
+// rule evaluates against the limit normally (not unavailable).
+func TestAuthoritativeOnlyRuleAuthoritativeEvidenceEvaluatesNormally(t *testing.T) {
+	t.Parallel()
+
+	rule := Rule{
+		ID:                   "budget-authoritative",
+		Kind:                 RuleKindBudget,
+		Mode:                 RuleModeStrict,
+		Unit:                 AmountUnitMoneyNano,
+		Currency:             "usd",
+		Limit:                Amount{Unit: AmountUnitMoneyNano, Value: 100, Currency: "usd"},
+		AuthorityRequirement: AuthorityRequirementAuthoritative,
+	}
+	ctx := EvaluationContext{
+		Dimensions: Dimensions{Tenant: scope.Known("tenant-a")},
+		Spend:      Amount{Unit: AmountUnitMoneyNano, Value: 50, Currency: "usd"},
+		Authority:  AuthorityLevelAuthoritative,
+		At:         time.Unix(3600, 0).UTC(),
+	}
+
+	got := EvaluateRules([]Rule{rule}, ctx)
+	if len(got.Matches) != 1 {
+		t.Fatalf("matched rules = %d, want 1", len(got.Matches))
+	}
+	if got.Matches[0].Outcome != DecisionOutcomeAllow {
+		t.Fatalf("outcome = %q, want allow (within budget under authoritative evidence)", got.Matches[0].Outcome)
+	}
+}
+
+// TestAuthoritativeUnavailableDoesNotOverrideDeny pins the severity ordering
+// (deny > clamp > advisory > unavailable > allow): when an authoritative-only
+// rule reports unavailable alongside a deny from another matched rule, the
+// deny wins selection while the unavailable match remains visible in Matches.
+func TestAuthoritativeUnavailableDoesNotOverrideDeny(t *testing.T) {
+	t.Parallel()
+
+	rules := []Rule{
+		{
+			ID:                   "budget-authoritative",
+			Kind:                 RuleKindBudget,
+			Mode:                 RuleModeStrict,
+			Unit:                 AmountUnitMoneyNano,
+			Currency:             "usd",
+			Limit:                Amount{Unit: AmountUnitMoneyNano, Value: 100, Currency: "usd"},
+			AuthorityRequirement: AuthorityRequirementAuthoritative,
+		},
+		{
+			ID:    "quota-strict",
+			Kind:  RuleKindQuota,
+			Mode:  RuleModeStrict,
+			Unit:  AmountUnitRequests,
+			Limit: Amount{Unit: AmountUnitRequests, Value: 10},
+		},
+	}
+	ctx := EvaluationContext{
+		Dimensions:   Dimensions{Tenant: scope.Known("tenant-a")},
+		Amount:       Amount{Unit: AmountUnitRequests, Value: 12},
+		RequestCount: Amount{Unit: AmountUnitRequests, Value: 12},
+		Spend:        Amount{Unit: AmountUnitMoneyNano, Value: 50, Currency: "usd"},
+		Authority:    AuthorityLevelEstimated,
+		At:           time.Unix(3600, 0).UTC(),
+	}
+
+	got := EvaluateRules(rules, ctx)
+	if got.Selected.Outcome != DecisionOutcomeDeny {
+		t.Fatalf("selected outcome = %q, want deny (must override unavailable)", got.Selected.Outcome)
+	}
+	if got.Selected.RuleID != "quota-strict" {
+		t.Fatalf("selected rule = %q, want quota-strict", got.Selected.RuleID)
+	}
+	// Both rules matched: the authoritative-only rule stays visible in Matches.
+	var sawUnavailable bool
+	for _, m := range got.Matches {
+		if m.RuleID == "budget-authoritative" && m.Outcome == DecisionOutcomeUnavailable {
+			sawUnavailable = true
+		}
+	}
+	if !sawUnavailable {
+		t.Fatalf("authoritative-only rule unavailable match must remain visible in Matches: %#v", got.Matches)
+	}
+	if len(got.Selected.RuleIDs) != 2 {
+		t.Fatalf("matched RuleIDs = %#v, want 2 entries", got.Selected.RuleIDs)
+	}
+}
+
+// TestSpendCapClampPopulatesRequestedMax pins finding 10 and requirement 6.5:
+// a strict spend-cap that the request would exceed must produce a clamp
+// outcome with RequestedMax populated from the requested spend basis and
+// EffectiveMax left zero until the app fills it from live store remaining +
+// cost estimate.
+func TestSpendCapClampPopulatesRequestedMax(t *testing.T) {
+	t.Parallel()
+
+	rule := Rule{
+		ID:       "spend-cap-strict",
+		Kind:     RuleKindSpendCap,
+		Mode:     RuleModeStrict,
+		Unit:     AmountUnitMoneyNano,
+		Currency: "usd",
+		Limit:    Amount{Unit: AmountUnitMoneyNano, Value: 100, Currency: "usd"},
+	}
+	ctx := EvaluationContext{
+		Dimensions: Dimensions{Tenant: scope.Known("tenant-a")},
+		Spend:      Amount{Unit: AmountUnitMoneyNano, Value: 120, Currency: "usd"},
+		Authority:  AuthorityLevelEstimated,
+		At:         time.Unix(3600, 0).UTC(),
+	}
+
+	got := EvaluateRules([]Rule{rule}, ctx)
+	if got.Selected.Outcome != DecisionOutcomeClamp {
+		t.Fatalf("selected outcome = %q, want clamp", got.Selected.Outcome)
+	}
+	if !got.Selected.Exceeded {
+		t.Fatal("selected outcome should be exceeded")
+	}
+	if got.Selected.RequestedMax.Unit != AmountUnitMoneyNano || got.Selected.RequestedMax.Value != 120 || got.Selected.RequestedMax.Currency != "usd" {
+		t.Fatalf("RequestedMax = %#v, want 120 nano-usd (requested spend basis)", got.Selected.RequestedMax)
+	}
+	if got.Selected.EffectiveMax.Value != 0 {
+		t.Fatalf("EffectiveMax = %d, want 0 (app fills from live store remaining)", got.Selected.EffectiveMax.Value)
 	}
 }
 

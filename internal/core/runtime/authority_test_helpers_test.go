@@ -69,6 +69,10 @@ func (s *authorityServiceRecorder) Release(ctx context.Context, in authorityapp.
 	return s.svc.Release(ctx, in)
 }
 
+func (s *authorityServiceRecorder) ApplyUsage(ctx context.Context, cmd authorityapp.ApplyUsageCommand) (authorityapp.ApplyUsageResult, error) {
+	return s.svc.ApplyUsage(ctx, cmd)
+}
+
 func (s *authorityServiceRecorder) lastAdmit() authorityapp.AdmissionInput {
 	s.admitMu.Lock()
 	defer s.admitMu.Unlock()
@@ -137,7 +141,8 @@ func newAuthorityRuntimeTestExecutorWithStore(t *testing.T, authority UsageAutho
 				Operation: lipapi.OperationOpenAIChatCompletions,
 				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
 			}),
-			Open: backend.open,
+			EnforcesMaxOutputTokens: true,
+			Open:                    backend.open,
 		},
 	}
 	ex.UsageAuthority = authority
@@ -194,7 +199,8 @@ func newAuthorityRuntimeTestExecutor(t *testing.T, authority UsageAuthorityServi
 				Operation: lipapi.OperationOpenAIChatCompletions,
 				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming},
 			}),
-			Open: backend.open,
+			EnforcesMaxOutputTokens: true,
+			Open:                    backend.open,
 		},
 	}
 	ex.UsageAuthority = authority
@@ -301,15 +307,20 @@ func (c *authorityOpenCounter) open(ctx context.Context, call lipapi.Call, cand 
 // to script admit/settle/release outcomes and to inspect the most recent
 // admit/settle/release inputs. It implements all the SDK's authority ports.
 type recordingAuthorityService struct {
-	admitMu      sync.Mutex
-	admitInputsV []authorityapp.AdmissionInput
-	admitCalls   atomic.Int64
-	settleCalls  atomic.Int64
-	releaseCalls atomic.Int64
+	admitMu        sync.Mutex
+	admitInputsV   []authorityapp.AdmissionInput
+	settleMu       sync.Mutex
+	settleInputsV  []authorityapp.SettleInput
+	releaseMu      sync.Mutex
+	releaseInputsV []authorityapp.ReleaseInput
+	admitCalls     atomic.Int64
+	settleCalls    atomic.Int64
+	releaseCalls   atomic.Int64
 
 	admitResult authorityapp.AdmissionResult
 	admitErr    error
 	settleErr   error
+	releaseErr  error
 
 	lastAdmitInput   atomic.Value
 	lastSettleInput  atomic.Value
@@ -329,6 +340,9 @@ func (s *recordingAuthorityService) Admit(_ context.Context, in authorityapp.Adm
 
 func (s *recordingAuthorityService) Settle(_ context.Context, in authorityapp.SettleInput) (authorityapp.SettleResult, error) {
 	s.settleCalls.Add(1)
+	s.settleMu.Lock()
+	s.settleInputsV = append(s.settleInputsV, in)
+	s.settleMu.Unlock()
 	s.lastSettleInput.Store(in)
 	if s.settleErr != nil {
 		return authorityapp.SettleResult{}, s.settleErr
@@ -338,8 +352,18 @@ func (s *recordingAuthorityService) Settle(_ context.Context, in authorityapp.Se
 
 func (s *recordingAuthorityService) Release(_ context.Context, in authorityapp.ReleaseInput) (authorityapp.ReleaseResult, error) {
 	s.releaseCalls.Add(1)
+	s.releaseMu.Lock()
+	s.releaseInputsV = append(s.releaseInputsV, in)
+	s.releaseMu.Unlock()
 	s.lastReleaseInput.Store(in)
+	if s.releaseErr != nil {
+		return authorityapp.ReleaseResult{}, s.releaseErr
+	}
 	return authorityapp.ReleaseResult{Applied: true}, nil
+}
+
+func (s *recordingAuthorityService) ApplyUsage(_ context.Context, cmd authorityapp.ApplyUsageCommand) (authorityapp.ApplyUsageResult, error) {
+	return authorityapp.ApplyUsageResult{Applied: len(cmd.RuleIDs) > 0, RuleIDs: append([]string(nil), cmd.RuleIDs...)}, nil
 }
 
 func (s *recordingAuthorityService) Status(context.Context) (controlplane.AccountingAuthorityStatus, error) {
@@ -383,6 +407,14 @@ func (s *recordingAuthorityService) lastSettle() authorityapp.SettleInput {
 	return authorityapp.SettleInput{}
 }
 
+func (s *recordingAuthorityService) settleInputs() []authorityapp.SettleInput {
+	s.settleMu.Lock()
+	defer s.settleMu.Unlock()
+	out := make([]authorityapp.SettleInput, len(s.settleInputsV))
+	copy(out, s.settleInputsV)
+	return out
+}
+
 func (s *recordingAuthorityService) lastRelease() authorityapp.ReleaseInput {
 	if v := s.lastReleaseInput.Load(); v != nil {
 		if in, ok := v.(authorityapp.ReleaseInput); ok {
@@ -390,6 +422,14 @@ func (s *recordingAuthorityService) lastRelease() authorityapp.ReleaseInput {
 		}
 	}
 	return authorityapp.ReleaseInput{}
+}
+
+func (s *recordingAuthorityService) releaseInputs() []authorityapp.ReleaseInput {
+	s.releaseMu.Lock()
+	defer s.releaseMu.Unlock()
+	out := make([]authorityapp.ReleaseInput, len(s.releaseInputsV))
+	copy(out, s.releaseInputsV)
+	return out
 }
 
 // stubStreamCounter is a deterministic stream-usage counter used by settlement
@@ -443,4 +483,8 @@ func (s *estimateThenFailAuthority) Settle(_ context.Context, _ authorityapp.Set
 
 func (s *estimateThenFailAuthority) Release(_ context.Context, _ authorityapp.ReleaseInput) (authorityapp.ReleaseResult, error) {
 	return authorityapp.ReleaseResult{Applied: true}, nil
+}
+
+func (s *estimateThenFailAuthority) ApplyUsage(_ context.Context, cmd authorityapp.ApplyUsageCommand) (authorityapp.ApplyUsageResult, error) {
+	return authorityapp.ApplyUsageResult{Applied: len(cmd.RuleIDs) > 0, RuleIDs: append([]string(nil), cmd.RuleIDs...)}, nil
 }

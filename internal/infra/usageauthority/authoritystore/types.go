@@ -3,6 +3,7 @@ package authoritystore
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -15,6 +16,11 @@ import (
 const defaultStoreID = "usage-authority"
 
 // Config seeds a store with live rows and readiness posture.
+//
+// RuleWindows maps rule IDs to their fixed-window spec so the store can resolve
+// the configured current window on demand after a rollover (requirement 3.5).
+// Rules absent from the map (or with an unconfigured spec) keep the legacy
+// behavior: an expired window stays unavailable.
 type Config struct {
 	StoreID string
 	Backing domain.BackingCapability
@@ -22,6 +28,7 @@ type Config struct {
 	Readiness       domain.AuthorityStatus
 	LimitRows       []controlplane.AccountingLimitStatusRow
 	DecisionRows    []controlplane.AccountingDecisionRow
+	RuleWindows     map[string]domain.WindowSpec
 	reservationRows []reservationRecord
 	Unsupported     []string
 	StrictAtomic    bool
@@ -53,8 +60,28 @@ type storeCore struct {
 	resBySource  map[string]string
 	settleBySrc  map[string]string
 	releaseBySrc map[string]string
-	nextDecision int64
-	unsupported  map[string]struct{}
+	// applyUsageBySrc tracks advisory/no-reservation usage source keys that have
+	// already been applied so replays are no-ops (requirement 7.7, 7.8). Unlike
+	// settle/release, applyUsage creates no reservation record, so idempotency is
+	// tracked here and hydrated from the decision ledger on durable load.
+	applyUsageBySrc map[string]struct{}
+	// unreservedUsageFacts stores the latest usage fact for each logical
+	// source/rule pair. A partial estimate and a later final/provider fact use
+	// the same source key; replacing the fact applies only the delta, so
+	// unreserved windows cannot double-count reconciliation updates.
+	unreservedUsageFacts map[string]unreservedUsageFact
+	nextDecision         int64
+	unsupported          map[string]struct{}
+
+	// ruleWindows carries the per-rule fixed-window spec used to resolve the
+	// current configured row after rollover. It is copied from Config at
+	// construction so mutations to the caller's map never affect the store.
+	ruleWindows map[string]domain.WindowSpec
+	// limitTemplates contains the current configured row shape for each rule.
+	// Persisted rows are retained in limits for history and reservation
+	// settlement, but new admissions resolve only through these templates so a
+	// removed or superseded row cannot become active after a restart.
+	limitTemplates map[string][]controlplane.AccountingLimitStatusRow
 }
 
 type decisionRecord struct {
@@ -65,6 +92,7 @@ type decisionRecord struct {
 
 type reservationRecord struct {
 	ReservationKey string                `json:"reservation_key"`
+	LimitRowKey    string                `json:"limit_row_key,omitempty"`
 	SourceKey      string                `json:"source_key"`
 	ReservationID  string                `json:"reservation_id"`
 	RuleID         string                `json:"rule_id"`
@@ -76,12 +104,33 @@ type reservationRecord struct {
 	Applied        bool                  `json:"applied"`
 	ReservedAmount domain.Amount         `json:"reserved_amount"`
 	Settled        bool                  `json:"settled"`
-	Released       bool                  `json:"released"`
-	CreatedAt      time.Time             `json:"created_at"`
-	SettledAt      time.Time             `json:"settled_at"`
-	ReleasedAt     time.Time             `json:"released_at"`
-	SettlementKind app.SettlementKind    `json:"settlement_kind,omitempty"`
-	ReleaseKind    app.ReleaseKind       `json:"release_kind,omitempty"`
+	// SettledActual remembers the enforceable amount consumed by the prior
+	// settlement so a later authoritative re-settlement (new source key) can
+	// compute and apply an adjustment delta instead of becoming a permanent
+	// no-op (requirement 7.6, 8.4-8.6). It is in the reservation's enforceable
+	// unit (money for budget/spend-cap rules, tokens/requests otherwise) and
+	// persists via the existing JSON flush.
+	SettledActual     domain.Amount            `json:"settled_actual"`
+	SettledAuthority  app.MeasurementAuthority `json:"settled_authority"`
+	SettlementSources []string                 `json:"settlement_sources,omitempty"`
+	Released          bool                     `json:"released"`
+	ReleaseSources    []string                 `json:"release_sources,omitempty"`
+	CreatedAt         time.Time                `json:"created_at"`
+	SettledAt         time.Time                `json:"settled_at"`
+	ReleasedAt        time.Time                `json:"released_at"`
+	SettlementKind    app.SettlementKind       `json:"settlement_kind,omitempty"`
+	ReleaseKind       app.ReleaseKind          `json:"release_kind,omitempty"`
+}
+
+type unreservedUsageFact struct {
+	SourceKey            string                   `json:"source_key"`
+	RuleID               string                   `json:"rule_id"`
+	LimitRowKey          string                   `json:"limit_row_key"`
+	Amount               domain.Amount            `json:"amount"`
+	Authority            domain.AuthorityLevel    `json:"authority"`
+	MeasurementAuthority app.MeasurementAuthority `json:"measurement_authority"`
+	Kind                 app.SettlementKind       `json:"kind"`
+	At                   time.Time                `json:"at"`
 }
 
 type commandSnapshot struct {
@@ -92,16 +141,21 @@ type commandSnapshot struct {
 func newStoreCore(cfg Config) *storeCore {
 	cfg = cfg.normalized()
 	core := &storeCore{
-		storeID:      cfg.StoreID,
-		cfg:          cfg,
-		state:        cfg.Readiness,
-		limits:       make(map[string]*controlplane.AccountingLimitStatusRow, len(cfg.LimitRows)),
-		reservations: make(map[string]*reservationRecord, len(cfg.reservationRows)),
-		resBySource:  make(map[string]string, len(cfg.reservationRows)),
-		settleBySrc:  make(map[string]string, len(cfg.reservationRows)),
-		releaseBySrc: make(map[string]string, len(cfg.reservationRows)),
-		unsupported:  make(map[string]struct{}, len(cfg.Unsupported)),
+		storeID:              cfg.StoreID,
+		cfg:                  cfg,
+		state:                cfg.Readiness,
+		limits:               make(map[string]*controlplane.AccountingLimitStatusRow, len(cfg.LimitRows)),
+		reservations:         make(map[string]*reservationRecord, len(cfg.reservationRows)),
+		resBySource:          make(map[string]string, len(cfg.reservationRows)),
+		settleBySrc:          make(map[string]string, len(cfg.reservationRows)),
+		releaseBySrc:         make(map[string]string, len(cfg.reservationRows)),
+		applyUsageBySrc:      make(map[string]struct{}),
+		unreservedUsageFacts: make(map[string]unreservedUsageFact),
+		unsupported:          make(map[string]struct{}, len(cfg.Unsupported)),
+		ruleWindows:          make(map[string]domain.WindowSpec, len(cfg.RuleWindows)),
+		limitTemplates:       make(map[string][]controlplane.AccountingLimitStatusRow),
 	}
+	maps.Copy(core.ruleWindows, cfg.RuleWindows)
 	for _, field := range cfg.Unsupported {
 		field = strings.TrimSpace(field)
 		if field == "" {
@@ -112,6 +166,7 @@ func newStoreCore(cfg Config) *storeCore {
 	for _, row := range cfg.LimitRows {
 		cp := row
 		core.limits[limitRowKey(cp)] = &cp
+		core.limitTemplates[cp.RuleID] = append(core.limitTemplates[cp.RuleID], cp)
 	}
 	for _, rec := range cfg.reservationRows {
 		cp := rec
@@ -151,6 +206,7 @@ func (c *storeCore) seedLimitRows(rows []controlplane.AccountingLimitStatusRow) 
 	for _, row := range rows {
 		cp := row
 		c.limits[limitRowKey(cp)] = &cp
+		c.limitTemplates[cp.RuleID] = append(c.limitTemplates[cp.RuleID], cp)
 	}
 }
 
@@ -165,29 +221,175 @@ func (c *storeCore) cloneLimitRows() []controlplane.AccountingLimitStatusRow {
 
 func (c *storeCore) cloneDecisionRows() []decisionRecord {
 	out := make([]decisionRecord, 0, len(c.decisions))
-	for _, rec := range c.decisions {
-		out = append(out, rec)
+	out = append(out, c.decisions...)
+	return out
+}
+
+// clone returns an isolated projection for one transactional mutation. The
+// store core applies a complete reservation/settlement/release set to the
+// clone and publishes it only after every descriptor validates successfully.
+// This is the memory-store transaction boundary and also gives the durable
+// adapter a projection it can safely discard before rollback.
+func (c *storeCore) clone() *storeCore {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	out.limits = make(map[string]*controlplane.AccountingLimitStatusRow, len(c.limits))
+	for key, row := range c.limits {
+		if row == nil {
+			continue
+		}
+		cp := *row
+		cp.Scope = cloneScopeSnapshot(row.Scope)
+		out.limits[key] = &cp
+	}
+	out.decisions = append([]decisionRecord(nil), c.decisions...)
+	out.reservations = make(map[string]*reservationRecord, len(c.reservations))
+	for key, rec := range c.reservations {
+		if rec == nil {
+			continue
+		}
+		cp := *rec
+		cp.Dimensions = cloneDimensions(rec.Dimensions)
+		cp.SettlementSources = append([]string(nil), rec.SettlementSources...)
+		cp.ReleaseSources = append([]string(nil), rec.ReleaseSources...)
+		out.reservations[key] = &cp
+	}
+	out.resBySource = cloneStringMap(c.resBySource)
+	out.settleBySrc = cloneStringMap(c.settleBySrc)
+	out.releaseBySrc = cloneStringMap(c.releaseBySrc)
+	out.applyUsageBySrc = cloneSet(c.applyUsageBySrc)
+	out.unreservedUsageFacts = cloneUnreservedUsageFacts(c.unreservedUsageFacts)
+	out.unsupported = cloneSet(c.unsupported)
+	out.ruleWindows = cloneRuleWindows(c.ruleWindows)
+	out.limitTemplates = cloneLimitTemplates(c.limitTemplates)
+	return &out
+}
+
+// reconcileLimitRows overlays current configuration onto persisted rows while
+// preserving accounting facts. Configuration is authoritative for the row
+// shape and limit; consumed/reserved/adjustment are durable facts and survive
+// an operator edit to the rule.
+func (c *storeCore) reconcileLimitRows(rows map[string]*controlplane.AccountingLimitStatusRow) map[string]*controlplane.AccountingLimitStatusRow {
+	if rows == nil {
+		rows = make(map[string]*controlplane.AccountingLimitStatusRow)
+	}
+	for _, templates := range c.limitTemplates {
+		for _, template := range templates {
+			key := limitRowKey(template)
+			persisted := rows[key]
+			if persisted == nil {
+				cp := template
+				cp.Remaining = maxInt64(0, cp.Limit-cp.Consumed-cp.Reserved)
+				rows[key] = &cp
+				continue
+			}
+			merged := template
+			merged.Consumed = persisted.Consumed
+			merged.Reserved = persisted.Reserved
+			merged.Adjustment = persisted.Adjustment
+			merged.Remaining = maxInt64(0, merged.Limit-merged.Consumed-merged.Reserved)
+			rows[key] = &merged
+		}
+	}
+	return rows
+}
+
+func cloneDimensions(in domain.Dimensions) domain.Dimensions {
+	out := in
+	if len(in.PolicyLabels) > 0 {
+		out.PolicyLabels = make(map[string]scope.Value, len(in.PolicyLabels))
+		maps.Copy(out.PolicyLabels, in.PolicyLabels)
+	}
+	return out
+}
+
+func cloneScopeSnapshot(in controlplane.ScopeSnapshot) controlplane.ScopeSnapshot {
+	out := in
+	out.Principal = in.Principal.Clone()
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return make(map[string]string)
+	}
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
+func cloneSet(in map[string]struct{}) map[string]struct{} {
+	if len(in) == 0 {
+		return make(map[string]struct{})
+	}
+	out := make(map[string]struct{}, len(in))
+	for key := range in {
+		out[key] = struct{}{}
+	}
+	return out
+}
+
+func cloneUnreservedUsageFacts(in map[string]unreservedUsageFact) map[string]unreservedUsageFact {
+	if len(in) == 0 {
+		return make(map[string]unreservedUsageFact)
+	}
+	out := make(map[string]unreservedUsageFact, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
+func cloneRuleWindows(in map[string]domain.WindowSpec) map[string]domain.WindowSpec {
+	return maps.Clone(in)
+}
+
+func cloneLimitTemplates(in map[string][]controlplane.AccountingLimitStatusRow) map[string][]controlplane.AccountingLimitStatusRow {
+	out := make(map[string][]controlplane.AccountingLimitStatusRow, len(in))
+	for ruleID, rows := range in {
+		out[ruleID] = append([]controlplane.AccountingLimitStatusRow(nil), rows...)
 	}
 	return out
 }
 
 func (c *storeCore) snapshotFromReserve(cmd app.ReserveCommand) commandSnapshot {
 	return commandSnapshot{
-		Correlation: correlationFromReservationKey(cmd.ReservationKey, cmd.Dimensions),
-		Scope:       scopeSnapshotFromDimensions(cmd.Dimensions),
+		Correlation: cmd.Correlation,
+		Scope:       scopeSnapshotFromDimensionsWithFallback(cmd.Scope, cmd.Dimensions),
 	}
 }
 
-func correlationFromReservationKey(k domain.ReservationKey, dims domain.Dimensions) controlplane.Correlation {
-	return controlplane.Correlation{
-		TraceID:    k.LogicalRequestID,
-		RequestID:  k.LogicalRequestID,
-		SessionID:  k.LogicalRequestID,
-		ALegID:     k.ALegID,
-		BLegID:     k.BLegID,
-		AttemptSeq: k.Sequence,
-		BackendID:  valueString(dims.Backend),
-		Model:      valueString(dims.Model),
+func mutationSnapshot(correlation controlplane.Correlation, view scope.PrincipalScopeView, dims domain.Dimensions) commandSnapshot {
+	return commandSnapshot{
+		Correlation: correlation,
+		Scope:       scopeSnapshotFromDimensionsWithFallback(view, dims),
+	}
+}
+
+func scopeSnapshotFromDimensionsWithFallback(view scope.PrincipalScopeView, dims domain.Dimensions) controlplane.ScopeSnapshot {
+	if !scopeViewEmpty(view) {
+		return scopeSnapshotFromView(view)
+	}
+	return scopeSnapshotFromDimensions(dims)
+}
+
+func scopeViewEmpty(view scope.PrincipalScopeView) bool {
+	return view.PrincipalID.IsUnknown() && view.CredentialID.IsUnknown() && view.TenantID.IsUnknown() &&
+		view.OrganizationID.IsUnknown() && view.WorkspaceID.IsUnknown() && view.ProjectID.IsUnknown() &&
+		view.DepartmentID.IsUnknown() && view.CostCenterID.IsUnknown() && len(view.PolicyLabels) == 0
+}
+
+func scopeSnapshotFromView(view scope.PrincipalScopeView) controlplane.ScopeSnapshot {
+	return controlplane.ScopeSnapshot{
+		Principal:      view.Clone(),
+		PrincipalID:    view.PrincipalID,
+		CredentialID:   view.CredentialID,
+		TenantID:       view.TenantID,
+		OrganizationID: view.OrganizationID,
+		WorkspaceID:    view.WorkspaceID,
+		ProjectID:      view.ProjectID,
+		DepartmentID:   view.DepartmentID,
+		CostCenterID:   view.CostCenterID,
 	}
 }
 
@@ -195,7 +397,7 @@ func scopeSnapshotFromDimensions(d domain.Dimensions) controlplane.ScopeSnapshot
 	principal := scope.PrincipalScopeView{
 		SubjectKind:    scope.SubjectUnknown,
 		PrincipalID:    d.Principal,
-		CredentialID:   scope.Unknown(),
+		CredentialID:   d.Credential,
 		TenantID:       d.Tenant,
 		OrganizationID: d.Organization,
 		WorkspaceID:    d.Workspace,
@@ -204,16 +406,24 @@ func scopeSnapshotFromDimensions(d domain.Dimensions) controlplane.ScopeSnapshot
 		CostCenterID:   d.CostCenter,
 		Origin:         scope.OriginInternal,
 	}
-	if d.PolicyLabels != nil {
+	if len(d.PolicyLabels) > 0 {
 		principal.PolicyLabels = make(map[string]string, len(d.PolicyLabels))
 		for k, v := range d.PolicyLabels {
-			principal.PolicyLabels[k] = v.String()
+			// A missing map entry is the safe representation of an unknown
+			// label. A present empty string remains known-empty, so do not
+			// collapse the two states while projecting into ScopeSnapshot.
+			if v.IsKnown() {
+				principal.PolicyLabels[k] = v.String()
+			}
+		}
+		if len(principal.PolicyLabels) == 0 {
+			principal.PolicyLabels = nil
 		}
 	}
 	return controlplane.ScopeSnapshot{
 		Principal:      principal,
 		PrincipalID:    d.Principal,
-		CredentialID:   scope.Unknown(),
+		CredentialID:   d.Credential,
 		TenantID:       d.Tenant,
 		OrganizationID: d.Organization,
 		WorkspaceID:    d.Workspace,
@@ -231,6 +441,31 @@ func valueString(v scope.Value) string {
 }
 
 func limitRowKey(row controlplane.AccountingLimitStatusRow) string {
+	// Include every identity dimension in the key. In particular, credential
+	// and policy-label dimensions must not collide when two rules share the same
+	// correlation and window. JSON gives us stable map-key ordering while the
+	// fallback keeps the key usable if a future identity field becomes
+	// non-serializable.
+	identity := struct {
+		RuleID      string                     `json:"rule_id"`
+		Correlation controlplane.Correlation   `json:"correlation"`
+		Scope       controlplane.ScopeSnapshot `json:"scope"`
+		Unit        string                     `json:"unit"`
+		Currency    string                     `json:"currency"`
+		WindowStart time.Time                  `json:"window_start"`
+		WindowEnd   time.Time                  `json:"window_end"`
+	}{
+		RuleID:      row.RuleID,
+		Correlation: row.Correlation,
+		Scope:       row.Scope,
+		Unit:        row.Unit,
+		Currency:    row.Currency,
+		WindowStart: row.WindowStart.UTC(),
+		WindowEnd:   row.WindowEnd.UTC(),
+	}
+	if raw, err := json.Marshal(identity); err == nil {
+		return string(raw)
+	}
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%d|%d", row.RuleID, row.Correlation.RequestID, row.Correlation.ALegID, row.Correlation.BLegID, row.Correlation.BackendID, row.Correlation.Model, row.WindowStart.UTC().Format(time.RFC3339Nano), row.WindowEnd.UTC().Format(time.RFC3339Nano), row.WindowStart.UnixNano(), row.WindowEnd.UnixNano())
 }
 

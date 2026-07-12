@@ -7,6 +7,20 @@ jobs:
   qa:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: lip
+          POSTGRES_PASSWORD: lip
+          POSTGRES_DB: lip_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lip -d lip_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -21,6 +35,11 @@ jobs:
 
       - name: Quality checks
         run: make quality-checks
+
+      - name: PostgreSQL authority integration proof
+        env:
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+        run: make test-authority-postgres
 
       - name: Architecture report (advisory artifact)
         # Write to RUNNER_TEMP (outside the repo tree) so the generated artifact
@@ -38,6 +57,8 @@ jobs:
 
       # Conformance/parity suites live under ./internal/testkit/conformance/... and run here (no duplicate step).
       - name: Unit tests
+        env:
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
         run: go test -parallel=8 -tags=precommit,integration ./...
 
       - name: Release gates (fuzz smoke)

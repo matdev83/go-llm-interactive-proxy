@@ -49,8 +49,9 @@ func New(cfg Config) execbackend.Backend {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}
 	return execbackend.Backend{
-		Caps:            openaicaps.HostedFull,
-		BackendPrefixes: []string{ID},
+		Caps:                    openaicaps.HostedFull,
+		BackendPrefixes:         []string{ID},
+		EnforcesMaxOutputTokens: true,
 		ModelInventory: modeldiscover.OpenAICompatibleModelsProvider{
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,

@@ -19,8 +19,50 @@ type AccountingAuthorityConfig struct {
 	PostgresDSN        string                          `yaml:"postgres_dsn"`
 	StartupPosture     string                          `yaml:"startup_posture"`
 	UnknownAttribution string                          `yaml:"unknown_attribution"`
+	EvaluationTimeout  string                          `yaml:"evaluation_timeout"`
+	CleanupTimeout     string                          `yaml:"cleanup_timeout"`
 	Query              AccountingAuthorityQueryConfig  `yaml:"query"`
 	Rules              []AccountingAuthorityRuleConfig `yaml:"rules"`
+}
+
+const (
+	DefaultAccountingAuthorityEvaluationTimeout = 250 * time.Millisecond
+	DefaultAccountingAuthorityCleanupTimeout    = 2 * time.Second
+)
+
+// EvaluationTimeoutDuration returns the bounded admission evaluation budget.
+// The zero configuration value is deliberately normalized to the conservative
+// default so enabling authority cannot accidentally restore unbounded waits.
+func (a AccountingAuthorityConfig) EvaluationTimeoutDuration() (time.Duration, error) {
+	raw := strings.TrimSpace(a.EvaluationTimeout)
+	if raw == "" {
+		return DefaultAccountingAuthorityEvaluationTimeout, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("accounting.authority.evaluation_timeout: invalid duration %q", raw)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("accounting.authority.evaluation_timeout: duration must be positive")
+	}
+	return d, nil
+}
+
+// CleanupTimeoutDuration returns the bounded budget for detached settlement,
+// release, reconciliation, advisory usage, and compensation work.
+func (a AccountingAuthorityConfig) CleanupTimeoutDuration() (time.Duration, error) {
+	raw := strings.TrimSpace(a.CleanupTimeout)
+	if raw == "" {
+		return DefaultAccountingAuthorityCleanupTimeout, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("accounting.authority.cleanup_timeout: invalid duration %q", raw)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("accounting.authority.cleanup_timeout: duration must be positive")
+	}
+	return d, nil
 }
 
 // AccountingAuthorityQueryConfig controls the protected status and bounded
@@ -66,6 +108,7 @@ type AccountingAuthorityDimensionMatcherConfig struct {
 // authority may match against.
 type AccountingAuthorityDimensionsConfig struct {
 	Principal    AccountingAuthorityDimensionMatcherConfig            `yaml:"principal"`
+	Credential   AccountingAuthorityDimensionMatcherConfig            `yaml:"credential"`
 	Tenant       AccountingAuthorityDimensionMatcherConfig            `yaml:"tenant"`
 	Organization AccountingAuthorityDimensionMatcherConfig            `yaml:"organization"`
 	Workspace    AccountingAuthorityDimensionMatcherConfig            `yaml:"workspace"`
@@ -173,6 +216,7 @@ func (w AccountingAuthorityWindowConfig) DomainWindow() (authoritydomain.WindowS
 func (m AccountingAuthorityDimensionsConfig) DomainMatcher() authoritydomain.DimensionsMatcher {
 	out := authoritydomain.DimensionsMatcher{
 		Principal:    m.Principal.DomainMatcher(),
+		Credential:   m.Credential.DomainMatcher(),
 		Tenant:       m.Tenant.DomainMatcher(),
 		Organization: m.Organization.DomainMatcher(),
 		Workspace:    m.Workspace.DomainMatcher(),
@@ -228,6 +272,19 @@ func validateAccountingAuthority(cfg *Config) error {
 		return nil
 	}
 	auth := &cfg.Accounting.Authority
+	accountingCategoryRequired := false
+	for _, category := range cfg.ControlPlane.RequiredCategories {
+		if strings.EqualFold(strings.TrimSpace(category), "accounting_authority") {
+			accountingCategoryRequired = true
+			break
+		}
+	}
+	if accountingCategoryRequired && !cfg.ControlPlane.Enabled {
+		return fmt.Errorf("control_plane.enabled: must be true when accounting_authority is a required category")
+	}
+	if accountingCategoryRequired && strings.EqualFold(strings.TrimSpace(cfg.ControlPlane.RecordingPolicy), "required_pre_work") && !auth.Enabled {
+		return fmt.Errorf("accounting.authority.enabled: must be true when accounting_authority is required under required_pre_work")
+	}
 	if !auth.Enabled {
 		if auth.Query.Enabled {
 			return fmt.Errorf("accounting.authority.enabled: must be true when accounting.authority.query.enabled is true")
@@ -283,6 +340,20 @@ func validateAccountingAuthority(cfg *Config) error {
 	default:
 		return fmt.Errorf("accounting.authority.unknown_attribution: want preserve, unknown, or known_empty, got %q", auth.UnknownAttribution)
 	}
+	evaluationTimeout, err := auth.EvaluationTimeoutDuration()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(auth.EvaluationTimeout) == "" {
+		auth.EvaluationTimeout = evaluationTimeout.String()
+	}
+	cleanupTimeout, err := auth.CleanupTimeoutDuration()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(auth.CleanupTimeout) == "" {
+		auth.CleanupTimeout = cleanupTimeout.String()
+	}
 	if auth.Query.Enabled {
 		path := strings.TrimSpace(auth.Query.PathPrefix)
 		if path == "" {
@@ -291,14 +362,24 @@ func validateAccountingAuthority(cfg *Config) error {
 		if !strings.HasPrefix(path, "/") {
 			return fmt.Errorf("accounting.authority.query.path_prefix: must start with /")
 		}
-		if strings.TrimSpace(cfg.Accounting.Admin.Path) != "" && strings.TrimSuffix(path, "/") == strings.TrimSuffix(strings.TrimSpace(cfg.Accounting.Admin.Path), "/") {
-			return fmt.Errorf("accounting.authority.query.path_prefix: overlap with accounting.admin.path")
-		}
-		if strings.TrimSpace(cfg.Accounting.Admin.Path) != "" && strings.HasPrefix(strings.TrimSuffix(path, "/"), strings.TrimSuffix(strings.TrimSpace(cfg.Accounting.Admin.Path), "/")+"/") {
-			return fmt.Errorf("accounting.authority.query.path_prefix: overlap with accounting.admin.path")
+		// Admin is only mounted when enabled; a leftover disabled path must not
+		// block an authority query prefix that would otherwise be free.
+		if cfg.Accounting.Admin.Enabled && strings.TrimSpace(cfg.Accounting.Admin.Path) != "" {
+			adminPath := strings.TrimSuffix(strings.TrimSpace(cfg.Accounting.Admin.Path), "/")
+			queryPath := strings.TrimSuffix(path, "/")
+			if queryPath == adminPath || strings.HasPrefix(queryPath, adminPath+"/") {
+				return fmt.Errorf("accounting.authority.query.path_prefix: overlap with accounting.admin.path")
+			}
 		}
 		if strings.TrimSpace(cfg.Diagnostics.HealthPath) != "" && strings.TrimSuffix(path, "/") == strings.TrimSuffix(strings.TrimSpace(cfg.Diagnostics.HealthPath), "/") {
 			return fmt.Errorf("accounting.authority.query.path_prefix: overlap with diagnostics.health_path")
+		}
+		if ControlPlaneQueryEffectivelyExposed(cfg) {
+			cpPath := strings.TrimSuffix(strings.TrimSpace(cfg.ControlPlane.Query.PathPrefix), "/")
+			queryPath := strings.TrimSuffix(path, "/")
+			if queryPath == cpPath || strings.HasPrefix(queryPath, cpPath+"/") || strings.HasPrefix(cpPath, queryPath+"/") {
+				return fmt.Errorf("accounting.authority.query.path_prefix: overlap with control_plane.query.path_prefix")
+			}
 		}
 		if auth.Query.DefaultPageSize == 0 {
 			auth.Query.DefaultPageSize = 100
@@ -334,6 +415,16 @@ func validateAccountingAuthority(cfg *Config) error {
 		if mode == "advisory" && strings.ToLower(strings.TrimSpace(rule.Mode)) == "strict" {
 			return fmt.Errorf("accounting.authority.rules[%d].mode: strict rules require accounting.authority.mode=strict", i)
 		}
+	}
+	// Per-rule validation cannot see the backing capability derived from
+	// startup_posture, so delegate the AuthorityConfig-level invariants (e.g.
+	// strict rules require atomic backing) to the domain Validate().
+	domainCfg, err := auth.DomainConfig()
+	if err != nil {
+		return fmt.Errorf("accounting.authority: %w", err)
+	}
+	if err := domainCfg.Validate(); err != nil {
+		return fmt.Errorf("accounting.authority: %w", err)
 	}
 	return nil
 }

@@ -47,10 +47,7 @@ func (p PreflightUsage) AmountForUnit(unit AmountUnit) (Amount, bool) {
 	case AmountUnitInputTokens:
 		return Amount{Unit: unit, Value: p.InputTokens}, true
 	case AmountUnitOutputTokens:
-		output := p.OutputTokens
-		if output < 0 {
-			output = 0
-		}
+		output := max(p.OutputTokens, 0)
 		return Amount{Unit: unit, Value: output}, true
 	case AmountUnitCacheReadTokens:
 		return Amount{Unit: unit, Value: p.CacheReadTokens}, true

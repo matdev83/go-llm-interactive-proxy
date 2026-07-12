@@ -379,6 +379,8 @@ func testReadinessKnownStates(t *testing.T, f Factory) {
 
 func strictReserveCommand(source string, amount int64, seq int) app.ReserveCommand {
 	return app.ReserveCommand{
+		Correlation: seedCorrelation(),
+		Scope:       seedPrincipalScope(),
 		ReservationKey: domain.ReservationKey{
 			LogicalRequestID: seedRequestID,
 			ALegID:           seedALegID,
@@ -413,6 +415,8 @@ func strictReserveCommand(source string, amount int64, seq int) app.ReserveComma
 
 func strictSettleCommand(reservationID, source string, finalUsage, reservedUsage, estimatedUsage int64) app.SettleCommand {
 	return app.SettleCommand{
+		Correlation: seedCorrelation(),
+		Scope:       seedPrincipalScope(),
 		SettlementKey: domain.SettlementKey{
 			ReservationKey: domain.ReservationKey{
 				LogicalRequestID: seedRequestID,
@@ -448,6 +452,8 @@ func strictSettleCommand(reservationID, source string, finalUsage, reservedUsage
 
 func strictReleaseCommand(reservationID, source string, amount int64) app.ReleaseCommand {
 	return app.ReleaseCommand{
+		Correlation: seedCorrelation(),
+		Scope:       seedPrincipalScope(),
 		ReleaseKey: domain.ReleaseKey{
 			ReservationKey: domain.ReservationKey{
 				LogicalRequestID: seedRequestID,
@@ -473,6 +479,32 @@ func strictReleaseCommand(reservationID, source string, amount int64) app.Releas
 		Amount:        domain.Amount{Unit: domain.AmountUnitRequests, Value: amount},
 		At:            contractBaseTime.Add(3 * time.Minute),
 		SourceKey:     source,
+	}
+}
+
+func seedCorrelation() controlplane.Correlation {
+	return controlplane.Correlation{
+		TraceID:    seedTraceID,
+		RequestID:  seedRequestID,
+		SessionID:  seedSessionID,
+		ALegID:     seedALegID,
+		BLegID:     seedBLegID,
+		AttemptSeq: 1,
+		BackendID:  seedBackendID,
+		Model:      seedModel,
+	}
+}
+
+func seedPrincipalScope() scope.PrincipalScopeView {
+	return scope.PrincipalScopeView{
+		SubjectKind:  scope.SubjectHuman,
+		PrincipalID:  scope.Known(seedPrincipalID),
+		TenantID:     scope.Known(seedTenantID),
+		WorkspaceID:  scope.Known("workspace-1"),
+		Origin:       scope.OriginClient,
+		Roles:        []string{"analyst"},
+		SafeClaims:   map[string]string{"team": "platform"},
+		PolicyLabels: map[string]string{"tier": "standard"},
 	}
 }
 
@@ -791,7 +823,7 @@ func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 	})
 
 	// Scenario C: release (no settlement). released=25, no overage, adjustment
-	// mirrors released — same logic as the limit-row row.Adjustment += released.
+	// mirrors released â€” same logic as the limit-row row.Adjustment += released.
 	t.Run("Release", func(t *testing.T) {
 		t.Parallel()
 		store := f.Build(t)
@@ -828,7 +860,7 @@ func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
 			t.Fatalf("Reserve() over-limit must deny")
 		}
 
-		denyRow := requireDecision(t, store, string(controlplane.AccountingOutcomeDeny), "reservation_conflict")
+		denyRow := requireDecision(t, store, string(controlplane.AccountingOutcomeDeny), "quota_exceeded")
 		assertZeroDeltas(t, denyRow, "reserve (deny)")
 	})
 }
@@ -896,6 +928,23 @@ func seededNoWindowLimitRow() controlplane.AccountingLimitStatusRow {
 
 func noWindowReserveCommand(source string) app.ReserveCommand {
 	return app.ReserveCommand{
+		Correlation: controlplane.Correlation{
+			TraceID:    seedNoWindowTrace,
+			RequestID:  seedNoWindowRequest,
+			SessionID:  seedNoWindowSession,
+			ALegID:     seedNoWindowALeg,
+			BLegID:     seedNoWindowBLeg,
+			AttemptSeq: 3,
+			BackendID:  seedNoWindowBackend,
+			Model:      seedNoWindowModel,
+		},
+		Scope: scope.PrincipalScopeView{
+			SubjectKind: scope.SubjectHuman,
+			PrincipalID: scope.Known(seedNoWindowPrincipal),
+			TenantID:    scope.Known(seedTenantID),
+			WorkspaceID: scope.Known("workspace-3"),
+			Origin:      scope.OriginClient,
+		},
 		ReservationKey: domain.ReservationKey{
 			LogicalRequestID: seedNoWindowRequest,
 			ALegID:           seedNoWindowALeg,

@@ -32,6 +32,14 @@ type Backend struct {
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
 
+	// EnforcesMaxOutputTokens reports whether this backend serializes a
+	// non-nil/positive MaxOutputTokens onto the provider wire so an authority
+	// spend-cap clamp actually binds. Zero value (false) is fail-closed: the
+	// executor excludes candidates that cannot represent the clamp rather than
+	// opening with an unenforced limit. Backends that drop or omit the option
+	// (Codex, ACP family, OpenCode, local-stub) must leave this false.
+	EnforcesMaxOutputTokens bool
+
 	ProviderCounter accountingapp.ProviderCounter
 }
 

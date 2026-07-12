@@ -44,7 +44,6 @@ func TestMemoryStore_ReadinessStates(t *testing.T) {
 		{name: "advisory_only", backing: domain.BackingCapabilityAdvisoryOnly, state: domain.AuthorityStateAdvisoryOnly},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := authoritystore.NewMemory(authoritystore.Config{

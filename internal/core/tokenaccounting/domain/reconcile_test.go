@@ -183,6 +183,23 @@ func TestReconcileEventsDeduplicatesCandidatesAndKeepsPolicyReservedAdditive(t *
 	assertUsage(t, proxyResult.BillableUsage, 7, 3, 10)
 }
 
+func TestReconcileEventsPresenceDistinguishesEqualCounterCandidates(t *testing.T) {
+	t.Parallel()
+	first := usage(5, 0, lipapi.UsagePlaneProviderBillable, lipapi.UsageSourceProviderReported, lipapi.UsageAuthorityAuthoritative)
+	first.UsagePresence.InputTokens = true
+	second := first
+	second.UsagePresence.OutputTokens = true
+
+	result := ReconcileEvents(
+		PolicyBillProvider,
+		lipapi.Event{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{first}},
+		lipapi.Event{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{second}},
+	)
+	if len(result.Conflicts) == 0 || result.Conflicts[0].Code != ConflictPlaneCandidates {
+		t.Fatalf("conflicts = %+v, want distinct candidates", result.Conflicts)
+	}
+}
+
 func TestReconcilePolicyReservedDoesNotHideLaterActualUsageForSamePlane(t *testing.T) {
 	t.Parallel()
 

@@ -36,6 +36,14 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 	if err != nil {
 		return nil, nil, err
 	}
+	evaluationTimeout, err := cfg.Accounting.Authority.EvaluationTimeoutDuration()
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
+	if err != nil {
+		return nil, nil, err
+	}
 	store, closers, err := buildUsageAuthorityStore(parent, cfg, log, testing)
 	if err != nil {
 		return nil, nil, err
@@ -54,7 +62,15 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 			return nil, closers, fmt.Errorf("runtimebundle: usage authority readiness: state %s", readiness.State)
 		}
 	}
-	svc := authorityapp.NewService(src, store, buildAuthorityEvidenceSink(cp, policyObs, opts), clockFromTesting(testing))
+	failureBehavior := authoritydomain.FailureBehaviorFailClosed
+	if strings.EqualFold(strings.TrimSpace(cfg.Accounting.Authority.StartupPosture), "fail_open") {
+		failureBehavior = authoritydomain.FailureBehaviorFailOpen
+	}
+	svc := authorityapp.NewService(src, store, buildAuthorityEvidenceSink(cp, policyObs, opts), clockFromTesting(testing), authorityapp.ServiceOptions{
+		EvaluationTimeout:      evaluationTimeout,
+		CleanupTimeout:         cleanupTimeout,
+		DefaultFailureBehavior: failureBehavior,
+	})
 	return &usageAuthorityRuntime{Service: svc}, closers, nil
 }
 
@@ -64,8 +80,8 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 // nothing to project to (no control-plane recorder and no operator policy
 // observers) so the authority app skips projection entirely and avoids the
 // per-decision projection cost when the capability is fully disabled. The
-// adapter is fail-open regardless, so authority enforcement never depends on
-// control-plane availability.
+// policy observer path is best-effort; required pre-work accounting evidence
+// is enforced by the recorder-aware adapter.
 func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecision.Observer, opts *BuildOptions) authorityapp.EvidenceSink {
 	var recorder *controlplane.RecorderService
 	if cp != nil {
@@ -95,21 +111,29 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 	if err != nil {
 		return nil, nil, fmt.Errorf("runtimebundle: usage authority limit rows: %w", err)
 	}
+	ruleWindows := make(map[string]authoritydomain.WindowSpec, len(domainCfg.Rules))
+	for _, rule := range domainCfg.Rules {
+		ruleWindows[rule.ID] = rule.Window
+	}
 	readiness := authoritydomain.StatusFromBacking(authoritydomain.BackingCapabilityAtomic)
 	if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
 		readiness = authoritydomain.StatusFromBacking(authoritydomain.BackingCapabilityAdvisoryOnly)
 	}
 	seed := authoritystore.Config{
-		Backing:   authoritydomain.BackingCapabilityAtomic,
-		Readiness: readiness,
-		LimitRows: limitRows,
+		Backing:     authoritydomain.BackingCapabilityAtomic,
+		Readiness:   readiness,
+		LimitRows:   limitRows,
+		RuleWindows: ruleWindows,
 	}
 	switch strings.ToLower(strings.TrimSpace(authCfg.Store)) {
 	case "", "memory":
 		return authoritystore.NewMemory(seed), nil, nil
 	case "sqlite":
 		path := strings.TrimSpace(authCfg.SQLitePath)
-		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+		// _txlock=immediate opens write transactions as BEGIN IMMEDIATE so two
+		// proxy instances (or two connections) cannot reserve from stale copies
+		// of the same SQLite authority database (requirement 11.1).
+		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
 		sqlDB, err := sql.Open("sqlite", dsn)
 		if err != nil {
 			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
@@ -118,6 +142,9 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 			}
 			return nil, nil, fmt.Errorf("runtimebundle: usage authority sqlite open")
 		}
+		// A single connection serializes BEGIN IMMEDIATE writers and avoids
+		// "database is locked" contention under the new locking flush.
+		sqlDB.SetMaxOpenConns(1)
 		if err := sqlDB.PingContext(parent); err != nil {
 			_ = sqlDB.Close()
 			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
@@ -126,9 +153,18 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 			}
 			return nil, nil, fmt.Errorf("runtimebundle: usage authority sqlite ping")
 		}
-		store, err := authoritystore.NewDurable(parent, sqlDB, seed)
+		bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 		if err != nil {
 			_ = sqlDB.Close()
+			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
+				logAuthorityStoreFallback(parent, log, "sqlite", "bun", err)
+				return authoritystore.NewMemory(seed), nil, nil
+			}
+			return nil, nil, fmt.Errorf("runtimebundle: usage authority sqlite bun")
+		}
+		store, err := authoritystore.NewDurable(parent, bunDB, seed)
+		if err != nil {
+			_ = bunDB.Close()
 			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
 				logAuthorityStoreFallback(parent, log, "sqlite", "init", err)
 				return authoritystore.NewMemory(seed), nil, nil
@@ -147,7 +183,12 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 		}
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		sqldb, err := db.OpenPostgres(child, authCfg.PostgresDSN)
+		bunDB, err := db.OpenPostgresBun(child, authCfg.PostgresDSN, db.PoolSettings{
+			MaxOpenConns:    poolCfg.MaxOpenConns,
+			MaxIdleConns:    poolCfg.MaxIdleConns,
+			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
+			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		})
 		if err != nil {
 			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
 				logAuthorityStoreFallback(parent, log, "postgres", "open", err)
@@ -155,22 +196,9 @@ func buildUsageAuthorityStore(parent context.Context, cfg *config.Config, log *s
 			}
 			return nil, nil, fmt.Errorf("runtimebundle: usage authority postgres open")
 		}
-		if err := db.ApplyPoolSettings(sqldb, db.PoolSettings{
-			MaxOpenConns:    poolCfg.MaxOpenConns,
-			MaxIdleConns:    poolCfg.MaxIdleConns,
-			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-		}); err != nil {
-			_ = sqldb.Close()
-			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
-				logAuthorityStoreFallback(parent, log, "postgres", "pool_apply", err)
-				return authoritystore.NewMemory(seed), nil, nil
-			}
-			return nil, nil, fmt.Errorf("runtimebundle: usage authority postgres pool apply")
-		}
-		store, err := authoritystore.NewDurable(parent, sqldb, seed)
+		store, err := authoritystore.NewDurable(parent, bunDB, seed)
 		if err != nil {
-			_ = sqldb.Close()
+			_ = bunDB.Close()
 			if strings.ToLower(strings.TrimSpace(authCfg.StartupPosture)) == "fail_open" {
 				logAuthorityStoreFallback(parent, log, "postgres", "init", err)
 				return authoritystore.NewMemory(seed), nil, nil

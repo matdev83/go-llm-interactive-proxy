@@ -49,6 +49,8 @@ Run `go test ./internal/archtest/...` and full `go test ./...` (also invoked fro
 
 When a deliberate feature requires a larger core or composition layer, raise the limits in `guardrails_test.go` and record the rationale in ADR 0005 or a short note in the PR.
 
+The current `internal/core` ceiling includes the usage-authority stabilization pass and the follow-on review remediation (explicit monetary cost presence, unenforceable spend-cap candidate exclusion, multi-scope settlement aggregation, and zero-remaining output budget denial). This remains remediation scope, not a new feature area; further growth should be decomposed rather than absorbed by another budget increase.
+
 This applies to both the tree-level `lineBudgets` and the per-file `criticalFileBudgets`. Any increase to a critical-file budget must include a short rationale comment next to the table entry explaining why the single-file hotspot is growing rather than being decomposed. Prefer decomposing the file over raising its budget.
 
 ## Core admission checklist

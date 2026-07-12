@@ -64,6 +64,7 @@ func limitRowFromRule(rule domain.Rule, at time.Time) (controlplane.AccountingLi
 func dimensionsFromMatchers(m domain.DimensionsMatcher) domain.Dimensions {
 	out := domain.Dimensions{
 		Principal:    scopeFromMatcher(m.Principal),
+		Credential:   scopeFromMatcher(m.Credential),
 		Tenant:       scopeFromMatcher(m.Tenant),
 		Organization: scopeFromMatcher(m.Organization),
 		Workspace:    scopeFromMatcher(m.Workspace),

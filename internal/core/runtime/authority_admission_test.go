@@ -32,6 +32,46 @@ func TestExecutorAuthorityDisabledAllowsOpenWithoutAdmission(t *testing.T) {
 	}
 }
 
+func TestExecutorAuthorityClampFailureReleasesBeforeBackendAttempt(t *testing.T) {
+	t.Parallel()
+
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Allowed:        true,
+			Reserved:       true,
+			ReservationID:  "reservation-clamp",
+			ReservedAmount: authorityInputAmount(12),
+			Clamp: &authorityapp.AdmissionClamp{
+				EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 100, Currency: "usd"},
+				FailureBehavior: authoritydomain.FailureBehaviorFailClosed,
+			},
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+	budget := &attemptBudget{max: 1}
+
+	_, err := ex.openPlannedCandidate(authorityOpenParams(t, aLegID, budget), authorityCandidate(), nil, "", false)
+	if err == nil {
+		t.Fatal("expected clamp conversion failure")
+	}
+	if !lipapi.IsPolicyDenied(err) {
+		t.Fatalf("expected policy denial from fail-closed clamp, got %v", err)
+	}
+	if backend.openCalls.Load() != 0 {
+		t.Fatalf("backend open calls = %d, want 0", backend.openCalls.Load())
+	}
+	if auth.releaseCalls.Load() != 1 {
+		t.Fatalf("release calls = %d, want 1 after pre-open clamp failure", auth.releaseCalls.Load())
+	}
+	if auth.lastRelease().BackendAttempted {
+		t.Fatal("clamp conversion failure occurs before backend open")
+	}
+	if budget.usedNow() != 0 {
+		t.Fatalf("budget used = %d, want 0", budget.usedNow())
+	}
+}
+
 func TestExecutorAuthorityDeniedBlocksOpenBeforeBackend(t *testing.T) {
 	t.Parallel()
 

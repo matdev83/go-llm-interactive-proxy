@@ -197,7 +197,14 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) error {
 			if u.OutputTokens != nil {
 				outT = safecast.IntFromInt64Clamp(int64(aws.ToInt32(u.OutputTokens)))
 			}
-			if inT > 0 || outT > 0 || totalT > 0 {
+			presence := lipapi.UsagePresence{
+				InputTokens:      u.InputTokens != nil,
+				OutputTokens:     u.OutputTokens != nil,
+				CacheReadTokens:  u.CacheReadInputTokens != nil,
+				CacheWriteTokens: u.CacheWriteInputTokens != nil,
+				TotalTokens:      u.TotalTokens != nil,
+			}
+			if presence.Any() {
 				ev := lipapi.Event{
 					Kind:             lipapi.EventUsageDelta,
 					InputTokens:      inT,
@@ -205,6 +212,7 @@ func (s *converseStream) handleOutput(out types.ConverseStreamOutput) error {
 					CacheReadTokens:  safecast.IntFromInt64Clamp(cacheReadT),
 					CacheWriteTokens: safecast.IntFromInt64Clamp(cacheWriteT),
 					TotalTokens:      safecast.IntFromInt64Clamp(totalT),
+					UsagePresence:    presence,
 					RawUsageJSON:     rawUsageJSON(u),
 				}
 				if err := s.pending.Push(ev); err != nil {

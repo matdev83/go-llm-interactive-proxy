@@ -72,7 +72,7 @@ func outcomeProjectionOf(out controlplane.AccountingOutcome) evidenceProjection 
 // Unavailable reason, Deny + Degraded state → Error reason) and the
 // Reserved-with-id priority live here so call sites pass a fully
 // resolved reason into Evidence.
-func reasonForAdmission(outcome domain.DecisionOutcome, status domain.AuthorityStatus, reserved bool, reservationID string) policydecision.AccountingReasonCode {
+func reasonForAdmission(outcome domain.DecisionOutcome, status domain.AuthorityStatus, kind domain.RuleKind, reserved bool, reservationID string) policydecision.AccountingReasonCode {
 	if reserved && reservationID != "" {
 		return policydecision.AccountingReasonReserved
 	}
@@ -84,7 +84,14 @@ func reasonForAdmission(outcome domain.DecisionOutcome, status domain.AuthorityS
 		case domain.AuthorityStateDegraded:
 			return policydecision.AccountingReasonError
 		default:
-			return policydecision.AccountingReasonQuotaExceeded
+			switch kind {
+			case domain.RuleKindRate:
+				return policydecision.AccountingReasonRateLimited
+			case domain.RuleKindBudget, domain.RuleKindSpendCap:
+				return policydecision.AccountingReasonBudgetExceeded
+			default:
+				return policydecision.AccountingReasonQuotaExceeded
+			}
 		}
 	case domain.DecisionOutcomeAdvisory:
 		return policydecision.AccountingReasonAdvisory
@@ -144,6 +151,9 @@ func settlementProjection(kind SettlementKind, result SettleResult) (controlplan
 // Reconciled) from reserved admissions (which report Reserved) and falls
 // back to the readiness posture for unreserved admissions.
 func resolveAuthoritySource(status domain.AuthorityStatus, reserved bool, in Evidence) controlplane.AccountingAuthoritySource {
+	if in.Authority == domain.AuthorityLevelUnavailable {
+		return controlplane.AccountingAuthoritySourceUnavailable
+	}
 	switch in.SettlementState {
 	case controlplane.AccountingSettlementSettled,
 		controlplane.AccountingSettlementOverage,
@@ -155,6 +165,14 @@ func resolveAuthoritySource(status domain.AuthorityStatus, reserved bool, in Evi
 	}
 	if reserved && in.ReservationID != "" {
 		return controlplane.AccountingAuthoritySourceReserved
+	}
+	switch in.Authority {
+	case domain.AuthorityLevelUnavailable:
+		return controlplane.AccountingAuthoritySourceUnavailable
+	case domain.AuthorityLevelEstimated:
+		return controlplane.AccountingAuthoritySourceEstimated
+	case domain.AuthorityLevelAuthoritative:
+		return controlplane.AccountingAuthoritySourceAuthoritative
 	}
 	switch status.State {
 	case domain.AuthorityStateAdvisoryOnly:

@@ -75,6 +75,9 @@ func (s *Service) Decisions(ctx context.Context, q controlplane.AccountingDecisi
 	}
 	page, err := s.store.DecisionHistory(ctx, q)
 	if err != nil {
+		if errors.Is(err, ErrInvalidQuery) {
+			return DecisionHistoryResult{}, WrapError(ErrInvalidQuery, "decision history", err)
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			return DecisionHistoryResult{}, WrapError(ErrEvaluationTimeout, "decision history", err)
 		}

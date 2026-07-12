@@ -358,11 +358,125 @@
   - _Validation: go test ./internal/core/usageauthority/... ./internal/infra/runtimebundle/... ./internal/core/runtime/... ./internal/stdhttp/... ./internal/archtest/..._
 
 - [x] 9.3 Usage-authority review polish
-  - Post-review polish from the hexagonal follow-up: four small, low-risk fixes with no architecture-boundary or evidence-contract changes.
-  - `DurableStore.storeUnavailableError` now wraps the original driver error alongside `app.ErrUnavailable` (`fmt.Errorf("authoritystore %s: %w: %w", op, app.ErrUnavailable, err)`) so runtime flush failures keep their cause; `errors.Is(err, app.ErrUnavailable)` still holds and the cause surfaces only in the runtime's existing Debug log (the stdhttp adapter writes fixed JSON bodies, never error text).
-  - `storeCore.appendDecision` dropped the unused `released, overage, adjustment` parameters and the `_ =` discards; the four call sites in `reserve`/`settle`/`release` updated. Decision rows still carry `Adjustment: 0` (contract unchanged); wiring per-decision adjustment would be a separate evidence-contract task.
-  - `serveAuthorityPage` is now generic over the page row type (`serveAuthorityPage[T any]`), removing the `authorityPageCaller func(limit int) (any, error)` alias and the type-switch; the `/limits` and `/decision-history` closures return `(QueryState, Page[T], error)`.
-  - Nil-receiver `time.Now()` fallbacks simplified: `configsource.Source.Snapshot` returns zero `FetchedAt` (the app sets `s.now()` when zero), and `Service.Status` calls `s.now()` directly (`Service.now()` already handles the nil receiver).
+  - Post-review cleanup now reflected in the tree: durable-store errors preserve the wrapped driver cause, `appendDecision` records released/overage/adjustment deltas in each decision row, `serveAuthorityPage` is generic over the row type, and nil-receiver timestamp fallbacks are normalized through `s.now()`.
+  - Config-backed rule sources stamp `RuleSnapshot.FetchedAt`; the application snapshot helper only fills `FetchedAt` when a source returns the zero value, preserving source-owned freshness evidence.
   - Done when the focused suite and architecture boundary tests pass and `cmd/lipstd` still builds.
   - _Boundary: driven adapter + driving adapter + app/query + spec artifact_
   - _Validation: go test ./internal/infra/usageauthority/... ./internal/stdhttp/admin/controlplane/... ./internal/stdhttp/... ./internal/core/usageauthority/... ./internal/archtest/..._
+
+# Remediation tasks
+
+- [x] 10.1 Credential + policy-label authority dimension
+  - Make `Credential` a first-class authority dimension in the domain model alongside principal/tenant/workspace/project/department/cost center, and ensure the runtime copies safe policy labels and the credential identifier from the scope view into the authority `Dimensions` used for matching, instead of reading raw bearer/API/OAuth tokens.
+  - Update rule matching, dimension key derivation, and config validation so credential and policy-label dimensions are matched with the same known/known-empty/unknown semantics as the other safe scope dimensions.
+  - Done when domain, app, runtime, and config tests prove credential and safe policy labels flow from the scope view into matched dimensions, raw tokens never become authority dimensions, and config validation accepts/rejects credential and policy-label rules correctly.
+  - _Requirements: 1.2_
+  - _Boundary: domain policy + app orchestration + runtime integration_
+  - _Depends: 9.2_
+  - _Validation: go test ./internal/core/usageauthority/domain ./internal/core/usageauthority/app ./internal/core/runtime ./internal/core/config_
+
+- [x] 10.2 Authority-unavailable outcome + clamp effective-max
+  - Make a rule whose `AuthorityRequirement` is unmet by the available evidence MATCHED (not silently excluded); the matched rule yields an authority-unavailable outcome and the app resolves it via the rule's `FailureBehavior` (fail-open/fail-closed). Matched-but-unavailable rules still appear in the matched-rule identifier set and operator evidence.
+  - Make clamp (spend cap) carry an effective max / reduced-exposure amount, not just a label; the admission decision records the original requested max, the effective max after clamping, and the clamp reason, and the runtime mutates the call's max output so downstream backend work respects the reduced exposure.
+  - Done when app and runtime tests prove authority-unavailable rules are matched and resolved via `FailureBehavior`, clamp decisions carry and apply an effective max, and operator evidence records both the original and clamped amounts.
+  - _Requirements: 6.5, 8.3_
+  - _Boundary: domain policy + app orchestration + runtime integration_
+  - _Depends: 10.1_
+  - _Validation: go test ./internal/core/usageauthority/... ./internal/core/runtime_
+
+- [x] 10.3 StateStore multi-rule contract + atomic multi-rule reserve/settle/release
+  - Update the `StateStore` port contract so `ReserveCommand`, `SettleCommand`, and `ReleaseCommand` carry the full set of matched strict rules (rule IDs, per-rule units, per-rule amounts, dimension keys) for the logical request and B-leg, not a single rule.
+  - Enforce that `Reserve` updates all matched strict windows and reservation rows atomically in a single transaction or returns no reservation (no partial multi-rule reservation); `Settle` and `Release` apply across every matched rule for the same idempotency key.
+  - Update the shared contract suite so memory and durable adapters prove multi-rule atomicity, partial-reserve rejection, and idempotent multi-rule settle/release.
+  - Done when contract tests prove a multi-rule reserve either commits all matched windows or none, a failed multi-rule reserve leaves no partial reservation, and repeated multi-rule settle/release is idempotent across all matched rules.
+  - _Requirements: 1.6, 3.6, 5.2, 6.2, 11.1_
+  - _Boundary: app orchestration + driven adapter_
+  - _Depends: 10.2_
+  - _Validation: go test ./internal/core/usageauthority/app ./internal/infra/usageauthority/authoritystore/contract ./internal/infra/usageauthority/authoritystore_
+
+- [x] 10.4 Per-rule unit selection for budget vs quota
+  - Ensure each rule carries its explicit unit (requests, input/output/cache-read/cache-write/reasoning/total tokens, or money nano-units with currency) and that budget and spend-cap rules reserve and settle money nano-units while quota rules reserve and settle request or token units.
+  - Make reserve and settlement use the rule's unit for amount validation, window counters, and remaining-limit queries; reject unit mixing or currency mismatch at validation unless an explicit supported conversion policy is available.
+  - Done when domain and app tests prove budget rules reserve/settle money, quota rules reserve/settle request/token counts, mixed-unit rules are rejected, and remaining-limit queries report the correct per-rule unit.
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 6.2, 7.1_
+  - _Boundary: domain policy + app orchestration_
+  - _Depends: 10.3_
+  - _Validation: go test ./internal/core/usageauthority/domain ./internal/core/usageauthority/app_
+
+- [x] 10.5 Fixed-window rollover
+- Implement fixed-window rollover at configured boundaries: when the current window expires, create a new live limit row with zero counters for the next window period and evaluate subsequent admission against it.
+- Keep expired window rows query-visible via decision history and historical aggregates so operators can reconstruct prior-window enforcement without conflating expired counters with live remaining-limit authority.
+- Reconcile durable limit rows with the current rule templates on startup and locked reload: preserve consumed/reserved facts for matching logical windows, apply changed limits, seed added rules, and keep removed or superseded rows out of new admission matching.
+- Keep durable mutations proportional to matched live state: hydrate and lock only the relevant reservation, usage fact, state, and limit rows; apply same-authority amount corrections transactionally; and use insert-only initial seeding so concurrent startup cannot reset live counters.
+- Make reservation creation cross-instance idempotent with conditional reservation updates, insert-only creation, and a single rollback-and-reload retry; preserve the failing rule through multi-rule errors so fail-open removes only that rule while healthy strict rules remain reserved.
+- Bound detached settlement, release, reconciliation, advisory usage, and compensation with the independently configurable `cleanup_timeout` (default `2s`).
+- Isolate spend-cap clamp reads by exact configured scope filters plus normalized-dimension row verification; serialize missing usage facts with post-limit-lock reload, conditional writes, one retry, and monotonic authority/stage precedence; give fallback release a fresh cleanup deadline.
+- Route spend-cap admission through an exact `ActiveLimit` store operation rather than historical status pagination; retry concurrent rolled-over row creation for reserve, usage, and startup reconciliation; deep-copy transaction-local templates and window maps.
+- Classify atomic capacity exhaustion as a stable quota/rate/budget denial regardless of fail-open posture; restrict failure behavior to unavailable infrastructure/timeouts, and deny required pre-work evidence failures even when no reservation exists.
+- Query durable decision history through transactionally maintained normalized filter rows, bounded legacy backfill, and query-bound keyset pagination rather than loading and decoding the complete decision ledger.
+- Deny spend-cap admission when fixed input cost already exceeds live capacity regardless of fail-open posture; track settlement authority and explicit usage presence per token unit, preserve authoritative mixed/zero usage, and serialize terminal settle/release/reconciliation operations through one lifecycle state owner.
+- Keep the complete lifecycle payload (attempt state and candidate) inside the same mutex as terminal and authority state; prove reset/finalization ordering cannot mix reservation generations, and prove money authority cannot mutate token-unit authority.
+- Refine strict spend-cap admission with live remaining capacity and follow active-window query cursors instead of assuming the first status page contains the current row.
+  - Done when store and query tests prove window expiry creates a new zero-counter live row, admission after rollover evaluates against the new window, and expired rows remain visible in decision history and historical queries.
+  - _Requirements: 3.5_
+  - _Boundary: driven adapter + query seam_
+  - _Depends: 10.3_
+  - _Validation: go test ./internal/infra/usageauthority/authoritystore ./internal/core/usageauthority/app_
+
+- [x] 10.6 Advisory/no-reservation usage recording
+  - Ensure advisory and no-reservation usage paths update accounting windows through the app's `ApplyUsage` settlement-adjacent path, so live windows, decision history, and remaining-limit queries reflect actual usage rather than only strict-reserved usage.
+  - Done when app and store tests prove a request that produces usage without a strict reservation still updates the matching accounting windows and records usage evidence, and remaining-limit queries reflect the update.
+  - _Requirements: 7.7_
+  - _Boundary: app orchestration + driven adapter_
+  - _Depends: 10.3_
+  - _Validation: go test ./internal/core/usageauthority/app ./internal/infra/usageauthority/authoritystore_
+
+- [x] 10.7 Authoritative re-settlement
+  - Implement authoritative re-settlement as an adjustment to a prior estimated settlement, not a replacement: when final provider-reported usage arrives after an estimated settlement, adjust the live windows by the delta and record the authoritative amount.
+  - Preserve the prior estimated amount in evidence alongside the final authoritative amount, the adjustment delta, and the authority source, so operator queries can explain the difference between the estimated and authoritative enforceable amounts.
+  - Done when app and store tests prove an estimated settlement followed by an authoritative re-settlement adjusts windows by the delta, does not double-count, and evidence preserves both the estimated and authoritative amounts.
+  - _Requirements: 7.6, 8.4, 8.5, 8.6_
+  - _Boundary: app orchestration + driven adapter_
+  - _Depends: 10.6_
+  - _Validation: go test ./internal/core/usageauthority/app ./internal/infra/usageauthority/authoritystore_
+
+- [x] 10.8 Failure behavior enforcement
+  - Enforce fail-open/fail-closed behavior consistently across every authority-unavailable, cost-unavailable, reservation-failure, estimate-unavailable, and evaluation-budget-exceeded path, not just the admission path.
+  - Fail-closed denies or fails the affected lifecycle step with a stable accounting-failure reason before protected work; fail-open continues and records skipped-enforcement evidence. Evaluation-budget exhaustion applies the rule's failure behavior rather than waiting indefinitely.
+  - Done when app and runtime tests prove each unavailable/failure path applies the configured failure behavior, fail-closed produces no backend attempt, fail-open records skipped evidence, and budget exhaustion does not hang.
+  - _Requirements: 4.6, 5.5, 6.3, 6.6, 8.3, 10.1, 10.2, 10.3_
+  - _Boundary: app orchestration + runtime integration_
+  - _Depends: 10.2_
+  - _Validation: go test ./internal/core/usageauthority/app ./internal/core/runtime_
+
+- [x] 10.9 Cancellation reservation leak
+  - Run cancellation settlement on a non-canceled context (`context.WithoutCancel`) so finalization accounting completes after the client request context is canceled; do not convert cancellation into an unrelated accounting denial.
+  - Set the lifecycle `settled` flag only on successful settle or release; a canceled or failed settlement leaves the reservation in its prior state and emits degraded/unavailable evidence rather than marking it settled, so canceled requests release reservations without leaking.
+  - Done when app and runtime tests prove canceled requests settle/release on a non-canceled context, the `settled` flag is set only on success, canceled reservations are released (no leak), and cancellation never produces an unrelated accounting denial.
+  - _Requirements: 10.4, 11.7_
+  - _Boundary: app orchestration + runtime integration_
+  - _Depends: 10.7_
+  - _Validation: go test ./internal/core/usageauthority/app ./internal/core/runtime_
+
+- [x] 10.10 Durable store Bun rewrite + cross-instance atomicity + Postgres integration contract test
+  - Rewrite the durable store to use Bun with a transactional locked read-modify-write pattern for cross-instance atomicity: each `Reserve`/`Settle`/`Release` opens a Bun transaction, acquires row locks on every affected live window before reading counters (`SELECT ... FOR UPDATE` on Postgres, `BEGIN IMMEDIATE` on SQLite), applies the matched-rule mutations, and commits atomically.
+  - Ensure a flush failure leaves the in-memory projection unchanged: the store does not publish partial window updates or reservation state to the app layer when the durable transaction rolls back.
+  - Add a Postgres integration contract test (gated by existing integration settings) proving the locked read-modify-write prevents concurrent cross-instance admitted totals from exceeding configured limits.
+  - Done when durable-store tests prove locked read-modify-write atomicity, flush failure leaves the in-memory view unchanged, concurrent cross-instance reservations do not exceed limits, and the Postgres contract test runs under existing integration settings.
+  - _Requirements: 10.6, 10.9, 11.1_
+  - _Boundary: driven adapter + tests_
+  - _Depends: 10.3_
+  - _Validation: go test ./internal/infra/usageauthority/authoritystore ./internal/infra/usageauthority/authoritystore/contract_
+
+- [x] 10.11 Architectural stabilization and proof gate
+  - Keep capacity exhaustion, duplicate replay, unavailable infrastructure, and evidence failure as distinct typed outcomes through admission; fail-open is permitted only for unavailable infrastructure/evidence allowed by the rule.
+  - Keep token usage authority independent from monetary-cost authority, including authoritative-zero and missing-cost cases; preserve partial-to-final-to-authoritative convergence for reservations and unreserved facts.
+  - Require complete scope identity for every live lookup, serialize missing-row creation through a stable coordination row, and keep mutation/query work bounded to affected SQL rows rather than reconstructing historical state.
+  - Give settlement, release, compensation, and reconciliation independent bounded cleanup contexts. Add differential memory/SQLite/PostgreSQL sequences and execute PostgreSQL concurrency tests with a configured DSN.
+  - Done when all accumulated P1/P2 regressions are covered, PostgreSQL integration tests run rather than skip, adapter state parity holds across retries/restarts/rollovers/rule changes, and a fresh semantic review finds no protected-work bypass.
+  - _Requirements: 4.6, 5.5, 6.3, 6.6, 7.6, 7.7, 8.4, 8.5, 8.6, 10.1, 10.2, 10.4, 10.6, 10.9, 11.1, 11.7_
+  - _Boundary: runtime lifecycle + durable adapter + integration proof_
+  - _Depends: 10.10_
+  - _Validation: make test-authority-postgres (with LIP_TEST_POSTGRES_DSN), make quality-checks, make test-unit_
+
+STATUS: COMPLETE

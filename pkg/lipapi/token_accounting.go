@@ -44,6 +44,37 @@ const (
 	UsageAuthorityUnavailable   UsageAuthority = "unavailable"
 )
 
+// UsagePresence records which token counters were explicitly supplied by the
+// usage source. A false field means the counter was omitted, not that it was
+// explicitly reported as zero. The zero value preserves compatibility with
+// legacy events that predate per-field presence metadata.
+type UsagePresence struct {
+	InputTokens      bool
+	OutputTokens     bool
+	CacheReadTokens  bool
+	CacheWriteTokens bool
+	ReasoningTokens  bool
+	TotalTokens      bool
+}
+
+// Any reports whether at least one token counter was explicitly supplied.
+func (p UsagePresence) Any() bool {
+	return p.InputTokens || p.OutputTokens || p.CacheReadTokens ||
+		p.CacheWriteTokens || p.ReasoningTokens || p.TotalTokens
+}
+
+// Union retains explicit presence from either usage candidate.
+func (p UsagePresence) Union(other UsagePresence) UsagePresence {
+	return UsagePresence{
+		InputTokens:      p.InputTokens || other.InputTokens,
+		OutputTokens:     p.OutputTokens || other.OutputTokens,
+		CacheReadTokens:  p.CacheReadTokens || other.CacheReadTokens,
+		CacheWriteTokens: p.CacheWriteTokens || other.CacheWriteTokens,
+		ReasoningTokens:  p.ReasoningTokens || other.ReasoningTokens,
+		TotalTokens:      p.TotalTokens || other.TotalTokens,
+	}
+}
+
 // TokenizerRef records provider-neutral tokenizer metadata used to derive usage.
 type TokenizerRef struct {
 	Type      string
@@ -69,6 +100,7 @@ type ScopedUsageDelta struct {
 	CacheWriteTokens int
 	ReasoningTokens  int
 	TotalTokens      int
+	UsagePresence    UsagePresence
 	Accounting       UsageAccountingMetadata
 }
 

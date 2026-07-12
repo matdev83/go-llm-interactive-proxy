@@ -296,6 +296,7 @@ type failingSecureRecorderStub struct{ err error }
 func (failingSecureRecorderStub) RecordClientTurnAfterGate(context.Context, secureapp.ClientTurnRecordInput) error {
 	return nil
 }
+
 func (r failingSecureRecorderStub) RecordPostHookStreamEvent(context.Context, secureapp.StreamEventRecordInput) error {
 	return r.err
 }

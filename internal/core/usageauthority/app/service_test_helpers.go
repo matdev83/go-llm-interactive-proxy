@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -74,18 +73,33 @@ type fakeStateStore struct {
 	readiness    domain.AuthorityStatus
 	readinessErr error
 
-	reserveCalls []ReserveCommand
-	settleCalls  []SettleCommand
-	releaseCalls []ReleaseCommand
+	reserveErr            error
+	reserveErrors         []error
+	settleErr             error
+	releaseErr            error
+	releaseWaitForContext bool
+	releaseContextErr     error
+	reserveCalls          []ReserveCommand
+	settleCalls           []SettleCommand
+	releaseCalls          []ReleaseCommand
+	applyUsageCalls       []ApplyUsageCommand
 
-	reserveResult ReserveResult
-	settleResult  SettleResult
-	releaseResult ReleaseResult
-	limitPage     controlplane.Page[controlplane.AccountingLimitStatusRow]
-	decisionPage  controlplane.Page[controlplane.AccountingDecisionRow]
-	reservations  map[string]ReserveResult
-	settlements   map[string]SettleResult
-	releases      map[string]ReleaseResult
+	reserveResult  ReserveResult
+	reserveResults []ReserveResult
+	settleResult   SettleResult
+	releaseResult  ReleaseResult
+	limitPage      controlplane.Page[controlplane.AccountingLimitStatusRow]
+	limitPages     []controlplane.Page[controlplane.AccountingLimitStatusRow]
+	limitCalls     int
+	limitQueries   []controlplane.AccountingLimitStatusQuery
+	activeLimitRow controlplane.AccountingLimitStatusRow
+	activeLimitOK  bool
+	activeLimitErr error
+	activeQueries  []ActiveLimitQuery
+	decisionPage   controlplane.Page[controlplane.AccountingDecisionRow]
+	reservations   map[string]ReserveResult
+	settlements    map[string]SettleResult
+	releases       map[string]ReleaseResult
 
 	capacityLimit      int64
 	cumulativeReserved int64
@@ -101,6 +115,25 @@ func newFakeStateStore() *fakeStateStore {
 
 func (f *fakeStateStore) Reserve(_ context.Context, cmd ReserveCommand) (ReserveResult, error) {
 	f.reserveCalls = append(f.reserveCalls, cmd)
+	if idx := len(f.reserveCalls) - 1; idx < len(f.reserveErrors) && f.reserveErrors[idx] != nil {
+		return ReserveResult{}, f.reserveErrors[idx]
+	}
+	if f.reserveErr != nil {
+		return ReserveResult{}, f.reserveErr
+	}
+	if idx := len(f.reserveCalls) - 1; idx < len(f.reserveResults) {
+		result := f.reserveResults[idx]
+		if result.ReservationID == "" {
+			result.ReservationID = cmd.ReservationKey.String()
+		}
+		if result.Applied && result.ReservedAmount.Unit == "" {
+			result.ReservedAmount = cmd.Request
+		}
+		if result.Applied {
+			f.reservations[cmd.ReservationKey.String()] = result
+		}
+		return result, nil
+	}
 	if cmd.EstimateOnly {
 		return ReserveResult{}, nil
 	}
@@ -110,7 +143,10 @@ func (f *fakeStateStore) Reserve(_ context.Context, cmd ReserveCommand) (Reserve
 			amount = 1
 		}
 		if f.cumulativeReserved+amount > f.capacityLimit {
-			return ReserveResult{}, WrapError(ErrReservationConflict, "reserve", errors.New("strict reservation would exceed remaining capacity"))
+			return ReserveResult{}, WrapError(ErrCapacityExceeded, "reserve", &ReservationCapacityError{
+				Requested: domain.Amount{Unit: cmd.Request.Unit, Value: amount, Currency: cmd.Request.Currency},
+				Remaining: domain.Amount{Unit: cmd.Request.Unit, Value: max(0, f.capacityLimit-f.cumulativeReserved), Currency: cmd.Request.Currency},
+			})
 		}
 		f.cumulativeReserved += amount
 		result := f.reserveResult
@@ -131,6 +167,9 @@ func (f *fakeStateStore) Reserve(_ context.Context, cmd ReserveCommand) (Reserve
 
 func (f *fakeStateStore) Settle(_ context.Context, cmd SettleCommand) (SettleResult, error) {
 	f.settleCalls = append(f.settleCalls, cmd)
+	if f.settleErr != nil {
+		return SettleResult{}, f.settleErr
+	}
 	if _, ok := f.settlements[cmd.SettlementKey.String()]; ok {
 		return SettleResult{}, nil
 	}
@@ -152,20 +191,75 @@ func (f *fakeStateStore) Settle(_ context.Context, cmd SettleCommand) (SettleRes
 	return f.settleResult, nil
 }
 
-func (f *fakeStateStore) Release(_ context.Context, cmd ReleaseCommand) (ReleaseResult, error) {
+func (f *fakeStateStore) Release(ctx context.Context, cmd ReleaseCommand) (ReleaseResult, error) {
 	f.releaseCalls = append(f.releaseCalls, cmd)
+	if f.releaseWaitForContext {
+		<-ctx.Done()
+		f.releaseContextErr = ctx.Err()
+		return ReleaseResult{}, ctx.Err()
+	}
+	if f.releaseErr != nil {
+		return ReleaseResult{}, f.releaseErr
+	}
 	if _, ok := f.releases[cmd.ReleaseKey.String()]; ok {
 		return ReleaseResult{}, nil
 	}
-	if !f.releaseResult.Applied {
-		f.releaseResult = ReleaseResult{Applied: true, ReservationID: cmd.ReservationID, ReleasedDelta: cmd.Amount}
+	result := ReleaseResult{Applied: true, ReservationID: cmd.ReservationID, ReleasedDelta: cmd.Amount}
+	if reservation, ok := f.reservations[cmd.ReservationKey.String()]; ok {
+		released := cmd.Amount
+		if released.Unit == "" {
+			released.Unit = reservation.ReservedAmount.Unit
+			released.Currency = reservation.ReservedAmount.Currency
+		}
+		if released.Value > reservation.ReservedAmount.Value {
+			released.Value = reservation.ReservedAmount.Value
+		}
+		if released.Value > f.cumulativeReserved {
+			f.cumulativeReserved = 0
+		} else {
+			f.cumulativeReserved -= released.Value
+		}
+		delete(f.reservations, cmd.ReservationKey.String())
+		result.ReleasedDelta = released
 	}
-	f.releases[cmd.ReleaseKey.String()] = f.releaseResult
-	return f.releaseResult, nil
+	f.releaseResult = result
+	f.releases[cmd.ReleaseKey.String()] = result
+	return result, nil
 }
 
-func (f *fakeStateStore) LimitStatus(context.Context, controlplane.AccountingLimitStatusQuery) (controlplane.Page[controlplane.AccountingLimitStatusRow], error) {
+func (f *fakeStateStore) ApplyUsage(_ context.Context, cmd ApplyUsageCommand) (ApplyUsageResult, error) {
+	f.applyUsageCalls = append(f.applyUsageCalls, cmd)
+	return ApplyUsageResult{Applied: len(cmd.RuleIDs) > 0, RuleIDs: append([]string(nil), cmd.RuleIDs...)}, nil
+}
+
+func (f *fakeStateStore) LimitStatus(_ context.Context, q controlplane.AccountingLimitStatusQuery) (controlplane.Page[controlplane.AccountingLimitStatusRow], error) {
+	f.limitQueries = append(f.limitQueries, q)
+	if len(f.limitPages) > 0 {
+		idx := f.limitCalls
+		if q.Cursor.Token != "" {
+			idx++
+		}
+		if idx >= len(f.limitPages) {
+			idx = len(f.limitPages) - 1
+		}
+		f.limitCalls++
+		return f.limitPages[idx], nil
+	}
 	return f.limitPage, nil
+}
+
+func (f *fakeStateStore) ActiveLimit(_ context.Context, q ActiveLimitQuery) (controlplane.AccountingLimitStatusRow, bool, error) {
+	f.activeQueries = append(f.activeQueries, q)
+	if f.activeLimitOK || f.activeLimitErr != nil {
+		return f.activeLimitRow, f.activeLimitOK, f.activeLimitErr
+	}
+	if len(f.limitPage.Items) > 0 {
+		return f.limitPage.Items[0], true, nil
+	}
+	if len(f.limitPages) > 0 && len(f.limitPages[0].Items) > 0 {
+		return f.limitPages[0].Items[0], true, nil
+	}
+	return controlplane.AccountingLimitStatusRow{}, false, nil
 }
 
 func (f *fakeStateStore) DecisionHistory(context.Context, controlplane.AccountingDecisionQuery) (controlplane.Page[controlplane.AccountingDecisionRow], error) {

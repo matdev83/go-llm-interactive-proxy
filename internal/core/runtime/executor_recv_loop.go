@@ -98,9 +98,11 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			}
 			opened, err := s.tryReplacementIteration(ctx)
 			if err != nil {
-				// tryReplacementIteration only releases the prior (swallowed) attempt's
-				// authority reservation on its success path. On error the reservation would
-				// otherwise stay locked, so release it here when it has not already been
+				// tryReplacementIteration releases the prior (swallowed) attempt's
+				// authority reservation before opening the replacement, so on most
+				// error paths it is already settled. The early-return guards
+				// (ctx.Err, aScope.Err, secure-recording hard stop) return before
+				// that release, so release it here when it has not already been
 				// settled, then tear down the stream like the other terminal recv exits.
 				if !s.authority.Settled() {
 					s.authority.Release(ctx, authorityapp.ReleaseKindSwallowed)
@@ -186,6 +188,17 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			return false, err
 		}
 	}
+	// Release the prior (swallowed) attempt's reservation BEFORE opening and
+	// authoritatively admitting the replacement. Releasing after the admit (the
+	// previous ordering) left both reservations overlapping the same live window,
+	// so strict quota/rate/budget enforcement could reject the replacement with
+	// ErrReservationConflict or double-count capacity even though it is the same
+	// logical request continuing after a swallowed B-leg. A settled prior
+	// (e.g. after a failed partial settle's losing-release) is a no-op. Reset
+	// below swaps in the freshly opened reservation and clears the settled guard.
+	if !s.authority.Settled() {
+		s.authority.Release(ctx, authorityapp.ReleaseKindSwallowed)
+	}
 	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
 		ctx:                      ctx,
 		bus:                      s.bus,
@@ -230,14 +243,12 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			// out.authority was freshly admitted for this replacement attempt and
 			// is not yet assigned to s.authority (that happens only on the success
 			// path below), so release it here to avoid leaking the reservation. The
-			// prior swallowed s.authority remains the Recv error-path's responsibility.
+			// prior swallowed s.authority was already released before tryPlanOpenOnce.
 			l := newAuthorityLifecycle(s.executor.authorityService(), s.executor.Log, out.authority, out.cand)
 			l.Release(ctx, authorityapp.ReleaseKindSwallowed)
 			return false, err
 		}
 	}
-	wasSettled := s.authority.Settled()
-
 	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
@@ -248,12 +259,10 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
 	}
-	// s.authority still holds the prior (swallowed) reservation at this point, so Release
-	// targets the prior state; Reset then swaps in the freshly opened reservation and clears
-	// the settled guard for the new attempt's independent settle/release lifecycle.
-	if !wasSettled {
-		s.authority.Release(ctx, authorityapp.ReleaseKindSwallowed)
-	}
+	// The prior swallowed reservation was released before tryPlanOpenOnce so the
+	// replacement's authoritative admission did not overlap it on the live window.
+	// Reset swaps in the freshly opened reservation and clears the settled guard
+	// for the new attempt's independent settle/release lifecycle.
 	s.authority.Reset(out.authority, out.cand)
 	return true, nil
 }

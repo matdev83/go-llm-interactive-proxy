@@ -229,7 +229,13 @@ func (s *msgStream) ensureFrameStarted() error {
 
 func usageFromMessageDelta(v anthropic.MessageDeltaEvent) *lipapi.Event {
 	u := v.Usage
-	if u.InputTokens == 0 && u.OutputTokens == 0 {
+	presence := lipapi.UsagePresence{
+		InputTokens:      u.JSON.InputTokens.Valid(),
+		OutputTokens:     u.JSON.OutputTokens.Valid(),
+		CacheReadTokens:  u.JSON.CacheReadInputTokens.Valid(),
+		CacheWriteTokens: u.JSON.CacheCreationInputTokens.Valid(),
+	}
+	if !presence.Any() && u.InputTokens == 0 && u.OutputTokens == 0 {
 		return nil
 	}
 	ev := lipapi.Event{
@@ -239,6 +245,7 @@ func usageFromMessageDelta(v anthropic.MessageDeltaEvent) *lipapi.Event {
 		CacheReadTokens:  safecast.IntFromInt64Clamp(u.CacheReadInputTokens),
 		CacheWriteTokens: safecast.IntFromInt64Clamp(u.CacheCreationInputTokens),
 		TotalTokens:      safecast.IntFromInt64Clamp(u.InputTokens + u.OutputTokens),
+		UsagePresence:    presence,
 		RawUsageJSON:     rawUsageJSON(u.RawJSON(), u),
 	}
 	return &ev

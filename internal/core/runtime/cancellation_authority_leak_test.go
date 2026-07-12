@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -42,6 +43,9 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		TotalTokens:   7,
 		CostNanoUnits: 42,
 		Currency:      "USD",
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+		},
 	}
 
 	// setupStream stages a retryRecvStream with a reserved authority and a mid-stream
@@ -157,18 +161,152 @@ func TestPersistCancellationBillingUsageAuthorityLeak(t *testing.T) {
 		rs := setupStream(t, auth)
 		// Simulate a prior final settle (e.g. response_finished already finalized the
 		// reservation) so authoritySettled is true before the cancellation billing call.
-		rs.authority.settled.Store(true)
+		rs.authority.control.mu.Lock()
+		rs.authority.control.terminal = authorityTerminalSettled
+		rs.authority.control.mu.Unlock()
 
 		rs.persistCancellationBilling(context.Background(), "client canceled")
 
-		if auth.settleCalls.Load() != 0 {
-			t.Fatalf("settle calls = %d, want 0 (already-settled reservation must not be double-settled)", auth.settleCalls.Load())
+		// With authoritative usage available (usageObserved=true) and the reservation
+		// already settled, the cancellation path calls ReconcileAuthoritative instead
+		// of no-op double-settling. The reconcile sends a Final/Authoritative settle
+		// with a distinct source key (reservation ID + "|authoritative") so the store
+		// applies an authoritative adjustment, not a replay of the prior settle.
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1 (authoritative reconcile on already-settled reservation)", auth.settleCalls.Load())
+		}
+		got := auth.lastSettle()
+		if got.Kind != authorityapp.SettlementKindFinal {
+			t.Fatalf("reconcile settle kind = %q, want final", got.Kind)
+		}
+		if got.Authority != authoritydomain.AuthorityLevelAuthoritative {
+			t.Fatalf("reconcile settle authority = %q, want authoritative", got.Authority)
+		}
+		if got.ClientCanceled {
+			t.Fatal("reconcile settle must not carry client canceled (it is an authoritative adjustment)")
+		}
+		if got.ReservationID != reservationID+"|authoritative" {
+			t.Fatalf("reconcile settle reservation ID = %q, want %q|authoritative", got.ReservationID, reservationID)
 		}
 		if auth.releaseCalls.Load() != 0 {
-			t.Fatalf("release calls = %d, want 0 (already-settled reservation must not be released)", auth.releaseCalls.Load())
+			t.Fatalf("release calls = %d, want 0 (reconcile must not release)", auth.releaseCalls.Load())
 		}
 		if !rs.authority.Settled() {
 			t.Fatal("expected authoritySettled to remain true")
+		}
+	})
+
+	t.Run("cancel_after_usage_with_canceled_ctx_settles_without_leak", func(t *testing.T) {
+		t.Parallel()
+		auth := cancelAfterUsageAuth(nil)
+		rs := setupStream(t, auth)
+
+		// A canceled client context must not abort the post-output settlement
+		// (requirement 10.4, 11.7). The lifecycle detaches cancellation and adds
+		// its own cleanup deadline, so settlement can still apply despite ctx.Err().
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if ctx.Err() == nil {
+			t.Fatal("test staging: ctx must be canceled")
+		}
+
+		rs.persistCancellationBilling(ctx, "client canceled")
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1 (canceled ctx must not prevent settlement)", auth.settleCalls.Load())
+		}
+		got := auth.lastSettle()
+		if got.Kind != authorityapp.SettlementKindCancellation {
+			t.Fatalf("settle kind = %q, want cancellation", got.Kind)
+		}
+		if !got.ClientCanceled {
+			t.Fatal("expected client canceled settlement")
+		}
+		if got.FinalUsage.Value != 5 {
+			t.Fatalf("final usage = %d, want 5 (observed usage, not admission estimate)", got.FinalUsage.Value)
+		}
+		if auth.releaseCalls.Load() != 0 {
+			t.Fatalf("release calls = %d, want 0 (successful settle must not release)", auth.releaseCalls.Load())
+		}
+		if !rs.authority.Settled() {
+			t.Fatal("expected authoritySettled=true after cancellation settle despite canceled ctx")
+		}
+	})
+
+	t.Run("cancel_after_usage_failed_settle_with_canceled_ctx_releases_losing", func(t *testing.T) {
+		t.Parallel()
+		auth := cancelAfterUsageAuth(errors.New("settle boom"))
+		rs := setupStream(t, auth)
+
+		// Even with a canceled ctx, the losing-fallback release must run on a
+		// non-canceled context so the reservation is not leaked (requirement 11.7).
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		rs.persistCancellationBilling(ctx, "client canceled")
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1 (single failed cancellation settle)", auth.settleCalls.Load())
+		}
+		if auth.releaseCalls.Load() != 1 {
+			t.Fatalf("release calls = %d, want 1 (losing release must run despite canceled ctx, not leak)", auth.releaseCalls.Load())
+		}
+		rel := auth.lastRelease()
+		if rel.Kind != authorityapp.ReleaseKindLosing {
+			t.Fatalf("release kind = %q, want %q", rel.Kind, authorityapp.ReleaseKindLosing)
+		}
+		if !rs.authority.Settled() {
+			t.Fatal("expected authoritySettled=true after fallback release despite canceled ctx")
+		}
+	})
+
+	t.Run("settle_stays_unsettled_when_store_genuinely_unavailable", func(t *testing.T) {
+		t.Parallel()
+		// When both settle AND losing-release fail (genuine store unavailability,
+		// not cancellation), the lifecycle must NOT mark settled so a later
+		// non-canceled finalize can retry (requirement 10.4).
+		auth := &recordingAuthorityService{
+			admitResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  reservationID,
+				ReservedAmount: authorityInputAmount(7),
+				PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+			},
+			settleErr:  errors.New("store unavailable"),
+			releaseErr: errors.New("store unavailable"),
+			status:     controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+		}
+		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+		rs := &retryRecvStream{
+			executor: ex,
+			baseline: lipapi.Call{
+				ID:         "request-store-unavailable",
+				Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions},
+			},
+			bleg: b2bua.BLegRecord{BLegID: "b-leg-store-unavailable", Seq: 1},
+			cand: authorityCandidate(),
+			authority: testAuthorityLifecycle(ex, attemptAuthorityState{
+				admissionInput:  testAuthorityAdmissionInput(7),
+				admissionResult: auth.admitResult,
+			}, authorityCandidate()),
+			seenEvents: []lipapi.Event{usageDelta},
+			traceID:    "trace-store-unavailable",
+			aLegID:     aLegID,
+			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		}
+		rs.accounting.observeUsage(usageDelta)
+
+		rs.persistCancellationBilling(context.Background(), "client canceled")
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
+		}
+		if auth.releaseCalls.Load() != 1 {
+			t.Fatalf("release calls = %d, want 1 (losing release attempted)", auth.releaseCalls.Load())
+		}
+		if rs.authority.Settled() {
+			t.Fatal("expected authoritySettled=false when both settle and release failed (store unavailable), so a later finalize can retry")
 		}
 	})
 }

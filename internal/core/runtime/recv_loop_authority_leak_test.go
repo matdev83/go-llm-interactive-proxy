@@ -20,10 +20,11 @@ import (
 // replacement attempt and RegisterBLeg then fails (the A-leg is canceled
 // mid-flight during backend.Open, after out.authority was admitted), the freshly
 // admitted reservation must be released. Before the fix the RegisterBLeg error
-// branch returned without releasing out.authority, leaking the reservation. The
-// prior swallowed s.authority is the Recv error-path's responsibility and must
-// NOT be released here, so the released ID must be the NEW reservation, not the
-// prior one.
+// branch returned without releasing out.authority, leaking the reservation.
+// tryReplacementIteration also releases the prior swallowed s.authority before
+// opening the replacement (so the same logical request does not double-count
+// capacity under strict enforcement), so on RegisterBLeg failure both the prior
+// and the NEW reservation are released; the last release must be the NEW one.
 func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 	t.Parallel()
 
@@ -60,8 +61,8 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 	}
 
 	// priorAuthority is the still-reserved capacity from the swallowed prior
-	// attempt; it is distinct from the NEW out.authority and is the Recv
-	// error-path's responsibility to release, not tryReplacementIteration's.
+	// attempt; it is distinct from the NEW out.authority and is released by
+	// tryReplacementIteration before the replacement is opened.
 	priorAuthority := attemptAuthorityState{
 		admissionInput:  testAuthorityAdmissionInput(5),
 		admissionResult: auth.admitResult,
@@ -101,13 +102,14 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 		t.Fatalf("tryReplacementIteration error = %v, want ErrALegCanceled", err)
 	}
 
-	// The NEW out.authority (reservation-new) must be released exactly once.
-	if got, want := auth.releaseCalls.Load(), int64(1); got != want {
-		t.Fatalf("release calls = %d, want %d (NEW out.authority must be released on RegisterBLeg failure)", got, want)
+	// The prior swallowed reservation is released before the replacement is opened,
+	// and the NEW out.authority is released on RegisterBLeg failure: 2 releases.
+	if got, want := auth.releaseCalls.Load(), int64(2); got != want {
+		t.Fatalf("release calls = %d, want %d (prior released before admit + NEW out.authority released on RegisterBLeg failure)", got, want)
 	}
 	release := auth.lastRelease()
 	if release.ReservationID != "reservation-new" {
-		t.Fatalf("released reservation ID = %q, want reservation-new (the NEW out.authority, not the prior reservation-prior)", release.ReservationID)
+		t.Fatalf("released reservation ID = %q, want reservation-new (the NEW out.authority, released last on RegisterBLeg failure)", release.ReservationID)
 	}
 	if release.Kind != authorityapp.ReleaseKindSwallowed {
 		t.Fatalf("release kind = %q, want swallowed", release.Kind)

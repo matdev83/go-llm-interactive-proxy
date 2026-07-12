@@ -70,6 +70,14 @@ type RuleMatch struct {
 	Mode     RuleMode
 	Exceeded bool
 	Outcome  DecisionOutcome
+	// RequestedMax carries the requested exposure basis for a clamp outcome
+	// (e.g. the requested spend for a spend cap). The domain populates it
+	// from the evaluation basis; EffectiveMax stays zero until the app fills
+	// it from live store remaining plus the cost estimate (requirement 6.5).
+	RequestedMax Amount
+	// EffectiveMax is the reduced exposure after clamping. It is left zero
+	// in the domain and populated by the app from live authority state.
+	EffectiveMax Amount
 }
 
 type EvaluationResult struct {
@@ -77,26 +85,73 @@ type EvaluationResult struct {
 	Selected RuleMatch
 }
 
+// StrictUnavailableRuleIDs returns strict matches whose authority or accounting
+// basis is unavailable. The app layer uses this set to resolve configured
+// failure behavior before applying ordinary outcome severity.
+func StrictUnavailableRuleIDs(matches []RuleMatch) []string {
+	ids := make([]string, 0)
+	for _, match := range matches {
+		if match.Mode != RuleModeStrict || match.Outcome != DecisionOutcomeUnavailable {
+			continue
+		}
+		if strings.TrimSpace(match.RuleID) != "" {
+			ids = append(ids, match.RuleID)
+		}
+	}
+	return ids
+}
+
+// SelectRuleOutcome selects the most restrictive outcome from matches while
+// optionally excluding rules whose configured failure behavior is fail-open.
+// Rule matching remains pure; application code decides which unavailable rules
+// may be excluded after resolving their configured posture.
+func SelectRuleOutcome(matches []RuleMatch, excluded map[string]struct{}) RuleMatch {
+	result := RuleMatch{Outcome: DecisionOutcomeAllow}
+	strictMatched := false
+	advisoryUnavailable := false
+	for _, match := range matches {
+		if _, skip := excluded[match.RuleID]; skip {
+			continue
+		}
+		if match.Mode == RuleModeStrict {
+			strictMatched = true
+		}
+		if match.Mode == RuleModeAdvisory && match.Outcome == DecisionOutcomeUnavailable {
+			advisoryUnavailable = true
+			continue
+		}
+		if match.Outcome.severity() > result.Outcome.severity() {
+			result = match
+		}
+	}
+	if !strictMatched && advisoryUnavailable && result.Outcome == DecisionOutcomeAllow {
+		result.Outcome = DecisionOutcomeAdvisory
+	}
+	return result
+}
+
 func EvaluateRules(rules []Rule, ctx EvaluationContext) EvaluationResult {
 	result := EvaluationResult{Selected: RuleMatch{Outcome: DecisionOutcomeAllow}}
 	matchedIDs := make([]string, 0, len(rules))
-
 	for _, rule := range rules {
-		if !rule.Matches(ctx.Dimensions) || !rule.matchesAuthority(ctx.Authority) {
+		// Dimension mismatch is the only reason a rule is excluded from
+		// evidence. An authority mismatch no longer drops the rule: it
+		// matches with an authority-unavailable outcome so the app can
+		// resolve posture via configured failure behavior (requirement 8.3,
+		// finding 5).
+		if !rule.Matches(ctx.Dimensions) {
 			continue
 		}
 		match := rule.evaluate(ctx)
 		result.Matches = append(result.Matches, match)
 		matchedIDs = append(matchedIDs, rule.ID)
-		if match.Outcome.severity() > result.Selected.Outcome.severity() {
-			result.Selected = match
-		}
 	}
 
 	if len(matchedIDs) > 0 {
 		for i := range result.Matches {
 			result.Matches[i].RuleIDs = append([]string(nil), matchedIDs...)
 		}
+		result.Selected = SelectRuleOutcome(result.Matches, nil)
 		result.Selected.RuleIDs = append([]string(nil), matchedIDs...)
 	}
 	return result
@@ -104,7 +159,17 @@ func EvaluateRules(rules []Rule, ctx EvaluationContext) EvaluationResult {
 
 func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 	match := RuleMatch{RuleID: r.ID, Kind: r.Kind, Mode: r.Mode}
-	if !r.Matches(ctx.Dimensions) || !r.matchesAuthority(ctx.Authority) {
+	if !r.Matches(ctx.Dimensions) {
+		return match
+	}
+	// An authoritative-only rule that matched on dimensions still appears
+	// in evidence when only estimated/unavailable evidence exists; it
+	// reports an authority-unavailable outcome. Reusing the existing
+	// unavailable outcome keeps the severity ordering deny > clamp >
+	// advisory > unavailable > allow, so it never overrides a real deny
+	// but is visible and resolvable by the app (requirement 8.3).
+	if !r.matchesAuthority(ctx.Authority) {
+		match.Outcome = DecisionOutcomeUnavailable
 		return match
 	}
 
@@ -147,6 +212,7 @@ func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 		default:
 			if r.Kind == RuleKindSpendCap {
 				match.Outcome = DecisionOutcomeClamp
+				match.RequestedMax = basis
 			} else {
 				match.Outcome = DecisionOutcomeDeny
 			}
@@ -168,4 +234,11 @@ func (r Rule) matchesAuthority(authority AuthorityLevel) bool {
 	default:
 		return false
 	}
+}
+
+// SupportsAuthority reports whether this rule can consume a usage fact at the
+// supplied authority level. It is intentionally read-only so application
+// orchestration can filter unreserved usage without duplicating rule semantics.
+func (r Rule) SupportsAuthority(authority AuthorityLevel) bool {
+	return r.matchesAuthority(authority)
 }

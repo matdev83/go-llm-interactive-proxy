@@ -367,6 +367,11 @@ func (e *Executor) openPlannedCandidate(
 	}
 	authState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, bleg, attempt, c, preflightDecision, false)
 	if err != nil {
+		if authState.admissionResult.Reserved {
+			cleanup := newAuthorityLifecycle(e.authorityService(), e.Log, authState, c)
+			cleanup.backendAttempted.Store(false)
+			cleanup.Release(p.ctx, authorityapp.ReleaseKindAdmissionFailure)
+		}
 		// The estimate-only precheck passed and consumed a routing attempt slot, but
 		// the authoritative admit failed (e.g. strict store ErrReservationConflict when
 		// the live window is full). Refund the budget slot so a backend that never opens
@@ -377,12 +382,23 @@ func (e *Executor) openPlannedCandidate(
 	}
 	releaseKind := authorityapp.ReleaseKindLosing
 	opened := false
+	cleanupAuthority := newAuthorityLifecycle(e.authorityService(), e.Log, authState, c)
+	// Admission happens before the backend open. Keep the cleanup evidence
+	// accurate until the actual Open call begins; the constructor's default is
+	// post-open because the other lifecycle owners are created from opened
+	// attempts.
+	cleanupAuthority.backendAttempted.Store(false)
 	defer func() {
 		if !opened {
-			l := newAuthorityLifecycle(e.authorityService(), e.Log, authState, c)
-			l.Release(p.ctx, releaseKind)
+			cleanupAuthority.Release(p.ctx, releaseKind)
 		}
 	}()
+	if clamp := authState.admissionResult.Clamp; clamp != nil {
+		if err := e.applyAuthorityClamp(&attempt, c, clamp, int64(preflightDecision.Count.InputTokens)); err != nil {
+			p.budget.release()
+			return zero, err
+		}
+	}
 	hookCtx := p.ctx
 	if e != nil && e.Log != nil {
 		hookCtx = hooks.WithDiagnosticsLogger(p.ctx, e.Log)
@@ -399,6 +415,27 @@ func (e *Executor) openPlannedCandidate(
 	openCall, err := backendCallWithRouteParams(attempt, c)
 	if err != nil {
 		return zero, fmt.Errorf("executor: %w", err)
+	}
+	// Request hooks and route-parameter shaping run after admission. Reapply
+	// the authority clamp to the final backend call so neither trusted hook
+	// mutation nor route translation can widen a client-provided lower cap.
+	if clamp := authState.admissionResult.Clamp; clamp != nil {
+		if err := e.applyAuthorityClamp(&openCall, c, clamp, int64(preflightDecision.Count.InputTokens)); err != nil {
+			return zero, err
+		}
+		// Spend-cap clamps must bind on the wire. Backends that cannot represent
+		// MaxOutputTokens (or that mark it ignorable via compat) are excluded so
+		// failover can try an enforceable candidate.
+		if !backendCanEnforceAuthorityClamp(be, &openCall) {
+			diag.LogDecision(p.ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+				slog.String("candidate_key", c.Key),
+				slog.String("backend", c.Primary.Backend),
+			)
+			releaseKind = authorityapp.ReleaseKindAdmissionFailure
+			p.budget.release()
+			p.excluded[c.Key] = struct{}{}
+			return noOpen, nil
+		}
 	}
 	if e.RuntimeSnapshot != nil {
 		if rawPayload, jerr := json.Marshal(openCall); jerr == nil {
@@ -437,6 +474,7 @@ func (e *Executor) openPlannedCandidate(
 	)
 	defer openSpan.End()
 	openStart := time.Now()
+	cleanupAuthority.backendAttempted.Store(true)
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return be.Open(openCtx, openCall, c)
 	})

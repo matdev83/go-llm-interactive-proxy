@@ -15,6 +15,7 @@ import (
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -101,6 +102,15 @@ func TestHandleRecvEOFRecoveryAllowsFinalAuthoritySettlement(t *testing.T) {
 	got := auth.lastSettle()
 	if got.Kind != authorityapp.SettlementKindFinal {
 		t.Fatalf("settle kind = %q, want final", got.Kind)
+	}
+	if got.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("settle stage = %q, want attempt_lifecycle", got.Stage)
+	}
+	if !got.BackendAttempted {
+		t.Fatal("expected final settlement to record backendAttempted=true")
+	}
+	if !got.OutputCommitted {
+		t.Fatal("expected final settlement to record outputCommitted=true after markCommitted")
 	}
 	if got.FinalUsage.Value != 7 {
 		t.Fatalf("final usage = %d, want 7", got.FinalUsage.Value)
@@ -299,6 +309,9 @@ func TestHandleRecvEOFWithoutRecoveryPartialSettlesAuthority(t *testing.T) {
 	}
 	if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindPartial {
 		t.Fatalf("settle kind = %q, want partial", got.Kind)
+	}
+	if got := auth.lastSettle(); got.Stage != feature.StageIDAttemptLifecycle || !got.BackendAttempted || got.OutputCommitted {
+		t.Fatalf("partial settle must project attempt lifecycle with no committed output: %#v", got)
 	}
 }
 
@@ -619,14 +632,14 @@ func TestExecutorAuthoritySettlementUsesAdmissionUnit(t *testing.T) {
 			name:    "money-nano-with-currency",
 			unit:    authoritydomain.AmountUnitMoneyNano,
 			value:   100,
-			usage:   lipapi.Event{CostNanoUnits: 150, Currency: "USD"},
+			usage:   lipapi.Event{CostNanoUnits: 150, Currency: "USD", CostPresent: true},
 			wantVal: 150,
 		},
 		{
 			name:    "money-nano-fallback-currency",
 			unit:    authoritydomain.AmountUnitMoneyNano,
 			value:   100,
-			usage:   lipapi.Event{CostNanoUnits: 150, Currency: ""},
+			usage:   lipapi.Event{CostNanoUnits: 150, Currency: "", CostPresent: true},
 			wantVal: 150,
 		},
 		{
@@ -790,5 +803,394 @@ func TestRetryRecvStreamAuthorityPartialSettlementUsesAdmissionUnit(t *testing.T
 	}
 	if got.ReservedUsage.Unit != authoritydomain.AmountUnitInputTokens {
 		t.Fatalf("partial reserved usage unit = %q, want input_tokens", got.ReservedUsage.Unit)
+	}
+}
+
+// TestAuthorityFinalSettlementZeroVsMissingUsage locks in the distinction between a
+// completion that reports ZERO usage (a legitimate zero reading that must settle at
+// zero) and one that reports NO usage at all (absent, which must fall back to the
+// preflight estimate). attemptAuthorityUsageAmount must not conflate present-but-zero
+// with missing; otherwise zero-usage/zero-cost completions are reconciled at the
+// reserved estimate and over-charge the caller's quota/budget.
+func TestAuthorityFinalSettlementZeroVsMissingUsage(t *testing.T) {
+	t.Parallel()
+
+	reservedValue := int64(7)
+
+	setup := func(t *testing.T, unit authoritydomain.AmountUnit, currency string) (*recordingAuthorityService, authorityLifecycle) {
+		t.Helper()
+		auth := &recordingAuthorityService{
+			admitResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  "reservation-zero-vs-missing",
+				ReservedAmount: authoritydomain.Amount{Unit: unit, Value: reservedValue, Currency: currency},
+				PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+			},
+			status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+		}
+		ex, _, _ := newAuthorityRuntimeTestExecutor(t, auth)
+		state := attemptAuthorityState{
+			admissionInput: authorityapp.AdmissionInput{
+				Correlation: controlplane.Correlation{
+					TraceID:    "trace-zero-vs-missing",
+					RequestID:  "request-zero-vs-missing",
+					ALegID:     "a-leg-zero-vs-missing",
+					BLegID:     "b-leg-zero-vs-missing",
+					AttemptSeq: 1,
+					BackendID:  "backend-1",
+					Model:      "model-1",
+				},
+				Scope: scope.PrincipalScopeView{},
+				Request: authoritydomain.Amount{
+					Unit:     unit,
+					Value:    reservedValue,
+					Currency: currency,
+				},
+				Spend: authoritydomain.Amount{
+					Unit:     authoritydomain.AmountUnitMoneyNano,
+					Value:    100,
+					Currency: "USD",
+				},
+				Authority: authoritydomain.AuthorityLevelEstimated,
+				ReservationKey: authoritydomain.ReservationKey{
+					LogicalRequestID: "request-zero-vs-missing",
+					ALegID:           "a-leg-zero-vs-missing",
+					BLegID:           "b-leg-zero-vs-missing",
+					AttemptID:        "b-leg-zero-vs-missing",
+					RuleID:           "tenant.requests",
+					Sequence:         1,
+				},
+			},
+			admissionResult: auth.admitResult,
+		}
+		return auth, newAuthorityLifecycle(ex.authorityService(), ex.Log, state, authorityCandidate())
+	}
+
+	t.Run("present-but-zero-tokens-settles-at-zero", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitInputTokens, "")
+
+		// A genuine provider-reported usage delta carrying all-zero token counts: a
+		// legitimate zero-usage completion. The scoped reading signals presence.
+		usage := lipapi.Event{
+			Kind:         lipapi.EventUsageDelta,
+			InputTokens:  0,
+			OutputTokens: 0,
+			TotalTokens:  0,
+			UsageScopes: []lipapi.ScopedUsageDelta{{
+				InputTokens:  0,
+				OutputTokens: 0,
+				TotalTokens:  0,
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:     lipapi.UsagePlaneProviderBillable,
+					Source:    lipapi.UsageSourceProviderReported,
+					Authority: lipapi.UsageAuthorityAuthoritative,
+				},
+			}},
+		}
+
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
+		}
+		got := auth.lastSettle()
+		if got.Kind != authorityapp.SettlementKindFinal {
+			t.Fatalf("settle kind = %q, want final", got.Kind)
+		}
+		if got.FinalUsage.Unit != authoritydomain.AmountUnitInputTokens {
+			t.Fatalf("final usage unit = %q, want input_tokens", got.FinalUsage.Unit)
+		}
+		if got.FinalUsage.Value != 0 {
+			t.Fatalf("final usage value = %d, want 0 (legitimate zero usage must not be reconciled at the reserved estimate %d)",
+				got.FinalUsage.Value, reservedValue)
+		}
+		if got.EstimatedUsage.Value != reservedValue {
+			t.Fatalf("estimated usage = %d, want %d (estimate must still be carried for audit)", got.EstimatedUsage.Value, reservedValue)
+		}
+	})
+
+	t.Run("top-level-authoritative-zero-settles-at-zero", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitInputTokens, "")
+		usage := lipapi.Event{
+			Kind: lipapi.EventUsageDelta,
+			Accounting: lipapi.UsageAccountingMetadata{
+				Plane:     lipapi.UsagePlaneProviderBillable,
+				Source:    lipapi.UsageSourceProviderReported,
+				Authority: lipapi.UsageAuthorityAuthoritative,
+			},
+		}
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+		if got := auth.lastSettle().FinalUsage.Value; got != 0 {
+			t.Fatalf("final usage value = %d, want authoritative zero", got)
+		}
+	})
+
+	t.Run("mixed-authoritative-snapshot-preserves-explicit-zero-output", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitOutputTokens, "")
+		usage := lipapi.Event{
+			Kind:         lipapi.EventUsageDelta,
+			InputTokens:  5,
+			OutputTokens: 0,
+			TotalTokens:  5,
+			UsagePresence: lipapi.UsagePresence{
+				InputTokens:  true,
+				OutputTokens: true,
+				TotalTokens:  true,
+			},
+			Accounting: lipapi.UsageAccountingMetadata{
+				Plane:     lipapi.UsagePlaneProviderBillable,
+				Source:    lipapi.UsageSourceProviderReported,
+				Authority: lipapi.UsageAuthorityAuthoritative,
+			},
+		}
+
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+		if got := auth.lastSettle().FinalUsage.Value; got != 0 {
+			t.Fatalf("final output usage = %d, want explicit authoritative zero", got)
+		}
+	})
+
+	t.Run("mixed-snapshot-without-output-presence-falls-back-to-estimate", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitOutputTokens, "")
+		usage := lipapi.Event{
+			Kind:         lipapi.EventUsageDelta,
+			InputTokens:  5,
+			OutputTokens: 0,
+			TotalTokens:  5,
+			UsagePresence: lipapi.UsagePresence{
+				InputTokens: true,
+				TotalTokens: true,
+			},
+			Accounting: lipapi.UsageAccountingMetadata{
+				Plane:     lipapi.UsagePlaneProviderBillable,
+				Source:    lipapi.UsageSourceProviderReported,
+				Authority: lipapi.UsageAuthorityAuthoritative,
+			},
+		}
+
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+		if got := auth.lastSettle().FinalUsage.Value; got != reservedValue {
+			t.Fatalf("final output usage = %d, want reserved estimate %d", got, reservedValue)
+		}
+	})
+
+	t.Run("present-but-zero-cost-settles-at-zero", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitMoneyNano, "USD")
+
+		// A genuine provider-reported usage delta carrying a zero cost amount: a
+		// legitimate zero-cost completion (e.g. a fully cached response). The
+		// merged finalization path still carries token-bearing scopes, so this
+		// must not fall back to the preflight estimate.
+		usage := lipapi.Event{
+			Kind:          lipapi.EventUsageDelta,
+			InputTokens:   4,
+			OutputTokens:  2,
+			TotalTokens:   6,
+			CostNanoUnits: 0,
+			Currency:      "USD",
+			CostPresent:   true,
+			CostSource:    string(lipapi.UsageSourceProviderReported),
+			UsageScopes: []lipapi.ScopedUsageDelta{{
+				InputTokens:  4,
+				OutputTokens: 2,
+				TotalTokens:  6,
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:     lipapi.UsagePlaneProviderBillable,
+					Source:    lipapi.UsageSourceProviderReported,
+					Authority: lipapi.UsageAuthorityAuthoritative,
+				},
+			}},
+		}
+
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
+		}
+		got := auth.lastSettle()
+		if got.FinalUsage.Unit != authoritydomain.AmountUnitMoneyNano {
+			t.Fatalf("final usage unit = %q, want money_nano", got.FinalUsage.Unit)
+		}
+		if got.FinalUsage.Value != 0 {
+			t.Fatalf("final cost value = %d, want 0 (legitimate zero cost must not be reconciled at the reserved estimate %d)",
+				got.FinalUsage.Value, reservedValue)
+		}
+		if got.FinalUsage.Currency != "USD" {
+			t.Fatalf("final usage currency = %q, want USD", got.FinalUsage.Currency)
+		}
+		if got.EstimatedUsage.Value != reservedValue {
+			t.Fatalf("estimated usage = %d, want %d (estimate must still be carried for audit)", got.EstimatedUsage.Value, reservedValue)
+		}
+	})
+
+	t.Run("absent-usage-still-falls-back-to-estimate", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitInputTokens, "")
+
+		// No usage delta at all (the empty event passed when StreamUsage is nil or
+		// reconstruction returns no events): the preflight estimate must stand.
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, lipapi.Event{}, false)
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
+		}
+		got := auth.lastSettle()
+		if got.Kind != authorityapp.SettlementKindFinal {
+			t.Fatalf("settle kind = %q, want final", got.Kind)
+		}
+		if got.FinalUsage.Unit != authoritydomain.AmountUnitInputTokens {
+			t.Fatalf("final usage unit = %q, want input_tokens", got.FinalUsage.Unit)
+		}
+		if got.FinalUsage.Value != reservedValue {
+			t.Fatalf("final usage value = %d, want %d (absent usage must fall back to the preflight estimate)",
+				got.FinalUsage.Value, reservedValue)
+		}
+	})
+
+	t.Run("partial-reporting-still-falls-back-to-estimate", func(t *testing.T) {
+		t.Parallel()
+		auth, lifecycle := setup(t, authoritydomain.AmountUnitInputTokens, "")
+
+		// Usage reported for output tokens but not for the reserved input-tokens
+		// unit: the reserved unit's reading is missing (not zero), so the estimate
+		// fallback must still apply.
+		usage := lipapi.Event{
+			Kind:         lipapi.EventUsageDelta,
+			InputTokens:  0,
+			OutputTokens: 5,
+			TotalTokens:  5,
+			UsageScopes: []lipapi.ScopedUsageDelta{{
+				InputTokens:  0,
+				OutputTokens: 5,
+				TotalTokens:  5,
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:  lipapi.UsagePlaneProviderBillable,
+					Source: lipapi.UsageSourceProviderReported,
+				},
+			}},
+		}
+
+		lifecycle.Settle(context.Background(), authorityapp.SettlementKindFinal, usage, false)
+
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
+		}
+		got := auth.lastSettle()
+		if got.FinalUsage.Unit != authoritydomain.AmountUnitInputTokens {
+			t.Fatalf("final usage unit = %q, want input_tokens", got.FinalUsage.Unit)
+		}
+		if got.FinalUsage.Value != reservedValue {
+			t.Fatalf("final usage value = %d, want %d (missing reserved unit must fall back to the estimate)",
+				got.FinalUsage.Value, reservedValue)
+		}
+	})
+}
+
+func TestMergeUsageEventsForClientPreservesMoneyCost(t *testing.T) {
+	t.Parallel()
+
+	usage := lipapi.Event{
+		Kind:          lipapi.EventUsageDelta,
+		InputTokens:   4,
+		OutputTokens:  2,
+		TotalTokens:   6,
+		CostNanoUnits: 150,
+		Currency:      "USD",
+		CostSource:    "provider_reported",
+		CostPresent:   true,
+		UsageScopes: []lipapi.ScopedUsageDelta{
+			{
+				InputTokens:  4,
+				OutputTokens: 2,
+				TotalTokens:  6,
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:     lipapi.UsagePlaneProviderBillable,
+					Source:    lipapi.UsageSourceProviderReported,
+					Authority: lipapi.UsageAuthorityAuthoritative,
+				},
+			},
+			{
+				InputTokens:  4,
+				OutputTokens: 2,
+				TotalTokens:  6,
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:     lipapi.UsagePlaneClientVisible,
+					Source:    lipapi.UsageSourceLocalTokenizer,
+					Authority: lipapi.UsageAuthorityEstimated,
+				},
+			},
+		},
+	}
+
+	merged := mergeUsageEventsForClient([]lipapi.Event{usage}, true)
+	if len(merged.UsageScopes) != 1 {
+		t.Fatalf("merged usage scopes = %d, want 1 client-visible scope", len(merged.UsageScopes))
+	}
+	if merged.CostNanoUnits != 150 {
+		t.Fatalf("merged cost = %d, want 150", merged.CostNanoUnits)
+	}
+	if merged.Currency != "USD" {
+		t.Fatalf("merged currency = %q, want USD", merged.Currency)
+	}
+	if merged.CostSource != "provider_reported" {
+		t.Fatalf("merged cost source = %q, want provider_reported", merged.CostSource)
+	}
+	if !merged.CostPresent {
+		t.Fatal("merged CostPresent = false, want true")
+	}
+
+	got := attemptAuthorityUsageAmount(merged, authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 999, Currency: "USD"})
+	if got.Unit != authoritydomain.AmountUnitMoneyNano {
+		t.Fatalf("final amount unit = %q, want money_nano", got.Unit)
+	}
+	if got.Value != 150 {
+		t.Fatalf("final amount value = %d, want 150", got.Value)
+	}
+	if got.Currency != "USD" {
+		t.Fatalf("final amount currency = %q, want USD", got.Currency)
+	}
+}
+
+func TestMergeUsageEventsAggregatesLaterScopeCounters(t *testing.T) {
+	t.Parallel()
+
+	merged := mergeUsageEventsForClient([]lipapi.Event{{
+		Kind: lipapi.EventUsageDelta,
+		UsageScopes: []lipapi.ScopedUsageDelta{
+			{
+				InputTokens:   0,
+				UsagePresence: lipapi.UsagePresence{InputTokens: true},
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:     lipapi.UsagePlaneProviderBillable,
+					Source:    lipapi.UsageSourceProviderReported,
+					Authority: lipapi.UsageAuthorityAuthoritative,
+				},
+			},
+			{
+				OutputTokens:  12,
+				UsagePresence: lipapi.UsagePresence{OutputTokens: true},
+				Accounting: lipapi.UsageAccountingMetadata{
+					Plane:     lipapi.UsagePlaneProviderBillable,
+					Source:    lipapi.UsageSourceProviderReported,
+					Authority: lipapi.UsageAuthorityAuthoritative,
+				},
+			},
+		},
+	}}, false)
+	if merged.InputTokens != 0 || merged.OutputTokens != 12 {
+		t.Fatalf("aggregated counters = in=%d out=%d, want in=0 out=12", merged.InputTokens, merged.OutputTokens)
+	}
+	if !merged.UsagePresence.InputTokens || !merged.UsagePresence.OutputTokens {
+		t.Fatalf("presence = %+v, want input and output present", merged.UsagePresence)
+	}
+	got := attemptAuthorityUsageAmount(merged, authoritydomain.Amount{Unit: authoritydomain.AmountUnitOutputTokens, Value: 99})
+	if got.Value != 12 {
+		t.Fatalf("settled output = %d, want 12 from later scope", got.Value)
 	}
 }

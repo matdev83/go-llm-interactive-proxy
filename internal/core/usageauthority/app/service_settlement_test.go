@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
@@ -50,13 +51,16 @@ func TestSettlementAndRelease(t *testing.T) {
 			TenantID:    scope.Known("tenant-1"),
 			ProjectID:   scope.Known(""),
 		},
-		ReservationKey: baseKey,
-		RuleID:         quotaRule.ID,
-		ReservationID:  "reservation-1",
-		Kind:           SettlementKindFinal,
-		FinalUsage:     domain.Amount{Unit: domain.AmountUnitRequests, Value: 6},
-		ReservedUsage:  domain.Amount{Unit: domain.AmountUnitRequests, Value: 10},
-		Authority:      domain.AuthorityLevelAuthoritative,
+		ReservationKey:   baseKey,
+		RuleID:           quotaRule.ID,
+		ReservationID:    "reservation-1",
+		Kind:             SettlementKindFinal,
+		FinalUsage:       domain.Amount{Unit: domain.AmountUnitRequests, Value: 6},
+		ReservedUsage:    domain.Amount{Unit: domain.AmountUnitRequests, Value: 10},
+		Authority:        domain.AuthorityLevelAuthoritative,
+		Stage:            feature.StageIDAttemptLifecycle,
+		BackendAttempted: true,
+		OutputCommitted:  true,
 	}
 
 	t.Run("final-surfaced-settlement-releases-unused-and-is-idempotent", func(t *testing.T) {
@@ -88,6 +92,12 @@ func TestSettlementAndRelease(t *testing.T) {
 		}
 		if !reflect.DeepEqual(first.AccountingEvent, evidence.accounting[0]) {
 			t.Fatalf("settlement must return the emitted accounting evidence: got %#v want %#v", first.AccountingEvent, evidence.accounting[0])
+		}
+		if first.PolicyRecord.Stage != feature.StageIDAttemptLifecycle || first.PolicyRecord.Provider.Stage != feature.StageIDAttemptLifecycle {
+			t.Fatalf("settlement must project the late attempt lifecycle stage: %#v", first.PolicyRecord)
+		}
+		if !first.PolicyRecord.BackendAttempted || !first.PolicyRecord.OutputCommitted {
+			t.Fatalf("settlement must preserve backend/output commitment flags: %#v", first.PolicyRecord)
 		}
 
 		second, err := svc.Settle(context.Background(), baseInput)
@@ -145,6 +155,7 @@ func TestSettlementAndRelease(t *testing.T) {
 		cancelInput.Kind = SettlementKindCancellation
 		cancelInput.ClientCanceled = true
 		cancelInput.FinalUsage = domain.Amount{Unit: domain.AmountUnitRequests, Value: 2}
+		cancelInput.OutputCommitted = false
 
 		got, err := svc.Settle(context.Background(), cancelInput)
 		if err != nil {
@@ -172,13 +183,16 @@ func TestSettlementAndRelease(t *testing.T) {
 		}}, store, evidence, fixedClock{now: time.Unix(100, 0).UTC()})
 
 		releaseInput := ReleaseInput{
-			Correlation:    baseInput.Correlation,
-			Scope:          baseInput.Scope,
-			ReservationKey: baseKey,
-			RuleID:         quotaRule.ID,
-			ReservationID:  "reservation-1",
-			Kind:           ReleaseKindSwallowed,
-			Amount:         domain.Amount{Unit: domain.AmountUnitRequests, Value: 10},
+			Correlation:      baseInput.Correlation,
+			Scope:            baseInput.Scope,
+			ReservationKey:   baseKey,
+			RuleID:           quotaRule.ID,
+			ReservationID:    "reservation-1",
+			Kind:             ReleaseKindSwallowed,
+			Amount:           domain.Amount{Unit: domain.AmountUnitRequests, Value: 10},
+			Stage:            feature.StageIDAttemptLifecycle,
+			BackendAttempted: true,
+			OutputCommitted:  false,
 		}
 
 		first, err := svc.Release(context.Background(), releaseInput)
@@ -193,6 +207,12 @@ func TestSettlementAndRelease(t *testing.T) {
 		}
 		if !reflect.DeepEqual(first.AccountingEvent, evidence.accounting[0]) {
 			t.Fatalf("release must return the emitted accounting evidence: got %#v want %#v", first.AccountingEvent, evidence.accounting[0])
+		}
+		if first.PolicyRecord.Stage != feature.StageIDAttemptLifecycle || first.PolicyRecord.Provider.Stage != feature.StageIDAttemptLifecycle {
+			t.Fatalf("release must project the late attempt lifecycle stage: %#v", first.PolicyRecord)
+		}
+		if !first.PolicyRecord.BackendAttempted || first.PolicyRecord.OutputCommitted {
+			t.Fatalf("release must preserve backend/output commitment flags: %#v", first.PolicyRecord)
 		}
 
 		releaseInput.Kind = ReleaseKindLosing

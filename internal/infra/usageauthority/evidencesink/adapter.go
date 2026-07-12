@@ -2,16 +2,15 @@
 // policydecision observer chain and the control-plane accounting-authority
 // event ledger. It is the production wiring of authorityapp.EvidenceSink.
 //
-// The adapter is always fail-open: every recording failure is swallowed so
-// authority admission and settlement never abort because of evidence
-// projection (design "Evidence Sink"; requirements 9.1, 9.3, 7.6, 13.1, 13.2).
-// The authority app wraps any non-nil EvidenceSink error as ErrUnavailable and
-// aborts the decision, so returning nil here keeps enforcement decoupled from
-// control-plane availability.
+// Policy-observer fan-out remains best-effort, while accounting-authority
+// recording delegates to the recorder's configured policy. Required pre-work
+// recorder failures are returned so protected admission cannot proceed without
+// mandatory evidence.
 package evidencesink
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -46,16 +45,16 @@ func (a *Adapter) RecordPolicyDecision(ctx context.Context, record policydecisio
 }
 
 // RecordAccountingAuthority appends the authority event to the control-plane
-// ledger via best-effort recording. The event is already validated by the
-// authority app's projection, so ErrUnsafeEvidence is not expected; it is
-// swallowed regardless to preserve fail-open behavior. Disabled, unavailable,
-// and append-failure outcomes are also swallowed so authority enforcement is
-// never broken by control-plane state.
+// ledger using the recorder's configured policy. Required pre-work recorder
+// failures are returned through the app-level sentinel so admission can fail
+// closed before protected backend work starts.
 func (a *Adapter) RecordAccountingAuthority(ctx context.Context, event cp.Event) error {
 	if a == nil || a.recorder == nil {
 		return nil
 	}
-	_, _ = a.recorder.RecordBestEffort(ctx, event)
+	if _, err := a.recorder.Record(ctx, event); err != nil {
+		return fmt.Errorf("%w: %w", authorityapp.ErrRequiredEvidence, err)
+	}
 	return nil
 }
 

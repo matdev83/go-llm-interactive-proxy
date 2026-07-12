@@ -14,6 +14,7 @@ type DimensionKey string
 
 type Dimensions struct {
 	Principal    scope.Value
+	Credential   scope.Value
 	Tenant       scope.Value
 	Organization scope.Value
 	Workspace    scope.Value
@@ -41,6 +42,7 @@ func (d Dimensions) KeyErr() (DimensionKey, error) {
 	}
 
 	writeDimension("principal", d.Principal)
+	writeDimension("credential", d.Credential)
 	writeDimension("tenant", d.Tenant)
 	writeDimension("organization", d.Organization)
 	writeDimension("workspace", d.Workspace)
@@ -78,6 +80,15 @@ func encodeScopeValue(v scope.Value) string {
 }
 
 func isSafeLabelKey(key string) bool {
+	return IsSafeLabelKey(key)
+}
+
+// IsSafeLabelKey reports whether key is safe to use as a policy-label
+// dimension key: non-empty, restricted to letters, digits, '_', '-', '.',
+// and ':'. It is exported so non-domain packages (e.g. the runtime scope
+// projection) can reuse the same safe-key filter when copying labels into
+// authority dimensions (requirement 1.2, 13.1).
+func IsSafeLabelKey(key string) bool {
 	if key == "" {
 		return false
 	}
@@ -113,6 +124,7 @@ func (m DimensionMatcher) configured() bool {
 
 type DimensionsMatcher struct {
 	Principal    DimensionMatcher
+	Credential   DimensionMatcher
 	Tenant       DimensionMatcher
 	Organization DimensionMatcher
 	Workspace    DimensionMatcher
@@ -127,6 +139,9 @@ type DimensionsMatcher struct {
 
 func (m DimensionsMatcher) Matches(actual Dimensions) bool {
 	if !m.Principal.Matches(actual.Principal) {
+		return false
+	}
+	if !m.Credential.Matches(actual.Credential) {
 		return false
 	}
 	if !m.Tenant.Matches(actual.Tenant) {
@@ -181,6 +196,25 @@ func (m UnknownAttribution) NormalizeScope(view scope.PrincipalScopeView) scope.
 	out.DepartmentID = m.NormalizeValue(view.DepartmentID)
 	out.CostCenterID = m.NormalizeValue(view.CostCenterID)
 	out.ParentTraceID = m.NormalizeValue(view.ParentTraceID)
+	if len(view.PolicyLabels) > 0 {
+		out.PolicyLabels = make(map[string]string, len(view.PolicyLabels))
+		for key, value := range view.PolicyLabels {
+			if !isSafeLabelKey(key) {
+				continue
+			}
+			// PrincipalScopeView uses map presence to distinguish a known-empty
+			// label from an unknown label. UnknownAttribution only has a typed
+			// value, so preserve that distinction at the boundary by omitting
+			// normalized unknown labels and retaining known empty strings.
+			normalized := m.NormalizeValue(scope.Known(value))
+			if normalized.IsKnown() {
+				out.PolicyLabels[key] = normalized.String()
+			}
+		}
+		if len(out.PolicyLabels) == 0 {
+			out.PolicyLabels = nil
+		}
+	}
 	return out
 }
 
@@ -189,6 +223,7 @@ func (m UnknownAttribution) NormalizeScope(view scope.PrincipalScopeView) scope.
 func (m UnknownAttribution) NormalizeDimensions(d Dimensions) Dimensions {
 	out := d
 	out.Principal = m.NormalizeValue(d.Principal)
+	out.Credential = m.NormalizeValue(d.Credential)
 	out.Tenant = m.NormalizeValue(d.Tenant)
 	out.Organization = m.NormalizeValue(d.Organization)
 	out.Workspace = m.NormalizeValue(d.Workspace)

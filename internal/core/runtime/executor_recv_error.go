@@ -215,6 +215,11 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		DetailErr: err,
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 	s.recordPartialTokenAccountingLedger(ctx, "recoverable pre-output (recv)", err)
+	// A swallowed pre-output attempt must release its strict reservation for
+	// failover, but any advisory/unreserved rules still need the observed usage
+	// fact. Apply only the unreserved projection here; do not settle the
+	// reservation before the replacement decision.
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 			s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",

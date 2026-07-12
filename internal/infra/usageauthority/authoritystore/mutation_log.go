@@ -17,6 +17,7 @@ type MutationLog interface {
 	CaptureLimitUpdate(rowKey string, row *controlplane.AccountingLimitStatusRow)
 	CaptureReservationUpsert(reservationKey string, rec *reservationRecord)
 	CaptureDecisionAppend(rec decisionRecord)
+	CaptureUnreservedUsageFact(factKey string, fact unreservedUsageFact)
 }
 
 // discardMutationLog is the no-op log used by the in-memory store.
@@ -24,9 +25,14 @@ type discardMutationLog struct{}
 
 func (discardMutationLog) CaptureLimitUpdate(string, *controlplane.AccountingLimitStatusRow) {
 }
+
 func (discardMutationLog) CaptureReservationUpsert(string, *reservationRecord) {
 }
+
 func (discardMutationLog) CaptureDecisionAppend(decisionRecord) {
+}
+
+func (discardMutationLog) CaptureUnreservedUsageFact(string, unreservedUsageFact) {
 }
 
 // recordingMutationLog accumulates mutations for the durable adapter to apply
@@ -36,12 +42,14 @@ type recordingMutationLog struct {
 	limitUpdates       map[string]*controlplane.AccountingLimitStatusRow
 	reservationUpserts map[string]*reservationRecord
 	decisionsAppended  []decisionRecord
+	unreservedFacts    map[string]unreservedUsageFact
 }
 
 func newRecordingMutationLog() *recordingMutationLog {
 	return &recordingMutationLog{
 		limitUpdates:       make(map[string]*controlplane.AccountingLimitStatusRow),
 		reservationUpserts: make(map[string]*reservationRecord),
+		unreservedFacts:    make(map[string]unreservedUsageFact),
 	}
 }
 
@@ -68,8 +76,33 @@ func (r *recordingMutationLog) CaptureDecisionAppend(rec decisionRecord) {
 	r.decisionsAppended = append(r.decisionsAppended, rec)
 }
 
+func (r *recordingMutationLog) CaptureUnreservedUsageFact(factKey string, fact unreservedUsageFact) {
+	if r == nil || factKey == "" {
+		return
+	}
+	r.unreservedFacts[factKey] = fact
+}
+
 // isEmpty reports whether the log captured no mutations during the call.
 func (r *recordingMutationLog) isEmpty() bool {
 	return r == nil ||
-		(len(r.limitUpdates) == 0 && len(r.reservationUpserts) == 0 && len(r.decisionsAppended) == 0)
+		(len(r.limitUpdates) == 0 && len(r.reservationUpserts) == 0 && len(r.decisionsAppended) == 0 && len(r.unreservedFacts) == 0)
+}
+
+// denialOnly returns the operator-evidence subset of a failed reservation
+// attempt. storeCore intentionally preserves a strict-cap denial in its
+// projection, while successful descriptors in the same failed set remain
+// isolated on the discarded clone. Durable stores must make the same choice in
+// SQL: commit the denial row, but never flush the discarded successful writes.
+func (r *recordingMutationLog) denialOnly() *recordingMutationLog {
+	if r == nil {
+		return newRecordingMutationLog()
+	}
+	out := newRecordingMutationLog()
+	for _, decision := range r.decisionsAppended {
+		if decision.Row.Outcome == controlplane.AccountingOutcomeDeny {
+			out.decisionsAppended = append(out.decisionsAppended, decision)
+		}
+	}
+	return out
 }

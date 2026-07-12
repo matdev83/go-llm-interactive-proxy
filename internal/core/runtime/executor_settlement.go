@@ -22,22 +22,44 @@ import (
 // observed usage is settled directly as a Cancellation — no estimated billing marker
 // is needed. Otherwise it first attempts the backend's FinalizeBilling hook (when
 // present) to recover authoritative usage; on failure it records an estimated
-// billing marker so accounting still has evidence. Every path settles the
-// reservation via settleCancellationAuthority, which is a no-op when the reservation
-// is already settled and releases with ReleaseKindLosing when the settle fails.
+// billing marker so accounting still has evidence. When the reservation is already
+// settled AND authoritative usage is available (usageObserved or finalizeBilling
+// succeeded), it calls ReconcileAuthoritative to adjust the prior estimated
+// settlement instead of the no-op settleCancellationAuthority (requirement 7.6,
+// 8.4-8.6). If not already settled, the existing settleCancellationAuthority path
+// runs. Every settlement path uses a non-canceled context so post-output
+// accounting completes after client cancellation (requirement 11.7).
 func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason string) {
 	if s == nil {
 		return
 	}
 	if s.accounting.usageObserved {
-		s.settleCancellationAuthority(ctx)
+		s.reconcileOrSettleCancellationAuthority(ctx)
+		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 		return
 	}
 	if s.finalizeBillingAfterCancel(ctx, reason) {
-		s.settleCancellationAuthority(ctx)
+		s.reconcileOrSettleCancellationAuthority(ctx)
+		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 		return
 	}
 	s.recordCancellationBillingMarker(ctx, reason)
+	s.settleCancellationAuthority(ctx)
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+}
+
+// reconcileOrSettleCancellationAuthority routes the cancellation settlement based
+// on whether the reservation is already settled. When already settled AND
+// authoritative usage is available (the caller guarantees usageObserved or
+// finalizeBilling succeeded), it calls ReconcileAuthoritative to adjust the prior
+// estimated settlement with the authoritative usage event. When not yet settled,
+// it falls back to settleCancellationAuthority which settles as a Cancellation.
+func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Context) {
+	if s.authority.Settled() {
+		usageEv := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+		s.authority.ReconcileAuthoritative(ctx, usageEv)
+		return
+	}
 	s.settleCancellationAuthority(ctx)
 }
 
@@ -46,12 +68,14 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 // reservation is already settled (preventing a double settle of a strict
 // reservation, e.g. after a prior partial/final settle). The losing-fallback
 // (ReleaseKindLosing when the settle fails) now lives inside the authorityLifecycle
-// owner's Settle, mirroring the finalizeResponseFinishedAuthority path.
+// owner's Settle, mirroring the finalizeResponseFinishedAuthority path. It passes
+// a non-canceled context to Settle so cancellation of the client request does not
+// abort the post-output settlement (requirement 11.7).
 func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
 	if s == nil || s.authority.Settled() {
 		return
 	}
-	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, mergeUsageEvents(tokenAccountingUsageEvents(s.seenEvents)), true)
+	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)), true)
 }
 
 func (s *retryRecvStream) recordCancellationBillingMarker(ctx context.Context, reason string) {
@@ -102,6 +126,7 @@ func (s *retryRecvStream) finalizeBillingAfterCancel(ctx context.Context, reason
 		return false
 	}
 	s.accounting.observeUsage(ev)
+	s.rememberClientEvent(ev)
 	if recErr := s.beforeEmitClientFacing(persistCtx, ev); recErr != nil && s.executor.Log != nil {
 		s.executor.Log.DebugContext(persistCtx, "secure_session billing finalizer marker", "error", recErr)
 	}
@@ -177,6 +202,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		return lipapi.Event{}, false, nil
 	}
 	if s.executor.StreamUsage == nil {
+		s.lastAuthorityUsage = lipapi.Event{}
 		s.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
 		return lipapi.Event{}, false, nil
 	}
@@ -194,22 +220,25 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		s.executor.Log.DebugContext(ctx, "token accounting stream reconstruction", "error", err)
 	}
 	if len(result.Events) == 0 {
+		s.lastAuthorityUsage = lipapi.Event{}
 		s.authority.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false)
 		return lipapi.Event{}, false, nil
 	}
-	usageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEvents))
+	authorityEv := authorityUsageEvent(result.Events)
+	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEvents))
+	s.lastAuthorityUsage = authorityEv
 	duration := s.now().Sub(started)
 	if duration <= 0 {
 		duration = time.Nanosecond
 	}
 	if err := s.recordTokenAccountingLedger(ctx, result.Events, "", "", duration); err != nil {
 		if s.executor.LedgerWriteRequired {
-			s.authority.Settle(ctx, authorityapp.SettlementKindFinal, usageEv, false)
+			s.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
 			return lipapi.Event{}, false, err
 		}
 	}
-	s.authority.Settle(ctx, authorityapp.SettlementKindFinal, usageEv, false)
-	return usageEv, true, nil
+	s.authority.Settle(ctx, authorityapp.SettlementKindFinal, authorityEv, false)
+	return clientUsageEv, true, nil
 }
 
 // finalizeResponseFinishedAuthority is the single authority-finalization chokepoint for
@@ -220,6 +249,12 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 // usage-delta re-queue, not authority idempotency — the owner owns that via settled). It
 // does NOT mark the stream finished and does NOT queue the event — callers own
 // emission/finish timing.
+//
+// After token-accounting finalization it also applies advisory usage (requirement 7.7) so
+// advisory windows accumulate actual usage even when the request was not reserved. The
+// advisory apply runs on a non-canceled context so post-output accounting completes after
+// client cancellation, and is idempotent via the store source key (duplicate finalize calls
+// are no-ops at the runtime guard and at the store).
 func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
 	if s.tokenAccountingFinalized {
 		return lipapi.Event{}, false, nil
@@ -229,6 +264,11 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 		return lipapi.Event{}, false, err
 	}
 	s.tokenAccountingFinalized = true
+	authorityEv := s.lastAuthorityUsage
+	if authorityEv.Kind == "" {
+		authorityEv = usageEv
+	}
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, authorityEv)
 	return usageEv, ok, nil
 }
 
@@ -236,45 +276,159 @@ func mergeUsageEvents(events []lipapi.Event) lipapi.Event {
 	return mergeUsageEventsForClient(events, false)
 }
 
-func mergeUsageEventsForClient(events []lipapi.Event, skipProviderBillable bool) lipapi.Event {
-	out := lipapi.Event{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{}}
+func authorityUsageEvent(events []lipapi.Event) lipapi.Event {
+	authoritative := authoritativeProviderUsageEvents(events)
+	if len(authoritative) > 0 {
+		return mergeUsageEventsForClient(authoritative, false)
+	}
+	return mergeUsageEvents(events)
+}
+
+// authoritativeProviderUsageEvents keeps only provider scopes whose metadata
+// proves billable authority. Costs are retained only when the event-level
+// metadata makes their scope unambiguous; a mixed scoped event otherwise
+// contributes token counters but not an ambiguous provider cost.
+func authoritativeProviderUsageEvents(events []lipapi.Event) []lipapi.Event {
+	out := make([]lipapi.Event, 0, len(events))
 	for _, ev := range events {
 		if ev.Kind != lipapi.EventUsageDelta {
 			continue
 		}
+		if len(ev.UsageScopes) == 0 {
+			if authoritativeProviderAccounting(ev.Accounting) {
+				out = append(out, ev)
+			}
+			continue
+		}
+		filtered := ev
+		filtered.UsageScopes = nil
+		explicitScopeMetadata := false
+		for _, scope := range ev.UsageScopes {
+			if authoritativeProviderAccounting(scope.Accounting) {
+				filtered.UsageScopes = append(filtered.UsageScopes, scope)
+				continue
+			}
+			if scope.Accounting != (lipapi.UsageAccountingMetadata{}) {
+				explicitScopeMetadata = true
+			}
+		}
+		// A provider may put one event-level accounting record around otherwise
+		// unannotated scopes. Accept those scopes only when none carries an
+		// explicit conflicting classification; never let a local/client scope
+		// ride along with an authoritative provider scope.
+		if len(filtered.UsageScopes) == 0 && authoritativeProviderAccounting(ev.Accounting) && !explicitScopeMetadata {
+			for _, scope := range ev.UsageScopes {
+				scope.Accounting = ev.Accounting
+				scope.UsagePresence = scope.UsagePresence.Union(ev.UsagePresence)
+				filtered.UsageScopes = append(filtered.UsageScopes, scope)
+			}
+		}
+		if len(filtered.UsageScopes) == 0 {
+			continue
+		}
+		if !authoritativeProviderAccounting(ev.Accounting) {
+			filtered.CostNanoUnits = 0
+			filtered.Currency = ""
+			filtered.CostSource = ""
+			filtered.CostPresent = false
+		}
+		out = append(out, filtered)
+	}
+	return out
+}
+
+func mergeUsageEventsForClient(events []lipapi.Event, skipProviderBillable bool) lipapi.Event {
+	out := lipapi.Event{UsageScopes: []lipapi.ScopedUsageDelta{}}
+	found := false
+	for _, ev := range events {
+		if ev.Kind != lipapi.EventUsageDelta {
+			continue
+		}
+		included := false
 		if len(ev.UsageScopes) > 0 {
 			for _, scope := range ev.UsageScopes {
 				if skipProviderBillable && scope.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
 					continue
 				}
 				out.UsageScopes = append(out.UsageScopes, scope)
+				included = true
 			}
+		} else {
+			if skipProviderBillable && ev.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
+				continue
+			}
+			out.UsageScopes = append(out.UsageScopes, lipapi.ScopedUsageDelta{
+				InputTokens:      ev.InputTokens,
+				OutputTokens:     ev.OutputTokens,
+				CacheReadTokens:  ev.CacheReadTokens,
+				CacheWriteTokens: ev.CacheWriteTokens,
+				ReasoningTokens:  ev.ReasoningTokens,
+				TotalTokens:      ev.TotalTokens,
+				UsagePresence:    ev.UsagePresence,
+				Accounting:       ev.Accounting,
+			})
+			included = true
+		}
+		if !included {
 			continue
 		}
-		if skipProviderBillable && ev.Accounting.Plane == lipapi.UsagePlaneProviderBillable {
-			continue
+		found = true
+		out.CostNanoUnits += ev.CostNanoUnits
+		out.CostPresent = out.CostPresent || ev.CostPresent
+		if ev.Currency != "" {
+			out.Currency = ev.Currency
 		}
-		out.UsageScopes = append(out.UsageScopes, lipapi.ScopedUsageDelta{
-			InputTokens:      ev.InputTokens,
-			OutputTokens:     ev.OutputTokens,
-			CacheReadTokens:  ev.CacheReadTokens,
-			CacheWriteTokens: ev.CacheWriteTokens,
-			ReasoningTokens:  ev.ReasoningTokens,
-			TotalTokens:      ev.TotalTokens,
-			Accounting:       ev.Accounting,
-		})
+		if ev.CostSource != "" {
+			out.CostSource = ev.CostSource
+		}
+		if ev.RawUsageJSON != "" {
+			out.RawUsageJSON = ev.RawUsageJSON
+		}
 	}
 	if len(out.UsageScopes) > 0 {
-		first := out.UsageScopes[0]
-		out.InputTokens = first.InputTokens
-		out.OutputTokens = first.OutputTokens
-		out.CacheReadTokens = first.CacheReadTokens
-		out.CacheWriteTokens = first.CacheWriteTokens
-		out.ReasoningTokens = first.ReasoningTokens
-		out.TotalTokens = first.TotalTokens
-		out.Accounting = first.Accounting
+		projectAggregatedUsageCounters(&out)
 	}
+	if !found {
+		return lipapi.Event{}
+	}
+	out.Kind = lipapi.EventUsageDelta
 	return out
+}
+
+// projectAggregatedUsageCounters copies per-unit totals from every included
+// scope onto the event top-level fields used by settlement. Presence is the
+// union across scopes so a unit reported only in a later scope still settles.
+func projectAggregatedUsageCounters(out *lipapi.Event) {
+	if out == nil || len(out.UsageScopes) == 0 {
+		return
+	}
+	var (
+		input, output, cacheRead, cacheWrite, reasoning, total int
+		presence                                               lipapi.UsagePresence
+		accounting                                             lipapi.UsageAccountingMetadata
+		haveAccounting                                         bool
+	)
+	for _, scope := range out.UsageScopes {
+		input += scope.InputTokens
+		output += scope.OutputTokens
+		cacheRead += scope.CacheReadTokens
+		cacheWrite += scope.CacheWriteTokens
+		reasoning += scope.ReasoningTokens
+		total += scope.TotalTokens
+		presence = presence.Union(scope.UsagePresence)
+		if !haveAccounting || (!authoritativeProviderAccounting(accounting) && authoritativeProviderAccounting(scope.Accounting)) {
+			accounting = scope.Accounting
+			haveAccounting = true
+		}
+	}
+	out.InputTokens = input
+	out.OutputTokens = output
+	out.CacheReadTokens = cacheRead
+	out.CacheWriteTokens = cacheWrite
+	out.ReasoningTokens = reasoning
+	out.TotalTokens = total
+	out.UsagePresence = presence
+	out.Accounting = accounting
 }
 
 func tokenAccountingHasProviderUsage(events []lipapi.Event) bool {
@@ -311,6 +465,7 @@ func (s *retryRecvStream) recordTokenAccountingLedger(ctx context.Context, event
 				CacheWriteTokens: ev.CacheWriteTokens,
 				ReasoningTokens:  ev.ReasoningTokens,
 				TotalTokens:      ev.TotalTokens,
+				UsagePresence:    ev.UsagePresence,
 				Accounting:       ev.Accounting,
 			}}
 		}
@@ -354,7 +509,9 @@ func (s *retryRecvStream) recordTokenAccountingLedger(ctx context.Context, event
 func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reason string, err error) {
 	s.recordPartialTokenAccountingLedger(ctx, reason, err)
 	events := tokenAccountingUsageEvents(s.seenEvents)
-	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, mergeUsageEvents(events), false)
+	usageEv := authorityUsageEvent(events)
+	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
 }
 
 func (s *retryRecvStream) recordPartialTokenAccountingLedger(ctx context.Context, reason string, err error) {

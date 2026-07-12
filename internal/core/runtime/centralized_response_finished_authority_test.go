@@ -153,7 +153,7 @@ func TestCentralizedResponseFinishedAuthority(t *testing.T) {
 	drainUntilFinish := func(t *testing.T, rs *retryRecvStream) (lipapi.Event, lipapi.Event) {
 		t.Helper()
 		var finish, usageEv lipapi.Event
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			ev, err := rs.Recv(context.Background())
 			if err != nil {
 				t.Fatalf("Recv %d: %v", i, err)

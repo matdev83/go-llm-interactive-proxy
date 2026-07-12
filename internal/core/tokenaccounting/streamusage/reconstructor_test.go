@@ -75,7 +75,7 @@ func TestReconstructor_missingProviderUsageReconstructsClientVisibleInputAndOutp
 	}
 }
 
-func TestReconstructor_normalizesLegacyProviderUsageDelta(t *testing.T) {
+func TestReconstructor_doesNotPromoteUnmarkedLegacyUsageDelta(t *testing.T) {
 	t.Parallel()
 
 	counter := &fakeCounter{
@@ -97,17 +97,18 @@ func TestReconstructor_normalizesLegacyProviderUsageDelta(t *testing.T) {
 	})
 
 	usage, ok := result.Reconciled.UsageForPlane(lipapi.UsagePlaneProviderBillable)
-	if !ok {
-		t.Fatal("missing normalized provider_billable usage")
+	if ok {
+		t.Fatalf("unmarked usage must not become provider_billable: %#v", usage)
 	}
-	if usage.InputTokens != 11 || usage.OutputTokens != 7 || usage.TotalTokens != 18 {
-		t.Fatalf("provider usage = %+v, want legacy totals 11/7/18", usage)
+	usage, ok = result.Reconciled.UsageForPlane(lipapi.UsagePlaneClientVisible)
+	if !ok || usage.InputTokens != 5 || usage.OutputTokens != 3 || usage.TotalTokens != 8 {
+		t.Fatalf("local fallback usage = %+v, want client-visible tokenizer totals 5/3/8", usage)
 	}
-	if usage.Accounting.Source != lipapi.UsageSourceProviderReported || usage.Accounting.Authority != lipapi.UsageAuthorityAuthoritative {
-		t.Fatalf("provider accounting = %+v, want provider_reported/authoritative", usage.Accounting)
+	if usage.Accounting.Source != lipapi.UsageSourceLocalTokenizer || usage.Accounting.Authority != lipapi.UsageAuthorityEstimated {
+		t.Fatalf("local accounting = %+v, want local_tokenizer/estimated", usage.Accounting)
 	}
-	if len(result.Reconciled.Warnings) != 0 {
-		t.Fatalf("domain warnings = %+v, want none after legacy normalization", result.Reconciled.Warnings)
+	if len(result.Reconciled.Warnings) == 0 {
+		t.Fatal("unmarked legacy usage must surface unknown metadata warnings")
 	}
 }
 

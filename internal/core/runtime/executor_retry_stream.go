@@ -104,7 +104,12 @@ type retryRecvStream struct {
 	recoverPolicy            *streamrecovery.Policy
 	recoverDrain             []lipapi.Event
 	tokenAccountingFinalized bool
-	aScope                   *leglifecycle.ALeg
+	// lastAuthorityUsage is the accounting fact used for authority settlement
+	// and unreserved usage. The synthesized event returned to the client may
+	// intentionally omit provider-billable scopes, so keep the two views
+	// separate.
+	lastAuthorityUsage lipapi.Event
+	aScope             *leglifecycle.ALeg
 
 	// interleaved is the current interleaved-thinking state (cycle cursor + memo reference)
 	// for the A-leg, threaded across recv-phase failover iterations so retry continues from
@@ -164,6 +169,7 @@ func (s *retryRecvStream) isCommitted() bool {
 func (s *retryRecvStream) markCommitted() {
 	if s != nil {
 		s.committed.Store(true)
+		s.authority.markOutputCommitted()
 	}
 }
 
@@ -493,7 +499,7 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 // usage deltas that the backend did not annotate itself, so downstream usage
 // observers and authority settlement see consistent per-event evidence.
 func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
-	if s == nil || s.executor == nil || ev.Kind != lipapi.EventUsageDelta || ev.CostNanoUnits > 0 {
+	if s == nil || s.executor == nil || ev.Kind != lipapi.EventUsageDelta || ev.CostPresent {
 		return ev
 	}
 	model := strings.TrimSpace(s.cand.Primary.Model)
@@ -517,6 +523,7 @@ func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
 	ev.CostNanoUnits = res.NanoUnits
 	ev.Currency = res.Currency
 	ev.CostSource = res.Source
+	ev.CostPresent = true
 	return ev
 }
 

@@ -2,6 +2,7 @@ package configsource
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -51,9 +52,7 @@ func cloneRules(in []authoritydomain.Rule) []authoritydomain.Rule {
 		out[i] = rule
 		if len(rule.Match.Labels) > 0 {
 			out[i].Match.Labels = make(map[string]authoritydomain.DimensionMatcher, len(rule.Match.Labels))
-			for key, matcher := range rule.Match.Labels {
-				out[i].Match.Labels[key] = matcher
-			}
+			maps.Copy(out[i].Match.Labels, rule.Match.Labels)
 		}
 	}
 	return out

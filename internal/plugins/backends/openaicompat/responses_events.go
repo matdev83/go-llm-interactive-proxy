@@ -175,11 +175,10 @@ func (s *responsesStream) emitToolCallsFromCompletedResponse(resp responses.Resp
 }
 
 func (s *responsesStream) usageFromResponse(resp responses.Response) *lipapi.Event {
-	u := resp.Usage
-	if u.InputTokens == 0 && u.OutputTokens == 0 && u.TotalTokens == 0 {
+	if !resp.JSON.Usage.Valid() {
 		return nil
 	}
-	ev := openaiusage.ResponsesUsageEvent(u)
+	ev := openaiusage.ResponsesUsageEvent(resp.Usage)
 	return &ev
 }
 

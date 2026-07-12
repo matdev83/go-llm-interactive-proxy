@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
@@ -35,6 +36,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	if log == nil {
 		return nil, fmt.Errorf("runtimebundle: nil logger")
+	}
+	if err := validateRequiredAuthorityEvidenceWiring(cfg); err != nil {
+		return nil, err
 	}
 	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
@@ -138,6 +142,33 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 		UsageAuthority:        usageAuthorityHandle,
 	}, nil
+}
+
+// validateRequiredAuthorityEvidenceWiring protects callers that assemble a
+// runtime bundle without first running config.Validate. A required pre-work
+// accounting-authority category is meaningless without both the authority
+// capability and a live control-plane recorder.
+func validateRequiredAuthorityEvidenceWiring(cfg *config.Config) error {
+	if cfg == nil || !strings.EqualFold(strings.TrimSpace(cfg.ControlPlane.RecordingPolicy), "required_pre_work") {
+		return nil
+	}
+	required := false
+	for _, category := range cfg.ControlPlane.RequiredCategories {
+		if strings.EqualFold(strings.TrimSpace(category), "accounting_authority") {
+			required = true
+			break
+		}
+	}
+	if !required {
+		return nil
+	}
+	if !cfg.ControlPlane.Enabled {
+		return fmt.Errorf("runtimebundle: control_plane.enabled: must be true when accounting_authority is required under required_pre_work")
+	}
+	if !cfg.Accounting.Authority.Enabled {
+		return fmt.Errorf("runtimebundle: accounting.authority.enabled: must be true when accounting_authority is required under required_pre_work")
+	}
+	return nil
 }
 
 func disposeClosers(closers []func() error) error {

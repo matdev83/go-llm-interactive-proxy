@@ -12,6 +12,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
@@ -39,6 +40,16 @@ func TestExecutorAuthorityReleaseOnSwallowedOpen(t *testing.T) {
 	}
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0", auth.settleCalls.Load())
+	}
+	release := auth.lastRelease()
+	if release.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("release stage = %q, want attempt_lifecycle", release.Stage)
+	}
+	if !release.BackendAttempted {
+		t.Fatal("expected swallowed release to record backendAttempted=true")
+	}
+	if release.OutputCommitted {
+		t.Fatal("expected swallowed release to record outputCommitted=false")
 	}
 }
 
@@ -126,6 +137,15 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if release.Kind != authorityapp.ReleaseKindLosing {
 		t.Fatalf("release kind = %q, want losing", release.Kind)
 	}
+	if release.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("release stage = %q, want attempt_lifecycle", release.Stage)
+	}
+	if !release.BackendAttempted {
+		t.Fatal("expected losing release to record backendAttempted=true")
+	}
+	if release.OutputCommitted {
+		t.Fatal("expected losing release to record outputCommitted=false")
+	}
 	if !rs.authority.Settled() {
 		t.Fatal("expected authority settled=true after failed partial settle losing-release so later handlers cannot double-release")
 	}
@@ -142,8 +162,8 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 	if auth.releaseCalls.Load() != 1 {
 		t.Fatalf("release calls = %d, want 1 (prior already released; replacement must not double-release)", auth.releaseCalls.Load())
 	}
-	if rs.authority.state.admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.state.admissionResult.ReservationID)
+	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
 	}
 	if rs.authority.Settled() {
 		t.Fatal("expected authority settled=false after replacement reset to a fresh reservation")
@@ -200,6 +220,15 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	release := auth.lastRelease()
 	if release.Kind != authorityapp.ReleaseKindLosing {
 		t.Fatalf("release kind = %q, want losing", release.Kind)
+	}
+	if release.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("release stage = %q, want attempt_lifecycle", release.Stage)
+	}
+	if !release.BackendAttempted {
+		t.Fatal("expected global TTFT losing release to record backendAttempted=true")
+	}
+	if release.OutputCommitted {
+		t.Fatal("expected global TTFT losing release to record outputCommitted=false")
 	}
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0", auth.settleCalls.Load())
@@ -276,8 +305,8 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	if release.ReservationID != "reservation-1" {
 		t.Fatalf("release reservation ID = %q, want reservation-1", release.ReservationID)
 	}
-	if rs.authority.state.admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.state.admissionResult.ReservationID)
+	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
 	}
 	if rs.authority.Settled() {
 		t.Fatal("expected authoritySettled to be false after replacement")
@@ -373,8 +402,8 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if release.Kind != authorityapp.ReleaseKindSwallowed {
 		t.Fatalf("release kind = %q, want swallowed", release.Kind)
 	}
-	if rs.authority.state.admissionResult.ReservationID != "reservation-2" {
-		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.state.admissionResult.ReservationID)
+	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
+		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
 	}
 	if rs.authority.Settled() {
 		t.Fatal("expected authoritySettled to be false after replacement")
@@ -462,6 +491,15 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 	}
 	if release.Kind != authorityapp.ReleaseKindSwallowed {
 		t.Fatalf("release kind = %q, want swallowed", release.Kind)
+	}
+	if release.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("release stage = %q, want attempt_lifecycle", release.Stage)
+	}
+	if !release.BackendAttempted {
+		t.Fatal("expected replacement-error swallowed release to record backendAttempted=true")
+	}
+	if release.OutputCommitted {
+		t.Fatal("expected replacement-error swallowed release to record outputCommitted=false")
 	}
 	if auth.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls = %d, want 0 (no usage was produced)", auth.settleCalls.Load())

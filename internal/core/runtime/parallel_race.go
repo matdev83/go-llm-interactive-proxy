@@ -509,7 +509,7 @@ func (e *Executor) tryOpenParallelGroup(
 		},
 		bleg:        legs[winner].bleg,
 		cand:        legs[winner].cand,
-		authority:   legs[winner].authority.state,
+		authority:   legs[winner].authority.stateSnapshot(),
 		interleaved: legs[winner].interleaved,
 	}, nil
 }

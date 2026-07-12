@@ -82,14 +82,16 @@ type AccountingRuntime struct {
 	TokenAccountingObservability *accountingobs.Stats
 	AdminCountService            *accountingapp.Service
 	UsageAuthority               UsageAuthorityService
+	UsageAuthorityCleanupTimeout time.Duration
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority
-// admission, settlement, release, and bounded query access.
+// admission, settlement, release, advisory usage application, and bounded query access.
 type UsageAuthorityService interface {
 	Admit(ctx context.Context, in authorityapp.AdmissionInput) (authorityapp.AdmissionResult, error)
 	Settle(ctx context.Context, in authorityapp.SettleInput) (authorityapp.SettleResult, error)
 	Release(ctx context.Context, in authorityapp.ReleaseInput) (authorityapp.ReleaseResult, error)
+	ApplyUsage(ctx context.Context, cmd authorityapp.ApplyUsageCommand) (authorityapp.ApplyUsageResult, error)
 }
 
 // ObservabilityRuntime carries structured logging, metrics, and diagnostics toggles.

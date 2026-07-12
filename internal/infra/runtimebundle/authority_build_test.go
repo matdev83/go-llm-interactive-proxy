@@ -36,6 +36,17 @@ func TestBuildUsageAuthorityDisabledIsNoop(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsRequiredAuthorityEvidenceWithoutControlPlane(t *testing.T) {
+	t.Parallel()
+	cfg := baseAuthorityConfig(true, "fail_closed")
+	cfg.ControlPlane.RecordingPolicy = "required_pre_work"
+	cfg.ControlPlane.RequiredCategories = []string{"accounting_authority"}
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
+	if err == nil || !strings.Contains(err.Error(), "control_plane.enabled") {
+		t.Fatalf("Build must reject required authority evidence without control plane, got %v", err)
+	}
+}
+
 func TestBuildUsageAuthorityWiresService(t *testing.T) {
 	t.Parallel()
 	built, err := runtimebundle.Build(baseAuthorityConfig(true, "fail_closed"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
@@ -226,6 +237,14 @@ func (s *stubAuthorityStore) Settle(context.Context, authorityapp.SettleCommand)
 
 func (s *stubAuthorityStore) Release(context.Context, authorityapp.ReleaseCommand) (authorityapp.ReleaseResult, error) {
 	return authorityapp.ReleaseResult{}, nil
+}
+
+func (s *stubAuthorityStore) ApplyUsage(context.Context, authorityapp.ApplyUsageCommand) (authorityapp.ApplyUsageResult, error) {
+	return authorityapp.ApplyUsageResult{}, nil
+}
+
+func (s *stubAuthorityStore) ActiveLimit(context.Context, authorityapp.ActiveLimitQuery) (controlplane.AccountingLimitStatusRow, bool, error) {
+	return controlplane.AccountingLimitStatusRow{}, false, nil
 }
 
 func (s *stubAuthorityStore) LimitStatus(context.Context, controlplane.AccountingLimitStatusQuery) (controlplane.Page[controlplane.AccountingLimitStatusRow], error) {
