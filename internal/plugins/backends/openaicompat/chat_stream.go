@@ -237,7 +237,7 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 		}
 	}
 
-	if ch.JSON.Usage.Valid() && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.TotalTokens > 0) {
+	if ch.JSON.Usage.Valid() {
 		if err := s.pending.Push(openaiusage.ChatUsageEvent(ch.Usage)); err != nil {
 			return err
 		}

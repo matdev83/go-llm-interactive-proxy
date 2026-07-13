@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -66,4 +67,7 @@ type Built struct {
 	// the backing store opened successfully. stdhttp exposes operator retention
 	// actions through the protected admin handler when configured.
 	ControlPlaneRetention *controlplane.RetentionController
+	// UsageAuthority is non-nil when accounting.authority.enabled wires the
+	// config-backed rule source, store, and query/status service.
+	UsageAuthority *authorityapp.Service
 }

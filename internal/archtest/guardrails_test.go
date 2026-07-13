@@ -26,7 +26,46 @@ var lineBudgets = []struct {
 	// Raised from 33500 to 35000 for the control-plane-persistence-query-event-ledger
 	// spec Phase 3, which adds the core scope flattener, event normalizer, recorder
 	// service, query service, and retention controller under internal/core/controlplane.
-	{"internal/core", 35000},
+	// Raised from 35000 to 38000 for the usage-quota-rate-budget-authority spec,
+	// which adds the usageauthority bounded context under internal/core.
+	// Raised from 38000 to 38500 to accommodate the full implementation of the
+	// usage-quota-rate-budget-authority spec, including runtime admission/settlement
+	// integration and the usageauthority bounded context under internal/core.
+	// Raised from 38500 to 38800 to accommodate the authority reservation leak-fix
+	// additions to internal/core/runtime (recv-loop/handler/interleaved/parallel
+	// leak-path hardening and the executor recv-handler settlement chokepoint).
+	// Raised from 38800 to 38900 to accommodate the usage-quota-rate-budget-authority
+	// spec A1/A2 domain & contract foundation: the Credential authority dimension
+	// (Dimensions/DimensionsMatcher/Key/Matches, config matcher, store scope
+	// snapshot + ScopeDimensionsMatch, runtime scope projection with safe-label
+	// filtering), the authority-unavailable rule outcome for authoritative-only
+	// rules under estimated evidence, and the spend-cap clamp EffectiveMax/
+	// RequestedMax fields; plus the in-progress multi-rule admission/settlement
+	// and recv-loop leak-fix work on the same branch.
+	// Raised from 39700 to 40000 to accommodate the medium-findings follow-up:
+	// lifecycle-aware settlement/release evidence projection, the accompanying
+	// app/runtime test assertions, and the related spec sync cleanup on this
+	// branch.
+	// Raised from 40000 to 40500 for the remediation pass: app-owned atomic
+	// reservation descriptors, per-unit settlement, durable lifecycle evidence,
+	// and the accompanying boundary tests.
+	// Raised from 40500 to 41000 for the decision-authority remediation: bounded
+	// evaluation, explicit usage provenance, compensation, reconciliation, and
+	// per-rule unreserved usage facts across runtime and durable stores.
+	// Raised from 41000 to 41200 for live spend-cap capacity refinement in the
+	// application layer and durable configuration reconciliation in the authority
+	// store, including their regression coverage and orchestration helpers.
+	// Raised from 41200 to 41250 for rule-attributed multi-rule reservation
+	// recovery and independently bounded detached authority cleanup contexts.
+	// Raised from 41250 to 41300 for scope-isolated spend-cap lookup and a fresh
+	// fallback-release cleanup deadline after failed settlement.
+	// Raised from 41300 to 41500 for the coordinated authority stabilization:
+	// independent token/cost authority state, typed durable capacity replay,
+	// targeted PostgreSQL proof seams, and the differential adapter coverage.
+	// Raised from 41500 to 41700 for review remediation: CostPresent monetary
+	// presence, unenforceable spend-cap candidate exclusion, multi-scope
+	// settlement aggregation, and zero-remaining output budget denial.
+	{"internal/core", 41700},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

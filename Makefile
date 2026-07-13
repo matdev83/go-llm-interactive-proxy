@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra test-authority-postgres qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -10,6 +10,7 @@ help:
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
+	@echo "  make test-authority-postgres - required PostgreSQL authority integration proof (requires a DSN)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
@@ -51,6 +52,16 @@ endif
 
 test-unit:
 	$(GO) test $(GO_TEST_FLAGS) ./...
+
+# PostgreSQL is the required proof surface for cross-instance authority
+# semantics. The test helper fails instead of skipping when this target is
+# invoked without a configured DSN.
+test-authority-postgres:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore"
+else
+	@LIP_REQUIRE_POSTGRES=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore
+endif
 
 test-precommit-extra:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit ./internal/qa/... ./internal/core/runtime/...

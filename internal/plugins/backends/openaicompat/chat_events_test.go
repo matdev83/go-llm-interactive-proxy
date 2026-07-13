@@ -64,6 +64,37 @@ func TestChatCompletionEvents_textAndUsage(t *testing.T) {
 	}
 }
 
+func TestChatCompletionEvents_explicitAllZeroUsage(t *testing.T) {
+	t.Parallel()
+	raw := `{
+  "id": "cc_zero",
+  "object": "chat.completion",
+  "created": 1715620000,
+  "model": "gpt-4o-mini",
+  "choices": [{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+  "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+}`
+	var comp openai.ChatCompletion
+	if err := json.Unmarshal([]byte(raw), &comp); err != nil {
+		t.Fatal(err)
+	}
+
+	events := ChatCompletionEvents(comp)
+	var usage *lipapi.Event
+	for i := range events {
+		if events[i].Kind == lipapi.EventUsageDelta {
+			usage = &events[i]
+			break
+		}
+	}
+	if usage == nil {
+		t.Fatal("explicit all-zero usage must emit EventUsageDelta")
+	}
+	if !usage.UsagePresence.InputTokens || !usage.UsagePresence.OutputTokens || !usage.UsagePresence.TotalTokens {
+		t.Fatalf("presence = %+v, want input/output/total present", usage.UsagePresence)
+	}
+}
+
 func TestChatCompletionEvents_openRouterProviderCost(t *testing.T) {
 	t.Parallel()
 	raw := `{

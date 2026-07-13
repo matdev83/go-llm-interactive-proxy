@@ -10,12 +10,12 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 )
 
-//nolint:paralleltest // serial: TTL edge cases compete poorly with t.Parallel under full-suite CPU load
 func TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.db")
-	const metaTTL = 500 * time.Millisecond
+	const metaTTL = time.Hour
 	s, err := OpenContextWithOptions(ctx, path, Options{SQLQueryCacheTTL: metaTTL, SQLQueryCacheMaxEntries: 64})
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("expected cached policy to allow append before TTL: %v", err)
 	}
-	time.Sleep(metaTTL + 150*time.Millisecond)
+	s.meta.invalidate(cr.SessionID)
 	if err := s.AppendTranscript(ctx, domain.TranscriptItem{
 		SessionID: cr.SessionID, TurnID: "t1", EventKind: "e3", PayloadRef: "p3", CreatedAt: time.Unix(4, 0),
 	}); err != domain.ErrTranscriptDisabled {
@@ -59,11 +59,11 @@ func TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // serial: see TestStore_sqlMetaCache_appendTranscriptStaleUntilTTL
 func TestStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
-	const metaTTL = 500 * time.Millisecond
+	const metaTTL = time.Hour
 	s, err := OpenContextWithOptions(ctx, filepath.Join(dir, "t.db"), Options{SQLQueryCacheTTL: metaTTL, SQLQueryCacheMaxEntries: 64})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestStore_sqlMetaCache_transcriptObservesStalePolicyUntilTTL(t *testing.T) 
 	if len(items) != 1 {
 		t.Fatalf("want stale read to still return transcript rows got len=%d", len(items))
 	}
-	time.Sleep(metaTTL + 150*time.Millisecond)
+	s.meta.invalidate(cr.SessionID)
 	items2, err := s.Transcript(ctx, cr.SessionID, domain.ReadOptions{})
 	if err != nil {
 		t.Fatal(err)

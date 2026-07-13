@@ -280,6 +280,38 @@ func TestUsageFromResponse_usageDetails(t *testing.T) {
 	assertUsageRawJSONContains(t, *ev, "total_tokens")
 }
 
+func TestUsageFromResponse_explicitAllZeroUsage(t *testing.T) {
+	t.Parallel()
+	raw := `{"id":"resp_zero","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","output":[],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`
+	var resp responses.Response
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := usageFromResponse(resp)
+	if ev == nil {
+		t.Fatal("explicit all-zero usage must emit an event")
+	}
+	if ev.InputTokens != 0 || ev.OutputTokens != 0 || ev.TotalTokens != 0 {
+		t.Fatalf("tokens = in=%d out=%d total=%d, want zeros", ev.InputTokens, ev.OutputTokens, ev.TotalTokens)
+	}
+	if !ev.UsagePresence.InputTokens || !ev.UsagePresence.OutputTokens || !ev.UsagePresence.TotalTokens {
+		t.Fatalf("presence = %+v, want input/output/total present", ev.UsagePresence)
+	}
+}
+
+func TestUsageFromResponse_omittedUsage(t *testing.T) {
+	t.Parallel()
+	raw := `{"id":"resp_nousage","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","output":[]}`
+	var resp responses.Response
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if ev := usageFromResponse(resp); ev != nil {
+		t.Fatalf("omitted usage must not emit, got %#v", ev)
+	}
+}
+
 type errDecoderResponses struct{ err error }
 
 func (d *errDecoderResponses) Event() ssestream.Event {

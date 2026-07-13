@@ -526,6 +526,353 @@ func TestNormalizeUsageRecordUsesExplicitSourceKeyAndDropsRawJSON(t *testing.T) 
 	}
 }
 
+// ---- Zero-timestamp rejection: normalizer layer ----
+
+// zeroClock returns the zero time.Time from Now(), so the normalizer fills
+// OccurredAt and RecordedAt with the zero time and the resulting event must
+// be rejected by ValidateEvent's explicit-guard check. This locks the
+// zero-timestamp rejection at the normalizer layer (not just the SDK/core
+// validator layers): a future change that weakens the normalizer's clock
+// fallback or that bypasses the core validator would surface here.
+type zeroClock struct{}
+
+func (zeroClock) Now() time.Time { return time.Time{} }
+
+// TestNormalizeRejectsZeroTimestamps regression-locks the zero-timestamp
+// rejection at the normalizer layer. It exercises every From* entry point
+// with a clock that returns the zero time, forcing the normalizer to fill in
+// zero OccurredAt/RecordedAt. The resulting event must be rejected by the
+// core ValidateEvent's explicit-guard check, and the error must mention
+// "occurred_at" so the test cannot pass for the wrong reason (e.g., a
+// different validator path masking the guard).
+func TestNormalizeRejectsZeroTimestamps(t *testing.T) {
+	t.Parallel()
+	n := controlplane.NewNormalizer(
+		zeroClock{},
+		cp.SourceRef{Name: "test-source", Version: "v1"},
+		controlplane.NewScopeFlattener(),
+	)
+	cases := []struct {
+		name string
+		call func() (cp.Event, error)
+	}{
+		{
+			name: "auth_decision",
+			call: func() (cp.Event, error) {
+				return n.FromAuthDecision(auth.AuthDecisionEvent{
+					TraceID: "trace-1",
+					Outcome: auth.OutcomeAllow,
+					Scope:   new(knownScopeView()),
+				})
+			},
+		},
+		{
+			name: "session_start",
+			call: func() (cp.Event, error) {
+				return n.FromSessionStart(auth.SessionStartEvent{
+					TraceID:   "trace-2",
+					SessionID: "sess-2",
+					IsNew:     true,
+				})
+			},
+		},
+		{
+			name: "attempt",
+			call: func() (cp.Event, error) {
+				return n.FromAttempt(controlplane.AttemptSourceRecord{
+					TraceID:  "trace-3",
+					Surfaced: cp.AttemptSurfacedSurfaced,
+					Outcome:  cp.AttemptOutcomeSucceeded,
+				})
+			},
+		},
+		{
+			name: "usage",
+			call: func() (cp.Event, error) {
+				return n.FromUsage(usage.Event{TraceID: "trace-4"})
+			},
+		},
+		{
+			name: "policy_decision",
+			call: func() (cp.Event, error) {
+				return n.FromPolicyDecision(policydecision.Record{
+					TraceID: "trace-5",
+					Stage:   "pre_backend",
+					Outcome: policydecision.OutcomeAllow,
+				})
+			},
+		},
+		{
+			name: "audit",
+			call: func() (cp.Event, error) {
+				return n.FromAudit(controlplane.AuditSourceRecord{
+					TraceID: "trace-6",
+					Action:  "transcript.view",
+				})
+			},
+		},
+		{
+			name: "session_record",
+			call: func() (cp.Event, error) {
+				return n.FromSessionRecord(controlplane.SessionSourceRecord{
+					SourceEventKey: "secure-create:sess-1",
+					SessionID:      "sess-1",
+				})
+			},
+		},
+		{
+			name: "usage_record",
+			call: func() (cp.Event, error) {
+				return n.FromUsageRecord(controlplane.UsageSourceRecord{
+					SourceEventKey: "secure-usage:sess-1:turn-1:bleg-1:2026-07-04T00:05:00Z",
+				})
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := c.call()
+			if err == nil {
+				t.Fatalf("normalizer must reject zero-timestamp event from zeroClock; got nil error")
+			}
+			if !strings.Contains(err.Error(), "occurred_at is required") {
+				t.Fatalf("error must mention explicit-guard 'occurred_at is required', got: %v", err)
+			}
+		})
+	}
+}
+
+// ---- Multi-detail rejection: normalizer layer ----
+
+// TestNormalizerEventWithMultipleDetailBlocksRejected regression-locks the
+// explicit "exactly one detail block" guard at the normalizer layer. The
+// normalizer's From* methods each produce exactly one detail, but a caller
+// (or a future refactor) could mutate the result to add a second detail. The
+// core ValidateEvent must reject such an event with the explicit-guard
+// error, proving the normalizer → validator chain enforces the single-detail
+// invariant at the normalizer layer (not just the SDK layer).
+func TestNormalizerEventWithMultipleDetailBlocksRejected(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate the result to add a second detail block.
+	ev.Session = &cp.SessionDetail{Action: cp.SessionActionCreated}
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject event with multiple detail blocks")
+	}
+	if !strings.Contains(err.Error(), "exactly one detail block is required") {
+		t.Fatalf("error must mention explicit-guard 'exactly one detail block is required', got: %v", err)
+	}
+}
+
+// TestNormalizerEventWithUnsafeSummaryRejected regression-locks the
+// unsafe-summary rejection path at the normalizer layer. The normalizer's
+// From* methods don't set Summary (it's not in the source records), so a
+// caller (or a future refactor) could mutate the result to add an unsafe
+// summary. The core ValidateEvent must reject such an event with the
+// explicit-guard error, proving the normalizer → validator chain enforces
+// the unsafe-content invariant at the normalizer layer (not just the core
+// validator layer).
+func TestNormalizerEventWithUnsafeSummaryRejected(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate to add an unsafe summary (credential-like content).
+	ev.Summary = "Bearer secrettoken"
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject event with unsafe summary")
+	}
+	if !strings.Contains(err.Error(), "unsafe token-like content") {
+		t.Fatalf("error must mention explicit-guard 'unsafe token-like content', got: %v", err)
+	}
+}
+
+// TestNormalizerEventWithEmptySourceNameRejected regression-locks the
+// empty-source-name rejection path at the normalizer layer. The normalizer
+// sets Source from the constructor's cp.SourceRef, so the source name is
+// always set. But a caller (or a future refactor) could mutate the result
+// to set an empty source name. The core ValidateEvent must reject such an
+// event with the explicit-guard error, proving the normalizer → validator
+// chain enforces the source-name invariant at the normalizer layer.
+func TestNormalizerEventWithEmptySourceNameRejected(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate to set an empty source name.
+	ev.Source = cp.SourceRef{}
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject event with empty source name")
+	}
+	if !strings.Contains(err.Error(), "source.name is required") {
+		t.Fatalf("error must mention explicit-guard 'source.name is required', got: %v", err)
+	}
+}
+
+// TestNormalizerEventWithPrivilegedVisibilityWithoutPrivilegedRedaction
+// regression-locks the privileged-visibility guard at the normalizer layer.
+// The normalizer's From* methods produce events with default visibility and
+// redaction, but a caller (or a future refactor) could mutate the result to
+// set privileged visibility without the matching privileged redaction state.
+// The core ValidateEvent must reject such an event with the explicit-guard
+// error, proving the normalizer → validator chain enforces the
+// privileged-visibility invariant at the normalizer layer (not just the SDK
+// and core validator layers).
+func TestNormalizerEventWithPrivilegedVisibilityWithoutPrivilegedRedaction(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate the result to set privileged visibility without privileged redaction.
+	ev.Visibility = cp.VisibilityPrivileged
+	ev.RedactionState = cp.RedactionNone // explicitly NOT privileged
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject privileged visibility without privileged redaction state")
+	}
+	if !strings.Contains(err.Error(), "privileged visibility requires privileged redaction state") {
+		t.Fatalf("error must mention explicit-guard 'privileged visibility requires privileged redaction state', got: %v", err)
+	}
+}
+
+// TestNormalizerEventWithRecordedAtBeforeOccurredAt regression-locks the
+// ordering guard at the normalizer layer. The normalizer fills in
+// OccurredAt from the source record and RecordedAt from the clock, so a
+// normalizer output never has RecordedAt before OccurredAt. But a caller (or
+// a future refactor) could mutate the result to set RecordedAt earlier than
+// OccurredAt. The core ValidateEvent must reject such an event with the
+// explicit-guard error, proving the normalizer → validator chain enforces
+// the ordering invariant at the normalizer layer (not just the SDK and core
+// validator layers).
+func TestNormalizerEventWithRecordedAtBeforeOccurredAt(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate the result so RecordedAt is earlier than OccurredAt (both non-zero).
+	ev.OccurredAt = ev.RecordedAt.Add(time.Minute) // OccurredAt is later; RecordedAt stays as the normalizer's clock value (earlier)
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject RecordedAt before OccurredAt")
+	}
+	if !strings.Contains(err.Error(), "recorded_at precedes occurred_at") {
+		t.Fatalf("error must mention explicit-guard 'recorded_at precedes occurred_at', got: %v", err)
+	}
+}
+
+// TestNormalizerEventWithOversizedSummaryRejected regression-locks the
+// summary-size rejection path at the normalizer layer (parallel to the
+// core-level oversized_summary subtest in validate_test.go). The
+// normalizer's From* methods don't set Summary (it's not in the source
+// records), and the normalizer has no built-in summary-length cap. A
+// caller (or a future refactor) could mutate the result to produce an
+// oversized summary. The core ValidateEvent must reject such an event
+// with the explicit-guard error, proving the normalizer → validator
+// chain enforces the summary-size invariant at the normalizer layer (not
+// just the core validator layer).
+func TestNormalizerEventWithOversizedSummaryRejected(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate to add a summary that exceeds MaxSummaryBytes by one byte.
+	ev.Summary = strings.Repeat("x", controlplane.MaxSummaryBytes+1)
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject event with oversized summary")
+	}
+	if !strings.Contains(err.Error(), "summary exceeds") {
+		t.Fatalf("error must mention explicit-guard 'summary exceeds', got: %v", err)
+	}
+}
+
+// TestNormalizerEventWithOversizedScopeLabelsRejected regression-locks the
+// scope-size rejection path at the normalizer layer (parallel to the
+// core-level oversized_scope_labels subtest in validate_test.go). The
+// normalizer projects scope from known safe fields, but a caller (or a
+// future refactor) could mutate the result to add an oversized PolicyLabels
+// map. The core ValidateEvent must reject such an event with the
+// explicit-guard error, proving the normalizer → validator chain enforces
+// the scope-size invariant at the normalizer layer (not just the core
+// validator layer). Uses the shared itoa helper from validate_test.go
+// (same controlplane_test package).
+func TestNormalizerEventWithOversizedScopeLabelsRejected(t *testing.T) {
+	t.Parallel()
+	n := newTestNormalizer(t)
+	ev, err := n.FromAuthDecision(auth.AuthDecisionEvent{
+		Time:    time.Now(),
+		TraceID: "trace-1",
+		Outcome: auth.OutcomeAllow,
+		Scope:   new(knownScopeView()),
+	})
+	if err != nil {
+		t.Fatalf("FromAuthDecision: %v", err)
+	}
+	// Mutate Scope to add MaxScopeMapEntries+1 policy labels.
+	labels := make(map[string]string, controlplane.MaxScopeMapEntries+1)
+	for i := range controlplane.MaxScopeMapEntries + 1 {
+		labels["k"+itoa(i)] = "v"
+	}
+	ev.Scope = cp.ScopeSnapshot{
+		Principal: scope.PrincipalScopeView{PolicyLabels: labels},
+	}
+	err = controlplane.ValidateEvent(ev)
+	if err == nil {
+		t.Fatalf("ValidateEvent must reject event with oversized scope")
+	}
+	if !strings.Contains(err.Error(), "scope.policy_labels exceeds") {
+		t.Fatalf("error must mention explicit-guard 'scope.policy_labels exceeds', got: %v", err)
+	}
+}
+
 // helpers
 
 //go:fix inline

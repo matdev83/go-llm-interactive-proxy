@@ -377,3 +377,14 @@ func TestSummary_returnsDomainFieldsOnly(t *testing.T) {
 		t.Fatalf("unexpected projection: %+v", s)
 	}
 }
+
+func TestMarshalJSONText_returnsUTF8StringNotBytes(t *testing.T) {
+	t.Parallel()
+	got, err := marshalJSONText(map[string]string{"k": "v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `{"k":"v"}` {
+		t.Fatalf("got %q want {\"k\":\"v\"}", got)
+	}
+}

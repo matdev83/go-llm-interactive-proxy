@@ -433,8 +433,8 @@ func TestTryPlanOpenOnce_InterleavedCyclePersistFailureFailsClosed(t *testing.T)
 	if !errors.Is(err, errInjectedCyclePersist) {
 		t.Fatalf("want errInjectedCyclePersist, got %v", err)
 	}
-	if budget.used != 1 {
-		t.Fatalf("attempt budget used: got %d want 1", budget.used)
+	if budget.usedNow() != 1 {
+		t.Fatalf("attempt budget used: got %d want 1", budget.usedNow())
 	}
 	if backendOpens != 1 {
 		t.Fatalf("backend must open before cycle persist failure, opens=%d", backendOpens)

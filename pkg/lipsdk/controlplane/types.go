@@ -13,19 +13,20 @@ import (
 type Category string
 
 const (
-	CategoryAuth      Category = "auth"
-	CategorySession   Category = "session"
-	CategoryAttempt   Category = "attempt"
-	CategoryUsage     Category = "usage"
-	CategoryPolicy    Category = "policy"
-	CategoryAudit     Category = "audit"
-	CategoryLifecycle Category = "lifecycle"
+	CategoryAuth                Category = "auth"
+	CategorySession             Category = "session"
+	CategoryAttempt             Category = "attempt"
+	CategoryUsage               Category = "usage"
+	CategoryAccountingAuthority Category = "accounting_authority"
+	CategoryPolicy              Category = "policy"
+	CategoryAudit               Category = "audit"
+	CategoryLifecycle           Category = "lifecycle"
 )
 
 // IsKnown reports whether c is one of the documented category values.
 func (c Category) IsKnown() bool {
 	switch c {
-	case CategoryAuth, CategorySession, CategoryAttempt, CategoryUsage, CategoryPolicy, CategoryAudit, CategoryLifecycle:
+	case CategoryAuth, CategorySession, CategoryAttempt, CategoryUsage, CategoryAccountingAuthority, CategoryPolicy, CategoryAudit, CategoryLifecycle:
 		return true
 	}
 	return false
@@ -165,13 +166,14 @@ type Event struct {
 	RedactionState RedactionState `json:"redaction_state"`
 	Summary        string         `json:"summary,omitempty"`
 
-	Auth      *AuthDetail      `json:"auth,omitempty"`
-	Session   *SessionDetail   `json:"session,omitempty"`
-	Attempt   *AttemptDetail   `json:"attempt,omitempty"`
-	Usage     *UsageDetail     `json:"usage,omitempty"`
-	Policy    *PolicyDetail    `json:"policy,omitempty"`
-	Audit     *AuditDetail     `json:"audit,omitempty"`
-	Lifecycle *LifecycleDetail `json:"lifecycle,omitempty"`
+	Auth                *AuthDetail                `json:"auth,omitempty"`
+	Session             *SessionDetail             `json:"session,omitempty"`
+	Attempt             *AttemptDetail             `json:"attempt,omitempty"`
+	Usage               *UsageDetail               `json:"usage,omitempty"`
+	AccountingAuthority *AccountingAuthorityDetail `json:"accounting_authority,omitempty"`
+	Policy              *PolicyDetail              `json:"policy,omitempty"`
+	Audit               *AuditDetail               `json:"audit,omitempty"`
+	Lifecycle           *LifecycleDetail           `json:"lifecycle,omitempty"`
 }
 
 // Validate performs structural invariant checks for an Event. It is the
@@ -179,15 +181,25 @@ type Event struct {
 // before persistence or query output (requirement 1.7, 3.5, 4.4, 4.5).
 // It does not check source-specific detail semantics; those belong to the
 // core normalizer.
+//
+// Event-timestamp contract (see validateTimestamps): OccurredAt and
+// RecordedAt are mandatory lifecycle anchors and zero values are rejected.
+//
+// WindowStart/End/ResetAt on AccountingAuthorityDetail (and on the
+// AccountingLimitStatusRow / AccountingDecisionRow query types) are
+// intentionally NOT validated. A projector that emits an
+// AccountingAuthorityDetail may not have access to the rule's window
+// metadata (the rule snapshot is the authoritative source for window
+// bounds). The zero time.Time value is the documented "no window" signal —
+// see AccountingAuthorityDetail's godoc for the SDK consumer contract.
+// Callers that need the actual window MUST query AccountingLimitStatus
+// instead.
 func (e Event) Validate() error {
 	if !e.Category.IsKnown() {
 		return errf("controlplane event: unknown category %q", e.Category)
 	}
-	if e.OccurredAt.IsZero() {
-		return errf("controlplane event: occurred_at is required")
-	}
-	if e.RecordedAt.Before(e.OccurredAt) {
-		return errf("controlplane event: recorded_at precedes occurred_at")
+	if err := validateTimestamps(e); err != nil {
+		return err
 	}
 	if !e.Visibility.IsKnown() {
 		return errf("controlplane event: unknown visibility %q", e.Visibility)
@@ -210,6 +222,33 @@ func (e Event) Validate() error {
 	return nil
 }
 
+// validateTimestamps enforces the event-timestamp contract and makes the
+// asymmetry between required event timestamps and optional rule-window
+// metadata explicit at the contract boundary. OccurredAt and RecordedAt are
+// mandatory lifecycle anchors; both must be non-zero, and RecordedAt must
+// not precede OccurredAt. Each is checked independently so the failure
+// message identifies which timestamp is wrong.
+//
+// WindowStart/End/ResetAt on AccountingAuthorityDetail (and on the
+// AccountingLimitStatusRow / AccountingDecisionRow query types) are
+// intentionally NOT checked here. The zero time.Time is the documented
+// "no window" signal — see the AccountingAuthorityDetail godoc for the
+// SDK consumer contract. Projectors that don't have access to the rule's
+// window metadata MUST be able to emit a valid event with those fields
+// left as the zero value.
+func validateTimestamps(e Event) error {
+	if e.OccurredAt.IsZero() {
+		return errf("controlplane event: occurred_at is required")
+	}
+	if e.RecordedAt.IsZero() {
+		return errf("controlplane event: recorded_at is required")
+	}
+	if e.RecordedAt.Before(e.OccurredAt) {
+		return errf("controlplane event: recorded_at precedes occurred_at")
+	}
+	return nil
+}
+
 // ensureSingleDetail verifies exactly one typed detail block is set. Detail
 // fields are pointers; a typed nil pointer inside an `any` is not equal to
 // untyped nil, so each field is checked directly rather than via a slice.
@@ -225,6 +264,9 @@ func ensureSingleDetail(e Event) error {
 		set++
 	}
 	if e.Usage != nil {
+		set++
+	}
+	if e.AccountingAuthority != nil {
 		set++
 	}
 	if e.Policy != nil {
@@ -263,6 +305,10 @@ func ensureDetailMatchesCategory(e Event) error {
 	case CategoryUsage:
 		if e.Usage == nil {
 			return errf("controlplane event: category %q requires usage detail", e.Category)
+		}
+	case CategoryAccountingAuthority:
+		if e.AccountingAuthority == nil {
+			return errf("controlplane event: category %q requires accounting_authority detail", e.Category)
 		}
 	case CategoryPolicy:
 		if e.Policy == nil {

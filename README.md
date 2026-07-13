@@ -13,6 +13,7 @@ The standard distribution, `cmd/lipstd`, serves bundled HTTP frontends, routes t
 - **Continuity and recovery** - B2BUA-style A-leg/B-leg lineage records recoverable pre-output attempts, while post-output failures are surfaced instead of silently retried.
 - **Operator hardening** - typed config, auth/access modes, secure sessions, diagnostics secrets, pprof controls, Prometheus metrics, OpenTelemetry tracing, access logs, and resource limits.
 - **Extension platform** - feature bundles use `pkg/lipsdk` facades for request shaping, tools, completion gates, workspace/state, traffic observation, auxiliary calls, and compatibility hooks.
+- **Accounting authority SDK** - `pkg/lipsdk/controlplane` and `pkg/lipsdk/policydecision` expose safe accounting authority DTOs, bounded queries, and policy-compatible accounting evidence for operator-facing control-plane integrations. `AccountingDecisionRow` carries `released`/`overage`/`adjustment` settlement deltas (additive, `,omitzero`; zero for reserve decisions) so decision history explains per-mutation outcomes.
 
 ## Standard distribution
 

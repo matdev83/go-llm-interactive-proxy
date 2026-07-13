@@ -12,6 +12,9 @@ const (
 	LIPTestPostgresDSN = "LIP_TEST_POSTGRES_DSN"
 	// LIPManagedPostgresDSN is a legacy alias still accepted by [PostgresTestDSN].
 	LIPManagedPostgresDSN = "LIP_MANAGED_POSTGRES_DSN"
+	// LIPRequirePostgres turns an otherwise skippable integration test into a
+	// hard failure. CI and the explicit make target use it as the proof gate.
+	LIPRequirePostgres = "LIP_REQUIRE_POSTGRES"
 )
 
 // PostgresTestDSN returns a non-empty managed PostgreSQL DSN when LIPTestPostgresDSN or
@@ -33,6 +36,10 @@ func SkipUnlessPostgres(t *testing.T) string {
 	t.Helper()
 	dsn, ok := PostgresTestDSN()
 	if !ok {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv(LIPRequirePostgres)), "1") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv(LIPRequirePostgres)), "true") {
+			t.Fatalf("PostgreSQL DSN is required: set %s or %s", LIPTestPostgresDSN, LIPManagedPostgresDSN)
+		}
 		t.Skipf("set %s (or legacy %s) to run PostgreSQL integration test", LIPTestPostgresDSN, LIPManagedPostgresDSN)
 	}
 	return dsn

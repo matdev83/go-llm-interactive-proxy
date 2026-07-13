@@ -1,0 +1,81 @@
+package domain
+
+type RuleKind string
+
+const (
+	RuleKindQuota    RuleKind = "quota"
+	RuleKindRate     RuleKind = "rate"
+	RuleKindBudget   RuleKind = "budget"
+	RuleKindSpendCap RuleKind = "spend_cap"
+)
+
+func (k RuleKind) IsKnown() bool {
+	switch k {
+	case RuleKindQuota, RuleKindRate, RuleKindBudget, RuleKindSpendCap:
+		return true
+	default:
+		return false
+	}
+}
+
+type RuleMode string
+
+const (
+	RuleModeStrict   RuleMode = "strict"
+	RuleModeAdvisory RuleMode = "advisory"
+)
+
+func (m RuleMode) IsKnown() bool {
+	return m == "" || m == RuleModeStrict || m == RuleModeAdvisory
+}
+
+type AuthorityRequirement string
+
+const (
+	AuthorityRequirementAny           AuthorityRequirement = ""
+	AuthorityRequirementEstimated     AuthorityRequirement = "estimated"
+	AuthorityRequirementAuthoritative AuthorityRequirement = "authoritative"
+)
+
+func (r AuthorityRequirement) IsKnown() bool {
+	switch r {
+	case AuthorityRequirementAny, AuthorityRequirementEstimated, AuthorityRequirementAuthoritative:
+		return true
+	default:
+		return false
+	}
+}
+
+type FailureBehavior string
+
+const (
+	FailureBehaviorDefault    FailureBehavior = ""
+	FailureBehaviorFailClosed FailureBehavior = "fail_closed"
+	FailureBehaviorFailOpen   FailureBehavior = "fail_open"
+)
+
+func (b FailureBehavior) IsKnown() bool {
+	switch b {
+	case FailureBehaviorDefault, FailureBehaviorFailClosed, FailureBehaviorFailOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+type Rule struct {
+	ID                   string
+	Kind                 RuleKind
+	Mode                 RuleMode
+	Unit                 AmountUnit
+	Limit                Amount
+	Currency             string
+	AuthorityRequirement AuthorityRequirement
+	FailureBehavior      FailureBehavior
+	Window               WindowSpec
+	Match                DimensionsMatcher
+}
+
+func (r Rule) Matches(actual Dimensions) bool {
+	return r.Match.Matches(actual)
+}
