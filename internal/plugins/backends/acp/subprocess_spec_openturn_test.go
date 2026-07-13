@@ -31,17 +31,21 @@ func (p *fakeTurnProtocol) ResolveModel(*lipapi.Call) string { return p.model }
 func (p *fakeTurnProtocol) BuildSpawnCommand(model, workspace, _ string) ([]string, string, []string, error) {
 	return []string{"fake-bin", "--model", model}, workspace, nil, nil
 }
+
 func (p *fakeTurnProtocol) Handshake(context.Context, Transport, string, string) (string, error) {
 	return "session-fake", nil
 }
+
 func (p *fakeTurnProtocol) BindSession(transport Transport, sessionID string) SubprocessProtocolSession {
 	return &fakeTurnSession{transport: transport, sessionID: sessionID}
 }
+
 func (p *fakeTurnProtocol) ResolveProcessConfig(*lipapi.Call) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.procConfig
 }
+
 func (p *fakeTurnProtocol) setProcessConfig(cfg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -56,6 +60,7 @@ type fakeTurnSession struct {
 func (s *fakeTurnSession) SendPrompt(context.Context, string, string, *lipapi.Call) (io.ReadCloser, int64, error) {
 	return io.NopCloser(strings.NewReader("")), 1, nil
 }
+
 func (s *fakeTurnSession) BuildStream(_ context.Context, _ io.ReadCloser, _ int64, pool *RuntimePool, key RuntimeKey, _ int) (lipapi.ManagedEventStream, error) {
 	return &fakeTurnStream{pool: pool, key: key}, nil
 }
@@ -72,6 +77,7 @@ type fakeTurnStream struct {
 func (s *fakeTurnStream) Recv(context.Context) (lipapi.Event, error) {
 	return lipapi.Event{}, io.EOF
 }
+
 func (s *fakeTurnStream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,6 +88,7 @@ func (s *fakeTurnStream) Close() error {
 	s.pool.Release(s.key)
 	return nil
 }
+
 func (s *fakeTurnStream) Cancel(context.Context, leglifecycle.CancelCause) leglifecycle.CancelResult {
 	return leglifecycle.CancelResult{}
 }

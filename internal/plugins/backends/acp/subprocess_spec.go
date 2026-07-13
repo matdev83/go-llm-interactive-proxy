@@ -207,11 +207,8 @@ func (b *subprocessBackend) Open(ctx context.Context, call *lipapi.Call) (lipapi
 
 	key := b.runtimeKey(workspace, model, clientSession)
 
-	// Acquire runtime from pool (handles idle reaping). Keep rt to read history
-	// state without a second Get (the second Get after ensureProcess is still
-	// needed because KillRuntime may have replaced the entry).
-	rt, err := b.pool.Acquire(key)
-	if err != nil {
+	// Acquire runtime from pool (handles idle reaping) before claiming the turn.
+	if _, err := b.pool.Acquire(key); err != nil {
 		return nil, fmt.Errorf("%s: acquire: %w", b.proto.Label(), err)
 	}
 
@@ -223,11 +220,10 @@ func (b *subprocessBackend) Open(ctx context.Context, call *lipapi.Call) (lipapi
 	// process config (Codex model_verbosity) is killed and its transcript marker
 	// reset so the new child receives a complete replay below.
 	processConfig := b.proto.ResolveProcessConfig(call)
-	claimed, busy := b.pool.ClaimForTurn(key, processConfig)
+	rt, busy := b.pool.ClaimForTurn(key, processConfig)
 	if busy {
 		return nil, fmt.Errorf("%s: process config %q cannot be applied: a turn is in flight on runtime %s", b.proto.Label(), processConfig, key)
 	}
-	rt = claimed
 
 	// Compute the transcript-based prompt from the runtime's history state.
 	// On divergence (edited/truncated history), reset the agent process so it

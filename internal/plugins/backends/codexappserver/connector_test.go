@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 func TestStripOpenAIModelPrefix(t *testing.T) {
@@ -94,6 +95,26 @@ func TestBuildCodexCommandWithVerbosityPreservesOverridesWhenUnset(t *testing.T)
 	cmd := buildCodexCommandWithVerbosity("codex", []string{"model_verbosity=low"}, "", nil)
 	if !strings.Contains(strings.Join(cmd, " "), "model_verbosity=low") {
 		t.Fatalf("unset verbosity must preserve static override: %v", cmd)
+	}
+}
+
+func TestClearInvalidDefaultVerbosity(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"high", "high"},
+		{"HIGH", "high"},
+		{"", ""},
+		{"bogus", ""},
+		{"  medium  ", "medium"},
+	}
+	for _, tc := range cases {
+		cfg := Config{DefaultVerbosity: lipapi.VerbosityLevel(tc.in)}
+		clearInvalidDefaultVerbosity(&cfg)
+		if got := string(cfg.DefaultVerbosity); got != tc.want {
+			t.Fatalf("clearInvalidDefaultVerbosity(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 

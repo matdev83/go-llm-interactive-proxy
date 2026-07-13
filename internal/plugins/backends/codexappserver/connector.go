@@ -196,11 +196,21 @@ func New(cfg Config) (execbackend.Backend, error) {
 // The executable is set to a placeholder so BuildSpawnCommand does not require
 // the real codex binary to be on PATH.
 func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend {
-	if verbosity, err := lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity)); err == nil {
-		cfg.DefaultVerbosity = verbosity
-	}
+	clearInvalidDefaultVerbosity(&cfg)
 	cfg.applyDefaults()
 	return newBackend(cfg, false, starter)
+}
+
+// clearInvalidDefaultVerbosity normalizes DefaultVerbosity for test constructors.
+// Unlike New, it cannot fail the call, so invalid values are cleared instead of
+// being forwarded into -c model_verbosity=<raw>.
+func clearInvalidDefaultVerbosity(cfg *Config) {
+	verbosity, err := lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity))
+	if err != nil {
+		cfg.DefaultVerbosity = ""
+		return
+	}
+	cfg.DefaultVerbosity = verbosity
 }
 
 // applyDefaults normalizes the config model field.
