@@ -180,8 +180,8 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendBedrock(n, upstream)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}},
-		{ID: codexappserver.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCodexAppServer(n, nil)
+		{ID: codexappserver.ID, Factory: func(n yaml.Node, _ *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendCodexAppServer(n, deps.CodexModelCatalog)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
 		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendACP(n, upstream)
@@ -210,8 +210,8 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: opencodezen.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenCodeZen(n, upstream, keys, deps.ModelVendorResolver)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: openaicodex.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenAICodex(n, upstream, keys)
+		{ID: openaicodex.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenAICodex(n, upstream, keys, deps.CodexModelCatalog)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessLocalOnly}},
 		{ID: ollama.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOllama(n, upstream, keys)

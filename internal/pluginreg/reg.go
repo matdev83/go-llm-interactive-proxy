@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -25,6 +26,12 @@ type ModelVendorResolver = modelcatalog.VendorResolver
 // Dependencies here must be stable core-owned seams, not plugin-specific mutable registry state.
 type BackendFactoryDeps struct {
 	ModelVendorResolver ModelVendorResolver
+	// CodexModelCatalog is the auto-discovered Codex model catalog shared by
+	// the openai-codex and codex app-server connectors. It is resolved once at
+	// startup (codex debug models, else the shipped fallback snapshot) and may
+	// be nil when resolution failed; connectors fall back to the shipped
+	// snapshot in that case.
+	CodexModelCatalog *codexcatalog.Catalog
 }
 
 // BackendFactory builds a backend from opaque per-plugin YAML, the composition-root HTTP client,

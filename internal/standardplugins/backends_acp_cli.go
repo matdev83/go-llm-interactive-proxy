@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
@@ -255,7 +256,7 @@ func backendGeminiCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, erro
 	return applyConfiguredModelInventory(be, y.Models)
 }
 
-func backendCodexAppServer(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
+func backendCodexAppServer(n yaml.Node, catalog *codexcatalog.Catalog) (execbackend.Backend, error) {
 	var y acpCLIYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: %w", err)
@@ -274,6 +275,7 @@ func backendCodexAppServer(n yaml.Node, _ *http.Client) (execbackend.Backend, er
 	cfg := codexappserver.Config{
 		ConnectorConfig:  y.connectorConfig(),
 		ConfigOverrides:  xs.ConfigOverrides,
+		ModelCatalog:     catalog,
 		DefaultVerbosity: verbosity,
 	}
 	be, err := codexappserver.New(cfg)

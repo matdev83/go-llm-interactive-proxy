@@ -197,24 +197,22 @@ func TestCheckExecutable_emptyString(t *testing.T) {
 
 func TestDefaultInventoryModels(t *testing.T) {
 	t.Parallel()
-	models := defaultInventoryModels()
-	if len(models) != len(defaultModels) {
-		t.Fatalf("models count = %d, want %d", len(models), len(defaultModels))
+	models := defaultInventoryModels(nil)
+	if len(models) == 0 {
+		t.Fatal("default inventory is empty; expected auto + shipped fallback slugs")
 	}
 	for _, m := range models {
 		if !strings.HasPrefix(m.CanonicalID, "openai/") {
 			t.Fatalf("CanonicalID %q should have prefix openai/", m.CanonicalID)
 		}
 	}
-	// Verify "auto" is in the list.
-	found := false
-	for _, m := range models {
-		if m.NativeID == "auto" {
-			found = true
-		}
+	// The "auto" routing sentinel is always first; the rest come from the
+	// auto-discovered catalog's shipped fallback snapshot.
+	if models[0].NativeID != autoModelSentinel {
+		t.Fatalf("first model = %q, want %q", models[0].NativeID, autoModelSentinel)
 	}
-	if !found {
-		t.Fatal("missing 'auto' in default inventory")
+	if len(models) < 2 {
+		t.Fatalf("default inventory has only %d models, want auto + catalog slugs", len(models))
 	}
 }
 

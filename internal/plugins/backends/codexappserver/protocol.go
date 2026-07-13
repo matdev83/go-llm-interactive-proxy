@@ -35,7 +35,7 @@ func (p *codexProtocol) ResolveModel(call *lipapi.Call) string {
 		model = stripOpenAIModelPrefix(m)
 	}
 	if isAutoModel(model) {
-		model = "auto"
+		model = autoModelSentinel
 	}
 	return model
 }
