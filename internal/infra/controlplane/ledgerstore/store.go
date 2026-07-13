@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -13,7 +14,6 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 	_ "modernc.org/sqlite" // register sqlite driver for durable control-plane stores
-	"strconv"
 )
 
 // DurableConfig configures a Bun-backed durable control-plane event store.
