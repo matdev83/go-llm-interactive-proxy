@@ -188,27 +188,39 @@ func TestAuthorityTiming_parallelRaceIssuesAuthoritativeAdmitPerLeg(t *testing.T
 	t.Parallel()
 
 	auth := &sequencingAuthorityRecorder{}
-	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
-	backend.openFn = func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-		return lipapi.NewFixedEventStream([]lipapi.Event{
-			{Kind: lipapi.EventResponseStarted},
-			{Kind: lipapi.EventTextDelta, Delta: "winner"},
-			{Kind: lipapi.EventResponseFinished},
-		}), nil
-	}
-	ex.Backends["backend-2"] = execbackend.Backend{
-		Caps:          lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+	ex, _, _, aLegID := newAuthorityRuntimeTestExecutorWithStore(t, auth)
+
+	coord := leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{})
+	aScope := coord.StartALeg(aLegID)
+
+	// Force both legs through Open (and therefore through authoritative Admit)
+	// before either can win, so the characterization is not racy under -parallel load.
+	leg2OpenedCh := make(chan struct{}, 1)
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+	ex.Backends["backend-1"] = execbackend.Backend{
+		Caps:          caps,
 		TransportCaps: parallelTransportCaps(),
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			return lipapi.NewFixedEventStream([]lipapi.Event{
-				{Kind: lipapi.EventResponseStarted},
-				{Kind: lipapi.EventTextDelta, Delta: " "},
-				{Kind: lipapi.EventResponseFinished},
-			}), nil
+			return &waitThenWinStream{
+				waitCh: leg2OpenedCh,
+				events: []lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventTextDelta, Delta: "winner"},
+					{Kind: lipapi.EventResponseFinished},
+				},
+			}, nil
+		},
+	}
+	ex.Backends["backend-2"] = execbackend.Backend{
+		Caps:          caps,
+		TransportCaps: parallelTransportCaps(),
+		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return &signalOnceBlockStream{openedCh: leg2OpenedCh}, nil
 		},
 	}
 
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 10})
+	p.aScope = aScope
 	p.baseline.Route.Selector = "backend-1:model-1!backend-2:model-2"
 	candidates := []routing.AttemptCandidate{
 		{Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}, Key: "backend-1:model-1"},
