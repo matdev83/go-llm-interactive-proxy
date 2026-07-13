@@ -1,6 +1,169 @@
 # Implementation Plan
 
-- [ ] 1. Establish correctness baselines and remediate existing accounting defects
-- [ ] 1.1 Add characterization tests for the current request and attempt accounting lifecycle
-  - Prove that logical customer request rules are currently invoked once per backend attempt under sequential failover and parallel racing.
-  - Prove that parallel-loser cleanup can release monetary
+- [ ] 1. Lock current behavior with regression tests
+- [ ] 1.1 Add characterization tests for existing usage-authority timing
+  - Prove logical request rules currently execute per backend attempt under failover and parallel racing.
+  - Prove loser cleanup can release operator exposure after provider work has begun.
+  - Prove request mutation may occur after the current cost reservation point.
+  - _Requirements: 2.2, 5.3, 8.1, 8.2, 8.4, 8.5, 9.2, 9.3_
+- [ ] 1.2 Add monetary and token-component regression tests
+  - Cover omitted output limits, explicit zero provider cost, explicit zero rates, overflow, cache subcomponents, reasoning subcomponents, and inferred totals.
+  - Require failures before implementation changes so each defect has an executable proof.
+  - _Requirements: 3.6, 3.7, 3.8, 6.3, 6.4, 6.5, 7.2, 7.3_
+
+- [ ] 2. Correct existing token and money semantics
+- [ ] 2.1 Implement explicit component inclusion and presence rules
+  - Treat cache-read/write as input subcomponents and reasoning as an output subcomponent by default.
+  - Keep separately reported components available for differential rating without adding them twice to totals.
+  - Preserve explicit zero independently from absence.
+  - _Requirements: 3.6, 3.7, 3.8, 17.4_
+- [ ] 2.2 Implement checked money arithmetic and authoritative-zero handling
+  - Add checked multiplication, addition, subtraction, clamp conversion, and aggregation.
+  - Replace zero-as-missing price behavior with explicit optional presence.
+  - Preserve authoritative zero provider cost instead of falling back to estimation.
+  - _Requirements: 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8_
+- [ ] 2.3 Enforce conservative unknown-output policies
+  - Support require-client-limit, configured default, model/backend maximum, clamp, and deny policies.
+  - Verify the selected backend can enforce the applied output clamp before opening provider work.
+  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.8, 7.9_
+
+- [ ] 3. Add public metering and economics contracts
+- [ ] 3.1 Define public metering facts and quantity vocabulary
+  - Add economic perspective, metering boundary, lifecycle scope, fact kind, presence, source, authority, surfaced state, safe correlation, and version references.
+  - Use extensible component/unit quantities rather than one new field per provider feature.
+  - Define stable idempotency, sequence, correction, and supersession semantics.
+  - _Requirements: 1.1, 1.2, 1.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.9, 13.2_
+- [ ] 3.2 Define public money, rating, exposure, and version contracts
+  - Permit customer and operator rating through independent providers.
+  - Require currency, presence, source, immutable version, effective time, authority, line identity, and rounding policy.
+  - Represent conservative output assumptions used at admission.
+  - _Requirements: 1.4, 4.6, 5.8, 6.1, 6.2, 6.6, 6.9, 7.6_
+- [ ] 3.3 Define public request and attempt authority contracts
+  - Separate logical-request admission/settlement from backend-attempt admission/settlement.
+  - Include reservations, clamps, denials, advisory outcomes, compensation handles, readiness, and safe evidence.
+  - Keep all contracts free of internal, SQL, HTTP, provider SDK, and executor-private types.
+  - _Requirements: 9.2, 9.3, 12.1, 12.2, 12.7, 12.8, 15.1_
+
+- [ ] 4. Implement immutable metering checkpoints
+- [ ] 4.1 Capture frontend-ingress request state
+  - Clone the validated canonical call before submit hooks, transforms, compression, steering, and route shaping.
+  - Bind trusted scope later without mutating the original checkpoint.
+  - Reuse one frontend-ingress checkpoint for the complete logical request.
+  - _Requirements: 2.1, 2.5, 2.6, 2.7, 2.8, 4.1, 17.5, 17.6_
+- [ ] 4.2 Capture final backend-ingress attempt state
+  - Freeze the final provider-neutral attempt after transforms, route parameters, hooks, and clamps and immediately before backend open.
+  - Recount and rerate after any widening mutation; reject any unmeasured post-authorization widening.
+  - _Requirements: 2.2, 5.1, 7.4, 7.5_
+- [ ] 4.3 Capture backend-egress and frontend-egress facts
+  - Finalize one backend fact stream per B-leg, including losers, cancellations, swallowed attempts, and failures when evidence exists.
+  - Measure the final client-visible stream after response mutation and completion gating.
+  - _Requirements: 2.3, 2.4, 4.2, 4.4, 5.2, 5.3, 5.4, 8.4_
+
+- [ ] 5. Build the durable metering journal
+- [ ] 5.1 Implement memory, SQLite, and PostgreSQL fact stores
+  - Enforce unique fact/source identity, append-only correction history, bounded indexed queries, and safe scope projections.
+  - Keep the journal independent from live authority counters and proprietary financial ledgers.
+  - _Requirements: 3.1, 3.3, 3.4, 13.1, 13.2, 13.3, 13.4, 13.5, 13.8_
+- [ ] 5.2 Add correction aggregation and compatibility projections
+  - Apply delta, cumulative, correction, and authoritative replacement facts idempotently.
+  - Continue producing legacy token-ledger and usage views where representable.
+  - _Requirements: 3.2, 3.3, 3.5, 9.5, 13.6, 17.1, 17.4_
+- [ ] 5.3 Add bounded reconciliation for orphaned and unavailable facts
+  - Recover restart state without double-counting and expose unresolved items for bounded reconciliation.
+  - _Requirements: 13.6, 13.7, 14.5, 15.3_
+
+- [ ] 6. Split authority orchestration by lifecycle and perspective
+- [ ] 6.1 Implement the logical-request authority coordinator
+  - Evaluate concurrency, customer credit/wallet provider, customer quota/budget/rate provider, then advisory providers in deterministic priority order.
+  - Record successful handles and compensate in reverse order with fresh bounded contexts on later denial or failure.
+  - _Requirements: 4.5, 8.1, 8.3, 9.3, 15.1, 15.2, 15.3, 15.4_
+- [ ] 6.2 Implement the backend-attempt authority coordinator
+  - Evaluate operator spend and provider/credential quota/rate authority from final backend-ingress exposure.
+  - Preserve one independent operator lifecycle per committed B-leg.
+  - _Requirements: 5.1, 5.3, 5.5, 5.6, 8.2, 9.3_
+- [ ] 6.3 Integrate request and attempt settlement
+  - Settle customer authority once from frontend basis and operator authority per incurred attempt.
+  - Preserve late authoritative corrections and do not retry after client-visible output.
+  - _Requirements: 4.2, 4.4, 5.2, 5.4, 8.4, 8.5, 8.6, 8.7, 15.5_
+
+- [ ] 7. Adapt the existing usage-authority kernel
+- [ ] 7.1 Add perspective, lifecycle scope, basis, namespace, and version to rules
+  - Validate customer logical-request and operator backend-attempt combinations.
+  - Reject ambiguous new rules and require an explicit compatibility basis for legacy rules.
+  - _Requirements: 1.3, 1.5, 9.2, 9.6, 9.7, 17.2_
+- [ ] 7.2 Replace undifferentiated request/spend inputs with selected facts
+  - Resolve rule amounts from explicit metering facts and rating results before issuing store mutations.
+  - Preserve independent token, money, and perspective authority.
+  - _Requirements: 9.2, 9.4, 9.5_
+- [ ] 7.3 Preserve and extend transactional store guarantees
+  - Retain atomic descriptor sets, replay, correction, denial evidence, rollover safety, and PostgreSQL contract tests.
+  - Namespace legacy persisted state rather than reinterpreting it.
+  - _Requirements: 9.1, 9.7, 9.9, 13.6, 17.2_
+
+- [ ] 8. Implement concurrent logical-request leases
+- [ ] 8.1 Build the lease domain and application service
+  - Model strict/advisory limits, safe scope matching, TTL, renewal, generation, replay, expiry, release, readiness, and denial evidence.
+  - Ensure one logical request consumes one lease across retries and parallel legs.
+  - _Requirements: 10.1, 10.3, 10.6, 10.7, 10.8, 10.10, 10.11_
+- [ ] 8.2 Build memory, SQLite, and PostgreSQL lease stores
+  - Prove at most five active leases for a five-slot principal across multiple proxy instances.
+  - Reclaim expired leases transactionally using bounded indexed work.
+  - _Requirements: 10.2, 10.6, 10.7, 10.9, 12.1, 13.5, 16.2, 16.3, 16.7_
+- [ ] 8.3 Integrate lease ownership, renewal, and terminal release
+  - Acquire after trusted identity and before expensive transforms.
+  - Release on completion, denial, routing exhaustion, backend failure, cancellation, stream close, frontend encoding error, preparation failure, and panic paths.
+  - Use one request-owned heartbeat and fresh cleanup contexts.
+  - _Requirements: 10.4, 10.5, 10.8, 10.10, 15.3, 15.6_
+- [ ] 8.4 Add active-lease queries and client-safe error mapping
+  - Expose active, expiring, expired, released, remaining-slot, rule-version, and readiness information through bounded protected queries.
+  - _Requirements: 10.11, 10.12, 14.3, 14.4, 14.5_
+
+- [ ] 9. Add dynamic versioned snapshots
+- [ ] 9.1 Implement static and injectable snapshot sources
+  - Support immutable authority, concurrency, and rating snapshots with ready, stale, degraded, unavailable, and disabled status.
+  - _Requirements: 11.1, 11.5, 11.6, 11.7_
+- [ ] 9.2 Bind versions to requests, attempts, reservations, and settlements
+  - Keep in-flight work on its bound versions while new publications affect new admissions.
+  - _Requirements: 11.2, 11.3, 11.4, 11.8, 6.2, 7.6_
+- [ ] 9.3 Publish runtime generations atomically
+  - Avoid in-place mutation of active request pipelines and reject silent fallback to unrelated versions.
+  - _Requirements: 11.3, 11.7, 12.8, 17.1_
+
+- [ ] 10. Expose production open-core composition seams
+- [ ] 10.1 Add a public runtime construction facade
+  - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and query implementations.
+  - Keep internal runtimebundle authoritative without exposing Executor internals.
+  - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
+- [ ] 10.2 Add a separate-module enterprise compile and execution fixture
+  - Implement fake external raters and authorities using only public packages.
+  - Fail architecture CI if an internal import or runtime fork becomes necessary.
+  - _Requirements: 12.6, 12.9, 17.7_
+- [ ] 10.3 Preserve feature-bundle and observer compatibility
+  - Keep traffic/usage observers supported while ensuring strict decisions use authority contracts rather than fail-open observation.
+  - _Requirements: 12.7, 17.1, 17.4_
+
+- [ ] 11. Align control-plane evidence, readiness, and queries
+- [ ] 11.1 Add independent perspective, boundary, lifecycle, provenance, fact-kind, surfaced, and version fields
+  - Preserve legacy observed/accounting projections for compatibility.
+  - _Requirements: 1.6, 14.1, 14.2, 14.3, 17.4_
+- [ ] 11.2 Add bounded metering and authority query filters
+  - Support indexed safe scope, backend, model, route, perspective, boundary, lifecycle, rule, and time filters.
+  - Return unsupported and too-broad outcomes instead of scanning.
+  - _Requirements: 14.4, 14.5, 14.8, 16.3_
+- [ ] 11.3 Expose independent customer, operator, compression, routing-overhead, and readiness inputs
+  - Never merge customer charge and operator cost without an explicit report calculation.
+  - Report every required authority/journal independently and aggregate protected-traffic posture.
+  - _Requirements: 4.7, 5.7, 14.6, 14.7, 15.7, 15.8_
+
+- [ ] 12. Remove global serialization and prove scalability
+- [ ] 12.1 Refactor durable authority synchronization
+  - Limit in-process locking to lifecycle/readiness state and rely on targeted database locks, unique constraints, and compare-and-swap for mutations.
+  - Preserve memory-store correctness with sharded or keyed locking where beneficial.
+  - _Requirements: 9.8, 16.1, 16.2_
+- [ ] 12.2 Add metrics, time budgets, and contention benchmarks
+  - Cover independent principals, a hot account, five slots with many contenders, two PostgreSQL instances, parallel 2/4/8-leg races, journal correction replay, and no-feature baseline.
+  - _Requirements: 16.4, 16.5, 16.6, 16.8_
+- [ ] 12.3 Add race, fuzz, PostgreSQL, migration, and cross-protocol release gates
+  - Validate OpenAI, Anthropic, Gemini, and other supported frontend semantics against the same checkpoint and authority contracts.
+  - Include crash recovery, cancellation, late correction, malformed external provider, privacy, and compatibility cases.
+  - _Requirements: 15.9, 17.1, 17.2, 17.3, 17.5, 17.6, 17.8, 17.9_
