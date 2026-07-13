@@ -1,12 +1,12 @@
 # Implementation Plan
 
-- [ ] 1. Lock current behavior with regression tests
+- [x] 1. Lock current behavior with regression tests
 - [x] 1.1 Add characterization tests for existing usage-authority timing
   - Prove logical request rules currently execute per backend attempt under failover and parallel racing.
   - Prove loser cleanup can release operator exposure after provider work has begun.
   - Prove request mutation may occur after the current cost reservation point.
   - _Requirements: 2.2, 5.3, 8.1, 8.2, 8.4, 8.5, 9.2, 9.3_
-- [ ] 1.2 Add monetary and token-component regression tests
+- [x] 1.2 Add monetary and token-component regression tests
   - Cover omitted output limits, explicit zero provider cost, explicit zero rates, overflow, cache subcomponents, reasoning subcomponents, and inferred totals.
   - Require failures before implementation changes so each defect has an executable proof.
   - _Requirements: 3.6, 3.7, 3.8, 6.3, 6.4, 6.5, 7.2, 7.3_
@@ -167,3 +167,8 @@
   - Validate OpenAI, Anthropic, Gemini, and other supported frontend semantics against the same checkpoint and authority contracts.
   - Include crash recovery, cancellation, late correction, malformed external provider, privacy, and compatibility cases.
   - _Requirements: 15.9, 17.1, 17.2, 17.3, 17.5, 17.6, 17.8, 17.9_
+
+## Implementation Notes
+
+- Phase 1.2 locks current defects as green characterization tests; `TestPhase12_desired*CurrentlyAbsent` tripwires fail once Phase 2 desired semantics land and must be inverted/deleted with the characterization assertions.
+- Phase 2 flip targets: (1) `EstimateCost` authoritative zero provider cost and explicit-zero rates without `fallbackPrice`; (2) checked money multiply; (3) total inference without double-counting cache/reasoning subcomponents in domain, streamusage, and `attemptAuthorityUsageAmount`; (4) omitted max-output spend path must not reserve input-only / zero future output.
