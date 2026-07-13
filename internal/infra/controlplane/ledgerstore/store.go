@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -223,7 +224,7 @@ func (s *DurableStore) Append(ctx context.Context, ev cp.Event) (cp.RecordResult
 	}
 
 	placeholderList := s.placeholderList(len(args))
-	sqlStr := fmt.Sprintf("INSERT INTO control_plane_events(%s) VALUES(%s) RETURNING id", insertColumns, placeholderList)
+	sqlStr := "INSERT INTO control_plane_events(" + insertColumns + ") VALUES(" + placeholderList + ") RETURNING id"
 	rows, err := s.sqlDB.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		if isUniqueViolation(err) && ev.SourceEventKey != "" {
@@ -295,7 +296,7 @@ func (s *DurableStore) queryPrefix() string { return "" }
 
 func (s *DurableStore) placeholder(n int) string {
 	if s.dialect == dialect.PG {
-		return fmt.Sprintf("$%d", n)
+		return "$" + strconv.Itoa(n)
 	}
 	return "?"
 }
@@ -304,7 +305,7 @@ func (s *DurableStore) placeholderList(count int) string {
 	if s.dialect == dialect.PG {
 		parts := make([]string, count)
 		for i := range count {
-			parts[i] = fmt.Sprintf("$%d", i+1)
+			parts[i] = "$" + strconv.Itoa(i+1)
 		}
 		return strings.Join(parts, ", ")
 	}
@@ -373,22 +374,22 @@ type whereBuilder struct {
 func newWhereBuilder(d dialect.Name) *whereBuilder { return &whereBuilder{dialect: d} }
 
 func (w *whereBuilder) eq(column string, arg any) {
-	w.clauses = append(w.clauses, fmt.Sprintf("%s = %s", column, w.placeholder()))
+	w.clauses = append(w.clauses, column+" = "+w.placeholder())
 	w.args = append(w.args, arg)
 }
 
 func (w *whereBuilder) gte(column string, arg any) {
-	w.clauses = append(w.clauses, fmt.Sprintf("%s >= %s", column, w.placeholder()))
+	w.clauses = append(w.clauses, column+" >= "+w.placeholder())
 	w.args = append(w.args, arg)
 }
 
 func (w *whereBuilder) lt(column string, arg any) {
-	w.clauses = append(w.clauses, fmt.Sprintf("%s < %s", column, w.placeholder()))
+	w.clauses = append(w.clauses, column+" < "+w.placeholder())
 	w.args = append(w.args, arg)
 }
 
 func (w *whereBuilder) lte(column string, arg any) {
-	w.clauses = append(w.clauses, fmt.Sprintf("%s <= %s", column, w.placeholder()))
+	w.clauses = append(w.clauses, column+" <= "+w.placeholder())
 	w.args = append(w.args, arg)
 }
 
@@ -401,7 +402,7 @@ func (w *whereBuilder) addRaw(clause string) { w.clauses = append(w.clauses, cla
 func (w *whereBuilder) placeholder() string {
 	w.n++
 	if w.dialect == dialect.PG {
-		return fmt.Sprintf("$%d", w.n)
+		return "$" + strconv.Itoa(w.n)
 	}
 	return "?"
 }

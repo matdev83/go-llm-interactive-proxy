@@ -25,7 +25,7 @@ func (s *DurableStore) Events(ctx context.Context, q cp.EventQuery) (cp.Page[cp.
 	}
 	w.applyCommon(q.Common, s.unsupportedFields)
 	if cur.LastSeq > 0 {
-		w.addRaw(fmt.Sprintf("id > %s", w.placeholder()))
+		w.addRaw("id > " + w.placeholder())
 		w.args = append(w.args, cur.LastSeq)
 	}
 
@@ -155,7 +155,7 @@ func (s *DurableStore) Attempts(ctx context.Context, q cp.AttemptQuery) (cp.Page
 	}
 	w.applyCommon(q.Common, s.unsupportedFields)
 	if cur.LastSeq > 0 {
-		w.addRaw(fmt.Sprintf("id > %s", w.placeholder()))
+		w.addRaw("id > " + w.placeholder())
 		w.args = append(w.args, cur.LastSeq)
 	}
 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC LIMIT " + w.placeholder()
@@ -211,7 +211,7 @@ func (s *DurableStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.U
 	}
 	w.applyCommon(q.Common, s.unsupportedFields)
 	if cur.LastSeq > 0 {
-		w.addRaw(fmt.Sprintf("id > %s", w.placeholder()))
+		w.addRaw("id > " + w.placeholder())
 		w.args = append(w.args, cur.LastSeq)
 	}
 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC LIMIT " + w.placeholder()
@@ -328,7 +328,7 @@ func (s *DurableStore) PolicyAudit(ctx context.Context, q cp.EvidenceQuery) (cp.
 	}
 	w.applyCommon(q.Common, s.unsupportedFields)
 	if cur.LastSeq > 0 {
-		w.addRaw(fmt.Sprintf("id > %s", w.placeholder()))
+		w.addRaw("id > " + w.placeholder())
 		w.args = append(w.args, cur.LastSeq)
 	}
 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC LIMIT " + w.placeholder()
