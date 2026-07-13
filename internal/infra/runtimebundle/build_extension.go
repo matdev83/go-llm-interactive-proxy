@@ -35,9 +35,36 @@ type extensionRuntime struct {
 // exec-cell closure: the caller declares the executor cell and passes a provider
 // so the snapshot's auxiliary client can resolve the executor after it is
 // constructed (snapshot is built before the executor; see [Build]).
-func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime) *extensionRuntime {
-	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp)
+//
+// policyObs is the pre-assembled policy observer chain (operator observers plus
+// the control-plane policy observer adapter, when enabled). It is assembled once
+// in [Build] via [assemblePolicyObserverChain] so the usage-authority evidence
+// sink can fan to the same chain instance the runtime snapshot uses, avoiding
+// duplicate control-plane events for authority decisions.
+func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer) *extensionRuntime {
+	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs)
 	return &extensionRuntime{Snap: snap}
+}
+
+// assemblePolicyObserverChain builds the policydecision observer chain shared by
+// the runtime snapshot and the usage-authority evidence sink. The control-plane
+// policy observer adapter is prepended (when enabled) so authority decisions
+// project into the control-plane ledger as CategoryPolicy events alongside
+// operator-supplied observers. Returns NoopObserver when neither is configured.
+func assemblePolicyObserverChain(opts *BuildOptions, cp *controlPlaneRuntime) policydecision.Observer {
+	var policyObs policydecision.Observer = policydecision.NoopObserver{}
+	cpPolicyObs := cp.policyObserver()
+	if opts != nil && len(opts.Policy.PolicyObservers) > 0 {
+		chain := make([]policydecision.Observer, 0, len(opts.Policy.PolicyObservers)+1)
+		if cpPolicyObs != nil {
+			chain = append(chain, cpPolicyObs)
+		}
+		chain = append(chain, opts.Policy.PolicyObservers...)
+		policyObs = policydecision.NewChainObserver(chain...)
+	} else if cpPolicyObs != nil {
+		policyObs = cpPolicyObs
+	}
+	return policyObs
 }
 
 func buildRuntimeSnapshot(
@@ -47,6 +74,7 @@ func buildRuntimeSnapshot(
 	nowFn func() time.Time,
 	execRunnerProvider func() auxreq.ExecutorRunner,
 	cp *controlPlaneRuntime,
+	policyObs policydecision.Observer,
 ) *extensions.RequestRuntimeSnapshot {
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.Extensions.WorkspaceResolvers) > 0 {
@@ -111,18 +139,6 @@ func buildRuntimeSnapshot(
 	var trafficRedactors []traffic.Redactor
 	if len(opts.Extensions.TrafficRedactors) > 0 {
 		trafficRedactors = slices.Clone(opts.Extensions.TrafficRedactors)
-	}
-	var policyObs policydecision.Observer = policydecision.NoopObserver{}
-	cpPolicyObs := cp.policyObserver()
-	if len(opts.Policy.PolicyObservers) > 0 {
-		chain := make([]policydecision.Observer, 0, len(opts.Policy.PolicyObservers)+1)
-		if cpPolicyObs != nil {
-			chain = append(chain, cpPolicyObs)
-		}
-		chain = append(chain, opts.Policy.PolicyObservers...)
-		policyObs = policydecision.NewChainObserver(chain...)
-	} else if cpPolicyObs != nil {
-		policyObs = cpPolicyObs
 	}
 	var budgetSrc extensions.TimeoutBudgetSource = extensions.DefaultTimeoutBudgetSource{}
 	if opts.Policy.PolicyTimeoutBudgetSource != nil {

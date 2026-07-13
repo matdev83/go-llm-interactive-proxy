@@ -189,11 +189,13 @@ type completedResponse struct {
 			Text string `json:"text"`
 		} `json:"content"`
 	} `json:"output"`
-	Usage struct {
-		InputTokens  int64 `json:"input_tokens"`
-		OutputTokens int64 `json:"output_tokens"`
-		TotalTokens  int64 `json:"total_tokens"`
-	} `json:"usage"`
+	Usage *completedUsage `json:"usage"`
+}
+
+type completedUsage struct {
+	InputTokens  *int64 `json:"input_tokens"`
+	OutputTokens *int64 `json:"output_tokens"`
+	TotalTokens  *int64 `json:"total_tokens"`
 }
 
 func (r completedResponse) outputText() string {
@@ -210,20 +212,36 @@ func (r completedResponse) outputText() string {
 
 func (r completedResponse) usageEvent() *lipapi.Event {
 	u := r.Usage
-	if u.InputTokens == 0 && u.OutputTokens == 0 && u.TotalTokens == 0 {
+	if u == nil {
+		return nil
+	}
+	presence := lipapi.UsagePresence{
+		InputTokens:  u.InputTokens != nil,
+		OutputTokens: u.OutputTokens != nil,
+		TotalTokens:  u.TotalTokens != nil,
+	}
+	if !presence.Any() {
 		return nil
 	}
 	return &lipapi.Event{
-		Kind:         lipapi.EventUsageDelta,
-		InputTokens:  safecast.IntFromInt64Clamp(u.InputTokens),
-		OutputTokens: safecast.IntFromInt64Clamp(u.OutputTokens),
-		TotalTokens:  safecast.IntFromInt64Clamp(u.TotalTokens),
+		Kind:          lipapi.EventUsageDelta,
+		InputTokens:   completedUsageValue(u.InputTokens),
+		OutputTokens:  completedUsageValue(u.OutputTokens),
+		TotalTokens:   completedUsageValue(u.TotalTokens),
+		UsagePresence: presence,
 		Accounting: lipapi.UsageAccountingMetadata{
 			Plane:     lipapi.UsagePlaneProviderBillable,
 			Source:    lipapi.UsageSourceProviderReported,
 			Authority: lipapi.UsageAuthorityAuthoritative,
 		},
 	}
+}
+
+func completedUsageValue(value *int64) int {
+	if value == nil {
+		return 0
+	}
+	return safecast.IntFromInt64Clamp(*value)
 }
 
 func (m *codexEventMapper) handleOutputItemDone(data string) error {

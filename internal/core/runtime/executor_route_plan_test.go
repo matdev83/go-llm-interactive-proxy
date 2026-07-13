@@ -108,7 +108,7 @@ func TestBuildRoutePlan_initializesBudgetAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildRoutePlan: %v", err)
 	}
-	if plan.budget == nil || plan.budget.max != 5 || plan.budget.used != 0 {
+	if plan.budget == nil || plan.budget.max != 5 || plan.budget.usedNow() != 0 {
 		t.Fatalf("budget: got %+v", plan.budget)
 	}
 	if plan.session == nil || !plan.session.FirstRequestConsumed {

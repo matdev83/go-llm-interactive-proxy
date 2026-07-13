@@ -27,6 +27,17 @@ func opErr(op string, err error) error {
 	return fmt.Errorf("securesession/bunstore %s: %w", op, err)
 }
 
+// marshalJSONText marshals v as JSON text suitable for TEXT columns.
+// Passing []byte to PostgreSQL binds as BYTEA and stores hex-escaped values
+// that fail json.Unmarshal when read back as strings.
+func marshalJSONText(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // Store persists secure-session state using Bun.
 type Store struct {
 	db   *bun.DB
@@ -307,11 +318,11 @@ func (s *Store) AppendAttemptTrace(ctx context.Context, trace domain.AttemptTrac
 		return err
 	}
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		settingsJSON, err := json.Marshal(trace.Settings)
+		settingsJSON, err := marshalJSONText(trace.Settings)
 		if err != nil {
 			return opErr("marshal settings", err)
 		}
-		traceJSON, err := json.Marshal(trace)
+		traceJSON, err := marshalJSONText(trace)
 		if err != nil {
 			return opErr("marshal trace", err)
 		}
@@ -354,7 +365,7 @@ func (s *Store) UpdateAttemptOutcome(ctx context.Context, outcome domain.Attempt
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	outcomeJSON, err := json.Marshal(outcome)
+	outcomeJSON, err := marshalJSONText(outcome)
 	if err != nil {
 		return opErr("marshal outcome", err)
 	}
@@ -558,7 +569,7 @@ func (s *Store) AddUsage(ctx context.Context, delta domain.UsageDelta) error {
 			if existing.BLegID == acct.BLegID {
 				acct = domain.MergeAttemptAccounting(existing, acct)
 			}
-			acctJ, err := json.Marshal(acct)
+			acctJ, err := marshalJSONText(acct)
 			if err != nil {
 				return opErr("marshal accounting", err)
 			}

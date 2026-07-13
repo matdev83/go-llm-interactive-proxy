@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -329,6 +330,15 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 				Detail: "interleaved executor handoff aborted",
 			})
 		}
+		// Release the executor-leg usage-authority reservation. On this abort path
+		// s.executor is still nil (it is only assigned on the success branch of
+		// beginExecutorContinuation), so the normal closeActiveInner/finishWithCleanup
+		// executor cleanup never runs for this exec stream and the freshly admitted
+		// exec.authority would otherwise leak. The authorityLifecycle owner's Release is a
+		// no-op when the reservation is inactive/empty or already settled. Mirrors the
+		// sibling L1/L8 release sites: ReleaseKindSwallowed, since the aborted attempt
+		// produced no client-facing output before being discarded.
+		exec.authority.Release(cleanupCtx, authorityapp.ReleaseKindSwallowed)
 		exec.markFinished()
 	}
 	s.closeThinkerInner(ctx)

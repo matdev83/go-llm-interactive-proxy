@@ -40,6 +40,7 @@ Symlinked account files inside the managed-OAuth storage directory are skipped d
 | `oauth_client_id` | OAuth client id (OpenAI Codex CLI default) |
 | `account_id` | `ChatGPT-Account-Id` header |
 | `default_reasoning_effort` | Default reasoning effort for requests |
+| `default_verbosity` | Default verbosity (`low`, `medium`, or `high`) for requests |
 | `transport` | `https` (default), `auto`, or `websocket` |
 | `experimental_websocket` | Required opt-in for `transport: auto` or `transport: websocket` |
 | `websocket_fallback_cooldown_seconds` | Auto-mode cooldown after a pre-output WebSocket failure (default 300) |
@@ -57,7 +58,20 @@ Symlinked account files inside the managed-OAuth storage directory are skipped d
 | `gpt55_downgrade_target_model` | Target model for free-plan downgrade (default `gpt-5.4`) |
 | `plan_type_hint` | Optional plan hint for proactive downgrade tests/local overrides |
 
-Without `models`, the connector exposes a built-in Codex model list: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`.
+Without `models`, the connector advertises the auto-discovered Codex model
+catalog. At startup the proxy runs `codex debug models` and parses the routable
+model slugs (and per-model reasoning-effort settings); on any failure (or when
+`codex_model_catalog.enabled: false`) it falls back to a shipped embedded
+snapshot (`internal/core/codexcatalog/codex_model_catalog.json`). No model slugs
+are hardcoded in the connector. See the top-level `codex_model_catalog` config
+section to disable discovery, override the fallback path, or pin the codex
+binary. The Codex app-server backend additionally advertises the `auto` routing
+sentinel (the app-server resolves the actual model server-side).
+
+> Backward-incompatible: legacy Codex slugs the CLI no longer advertises (e.g.
+> `gpt-5.3-codex`, `gpt-5.1-codex`, `gpt-oss-120b`) are no longer in the
+> built-in inventory. To keep them, ship a custom fallback JSON (same `codex
+> debug models` format) and set `codex_model_catalog.fallback_path`.
 
 ## Transport
 
@@ -84,7 +98,7 @@ routes:
   default: "openai-codex:gpt-5.5"
 ```
 
-Bracket parameters such as `?reasoning_effort=high` are supported in route selectors.
+Bracket parameters such as `?reasoning_effort=high&verbosity=low` are supported in route selectors.
 
 ## Per-request routing
 
@@ -92,11 +106,11 @@ A client can override the configured default route per request by putting a full
 selector in the request body `model` field, with optional URI parameters:
 
 ```json
-{ "model": "openai-codex:gpt-5.5?reasoning_effort=low", "input": "ping" }
+{ "model": "openai-codex:gpt-5.5?reasoning_effort=low&verbosity=high", "input": "ping" }
 ```
 
 The `openai-codex:` prefix selects the backend, the model name selects any model (the
-builtin inventory lists `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`;
+built-in inventory comes from the auto-discovered `codex debug models` catalog;
 arbitrary model strings can still be routed even if not listed), and the `reasoning_effort`
 URI parameter is converted into the canonical call options and then into the Codex payload
 `reasoning.effort` field. An explicit `X-LIP-Route` header, when present, takes precedence
@@ -104,11 +118,10 @@ over the body `model`. A bare model name without a backend prefix still falls ba
 configured default route.
 
 URI parameters are explicit routing directives and **override** any corresponding value
-set elsewhere: a `?reasoning_effort=xhigh` on the selector wins over a `reasoning_effort`
-field in the request body and over the backend's `default_reasoning_effort`. A parameter
-absent from the selector leaves the other value in effect. The same override rule applies
-to `temperature`, `top_p`, `max_output_tokens`, and `parallel_tool_calls` when present in
-the selector.
+set elsewhere: `?reasoning_effort=xhigh&verbosity=high` wins over matching request-body
+values and over `default_reasoning_effort`/`default_verbosity`. A parameter absent from the
+selector leaves the other value in effect. The Codex HTTP payload emits verbosity as
+`text.verbosity`.
 
 ## Unsupported generation parameters
 

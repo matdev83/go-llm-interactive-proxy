@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/checkcfg"
@@ -390,13 +391,20 @@ func inventoryProvider(cfg Config) modelinventory.Provider {
 	}
 	return modelinventory.StaticProvider{
 		Source: modelinventory.SourceStaticBuiltin,
-		Models: builtinModels(),
+		Models: catalogInventoryModels(cfg.ModelCatalog),
 	}
 }
 
-func builtinModels() []modelinventory.Model {
-	out := make([]modelinventory.Model, 0, len(builtinCodexModelIDs))
-	for _, id := range builtinCodexModelIDs {
+// catalogInventoryModels builds the built-in inventory from the auto-discovered
+// catalog's routable slugs. When the catalog is nil (e.g. tests without DI),
+// the shipped fallback snapshot is loaded so no slugs are hardcoded here.
+func catalogInventoryModels(cat *codexcatalog.Catalog) []modelinventory.Model {
+	slugs := codexcatalog.RoutableSlugsOrFallback(cat)
+	if len(slugs) == 0 {
+		return []modelinventory.Model{}
+	}
+	out := make([]modelinventory.Model, 0, len(slugs))
+	for _, id := range slugs {
 		out = append(out, modelinventory.Model{
 			CanonicalID: ID + "/" + id,
 			NativeID:    id,
@@ -404,13 +412,6 @@ func builtinModels() []modelinventory.Model {
 		})
 	}
 	return out
-}
-
-var builtinCodexModelIDs = []string{
-	"gpt-5.5",
-	"gpt-5.4",
-	"gpt-5.4-mini",
-	"gpt-5.3-codex-spark",
 }
 
 func newConfigErrorBackend(err error) execbackend.Backend {

@@ -26,6 +26,31 @@ func (b *attemptBudget) tryAcquire() bool {
 	return true
 }
 
+// release refunds a previously acquired slot. It guards against underflow so it is
+// safe on failure paths where the preceding tryAcquire may or may not have run.
+func (b *attemptBudget) release() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.used > 0 {
+		b.used--
+	}
+}
+
+// usedNow returns the current number of acquired slots under the mutex. Use this
+// instead of reading the guarded used field directly so callers (including
+// tests) avoid data races on the attempt budget.
+func (b *attemptBudget) usedNow() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.used
+}
+
 func (e *Executor) effectiveMaxAttempts() int {
 	if e == nil || e.MaxAttempts <= 0 {
 		return 3

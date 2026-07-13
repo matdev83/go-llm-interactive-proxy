@@ -78,7 +78,7 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 #### Acceptance Criteria
 1. When a request can be evaluated before backend execution, the LLM Interactive Proxy shall make a preflight accounting decision before committing protected upstream work.
 2. When a strict quota or budget rule requires reservation, the LLM Interactive Proxy shall reserve the request's enforceable estimated usage or spend before allowing backend execution.
-3. If a required reservation cannot be created before backend execution, the LLM Interactive Proxy shall apply the matching rule's configured reservation-failure behavior.
+3. If an atomic reservation check determines that a matching strict window lacks capacity, the LLM Interactive Proxy shall deny before backend execution regardless of fail-open posture; reservation-failure behavior applies only when reservation infrastructure or required reservation state is unavailable.
 4. When a preflight decision denies a request, the LLM Interactive Proxy shall record that no backend attempt was committed because of the accounting decision.
 5. When a preflight decision clamps a requested maximum output or otherwise reduces reserved exposure, the LLM Interactive Proxy shall record the clamp reason and effective reserved amount in operator evidence.
 6. Where the request estimate is unavailable, invalid, or outside supported accounting dimensions, the LLM Interactive Proxy shall apply the matching rule's configured estimate-unavailable behavior.
@@ -106,6 +106,10 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 #### Acceptance Criteria
 1. When accounting evidence is provider-reported or provider-counted and marked authoritative, the LLM Interactive Proxy shall be able to use that evidence as enforceable accounting authority for matching rules.
 2. When accounting evidence is locally estimated, policy-reserved, proxy-adjusted, advisory, delegated, or unavailable, the LLM Interactive Proxy shall identify the authority level before using it for enforcement.
+2a. The LLM Interactive Proxy shall track token/request usage authority independently from monetary-cost authority, and authoritative tokens shall not promote an estimated or absent monetary cost to authoritative cost.
+2b. The LLM Interactive Proxy shall track whether an authoritative monetary cost value is present, including an explicit authoritative zero, so a missing cost remains reconcilable later.
+2c. The LLM Interactive Proxy shall track authority independently for each enforceable token unit, preserve explicitly reported authoritative zero usage, and leave unreported units estimated and eligible for later reconciliation.
+2d. Monetary settlement authority shall update only monetary state and shall not promote token authority for any unit absent from the provider reading.
 3. Where a rule requires authoritative usage or cost, if only estimated or unavailable evidence exists, the LLM Interactive Proxy shall apply that rule's configured authority-unavailable behavior.
 4. Where a rule allows estimated accounting authority, the LLM Interactive Proxy shall mark enforcement evidence as estimated and preserve later authoritative reconciliation when available.
 5. If two accounting sources conflict for the same enforceable plane, the LLM Interactive Proxy shall resolve the enforceable amount deterministically and record the conflict in operator evidence.
@@ -126,8 +130,8 @@ Today the Go runtime can count tokens, reconcile usage planes, estimate cost fro
 **Objective:** As an operator, I want accounting authority failures to behave predictably, so that availability and cost-control trade-offs are explicit.
 
 #### Acceptance Criteria
-1. Where an accounting rule declares fail-closed behavior, if required accounting state, reservation, usage, cost, or evidence recording is unavailable before protected upstream work starts, the LLM Interactive Proxy shall deny or fail the affected lifecycle step with a stable accounting-failure reason.
-2. Where an accounting rule declares fail-open behavior, if required accounting state, reservation, usage, cost, or evidence recording is unavailable, the LLM Interactive Proxy shall continue the affected lifecycle step and record skipped enforcement evidence.
+1. Where an accounting rule declares fail-closed behavior, if required accounting state, reservation infrastructure, usage, cost, or best-effort evidence recording is unavailable before protected upstream work starts, the LLM Interactive Proxy shall deny or fail the affected lifecycle step with a stable accounting-failure reason.
+2. Where an accounting rule declares fail-open behavior, if required accounting state, reservation infrastructure, usage, cost, or best-effort evidence recording is unavailable, the LLM Interactive Proxy shall continue the affected lifecycle step and record skipped enforcement evidence; deterministic capacity exhaustion and evidence configured as required pre-work prerequisites shall still deny.
 3. When accounting enforcement exceeds its configured evaluation budget, the LLM Interactive Proxy shall apply the applicable rule's failure behavior rather than waiting indefinitely.
 4. When the client request context is canceled, the LLM Interactive Proxy shall stop accounting work that is no longer needed and shall not convert cancellation into an unrelated accounting denial.
 5. When accounting authority is enabled, the LLM Interactive Proxy shall expose whether the authority is ready, degraded, unavailable, or disabled before operators rely on enforcement outcomes.

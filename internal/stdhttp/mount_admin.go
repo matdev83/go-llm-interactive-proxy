@@ -107,3 +107,59 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 		log.InfoContext(logCtx, "control-plane query mounted", "path", base)
 	}
 }
+
+// accountingAuthorityQueryMount carries inputs for [mountAccountingAuthorityQuery].
+type accountingAuthorityQueryMount struct {
+	LogCtx context.Context
+	Mux    *http.ServeMux
+	Cfg    *config.Config
+	Log    *slog.Logger
+	Built  *runtimebundle.Built
+}
+
+// mountAccountingAuthorityQuery mounts the protected authority status and
+// bounded query routes only when the authority capability and diagnostics
+// shared-secret posture are explicitly configured.
+func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
+	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	logCtx := in.LogCtx
+	if mux == nil || cfg == nil {
+		return
+	}
+	if !config.AuthorityQueryEffectivelyExposed(cfg) {
+		return
+	}
+	if strings.TrimSpace(cfg.Diagnostics.SharedSecret) == "" {
+		if log != nil {
+			log.WarnContext(logCtx, "accounting authority query config enabled but diagnostics shared_secret is empty; mounting disabled",
+				slog.String("component", "accounting_authority"),
+				slog.String("notice", "shared_secret_required"),
+			)
+		}
+		return
+	}
+	if built == nil || built.UsageAuthority == nil {
+		if log != nil {
+			log.WarnContext(logCtx, "accounting authority query config enabled but no authority service wired; mounting disabled",
+				slog.String("component", "accounting_authority"),
+				slog.String("notice", "authority_service_unavailable"),
+			)
+		}
+		return
+	}
+	base := strings.TrimSuffix(strings.TrimSpace(cfg.Accounting.Authority.Query.PathPrefix), "/")
+	if base == "" {
+		return
+	}
+	handler := cpadmin.NewAccountingAuthorityHandler(cpadmin.AuthorityOptions{
+		Queries:         built.UsageAuthority,
+		DefaultPageSize: cfg.Accounting.Authority.Query.DefaultPageSize,
+		MaxPageSize:     cfg.Accounting.Authority.Query.MaxPageSize,
+	})
+	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(base, handler))
+	mux.Handle(base, protected)
+	mux.Handle(base+"/", protected)
+	if log != nil {
+		log.InfoContext(logCtx, "accounting authority query mounted", "path", base)
+	}
+}

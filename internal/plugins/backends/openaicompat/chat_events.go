@@ -65,7 +65,7 @@ func ChatCompletionEvents(comp openai.ChatCompletion) []lipapi.Event {
 		}
 	}
 
-	if comp.JSON.Usage.Valid() && (comp.Usage.PromptTokens > 0 || comp.Usage.CompletionTokens > 0 || comp.Usage.TotalTokens > 0) {
+	if comp.JSON.Usage.Valid() {
 		events = append(events, openaiusage.ChatUsageEvent(comp.Usage))
 	}
 

@@ -87,9 +87,11 @@ func TestEventUsageDelta_jsonRoundTrip(t *testing.T) {
 		CostNanoUnits:    1200,
 		Currency:         "USD",
 		CostSource:       "provider",
+		CostPresent:      true,
 		ReasoningTokens:  3,
 		CacheWriteTokens: 4,
 		TotalTokens:      7,
+		UsagePresence:    lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true},
 	}
 
 	raw, err := json.Marshal(in)
@@ -105,6 +107,12 @@ func TestEventUsageDelta_jsonRoundTrip(t *testing.T) {
 	}
 	if out.Accounting.Plane != lipapi.UsagePlaneProviderBillable || out.UsageScopes[0].Accounting.Source != lipapi.UsageSourceLocalTokenizer {
 		t.Fatalf("accounting metadata: %#v", out)
+	}
+	if out.UsagePresence != in.UsagePresence {
+		t.Fatalf("usage presence: got %+v, want %+v", out.UsagePresence, in.UsagePresence)
+	}
+	if !out.CostPresent {
+		t.Fatal("cost presence: got false, want true")
 	}
 }
 

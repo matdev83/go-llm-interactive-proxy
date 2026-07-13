@@ -7,9 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,6 +24,7 @@ type openAICodexBackendYAML struct {
 	OAuthTokenURL                         string   `yaml:"oauth_token_url"`
 	OAuthClientID                         string   `yaml:"oauth_client_id"`
 	DefaultReasoningEffort                string   `yaml:"default_reasoning_effort"`
+	DefaultVerbosity                      string   `yaml:"default_verbosity"`
 	ManagedOAuthEnabled                   bool     `yaml:"managed_oauth_enabled"`
 	ManagedOAuthStoragePath               string   `yaml:"managed_oauth_storage_path"`
 	ManagedOAuthAccounts                  []string `yaml:"managed_oauth_accounts"`
@@ -39,7 +42,7 @@ type openAICodexBackendYAML struct {
 	WebSocketFallbackCooldownSeconds      int      `yaml:"websocket_fallback_cooldown_seconds"`
 }
 
-func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, catalog *codexcatalog.Catalog) (execbackend.Backend, error) {
 	var y openAICodexBackendYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openai-codex backend config: %w", err)
@@ -48,6 +51,10 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 	models, err := openAICodexModelIDsFromYAML(y.Models)
 	if err != nil {
 		return execbackend.Backend{}, err
+	}
+	verbosity, err := lipapi.ParseVerbosityLevel(y.DefaultVerbosity)
+	if err != nil {
+		return execbackend.Backend{}, fmt.Errorf("openai-codex backend config: default_verbosity: %w", err)
 	}
 	primary := cmp.Or(strings.TrimSpace(y.AccessToken), strings.TrimSpace(y.APIKey))
 	_, accessToken := firstAPIKey(primary, y.APIKeys, y.Credentials, keys.OpenAICodex)
@@ -62,6 +69,7 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 		HTTPClient:                        resolveUpstreamHTTP(upstream),
 		Models:                            models,
 		DefaultReasoningEffort:            strings.TrimSpace(y.DefaultReasoningEffort),
+		DefaultVerbosity:                  verbosity,
 		ManagedOAuthEnabled:               y.ManagedOAuthEnabled,
 		ManagedOAuthStoragePath:           strings.TrimSpace(y.ManagedOAuthStoragePath),
 		ManagedOAuthAccounts:              y.ManagedOAuthAccounts,
@@ -86,6 +94,7 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 	if y.WebSocketFallbackCooldownSeconds > 0 {
 		cfg.WebSocketFallbackCooldown = time.Duration(y.WebSocketFallbackCooldownSeconds) * time.Second
 	}
+	cfg.ModelCatalog = catalog
 	return applyConfiguredModelInventory(openaicodex.New(cfg), y.Models)
 }
 

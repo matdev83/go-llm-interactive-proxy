@@ -44,8 +44,10 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client, closers []func(
 	if startedCatalog != nil {
 		vendorCatalogRuntime = startedCatalog.Runtime
 	}
+	codexCatalog, _ := loadCodexModelCatalog(parent, cfg, bctx.Log)
 	backendDeps := pluginreg.BackendFactoryDeps{
 		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
+		CodexModelCatalog:   codexCatalog,
 	}
 
 	if startedCatalog != nil {

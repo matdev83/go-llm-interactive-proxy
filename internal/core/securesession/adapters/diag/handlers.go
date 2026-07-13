@@ -446,7 +446,7 @@ func mapAttemptEvidence(ev domain.AttemptEvidence, pol domain.PolicyMetadata, ra
 }
 
 func settingsSummaryMap(s domain.AttemptSettings) map[string]any {
-	if s.MaxTokens == nil && s.Temperature == nil && s.Timeout == 0 && strings.TrimSpace(s.ReasoningEffort) == "" &&
+	if s.MaxTokens == nil && s.Temperature == nil && s.Timeout == 0 && strings.TrimSpace(s.ReasoningEffort) == "" && strings.TrimSpace(s.Verbosity) == "" &&
 		!s.Streaming && len(s.ToolSummary) == 0 && strings.TrimSpace(s.BackendOptionsDigest) == "" {
 		return nil
 	}
@@ -462,6 +462,9 @@ func settingsSummaryMap(s domain.AttemptSettings) map[string]any {
 	}
 	if strings.TrimSpace(s.ReasoningEffort) != "" {
 		m["reasoning_effort"] = s.ReasoningEffort
+	}
+	if strings.TrimSpace(s.Verbosity) != "" {
+		m["verbosity"] = s.Verbosity
 	}
 	m["streaming"] = s.Streaming
 	if n := len(s.ToolSummary); n > 0 {

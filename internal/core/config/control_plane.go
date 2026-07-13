@@ -79,7 +79,7 @@ type ControlPlaneRetentionConfig struct {
 
 // legalControlPlaneCategories is the set of lifecycle categories that may be
 // marked as required recording (design "Configuration and Readiness Contract").
-var legalControlPlaneCategories = []string{"auth", "session", "attempt", "usage", "policy", "audit"}
+var legalControlPlaneCategories = []string{"auth", "session", "attempt", "usage", "accounting_authority", "policy", "audit"}
 
 // validateControlPlane normalizes defaults and rejects invalid combinations
 // for the control-plane capability (requirement 2.6, 2.9, 5.4, 5.5, 7.1, 7.4,

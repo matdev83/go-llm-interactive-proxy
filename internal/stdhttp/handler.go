@@ -86,6 +86,9 @@ func prepareStandardHandler(
 	mountModelCatalogDiagnostics(modelCatalogDiagnosticsMount{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
 	})
+	mountAccountingAuthorityQuery(accountingAuthorityQueryMount{
+		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+	})
 	mountControlPlaneQuery(controlPlaneQueryMount{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
 	})

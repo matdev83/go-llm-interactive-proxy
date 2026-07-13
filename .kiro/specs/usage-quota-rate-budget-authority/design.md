@@ -14,6 +14,24 @@ The design is a complex brownfield extension. It preserves existing token accoun
 - Emit policy-compatible and control-plane queryable evidence for allow, deny, advisory, reserve, settle, release, overage, and unavailable outcomes.
 - Preserve protocol legality, B2BUA lineage, secure-session authority, and no retry or failover after first client-visible output.
 
+### Remediation Invariants
+
+The implementation and its adapter tests are judged against these invariants, not only against individual method-level tests:
+
+| Invariant | Required proof surface |
+| --- | --- |
+| Capacity exhaustion is a deterministic denial, never infrastructure failure. | Typed capacity outcome and repeated-denial replay tests. |
+| Fail-open applies only to permitted unavailable infrastructure or evidence failures. | Admission failure matrix, including strict capacity and required evidence. |
+| Logical reservations and usage facts are idempotent across retries and instances. | Identical reservation, duplicate settlement, usage correction, and restart tests. |
+| Missing-row creation is serialized safely. | Concurrent rollover and initialization-versus-mutation PostgreSQL tests. |
+| Partial, final, and authoritative corrections converge to one counter result. | Memory/SQLite/PostgreSQL state-machine sequence and durable fact tests. |
+| Token authority and monetary-cost authority are independent. | Provider-token-without-cost and authoritative-zero-cost lifecycle tests. |
+| Every live lookup includes the complete scope identity. | Active-limit matching tests with distinct principals/tenants/labels. |
+| Cleanup operations each receive a fresh bounded context. | Settlement, fallback release, compensation, and reconciliation timeout tests. |
+| Bounded queries perform bounded SQL work. | Targeted active-row lookup, keyset decision query, and history-size benchmark/tests. |
+
+PostgreSQL integration tests are a required proof gate. They may remain skippable for ordinary local unit runs, but `make test-authority-postgres` and CI set `LIP_REQUIRE_POSTGRES=1`; a missing DSN then fails rather than producing a misleading green result.
+
 ### Non-Goals
 
 - Invoices, payment collection, provider billing settlement, cloud marketplace billing, or customer charge calculation.
@@ -131,9 +149,9 @@ graph TB
 - Domain policy: rules, matchers, windows, amounts, decisions, reservations, settlements, idempotency keys, and authority states.
 - App/use-case orchestration: admission/reservation, settlement/release, status queries, readiness, fail-open/fail-closed sequencing, evidence emission.
 - Driving adapters: protected control-plane/admin query routes and runtime executor calls into concrete services.
-- Driven adapters: memory/durable authority stores, config rule source, evidence publishers, cost/usage input adapters.
+- Driven adapters: memory/durable authority stores, config rule source, evidence publishers. Cost and usage estimates are computed by the runtime driving adapter and passed in via `AdmissionInput`/`SettleInput`, not pulled through app ports.
 - Composition root: `internal/infra/runtimebundle` builds stores, rule source, app services, query services, and runtime dependencies.
-- Ports/query seams: authority app defines `RuleSource`, `StateStore`, `EvidenceSink`, `CostEstimator`, `UsageReader`, `Clock`, and `IDGenerator` only where multiple real adapters or fakes are needed.
+- Ports/query seams: authority app defines `RuleSource`, `StateStore`, `EvidenceSink`, and `Clock` only where multiple real adapters or fakes are needed. Cost/usage inputs arrive via `AdmissionInput`/`SettleInput` from the runtime driving adapter; reservation IDs derive from `ReservationKey` (no `IDGenerator` port).
 
 **Project Boundary Questions**
 
@@ -175,7 +193,7 @@ internal/core/usageauthority/
     status.go                # Ready, degraded, unavailable, disabled, advisory-only states
     validate.go              # Pure rule and value validation
   app/
-    ports.go                 # Consumer-owned ports for rules, store, evidence, usage, cost, clock, ids
+    ports.go                 # Consumer-owned rule/store/evidence/clock ports and atomic mutation descriptors
     service.go               # Admission, settlement, release, and status orchestration
     admission.go             # Pre-backend decision and reservation workflow
     settlement.go            # Final and partial usage reconciliation workflow
@@ -185,15 +203,17 @@ internal/core/usageauthority/
 
 internal/infra/usageauthority/
   configsource/
-    source.go                # Config-backed rule source adapter
-    validate.go              # Adapter-level config-to-domain validation helpers
+    source.go                # Immutable config-backed rule source; stamps RuleSnapshot.FetchedAt
   authoritystore/
-    memory.go                # In-memory strict local store and tests
-    schema.go                # Durable authority windows and reservations migration definitions
-    store.go                 # Bun-backed authority store implementation
-    queries.go               # Live status and decision read projections
+    store.go                 # MemoryStore plus shared clone-based mutation core and bounded queries
+    types.go                 # Store projection, reservation records, identity keys, and cloning
+    limit_rows.go            # Rule-to-live-window seeding and fixed-window identity helpers
+    durable.go               # Bun-backed transactional adapter and migrations
+    mutation_log.go          # Transaction write-set captured by the durable flush
     contract/
       contract.go            # Shared store contract tests for memory and durable adapters
+  evidencesink/
+    adapter.go               # Control-plane/policydecision evidence sink adapter
 
 internal/core/config/
   model.go                   # Add `Accounting.Authority` config structs
@@ -202,10 +222,16 @@ internal/core/config/
 internal/core/runtime/
   executor_config.go         # Add authority service handles to AccountingRuntime
   executor_open_attempt.go   # Invoke admission after token preflight and before backend open
-  attempt_stream.go          # Invoke settlement after final or partial usage evidence
+  executor_open_loop.go      # Release swallowed attempts during open-loop cleanup
+  executor_recv_loop.go      # Stream drain loop, output commitment, and swallowed/losing release handling
+  executor_recv_error.go     # Recv error handling, partial accounting, and TTFT/cancellation release
+  executor_recv_handlers.go  # Per-event settlement hooks for final, partial, and completion-gated paths
+  executor_settlement.go     # Final, partial, cancellation, and authoritative settlement orchestration
+  parallel_race.go           # Parallel loser cleanup and release handling
+  authority_lifecycle.go     # Complete reservation-set lifecycle, stage/flag evidence, and idempotency guard
 
 internal/infra/runtimebundle/
-  usage_authority.go         # Build rule source, stores, services, evidence sinks, and closers
+  usage_authority.go         # Build config source, memory/durable store, app service, evidence sink, and closers
   token_accounting.go        # Expose measurement inputs to authority without ownership changes
 
 internal/stdhttp/admin/controlplane/
@@ -224,9 +250,11 @@ internal/archtest/
 - `internal/core/config/validate.go` - validate rule identifiers, safe dimensions, windows, currencies, limits, store mode, startup posture, and protected query preconditions.
 - `internal/core/runtime/executor_config.go` - add authority admission and settlement service references to `AccountingRuntime`.
 - `internal/core/runtime/executor_open_attempt.go` - invoke authority admission only on committed backend-open path, never during route size estimates.
-- `internal/core/runtime/attempt_stream.go` - invoke authority settlement/release after final/partial usage reconstruction and never trigger post-output retries.
-- `internal/infra/runtimebundle/build.go` and related build units - compose authority dependencies and wire status/query routes.
-- `internal/stdhttp/admin/controlplane/handler.go` - mount protected accounting authority routes when enabled.
+- `internal/core/runtime/authority_lifecycle.go` - own settle/release idempotency plus late-lifecycle stage and commitment metadata.
+- `internal/core/runtime/executor_settlement.go` - pass reconstructed final/partial/cancellation evidence into authority settlement.
+- `internal/core/runtime/executor_recv_loop.go` and `internal/core/runtime/executor_recv_error.go` - release swallowed/losing attempts on the actual runtime cleanup paths.
+- `internal/infra/runtimebundle/usage_authority.go` - compose authority rule source, stores, services, and evidence sinks in the runtime bundle.
+- `internal/stdhttp/admin/controlplane/accounting_authority.go` - mount protected accounting-authority status/query routes.
 
 ## System Flows
 
@@ -303,10 +331,10 @@ Strict configured rules require a backing capability that can atomically reserve
 | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7 | Usage breakdown, authority state, and historical vs live distinction | Query Service, Accounting Authority DTOs, Evidence Sink | AuthorityQueries, ControlPlaneQuery | Settlement, Status |
 | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 | Quota windows | Rule Domain, State Store, Admission Service | Reserve, QueryStatus | Admission |
 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6 | Rate windows and retry context | Rule Domain, State Store, Error Mapper | Reserve, DecisionEvidence | Admission |
-| 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 | Budget and spend cap enforcement | Cost Adapter, Rule Domain, State Store | CostEstimator, Reserve | Admission, Settlement |
+| 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 | Budget and spend cap enforcement | Rule Domain, State Store, Runtime Integration | Reserve | Admission, Settlement |
 | 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9 | Preflight admission and reservation | Runtime Integration, Admission Service | Admit | Admission |
 | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9 | Post-stream settlement and release | Settlement Service, State Store, Runtime Integration | Settle, Release | Settlement |
-| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 | Estimated, authoritative, unavailable authority | Usage Input Adapter, Cost Adapter, Rule Domain | UsageEvidence, CostEstimator | Admission, Settlement |
+| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6 | Estimated, authoritative, unavailable authority | Rule Domain, Runtime Integration | Admit, Settle | Admission, Settlement |
 | 9.1, 9.2, 9.3, 9.4, 9.5, 9.6 | Policy-compatible decisions and client-safe outcomes | Evidence Sink, Runtime Error Mapper, Frontend Error Mapping | DecisionEvidence | Admission |
 | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10 | Failure, degraded, startup posture | Readiness Service, Config Validation, Runtimebundle | CheckReadiness, Status | State Lifecycle |
 | 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7 | Concurrency, attempts, streaming invariants | State Store, Settlement Service, Runtime Integration | Reserve, Settle | Admission, Settlement |
@@ -318,7 +346,7 @@ Strict configured rules require a backing capability that can atomically reserve
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
 | Rule Domain | Domain | Pure rule, matcher, amount, and window invariants | 1, 3, 4, 5, 8, 13 | scope DTOs P0 | State |
-| Admission Service | App | Evaluate rules and reserve before backend open | 1, 3, 4, 5, 6, 9, 10, 11 | RuleSource P0, StateStore P0, CostEstimator P1 | Service |
+| Admission Service | App | Evaluate rules and reserve before backend open | 1, 3, 4, 5, 6, 9, 10, 11 | RuleSource P0, StateStore P0 | Service |
 | Settlement Service | App | Reconcile final or partial usage idempotently | 7, 8, 10, 11 | StateStore P0, EvidenceSink P1 | Service |
 | Authority Query Service | App | Serve live status and decisions | 2, 10, 12 | StateStore P0 | Service |
 | Authority State Store | Driven adapter port | Atomic windows, reservations, status, idempotency | 3, 4, 5, 7, 10, 11, 12 | Clock P1 | State |
@@ -339,8 +367,8 @@ Strict configured rules require a backing capability that can atomically reserve
 **Responsibilities and Constraints**
 
 - Represents rule types: quota, rate, budget, and spend cap.
-- Represents dimensions only with safe known/unknown scope values, backend, model, route, and policy labels.
-- Represents amounts as explicit units: requests, input tokens, output tokens, cache-read tokens, cache-write tokens, reasoning tokens, total tokens, and money nano-units with currency.
+- Represents dimensions only with safe known/unknown scope values, backend, model, route, policy labels, and credential. Credential is a first-class authority dimension alongside principal/tenant/workspace/project/department/cost center; the runtime copies safe policy labels and the credential identifier from the scope view into `Dimensions` rather than reading raw bearer/API/OAuth tokens.
+- Represents amounts as explicit units: requests, input tokens, output tokens, cache-read tokens, cache-write tokens, reasoning tokens, total tokens, and money nano-units with currency. Each rule carries its own unit so budget rules reserve money nano-units while quota rules reserve request or token units.
 - Defines v1 fixed-window semantics. Unsupported algorithms are rejected at validation rather than silently treated as fixed windows.
 - Contains no I/O, context, SQL, HTTP, logger, provider, or runtime imports.
 
@@ -366,6 +394,10 @@ Strict configured rules require a backing capability that can atomically reserve
 - Distinguishes live enforceable state, historical evidence, estimated state, authoritative state, advisory state, and unavailable state.
 - Defines idempotency keys so repeated settlement cannot double-count usage, spend, releases, or overage evidence.
 - Keeps surfaced attempts separate from swallowed and losing attempts.
+- Treats a rule whose `AuthorityRequirement` is unmet by the available evidence as MATCHED, not silently excluded. The matched rule yields an authority-unavailable outcome and the app resolves it through the rule's `FailureBehavior` (fail-open continues with skipped-enforcement evidence; fail-closed denies before protected work). Matched-but-unavailable rules still appear in the matched-rule identifier set and operator evidence.
+- Models clamp (spend cap) as carrying an effective max / reduced-exposure amount, not just a label. The decision records the original requested max, the effective max after clamping, and the clamp reason; the runtime mutates the call's max output accordingly so downstream backend work respects the reduced exposure.
+- Classifies an atomic insufficient-capacity result as a deterministic policy denial, never as unavailable reservation infrastructure. Fail-open/fail-closed behavior is consulted only for unavailable state, backing failures, and evaluation timeouts.
+- Treats required pre-work evidence as an unconditional admission prerequisite. Reservation compensation is conditional on a reservation existing, but denial is not.
 
 **Contracts**: State [x]
 
@@ -391,7 +423,6 @@ Strict configured rules require a backing capability that can atomically reserve
 - Inbound: runtime executor - pre-backend admission request (P0)
 - Outbound: RuleSource - current configured rules (P0)
 - Outbound: StateStore - atomic reserve and status reads (P0)
-- Outbound: CostEstimator - estimated spend for budget rules (P1)
 - Outbound: EvidenceSink - policy/control-plane evidence (P1)
 
 **Contracts**: Service [x]
@@ -421,6 +452,9 @@ type AdmissionService interface {
 - Settles, releases, adjusts, or marks reservations idempotently.
 - Records final provider-reported and estimated adjustments without changing already-surfaced client output.
 - Keeps surfaced usage out of losing or swallowed attempt state.
+- Updates accounting windows even when no strict reservation exists for a request that produces usage (advisory or no-reservation paths). Advisory/no-reservation usage still flows through settlement so live windows, decision history, and remaining-limit queries reflect the actual usage rather than only strict-reserved usage.
+- Performs authoritative re-settlement as an adjustment to a prior estimated settlement, not a replacement. The prior estimated amount is preserved in evidence alongside the final authoritative amount, the adjustment delta, and the authority source, so operator queries can explain the difference between the estimated and authoritative enforceable amounts.
+- Runs cancellation settlement on a non-canceled context (`context.WithoutCancel`) so finalization accounting completes after the client request context is canceled. The lifecycle `settled` flag is set only on successful settle or release; a canceled or failed settlement leaves the reservation in its prior state and emits degraded/unavailable evidence rather than marking it settled.
 
 **Contracts**: Service [x]
 
@@ -459,6 +493,7 @@ type QueryService interface {
 - Preconditions: query filters use safe dimensions and bounded pages.
 - Postconditions: disabled/unavailable/advisory-only states are explicit; unsupported filters are reported without widening results.
 - Invariants: historical aggregates are not returned as live remaining-limit authority.
+- Durable decision history uses a transactional filter projection and query-bound keyset cursor so supported filters and page bounds execute in SQL without decoding the historical ledger.
 
 ### Port and Adapter Layer
 
@@ -477,15 +512,15 @@ type QueryService interface {
 type StateStore interface {
     Reserve(ctx context.Context, cmd ReserveCommand) (ReserveResult, error)
     Settle(ctx context.Context, cmd SettleCommand) (SettleResult, error)
-    Release(ctx context.Context, cmd ReleaseCommand) (SettleResult, error)
+    Release(ctx context.Context, cmd ReleaseCommand) (ReleaseResult, error)
     LimitStatus(ctx context.Context, q LimitStatusQuery) (Page[LimitStatusRow], error)
     DecisionHistory(ctx context.Context, q DecisionQuery) (Page[DecisionRow], error)
     CheckReadiness(ctx context.Context) (StoreReadiness, error)
 }
 ```
 
-- Preconditions: commands carry domain-validated rule/window/reservation keys.
-- Postconditions: reserve and settle are atomic per affected window and idempotency key.
+- Preconditions: `ReserveCommand`, `SettleCommand`, and `ReleaseCommand` carry the complete app-owned descriptor set for the matched strict rules of one logical request and B-leg. Each descriptor contains the rule ID, kind, unit/currency, safe dimensions, reservation identity, amount, and source key. Commands carry domain-validated rule/window/reservation keys.
+- Postconditions: `Reserve` updates every matched strict window and reservation row in one atomic set or returns no reservation; `Settle` and `Release` apply the complete descriptor set under one idempotency boundary. Memory publishes its clone only after the set succeeds; the durable adapter commits the locked read-modify-write and mutation log together. No application-level compensating rollback is part of the contract.
 - Invariants: no SQL, Bun, transaction handle, or driver type crosses this port.
 
 #### Config Rule Source
@@ -591,20 +626,29 @@ erDiagram
 
 **Consistency and Integrity**
 
-- `Reserve` updates all matched strict windows and reservation rows atomically or returns no reservation.
-- `Settle` applies final usage once for the same idempotency key and records overage or release adjustments.
-- Advisory decisions may record evidence without mutating strict windows if configured that way.
+- The `AdmissionService` builds one reservation set for every matched strict window; the memory store applies the set on an isolated projection and the durable store commits all limit, reservation, decision, and idempotency mutations in one transaction.
+- `Settle` and `Release` apply the complete reservation set once per source key and record per-rule released, overage, or adjustment deltas. Estimated settlement rows remain immutable; later authoritative sources append at most one adjustment per reservation/source key.
+- Runtime settlement derives explicit usage presence and authority per reserved token unit. Canonical events carry per-counter presence so an authoritative zero remains distinct from an omitted unit; unmarked legacy events retain compatibility inference only. An authoritative reading for one unit cannot promote another unit's estimate, and monetary authority updates cost state only. A shared terminal-state mutex owns the reservation payload, candidate, terminal state, and authority map while serializing settle, release, reset, and reconciliation.
+- Advisory/no-reservation usage is a batch-atomic, per-rule-unit mutation over live windows and decision history; it does not create reservation rows.
+- Fixed windows roll over at their configured boundaries: when the current window expires, a new live limit row with zero counters is created from the current configured rule template and subsequent admission evaluates against it. On durable restart, current rule configuration is reconciled onto persisted rows: configured limits and identities are authoritative, while consumed/reserved/adjustment facts are preserved for the matching logical window. Expired or retired rows remain available for settlement/history but never authorize a new request. Spend-cap admission compares the requested spend with live remaining capacity before reservation and clamps to the smallest matched capacity.
 - Window reset is derived from fixed window boundaries; historical rows remain query-visible according to retention.
 
 ### Physical Data Model
 
-Durable adapters use existing Bun/sql helpers and migrations. Candidate tables:
+Durable adapters use existing Bun/sql helpers and migrations. The current schema keeps the existing JSON persistence shape:
 
-- `usage_authority_windows`: rule ID, dimension hash, dimension JSON summary, window start/end, unit, limit, consumed, reserved, remaining, availability, updated time.
-- `usage_authority_reservations`: reservation ID, idempotency key, trace/A-leg/B-leg/attempt, rule ID, amount, cost, currency, status, created/settled time.
-- `usage_authority_decisions`: decision ID, source key, trace/A-leg/B-leg/attempt, rule IDs, outcome, effect, reason, client category, safe summary, occurred time.
+- `usage_authority_state`: readiness and next decision sequence for the store.
+- `usage_authority_limit_rows`: live rule/window rows keyed by a safe identity key containing rule, correlation, scope, unit/currency, and window bounds.
+- `usage_authority_reservations`: reservation identity, original limit-row key, descriptor amounts/dimensions, lifecycle state, and settlement/release source histories.
+- `usage_authority_decisions`: monotonic decision rows keyed by source key, including released/overage/adjustment deltas and safe window evidence.
 
 Indexes must support rule/window reservation, idempotency lookup, trace/A-leg/B-leg correlation, safe scope dimensions, and bounded decision/status queries.
+
+The durable store uses Bun with a transactional locked read-modify-write pattern for cross-instance atomicity: each `Reserve`, `Settle`, `Release`, and `ApplyUsage` opens a Bun transaction, loads and locks only the operation's reservation, usage fact, state, and affected live-window rows (`SELECT ... FOR UPDATE` on Postgres, `BEGIN IMMEDIATE` on SQLite), applies the mutation through an operation-local `storeCore`, and commits atomically. This keeps mutation cost bounded by the matched rules rather than total historical activity. Reservation updates use serialized pre-images; absent reservation or rolled-over limit inserts never overwrite a concurrent winner, and a create conflict rolls back the complete mutation before one fresh idempotency retry. Same-authority usage updates compare the persisted fact amount inside the transaction, so changed corrections apply their delta while exact replays remain no-ops. Initial seeding uses conflict-safe inserts and cannot overwrite counters created by a concurrent initializer. Startup reconciliation preserves durable accounting facts while applying changed limits and adding current active rows, retrying concurrent current-row creation once. Operation-local cores deep-copy rule-window and limit-template maps so historical recovery cannot restore retired rules globally. A flush failure discards the operation-local projection, so no partial window or reservation state is published.
+
+Multi-rule reservation failures retain the originating rule ID. Deterministic capacity and reservation conflicts deny immediately regardless of fail-open posture. An unavailable fail-open rule becomes unreserved/advisory while the remaining healthy strict rules are retried as one atomic reservation set; an unavailable fail-closed rule denies. Store-wide failures without rule identity retain the aggregate failure posture. Spend-cap capacity uses the store's targeted `ActiveLimit` operation, which derives the exact configured current row key from normalized dimensions and reads at most one durable row; admission never scans or paginates historical limit status. Detached settlement, release, reconciliation, advisory usage, and admission compensation use `cleanup_timeout` (default `2s`) after detaching client cancellation, so cleanup remains possible but never waits indefinitely. A failed settlement creates a fresh bounded context for fallback release rather than sharing the consumed settlement deadline.
+
+Unreserved usage facts are reloaded after affected limit rows serialize concurrent writers. Fact updates use persisted pre-images, absent inserts never overwrite a concurrent creator, and conflicts roll back counters and retry once. Authority and lifecycle-stage precedence make convergence monotonic: authoritative beats estimated, and final-stage facts cannot be replaced by lower-stage partial facts; same-stage amount changes remain valid corrections.
 
 ### Data Contracts and Integration
 

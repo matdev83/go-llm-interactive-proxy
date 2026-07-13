@@ -27,6 +27,7 @@ func buildAttemptTrace(
 	}
 	settings := domain.AttemptSettings{
 		ReasoningEffort: strings.TrimSpace(openCall.Options.ReasoningEffort),
+		Verbosity:       string(openCall.Options.Verbosity),
 		Streaming:       true,
 	}
 	if openCall.Options.Temperature != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -226,6 +227,13 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			ID:      out.bleg.BLegID,
 			Attempt: lifecycleAttempt(out.stream),
 		}); err != nil {
+			// The freshly admitted local out.authority is never tracked on an rs literal on
+			// this branch (the rs is constructed only on success below), so release it here to
+			// avoid leaking the reservation. Mirrors the sibling RegisterBLeg-failure release
+			// in tryReplacementIteration (executor_recv_loop.go): ReleaseKindSwallowed, since
+			// the opened attempt produced no client-facing output and is being discarded.
+			l := newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand)
+			l.Release(ctx, authorityapp.ReleaseKindSwallowed)
 			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 				_ = out.stream.Close()
 			}
@@ -259,6 +267,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		suppressVisibleMemo: true,
 		accounting:          newAttemptAccountingTracker(e.now()),
 		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
+		authority:           newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand),
 		bleg:                out.bleg,
 		cand:                out.cand,
 	}

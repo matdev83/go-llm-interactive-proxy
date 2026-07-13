@@ -34,6 +34,10 @@ type Config struct {
 	ModelAliases   []ModelAliasConfig   `yaml:"model_aliases"`
 	ModelCatalog   ModelCatalogConfig   `yaml:"model_catalog"`
 	ModelInventory ModelInventoryConfig `yaml:"model_inventory"`
+	// CodexModelCatalog controls auto-discovery (`codex debug models`) and the
+	// shipped/override fallback snapshot for the openai-codex and codex
+	// app-server connectors. Defaults to discovery enabled.
+	CodexModelCatalog CodexModelCatalogConfig `yaml:"codex_model_catalog"`
 	// ControlPlane is the optional control-plane persistence/query/event-ledger
 	// capability. Disabled by default; enabled requires explicit startup
 	// validation (see validateControlPlane).
@@ -54,8 +58,9 @@ type AccountingConfig struct {
 	Admin         AccountingAdminConfig         `yaml:"admin"`
 	Observability AccountingObservabilityConfig `yaml:"observability"`
 	// StrictAuthoritative rejects backend wiring unless every configured backend can provide authoritative usage.
-	StrictAuthoritative bool                    `yaml:"strict_authoritative"`
-	Pricing             AccountingPricingConfig `yaml:"pricing"`
+	StrictAuthoritative bool                      `yaml:"strict_authoritative"`
+	Pricing             AccountingPricingConfig   `yaml:"pricing"`
+	Authority           AccountingAuthorityConfig `yaml:"authority"`
 }
 
 type AccountingTokenizerConfig struct {

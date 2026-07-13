@@ -167,6 +167,17 @@ hooks:
 #   refresh_interval: 1h  # minimum 1h; failed refresh keeps the last successful inventory
 #   fetch_timeout: 30s   # per-backend startup/refresh inventory fetch timeout
 
+# Codex model catalog auto-discovery + fallback, shared by the openai-codex and
+# openai-codex-app-server connectors. By default the proxy runs `codex debug
+# models` at startup and uses the parsed model slugs / per-model reasoning
+# efforts; on any failure (or when disabled) it falls back to the shipped
+# embedded snapshot (internal/core/codexcatalog/codex_model_catalog.json).
+# codex_model_catalog:
+#   enabled: true            # run `codex debug models` at startup (default true)
+#   # fallback_path: /etc/codex/catalog.json   # override the shipped snapshot
+#   # codex_binary_path: /usr/local/bin/codex  # explicit codex binary path
+#   timeout: 10s             # `codex debug models` subprocess timeout
+
 continuity:
   in_memory: true
   store: memory
@@ -303,6 +314,7 @@ plugins:
       # account_id: ""       # optional ChatGPT account id header
       # refresh_token: ""    # optional OAuth refresh token
       # default_reasoning_effort: ""  # e.g. medium, high
+      # default_verbosity: ""          # low, medium, or high
       # managed_oauth_enabled: false
       # managed_oauth_storage_path: var/openai_codex_oauth_accounts
       # managed_oauth_selection_strategy: first-available  # first-available | round-robin | session-affinity

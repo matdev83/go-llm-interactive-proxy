@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // closeTrackingTransport is a minimal Transport that records Close calls.
@@ -45,7 +47,7 @@ func TestEnsureProcess_ReusesInitializedRuntime(t *testing.T) {
 
 	proc := newFakeProcess(t)
 	transport := &closeTrackingTransport{}
-	pool.SetProcess(key, proc, transport, "session-existing", "agent-bin")
+	pool.SetProcess(key, proc, transport, "session-existing", "", "agent-bin")
 
 	spawnCalled := false
 	res, err := pool.EnsureProcess(context.Background(), key, SpawnHandshakeStrategy{
@@ -70,6 +72,45 @@ func TestEnsureProcess_ReusesInitializedRuntime(t *testing.T) {
 	}
 	if res.SessionID != "session-existing" {
 		t.Fatalf("SessionID = %q, want %q", res.SessionID, "session-existing")
+	}
+}
+
+func TestEnsureProcess_RestartsWhenProcessConfigChanges(t *testing.T) {
+	t.Parallel()
+	pool := NewRuntimePool(RuntimePoolConfig{})
+	t.Cleanup(func() { _ = pool.Close() })
+
+	key := RuntimeKey{Workspace: "/tmp/p", Model: "agent", ClientSession: "s1"}
+	_, _ = pool.Acquire(key)
+	oldProc := newFakeProcess(t)
+	oldTransport := &closeTrackingTransport{}
+	pool.SetProcess(key, oldProc, oldTransport, "session-low", "low", "agent-bin")
+
+	newProc := newFakeProcess(t)
+	newTransport := &closeTrackingTransport{}
+	spawned := false
+	res, err := pool.EnsureProcess(context.Background(), key, SpawnHandshakeStrategy{
+		ProcessConfigKey: "high",
+		Spawn: func() ([]string, Process, Transport, error) {
+			spawned = true
+			return []string{"agent-bin"}, newProc, newTransport, nil
+		},
+		Handshake: func(context.Context, Transport) (string, error) {
+			return "session-high", nil
+		},
+		LogPrefix: "test-config-change",
+	})
+	if err != nil {
+		t.Fatalf("EnsureProcess: %v", err)
+	}
+	if !spawned || res.Transport != newTransport || res.SessionID != "session-high" {
+		t.Fatalf("expected fresh configured process: spawned=%v result=%+v", spawned, res)
+	}
+	if oldTransport.closeCount() != 1 {
+		t.Fatalf("old transport close count = %d, want 1", oldTransport.closeCount())
+	}
+	if got := pool.Get(key).ProcessConfig(); got != "high" {
+		t.Fatalf("process config = %q, want high", got)
 	}
 }
 
@@ -182,6 +223,115 @@ func TestEnsureProcess_SpawnErrorReturned(t *testing.T) {
 	}
 	if handshakeCalled {
 		t.Fatal("Handshake must not be called when Spawn fails")
+	}
+}
+
+func TestEnsureProcess_RespawnsAfterKillSameConfig(t *testing.T) {
+	t.Parallel()
+	pool := NewRuntimePool(RuntimePoolConfig{})
+	t.Cleanup(func() { _ = pool.Close() })
+
+	key := RuntimeKey{Workspace: "/tmp/p", Model: "agent", ClientSession: "s1"}
+	_, _ = pool.Acquire(key)
+
+	var spawnCount atomic.Int64
+	ensure := func(ctx context.Context) (EnsureProcessResult, error) {
+		proc := newFakeProcess(t)
+		transport := &closeTrackingTransport{}
+		return pool.EnsureProcess(ctx, key, SpawnHandshakeStrategy{
+			ProcessConfigKey: "low",
+			Spawn: func() ([]string, Process, Transport, error) {
+				spawnCount.Add(1)
+				return []string{"agent-bin"}, proc, transport, nil
+			},
+			Handshake: func(context.Context, Transport) (string, error) {
+				return "session-low", nil
+			},
+			LogPrefix: "test-respawn-after-kill",
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if _, err := ensure(ctx); err != nil {
+		t.Fatalf("first EnsureProcess: %v", err)
+	}
+	_ = pool.KillRuntime(key)
+
+	res, err := ensure(ctx)
+	if err != nil {
+		t.Fatalf("EnsureProcess after KillRuntime must respawn (not hang on stale flight): %v", err)
+	}
+	if res.SessionID != "session-low" {
+		t.Fatalf("SessionID = %q, want session-low", res.SessionID)
+	}
+	if spawnCount.Load() != 2 {
+		t.Fatalf("spawn count = %d, want 2 (fresh spawn after kill)", spawnCount.Load())
+	}
+}
+
+func TestEnsureProcess_ConcurrentDifferentProcessConfigsConverge(t *testing.T) {
+	t.Parallel()
+	pool := NewRuntimePool(RuntimePoolConfig{})
+	t.Cleanup(func() { _ = pool.Close() })
+
+	key := RuntimeKey{Workspace: "/tmp/p", Model: "agent", ClientSession: "s1"}
+	_, _ = pool.Acquire(key)
+
+	var spawnCount atomic.Int64
+	ensure := func(ctx context.Context, cfg string) (EnsureProcessResult, error) {
+		proc := newFakeProcess(t)
+		transport := &closeTrackingTransport{}
+		return pool.EnsureProcess(ctx, key, SpawnHandshakeStrategy{
+			ProcessConfigKey: cfg,
+			Spawn: func() ([]string, Process, Transport, error) {
+				spawnCount.Add(1)
+				return []string{"agent-bin"}, proc, transport, nil
+			},
+			Handshake: func(context.Context, Transport) (string, error) {
+				return "session-" + cfg, nil
+			},
+			LogPrefix: "test-config-flight",
+		})
+	}
+
+	// Distinct ProcessConfigKeys must not thrash forever over the shared
+	// RuntimeKey slot. Serialize ensures and retry until each caller's config
+	// is live (or the deadline fires).
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var (
+		wg              sync.WaitGroup
+		resHigh, resLow EnsureProcessResult
+		errHigh, errLow error
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		resHigh, errHigh = ensure(ctx, "high")
+	}()
+	go func() {
+		defer wg.Done()
+		resLow, errLow = ensure(ctx, "low")
+	}()
+	wg.Wait()
+
+	if errHigh != nil {
+		t.Fatalf("high: %v", errHigh)
+	}
+	if errLow != nil {
+		t.Fatalf("low: %v", errLow)
+	}
+	if spawnCount.Load() < 2 {
+		t.Fatalf("expected at least 2 spawns for distinct process configs, got %d", spawnCount.Load())
+	}
+	if resHigh.SessionID != "session-high" {
+		t.Fatalf("high SessionID = %q, want session-high (shared wrong singleflight result)", resHigh.SessionID)
+	}
+	if resLow.SessionID != "session-low" {
+		t.Fatalf("low SessionID = %q, want session-low (shared wrong singleflight result)", resLow.SessionID)
 	}
 }
 

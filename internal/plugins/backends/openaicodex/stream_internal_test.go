@@ -64,6 +64,34 @@ func TestHandleData_responseCreatedAndCompleted_mapsLifecycleAndUsage(t *testing
 	}
 }
 
+func TestHandleData_completedUsagePreservesExplicitZeroFieldPresence(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	completed := `{"type":"response.completed","response":{"id":"resp_mixed_zero","usage":{"input_tokens":5,"output_tokens":0,"total_tokens":5}}}`
+	if err := s.mapper.handleData(completed); err != nil {
+		t.Fatalf("handleData: %v", err)
+	}
+
+	var usage lipapi.Event
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
+		if ev.Kind == lipapi.EventUsageDelta {
+			usage = ev
+			break
+		}
+	}
+	if usage.Kind != lipapi.EventUsageDelta {
+		t.Fatal("missing usage event")
+	}
+	if usage.InputTokens != 5 || usage.OutputTokens != 0 || usage.TotalTokens != 5 {
+		t.Fatalf("usage counters = %+v", usage)
+	}
+	want := lipapi.UsagePresence{InputTokens: true, OutputTokens: true, TotalTokens: true}
+	if usage.UsagePresence != want {
+		t.Fatalf("usage presence = %+v, want %+v", usage.UsagePresence, want)
+	}
+}
+
 func TestHandleData_completedWithoutUsageDoesNotEstimateUsage(t *testing.T) {
 	t.Parallel()
 	s := testCodexStream()

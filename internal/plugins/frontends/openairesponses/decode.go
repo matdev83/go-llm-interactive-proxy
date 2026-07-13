@@ -46,6 +46,7 @@ type wireCreate struct {
 	Temperature   *float64        `json:"temperature"`
 	TopP          *float64        `json:"top_p"`
 	MaxOut        *int            `json:"max_output_tokens"`
+	Text          json.RawMessage `json:"text"`
 	// Metadata may include LIP session keys ([sessionwire.MetaKeyAuthoritativeSessionID]).
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
@@ -62,6 +63,7 @@ var responsesKnownBodyKeys = map[string]bool{
 	"model": true, "stream": true, "input": true, "instructions": true,
 	"tools": true, "tool_choice": true, "parallel_tool_calls": true,
 	"temperature": true, "top_p": true, "max_output_tokens": true, "metadata": true,
+	"text":                 true,
 	"previous_response_id": true, "store": true, "truncation": true,
 }
 
@@ -105,6 +107,10 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	if err != nil {
 		return nil, fmt.Errorf("openairesponses: tool_choice: %w", err)
 	}
+	verbosity, remainingText, err := parseTextConfig(w.Text)
+	if err != nil {
+		return nil, fmt.Errorf("openairesponses: text: %w", err)
+	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
@@ -113,6 +119,9 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 	ext := map[string]json.RawMessage{extModelJSONKey: modelRaw}
 	if b, err := json.Marshal(openrouterwire.FlavorResponses); err == nil {
 		ext[openrouterwire.ExtUpstreamFlavor] = b
+	}
+	if len(remainingText) > 0 {
+		ext[openrouterwire.ExtraBodyExtPrefix+"text"] = remainingText
 	}
 
 	var rawBody map[string]json.RawMessage
@@ -140,6 +149,7 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 			TopP:              w.TopP,
 			MaxOutputTokens:   w.MaxOut,
 			ParallelToolCalls: w.ParallelTools,
+			Verbosity:         verbosity,
 		},
 	}
 	if len(w.Metadata) > 0 {
@@ -149,6 +159,44 @@ func DecodeCreateRequest(body []byte, opts DecodeOptions) (*DecodedCreate, error
 		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)
 	}
 	return &DecodedCreate{Call: call, Stream: w.Stream, Model: model}, nil
+}
+
+// parseTextConfig extracts the canonical Responses text verbosity while
+// returning any other text configuration for provider-specific passthrough.
+func parseTextConfig(raw json.RawMessage) (lipapi.VerbosityLevel, json.RawMessage, error) {
+	if jsonpresence.IsAbsentOrJSONNull(raw) {
+		return "", nil, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		if err == nil {
+			err = errors.New("must be a JSON object")
+		}
+		return "", nil, err
+	}
+	var verbosity lipapi.VerbosityLevel
+	if rawVerbosity, ok := fields["verbosity"]; ok {
+		if jsonpresence.IsPresentNonNullJSON(rawVerbosity) {
+			var value string
+			if err := json.Unmarshal(rawVerbosity, &value); err != nil {
+				return "", nil, fmt.Errorf("verbosity must be a string: %w", err)
+			}
+			parsed, err := lipapi.ParseVerbosityLevel(value)
+			if err != nil {
+				return "", nil, err
+			}
+			verbosity = parsed
+		}
+		delete(fields, "verbosity")
+	}
+	if len(fields) == 0 {
+		return verbosity, nil, nil
+	}
+	remaining, err := json.Marshal(fields)
+	if err != nil {
+		return "", nil, fmt.Errorf("preserve fields: %w", err)
+	}
+	return verbosity, remaining, nil
 }
 
 func parseInstructions(raw json.RawMessage) ([]lipapi.Message, error) {

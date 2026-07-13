@@ -1,0 +1,203 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
+)
+
+// gatedLeakPassGate is a completion gate that passes the original buffered
+// completion through unchanged. It makes the gated path drain a
+// response_finished as the emitted out event (out.Kind == EventResponseFinished),
+// which is the shape that exercises the gated-completion authority leak in
+// handleGatedPath. testPassGate lives in the runtime_test external package, so a
+// package-runtime copy is required to drive handleRecvSuccess directly.
+type gatedLeakPassGate struct{}
+
+func (gatedLeakPassGate) ID() string                        { return "gated-leak-pass" }
+func (gatedLeakPassGate) Order() int                        { return 0 }
+func (gatedLeakPassGate) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (gatedLeakPassGate) Handle(context.Context, completion.Meta, completion.Buffered, completion.Services) (completion.Outcome, error) {
+	return completion.PassOriginalOutcome(), nil
+}
+
+// TestHandleGatedPathAuthorityLeakOnCompletion asserts that a successful gated
+// completion (completion gates active, response_finished drained through
+// handleGatedPath) finalizes the usage-authority reservation the same way the
+// no-gates handleResponseFinishedPath does: a final settle on success, and a
+// ReleaseKindLosing release when the final settle fails. Without the fix,
+// handleGatedPath only records attempt success and marks the stream finished via
+// emitGateDrained; it never runs finalizeTokenAccounting or a final
+// settle/release, so a reserved authority stays locked until the accounting
+// window resets.
+//
+// Three subtests cover the reachable completion shapes:
+//   - settle_success_final_settles: StreamUsage == nil so finalizeTokenAccounting
+//     settles Final and returns ok=false; the reservation must be settled once
+//     (Final) and not released.
+//   - settle_failure_releases: StreamUsage == nil and settle fails; the failed
+//     Final settle must be followed by a ReleaseKindLosing release.
+//   - settle_failure_synthesized_usage_releases: StreamUsage reconstructs usage
+//     so finalizeTokenAccounting returns ok=true (synthesized usage); the failed
+//     Final settle must still be followed by a ReleaseKindLosing release and the
+//     synthesized usage event must be returned to the client.
+func TestHandleGatedPathAuthorityLeakOnCompletion(t *testing.T) {
+	t.Parallel()
+
+	const reservationID = "reservation-gated-leak"
+
+	makeAuth := func(settleErr error) *recordingAuthorityService {
+		return &recordingAuthorityService{
+			admitResult: authorityapp.AdmissionResult{
+				Allowed:        true,
+				Reserved:       true,
+				ReservationID:  reservationID,
+				ReservedAmount: authorityInputAmount(7),
+				PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+			},
+			settleErr: settleErr,
+			status:    controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+		}
+	}
+
+	// setupGatedStream wires a retryRecvStream with a reserved authority and a
+	// completion-gates runtime snapshot carrying the passthrough gate, so a
+	// response_finished dispatched through handleRecvSuccess routes to
+	// handleGatedPath and drains the finish as the emitted out event.
+	setupGatedStream := func(t *testing.T, auth *recordingAuthorityService) (*Executor, *retryRecvStream) {
+		t.Helper()
+		ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
+		bus := hooks.New(hooks.Config{})
+		rs := &retryRecvStream{
+			executor:   ex,
+			bus:        bus,
+			baseline:   lipapi.Call{ID: "request-gated-leak", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+			bleg:       b2bua.BLegRecord{BLegID: "b-leg-gated-leak", Seq: 1},
+			cand:       authorityCandidate(),
+			authority:  testAuthorityLifecycle(ex, attemptAuthorityState{admissionInput: testAuthorityAdmissionInput(7), admissionResult: auth.admitResult}, authorityCandidate()),
+			traceID:    "trace-gated-leak",
+			aLegID:     aLegID,
+			accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
+		}
+		ex.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+			CompletionGates: []completion.Gate{gatedLeakPassGate{}},
+		})
+		return ex, rs
+	}
+
+	// assertSettledNotReleased verifies the normal gated completion settled the
+	// reservation with a single Final settle and did not release it.
+	assertSettledNotReleased := func(t *testing.T, auth *recordingAuthorityService, rs *retryRecvStream, ev lipapi.Event) {
+		t.Helper()
+		if ev.Kind != lipapi.EventResponseFinished {
+			t.Fatalf("event kind = %q, want response_finished (fall-through branch)", ev.Kind)
+		}
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1 (gated completion must finalize authority, not leak)", auth.settleCalls.Load())
+		}
+		if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
+			t.Fatalf("settle kind = %q, want final", got.Kind)
+		}
+		if auth.releaseCalls.Load() != 0 {
+			t.Fatalf("release calls = %d, want 0 (successful final settle must not release)", auth.releaseCalls.Load())
+		}
+		if !rs.authority.Settled() {
+			t.Fatal("expected authoritySettled=true after final settle on gated completion")
+		}
+	}
+
+	// assertReleasedAfterFailedSettle verifies the failed final settle is the
+	// only settle and the reservation was released with ReleaseKindLosing so it
+	// does not stay locked until the accounting window resets.
+	assertReleasedAfterFailedSettle := func(t *testing.T, auth *recordingAuthorityService, rs *retryRecvStream) {
+		t.Helper()
+		if auth.settleCalls.Load() != 1 {
+			t.Fatalf("settle calls = %d, want 1 (single failed final settle)", auth.settleCalls.Load())
+		}
+		if got := auth.lastSettle(); got.Kind != authorityapp.SettlementKindFinal {
+			t.Fatalf("settle kind = %q, want final", got.Kind)
+		}
+		if auth.releaseCalls.Load() != 1 {
+			t.Fatalf("release calls = %d, want 1 (reservation must be released when final settle failed, not leaked)", auth.releaseCalls.Load())
+		}
+		rel := auth.lastRelease()
+		if rel.Kind != authorityapp.ReleaseKindLosing {
+			t.Fatalf("release kind = %q, want %q", rel.Kind, authorityapp.ReleaseKindLosing)
+		}
+		if rel.ReservationID != reservationID {
+			t.Fatalf("release reservation ID = %q, want %q", rel.ReservationID, reservationID)
+		}
+		if !rs.authority.Settled() {
+			t.Fatal("expected authoritySettled=true after fallback release so later handlers cannot double-release")
+		}
+	}
+
+	t.Run("settle_success_final_settles", func(t *testing.T) {
+		t.Parallel()
+		auth := makeAuth(nil)
+		_, rs := setupGatedStream(t, auth)
+
+		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		if err != nil {
+			t.Fatalf("handleRecvSuccess: %v", err)
+		}
+		if cont {
+			t.Fatal("expected cont=false on the normal gated completion path")
+		}
+		assertSettledNotReleased(t, auth, rs, ev)
+	})
+
+	t.Run("settle_failure_releases", func(t *testing.T) {
+		t.Parallel()
+		auth := makeAuth(errors.New("settle boom"))
+		_, rs := setupGatedStream(t, auth)
+
+		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		if err != nil {
+			t.Fatalf("handleRecvSuccess: %v", err)
+		}
+		if cont {
+			t.Fatal("expected cont=false on the normal gated completion path")
+		}
+		assertReleasedAfterFailedSettle(t, auth, rs)
+		if ev.Kind != lipapi.EventResponseFinished {
+			t.Fatalf("event kind = %q, want response_finished (fall-through branch)", ev.Kind)
+		}
+	})
+
+	t.Run("settle_failure_synthesized_usage_releases", func(t *testing.T) {
+		t.Parallel()
+		auth := makeAuth(errors.New("settle boom"))
+		ex, rs := setupGatedStream(t, auth)
+		ex.StreamUsage = accountingstream.New(&stubStreamCounter{
+			call:   accountingapp.CountResult{InputTokens: 7, TotalTokens: 7},
+			output: accountingapp.CountResult{OutputTokens: 3, TotalTokens: 10},
+		}, accountingstream.Config{})
+
+		ev, cont, err := rs.handleRecvSuccess(context.Background(), lipapi.Event{Kind: lipapi.EventResponseFinished})
+		if err != nil {
+			t.Fatalf("handleRecvSuccess: %v", err)
+		}
+		if cont {
+			t.Fatal("expected cont=false on the normal gated completion path")
+		}
+		// The ok branch returns the synthesized usage event, not the finish event.
+		if ev.Kind != lipapi.EventUsageDelta {
+			t.Fatalf("event kind = %q, want usage_delta (synthesized usage from ok branch)", ev.Kind)
+		}
+		assertReleasedAfterFailedSettle(t, auth, rs)
+	})
+}

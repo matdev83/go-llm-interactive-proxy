@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 const DefaultBaseURL = "https://chatgpt.com/backend-api/codex"
@@ -28,16 +31,22 @@ const (
 const DefaultWebSocketFallbackCooldown = 300 * time.Second
 
 type Config struct {
-	BaseURL                               string
-	AccessToken                           string
-	RefreshToken                          string
-	AccountID                             string
-	AuthJSONPath                          string
-	OAuthTokenURL                         string
-	OAuthClientID                         string
-	HTTPClient                            *http.Client
-	Models                                []string
+	BaseURL       string
+	AccessToken   string
+	RefreshToken  string
+	AccountID     string
+	AuthJSONPath  string
+	OAuthTokenURL string
+	OAuthClientID string
+	HTTPClient    *http.Client
+	Models        []string
+	// ModelCatalog is the auto-discovered Codex model catalog used for the
+	// built-in model inventory when Models is empty. May be nil (e.g. in
+	// tests without DI); the connector then loads the shipped fallback
+	// snapshot. No model slugs are hardcoded.
+	ModelCatalog                          *codexcatalog.Catalog
 	DefaultReasoningEffort                string
+	DefaultVerbosity                      lipapi.VerbosityLevel
 	ManagedOAuthEnabled                   bool
 	ManagedOAuthStoragePath               string
 	ManagedOAuthAccounts                  []string

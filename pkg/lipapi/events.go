@@ -97,11 +97,18 @@ type Event struct {
 	ReasoningTokens int
 	// TotalTokens is the provider-reported total when available.
 	TotalTokens int
+	// UsagePresence distinguishes explicitly reported zero counters from
+	// counters omitted by a partial provider response.
+	UsagePresence UsagePresence
 	// CostNanoUnits is a high-precision per-response cost amount in Currency.
 	// One whole currency unit is 1e9 nano-units.
 	CostNanoUnits int64
 	Currency      string
 	CostSource    string
+	// CostPresent distinguishes an explicitly reported monetary value (including
+	// authoritative zero) from a usage event that omits cost. CostSource alone
+	// is provenance metadata and must not imply a present monetary value.
+	CostPresent bool
 	// RawUsageJSON stores bounded provider usage metadata for audit/backfill.
 	RawUsageJSON string
 	// Accounting annotates the compatibility usage totals on EventUsageDelta.
@@ -535,6 +542,7 @@ func ClientVisibleUsage(ev Event) ScopedUsageDelta {
 		CacheWriteTokens: ev.CacheWriteTokens,
 		ReasoningTokens:  ev.ReasoningTokens,
 		TotalTokens:      ev.TotalTokens,
+		UsagePresence:    ev.UsagePresence,
 		Accounting:       ev.Accounting,
 	}
 }

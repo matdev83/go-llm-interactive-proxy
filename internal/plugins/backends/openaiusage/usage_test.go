@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -37,11 +38,25 @@ func TestChatUsageEvent_cacheAndProviderCost(t *testing.T) {
 	if ev.ReasoningTokens != 5 || ev.TotalTokens != 19 {
 		t.Fatalf("reasoning=%d total=%d", ev.ReasoningTokens, ev.TotalTokens)
 	}
+	wantPresence := lipapi.UsagePresence{
+		InputTokens:      true,
+		OutputTokens:     true,
+		CacheReadTokens:  true,
+		CacheWriteTokens: true,
+		ReasoningTokens:  true,
+		TotalTokens:      true,
+	}
+	if ev.UsagePresence != wantPresence {
+		t.Fatalf("usage presence = %+v, want %+v", ev.UsagePresence, wantPresence)
+	}
 	if ev.CostNanoUnits != 140_000 {
 		t.Fatalf("CostNanoUnits = %d, want 140000", ev.CostNanoUnits)
 	}
 	if ev.Currency != "USD" || ev.CostSource != accounting.CostSourceProviderReported {
 		t.Fatalf("cost meta: currency=%q source=%q", ev.Currency, ev.CostSource)
+	}
+	if !ev.CostPresent {
+		t.Fatal("CostPresent = false, want true")
 	}
 }
 
@@ -67,11 +82,17 @@ func TestResponsesUsageEvent_cacheAndProviderCost(t *testing.T) {
 	if ev.CacheReadTokens != 3 || ev.CacheWriteTokens != 2 {
 		t.Fatalf("cache: read=%d write=%d", ev.CacheReadTokens, ev.CacheWriteTokens)
 	}
+	if !ev.UsagePresence.InputTokens || !ev.UsagePresence.OutputTokens || !ev.UsagePresence.TotalTokens {
+		t.Fatalf("required usage presence missing: %+v", ev.UsagePresence)
+	}
 	if ev.CostNanoUnits != 140_000 {
 		t.Fatalf("CostNanoUnits = %d, want 140000", ev.CostNanoUnits)
 	}
 	if ev.CostSource != accounting.CostSourceProviderReported {
 		t.Fatalf("CostSource = %q", ev.CostSource)
+	}
+	if !ev.CostPresent {
+		t.Fatal("CostPresent = false, want true")
 	}
 }
 
@@ -84,8 +105,25 @@ func TestChatUsageEvent_ignoresMissingProviderCost(t *testing.T) {
 	}
 
 	ev := ChatUsageEvent(usage)
-	if ev.CostNanoUnits != 0 || ev.CostSource != "" {
+	if ev.CostNanoUnits != 0 || ev.CostSource != "" || ev.CostPresent {
 		t.Fatalf("unexpected cost fields: %+v", ev)
+	}
+}
+
+func TestChatUsageEvent_explicitZeroProviderCost(t *testing.T) {
+	t.Parallel()
+	raw := `{"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "cost": 0}`
+	var usage openai.CompletionUsage
+	if err := json.Unmarshal([]byte(raw), &usage); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := ChatUsageEvent(usage)
+	if ev.CostNanoUnits != 0 || !ev.CostPresent {
+		t.Fatalf("explicit zero cost: nano=%d present=%v", ev.CostNanoUnits, ev.CostPresent)
+	}
+	if ev.CostSource != accounting.CostSourceProviderReported || ev.Currency != "USD" {
+		t.Fatalf("cost meta: currency=%q source=%q", ev.Currency, ev.CostSource)
 	}
 }
 

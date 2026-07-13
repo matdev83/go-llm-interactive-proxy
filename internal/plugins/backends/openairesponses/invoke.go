@@ -85,6 +85,11 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (responses.
 	if e := strings.TrimSpace(o.ReasoningEffort); e != "" {
 		p.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(e)}
 	}
+	if o.Verbosity != "" {
+		p.Text = responses.ResponseTextConfigParam{
+			Verbosity: responses.ResponseTextConfigVerbosity(o.Verbosity),
+		}
+	}
 
 	return p, nil
 }

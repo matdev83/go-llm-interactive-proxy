@@ -52,6 +52,8 @@ status: active
 | `modelregistry/` | Core model registry |
 | `accounting/` | Usage accounting |
 | `tokenaccounting/` | Token counting and accounting |
+| `usageauthority/domain/` | Rule policy, safe credential/label dimensions, explicit units, windows, reservations, and authority status |
+| `usageauthority/app/` | Rule snapshots, admission, atomic reservation sets, settlement/release, failure posture, and evidence projection |
 | `controlplane/` | Control plane operations |
 | `interleavedstate/` | Interleaved state tracking |
 | `interleavedthinking/` | Interleaved thinking tracking |
@@ -117,6 +119,9 @@ status: active
 | `extensiontrace/` | Extension tracing helpers |
 | `controlplane/` | Control plane infrastructure |
 | `runtimebundle/` | Runtime assembly from config |
+| `usageauthority/configsource/` | Immutable validated authority rule snapshots with source freshness |
+| `usageauthority/authoritystore/` | Clone-based memory store, Bun durable transaction adapter, live windows, reservations, decisions, and mutation log |
+| `usageauthority/evidencesink/` | Policydecision/control-plane authority evidence adapter |
 
 ## Test Support
 
