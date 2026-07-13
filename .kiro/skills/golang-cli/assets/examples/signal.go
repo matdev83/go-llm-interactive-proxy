@@ -21,7 +21,7 @@ var serveWithSignalCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		srv := &http.Server{Addr: ":8080"}
+		srv := &http.Server{Addr: ":8080", ReadHeaderTimeout: 3 * time.Second}
 		go func() {
 			<-ctx.Done()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
