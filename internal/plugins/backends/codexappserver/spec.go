@@ -64,12 +64,21 @@ func validateCall(call *lipapi.Call) error {
 	if call == nil {
 		return fmt.Errorf("codex app-server: nil call")
 	}
+	if err := call.Validate(); err != nil {
+		return fmt.Errorf("codex app-server: invalid call: %w", err)
+	}
 	return nil
 }
 
 // extractReasoningEffort extracts reasoning_effort from call extensions.
 func extractReasoningEffort(call *lipapi.Call) string {
-	if call == nil || call.Extensions == nil {
+	if call == nil {
+		return ""
+	}
+	if effort := strings.TrimSpace(call.Options.ReasoningEffort); effort != "" {
+		return effort
+	}
+	if call.Extensions == nil {
 		return ""
 	}
 	for _, key := range []string{"reasoning_effort", "codex.reasoning_effort"} {

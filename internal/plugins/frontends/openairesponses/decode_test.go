@@ -71,6 +71,27 @@ func TestDecodeCreate_textNonStream(t *testing.T) {
 	}
 }
 
+func TestDecodeCreate_nestedTextVerbosityBecomesCanonicalAndPreservesSiblings(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","input":"hi","text":{"verbosity":" HIGH ","format":{"type":"text"}}}`)
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Options.Verbosity != lipapi.VerbosityHigh {
+		t.Fatalf("verbosity = %q, want high", d.Call.Options.Verbosity)
+	}
+	textRaw := d.Call.Extensions[openrouterwire.ExtraBodyExtPrefix+"text"]
+	if string(textRaw) != `{"format":{"type":"text"}}` {
+		t.Fatalf("preserved text fields = %s", textRaw)
+	}
+
+	bad := []byte(`{"model":"gpt-4o-mini","input":"hi","text":{"verbosity":"extreme"}}`)
+	if _, err := openairesponses.DecodeCreateRequest(bad, openairesponses.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"}); err == nil {
+		t.Fatal("expected invalid verbosity error")
+	}
+}
+
 func TestDecodeCreate_textStream(t *testing.T) {
 	t.Parallel()
 	body := readGolden(t, "create_text_stream.json")

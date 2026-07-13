@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 const DefaultBaseURL = "https://chatgpt.com/backend-api/codex"
@@ -38,6 +40,7 @@ type Config struct {
 	HTTPClient                            *http.Client
 	Models                                []string
 	DefaultReasoningEffort                string
+	DefaultVerbosity                      lipapi.VerbosityLevel
 	ManagedOAuthEnabled                   bool
 	ManagedOAuthStoragePath               string
 	ManagedOAuthAccounts                  []string

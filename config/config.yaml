@@ -303,6 +303,7 @@ plugins:
       # account_id: ""       # optional ChatGPT account id header
       # refresh_token: ""    # optional OAuth refresh token
       # default_reasoning_effort: ""  # e.g. medium, high
+      # default_verbosity: ""          # low, medium, or high
       # managed_oauth_enabled: false
       # managed_oauth_storage_path: var/openai_codex_oauth_accounts
       # managed_oauth_selection_strategy: first-available  # first-available | round-robin | session-affinity

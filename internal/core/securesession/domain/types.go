@@ -170,6 +170,7 @@ type AttemptSettings struct {
 	MaxTokens            *int
 	Timeout              time.Duration
 	ReasoningEffort      string
+	Verbosity            string
 	Streaming            bool
 	ToolSummary          []string
 	BackendOptionsDigest string

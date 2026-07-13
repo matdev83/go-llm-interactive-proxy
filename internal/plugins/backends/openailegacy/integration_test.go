@@ -66,6 +66,32 @@ func TestIntegration_refbackendStreamingText(t *testing.T) {
 	}
 }
 
+func TestIntegration_refbackendDefaultVerbosityWithoutRequestOverride(t *testing.T) {
+	t.Parallel()
+	var requestBody []byte
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{OnRequestBody: func(body []byte) {
+		requestBody = append([]byte(nil), body...)
+	}}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test", DefaultVerbosity: lipapi.VerbosityHigh})
+	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
+	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), es); err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(requestBody, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["verbosity"] != "high" {
+		t.Fatalf("default verbosity request field = %#v, body=%s", decoded["verbosity"], requestBody)
+	}
+}
+
 func TestIntegration_refbackendStreamUsage(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{}))

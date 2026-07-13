@@ -30,6 +30,7 @@ type Payload struct {
 	Tools              []toolPayload  `json:"tools,omitempty"`
 	ToolChoice         string         `json:"tool_choice,omitempty"`
 	Reasoning          *reasoningSpec `json:"reasoning,omitempty"`
+	Text               *textSpec      `json:"text,omitempty"`
 	Include            []string       `json:"include,omitempty"`
 	ParallelToolCalls  *bool          `json:"parallel_tool_calls,omitempty"`
 	PromptCacheKey     string         `json:"prompt_cache_key,omitempty"`
@@ -39,6 +40,10 @@ type Payload struct {
 type reasoningSpec struct {
 	Effort  string `json:"effort"`
 	Summary string `json:"summary,omitempty"`
+}
+
+type textSpec struct {
+	Verbosity lipapi.VerbosityLevel `json:"verbosity,omitempty"`
 }
 
 // normalizeCodexModel strips client provider-namespace prefixes (e.g. OpenCode's
@@ -92,6 +97,19 @@ func PayloadForCall(call *lipapi.Call, cand routing.AttemptCandidate, cfg Config
 		p.Reasoning = &reasoningSpec{Effort: effort, Summary: "auto"}
 	} else if effort = strings.TrimSpace(cfg.DefaultReasoningEffort); effort != "" {
 		p.Reasoning = &reasoningSpec{Effort: effort, Summary: "auto"}
+	}
+	verbosity, err := lipapi.ParseVerbosityLevel(string(call.Options.Verbosity))
+	if err != nil {
+		return Payload{}, fmt.Errorf("%s: request verbosity: %w", ID, err)
+	}
+	if verbosity == "" {
+		verbosity, err = lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity))
+		if err != nil {
+			return Payload{}, fmt.Errorf("%s: default verbosity: %w", ID, err)
+		}
+	}
+	if verbosity != "" {
+		p.Text = &textSpec{Verbosity: verbosity}
 	}
 	if p.Reasoning != nil {
 		p.Include = []string{"reasoning.encrypted_content"}

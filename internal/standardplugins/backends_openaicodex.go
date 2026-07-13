@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,6 +23,7 @@ type openAICodexBackendYAML struct {
 	OAuthTokenURL                         string   `yaml:"oauth_token_url"`
 	OAuthClientID                         string   `yaml:"oauth_client_id"`
 	DefaultReasoningEffort                string   `yaml:"default_reasoning_effort"`
+	DefaultVerbosity                      string   `yaml:"default_verbosity"`
 	ManagedOAuthEnabled                   bool     `yaml:"managed_oauth_enabled"`
 	ManagedOAuthStoragePath               string   `yaml:"managed_oauth_storage_path"`
 	ManagedOAuthAccounts                  []string `yaml:"managed_oauth_accounts"`
@@ -49,6 +51,10 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 	if err != nil {
 		return execbackend.Backend{}, err
 	}
+	verbosity, err := lipapi.ParseVerbosityLevel(y.DefaultVerbosity)
+	if err != nil {
+		return execbackend.Backend{}, fmt.Errorf("openai-codex backend config: default_verbosity: %w", err)
+	}
 	primary := cmp.Or(strings.TrimSpace(y.AccessToken), strings.TrimSpace(y.APIKey))
 	_, accessToken := firstAPIKey(primary, y.APIKeys, y.Credentials, keys.OpenAICodex)
 	cfg := openaicodex.Config{
@@ -62,6 +68,7 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 		HTTPClient:                        resolveUpstreamHTTP(upstream),
 		Models:                            models,
 		DefaultReasoningEffort:            strings.TrimSpace(y.DefaultReasoningEffort),
+		DefaultVerbosity:                  verbosity,
 		ManagedOAuthEnabled:               y.ManagedOAuthEnabled,
 		ManagedOAuthStoragePath:           strings.TrimSpace(y.ManagedOAuthStoragePath),
 		ManagedOAuthAccounts:              y.ManagedOAuthAccounts,

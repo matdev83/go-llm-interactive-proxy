@@ -34,7 +34,8 @@ type Config struct {
 	HTTPClient *http.Client
 	// SDKMaxRetries optionally sets the official SDK MaxRetries (nil = SDK default).
 	// Integration tests that assert a single upstream attempt on 429/401 should use a pointer to 0.
-	SDKMaxRetries *int
+	SDKMaxRetries    *int
+	DefaultVerbosity lipapi.VerbosityLevel
 }
 
 const openAIRateLimitFallback = 60 * time.Second
@@ -42,6 +43,9 @@ const openAIRateLimitFallback = 60 * time.Second
 // New returns a runtime backend that invokes the OpenAI Responses API using openai-go.
 func New(cfg Config) execbackend.Backend {
 	if err := checkcfg.RequireNonEmpty(ID, "base_url", cfg.BaseURL); err != nil {
+		return newConfigErrorBackend(err)
+	}
+	if err := normalizeDefaultVerbosity(&cfg.DefaultVerbosity); err != nil {
 		return newConfigErrorBackend(err)
 	}
 	pool, err := openaicred.NewPoolFromCredentials(cfg.APIKey, cfg.APIKeys, cfg.Credentials)
@@ -66,6 +70,9 @@ func New(cfg Config) execbackend.Backend {
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {
 				return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
+			}
+			if call.Options.Verbosity == "" {
+				call.Options.Verbosity = cfg.DefaultVerbosity
 			}
 			p, err := ParamsForCall(&call, cand)
 			if err != nil {
@@ -108,6 +115,15 @@ func New(cfg Config) execbackend.Backend {
 			}
 		},
 	}
+}
+
+func normalizeDefaultVerbosity(value *lipapi.VerbosityLevel) error {
+	parsed, err := lipapi.ParseVerbosityLevel(string(*value))
+	if err != nil {
+		return fmt.Errorf("%s: default_verbosity: %w", ID, err)
+	}
+	*value = parsed
+	return nil
 }
 
 func credentialSecrets(credentials []credpool.Credential) []string {

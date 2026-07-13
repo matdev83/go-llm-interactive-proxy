@@ -91,6 +91,9 @@ func ParamsForCall(call *lipapi.Call, cand routing.AttemptCandidate) (openai.Cha
 	if e := strings.TrimSpace(o.ReasoningEffort); e != "" {
 		p.ReasoningEffort = shared.ReasoningEffort(e)
 	}
+	if o.Verbosity != "" {
+		p.Verbosity = openai.ChatCompletionNewParamsVerbosity(o.Verbosity)
+	}
 
 	return p, nil
 }

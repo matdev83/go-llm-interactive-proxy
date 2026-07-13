@@ -205,6 +205,25 @@ func TestParamsForCall_reasoningEffort(t *testing.T) {
 	}
 }
 
+func TestParamsForCall_verbosityIsNestedUnderText(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+		Options:  lipapi.GenerationOptions{Verbosity: lipapi.VerbosityMedium},
+	}
+	p, err := backend.ParamsForCall(&call, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"text":{"verbosity":"medium"}`) {
+		t.Fatalf("expected nested text verbosity: %s", raw)
+	}
+}
+
 func TestParamsForCall_toolsAndToolChoice(t *testing.T) {
 	t.Parallel()
 	schema := json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`)
