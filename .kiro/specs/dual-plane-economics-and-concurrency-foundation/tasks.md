@@ -1,7 +1,7 @@
 # Implementation Plan
 
 - [ ] 1. Lock current behavior with regression tests
-- [ ] 1.1 Add characterization tests for existing usage-authority timing
+- [x] 1.1 Add characterization tests for existing usage-authority timing
   - Prove logical request rules currently execute per backend attempt under failover and parallel racing.
   - Prove loser cleanup can release operator exposure after provider work has begun.
   - Prove request mutation may occur after the current cost reservation point.
