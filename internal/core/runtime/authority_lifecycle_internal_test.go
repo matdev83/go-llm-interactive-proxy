@@ -271,7 +271,7 @@ func TestAuthorityLifecycleSerializesConcurrentTerminalOperations(t *testing.T) 
 	lifecycle := newAuthorityLifecycle(rec, nil, state, authorityCandidate())
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		wg.Add(1)
 		go func(settle bool) {
 			defer wg.Done()

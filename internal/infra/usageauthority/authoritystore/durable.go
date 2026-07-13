@@ -13,7 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/uptrace/bun"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register sqlite driver for durable authority stores
 )
 
 // DurableStore persists the same store core to a relational database using

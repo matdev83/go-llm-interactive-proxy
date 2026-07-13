@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register sqlite driver for durable authority stores
 )
 
 func (s *DurableStore) load(ctx context.Context) (bool, error) {

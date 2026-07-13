@@ -8,7 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/uptrace/bun"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register sqlite driver for durable authority stores
 )
 
 func (s *DurableStore) seedAndFlush(ctx context.Context) error {

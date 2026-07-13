@@ -14,7 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register sqlite driver for durable authority stores
 )
 
 func (s *DurableStore) lockStateTx(ctx context.Context, tx bun.Tx, core *storeCore) error {

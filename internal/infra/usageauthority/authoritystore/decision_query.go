@@ -226,10 +226,12 @@ func (s *DurableStore) queryDecisions(ctx context.Context, q controlplane.Accoun
 	query += ` WHERE d.store_id = ? AND d.decision_seq > ?`
 	args = append(args, s.c.storeID, after)
 	if len(filters) > 1 {
+		var extra strings.Builder
 		for _, filter := range filters[1:] {
-			query += ` AND EXISTS (SELECT 1 FROM usage_authority_decision_filters fx WHERE fx.store_id = d.store_id AND fx.decision_seq = d.decision_seq AND fx.field_name = ? AND fx.field_value = ?)`
+			extra.WriteString(` AND EXISTS (SELECT 1 FROM usage_authority_decision_filters fx WHERE fx.store_id = d.store_id AND fx.decision_seq = d.decision_seq AND fx.field_name = ? AND fx.field_value = ?)`)
 			args = append(args, filter.name, filter.value)
 		}
+		query += extra.String()
 	}
 	query += ` ORDER BY d.decision_seq ASC LIMIT ?`
 	args = append(args, limit+1)

@@ -257,10 +257,12 @@ func (s *DurableStore) queryLimits(ctx context.Context, q controlplane.Accountin
 	query += ` WHERE l.store_id = ? AND sk.field_value > ?`
 	args = append(args, s.c.storeID, after)
 	if len(filters) > 1 {
+		var extra strings.Builder
 		for _, filter := range filters[1:] {
-			query += ` AND EXISTS (SELECT 1 FROM usage_authority_limit_filters fx WHERE fx.store_id = l.store_id AND fx.row_key = l.row_key AND fx.field_name = ? AND fx.field_value = ?)`
+			extra.WriteString(` AND EXISTS (SELECT 1 FROM usage_authority_limit_filters fx WHERE fx.store_id = l.store_id AND fx.row_key = l.row_key AND fx.field_name = ? AND fx.field_value = ?)`)
 			args = append(args, filter.name, filter.value)
 		}
+		query += extra.String()
 	}
 	if !q.Common.TimeRange.From.IsZero() {
 		query += ` AND EXISTS (SELECT 1 FROM usage_authority_limit_filters we WHERE we.store_id = l.store_id AND we.row_key = l.row_key AND we.field_name = ? AND (we.field_value = '' OR we.field_value >= ?))`

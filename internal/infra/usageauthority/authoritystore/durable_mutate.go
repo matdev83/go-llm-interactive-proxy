@@ -7,7 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register sqlite driver for durable authority stores
 )
 
 func (s *DurableStore) runReserveTx(ctx context.Context, cmd app.ReserveCommand) (app.ReserveResult, error) {

@@ -48,6 +48,7 @@ func RunSuite(t *testing.T, f Factory) {
 }
 
 func testStrictReservationIsAtomic(t *testing.T, f Factory) {
+	t.Helper()
 	t.Parallel()
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
@@ -77,7 +78,7 @@ func testStrictReservationIsAtomic(t *testing.T, f Factory) {
 	t.Cleanup(func() {
 		successes := 0
 		var failed error
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			res := <-results
 			if res.err == nil {
 				successes++
@@ -129,6 +130,7 @@ func testStrictReservationIsAtomic(t *testing.T, f Factory) {
 }
 
 func testReserveSettleReleaseIdempotent(t *testing.T, f Factory) {
+	t.Helper()
 	t.Parallel()
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
@@ -306,6 +308,7 @@ func testReserveSettleReleaseIdempotent(t *testing.T, f Factory) {
 }
 
 func testQueriesBoundAndSafe(t *testing.T, f Factory) {
+	t.Helper()
 	t.Parallel()
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
@@ -363,6 +366,7 @@ func testQueriesBoundAndSafe(t *testing.T, f Factory) {
 }
 
 func testReadinessKnownStates(t *testing.T, f Factory) {
+	t.Helper()
 	t.Parallel()
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
@@ -646,6 +650,7 @@ func SeededDecisionRows() []controlplane.AccountingDecisionRow {
 // its limit row. Negative case: a non-windowed rule's decision row leaves all
 // three fields as the zero time.Time, matching AccountingLimitStatusRow.
 func testDecisionRowMirrorsLimitWindow(t *testing.T, f Factory) {
+	t.Helper()
 	t.Parallel()
 	store := f.Build(t)
 	t.Cleanup(closeStore(store))
@@ -730,6 +735,7 @@ func testDecisionRowMirrorsLimitWindow(t *testing.T, f Factory) {
 // and release, and leaves them zero for reserve decisions (allow and deny).
 // It runs against both the memory and durable stores via the shared Factory.
 func testDecisionRowRecordsSettlementDeltas(t *testing.T, f Factory) {
+	t.Helper()
 	t.Parallel()
 
 	decisionQuery := func(outcome, reason string) controlplane.AccountingDecisionQuery {
