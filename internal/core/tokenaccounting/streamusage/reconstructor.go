@@ -136,28 +136,10 @@ func usageEvents(events []lipapi.Event) []lipapi.Event {
 }
 
 func normalizeProviderUsageEvent(ev lipapi.Event) lipapi.Event {
-	out := cloneEvent(ev)
-	if len(out.UsageScopes) == 0 {
-		out.Accounting = defaultProviderAccounting(out.Accounting)
-		return out
-	}
-	for i := range out.UsageScopes {
-		out.UsageScopes[i].Accounting = defaultProviderAccounting(out.UsageScopes[i].Accounting)
-	}
-	return out
-}
-
-func defaultProviderAccounting(accounting lipapi.UsageAccountingMetadata) lipapi.UsageAccountingMetadata {
-	if accounting.Plane == lipapi.UsagePlaneUnknown {
-		accounting.Plane = lipapi.UsagePlaneProviderBillable
-	}
-	if accounting.Source == lipapi.UsageSourceUnknown {
-		accounting.Source = lipapi.UsageSourceProviderReported
-	}
-	if accounting.Authority == lipapi.UsageAuthorityUnknown {
-		accounting.Authority = lipapi.UsageAuthorityAuthoritative
-	}
-	return accounting
+	// Provider adapters must opt into billable authority explicitly. Inferring
+	// provider-reported/authoritative metadata from an otherwise-unmarked event
+	// can turn local or client-visible usage into billable usage.
+	return cloneEvent(ev)
 }
 
 func localUsageFromResults(callResult, outputResult app.CountResult) lipapi.ScopedUsageDelta {
@@ -182,6 +164,7 @@ func usageEvent(usage lipapi.ScopedUsageDelta) lipapi.Event {
 		CacheWriteTokens: usage.CacheWriteTokens,
 		ReasoningTokens:  usage.ReasoningTokens,
 		TotalTokens:      usage.TotalTokens,
+		UsagePresence:    usage.UsagePresence,
 		Accounting:       usage.Accounting,
 		UsageScopes:      []lipapi.ScopedUsageDelta{usage},
 	}

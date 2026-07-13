@@ -53,6 +53,9 @@ type Config struct {
 	// hardcoded — the inventory is the "auto" sentinel plus the catalog's
 	// routable slugs.
 	ModelCatalog *codexcatalog.Catalog
+	// DefaultVerbosity is the process-scoped Codex model_verbosity default
+	// (low, medium, or high) when the request does not set verbosity.
+	DefaultVerbosity lipapi.VerbosityLevel
 }
 
 // resolveExecutable finds the Codex CLI binary, with cross-platform fallbacks.
@@ -121,6 +124,22 @@ func buildCodexCommand(exe string, cfgOverrides, extraArgs []string) []string {
 	return cmd
 }
 
+func buildCodexCommandWithVerbosity(exe string, cfgOverrides []string, verbosity lipapi.VerbosityLevel, extraArgs []string) []string {
+	overrides := make([]string, 0, len(cfgOverrides)+1)
+	if verbosity == "" {
+		overrides = append(overrides, cfgOverrides...)
+	} else {
+		for _, override := range cfgOverrides {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(override)), "model_verbosity=") {
+				continue
+			}
+			overrides = append(overrides, override)
+		}
+		overrides = append(overrides, "model_verbosity="+string(verbosity))
+	}
+	return buildCodexCommand(exe, overrides, extraArgs)
+}
+
 // codexServerRequestHandler handles inbound JSON-RPC approval requests from the
 // Codex app-server. Auto-accepts known approval methods; declines everything else.
 type codexServerRequestHandler struct{}
@@ -167,24 +186,17 @@ func isAutoModel(model string) bool {
 // loaded so no model slugs are hardcoded here.
 func defaultInventoryModels(cat *codexcatalog.Catalog) []modelinventory.Model {
 	ids := []string{autoModelSentinel}
-	ids = append(ids, catalogRoutableSlugs(cat)...)
+	ids = append(ids, codexcatalog.RoutableSlugsOrFallback(cat)...)
 	return acp.DefaultInventoryModels(vendorPrefix, ids)
-}
-
-// catalogRoutableSlugs returns the catalog's routable slugs, loading the shipped
-// fallback snapshot when cat is nil.
-func catalogRoutableSlugs(cat *codexcatalog.Catalog) []string {
-	if cat != nil {
-		return cat.RoutableSlugs()
-	}
-	if fallback, err := codexcatalog.LoadFallback(""); err == nil {
-		return fallback.RoutableSlugs()
-	}
-	return nil
 }
 
 // New returns a runtime backend that invokes the Codex CLI app-server via stdio.
 func New(cfg Config) (execbackend.Backend, error) {
+	verbosity, err := lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity))
+	if err != nil {
+		return execbackend.Backend{}, fmt.Errorf("%s: default_verbosity: %w", ID, err)
+	}
+	cfg.DefaultVerbosity = verbosity
 	cfg.applyDefaults()
 	return newBackend(cfg, true, nil), nil
 }
@@ -195,8 +207,21 @@ func New(cfg Config) (execbackend.Backend, error) {
 // The executable is set to a placeholder so BuildSpawnCommand does not require
 // the real codex binary to be on PATH.
 func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend {
+	clearInvalidDefaultVerbosity(&cfg)
 	cfg.applyDefaults()
 	return newBackend(cfg, false, starter)
+}
+
+// clearInvalidDefaultVerbosity normalizes DefaultVerbosity for test constructors.
+// Unlike New, it cannot fail the call, so invalid values are cleared instead of
+// being forwarded into -c model_verbosity=<raw>.
+func clearInvalidDefaultVerbosity(cfg *Config) {
+	verbosity, err := lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity))
+	if err != nil {
+		cfg.DefaultVerbosity = ""
+		return
+	}
+	cfg.DefaultVerbosity = verbosity
 }
 
 // applyDefaults normalizes the config model field.

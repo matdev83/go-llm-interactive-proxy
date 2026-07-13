@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 const DefaultBaseURL = "https://chatgpt.com/backend-api/codex"
@@ -45,6 +46,7 @@ type Config struct {
 	// snapshot. No model slugs are hardcoded.
 	ModelCatalog                          *codexcatalog.Catalog
 	DefaultReasoningEffort                string
+	DefaultVerbosity                      lipapi.VerbosityLevel
 	ManagedOAuthEnabled                   bool
 	ManagedOAuthStoragePath               string
 	ManagedOAuthAccounts                  []string

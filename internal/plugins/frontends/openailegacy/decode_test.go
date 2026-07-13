@@ -66,6 +66,23 @@ func TestDecodeChat_textNonStream(t *testing.T) {
 	}
 }
 
+func TestDecodeChat_verbosityIsCanonicalAndValidated(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"verbosity":" HIGH "}`)
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Options.Verbosity != lipapi.VerbosityHigh {
+		t.Fatalf("verbosity = %q, want high", d.Call.Options.Verbosity)
+	}
+
+	bad := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"verbosity":"extreme"}`)
+	if _, err := openailegacy.DecodeChatRequest(bad, openailegacy.DecodeOptions{RouteSelector: "stub:gpt-4o-mini"}); err == nil {
+		t.Fatal("expected invalid verbosity error")
+	}
+}
+
 func TestDecodeChat_textStream(t *testing.T) {
 	t.Parallel()
 	body := readGolden(t, "create_text_stream.json")

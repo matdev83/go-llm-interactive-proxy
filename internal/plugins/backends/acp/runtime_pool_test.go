@@ -104,7 +104,7 @@ func TestRuntimePool_SetProcessAndSessionID(t *testing.T) {
 	_, _ = pool.Acquire(key)
 
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-123", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-123", "", "cursor-agent")
 
 	rt := pool.Get(key)
 	if rt == nil {
@@ -134,7 +134,7 @@ func TestRuntimePool_IdleReaping(t *testing.T) {
 		t.Fatalf("Acquire: %v", err)
 	}
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-1", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-1", "", "cursor-agent")
 	pool.Release(key)
 
 	// Wait until the pool reaps the idle runtime and replaces it with a
@@ -181,7 +181,7 @@ func TestRuntimePool_NoReapingWhileInUse(t *testing.T) {
 		t.Fatalf("Acquire: %v", err)
 	}
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-1", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-1", "", "cursor-agent")
 	pool.MarkInUse(key)
 
 	// While marked in-use, Acquire must return the same runtime — no
@@ -201,7 +201,7 @@ func TestRuntimePool_KillRuntime(t *testing.T) {
 	key := RuntimeKey{Workspace: "/tmp/proj", Model: "agent", ClientSession: "s1"}
 	_, _ = pool.Acquire(key)
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-1", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-1", "", "cursor-agent")
 
 	if err := pool.KillRuntime(key); err != nil {
 		t.Fatalf("KillRuntime: %v", err)
@@ -229,7 +229,7 @@ func TestRuntimePool_StaleKillAfterRelease(t *testing.T) {
 	key := RuntimeKey{Workspace: "/tmp/proj", Model: "agent", ClientSession: "s1"}
 	_, _ = pool.Acquire(key)
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-1", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-1", "", "cursor-agent")
 	pool.Release(key)
 
 	// Poll for both observable outcomes: the runtime slot no longer holds
@@ -259,7 +259,7 @@ func TestRuntimePool_StaleKillCancelledByAcquire(t *testing.T) {
 	key := RuntimeKey{Workspace: "/tmp/proj", Model: "agent", ClientSession: "s1"}
 	_, _ = pool.Acquire(key)
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-1", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-1", "", "cursor-agent")
 	pool.Release(key)
 
 	// Mark the runtime in-use synchronously so the freshly armed stale-kill
@@ -311,8 +311,8 @@ func TestRuntimePool_CloseKillsAll(t *testing.T) {
 	key2 := RuntimeKey{Workspace: "/tmp/b", Model: "agent", ClientSession: "s2"}
 	_, _ = pool.Acquire(key1)
 	_, _ = pool.Acquire(key2)
-	pool.SetProcess(key1, newFakeProcess(t), nil, "s1", "agent1")
-	pool.SetProcess(key2, newFakeProcess(t), nil, "s2", "agent2")
+	pool.SetProcess(key1, newFakeProcess(t), nil, "s1", "", "agent1")
+	pool.SetProcess(key2, newFakeProcess(t), nil, "s2", "", "agent2")
 
 	if err := pool.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -363,7 +363,7 @@ func TestRuntimePool_StaleKillPIDReuseHardening(t *testing.T) {
 	key := RuntimeKey{Workspace: "/tmp/proj", Model: "agent", ClientSession: "s1"}
 	_, _ = pool.Acquire(key)
 	proc := newFakeProcess(t)
-	pool.SetProcess(key, proc, nil, "session-1", "cursor-agent")
+	pool.SetProcess(key, proc, nil, "session-1", "", "cursor-agent")
 
 	// Manually corrupt the identity to simulate PID reuse (different PID).
 	rt := pool.Get(key)

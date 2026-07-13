@@ -48,6 +48,11 @@ func TestValidateEventRejectsProblems(t *testing.T) {
 			want: "occurred_at",
 		},
 		{
+			name: "zero_recorded_at",
+			mut:  func(e cp.Event) cp.Event { e.RecordedAt = time.Time{}; return e },
+			want: "recorded_at",
+		},
+		{
 			name: "recorded_before_occurred",
 			mut: func(e cp.Event) cp.Event {
 				e.OccurredAt = time.Now()
@@ -86,6 +91,14 @@ func TestValidateEventRejectsProblems(t *testing.T) {
 			want: "source",
 		},
 		{
+			name: "oversized_source_name",
+			mut: func(e cp.Event) cp.Event {
+				e.Source = cp.SourceRef{Name: strings.Repeat("x", controlplane.MaxSourceNameLen+1)}
+				return e
+			},
+			want: "source.name exceeds",
+		},
+		{
 			name: "oversized_summary",
 			mut:  func(e cp.Event) cp.Event { e.Summary = strings.Repeat("x", controlplane.MaxSummaryBytes+1); return e },
 			want: "summary",
@@ -103,6 +116,30 @@ func TestValidateEventRejectsProblems(t *testing.T) {
 				return e
 			},
 			want: "scope",
+		},
+		{
+			name: "zero_detail_blocks",
+			mut:  func(e cp.Event) cp.Event { e.Auth = nil; return e },
+			want: "exactly one detail block is required",
+		},
+		{
+			name: "multiple_detail_blocks",
+			mut: func(e cp.Event) cp.Event {
+				e.Session = &cp.SessionDetail{Action: cp.SessionActionCreated}
+				return e
+			},
+			want: "exactly one detail block is required",
+		},
+		{
+			name: "category_detail_mismatch",
+			mut: func(e cp.Event) cp.Event {
+				// Base event has Auth detail; change category to usage so the
+				// SDK validator's ensureDetailMatchesCategory guard fires with
+				// "requires usage detail".
+				e.Category = cp.CategoryUsage
+				return e
+			},
+			want: "requires usage detail",
 		},
 	}
 	for _, c := range cases {

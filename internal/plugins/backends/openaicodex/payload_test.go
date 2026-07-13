@@ -674,6 +674,39 @@ func TestPayloadForCall_configDefaultsWhenCallUnset(t *testing.T) {
 	}
 }
 
+func TestPayloadForCall_verbosityBodyAndDefaultPrecedence(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}},
+		Options:  lipapi.GenerationOptions{Verbosity: lipapi.VerbosityHigh},
+	}
+	payload, err := backend.PayloadForCall(&call, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.4"}}, backend.Config{
+		DefaultVerbosity: lipapi.VerbosityLow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"text":{"verbosity":"high"}`) {
+		t.Fatalf("call verbosity must override default: %s", raw)
+	}
+
+	call.Options.Verbosity = ""
+	payload, err = backend.PayloadForCall(&call, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-5.4"}}, backend.Config{
+		DefaultVerbosity: lipapi.VerbosityLow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(payload)
+	if !strings.Contains(string(raw), `"text":{"verbosity":"low"}`) {
+		t.Fatalf("default verbosity must apply without URI params: %s", raw)
+	}
+}
+
 func TestPayloadForCall_doesNotMutateForClientMarkers(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{

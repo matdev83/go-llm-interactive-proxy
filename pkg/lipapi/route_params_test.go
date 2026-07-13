@@ -28,6 +28,7 @@ func TestMergeRouteQueryIntoGenerationOptions_fillsFromRoute(t *testing.T) {
 	q.Set("max_output_tokens", "4096")
 	q.Set("top_p", "0.9")
 	q.Set("parallel_tool_calls", "false")
+	q.Set("verbosity", " HIGH ")
 
 	got, err := lipapi.MergeRouteQueryIntoGenerationOptions(lipapi.GenerationOptions{}, q)
 	if err != nil {
@@ -47,6 +48,39 @@ func TestMergeRouteQueryIntoGenerationOptions_fillsFromRoute(t *testing.T) {
 	}
 	if got.ParallelToolCalls == nil || *got.ParallelToolCalls != false {
 		t.Fatalf("parallel_tool_calls: %#v", got.ParallelToolCalls)
+	}
+	if got.Verbosity != lipapi.VerbosityHigh {
+		t.Fatalf("verbosity: %q", got.Verbosity)
+	}
+}
+
+func TestMergeRouteQueryIntoGenerationOptions_routeOverridesVerbosity(t *testing.T) {
+	t.Parallel()
+	base := lipapi.GenerationOptions{Verbosity: lipapi.VerbosityLow}
+	q := url.Values{"verbosity": []string{"medium"}}
+
+	got, err := lipapi.MergeRouteQueryIntoGenerationOptions(base, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Verbosity != lipapi.VerbosityMedium {
+		t.Fatalf("route verbosity should override call, got %q", got.Verbosity)
+	}
+}
+
+func TestMergeRouteQueryIntoGenerationOptions_invalidVerbosity(t *testing.T) {
+	t.Parallel()
+	q := url.Values{"verbosity": []string{"extreme"}}
+	if _, err := lipapi.MergeRouteQueryIntoGenerationOptions(lipapi.GenerationOptions{}, q); err == nil {
+		t.Fatal("expected invalid verbosity error")
+	}
+}
+
+func TestMergeRouteQueryIntoGenerationOptions_emptyQueryValidatesVerbosity(t *testing.T) {
+	t.Parallel()
+	base := lipapi.GenerationOptions{Verbosity: lipapi.VerbosityLevel("extreme")}
+	if _, err := lipapi.MergeRouteQueryIntoGenerationOptions(base, nil); err == nil {
+		t.Fatal("expected invalid canonical verbosity error")
 	}
 }
 

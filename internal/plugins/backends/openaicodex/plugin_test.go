@@ -247,7 +247,7 @@ func TestOpen_routeParamsReachCodexPayload(t *testing.T) {
 		backend.ID: be,
 	}
 	call := sampleCall()
-	call.Route.Selector = "openai-codex:gpt-5.4-mini?reasoning_effort=xhigh"
+	call.Route.Selector = "openai-codex:gpt-5.4-mini?reasoning_effort=xhigh&verbosity=high"
 	es, err := ex.Execute(context.Background(), &call)
 	if err != nil {
 		t.Fatal(err)
@@ -259,6 +259,10 @@ func TestOpen_routeParamsReachCodexPayload(t *testing.T) {
 	reasoning, ok := body["reasoning"].(map[string]any)
 	if !ok || reasoning["effort"] != "xhigh" {
 		t.Fatalf("reasoning payload: %#v", body["reasoning"])
+	}
+	textConfig, ok := body["text"].(map[string]any)
+	if !ok || textConfig["verbosity"] != "high" {
+		t.Fatalf("verbosity payload: %#v", body["text"])
 	}
 	if _, ok := body["temperature"]; ok {
 		t.Fatalf("temperature should be omitted: %#v", body["temperature"])

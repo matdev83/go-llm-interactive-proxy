@@ -399,7 +399,7 @@ func inventoryProvider(cfg Config) modelinventory.Provider {
 // catalog's routable slugs. When the catalog is nil (e.g. tests without DI),
 // the shipped fallback snapshot is loaded so no slugs are hardcoded here.
 func catalogInventoryModels(cat *codexcatalog.Catalog) []modelinventory.Model {
-	slugs := catalogRoutableSlugs(cat)
+	slugs := codexcatalog.RoutableSlugsOrFallback(cat)
 	if len(slugs) == 0 {
 		return []modelinventory.Model{}
 	}
@@ -412,18 +412,6 @@ func catalogInventoryModels(cat *codexcatalog.Catalog) []modelinventory.Model {
 		})
 	}
 	return out
-}
-
-// catalogRoutableSlugs returns the catalog's routable slugs, loading the shipped
-// fallback snapshot when cat is nil.
-func catalogRoutableSlugs(cat *codexcatalog.Catalog) []string {
-	if cat != nil {
-		return cat.RoutableSlugs()
-	}
-	if fallback, err := codexcatalog.LoadFallback(""); err == nil {
-		return fallback.RoutableSlugs()
-	}
-	return nil
 }
 
 func newConfigErrorBackend(err error) execbackend.Backend {

@@ -40,6 +40,10 @@ type SubprocessRuntime struct {
 	// initialized is true after a successful handshake (initialize + authenticate).
 	initialized bool
 
+	// processConfig identifies the process-scoped configuration used when the
+	// current subprocess was spawned (empty for protocols without variants).
+	processConfig string
+
 	// historyState tracks the conversation prefix for divergence detection.
 	historyState historyState
 }
@@ -207,9 +211,10 @@ func (p *RuntimePool) tryReapIdle(key RuntimeKey, rt *SubprocessRuntime) *Subpro
 
 // SetProcess attaches a spawned process and transport to the runtime and marks
 // it as initialized. Called after a successful subprocess spawn + handshake.
+// processConfig identifies the process-scoped configuration variant, and
 // cmdFirstArg is the first element of the spawn command (e.g. "cursor-agent"),
 // used as a fallback for the executable path in PID-reuse hardening.
-func (p *RuntimePool) SetProcess(key RuntimeKey, proc Process, transport Transport, sessionID string, cmdFirstArg string) {
+func (p *RuntimePool) SetProcess(key RuntimeKey, proc Process, transport Transport, sessionID, processConfig, cmdFirstArg string) {
 	p.mu.Lock()
 	rt, exists := p.pools[key]
 	if !exists {
@@ -224,6 +229,7 @@ func (p *RuntimePool) SetProcess(key RuntimeKey, proc Process, transport Transpo
 	rt.transport = transport
 	rt.sessionID = sessionID
 	rt.initialized = true
+	rt.processConfig = processConfig
 	rt.lastActivity = time.Now()
 	rt.mu.Unlock()
 }
@@ -240,6 +246,52 @@ func (p *RuntimePool) MarkInUse(key RuntimeKey) {
 	rt.inUse = true
 	p.cancelStaleKill(key)
 	rt.mu.Unlock()
+}
+
+// ClaimForTurn atomically claims the runtime for key for a new prompt turn and
+// returns the runtime to use with a busy flag. It is the race-free replacement
+// for the Open flow's former "MarkInUse then maybe KillRuntime" sequence.
+//
+// A single stdio subprocess cannot carry two concurrent turns, and killing an
+// in-use transport would corrupt the in-flight turn. ClaimForTurn therefore
+// refuses (busy=true, no claim) when another turn still holds the runtime, so
+// the caller fails the conflicting request explicitly instead of killing the
+// peer. On a successful claim it cancels the stale-kill timer and, when the
+// live child was spawned with a different process-scoped config than wantConfig
+// (e.g. Codex model_verbosity), kills it and resets transcript state so the
+// next spawn receives a full replay. Because the claim is atomic, no peer can
+// begin streaming between the in-use check and the kill, so the reset only ever
+// runs on the idle (claiming) path. wantConfig empty (ACP-session protocols)
+// never restarts. The caller must Release(key) when the turn completes.
+func (p *RuntimePool) ClaimForTurn(key RuntimeKey, wantConfig string) (*SubprocessRuntime, bool) {
+	p.mu.Lock()
+	rt, exists := p.pools[key]
+	if !exists {
+		rt = &SubprocessRuntime{key: key}
+		p.pools[key] = rt
+	}
+	p.mu.Unlock()
+
+	rt.mu.Lock()
+	if rt.inUse {
+		rt.mu.Unlock()
+		return rt, true
+	}
+	rt.inUse = true
+	hasProc := rt.proc != nil && rt.initialized
+	currentCfg := rt.processConfig
+	rt.mu.Unlock()
+
+	p.cancelStaleKill(key)
+
+	if hasProc && currentCfg != wantConfig {
+		_ = p.KillRuntime(key)
+		if fresh := p.Get(key); fresh != nil {
+			fresh.ResetHistoryState()
+			return fresh, false
+		}
+	}
+	return rt, false
 }
 
 // Release marks the runtime as no longer in use, updates lastActivity, and
@@ -289,6 +341,7 @@ func (p *RuntimePool) KillRuntime(key RuntimeKey) error {
 	rt.transport = nil
 	rt.initialized = false
 	rt.sessionID = ""
+	rt.processConfig = ""
 	rt.mu.Unlock()
 
 	if proc == nil {
@@ -409,6 +462,22 @@ func (r *SubprocessRuntime) IsInitialized() bool {
 	return r.initialized
 }
 
+// IsInUse returns true while a prompt turn is actively streaming on this
+// runtime. The pool uses it to refuse killing a child another turn still holds.
+func (r *SubprocessRuntime) IsInUse() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.inUse
+}
+
+// ProcessConfig returns the process-scoped configuration used for the live
+// subprocess, or empty when no process has been initialized.
+func (r *SubprocessRuntime) ProcessConfig() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.processConfig
+}
+
 // HasProcess returns true if the runtime has a live subprocess.
 func (r *SubprocessRuntime) HasProcess() bool {
 	r.mu.Lock()
@@ -444,4 +513,13 @@ func (r *SubprocessRuntime) SetHistoryState(state historyState) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.historyState = state
+}
+
+// ResetHistoryState marks the runtime as having no transcript known by the
+// current process. Callers use this when a process-scoped configuration change
+// forces a fresh subprocess and full transcript replay.
+func (r *SubprocessRuntime) ResetHistoryState() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.historyState = historyState{}
 }

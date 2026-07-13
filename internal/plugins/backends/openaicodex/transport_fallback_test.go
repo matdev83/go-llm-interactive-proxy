@@ -141,7 +141,7 @@ func TestOpen_autoFallsBackOnWSNormalCloseBeforeFirstEvent(t *testing.T) {
 		HTTPClient:                ts.Client(),
 		Transport:                 backend.TransportAuto,
 		ExperimentalWebSocket:     true,
-		WebSocketFallbackCooldown: 50 * time.Millisecond,
+		WebSocketFallbackCooldown: time.Hour,
 	})
 
 	first, err := be.Open(context.Background(), codexCall(), codexCand())
@@ -179,7 +179,7 @@ func TestOpen_autoFallsBackOnWSNoCanonicalFirstFrameThenClose(t *testing.T) {
 		HTTPClient:                ts.Client(),
 		Transport:                 backend.TransportAuto,
 		ExperimentalWebSocket:     true,
-		WebSocketFallbackCooldown: 50 * time.Millisecond,
+		WebSocketFallbackCooldown: time.Hour,
 	})
 
 	first, err := be.Open(context.Background(), codexCall(), codexCand())

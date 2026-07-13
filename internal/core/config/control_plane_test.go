@@ -123,7 +123,7 @@ func TestControlPlaneRequiredCategoriesValidated(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "required_categories") {
 		t.Fatalf("expected required_categories error, got %v", err)
 	}
-	cfg.ControlPlane.RequiredCategories = []string{"auth", "session", "attempt", "usage", "policy", "audit"}
+	cfg.ControlPlane.RequiredCategories = []string{"auth", "session", "attempt", "usage", "accounting_authority", "policy", "audit"}
 	if err := config.Validate(&cfg); err != nil {
 		t.Fatalf("valid required_categories must validate: %v", err)
 	}

@@ -23,6 +23,7 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		rng:           plan.rng,
 		bleg:          out.bleg,
 		cand:          out.cand,
+		authority:     newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand),
 		affinityKey:   plan.affinityKey,
 		affinitySet:   plan.affinitySet,
 		recvViews:     prep.recvViews,

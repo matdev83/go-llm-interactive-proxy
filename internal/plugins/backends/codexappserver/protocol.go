@@ -40,13 +40,20 @@ func (p *codexProtocol) ResolveModel(call *lipapi.Call) string {
 	return model
 }
 
+func (p *codexProtocol) ResolveProcessConfig(call *lipapi.Call) string {
+	if call != nil && call.Options.Verbosity != "" {
+		return string(call.Options.Verbosity)
+	}
+	return string(p.spec.cfg.DefaultVerbosity)
+}
+
 // BuildSpawnCommand builds the "codex app-server --stdio" launch command from
 // the executable resolved once at construction (spec.exe). The cwd is the
 // resolved workspace; env is nil (the subprocess inherits the parent
 // environment). Re-resolving here would fail on CI runners that lack the real
 // codex binary, so the constructor owns resolution (test mode uses a placeholder).
-func (p *codexProtocol) BuildSpawnCommand(_, workspace string) ([]string, string, []string, error) {
-	cmd := buildCodexCommand(p.spec.exe, p.spec.cfg.ConfigOverrides, p.spec.cfg.ExtraArgs)
+func (p *codexProtocol) BuildSpawnCommand(_, workspace, processConfig string) ([]string, string, []string, error) {
+	cmd := buildCodexCommandWithVerbosity(p.spec.exe, p.spec.cfg.ConfigOverrides, lipapi.VerbosityLevel(processConfig), p.spec.cfg.ExtraArgs)
 	return cmd, workspace, nil, nil
 }
 

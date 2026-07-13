@@ -45,6 +45,36 @@ func TestIntegration_refbackendStreamingText(t *testing.T) {
 	}
 }
 
+func TestIntegration_refbackendDefaultVerbosityWithoutRequestOverride(t *testing.T) {
+	t.Parallel()
+	var requestBody []byte
+	srv := httptest.NewServer(refbackend.NewHandler(refbackend.Config{OnRequestBody: func(body []byte) {
+		requestBody = append([]byte(nil), body...)
+	}}))
+	t.Cleanup(srv.Close)
+
+	be := backend.New(backend.Config{BaseURL: srv.URL + "/v1", APIKey: "sk-test", DefaultVerbosity: lipapi.VerbosityMedium})
+	call := lipapi.Call{Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}}}}
+	es, err := be.Open(context.Background(), call, routing.AttemptCandidate{Primary: routing.Primary{Model: "gpt-4o-mini"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lipapi.Collect(context.Background(), es); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Text struct {
+			Verbosity string `json:"verbosity"`
+		} `json:"text"`
+	}
+	if err := json.Unmarshal(requestBody, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Text.Verbosity != "medium" {
+		t.Fatalf("default nested verbosity = %q, body=%s", decoded.Text.Verbosity, requestBody)
+	}
+}
+
 func TestIntegration_refbackendNonStreamUsage(t *testing.T) {
 	t.Parallel()
 	const inner = `{"id":"resp_usage","object":"response","created_at":1715620000,"status":"completed","model":"gpt-4o-mini","usage":{"input_tokens":3,"output_tokens":7,"total_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}},"output":[{"type":"message","id":"msg_out","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}`

@@ -28,6 +28,24 @@ Around them: standard distribution assembly (`internal/standardplugins/`, `inter
 - **Driven adapters:** backend plugins, stores, model/catalog providers, tokenizers, metrics/tracing
 - **Composition roots:** `cmd/lipstd/`, `internal/standardplugins/`, `internal/infra/runtimebundle/`, `internal/stdhttp/` (with `internal/pluginreg/` providing the registry type)
 
+### Usage-authority bounded context
+
+Usage authority is a core-owned policy/application capability with explicit
+driven adapters. `internal/core/usageauthority/domain/` owns rule matching,
+safe credential and policy-label dimensions, units, windows, reservations, and
+authority status; `internal/core/usageauthority/app/` owns immutable snapshots,
+admission, atomic reservation-set descriptors, settlement/release orchestration,
+failure posture, and evidence projection. `internal/infra/usageauthority/configsource/`
+supplies config snapshots, `authoritystore/` contains the shared clone-based
+memory mutation core plus the Bun durable adapter and mutation log, and
+`evidencesink/` bridges policydecision/control-plane recording. Runtime lifecycle
+integration stays in `internal/core/runtime/authority_lifecycle.go`, which passes
+one complete reservation set with legal stage and backend/output flags.
+
+Memory publishes a mutation projection only after a complete set succeeds;
+durable stores lock and re-read committed rows, flush the set in one transaction,
+and reload or invalidate projections after rollback or flush failure.
+
 ## Core Ownership Rules
 
 - Core imports `pkg/lipapi` and `pkg/lipsdk` only

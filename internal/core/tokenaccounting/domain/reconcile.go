@@ -120,6 +120,7 @@ func ReconcileEvents(policy BillingPolicy, events ...lipapi.Event) Result {
 			CacheWriteTokens: ev.CacheWriteTokens,
 			ReasoningTokens:  ev.ReasoningTokens,
 			TotalTokens:      ev.TotalTokens,
+			UsagePresence:    ev.UsagePresence,
 			Accounting:       ev.Accounting,
 		})
 	}
@@ -277,6 +278,7 @@ func addUsage(dst *lipapi.ScopedUsageDelta, src lipapi.ScopedUsageDelta) {
 	dst.CacheWriteTokens += src.CacheWriteTokens
 	dst.ReasoningTokens += src.ReasoningTokens
 	dst.TotalTokens += src.TotalTokens
+	dst.UsagePresence = dst.UsagePresence.Union(src.UsagePresence)
 }
 
 func sameUsage(a, b lipapi.ScopedUsageDelta) bool {
@@ -313,6 +315,7 @@ type usageIdentity struct {
 	CacheWriteTokens int
 	ReasoningTokens  int
 	TotalTokens      int
+	UsagePresence    lipapi.UsagePresence
 }
 
 func identityFor(entry lipapi.ScopedUsageDelta) usageIdentity {
@@ -327,5 +330,6 @@ func identityFor(entry lipapi.ScopedUsageDelta) usageIdentity {
 		CacheWriteTokens: entry.CacheWriteTokens,
 		ReasoningTokens:  entry.ReasoningTokens,
 		TotalTokens:      entry.TotalTokens,
+		UsagePresence:    entry.UsagePresence,
 	}
 }

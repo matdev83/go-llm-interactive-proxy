@@ -235,3 +235,28 @@ func TestParse_DefaultsVisibilityAndSupportedInAPI(t *testing.T) {
 		t.Fatalf("DefaultReasoningLevel = %q, want %q", p.DefaultReasoningLevel, "medium")
 	}
 }
+
+func TestParse_SkipsDuplicateSlugs(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{
+  "models": [
+    {"slug":"gpt-5.5","supported_in_api":true,"supported_reasoning_levels":[{"effort":"low","description":"d"}]},
+    {"slug":"GPT-5.5","supported_in_api":true,"default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high","description":"d"}]}
+  ]
+}`)
+	c, err := codexcatalog.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	slugs := c.RoutableSlugs()
+	if len(slugs) != 1 || slugs[0] != "gpt-5.5" {
+		t.Fatalf("RoutableSlugs = %v, want [gpt-5.5] (first wins)", slugs)
+	}
+	p, ok := c.Profile("gpt-5.5")
+	if !ok {
+		t.Fatal("Profile(gpt-5.5) not found")
+	}
+	if p.DefaultReasoningLevel != "medium" {
+		t.Fatalf("DefaultReasoningLevel = %q, want medium from first entry default", p.DefaultReasoningLevel)
+	}
+}

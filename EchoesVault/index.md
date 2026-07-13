@@ -13,6 +13,7 @@ This index tracks all structured pages in the vault.
 - [[streaming-model]]: Streaming-first execution, canonical event stream, and stream component design.
 - [[continuity-recovery]]: B2BUA continuity semantics, lineage model, and continuity stores.
 - [[testing-strategy]]: Testing philosophy, suite topology, build tags, and high-value test targets.
+- [[controlplane-evidence-four-layer-pattern]]: Audit property requiring every control-plane evidence guard to be regression-locked at SDK, core, normalizer, and recorder layers — see docs/controlplane-evidence.md for the full coverage map.
 - [[security-auth]]: Startup posture, transport auth, secure sessions, and credential management.
 - [[tech-stack]]: Go runtime, dependencies, tooling, and structural patterns.
 - [[agent-skills]]: Skill-to-task mapping for golang-specific agent skill loading, hexagonal architecture enforcement, and registered skill inventory.

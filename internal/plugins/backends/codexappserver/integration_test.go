@@ -97,10 +97,21 @@ func (p *fakeProcess) readStdinLine() (string, error) {
 // --- fakeStarter: injects a pre-created fakeProcess ---
 
 type fakeStarter struct {
-	proc *fakeProcess
+	proc     *fakeProcess
+	procs    []*fakeProcess
+	mu       sync.Mutex
+	commands [][]string
 }
 
-func (f *fakeStarter) Start(_ []string, _ string, _ []string) (acp.Process, error) {
+func (f *fakeStarter) Start(cmd []string, _ string, _ []string) (acp.Process, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands = append(f.commands, append([]string(nil), cmd...))
+	if len(f.procs) > 0 {
+		proc := f.procs[0]
+		f.procs = f.procs[1:]
+		return proc, nil
+	}
 	return f.proc, nil
 }
 
@@ -329,6 +340,96 @@ func TestIntegration_codexAppServerStreamingText(t *testing.T) {
 	}
 	if !strings.Contains(text, "Codex!") {
 		t.Fatalf("text missing 'Codex!': %q", text)
+	}
+}
+
+func TestIntegration_codexAppServerVerbosityChangeRestartsAndReplaysTranscript(t *testing.T) {
+	t.Parallel()
+	ws := t.TempDir()
+	first := newFakeProcess(t)
+	second := newFakeProcess(t)
+	t.Cleanup(func() { _ = first.Kill(); _ = second.Kill() })
+	starter := &fakeStarter{procs: []*fakeProcess{first, second}}
+
+	go runAgentSimulator(t, first, simulatorOptions{
+		threadID:      "thread-low-verbosity",
+		notifications: []simulatorNotification{{"item/agentMessage/delta", map[string]any{"delta": "first"}}},
+	})
+	var replayed string
+	var replayMu sync.Mutex
+	go runAgentSimulator(t, second, simulatorOptions{
+		threadID: "thread-high-verbosity",
+		onTurnStartParams: func(params json.RawMessage) {
+			var turn struct {
+				Input []struct {
+					Text string `json:"text"`
+				} `json:"input"`
+			}
+			_ = json.Unmarshal(params, &turn)
+			if len(turn.Input) > 0 {
+				replayMu.Lock()
+				replayed = turn.Input[0].Text
+				replayMu.Unlock()
+			}
+		},
+		notifications: []simulatorNotification{{"item/agentMessage/delta", map[string]any{"delta": "second"}}},
+	})
+
+	backend := codexappserver.NewWithStarter(codexappserver.Config{
+		ConnectorConfig: acp.ConnectorConfig{Model: "auto", DefaultWorkspace: ws},
+	}, starter)
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Backend: codexappserver.ID, Model: "auto"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	firstCall := lipapi.Call{
+		ID:       "verbosity-first",
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("first question")}}},
+		Options:  lipapi.GenerationOptions{Verbosity: lipapi.VerbosityLow},
+	}
+	es, err := backend.Open(ctx, firstCall, cand)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	if _, err := lipapi.Collect(ctx, es); err != nil {
+		t.Fatalf("first Collect: %v", err)
+	}
+	_ = es.Close()
+
+	secondCall := lipapi.Call{
+		ID: "verbosity-second",
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("first question")}},
+			{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{lipapi.TextPart("first answer")}},
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("second question")}},
+		},
+		Options: lipapi.GenerationOptions{Verbosity: lipapi.VerbosityHigh},
+	}
+	es, err = backend.Open(ctx, secondCall, cand)
+	if err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	if _, err := lipapi.Collect(ctx, es); err != nil {
+		t.Fatalf("second Collect: %v", err)
+	}
+	_ = es.Close()
+
+	starter.mu.Lock()
+	commands := append([][]string(nil), starter.commands...)
+	starter.mu.Unlock()
+	if len(commands) != 2 {
+		t.Fatalf("spawn count = %d, want 2; commands=%v", len(commands), commands)
+	}
+	joinedFirst := strings.Join(commands[0], " ")
+	joinedSecond := strings.Join(commands[1], " ")
+	if !strings.Contains(joinedFirst, "model_verbosity=low") || !strings.Contains(joinedSecond, "model_verbosity=high") {
+		t.Fatalf("verbosity spawn commands = %v", commands)
+	}
+	replayMu.Lock()
+	gotReplay := replayed
+	replayMu.Unlock()
+	if !strings.Contains(gotReplay, "first question") || !strings.Contains(gotReplay, "first answer") || !strings.Contains(gotReplay, "second question") {
+		t.Fatalf("changed verbosity must replay full transcript, got %q", gotReplay)
 	}
 }
 

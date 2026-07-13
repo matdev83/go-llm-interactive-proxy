@@ -47,7 +47,9 @@ func (p *acpProtocol) ResolveModel(call *lipapi.Call) string {
 	return p.spec.ResolveModel(CallRouteModel(call, "acp.model"))
 }
 
-func (p *acpProtocol) BuildSpawnCommand(model, workspace string) ([]string, string, []string, error) {
+func (p *acpProtocol) ResolveProcessConfig(_ *lipapi.Call) string { return "" }
+
+func (p *acpProtocol) BuildSpawnCommand(model, workspace, _ string) ([]string, string, []string, error) {
 	return p.spec.BuildCommand(model, workspace)
 }
 

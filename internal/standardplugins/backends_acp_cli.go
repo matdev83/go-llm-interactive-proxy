@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
 
@@ -63,7 +64,8 @@ type agyCLIYAMLExtras struct {
 
 // codexAppServerYAMLExtras carries codexappserver-only config fields.
 type codexAppServerYAMLExtras struct {
-	ConfigOverrides []string `yaml:"config_overrides"`
+	ConfigOverrides  []string `yaml:"config_overrides"`
+	DefaultVerbosity string   `yaml:"default_verbosity"`
 }
 
 // yamlKeysOf returns the yaml key names for the exported fields of v's struct
@@ -266,10 +268,15 @@ func backendCodexAppServer(n yaml.Node, catalog *codexcatalog.Catalog) (execback
 	if err := rejectUnknownYAMLKeys(n, acpCLIKnownKeys(codexAppServerYAMLExtras{})); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: %w", err)
 	}
+	verbosity, err := lipapi.ParseVerbosityLevel(xs.DefaultVerbosity)
+	if err != nil {
+		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: default_verbosity: %w", err)
+	}
 	cfg := codexappserver.Config{
-		ConnectorConfig: y.connectorConfig(),
-		ConfigOverrides: xs.ConfigOverrides,
-		ModelCatalog:    catalog,
+		ConnectorConfig:  y.connectorConfig(),
+		ConfigOverrides:  xs.ConfigOverrides,
+		ModelCatalog:     catalog,
+		DefaultVerbosity: verbosity,
 	}
 	be, err := codexappserver.New(cfg)
 	if err != nil {

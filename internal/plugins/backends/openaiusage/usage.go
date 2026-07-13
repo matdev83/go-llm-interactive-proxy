@@ -28,7 +28,14 @@ func ChatUsageEvent(usage openai.CompletionUsage) lipapi.Event {
 		CacheReadTokens: safecast.IntFromInt64Clamp(usage.PromptTokensDetails.CachedTokens),
 		ReasoningTokens: safecast.IntFromInt64Clamp(usage.CompletionTokensDetails.ReasoningTokens),
 		TotalTokens:     safecast.IntFromInt64Clamp(usage.TotalTokens),
-		RawUsageJSON:    rawJSON(usage.RawJSON(), usage),
+		UsagePresence: lipapi.UsagePresence{
+			InputTokens:     usage.JSON.PromptTokens.Valid(),
+			OutputTokens:    usage.JSON.CompletionTokens.Valid(),
+			CacheReadTokens: usage.PromptTokensDetails.JSON.CachedTokens.Valid(),
+			ReasoningTokens: usage.CompletionTokensDetails.JSON.ReasoningTokens.Valid(),
+			TotalTokens:     usage.JSON.TotalTokens.Valid(),
+		},
+		RawUsageJSON: rawJSON(usage.RawJSON(), usage),
 	}
 	applyPromptDetailsExtensions(&ev, usage.PromptTokensDetails.JSON.ExtraFields, usage.PromptTokensDetails.RawJSON())
 	applyUsageCostExtensions(&ev, usage.JSON.ExtraFields, usage.RawJSON())
@@ -43,7 +50,14 @@ func ResponsesUsageEvent(u responses.ResponseUsage) lipapi.Event {
 		CacheReadTokens: safecast.IntFromInt64Clamp(u.InputTokensDetails.CachedTokens),
 		ReasoningTokens: safecast.IntFromInt64Clamp(u.OutputTokensDetails.ReasoningTokens),
 		TotalTokens:     safecast.IntFromInt64Clamp(u.TotalTokens),
-		RawUsageJSON:    rawJSON(u.RawJSON(), u),
+		UsagePresence: lipapi.UsagePresence{
+			InputTokens:     u.JSON.InputTokens.Valid(),
+			OutputTokens:    u.JSON.OutputTokens.Valid(),
+			CacheReadTokens: u.InputTokensDetails.JSON.CachedTokens.Valid(),
+			ReasoningTokens: u.OutputTokensDetails.JSON.ReasoningTokens.Valid(),
+			TotalTokens:     u.JSON.TotalTokens.Valid(),
+		},
+		RawUsageJSON: rawJSON(u.RawJSON(), u),
 	}
 	applyPromptDetailsExtensions(&ev, u.InputTokensDetails.JSON.ExtraFields, u.InputTokensDetails.RawJSON())
 	applyUsageCostExtensions(&ev, u.JSON.ExtraFields, u.RawJSON())
@@ -68,23 +82,31 @@ func applyPromptDetailsExtensions(ev *lipapi.Event, extras map[string]respjson.F
 	if len(extras) > 0 {
 		if f, ok := extras[lipCacheWriteTokensKey]; ok && f.Valid() {
 			ev.CacheWriteTokens = intFieldFromJSON(f.Raw())
+			ev.UsagePresence.CacheWriteTokens = true
 		}
 	}
 	if ev.CacheWriteTokens == 0 {
-		ev.CacheWriteTokens = cacheWriteFromDetailsJSON(detailsRaw)
+		if value, ok := cacheWriteFromDetailsJSON(detailsRaw); ok {
+			ev.CacheWriteTokens = value
+			ev.UsagePresence.CacheWriteTokens = true
+		}
 	}
 }
 
-func cacheWriteFromDetailsJSON(raw string) int {
+func cacheWriteFromDetailsJSON(raw string) (int, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return 0
+		return 0, false
 	}
-	var probe map[string]int
+	var probe map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
-		return 0
+		return 0, false
 	}
-	return probe[lipCacheWriteTokensKey]
+	value, ok := probe[lipCacheWriteTokensKey]
+	if !ok {
+		return 0, false
+	}
+	return intFieldFromJSON(string(value)), true
 }
 
 func applyUsageCostExtensions(ev *lipapi.Event, extras map[string]respjson.Field, usageRaw string) {
@@ -96,7 +118,7 @@ func applyUsageCostExtensions(ev *lipapi.Event, extras map[string]respjson.Field
 			applyProviderCost(ev, f.Raw())
 		}
 	}
-	if ev.CostNanoUnits == 0 {
+	if !ev.CostPresent {
 		applyProviderCost(ev, providerCostRawFromUsageJSON(usageRaw))
 	}
 }
@@ -117,12 +139,13 @@ func providerCostRawFromUsageJSON(raw string) string {
 
 func applyProviderCost(ev *lipapi.Event, raw string) {
 	nano, ok := providerCostNanoUnits(raw)
-	if !ok || nano <= 0 {
+	if !ok || nano < 0 {
 		return
 	}
 	ev.CostNanoUnits = nano
 	ev.Currency = defaultProviderCurrency
 	ev.CostSource = accounting.CostSourceProviderReported
+	ev.CostPresent = true
 }
 
 func intFieldFromJSON(raw string) int {
@@ -152,13 +175,16 @@ func providerCostNanoUnits(raw string) (int64, bool) {
 		if err := json.Unmarshal([]byte(raw), &f); err != nil {
 			return 0, false
 		}
-		if f <= 0 {
+		if f < 0 {
 			return 0, false
 		}
 		return int64(f*float64(providerCostNanoScale) + 0.5), true
 	}
-	if rat.Sign() <= 0 {
+	if rat.Sign() < 0 {
 		return 0, false
+	}
+	if rat.Sign() == 0 {
+		return 0, true
 	}
 	rat.Mul(rat, big.NewRat(providerCostNanoScale, 1))
 	q, r := new(big.Int), new(big.Int)

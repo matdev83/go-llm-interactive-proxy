@@ -43,6 +43,7 @@ func LogCall(ctx context.Context, log *slog.Logger, frontend string, call *lipap
 		"tool_result_ids", strings.Join(s.toolResultIDs, ","),
 		"assistant_tool_call_ids", strings.Join(s.assistantToolCallIDs, ","),
 		"reasoning_effort", call.Options.ReasoningEffort,
+		"verbosity", call.Options.Verbosity,
 		"has_max_output_tokens", call.Options.MaxOutputTokens != nil,
 		"has_temperature", call.Options.Temperature != nil,
 		"has_top_p", call.Options.TopP != nil,

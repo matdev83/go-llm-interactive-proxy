@@ -51,6 +51,19 @@ func (c *Catalog) RoutableSlugs() []string {
 	return slices.Clone(c.routable)
 }
 
+// RoutableSlugsOrFallback returns cat.RoutableSlugs() when cat is non-nil,
+// otherwise the shipped fallback catalog's routable slugs. Returns nil only
+// when both the provided catalog and the fallback load are unavailable.
+func RoutableSlugsOrFallback(cat *Catalog) []string {
+	if cat != nil {
+		return cat.RoutableSlugs()
+	}
+	if fallback, err := LoadFallback(""); err == nil {
+		return fallback.RoutableSlugs()
+	}
+	return nil
+}
+
 // Profile returns the profile for slug (case-insensitive) and whether it exists.
 func (c *Catalog) Profile(slug string) (Profile, bool) {
 	if c == nil {
@@ -183,7 +196,11 @@ func Parse(raw []byte) (*Catalog, error) {
 			ContextWindow:            m.ContextWindow,
 			MaxContextWindow:         m.MaxContextWindow,
 		}
-		profiles[strings.ToLower(slug)] = p
+		key := strings.ToLower(slug)
+		if _, exists := profiles[key]; exists {
+			continue
+		}
+		profiles[key] = p
 		if p.APIAccepted() {
 			routable = append(routable, slug)
 		}

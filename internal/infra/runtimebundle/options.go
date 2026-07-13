@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
@@ -162,4 +163,7 @@ type TestingOptions struct {
 	// path exactly like the production store closer. Tests only; production
 	// leaves this nil so the store is built from config.
 	ControlPlaneStoreOverride controlplane.Store
+	// AuthorityStoreOverride, when non-nil, replaces the configured usage-
+	// authority store. Tests only; production leaves this nil.
+	AuthorityStoreOverride authorityapp.StateStore
 }

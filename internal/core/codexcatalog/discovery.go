@@ -21,8 +21,15 @@ func Discover(ctx context.Context, executable string, timeout time.Duration) (*C
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := exec.CommandContext(runCtx, executable, "debug", "models").Output()
+	cmd := exec.CommandContext(runCtx, executable, "debug", "models")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return nil, fmt.Errorf("codexcatalog: `codex debug models` failed: %w (stderr: %s)", err, msg)
+		}
 		return nil, fmt.Errorf("codexcatalog: `codex debug models` failed: %w", err)
 	}
 	trimmed := bytes.TrimSpace(out)
