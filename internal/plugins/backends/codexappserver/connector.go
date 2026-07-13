@@ -49,7 +49,8 @@ var autoAcceptMethods = map[string]bool{
 type Config struct {
 	acp.ConnectorConfig
 	// ConfigOverrides are -c key=value overrides passed between "app-server" and "--stdio".
-	ConfigOverrides []string
+	ConfigOverrides  []string
+	DefaultVerbosity lipapi.VerbosityLevel
 }
 
 // resolveExecutable finds the Codex CLI binary, with cross-platform fallbacks.
@@ -118,6 +119,22 @@ func buildCodexCommand(exe string, cfgOverrides, extraArgs []string) []string {
 	return cmd
 }
 
+func buildCodexCommandWithVerbosity(exe string, cfgOverrides []string, verbosity lipapi.VerbosityLevel, extraArgs []string) []string {
+	overrides := make([]string, 0, len(cfgOverrides)+1)
+	if verbosity == "" {
+		overrides = append(overrides, cfgOverrides...)
+	} else {
+		for _, override := range cfgOverrides {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(override)), "model_verbosity=") {
+				continue
+			}
+			overrides = append(overrides, override)
+		}
+		overrides = append(overrides, "model_verbosity="+string(verbosity))
+	}
+	return buildCodexCommand(exe, overrides, extraArgs)
+}
+
 // codexServerRequestHandler handles inbound JSON-RPC approval requests from the
 // Codex app-server. Auto-accepts known approval methods; declines everything else.
 type codexServerRequestHandler struct{}
@@ -164,6 +181,11 @@ func defaultInventoryModels() []modelinventory.Model {
 
 // New returns a runtime backend that invokes the Codex CLI app-server via stdio.
 func New(cfg Config) (execbackend.Backend, error) {
+	verbosity, err := lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity))
+	if err != nil {
+		return execbackend.Backend{}, fmt.Errorf("%s: default_verbosity: %w", ID, err)
+	}
+	cfg.DefaultVerbosity = verbosity
 	cfg.applyDefaults()
 	return newBackend(cfg, true, nil), nil
 }
@@ -174,6 +196,9 @@ func New(cfg Config) (execbackend.Backend, error) {
 // The executable is set to a placeholder so BuildSpawnCommand does not require
 // the real codex binary to be on PATH.
 func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend {
+	if verbosity, err := lipapi.ParseVerbosityLevel(string(cfg.DefaultVerbosity)); err == nil {
+		cfg.DefaultVerbosity = verbosity
+	}
 	cfg.applyDefaults()
 	return newBackend(cfg, false, starter)
 }

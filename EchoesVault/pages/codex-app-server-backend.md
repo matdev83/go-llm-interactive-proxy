@@ -114,6 +114,7 @@ The Codex app-server sends inbound JSON-RPC requests for approval decisions. The
 | `Executable` | Path to Codex CLI binary | Resolved from `CODEX_BIN` env, PATH, or npm-global |
 | `Model` | Default model (vendor prefix stripped) | `auto` |
 | `ConfigOverrides` | `-c key=value` overrides | None |
+| `DefaultVerbosity` | Default `model_verbosity` process setting (`low`, `medium`, or `high`) | Unset |
 | `ExtraArgs` | Additional CLI arguments after `--stdio` | None |
 | `DefaultWorkspace` | Fallback workspace directory | None (explicit required in production) |
 | `IdleTimeout` | Subprocess idle reaping timeout | Disabled |
@@ -125,7 +126,39 @@ The Codex app-server sends inbound JSON-RPC requests for approval decisions. The
 codex --dangerously-bypass-approvals-and-sandbox --search app-server [-c overrides...] --stdio [extra...]
 ```
 
-The model is **not** passed via CLI flags — it is sent in the `turn/start` JSON-RPC params.
+The model is **not** passed via CLI flags — it is sent in the `thread/start` JSON-RPC params.
+Verbosity is process-scoped because Codex App Server has no `turn/start.verbosity` field;
+the effective value is passed as `-c model_verbosity=<level>`. A request or
+`default_verbosity` replaces a static `model_verbosity=` override. Changing verbosity on
+an existing workspace/model/session runtime restarts the child and replays the full transcript
+before sending the next turn.
+
+### Turn serialization and the in-flight guard
+
+A single stdio subprocess cannot carry two concurrent turns (JSON-RPC responses would
+interleave and rpcID matching would break), so the shared `subprocessBackend.Open` claims the
+runtime atomically via `RuntimePool.ClaimForTurn` before sending a turn. The claim is the
+race-free replacement for the former "mark in-use then maybe kill" sequence:
+
+- A turn is rejected (`busy`) when another turn still holds the same `RuntimeKey`; `Open`
+  fails explicitly instead of killing the in-use child. This closes the high-severity
+  verbosity-restart bug where a config-change `KillRuntime` could fire while a peer turn was
+  still streaming on the transport.
+- On a successful claim, a live child spawned with a different `ProcessConfig` is killed and
+  its transcript marker reset so the new child receives a full replay. Because the claim is
+  atomic, no peer can begin streaming between the in-use check and the kill, so the reset
+  only ever runs on the idle (claiming) path.
+- ACP-session protocols (empty `ProcessConfig`) never restart on a claim; they reuse the
+  child when idle and reject concurrent peers the same way.
+
+`RuntimePool.EnsureProcess` serializes spawn/handshake on the `RuntimeKey` (shared pool
+slot), not on `ProcessConfigKey`. Parallel flights per verbosity would thrash
+`KillRuntime`/`SetProcess` in an unbounded retry loop; after each flight the caller
+re-checks the live pool, `Forget`s the flight key, and retries until its config is live or
+`ctx` is cancelled. `Open` still relies on `ClaimForTurn` so only one turn ensures at a time.
+
+The claim is released by `RuntimePool.Release` on stream close (and on the `Open` error
+paths), preserving the existing in-use/stale-kill lifecycle.
 
 ## Plugin Registration
 

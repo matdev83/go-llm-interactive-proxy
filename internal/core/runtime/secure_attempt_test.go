@@ -98,6 +98,7 @@ func TestBuildAttemptTrace_fillsRoutingFields(t *testing.T) {
 	call := lipapi.Call{Route: lipapi.RouteIntent{Selector: "alias:here"}, Options: lipapi.GenerationOptions{
 		Temperature:     &tmp,
 		ReasoningEffort: "high",
+		Verbosity:       lipapi.VerbosityMedium,
 	}}
 	tr := buildAttemptTrace(st, "a1", b2bua.BLegRecord{BLegID: "b9", Seq: 2}, cand, call, time.Unix(1, 0))
 	if tr.ResolvedBackend != "be" || tr.ResolvedModel != "mres" || tr.RouteReason != "be:mres" {
@@ -106,7 +107,7 @@ func TestBuildAttemptTrace_fillsRoutingFields(t *testing.T) {
 	if tr.RequestedModel != "alias:here" {
 		t.Fatalf("requested: %q", tr.RequestedModel)
 	}
-	if tr.Settings.ReasoningEffort != "high" || tr.Settings.Temperature == nil || *tr.Settings.Temperature != 0.5 {
+	if tr.Settings.ReasoningEffort != "high" || tr.Settings.Verbosity != "medium" || tr.Settings.Temperature == nil || *tr.Settings.Temperature != 0.5 {
 		t.Fatalf("settings: %+v", tr.Settings)
 	}
 }

@@ -13,7 +13,7 @@ import (
 // Keys absent from the query leave the base value unchanged.
 //
 // Recognized keys (first value wins per key): temperature, top_p, max_output_tokens,
-// reasoning_effort, parallel_tool_calls (true/false/1/0).
+// reasoning_effort, verbosity, parallel_tool_calls (true/false/1/0).
 func MergeRouteQueryIntoGenerationOptions(base GenerationOptions, q url.Values) (GenerationOptions, error) {
 	out := base
 	if len(q) == 0 {
@@ -46,6 +46,13 @@ func MergeRouteQueryIntoGenerationOptions(base GenerationOptions, q url.Values) 
 	}
 	if s := firstQuery(q, "reasoning_effort"); s != "" {
 		out.ReasoningEffort = s
+	}
+	if s := firstQuery(q, "verbosity"); s != "" {
+		v, err := ParseVerbosityLevel(s)
+		if err != nil {
+			return GenerationOptions{}, fmt.Errorf("route param verbosity: %w", err)
+		}
+		out.Verbosity = v
 	}
 	if s := firstQuery(q, "parallel_tool_calls"); s != "" {
 		b, err := parseBoolParam(s)

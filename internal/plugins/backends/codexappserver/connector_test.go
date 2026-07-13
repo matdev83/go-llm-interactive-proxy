@@ -80,6 +80,23 @@ func TestBuildCodexCommand_noOverridesNoExtra(t *testing.T) {
 	}
 }
 
+func TestBuildCodexCommandWithVerbosityReplacesStaticOverride(t *testing.T) {
+	t.Parallel()
+	cmd := buildCodexCommandWithVerbosity("codex", []string{"model_verbosity=low", "foo=bar"}, "high", nil)
+	want := []string{"codex", "--dangerously-bypass-approvals-and-sandbox", "--search", "app-server", "-c", "foo=bar", "-c", "model_verbosity=high", "--stdio"}
+	if strings.Join(cmd, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("cmd = %v, want %v", cmd, want)
+	}
+}
+
+func TestBuildCodexCommandWithVerbosityPreservesOverridesWhenUnset(t *testing.T) {
+	t.Parallel()
+	cmd := buildCodexCommandWithVerbosity("codex", []string{"model_verbosity=low"}, "", nil)
+	if !strings.Contains(strings.Join(cmd, " "), "model_verbosity=low") {
+		t.Fatalf("unset verbosity must preserve static override: %v", cmd)
+	}
+}
+
 func TestCodexServerRequestHandler_acceptApproval(t *testing.T) {
 	t.Parallel()
 	h := &codexServerRequestHandler{}

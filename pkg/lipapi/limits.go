@@ -188,6 +188,9 @@ func validateOptionStrings(o GenerationOptions) error {
 	if o.ReasoningEffort != "" && len(o.ReasoningEffort) > MaxOptionStringBytes {
 		return &ValidationError{Field: "Options.ReasoningEffort", Message: fmt.Sprintf("exceeds %d bytes", MaxOptionStringBytes)}
 	}
+	if !o.Verbosity.valid() {
+		return &ValidationError{Field: "Options.Verbosity", Message: fmt.Sprintf("must be one of %q, %q, or %q", VerbosityLow, VerbosityMedium, VerbosityHigh)}
+	}
 	if o.ResponseMIMEType != "" && len(o.ResponseMIMEType) > MaxOptionStringBytes {
 		return &ValidationError{Field: "Options.ResponseMIMEType", Message: fmt.Sprintf("exceeds %d bytes", MaxOptionStringBytes)}
 	}

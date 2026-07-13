@@ -148,6 +148,7 @@ type GenerationOptions struct {
 	MaxOutputTokens   *int
 	TopP              *float64
 	ReasoningEffort   string
+	Verbosity         VerbosityLevel
 	ResponseMIMEType  string
 	ParallelToolCalls *bool
 }

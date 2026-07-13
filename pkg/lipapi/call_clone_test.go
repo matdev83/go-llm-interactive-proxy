@@ -20,6 +20,7 @@ func TestCloneCall_deepCopiesSlicesAndOptionPointers(t *testing.T) {
 			Temperature:       &temp,
 			ParallelToolCalls: &parallel,
 			ReasoningEffort:   "high",
+			Verbosity:         lipapi.VerbosityHigh,
 		},
 	}
 	cl := lipapi.CloneCall(orig)
@@ -39,5 +40,8 @@ func TestCloneCall_deepCopiesSlicesAndOptionPointers(t *testing.T) {
 	}
 	if orig.Tools[0].Name != "x" {
 		t.Fatalf("tools slice shared")
+	}
+	if orig.Options.Verbosity != lipapi.VerbosityHigh {
+		t.Fatalf("verbosity should be copied")
 	}
 }

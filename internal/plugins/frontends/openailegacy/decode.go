@@ -46,6 +46,7 @@ type wireCreate struct {
 	MaxTokens         *int              `json:"max_tokens"`
 	ParallelToolCalls *bool             `json:"parallel_tool_calls"`
 	ReasoningEffort   string            `json:"reasoning_effort"`
+	Verbosity         string            `json:"verbosity"`
 	StreamOptions     json.RawMessage   `json:"stream_options"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
 }
@@ -56,7 +57,7 @@ var legacyKnownBodyKeys = map[string]bool{
 	"parallel_tool_calls": true, "stream_options": true, "metadata": true,
 	"max_completion_tokens": true, "n": true, "stop": true, "presence_penalty": true,
 	"frequency_penalty": true, "logit_bias": true, "logprobs": true, "top_logprobs": true,
-	"seed": true, "suffix": true, "reasoning_effort": true,
+	"seed": true, "suffix": true, "reasoning_effort": true, "verbosity": true,
 }
 
 var (
@@ -103,6 +104,10 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 	if err != nil {
 		return nil, fmt.Errorf("openailegacy: tool_choice: %w", err)
 	}
+	verbosity, err := lipapi.ParseVerbosityLevel(w.Verbosity)
+	if err != nil {
+		return nil, fmt.Errorf("openailegacy: %w", err)
+	}
 
 	modelRaw, err := json.Marshal(model)
 	if err != nil {
@@ -141,6 +146,7 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 			MaxOutputTokens:   w.MaxTokens,
 			ParallelToolCalls: w.ParallelToolCalls,
 			ReasoningEffort:   strings.TrimSpace(w.ReasoningEffort),
+			Verbosity:         verbosity,
 		},
 	}
 	if len(w.Metadata) > 0 {

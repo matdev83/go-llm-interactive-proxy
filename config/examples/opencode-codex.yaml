@@ -97,6 +97,7 @@ plugins:
         # access_token left empty so the connector auto-discovers ~/.codex/auth.json.
         # account_id is read from auth.json tokens.account_id; override here only if needed.
         default_reasoning_effort: "medium"
+        # default_verbosity: "medium"  # low, medium, or high
   features:
     - id: submit-noop
       enabled: true

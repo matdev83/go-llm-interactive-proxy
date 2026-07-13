@@ -147,10 +147,10 @@ func (b *subprocessBackend) resolveWorkspaceFromCall(call *lipapi.Call) (string,
 // passes these to the protocol's BindSession, which wraps them in a
 // vendor-specific client. The model parameter should already be resolved
 // (vendor prefix stripped) by the caller.
-func (b *subprocessBackend) ensureProcess(ctx context.Context, key RuntimeKey, model, workspace string) (EnsureProcessResult, error) {
+func (b *subprocessBackend) ensureProcess(ctx context.Context, key RuntimeKey, model, workspace, processConfig string) (EnsureProcessResult, error) {
 	res, err := b.pool.EnsureProcess(ctx, key, SpawnHandshakeStrategy{
 		Spawn: func() ([]string, Process, Transport, error) {
-			cmd, cwd, env, err := b.proto.BuildSpawnCommand(model, workspace)
+			cmd, cwd, env, err := b.proto.BuildSpawnCommand(model, workspace, processConfig)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("%s: build command: %w", b.proto.Label(), err)
 			}
@@ -170,8 +170,9 @@ func (b *subprocessBackend) ensureProcess(ctx context.Context, key RuntimeKey, m
 			}
 			return sid, nil
 		},
-		Log:       b.log,
-		LogPrefix: b.proto.Label(),
+		Log:              b.log,
+		LogPrefix:        b.proto.Label(),
+		ProcessConfigKey: processConfig,
 	})
 	if err != nil {
 		return EnsureProcessResult{}, err
@@ -214,8 +215,19 @@ func (b *subprocessBackend) Open(ctx context.Context, call *lipapi.Call) (lipapi
 		return nil, fmt.Errorf("%s: acquire: %w", b.proto.Label(), err)
 	}
 
-	// Mark in use to prevent idle reaping during the prompt.
-	b.pool.MarkInUse(key)
+	// Claim the runtime for this turn. Claiming is atomic with the process-scoped
+	// config reset: a single stdio subprocess cannot carry two concurrent turns,
+	// and killing an in-use transport would corrupt the in-flight turn, so a
+	// concurrent peer is rejected (busy) and this call fails explicitly instead
+	// of killing it. On a successful claim, a live child spawned with a different
+	// process config (Codex model_verbosity) is killed and its transcript marker
+	// reset so the new child receives a complete replay below.
+	processConfig := b.proto.ResolveProcessConfig(call)
+	claimed, busy := b.pool.ClaimForTurn(key, processConfig)
+	if busy {
+		return nil, fmt.Errorf("%s: process config %q cannot be applied: a turn is in flight on runtime %s", b.proto.Label(), processConfig, key)
+	}
+	rt = claimed
 
 	// Compute the transcript-based prompt from the runtime's history state.
 	// On divergence (edited/truncated history), reset the agent process so it
@@ -231,7 +243,7 @@ func (b *subprocessBackend) Open(ctx context.Context, call *lipapi.Call) (lipapi
 
 	// Ensure process is running (spawn + handshake). The transport is stored
 	// internally for lifecycle management; the protocol binds it into a session.
-	res, err := b.ensureProcess(ctx, key, model, workspace)
+	res, err := b.ensureProcess(ctx, key, model, workspace, processConfig)
 	if err != nil {
 		b.pool.Release(key)
 		return nil, err

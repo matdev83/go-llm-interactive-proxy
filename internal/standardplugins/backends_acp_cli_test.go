@@ -211,6 +211,24 @@ trust_workspace: true
 	}
 }
 
+func TestBackendCodexAppServer_acceptsAndValidatesDefaultVerbosity(t *testing.T) {
+	t.Parallel()
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte("default_verbosity: HIGH\n"), &root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backendCodexAppServer(root, nil); err != nil {
+		t.Fatalf("valid default_verbosity should be accepted: %v", err)
+	}
+
+	if err := yaml.Unmarshal([]byte("default_verbosity: extreme\n"), &root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backendCodexAppServer(root, nil); err == nil {
+		t.Fatal("invalid default_verbosity should be rejected")
+	}
+}
+
 // TestBackendCursorCLIACP_acceptsSharedAndOwnFields ensures a cursorcliacp
 // block with all shared + cursor-specific fields still decodes successfully
 // after strict decoding is wired in.

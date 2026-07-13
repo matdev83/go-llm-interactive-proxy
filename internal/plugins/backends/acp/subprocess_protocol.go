@@ -34,10 +34,15 @@ type SubprocessProtocol interface {
 	// use for runtime-pool keying and command building.
 	ResolveModel(call *lipapi.Call) string
 
+	// ResolveProcessConfig returns the process-scoped configuration variant for
+	// this call. ACP-session protocols return an empty string; Codex uses the
+	// effective model verbosity.
+	ResolveProcessConfig(call *lipapi.Call) string
+
 	// BuildSpawnCommand returns the subprocess command args, working directory,
 	// and environment for spawning the agent. The model and workspace are
 	// resolved by the orchestrator before calling this.
-	BuildSpawnCommand(model, workspace string) (cmd []string, cwd string, env []string, err error)
+	BuildSpawnCommand(model, workspace, processConfig string) (cmd []string, cwd string, env []string, err error)
 
 	// Handshake runs the vendor-specific initialize/session-or-thread exchange
 	// over the transport and returns the session/thread id to register in the
