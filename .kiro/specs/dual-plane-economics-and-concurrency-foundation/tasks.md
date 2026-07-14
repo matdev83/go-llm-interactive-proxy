@@ -17,7 +17,7 @@
   - Keep separately reported components available for differential rating without adding them twice to totals.
   - Preserve explicit zero independently from absence.
   - _Requirements: 3.6, 3.7, 3.8, 17.4_
-- [ ] 2.2 Implement checked money arithmetic and authoritative-zero handling
+- [x] 2.2 Implement checked money arithmetic and authoritative-zero handling
   - Add checked multiplication, addition, subtraction, clamp conversion, and aggregation.
   - Replace zero-as-missing price behavior with explicit optional presence.
   - Preserve authoritative zero provider cost instead of falling back to estimation.
@@ -172,3 +172,5 @@
 
 - Phase 1.2 locks current defects as green characterization tests; `TestPhase12_desired*CurrentlyAbsent` tripwires fail once Phase 2 desired semantics land and must be inverted/deleted with the characterization assertions.
 - Phase 2 flip targets: (1) `EstimateCost` authoritative zero provider cost and explicit-zero rates without `fallbackPrice`; (2) checked money multiply; (3) total inference without double-counting cache/reasoning subcomponents in domain, streamusage, and `attemptAuthorityUsageAmount`; (4) omitted max-output spend path must not reserve input-only / zero future output.
+- 2.1 landed: inclusion schema `total=input+output`, `PreflightUsage.TotalTokensPresent`.
+- 2.2 landed: `ProviderCost.Present`, `OptionalNanoRate`, checked mul/add, `SubMoneyChecked`; overflow → Unavailable.

@@ -51,6 +51,7 @@ func TestEstimateCost_providerReportedCostWins(t *testing.T) {
 			NanoUnits: 123,
 			Currency:  "EUR",
 			Source:    "provider_reported",
+			Present:   true,
 		},
 	}, catalog)
 
