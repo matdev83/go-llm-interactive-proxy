@@ -16,14 +16,18 @@ const (
 // ConcurrencyAuthorityConfig controls optional logical-request concurrency leases.
 // Disabled by default (requirement 10.4 wiring is opt-in).
 type ConcurrencyAuthorityConfig struct {
-	Enabled     bool                             `yaml:"enabled"`
-	Store       string                           `yaml:"store"` // memory | sqlite | postgres
-	StoreID     string                           `yaml:"store_id"`
-	SQLitePath  string                           `yaml:"sqlite_path"`
-	PostgresDSN string                           `yaml:"postgres_dsn"`
-	LeaseTTL    string                           `yaml:"lease_ttl"`
-	RenewBefore string                           `yaml:"renew_before"`
-	Rules       []ConcurrencyAuthorityRuleConfig `yaml:"rules"`
+	Enabled     bool   `yaml:"enabled"`
+	Store       string `yaml:"store"` // memory | sqlite | postgres
+	StoreID     string `yaml:"store_id"`
+	SQLitePath  string `yaml:"sqlite_path"`
+	PostgresDSN string `yaml:"postgres_dsn"`
+	LeaseTTL    string `yaml:"lease_ttl"`
+	RenewBefore string `yaml:"renew_before"`
+	// AuxiliaryLeasePolicy controls whether auxiliary requests inherit the parent
+	// lease (default) or acquire their own top-level slot (requirement 10.10).
+	// Values: ""|"inherit" (default) | "acquire_own".
+	AuxiliaryLeasePolicy string                           `yaml:"auxiliary_lease_policy"`
+	Rules                []ConcurrencyAuthorityRuleConfig `yaml:"rules"`
 }
 
 // ConcurrencyAuthorityRuleConfig is one max-active-request lease rule.
@@ -200,6 +204,14 @@ func validateAccountingConcurrency(cfg *Config) error {
 	}
 	if c.RenewBefore == "" {
 		c.RenewBefore = DefaultConcurrencyRenewBefore.String()
+	}
+	switch strings.ToLower(strings.TrimSpace(c.AuxiliaryLeasePolicy)) {
+	case "", "inherit":
+		c.AuxiliaryLeasePolicy = "inherit"
+	case "acquire_own":
+		c.AuxiliaryLeasePolicy = "acquire_own"
+	default:
+		return fmt.Errorf("accounting.concurrency.auxiliary_lease_policy: want inherit or acquire_own, got %q", c.AuxiliaryLeasePolicy)
 	}
 	return nil
 }

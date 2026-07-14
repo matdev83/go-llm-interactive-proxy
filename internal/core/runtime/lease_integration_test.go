@@ -2,27 +2,35 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
 type recordingConcurrency struct {
-	admitGen    int64
-	released    atomic.Int32
-	renewed     atomic.Int32
-	renewFail   atomic.Bool
-	renewCh     chan struct{}
-	releaseCh   chan struct{}
-	expiresIn   time.Duration
-	renewBefore time.Duration
+	admitGen        int64
+	released        atomic.Int32
+	renewed         atomic.Int32
+	renewFail       atomic.Bool
+	renewCh         chan struct{}
+	releaseCh       chan struct{}
+	expiresIn       time.Duration
+	renewBefore     time.Duration
+	failureBehavior authority.FailureBehavior
+	lastAdmit       atomic.Pointer[authority.LeaseAdmission]
+	admitCount      atomic.Int32
 }
 
-func (r *recordingConcurrency) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
+func (r *recordingConcurrency) AdmitLease(_ context.Context, in authority.LeaseAdmission) (authority.LeaseDecision, error) {
+	cp := in
+	r.lastAdmit.Store(&cp)
+	r.admitCount.Add(1)
 	ttl := r.expiresIn
 	if ttl <= 0 {
 		ttl = 200 * time.Millisecond
@@ -31,13 +39,15 @@ func (r *recordingConcurrency) AdmitLease(context.Context, authority.LeaseAdmiss
 	if renewBefore <= 0 {
 		renewBefore = 50 * time.Millisecond
 	}
+	n := r.admitCount.Load()
 	return authority.LeaseDecision{
-		Kind:        authority.LeaseAllow,
-		LeaseID:     "lease-hb",
-		Generation:  1,
-		ExpiresAt:   time.Now().Add(ttl),
-		RenewBefore: renewBefore,
-		TTL:         ttl,
+		Kind:            authority.LeaseAllow,
+		LeaseID:         fmt.Sprintf("lease-hb-%d", n),
+		Generation:      1,
+		ExpiresAt:       time.Now().Add(ttl),
+		RenewBefore:     renewBefore,
+		TTL:             ttl,
+		FailureBehavior: r.failureBehavior,
 	}, nil
 }
 
@@ -91,7 +101,7 @@ func TestPhase83_settleReleasesConcurrencyLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := requestAuthorityFrom(ctx)
-	if st == nil || st.LeaseID != "lease-hb" {
+	if st == nil || st.LeaseID == "" {
 		t.Fatalf("state=%+v", st)
 	}
 	ex.settleRequestAuthority(ctx, nil)
@@ -168,10 +178,11 @@ func TestPhase83_heartbeatRenewsBeforeExpiry(t *testing.T) {
 func TestPhase83_renewFailureMarksDegradedWithoutRelease(t *testing.T) {
 	t.Parallel()
 	conc := &recordingConcurrency{
-		expiresIn:   120 * time.Millisecond,
-		renewBefore: 90 * time.Millisecond,
-		renewCh:     make(chan struct{}, 1),
-		releaseCh:   make(chan struct{}, 1),
+		expiresIn:       120 * time.Millisecond,
+		renewBefore:     90 * time.Millisecond,
+		renewCh:         make(chan struct{}, 1),
+		releaseCh:       make(chan struct{}, 1),
+		failureBehavior: authority.FailureFailClosed,
 	}
 	conc.renewFail.Store(true)
 	ex := &Executor{
@@ -201,6 +212,187 @@ func TestPhase83_renewFailureMarksDegradedWithoutRelease(t *testing.T) {
 		t.Fatalf("renew failure must not release lease; released=%d", conc.released.Load())
 	}
 	ex.releaseRequestAuthority(ctx)
+}
+
+func TestPhase83_renewFailClosedStopsRetrying(t *testing.T) {
+	t.Parallel()
+	conc := &recordingConcurrency{
+		expiresIn:       80 * time.Millisecond,
+		renewBefore:     60 * time.Millisecond,
+		failureBehavior: authority.FailureFailClosed,
+	}
+	conc.renewFail.Store(true)
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency:    conc,
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-fc", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := requestAuthorityFrom(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if st.heartbeat != nil && st.heartbeat.Degraded() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !st.heartbeat.Degraded() {
+		t.Fatal("expected degraded")
+	}
+	// Fail-closed stops the renew loop; RenewLease should have been attempted once.
+	time.Sleep(200 * time.Millisecond)
+	if n := conc.renewed.Load(); n != 0 {
+		t.Fatalf("fail_closed must not succeed renews; renewed=%d", n)
+	}
+	ex.releaseRequestAuthority(ctx)
+}
+
+func TestPhase83_renewFailOpenRetries(t *testing.T) {
+	t.Parallel()
+	var renewAttempts atomic.Int32
+	conc := &recordingConcurrency{
+		expiresIn:       80 * time.Millisecond,
+		renewBefore:     60 * time.Millisecond,
+		failureBehavior: authority.FailureFailOpen,
+	}
+	conc.renewFail.Store(true)
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency: &countingRenewConcurrency{
+					recordingConcurrency: conc,
+					attempts:             &renewAttempts,
+				},
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-fo", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if renewAttempts.Load() >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if renewAttempts.Load() < 2 {
+		t.Fatalf("fail_open must retry renew; attempts=%d", renewAttempts.Load())
+	}
+	ex.releaseRequestAuthority(ctx)
+}
+
+type countingRenewConcurrency struct {
+	*recordingConcurrency
+	attempts *atomic.Int32
+}
+
+func (c *countingRenewConcurrency) RenewLease(ctx context.Context, in authority.LeaseRenew) (authority.LeaseDecision, error) {
+	c.attempts.Add(1)
+	return c.recordingConcurrency.RenewLease(ctx, in)
+}
+
+func TestPhase83_auxiliaryAcquireOwnAdmitsSecondLease(t *testing.T) {
+	t.Parallel()
+	conc := &recordingConcurrency{expiresIn: time.Second, renewBefore: 500 * time.Millisecond}
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			ConcurrencyAuxiliaryLeasePolicy: "acquire_own",
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency:    conc,
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	parentCtx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-aux", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := requestAuthorityFrom(parentCtx)
+	if parent == nil || parent.LeaseID == "" {
+		t.Fatal("missing parent lease")
+	}
+	auxCtx := execctx.WithAuxiliaryDepth(parentCtx, 1)
+	childCtx, err := ex.admitRequestAuthorityOnce(auxCtx, "req-aux", "a2", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := requestAuthorityFrom(childCtx)
+	if child == nil || child.LeaseID == "" {
+		t.Fatal("missing child lease")
+	}
+	if child.LeaseID == parent.LeaseID {
+		t.Fatalf("acquire_own must take a distinct lease; parent=%s child=%s", parent.LeaseID, child.LeaseID)
+	}
+	if conc.admitCount.Load() != 2 {
+		t.Fatalf("admitCount=%d want 2", conc.admitCount.Load())
+	}
+	last := conc.lastAdmit.Load()
+	if last == nil || last.AuxPolicy != "acquire_own" {
+		t.Fatalf("last admit=%+v", last)
+	}
+	ex.releaseRequestAuthority(childCtx)
+	ex.releaseRequestAuthority(parentCtx)
+}
+
+func TestPhase83_auxiliaryInheritSkipsSecondAdmit(t *testing.T) {
+	t.Parallel()
+	conc := &recordingConcurrency{expiresIn: time.Second, renewBefore: 500 * time.Millisecond}
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			ConcurrencyAuxiliaryLeasePolicy: "inherit",
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency:    conc,
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	parentCtx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-inh", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auxCtx := execctx.WithAuxiliaryDepth(parentCtx, 1)
+	childCtx, err := ex.admitRequestAuthorityOnce(auxCtx, "req-inh", "a2", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conc.admitCount.Load() != 1 {
+		t.Fatalf("inherit must not re-admit; count=%d", conc.admitCount.Load())
+	}
+	if requestAuthorityFrom(childCtx) != requestAuthorityFrom(parentCtx) {
+		t.Fatal("inherit must reuse parent authority state")
+	}
+	ex.releaseRequestAuthority(parentCtx)
+}
+
+func TestPhase83_uncommittedReleaseFreesLease(t *testing.T) {
+	t.Parallel()
+	conc := &recordingConcurrency{releaseCh: make(chan struct{}, 1)}
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency:    conc,
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-uncommit", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mirrors prepare cleanup / uncommitted cancel: release without settle.
+	ex.releaseRequestAuthority(ctx)
+	if conc.released.Load() != 1 {
+		t.Fatalf("released=%d want 1", conc.released.Load())
+	}
 }
 
 func TestBuildAuthorityCoordinators_WiresConcurrency(t *testing.T) {

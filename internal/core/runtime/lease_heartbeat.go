@@ -125,9 +125,21 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 			cancel()
 			if err != nil {
 				// Renewal storage failure must not corrupt active count (10.8):
-				// leave the lease live until expiry; mark degraded.
+				// leave the lease live until expiry/terminal release.
 				hb.degraded.Store(true)
-				// Retry shortly before natural expiry, but never after stop.
+				behavior := st.FailureBehavior
+				if behavior == "" {
+					behavior = st.Decision.Lease.FailureBehavior
+				}
+				if behavior == "" {
+					behavior = authority.FailureFailClosed
+				}
+				if behavior == authority.FailureFailClosed {
+					// Fail-closed: stop renewing; occupancy remains until expiry
+					// or terminal release without mutating the active count.
+					return
+				}
+				// Fail-open: keep retrying to hold occupancy through transient failures.
 				retryWait := time.Until(expiresAt) / 2
 				if retryWait < 100*time.Millisecond {
 					retryWait = 100 * time.Millisecond

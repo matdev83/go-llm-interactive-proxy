@@ -230,7 +230,13 @@ func (s *MemoryStore) Query(ctx context.Context, q app.QueryCommand) (app.QueryR
 		if q.RequestID != "" && lease.LogicalID != q.RequestID {
 			continue
 		}
+		if q.RuleID != "" && lease.RuleID != q.RuleID {
+			continue
+		}
 		state := lease.EffectiveState(q.Now)
+		if state == domain.LeaseStateActive && leaseNearExpiry(lease, q.Now, 15*time.Second) {
+			state = domain.LeaseStateExpiring
+		}
 		if q.State != "" && state != q.State {
 			continue
 		}
@@ -242,6 +248,13 @@ func (s *MemoryStore) Query(ctx context.Context, q app.QueryCommand) (app.QueryR
 		}
 	}
 	return app.QueryResult{Leases: out}, nil
+}
+
+func leaseNearExpiry(lease domain.Lease, now time.Time, window time.Duration) bool {
+	if lease.ExpiresAt.IsZero() || window <= 0 {
+		return false
+	}
+	return !now.Before(lease.ExpiresAt.Add(-window))
 }
 
 var _ app.LeaseStore = (*MemoryStore)(nil)

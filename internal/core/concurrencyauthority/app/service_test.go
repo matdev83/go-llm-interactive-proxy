@@ -123,7 +123,13 @@ func (s *memoryStore) Query(_ context.Context, q app.QueryCommand) (app.QueryRes
 		if q.RequestID != "" && l.LogicalID != q.RequestID {
 			continue
 		}
+		if q.RuleID != "" && l.RuleID != q.RuleID {
+			continue
+		}
 		state := l.EffectiveState(q.Now)
+		if state == domain.LeaseStateActive && !l.ExpiresAt.IsZero() && !q.Now.Before(l.ExpiresAt.Add(-15*time.Second)) {
+			state = domain.LeaseStateExpiring
+		}
 		if q.State != "" && state != q.State {
 			continue
 		}

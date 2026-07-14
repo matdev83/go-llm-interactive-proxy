@@ -67,6 +67,8 @@ type LeaseDecision struct {
 	RenewBefore time.Duration `json:"renew_before,omitempty"`
 	// TTL is the lease lifetime used for renew extensions.
 	TTL time.Duration `json:"ttl,omitempty"`
+	// FailureBehavior is the post-admission renew-failure posture (fail_closed|fail_open).
+	FailureBehavior FailureBehavior `json:"failure_behavior,omitempty"`
 }
 
 // LeaseRelease releases a previously acquired lease.
@@ -90,6 +92,7 @@ type LeaseRenew struct {
 type LeaseQuery struct {
 	RequestID string                   `json:"request_id,omitempty"`
 	LeaseID   string                   `json:"lease_id,omitempty"`
+	RuleID    string                   `json:"rule_id,omitempty"`
 	Scope     scope.PrincipalScopeView `json:"scope,omitempty"`
 	State     LeaseState               `json:"state,omitempty"`
 	Limit     int                      `json:"limit,omitempty"`
@@ -98,14 +101,15 @@ type LeaseQuery struct {
 
 // LeaseRecord is one lease row returned by query (no store types).
 type LeaseRecord struct {
-	LeaseID    string                      `json:"lease_id"`
-	RequestID  string                      `json:"request_id,omitempty"`
-	State      LeaseState                  `json:"state"`
-	Generation int64                       `json:"generation,omitempty"`
-	ExpiresAt  time.Time                   `json:"expires_at,omitempty"`
-	ReleasedAt time.Time                   `json:"released_at,omitempty"`
-	RuleID     string                      `json:"rule_id,omitempty"`
-	Version    economics.PolicySnapshotRef `json:"version,omitempty"`
+	LeaseID      string                      `json:"lease_id"`
+	RequestID    string                      `json:"request_id,omitempty"`
+	State        LeaseState                  `json:"state"`
+	Generation   int64                       `json:"generation,omitempty"`
+	ExpiresAt    time.Time                   `json:"expires_at,omitempty"`
+	ReleasedAt   time.Time                   `json:"released_at,omitempty"`
+	RuleID       string                      `json:"rule_id,omitempty"`
+	Version      economics.PolicySnapshotRef `json:"version,omitempty"`
+	DimensionKey string                      `json:"dimension_key,omitempty"` // safe scope correlation
 }
 
 // LeasePage is a bounded page of lease records.

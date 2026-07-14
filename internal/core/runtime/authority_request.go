@@ -29,6 +29,7 @@ type requestAuthorityState struct {
 	LeaseExpiresAt  time.Time
 	RenewBefore     time.Duration
 	LeaseTTL        time.Duration
+	FailureBehavior authority.FailureBehavior
 	heartbeat       *leaseHeartbeat
 }
 
@@ -53,27 +54,45 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 	if e == nil || e.RequestCoordinator == nil {
 		return ctx, nil
 	}
-	if requestAuthorityFrom(ctx) != nil {
-		// Auxiliary Execute reuses the parent context value: inherit occupancy
-		// without consuming an additional top-level lease (requirement 10.10).
-		return ctx, nil
-	}
 	lifecycle := metering.LifecycleLogicalRequest
 	parentLeaseID := ""
 	auxPolicy := ""
-	if execctx.AuxiliaryDepth(ctx) > 0 {
+	if parent := requestAuthorityFrom(ctx); parent != nil {
+		policy := strings.ToLower(strings.TrimSpace(e.ConcurrencyAuxiliaryLeasePolicy))
+		if policy == "" || policy == "inherit" || execctx.AuxiliaryDepth(ctx) == 0 {
+			// Default: auxiliary Execute reuses parent occupancy (requirement 10.10).
+			return ctx, nil
+		}
+		// acquire_own: continue into Admit with auxiliary lifecycle below.
 		lifecycle = metering.LifecycleAuxiliaryRequest
-		// No parent lease in context: AdmitInput default AuxPolicy inherits and
-		// returns allow without a new slot when ParentLeaseID is empty.
+		parentLeaseID = parent.LeaseID
+		auxPolicy = "acquire_own"
+	} else if execctx.AuxiliaryDepth(ctx) > 0 {
+		lifecycle = metering.LifecycleAuxiliaryRequest
+		policy := strings.ToLower(strings.TrimSpace(e.ConcurrencyAuxiliaryLeasePolicy))
+		if policy == "acquire_own" {
+			auxPolicy = "acquire_own"
+		}
+	}
+	admitRequestID := strings.TrimSpace(requestID)
+	idempotencyKey := "req:" + admitRequestID
+	if auxPolicy == "acquire_own" {
+		// Distinct logical identity so acquire_own does not replay the parent lease.
+		suffix := strings.TrimSpace(aLegID)
+		if suffix == "" {
+			suffix = "aux"
+		}
+		admitRequestID = admitRequestID + ":aux:" + suffix
+		idempotencyKey = "req-aux:" + admitRequestID
 	}
 	in := authority.RequestAdmission{
-		RequestID:      strings.TrimSpace(requestID),
+		RequestID:      admitRequestID,
 		ALegID:         strings.TrimSpace(aLegID),
 		TraceID:        strings.TrimSpace(traceID),
 		Perspective:    metering.PerspectiveCustomer,
 		Lifecycle:      lifecycle,
 		Scope:          sc,
-		IdempotencyKey: "req:" + strings.TrimSpace(requestID),
+		IdempotencyKey: idempotencyKey,
 		ParentLeaseID:  parentLeaseID,
 		AuxPolicy:      auxPolicy,
 		Exposure: economics.ExposureBasis{
@@ -97,6 +116,7 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		LeaseExpiresAt:  d.Lease.ExpiresAt,
 		RenewBefore:     d.Lease.RenewBefore,
 		LeaseTTL:        d.Lease.TTL,
+		FailureBehavior: d.Lease.FailureBehavior,
 	}
 	outCtx := withRequestAuthority(ctx, st)
 	e.startLeaseHeartbeat(outCtx, st)

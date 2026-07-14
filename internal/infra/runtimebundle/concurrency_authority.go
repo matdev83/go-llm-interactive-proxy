@@ -20,10 +20,11 @@ import (
 )
 
 type concurrencyAuthorityRuntime struct {
-	Provider    authority.ConcurrencyProvider
-	Service     *concurrencyapp.Service
-	LeaseTTL    time.Duration
-	RenewBefore time.Duration
+	Provider             authority.ConcurrencyProvider
+	Service              *concurrencyapp.Service
+	LeaseTTL             time.Duration
+	RenewBefore          time.Duration
+	AuxiliaryLeasePolicy string
 }
 
 func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions) (*concurrencyAuthorityRuntime, []func() error, error) {
@@ -52,10 +53,11 @@ func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config
 	clock := concurrencyClockFromTesting(testing)
 	svc := concurrencyapp.NewService(src, store, clock)
 	return &concurrencyAuthorityRuntime{
-		Provider:    concurrencyapp.NewProvider(svc),
-		Service:     svc,
-		LeaseTTL:    leaseTTL,
-		RenewBefore: renewBefore,
+		Provider:             concurrencyapp.NewProvider(svc),
+		Service:              svc,
+		LeaseTTL:             leaseTTL,
+		RenewBefore:          renewBefore,
+		AuxiliaryLeasePolicy: strings.TrimSpace(cfg.Accounting.Concurrency.AuxiliaryLeasePolicy),
 	}, closers, nil
 }
 
@@ -140,4 +142,5 @@ func attachConcurrencyToAccounting(rt *runtime.AccountingRuntime, conc *concurre
 	rt.ConcurrencyProvider = conc.Provider
 	rt.ConcurrencyLeaseTTL = conc.LeaseTTL
 	rt.ConcurrencyRenewBefore = conc.RenewBefore
+	rt.ConcurrencyAuxiliaryLeasePolicy = conc.AuxiliaryLeasePolicy
 }

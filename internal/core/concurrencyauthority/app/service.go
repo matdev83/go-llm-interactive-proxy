@@ -145,18 +145,19 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 		}
 
 		out := AdmitResult{
-			Kind:           domain.DecisionAllow,
-			LeaseID:        acq.Lease.LeaseID,
-			Generation:     acq.Lease.Generation,
-			ExpiresAt:      acq.Lease.ExpiresAt,
-			RemainingSlots: acq.RemainingSlots,
-			Readiness:      ready,
-			BoundVersion:   in.BoundVersion,
-			Acquired:       !acq.Replayed,
-			Replayed:       acq.Replayed,
-			RuleID:         rule.ID,
-			RenewBefore:    rule.EffectiveRenewBefore(),
-			TTL:            ttl,
+			Kind:            domain.DecisionAllow,
+			LeaseID:         acq.Lease.LeaseID,
+			Generation:      acq.Lease.Generation,
+			ExpiresAt:       acq.Lease.ExpiresAt,
+			RemainingSlots:  acq.RemainingSlots,
+			Readiness:       ready,
+			BoundVersion:    in.BoundVersion,
+			Acquired:        !acq.Replayed,
+			Replayed:        acq.Replayed,
+			RuleID:          rule.ID,
+			RenewBefore:     rule.EffectiveRenewBefore(),
+			TTL:             ttl,
+			FailureBehavior: rule.FailureBehavior,
 		}
 		lastAllow = out
 		haveAllow = true

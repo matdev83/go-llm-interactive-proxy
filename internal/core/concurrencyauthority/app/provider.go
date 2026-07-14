@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 // Provider adapts Service onto authority.ConcurrencyProvider.
@@ -79,6 +80,7 @@ func (p *Provider) QueryLeases(ctx context.Context, q authority.LeaseQuery) (aut
 	res, err := p.svc.Query(ctx, QueryCommand{
 		LeaseID:   q.LeaseID,
 		RequestID: q.RequestID,
+		RuleID:    q.RuleID,
 		State:     domain.LeaseState(q.State),
 		Limit:     q.Limit,
 	})
@@ -95,6 +97,10 @@ func (p *Provider) QueryLeases(ctx context.Context, q authority.LeaseQuery) (aut
 			ExpiresAt:  lease.ExpiresAt,
 			ReleasedAt: lease.ReleasedAt,
 			RuleID:     lease.RuleID,
+			Version: economics.PolicySnapshotRef{
+				VersionRef: economics.VersionRef{Version: lease.RuleVersion},
+			},
+			DimensionKey: string(lease.Dimensions.Key()),
 		})
 	}
 	return page, nil
@@ -102,15 +108,16 @@ func (p *Provider) QueryLeases(ctx context.Context, q authority.LeaseQuery) (aut
 
 func mapAdmitDecision(res AdmitResult) authority.LeaseDecision {
 	dec := authority.LeaseDecision{
-		Kind:           mapDecisionKind(res.Kind),
-		LeaseID:        res.LeaseID,
-		Generation:     res.Generation,
-		ExpiresAt:      res.ExpiresAt,
-		RemainingSlots: res.RemainingSlots,
-		Readiness:      mapReadiness(res.Readiness),
-		BoundVersion:   res.BoundVersion,
-		RenewBefore:    res.RenewBefore,
-		TTL:            res.TTL,
+		Kind:            mapDecisionKind(res.Kind),
+		LeaseID:         res.LeaseID,
+		Generation:      res.Generation,
+		ExpiresAt:       res.ExpiresAt,
+		RemainingSlots:  res.RemainingSlots,
+		Readiness:       mapReadiness(res.Readiness),
+		BoundVersion:    res.BoundVersion,
+		RenewBefore:     res.RenewBefore,
+		TTL:             res.TTL,
+		FailureBehavior: authority.FailureBehavior(res.FailureBehavior),
 		Evidence: authority.SafeEvidence{
 			Category: res.Evidence.Category,
 			Code:     res.Evidence.Code,

@@ -462,9 +462,16 @@ func (s *DurableStore) Query(ctx context.Context, q app.QueryCommand) (app.Query
 		where = append(where, "logical_id = ?")
 		args = append(args, q.RequestID)
 	}
-	if q.State != "" {
+	if q.RuleID != "" {
+		where = append(where, "rule_id = ?")
+		args = append(args, q.RuleID)
+	}
+	// Active/expiring are projected in Go (near-expiry active → expiring).
+	if q.State != "" && q.State != domain.LeaseStateActive && q.State != domain.LeaseStateExpiring {
 		where = append(where, "state = ?")
 		args = append(args, string(q.State))
+	} else if q.State == domain.LeaseStateActive || q.State == domain.LeaseStateExpiring {
+		where = append(where, "state IN ('active', 'expiring')")
 	}
 	query := fmt.Sprintf(`
 SELECT store_id, lease_id, rule_id, rule_version, namespace, dimension_key,
@@ -497,7 +504,11 @@ LIMIT ?
 		if err != nil {
 			return app.QueryResult{}, err
 		}
-		lease.State = lease.EffectiveState(q.Now)
+		state := lease.EffectiveState(q.Now)
+		if state == domain.LeaseStateActive && leaseNearExpiry(lease, q.Now, 15*time.Second) {
+			state = domain.LeaseStateExpiring
+		}
+		lease.State = state
 		if q.State != "" && lease.State != q.State {
 			continue
 		}

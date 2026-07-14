@@ -92,6 +92,8 @@ type AccountingRuntime struct {
 	// when the admit decision omits rule-level values.
 	ConcurrencyLeaseTTL    time.Duration
 	ConcurrencyRenewBefore time.Duration
+	// ConcurrencyAuxiliaryLeasePolicy is inherit (default) or acquire_own (10.10).
+	ConcurrencyAuxiliaryLeasePolicy string
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder

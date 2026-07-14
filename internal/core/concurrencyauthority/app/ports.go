@@ -87,6 +87,7 @@ type ReleaseResult struct {
 type QueryCommand struct {
 	LeaseID   string
 	RequestID string
+	RuleID    string
 	State     domain.LeaseState
 	Now       time.Time
 	Limit     int
@@ -113,19 +114,20 @@ type AdmitInput struct {
 
 // AdmitResult is the application admit outcome.
 type AdmitResult struct {
-	Kind           domain.DecisionKind
-	LeaseID        string
-	Generation     int64
-	ExpiresAt      time.Time
-	RemainingSlots int
-	Readiness      domain.Readiness
-	BoundVersion   economics.PolicySnapshotRef
-	Evidence       domain.Evidence
-	Acquired       bool
-	Replayed       bool
-	RuleID         string
-	RenewBefore    time.Duration
-	TTL            time.Duration
+	Kind            domain.DecisionKind
+	LeaseID         string
+	Generation      int64
+	ExpiresAt       time.Time
+	RemainingSlots  int
+	Readiness       domain.Readiness
+	BoundVersion    economics.PolicySnapshotRef
+	Evidence        domain.Evidence
+	Acquired        bool
+	Replayed        bool
+	RuleID          string
+	RenewBefore     time.Duration
+	TTL             time.Duration
+	FailureBehavior domain.FailureBehavior
 }
 
 // RenewInput is application-level lease renewal input.

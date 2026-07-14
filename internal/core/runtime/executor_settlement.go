@@ -42,6 +42,8 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 			if s.executor != nil {
 				s.executor.settleRequestAuthority(ctx, nil)
 			}
+		} else if s.executor != nil {
+			s.executor.releaseRequestAuthority(ctx)
 		}
 		return
 	}
@@ -53,6 +55,8 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 			if s.executor != nil {
 				s.executor.settleRequestAuthority(ctx, nil)
 			}
+		} else if s.executor != nil {
+			s.executor.releaseRequestAuthority(ctx)
 		}
 		return
 	}
@@ -64,6 +68,8 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		if s.executor != nil {
 			s.executor.settleRequestAuthority(ctx, nil)
 		}
+	} else if s.executor != nil {
+		s.executor.releaseRequestAuthority(ctx)
 	}
 }
 

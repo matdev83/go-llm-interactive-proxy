@@ -75,6 +75,15 @@ func NewConcurrencyAuthorityHandler(opts ConcurrencyOptions) http.Handler {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_filter", "filter": "from"})
 			return
 		}
+		for _, filter := range []string{
+			"to", "principal", "tenant", "workspace", "project", "department",
+			"cost_center", "backend", "model", "route", "perspective", "boundary", "lifecycle",
+		} {
+			if strings.TrimSpace(r.URL.Query().Get(filter)) != "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_filter", "filter": filter})
+				return
+			}
+		}
 		limit, err := parseLimit(r)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_query"})
@@ -90,6 +99,7 @@ func NewConcurrencyAuthorityHandler(opts ConcurrencyOptions) http.Handler {
 		q := authority.LeaseQuery{
 			RequestID: strings.TrimSpace(r.URL.Query().Get("request_id")),
 			LeaseID:   strings.TrimSpace(r.URL.Query().Get("lease_id")),
+			RuleID:    strings.TrimSpace(r.URL.Query().Get("rule_id")),
 			State:     authority.LeaseState(strings.TrimSpace(r.URL.Query().Get("state"))),
 			Limit:     limit,
 			Cursor:    strings.TrimSpace(r.URL.Query().Get("cursor")),
@@ -110,6 +120,8 @@ func NewConcurrencyAuthorityHandler(opts ConcurrencyOptions) http.Handler {
 				LeaseID:        lease.LeaseID,
 				RequestID:      lease.RequestID,
 				RuleID:         lease.RuleID,
+				RuleVersion:    lease.Version.Version,
+				DimensionKey:   lease.DimensionKey,
 				State:          cp.ConcurrencyLeaseState(lease.State),
 				Generation:     lease.Generation,
 				ExpiresAt:      lease.ExpiresAt,
@@ -163,18 +175,36 @@ func capacityRows(ctx context.Context, svc *concurrencyapp.Service) ([]cp.Concur
 	now := time.Now().UTC()
 	out := make([]cp.ConcurrencyCapacityRow, 0, len(snap.Rules))
 	for _, rule := range snap.Rules {
+		// Bound by page max; filter by rule_id so multi-rule stores are not undercounted.
 		res, qerr := svc.Query(ctx, concurrencyapp.QueryCommand{
-			State: concurrencydomain.LeaseStateActive,
-			Limit: rule.Limit + 1,
-			Now:   now,
+			RuleID: rule.ID,
+			Limit:  500,
+			Now:    now,
 		})
 		if qerr != nil {
 			return nil, qerr
 		}
 		active := 0
+		expiring := 0
+		dimKey := ""
 		for _, lease := range res.Leases {
-			if lease.RuleID == rule.ID && lease.IsLive(now) {
+			if lease.RuleID != rule.ID {
+				continue
+			}
+			state := lease.EffectiveState(now)
+			if state == concurrencydomain.LeaseStateActive {
+				if !lease.ExpiresAt.IsZero() && !now.Before(lease.ExpiresAt.Add(-rule.EffectiveRenewBefore())) {
+					expiring++
+					active++
+				} else {
+					active++
+				}
+			} else if state == concurrencydomain.LeaseStateExpiring {
+				expiring++
 				active++
+			}
+			if dimKey == "" {
+				dimKey = string(lease.Dimensions.Key())
 			}
 		}
 		remaining := rule.Limit - active
@@ -184,8 +214,10 @@ func capacityRows(ctx context.Context, svc *concurrencyapp.Service) ([]cp.Concur
 		out = append(out, cp.ConcurrencyCapacityRow{
 			RuleID:         rule.ID,
 			RuleVersion:    rule.Version,
+			DimensionKey:   dimKey,
 			Limit:          rule.Limit,
 			Active:         active,
+			Expiring:       expiring,
 			RemainingSlots: remaining,
 		})
 	}

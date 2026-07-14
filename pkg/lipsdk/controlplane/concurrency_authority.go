@@ -70,6 +70,7 @@ type ConcurrencyLeaseRow struct {
 	RequestID      string                `json:"request_id,omitempty"`
 	RuleID         string                `json:"rule_id,omitempty"`
 	RuleVersion    string                `json:"rule_version,omitempty"`
+	DimensionKey   string                `json:"dimension_key,omitempty"` // safe scope correlation
 	State          ConcurrencyLeaseState `json:"state"`
 	Generation     int64                 `json:"generation,omitempty"`
 	ExpiresAt      time.Time             `json:"expires_at,omitzero"`
@@ -83,7 +84,9 @@ type ConcurrencyLeaseRow struct {
 type ConcurrencyCapacityRow struct {
 	RuleID         string `json:"rule_id"`
 	RuleVersion    string `json:"rule_version,omitempty"`
+	DimensionKey   string `json:"dimension_key,omitempty"`
 	Limit          int    `json:"limit"`
 	Active         int    `json:"active"`
+	Expiring       int    `json:"expiring,omitempty"`
 	RemainingSlots int    `json:"remaining_slots"`
 }
