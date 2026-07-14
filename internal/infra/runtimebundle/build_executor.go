@@ -123,6 +123,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 			return nil, closers, err
 		}
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
+		attachAuthorityCoordinators(&accountingRT)
 	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))

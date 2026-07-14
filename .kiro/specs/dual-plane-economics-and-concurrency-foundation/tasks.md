@@ -72,16 +72,16 @@
   - Recover restart state without double-counting and expose unresolved items for bounded reconciliation.
   - _Requirements: 13.6, 13.7, 14.5, 15.3_
 
-- [ ] 6. Split authority orchestration by lifecycle and perspective
-- [ ] 6.1 Implement the logical-request authority coordinator
+- [x] 6. Split authority orchestration by lifecycle and perspective
+- [x] 6.1 Implement the logical-request authority coordinator
   - Evaluate concurrency, customer credit/wallet provider, customer quota/budget/rate provider, then advisory providers in deterministic priority order.
   - Record successful handles and compensate in reverse order with fresh bounded contexts on later denial or failure.
   - _Requirements: 4.5, 8.1, 8.3, 9.3, 15.1, 15.2, 15.3, 15.4_
-- [ ] 6.2 Implement the backend-attempt authority coordinator
+- [x] 6.2 Implement the backend-attempt authority coordinator
   - Evaluate operator spend and provider/credential quota/rate authority from final backend-ingress exposure.
   - Preserve one independent operator lifecycle per committed B-leg.
   - _Requirements: 5.1, 5.3, 5.5, 5.6, 8.2, 9.3_
-- [ ] 6.3 Integrate request and attempt settlement
+- [x] 6.3 Integrate request and attempt settlement
   - Settle customer authority once from frontend basis and operator authority per incurred attempt.
   - Preserve late authoritative corrections and do not retry after client-visible output.
   - _Requirements: 4.2, 4.4, 5.2, 5.4, 8.4, 8.5, 8.6, 8.7, 15.5_
@@ -179,3 +179,4 @@
 - Phase 4 checkpoints: public `metering.Checkpoint`; `internal/core/metering/checkpoint` Snapshot+sanitize+widening+egress Fact drafts; FE ingress captured before `RunSubmit` (distinct from post-submit `baseline`); backend ingress frozen via independent `CloneCall` before `be.Open` (Open uses freeze; `AssertNotWidened` rejects post-freeze live-call mutation); backend egress for winner/loser/failed/canceled/swallowed when freeze exists; frontend egress on winner finalize and committed cancel/partial-error terminals; optional `Executor.MeteringRecorder` (nil = no durable append). No durable journalstore (Phase 5).
 - Phase 5.1: `internal/infra/metering/journalstore` memory+SQLite+Postgres append-only facts (`UNIQUE(source_event_key)`=IdempotencyKey); money preserved in payload_json; bounded List requires stream_id|request_id; `metering.enabled` default off wires `runtimebundle/metering.go` → `MeteringRecorder`.
 - Phase 5.2–5.3: `internal/core/metering/aggregate` replays delta/cumulative/correction/replacement/unavailable without double-count; `ProjectLedgerRecord` for legacy token views (money stays on journal); `internal/core/metering/reconcile.Stream` bounded hydrate + orphan/unavailable unresolved report (no lease/reservation stores).
+- Phase 6.1–6.3: `internal/core/authoritycoord` request/attempt coordinators (nil concurrency skips leases); thin `usageAuthorityProviderAdapter` over today's `usageauthority.Service` (no Phase 7 kernel rewrite); prepare admits request authority once after FE ingress; open path uses attempt coordinator when wired; attempt `RequestCount=0` when request already admitted; settle request once on FE egress/committed cancel, attempt settle/release remains per B-leg via `authorityLifecycle`; `runtimebundle/authority_coord.go` attaches both when `UsageAuthority` non-nil.

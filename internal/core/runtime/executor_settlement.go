@@ -39,6 +39,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 		if s.isCommitted() {
 			s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+			if s.executor != nil {
+				s.executor.settleRequestAuthority(ctx, nil)
+			}
 		}
 		return
 	}
@@ -47,6 +50,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 		if s.isCommitted() {
 			s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+			if s.executor != nil {
+				s.executor.settleRequestAuthority(ctx, nil)
+			}
 		}
 		return
 	}
@@ -55,6 +61,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 	if s.isCommitted() {
 		s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+		if s.executor != nil {
+			s.executor.settleRequestAuthority(ctx, nil)
+		}
 	}
 }
 
@@ -283,6 +292,9 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, authorityEv)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 	s.emitFrontendEgressMeteringFact(ctx, authorityEv)
+	if s.executor != nil {
+		s.executor.settleRequestAuthority(ctx, nil)
+	}
 	return usageEv, ok, nil
 }
 
