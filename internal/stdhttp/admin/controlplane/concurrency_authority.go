@@ -8,8 +8,8 @@ import (
 
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	concurrencydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/domain"
-	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
 // ConcurrencyOptions configures the protected concurrency-lease query handler.

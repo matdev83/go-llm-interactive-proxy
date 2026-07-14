@@ -12,13 +12,13 @@ import (
 )
 
 type recordingConcurrency struct {
-	admitGen   int64
-	released   atomic.Int32
-	renewed    atomic.Int32
-	renewFail  atomic.Bool
-	renewCh    chan struct{}
-	releaseCh  chan struct{}
-	expiresIn  time.Duration
+	admitGen    int64
+	released    atomic.Int32
+	renewed     atomic.Int32
+	renewFail   atomic.Bool
+	renewCh     chan struct{}
+	releaseCh   chan struct{}
+	expiresIn   time.Duration
 	renewBefore time.Duration
 }
 

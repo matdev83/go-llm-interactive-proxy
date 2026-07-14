@@ -185,3 +185,4 @@
 - Phase 8.1: `internal/core/concurrencyauthority/{domain,app}` + public `LeaseRenew`/`RenewLease`; `LeaseStore` port for 8.2; aux inherit via AdmitInput (public LeaseAdmission aux fields deferred to 8.3).
 - Phase 8.2: `internal/infra/concurrencyauthority/leasestore` memory+Bun SQLite/PG; five-slot across shared handles; inline reclaim; PG integration skips without `LIP_TEST_POSTGRES_DSN`.
 - Phase 8.3: `accounting.concurrency` config + configsource + runtimebundle wire; request-owned renew heartbeat; settle/release stop heartbeat and ReleaseLease with fresh cleanup ctx; aux depth inherits without extra slot.
+- Phase 8.4: CP lease DTOs + `/authority/leases*` protected queries; request-authority concurrency denials map to client-safe `concurrency_limit` without lease IDs.

@@ -16,27 +16,27 @@ const (
 // ConcurrencyAuthorityConfig controls optional logical-request concurrency leases.
 // Disabled by default (requirement 10.4 wiring is opt-in).
 type ConcurrencyAuthorityConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	Store        string `yaml:"store"` // memory | sqlite | postgres
-	StoreID      string `yaml:"store_id"`
-	SQLitePath   string `yaml:"sqlite_path"`
-	PostgresDSN  string `yaml:"postgres_dsn"`
-	LeaseTTL     string `yaml:"lease_ttl"`
-	RenewBefore  string `yaml:"renew_before"`
-	Rules        []ConcurrencyAuthorityRuleConfig `yaml:"rules"`
+	Enabled     bool                             `yaml:"enabled"`
+	Store       string                           `yaml:"store"` // memory | sqlite | postgres
+	StoreID     string                           `yaml:"store_id"`
+	SQLitePath  string                           `yaml:"sqlite_path"`
+	PostgresDSN string                           `yaml:"postgres_dsn"`
+	LeaseTTL    string                           `yaml:"lease_ttl"`
+	RenewBefore string                           `yaml:"renew_before"`
+	Rules       []ConcurrencyAuthorityRuleConfig `yaml:"rules"`
 }
 
 // ConcurrencyAuthorityRuleConfig is one max-active-request lease rule.
 type ConcurrencyAuthorityRuleConfig struct {
-	ID                 string                            `yaml:"id"`
-	Mode               string                            `yaml:"mode"` // strict | advisory
-	MaxActiveRequests  int                               `yaml:"max_active_requests"`
-	Match              AccountingAuthorityDimensionsConfig `yaml:"match"`
-	LeaseTTL           string                            `yaml:"lease_ttl"`
-	RenewBefore        string                            `yaml:"renew_before"`
-	FailureBehavior    string                            `yaml:"failure_behavior"` // fail_closed | fail_open
-	Namespace          string                            `yaml:"namespace"`
-	Version            string                            `yaml:"version"`
+	ID                string                              `yaml:"id"`
+	Mode              string                              `yaml:"mode"` // strict | advisory
+	MaxActiveRequests int                                 `yaml:"max_active_requests"`
+	Match             AccountingAuthorityDimensionsConfig `yaml:"match"`
+	LeaseTTL          string                              `yaml:"lease_ttl"`
+	RenewBefore       string                              `yaml:"renew_before"`
+	FailureBehavior   string                              `yaml:"failure_behavior"` // fail_closed | fail_open
+	Namespace         string                              `yaml:"namespace"`
+	Version           string                              `yaml:"version"`
 }
 
 // LeaseTTLDuration returns the default lease TTL for rules that omit lease_ttl.
