@@ -58,7 +58,7 @@ func TestQueryService(t *testing.T) {
 			Rules:  nil,
 		}}, store, &fakeEvidenceSink{}, fixedClock{now: time.Unix(100, 0).UTC()})
 
-		limits, err := svc.Limits(context.Background(), controlplane.AccountingLimitStatusQuery{Limit: 10})
+		limits, err := svc.Limits(context.Background(), controlplane.AccountingLimitStatusQuery{Limit: 10, RuleID: "tenant.requests"})
 		if err != nil {
 			t.Fatalf("limits: %v", err)
 		}
@@ -69,7 +69,7 @@ func TestQueryService(t *testing.T) {
 			t.Fatalf("unsupported filters must be preserved: %#v", limits.Page)
 		}
 
-		decisions, err := svc.Decisions(context.Background(), controlplane.AccountingDecisionQuery{Limit: 10})
+		decisions, err := svc.Decisions(context.Background(), controlplane.AccountingDecisionQuery{Limit: 10, RuleID: "tenant.requests"})
 		if err != nil {
 			t.Fatalf("decisions: %v", err)
 		}
@@ -97,7 +97,7 @@ func TestQueryService(t *testing.T) {
 			t.Fatalf("store zero readiness must fall back to snapshot ready state: %#v", got)
 		}
 
-		limits, err := svc.Limits(context.Background(), controlplane.AccountingLimitStatusQuery{Limit: 10})
+		limits, err := svc.Limits(context.Background(), controlplane.AccountingLimitStatusQuery{Limit: 10, RuleID: "tenant.requests"})
 		if err != nil {
 			t.Fatalf("limits: %v", err)
 		}
@@ -105,7 +105,7 @@ func TestQueryService(t *testing.T) {
 			t.Fatalf("store zero readiness must not collapse limit query to disabled: %#v", limits)
 		}
 
-		decisions, err := svc.Decisions(context.Background(), controlplane.AccountingDecisionQuery{Limit: 10})
+		decisions, err := svc.Decisions(context.Background(), controlplane.AccountingDecisionQuery{Limit: 10, RuleID: "tenant.requests"})
 		if err != nil {
 			t.Fatalf("decisions: %v", err)
 		}
@@ -126,6 +126,14 @@ func TestQueryService(t *testing.T) {
 
 		if _, err := svc.Limits(context.Background(), controlplane.AccountingLimitStatusQuery{}); !errors.Is(err, ErrInvalidQuery) {
 			t.Fatalf("zero limit must be invalid query, got %v", err)
+		}
+
+		missingBound, err := svc.Limits(context.Background(), controlplane.AccountingLimitStatusQuery{Limit: 10})
+		if err != nil {
+			t.Fatalf("limit without selective bound should classify too-broad: %v", err)
+		}
+		if missingBound.State != QueryStateTooBroad {
+			t.Fatalf("limit without selective bound must be too-broad: %#v", missingBound)
 		}
 
 		tooBroad, err := svc.Decisions(context.Background(), controlplane.AccountingDecisionQuery{Limit: 101})

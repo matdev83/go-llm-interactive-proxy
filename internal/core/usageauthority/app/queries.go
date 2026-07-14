@@ -29,6 +29,21 @@ func (s *Service) Limits(ctx context.Context, q controlplane.AccountingLimitStat
 	if q.Limit > maxQueryPageSize {
 		return LimitStatusResult{State: QueryStateTooBroad, Page: controlplane.Page[controlplane.AccountingLimitStatusRow]{Visibility: controlplane.VisibilityDefault}}, nil
 	}
+	if err := controlplane.ValidateAccountingLimitStatusQuery(q); err != nil {
+		if errors.Is(err, controlplane.ErrQueryTooBroad) {
+			return LimitStatusResult{State: QueryStateTooBroad, Page: controlplane.Page[controlplane.AccountingLimitStatusRow]{Visibility: controlplane.VisibilityDefault}}, nil
+		}
+		if errors.Is(err, controlplane.ErrQueryUnsupported) {
+			return LimitStatusResult{
+				State: QueryStateUnsupported,
+				Page: controlplane.Page[controlplane.AccountingLimitStatusRow]{
+					Unsupported: []controlplane.UnsupportedFilter{{Field: "class", Reason: "query class unsupported for remaining authority"}},
+					Visibility:  controlplane.VisibilityDefault,
+				},
+			}, nil
+		}
+		return LimitStatusResult{}, WrapError(ErrInvalidQuery, "query", err)
+	}
 
 	status, err := s.statusStatus(ctx)
 	if err != nil {
@@ -59,6 +74,21 @@ func (s *Service) Decisions(ctx context.Context, q controlplane.AccountingDecisi
 	}
 	if q.Limit > maxQueryPageSize {
 		return DecisionHistoryResult{State: QueryStateTooBroad, Page: controlplane.Page[controlplane.AccountingDecisionRow]{Visibility: controlplane.VisibilityDefault}}, nil
+	}
+	if err := controlplane.ValidateAccountingDecisionQuery(q); err != nil {
+		if errors.Is(err, controlplane.ErrQueryTooBroad) {
+			return DecisionHistoryResult{State: QueryStateTooBroad, Page: controlplane.Page[controlplane.AccountingDecisionRow]{Visibility: controlplane.VisibilityDefault}}, nil
+		}
+		if errors.Is(err, controlplane.ErrQueryUnsupported) {
+			return DecisionHistoryResult{
+				State: QueryStateUnsupported,
+				Page: controlplane.Page[controlplane.AccountingDecisionRow]{
+					Unsupported: []controlplane.UnsupportedFilter{{Field: "class", Reason: "query class unsupported for decision history"}},
+					Visibility:  controlplane.VisibilityDefault,
+				},
+			}, nil
+		}
+		return DecisionHistoryResult{}, WrapError(ErrInvalidQuery, "query", err)
 	}
 
 	status, err := s.statusStatus(ctx)
