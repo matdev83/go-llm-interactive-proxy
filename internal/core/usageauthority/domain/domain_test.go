@@ -367,6 +367,7 @@ func TestAuthorityStatusAndValidation(t *testing.T) {
 		Mode:  RuleModeStrict,
 		Unit:  AmountUnitRequests,
 		Limit: Amount{Unit: AmountUnitRequests, Value: 10},
+		Basis: BasisLegacyProviderPreferredAttempt,
 	}
 	if err := strictRule.Validate(); err != nil {
 		t.Fatalf("strict rule should validate: %v", err)

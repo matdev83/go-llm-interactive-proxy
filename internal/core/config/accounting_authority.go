@@ -6,6 +6,7 @@ import (
 	"time"
 
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
@@ -85,6 +86,11 @@ type AccountingAuthorityRuleConfig struct {
 	Currency             string                              `yaml:"currency"`
 	AuthorityRequirement string                              `yaml:"authority_requirement"`
 	FailureBehavior      string                              `yaml:"failure_behavior"`
+	Perspective          string                              `yaml:"perspective"`
+	LifecycleScope       string                              `yaml:"lifecycle_scope"`
+	Basis                string                              `yaml:"basis"`
+	Namespace            string                              `yaml:"namespace"`
+	Version              string                              `yaml:"version"`
 	Window               AccountingAuthorityWindowConfig     `yaml:"window"`
 	Match                AccountingAuthorityDimensionsConfig `yaml:"match"`
 }
@@ -176,6 +182,11 @@ func (r AccountingAuthorityRuleConfig) DomainRule(defaultMode string) (authority
 		Currency:             strings.TrimSpace(r.Currency),
 		AuthorityRequirement: authoritydomain.AuthorityRequirement(strings.ToLower(strings.TrimSpace(r.AuthorityRequirement))),
 		FailureBehavior:      authoritydomain.FailureBehavior(strings.ToLower(strings.TrimSpace(r.FailureBehavior))),
+		Perspective:          metering.EconomicPerspective(strings.ToLower(strings.TrimSpace(r.Perspective))),
+		LifecycleScope:       metering.LifecycleScope(strings.ToLower(strings.TrimSpace(r.LifecycleScope))),
+		Basis:                authoritydomain.MeteringBasis(strings.ToLower(strings.TrimSpace(r.Basis))),
+		Namespace:            strings.TrimSpace(r.Namespace),
+		Version:              strings.TrimSpace(r.Version),
 		Window:               window,
 		Match:                r.Match.DomainMatcher(),
 	}, nil
