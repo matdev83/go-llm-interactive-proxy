@@ -12,6 +12,7 @@ $allowed = @(
     "internal/stdhttp/server.go"
     "internal/core/stream/keepalive.go"
     "internal/core/runtime/parallel_race.go"
+    "internal/core/runtime/lease_heartbeat.go"
     "internal/core/extensions/decision_timeout.go"
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
