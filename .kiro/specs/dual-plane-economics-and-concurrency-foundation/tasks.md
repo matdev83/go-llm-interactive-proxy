@@ -33,7 +33,7 @@
   - Use extensible component/unit quantities rather than one new field per provider feature.
   - Define stable idempotency, sequence, correction, and supersession semantics.
   - _Requirements: 1.1, 1.2, 1.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.9, 13.2_
-- [ ] 3.2 Define public money, rating, exposure, and version contracts
+- [x] 3.2 Define public money, rating, exposure, and version contracts
   - Permit customer and operator rating through independent providers.
   - Require currency, presence, source, immutable version, effective time, authority, line identity, and rounding policy.
   - Represent conservative output assumptions used at admission.
