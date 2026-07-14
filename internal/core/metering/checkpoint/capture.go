@@ -91,6 +91,16 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 type RequestHolder struct {
 	FrontendIngress *Snapshot
 	BackendIngress  map[string]*Snapshot // keyed by AttemptID
+	nextSeq         int64
+}
+
+// NextSequence returns a monotonically increasing fact sequence for this request.
+func (h *RequestHolder) NextSequence() int64 {
+	if h == nil {
+		return 1
+	}
+	h.nextSeq++
+	return h.nextSeq
 }
 
 // CaptureOrReuseFrontendIngress returns the existing FE ingress snapshot when set,

@@ -44,7 +44,7 @@
   - Keep all contracts free of internal, SQL, HTTP, provider SDK, and executor-private types.
   - _Requirements: 9.2, 9.3, 12.1, 12.2, 12.7, 12.8, 15.1_
 
-- [ ] 4. Implement immutable metering checkpoints
+- [x] 4. Implement immutable metering checkpoints
 - [x] 4.1 Capture frontend-ingress request state
   - Clone the validated canonical call before submit hooks, transforms, compression, steering, and route shaping.
   - Bind trusted scope later without mutating the original checkpoint.
@@ -54,7 +54,7 @@
   - Freeze the final provider-neutral attempt after transforms, route parameters, hooks, and clamps and immediately before backend open.
   - Recount and rerate after any widening mutation; reject any unmeasured post-authorization widening.
   - _Requirements: 2.2, 5.1, 7.4, 7.5_
-- [ ] 4.3 Capture backend-egress and frontend-egress facts
+- [x] 4.3 Capture backend-egress and frontend-egress facts
   - Finalize one backend fact stream per B-leg, including losers, cancellations, swallowed attempts, and failures when evidence exists.
   - Measure the final client-visible stream after response mutation and completion gating.
   - _Requirements: 2.3, 2.4, 4.2, 4.4, 5.2, 5.3, 5.4, 8.4_
@@ -176,3 +176,4 @@
 - 2.2 landed: `ProviderCost.Present`, `OptionalNanoRate`, checked mul/add, `SubMoneyChecked`; overflow → Unavailable.
 - 2.3 landed: `unknown_output_policy` (require_client_limit|configured_default|model_backend_maximum|clamp|deny); empty defaults to model limit then configured max, else legacy unbound; spend uses AdjustedMax/Count output bound; `RequireMaxOutputEnforcement` excludes unenforceable backends before Open.
 - Phase 3 public contracts: `pkg/lipsdk/metering` (facts/quantities/recorder/query/compat), `pkg/lipsdk/economics` (money/rating/exposure/version), `pkg/lipsdk/authority` (request/attempt providers, posture with ProviderKind observer vs authority, concurrency lease DTOs). Import DAG: `authority` → `economics` → `metering` (+ `scope` on facts/admissions). CompatibilityPolicy additive_v1 (12.8); observers cannot declare StrengthRequired (12.7). No journal/runtimebundle wiring.
+- Phase 4 checkpoints: public `metering.Checkpoint`; `internal/core/metering/checkpoint` Snapshot+sanitize+widening+egress Fact drafts; FE ingress captured before `RunSubmit` (distinct from post-submit `baseline`); backend ingress frozen before `be.Open` with `AssertNotWidened`; egress Facts appended via optional `Executor.MeteringRecorder` (nil = in-memory only). No durable journalstore.
