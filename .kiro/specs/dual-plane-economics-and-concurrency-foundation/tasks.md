@@ -27,7 +27,7 @@
   - Verify the selected backend can enforce the applied output clamp before opening provider work.
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.8, 7.9_
 
-- [ ] 3. Add public metering and economics contracts
+- [x] 3. Add public metering and economics contracts
 - [x] 3.1 Define public metering facts and quantity vocabulary
   - Add economic perspective, metering boundary, lifecycle scope, fact kind, presence, source, authority, surfaced state, safe correlation, and version references.
   - Use extensible component/unit quantities rather than one new field per provider feature.
@@ -38,7 +38,7 @@
   - Require currency, presence, source, immutable version, effective time, authority, line identity, and rounding policy.
   - Represent conservative output assumptions used at admission.
   - _Requirements: 1.4, 4.6, 5.8, 6.1, 6.2, 6.6, 6.9, 7.6_
-- [ ] 3.3 Define public request and attempt authority contracts
+- [x] 3.3 Define public request and attempt authority contracts
   - Separate logical-request admission/settlement from backend-attempt admission/settlement.
   - Include reservations, clamps, denials, advisory outcomes, compensation handles, readiness, and safe evidence.
   - Keep all contracts free of internal, SQL, HTTP, provider SDK, and executor-private types.
@@ -175,3 +175,4 @@
 - 2.1 landed: inclusion schema `total=input+output`, `PreflightUsage.TotalTokensPresent`.
 - 2.2 landed: `ProviderCost.Present`, `OptionalNanoRate`, checked mul/add, `SubMoneyChecked`; overflow → Unavailable.
 - 2.3 landed: `unknown_output_policy` (require_client_limit|configured_default|model_backend_maximum|clamp|deny); empty defaults to model limit then configured max, else legacy unbound; spend uses AdjustedMax/Count output bound; `RequireMaxOutputEnforcement` excludes unenforceable backends before Open.
+- Phase 3 public contracts: `pkg/lipsdk/metering` (facts/quantities/recorder/query), `pkg/lipsdk/economics` (money/rating/exposure/version), `pkg/lipsdk/authority` (request/attempt providers, posture, concurrency lease DTOs). Import DAG: `authority` → `economics` → `metering` (+ `scope` on facts/admissions). No journal/runtimebundle wiring.
