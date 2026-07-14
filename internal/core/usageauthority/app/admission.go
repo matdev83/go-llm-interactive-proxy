@@ -752,6 +752,14 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 	}
 	reservationKey := in.ReservationKey
 	reservationKey.RuleID = ruleID
+	if ns := strings.TrimSpace(selectedRule.Namespace); ns != "" {
+		reservationKey.Namespace = ns
+	} else if selectedRule.Basis.IsLegacyCompatibility() {
+		// Keep legacy key format (empty namespace) for compatibility-basis rules.
+		reservationKey.Namespace = ""
+	} else if selectedRule.IsDualPlaneConfigured() {
+		reservationKey.Namespace = domain.NamespaceDefault
+	}
 	reservationID := reservationKey.String()
 	return ReservationDescriptor{
 		RuleID:         ruleID,

@@ -205,6 +205,12 @@ type AccountingLimitStatusRow struct {
 	Authority      AccountingAuthoritySource `json:"authority,omitempty"`
 	EvidenceState  EvidenceState             `json:"evidence_state"`
 	RedactionState RedactionState            `json:"redaction_state"`
+	// Dual-plane identity (Phase 7). Empty AuthorityNamespace means legacy.
+	AuthorityNamespace string `json:"authority_namespace,omitempty"`
+	Perspective        string `json:"perspective,omitempty"`
+	LifecycleScope     string `json:"lifecycle_scope,omitempty"`
+	Basis              string `json:"basis,omitempty"`
+	RuleVersion        string `json:"rule_version,omitempty"`
 }
 
 // AccountingDecisionRow is the decision-history view for accounting authority

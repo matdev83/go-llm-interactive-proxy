@@ -86,16 +86,16 @@
   - Preserve late authoritative corrections and do not retry after client-visible output.
   - _Requirements: 4.2, 4.4, 5.2, 5.4, 8.4, 8.5, 8.6, 8.7, 15.5_
 
-- [ ] 7. Adapt the existing usage-authority kernel
-- [ ] 7.1 Add perspective, lifecycle scope, basis, namespace, and version to rules
+- [x] 7. Adapt the existing usage-authority kernel
+- [x] 7.1 Add perspective, lifecycle scope, basis, namespace, and version to rules
   - Validate customer logical-request and operator backend-attempt combinations.
   - Reject ambiguous new rules and require an explicit compatibility basis for legacy rules.
   - _Requirements: 1.3, 1.5, 9.2, 9.6, 9.7, 17.2_
-- [ ] 7.2 Replace undifferentiated request/spend inputs with selected facts
+- [x] 7.2 Replace undifferentiated request/spend inputs with selected facts
   - Resolve rule amounts from explicit metering facts and rating results before issuing store mutations.
   - Preserve independent token, money, and perspective authority.
   - _Requirements: 9.2, 9.4, 9.5_
-- [ ] 7.3 Preserve and extend transactional store guarantees
+- [x] 7.3 Preserve and extend transactional store guarantees
   - Retain atomic descriptor sets, replay, correction, denial evidence, rollover safety, and PostgreSQL contract tests.
   - Namespace legacy persisted state rather than reinterpreting it.
   - _Requirements: 9.1, 9.7, 9.9, 13.6, 17.2_

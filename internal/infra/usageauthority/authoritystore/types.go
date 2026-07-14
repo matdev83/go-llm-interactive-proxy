@@ -440,6 +440,13 @@ func valueString(v scope.Value) string {
 	return v.String()
 }
 
+func effectiveAuthorityNamespace(ns string) string {
+	if strings.TrimSpace(ns) == "" {
+		return domain.NamespaceLegacy
+	}
+	return strings.TrimSpace(ns)
+}
+
 func limitRowKey(row controlplane.AccountingLimitStatusRow) string {
 	// Include every identity dimension in the key. In particular, credential
 	// and policy-label dimensions must not collide when two rules share the same
@@ -447,21 +454,31 @@ func limitRowKey(row controlplane.AccountingLimitStatusRow) string {
 	// fallback keeps the key usable if a future identity field becomes
 	// non-serializable.
 	identity := struct {
-		RuleID      string                     `json:"rule_id"`
-		Correlation controlplane.Correlation   `json:"correlation"`
-		Scope       controlplane.ScopeSnapshot `json:"scope"`
-		Unit        string                     `json:"unit"`
-		Currency    string                     `json:"currency"`
-		WindowStart time.Time                  `json:"window_start"`
-		WindowEnd   time.Time                  `json:"window_end"`
+		RuleID             string                     `json:"rule_id"`
+		AuthorityNamespace string                     `json:"authority_namespace"`
+		Perspective        string                     `json:"perspective"`
+		LifecycleScope     string                     `json:"lifecycle_scope"`
+		Basis              string                     `json:"basis"`
+		RuleVersion        string                     `json:"rule_version"`
+		Correlation        controlplane.Correlation   `json:"correlation"`
+		Scope              controlplane.ScopeSnapshot `json:"scope"`
+		Unit               string                     `json:"unit"`
+		Currency           string                     `json:"currency"`
+		WindowStart        time.Time                  `json:"window_start"`
+		WindowEnd          time.Time                  `json:"window_end"`
 	}{
-		RuleID:      row.RuleID,
-		Correlation: row.Correlation,
-		Scope:       row.Scope,
-		Unit:        row.Unit,
-		Currency:    row.Currency,
-		WindowStart: row.WindowStart.UTC(),
-		WindowEnd:   row.WindowEnd.UTC(),
+		RuleID:             row.RuleID,
+		AuthorityNamespace: effectiveAuthorityNamespace(row.AuthorityNamespace),
+		Perspective:        row.Perspective,
+		LifecycleScope:     row.LifecycleScope,
+		Basis:              row.Basis,
+		RuleVersion:        row.RuleVersion,
+		Correlation:        row.Correlation,
+		Scope:              row.Scope,
+		Unit:               row.Unit,
+		Currency:           row.Currency,
+		WindowStart:        row.WindowStart.UTC(),
+		WindowEnd:          row.WindowEnd.UTC(),
 	}
 	if raw, err := json.Marshal(identity); err == nil {
 		return string(raw)
