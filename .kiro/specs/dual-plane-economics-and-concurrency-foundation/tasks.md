@@ -138,7 +138,7 @@
   - Implement fake external raters and authorities using only public packages.
   - Fail architecture CI if an internal import or runtime fork becomes necessary.
   - _Requirements: 12.6, 12.9, 17.7_
-- [ ] 10.3 Preserve feature-bundle and observer compatibility
+- [x] 10.3 Preserve feature-bundle and observer compatibility
   - Keep traffic/usage observers supported while ensuring strict decisions use authority contracts rather than fail-open observation.
   - _Requirements: 12.7, 17.1, 17.4_
 
@@ -193,3 +193,4 @@
 - Phase 9 remediation (review REJECTED): (11.4) `authorityLifecycle.settlementInput` now forwards `admissionResult.BoundVersion`; attempt coordinator aggregates BoundVersions and `admitAttemptViaCoordinator` copies them into AdmissionResult; SnapshotGeneration is wired onto Executor and preferred at admit (`applyGenerationBoundVersion` / `mergeGenerationBoundVersions`); regression covers lifecycle settle after mid-flight rule publish.
 - Phase 10.1: `pkg/lipruntime` public facade (`Options`/`Build`/`Runtime`) delegates to `runtimebundle.BuildBootstrap`; first-class `ProductionOptions` on BuildOptions (metering/authority/concurrency/snapshot/observers) outside TestingOptions (12.4); opaque handle exposes `ExecutorView` only.
 - Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
+- Phase 10.3: facade merges Traffic/Usage observers; `ProviderDescriptors` validated at Build so observers cannot declare StrengthRequired (12.7); authority descriptors remain allowed for strict admit.
