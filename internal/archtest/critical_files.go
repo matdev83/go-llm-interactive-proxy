@@ -26,8 +26,9 @@ type CriticalFileBudget struct {
 // historical size. After arch review Phase 2 (Tasks 2.2-2.7) extracted the
 // observability/security/model/persistence/extension/executor build units out of
 // internal/infra/runtimebundle/build.go, the remaining file is the ~158-line
-// Build orchestrator plus dispose helpers. The 200-line budget is
-// calibrated against the reduced post-decomposition scope to lock the reduction
+// Build orchestrator plus dispose helpers. The 220-line budget is
+// calibrated against the reduced post-decomposition scope (raised from 200 for
+// Phase 8 concurrency authority wiring) to lock the reduction
 // and prevent the orchestrator from re-absorbing build-unit logic.
 //
 // options.go is a special case: the 106-line figure is the pre-grouping size.
@@ -44,7 +45,7 @@ type CriticalFileBudget struct {
 // locks the reduction and prevents re-bloat.
 var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 150},
-	{Path: "internal/infra/runtimebundle/build.go", Max: 200},
+	{Path: "internal/infra/runtimebundle/build.go", Max: 220},
 	{Path: "internal/infra/runtimebundle/options.go", Max: 200},
 	{Path: "internal/standardplugins/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
