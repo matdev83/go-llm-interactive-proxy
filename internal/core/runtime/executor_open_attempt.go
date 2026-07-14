@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
@@ -477,6 +478,35 @@ func (e *Executor) openPlannedCandidate(
 		baseOpenCtx, cancelOpen, ttftDeadline = p.ttft.scopedContext(p.ctx, e.now(), c.Key, c.Primary.TTFTTimeout)
 	}
 	defer cancelOpen()
+
+	// Freeze backend-ingress checkpoint after final openCall assembly and before Open
+	// (requirements 2.2, 5.1, 7.5). Reject unmeasured billable widening.
+	if holder := meteringHolderFrom(p.ctx); holder != nil {
+		feStream := ""
+		if holder.FrontendIngress != nil {
+			feStream = holder.FrontendIngress.Public.StreamID
+		}
+		authorized, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
+			Call:         openCall,
+			Scope:        scopeFromCtx(p.ctx),
+			AttemptID:    bleg.BLegID,
+			BLegID:       bleg.BLegID,
+			ALegID:       p.aLegID,
+			BackendID:    strings.TrimSpace(c.Primary.Backend),
+			Model:        strings.TrimSpace(c.Primary.Model),
+			CheckpointID: "be-ingress:" + bleg.BLegID,
+			StreamID:     "be-ingress:" + bleg.BLegID,
+			FEStreamID:   feStream,
+			Now:          e.now(),
+		})
+		if cerr != nil {
+			return zero, fmt.Errorf("executor: metering backend ingress: %w", cerr)
+		}
+		if werr := checkpoint.AssertNotWidened(authorized.Call, openCall); werr != nil {
+			return zero, fmt.Errorf("executor: %w", werr)
+		}
+	}
+
 	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(baseOpenCtx, "lip.executor.backend_open",
 		trace.WithAttributes(
 			attribute.String("lip.backend", c.Primary.Backend),

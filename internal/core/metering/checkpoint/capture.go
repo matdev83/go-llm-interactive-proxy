@@ -86,9 +86,11 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 	return Snapshot{Public: pub, Call: cloned}, nil
 }
 
-// RequestHolder retains the single frontend-ingress snapshot for one logical request.
+// RequestHolder retains the single frontend-ingress snapshot for one logical request
+// and per-attempt backend-ingress freezes.
 type RequestHolder struct {
 	FrontendIngress *Snapshot
+	BackendIngress  map[string]*Snapshot // keyed by AttemptID
 }
 
 // CaptureOrReuseFrontendIngress returns the existing FE ingress snapshot when set,
@@ -107,4 +109,103 @@ func (h *RequestHolder) CaptureOrReuseFrontendIngress(in FrontendIngressInput) (
 	cp := snap
 	h.FrontendIngress = &cp
 	return snap, nil
+}
+
+// BackendIngressInput captures a backend-attempt freeze immediately before Open.
+type BackendIngressInput struct {
+	Call         lipapi.Call
+	Scope        scope.PrincipalScopeView
+	AttemptID    string
+	BLegID       string
+	ALegID       string
+	BackendID    string
+	Model        string
+	CheckpointID string
+	StreamID     string
+	FEStreamID   string // logical-request FE ingress stream for correlation
+	Perspective  metering.EconomicPerspective
+	Now          time.Time
+}
+
+// CaptureBackendIngress freezes the final provider-neutral attempt call
+// (requirements 2.2, 5.1). Callers must AssertNotWidened before Open if the
+// working call may still mutate.
+func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
+	id := strings.TrimSpace(in.CheckpointID)
+	if id == "" {
+		return Snapshot{}, fmt.Errorf("metering/checkpoint: checkpoint_id required")
+	}
+	attemptID := strings.TrimSpace(in.AttemptID)
+	bLegID := strings.TrimSpace(in.BLegID)
+	if attemptID == "" || bLegID == "" {
+		return Snapshot{}, fmt.Errorf("metering/checkpoint: attempt_id and b_leg_id required")
+	}
+	streamID := strings.TrimSpace(in.StreamID)
+	if streamID == "" {
+		streamID = "be-ingress:" + attemptID
+	}
+	perspective := in.Perspective
+	if perspective == "" {
+		perspective = metering.PerspectiveOperator
+	}
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	cloned := SanitizeCall(lipapi.CloneCall(in.Call))
+	aLeg := strings.TrimSpace(in.ALegID)
+	if aLeg == "" {
+		aLeg = strings.TrimSpace(cloned.Session.ALegID)
+	}
+	pub := metering.Checkpoint{
+		CheckpointID: id,
+		StreamID:     streamID,
+		Boundary:     metering.BoundaryBackendIngress,
+		Lifecycle:    metering.LifecycleBackendAttempt,
+		Perspective:  perspective,
+		Correlation: metering.Correlation{
+			RequestID: strings.TrimSpace(cloned.ID),
+			ALegID:    aLeg,
+			BLegID:    bLegID,
+			AttemptID: attemptID,
+			SessionID: cloned.Session.CorrelationID(),
+			TraceID:   strings.TrimSpace(in.FEStreamID),
+		},
+		Scope:      in.Scope.Clone(),
+		BackendID:  strings.TrimSpace(in.BackendID),
+		Model:      strings.TrimSpace(in.Model),
+		Presence:   metering.PresenceUnknown,
+		Source:     metering.SourceObserved,
+		Authority:  metering.AuthorityEstimated,
+		CapturedAt: now,
+	}
+	if err := pub.Validate(); err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Public: pub, Call: cloned}, nil
+}
+
+// StoreBackendIngress captures and retains a backend-ingress snapshot for an attempt.
+func (h *RequestHolder) StoreBackendIngress(in BackendIngressInput) (Snapshot, error) {
+	snap, err := CaptureBackendIngress(in)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if h == nil {
+		return snap, nil
+	}
+	if h.BackendIngress == nil {
+		h.BackendIngress = make(map[string]*Snapshot)
+	}
+	cp := snap
+	h.BackendIngress[strings.TrimSpace(in.AttemptID)] = &cp
+	return snap, nil
+}
+
+// BackendIngressFor returns the frozen snapshot for an attempt, if any.
+func (h *RequestHolder) BackendIngressFor(attemptID string) *Snapshot {
+	if h == nil || h.BackendIngress == nil {
+		return nil
+	}
+	return h.BackendIngress[strings.TrimSpace(attemptID)]
 }

@@ -50,7 +50,7 @@
   - Bind trusted scope later without mutating the original checkpoint.
   - Reuse one frontend-ingress checkpoint for the complete logical request.
   - _Requirements: 2.1, 2.5, 2.6, 2.7, 2.8, 4.1, 17.5, 17.6_
-- [ ] 4.2 Capture final backend-ingress attempt state
+- [x] 4.2 Capture final backend-ingress attempt state
   - Freeze the final provider-neutral attempt after transforms, route parameters, hooks, and clamps and immediately before backend open.
   - Recount and rerate after any widening mutation; reject any unmeasured post-authorization widening.
   - _Requirements: 2.2, 5.1, 7.4, 7.5_
