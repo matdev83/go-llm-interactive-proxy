@@ -1,0 +1,234 @@
+package controlplane
+
+import (
+	"context"
+	"time"
+
+	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+)
+
+// ReadinessStoreBackings names configured store backings for readiness scope
+// classification (15.8).
+type ReadinessStoreBackings struct {
+	ControlPlane string
+	Metering     string
+	Usage        string
+	Concurrency  string
+}
+
+// ReadinessReportSources supplies optional readiness probes for independent
+// components (15.7). Nil callbacks mean the component is disabled.
+type ReadinessReportSources struct {
+	Now                       func() time.Time
+	ControlPlane              func(context.Context) (cp.CapabilityStatus, error)
+	UsageAuthority            func(context.Context) (cp.AccountingAuthorityStatus, error)
+	ConcurrencyAuthority      func(context.Context) (cp.ConcurrencyAuthorityStatus, error)
+	MeteringJournal           func(context.Context) (cp.ReadinessComponentStatus, error)
+	SnapshotStates            func() (usage, concurrency, rating cp.CapabilityState)
+	RequestCoordinatorEnabled bool
+	AttemptCoordinatorEnabled bool
+	CustomerRaterAttached     bool
+	OperatorRaterAttached     bool
+	StoreBackings             ReadinessStoreBackings
+}
+
+// ReadinessReportService aggregates independent readiness components.
+type ReadinessReportService struct {
+	src ReadinessReportSources
+}
+
+// NewReadinessReportService returns a readiness report reader.
+func NewReadinessReportService(src ReadinessReportSources) *ReadinessReportService {
+	return &ReadinessReportService{src: src}
+}
+
+// Report returns independent component rows and aggregate protected-traffic
+// posture (15.7).
+func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	now := time.Now().UTC()
+	if s != nil && s.src.Now != nil {
+		now = s.src.Now().UTC()
+	}
+	src := ReadinessReportSources{}
+	if s != nil {
+		src = s.src
+	}
+	components := make([]cp.ReadinessComponentStatus, 0, 11)
+	if src.MeteringJournal != nil {
+		if row, err := src.MeteringJournal(ctx); err == nil {
+			row.LastUpdatedAt = now
+			components = append(components, row)
+		} else {
+			components = append(components, disabledComponent(cp.ReadinessComponentMeteringJournal, now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentMeteringJournal, now))
+	}
+	if src.ControlPlane != nil {
+		if st, err := src.ControlPlane(ctx); err == nil {
+			components = append(components, cp.ReadinessComponentStatus{
+				Component:        cp.ReadinessComponentControlPlane,
+				State:            st.State,
+				Reason:           st.Reason,
+				EnforcementScope: cp.EnforcementScopeForStoreBacking(src.StoreBackings.ControlPlane, false),
+				StoreBacking:     src.StoreBackings.ControlPlane,
+				LastUpdatedAt:    now,
+			})
+		} else {
+			components = append(components, unavailableComponent(cp.ReadinessComponentControlPlane, src.StoreBackings.ControlPlane, now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentControlPlane, now))
+	}
+	if src.UsageAuthority != nil {
+		if st, err := src.UsageAuthority(ctx); err == nil {
+			components = append(components, cp.ReadinessComponentStatus{
+				Component:        cp.ReadinessComponentUsageAuthority,
+				State:            mapAccountingAuthorityState(st.State),
+				Reason:           st.Reason,
+				EnforcementScope: cp.EnforcementScopeForStoreBacking(src.StoreBackings.Usage, true),
+				StoreBacking:     src.StoreBackings.Usage,
+				LastUpdatedAt:    now,
+			})
+		} else {
+			components = append(components, unavailableComponent(cp.ReadinessComponentUsageAuthority, src.StoreBackings.Usage, now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentUsageAuthority, now))
+	}
+	if src.ConcurrencyAuthority != nil {
+		if st, err := src.ConcurrencyAuthority(ctx); err == nil {
+			components = append(components, cp.ReadinessComponentStatus{
+				Component:        cp.ReadinessComponentConcurrencyAuthority,
+				State:            mapConcurrencyAuthorityState(st.State),
+				Reason:           mapConcurrencyReason(st.Reason),
+				EnforcementScope: cp.EnforcementScopeForStoreBacking(src.StoreBackings.Concurrency, true),
+				StoreBacking:     src.StoreBackings.Concurrency,
+				LastUpdatedAt:    now,
+			})
+		} else {
+			components = append(components, unavailableComponent(cp.ReadinessComponentConcurrencyAuthority, src.StoreBackings.Concurrency, now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentConcurrencyAuthority, now))
+	}
+	components = append(components, coordinatorComponent(cp.ReadinessComponentRequestCoordinator, src.RequestCoordinatorEnabled, now))
+	components = append(components, coordinatorComponent(cp.ReadinessComponentAttemptCoordinator, src.AttemptCoordinatorEnabled, now))
+	if src.SnapshotStates != nil {
+		usage, concurrency, rating := src.SnapshotStates()
+		components = append(components, snapshotComponent(cp.ReadinessComponentUsageSnapshot, usage, now))
+		components = append(components, snapshotComponent(cp.ReadinessComponentConcurrencySnapshot, concurrency, now))
+		components = append(components, snapshotComponent(cp.ReadinessComponentRatingSnapshot, rating, now))
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentUsageSnapshot, now))
+		components = append(components, disabledComponent(cp.ReadinessComponentConcurrencySnapshot, now))
+		components = append(components, disabledComponent(cp.ReadinessComponentRatingSnapshot, now))
+	}
+	components = append(components, raterComponent(cp.ReadinessComponentCustomerRater, src.CustomerRaterAttached, now))
+	components = append(components, raterComponent(cp.ReadinessComponentOperatorRater, src.OperatorRaterAttached, now))
+	return cp.ReadinessReport{
+		Components: components,
+		Posture:    cp.AggregateProtectedTrafficPosture(components, now),
+	}, nil
+}
+
+func disabledComponent(id cp.ReadinessComponentID, at time.Time) cp.ReadinessComponentStatus {
+	return cp.ReadinessComponentStatus{
+		Component:        id,
+		State:            cp.CapabilityDisabled,
+		Reason:           cp.ReasonDisabled,
+		EnforcementScope: cp.EnforcementScopeDisabled,
+		LastUpdatedAt:    at,
+	}
+}
+
+func unavailableComponent(id cp.ReadinessComponentID, backing string, at time.Time) cp.ReadinessComponentStatus {
+	return cp.ReadinessComponentStatus{
+		Component:        id,
+		State:            cp.CapabilityUnavailable,
+		Reason:           cp.ReasonBackingUnavailable,
+		EnforcementScope: cp.EnforcementScopeForStoreBacking(backing, true),
+		StoreBacking:     backing,
+		LastUpdatedAt:    at,
+	}
+}
+
+func coordinatorComponent(id cp.ReadinessComponentID, enabled bool, at time.Time) cp.ReadinessComponentStatus {
+	if !enabled {
+		return disabledComponent(id, at)
+	}
+	return cp.ReadinessComponentStatus{
+		Component:        id,
+		State:            cp.CapabilityReady,
+		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess,
+		LastUpdatedAt:    at,
+	}
+}
+
+func raterComponent(id cp.ReadinessComponentID, attached bool, at time.Time) cp.ReadinessComponentStatus {
+	if !attached {
+		return disabledComponent(id, at)
+	}
+	return cp.ReadinessComponentStatus{
+		Component:        id,
+		State:            cp.CapabilityReady,
+		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess,
+		LastUpdatedAt:    at,
+	}
+}
+
+func snapshotComponent(id cp.ReadinessComponentID, state cp.CapabilityState, at time.Time) cp.ReadinessComponentStatus {
+	if state == "" {
+		state = cp.CapabilityDisabled
+	}
+	return cp.ReadinessComponentStatus{
+		Component:        id,
+		State:            state,
+		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess,
+		LastUpdatedAt:    at,
+	}
+}
+
+func mapAccountingAuthorityState(s cp.AccountingAuthorityState) cp.CapabilityState {
+	switch s {
+	case cp.AccountingAuthorityReady:
+		return cp.CapabilityReady
+	case cp.AccountingAuthorityDegraded, cp.AccountingAuthorityAdvisoryOnly:
+		return cp.CapabilityDegraded
+	case cp.AccountingAuthorityUnavailable:
+		return cp.CapabilityUnavailable
+	case cp.AccountingAuthorityDisabled:
+		return cp.CapabilityDisabled
+	default:
+		return cp.CapabilityUnavailable
+	}
+}
+
+func mapConcurrencyAuthorityState(s cp.ConcurrencyAuthorityState) cp.CapabilityState {
+	switch s {
+	case cp.ConcurrencyAuthorityReady:
+		return cp.CapabilityReady
+	case cp.ConcurrencyAuthorityDegraded:
+		return cp.CapabilityDegraded
+	case cp.ConcurrencyAuthorityUnavailable:
+		return cp.CapabilityUnavailable
+	case cp.ConcurrencyAuthorityDisabled:
+		return cp.CapabilityDisabled
+	default:
+		return cp.CapabilityUnavailable
+	}
+}
+
+func mapConcurrencyReason(reason string) cp.ReasonCode {
+	switch reason {
+	case "backing_degraded":
+		return cp.ReasonStoreNotReady
+	case "backing_unavailable":
+		return cp.ReasonBackingUnavailable
+	default:
+		return cp.ReasonNone
+	}
+}

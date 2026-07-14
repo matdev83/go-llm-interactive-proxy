@@ -151,7 +151,7 @@
   - Support indexed safe scope, backend, model, route, perspective, boundary, lifecycle, rule, and time filters.
   - Return unsupported and too-broad outcomes instead of scanning.
   - _Requirements: 14.4, 14.5, 14.8, 16.3_
-- [ ] 11.3 Expose independent customer, operator, compression, routing-overhead, and readiness inputs
+- [x] 11.3 Expose independent customer, operator, compression, routing-overhead, and readiness inputs
   - Never merge customer charge and operator cost without an explicit report calculation.
   - Report every required authority/journal independently and aggregate protected-traffic posture.
   - _Requirements: 4.7, 5.7, 14.6, 14.7, 15.7, 15.8_
@@ -196,3 +196,6 @@
 - Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers (request authority, rater, evidence sink, metering querier); Execute/Collect smoke via dogfood-local-stub; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
 - Phase 10.3: facade merges Traffic/Usage observers; `ProviderDescriptors` validated at Build so observers cannot declare StrengthRequired (12.7); authority descriptors remain allowed for strict admit.
 - Phase 10 remediation (review REJECTED): (12.1) public `authority.EvidenceSink` + `MeteringQuerier` production injection; `Options.Rater` forwarded onto `AccountingRuntime.EconomicsRater`; enterprise fixture proves fake rater + ExecutorView execute path. Bounded CP query filter expansion remains Phase 11 (query mount is metering.Querier).
+- Phase 11.1: additive dual-plane fields on UsageDetail/UsageRow/UsageAggregate and AccountingAuthorityDetail/AccountingDecisionRow (perspective/boundary/lifecycle/provenance/fact_kind/surfaced/version refs); legacy plane/availability preserved; projectors + appendDecision populate decision-query rows.
+- Phase 11.2: metering.Query expanded filters + QueryClass; journalstore too-broad/unsupported; durable indexed list; CP UsageQuery/accounting query bounds validation before store access.
+- Phase 11.3: DualPlaneReportInputs (customer/operator/compression/routing-overhead) with explicit ReportCalculationType; ReadinessReportReader + aggregate protected-traffic posture; memory backing always advisory_single_process; wired via Built/CP `/readiness`/lipruntime.ReadinessReport().

@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
@@ -144,6 +145,14 @@ func (r *Runtime) MeteringQuerier() metering.Querier {
 // HasProductionMeteringQuerier reports whether a metering Querier was supplied.
 func (r *Runtime) HasProductionMeteringQuerier() bool {
 	return r != nil && r.meteringQuerierAttached && r.MeteringQuerier() != nil
+}
+
+// ReadinessReport returns the composite readiness report reader, or nil.
+func (r *Runtime) ReadinessReport() controlplane.ReadinessReportReader {
+	if r == nil || r.built == nil {
+		return nil
+	}
+	return r.built.ReadinessReport
 }
 
 // SnapshotGenerationID returns the published generation id, or 0 when absent.

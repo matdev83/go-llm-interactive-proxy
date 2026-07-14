@@ -12,7 +12,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	affinitymem "github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity/memorystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -38,6 +40,7 @@ type executorRuntime struct {
 	SecureSessionStore   ssessionapp.Store
 	CatalogRuntime       *modelcatalog.CatalogRuntime
 	TokenAccountingAdmin *accountingapp.Service
+	ReadinessReport      *corecp.ReadinessReportService
 }
 
 // executorBuildInput groups the upstream unit results consumed by
@@ -121,6 +124,14 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
 		accountingRT.MeteringRecorder = in.Bctx.Opts.Production.MeteringRecorder
+		if meteringRT == nil {
+			meteringRT = &meteringRuntime{StoreBacking: "injected"}
+		} else {
+			meteringRT = &meteringRuntime{
+				Recorder:     in.Bctx.Opts.Production.MeteringRecorder,
+				StoreBacking: "injected",
+			}
+		}
 	}
 	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.Rater != nil {
 		accountingRT.EconomicsRater = in.Bctx.Opts.Production.Rater
@@ -214,12 +225,27 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if opts.Diagnostics.SecureSessionStore != nil {
 		secureSessionStore = opts.Diagnostics.SecureSessionStore
 	}
+	var concurrencySvc *concurrencyapp.Service
+	if in.Concurrency != nil {
+		concurrencySvc = in.Concurrency.Service
+	}
+	readiness := buildReadinessReportService(readinessReportBuildInput{
+		Cfg:                cfg,
+		ControlPlaneStatus: in.ControlPlane.statusHandle(),
+		UsageAuthority:     in.UsageAuthority,
+		Concurrency:        concurrencySvc,
+		Metering:           meteringRT,
+		SnapshotGeneration: in.SnapshotGeneration,
+		Executor:           exec,
+		Production:         prod,
+	})
 	return &executorRuntime{
 		Exec:                 exec,
 		EffectiveRoute:       effectiveRoute,
 		SecureSessionStore:   secureSessionStore,
 		CatalogRuntime:       catalogRuntime,
 		TokenAccountingAdmin: tokenAccountingAdmin(tokenAccounting),
+		ReadinessReport:      readiness,
 	}, closers, nil
 }
 

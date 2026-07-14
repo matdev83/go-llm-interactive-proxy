@@ -23,6 +23,12 @@ type StatusReader interface {
 	Status(ctx context.Context) (CapabilityStatus, error)
 }
 
+// ReadinessReportReader returns independent authority/journal readiness rows
+// and aggregate protected-traffic posture (15.7).
+type ReadinessReportReader interface {
+	Report(ctx context.Context) (ReadinessReport, error)
+}
+
 // PageQueries is the stable service contract for bounded cross-session read
 // views (requirement 2.1-2.9, 9.1, 9.5). Query consumers do not need to know
 // which diagnostic, observer, ledger, or store supplied a result.
