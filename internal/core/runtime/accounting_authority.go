@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -16,7 +17,10 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
@@ -43,6 +47,9 @@ func (e *Executor) admitAttemptAuthority(
 	decision accountingpreflight.Decision,
 	estimateOnly bool,
 ) (attemptAuthorityState, error) {
+	if !estimateOnly && e != nil && e.AttemptCoordinator != nil && e.authorityService() != nil {
+		return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
+	}
 	svc := e.authorityService()
 	if svc == nil {
 		return attemptAuthorityState{}, nil
@@ -58,6 +65,11 @@ func (e *Executor) admitAttemptAuthority(
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
+	}
+	// When request coordinator already reserved request-count, avoid double-charging
+	// customer request quotas on each B-leg (requirements 4.5, 8.3).
+	if requestAuthorityFrom(ctx) != nil {
+		admissionInput.RequestCount = domain.Amount{Unit: domain.AmountUnitRequests, Value: 0}
 	}
 	result, err := svc.Admit(ctx, admissionInput)
 	if err != nil {
@@ -85,6 +97,81 @@ func (e *Executor) admitAttemptAuthority(
 		return state, authErr
 	}
 	return state, nil
+}
+
+func (e *Executor) admitAttemptViaCoordinator(
+	ctx context.Context,
+	traceID string,
+	aLegID string,
+	bleg b2bua.BLegRecord,
+	call lipapi.Call,
+	c routing.AttemptCandidate,
+	decision accountingpreflight.Decision,
+) (attemptAuthorityState, error) {
+	in := authority.AttemptAdmission{
+		RequestID:      strings.TrimSpace(call.ID),
+		AttemptID:      strings.TrimSpace(bleg.BLegID),
+		BLegID:         strings.TrimSpace(bleg.BLegID),
+		ALegID:         strings.TrimSpace(aLegID),
+		BackendID:      strings.TrimSpace(c.Primary.Backend),
+		Model:          strings.TrimSpace(c.Primary.Model),
+		Perspective:    metering.PerspectiveOperator,
+		Lifecycle:      metering.LifecycleBackendAttempt,
+		Scope:          scopeFromCtx(ctx),
+		IdempotencyKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c).String(),
+		Exposure: economics.ExposureBasis{
+			Perspective: metering.PerspectiveOperator,
+			Boundary:    metering.BoundaryBackendIngress,
+			Lifecycle:   metering.LifecycleBackendAttempt,
+			Quantities: []metering.Quantity{{
+				Component: metering.ComponentInputToken,
+				Unit:      metering.UnitToken,
+				Value:     int64(decision.Count.InputTokens),
+				Present:   true,
+			}},
+		},
+	}
+	if holder := meteringHolderFrom(ctx); holder != nil {
+		if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+			in.Exposure.Quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
+		}
+	}
+	d, err := e.AttemptCoordinator.Admit(ctx, in)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return attemptAuthorityState{}, err
+		}
+		outcome := domain.DecisionOutcomeDeny
+		if !authoritycoord.IsDenied(err) {
+			outcome = domain.DecisionOutcomeUnavailable
+		}
+		return attemptAuthorityState{}, attemptAuthorityAdmissionError(authorityapp.AdmissionResult{Outcome: outcome}, err)
+	}
+	handles := d.Stack.Handles()
+	res := authorityapp.AdmissionResult{Allowed: true, Outcome: domain.DecisionOutcomeAllow}
+	if len(handles) > 0 {
+		res.Reserved = true
+		res.ReservationID = handles[0]
+		for _, h := range handles {
+			res.Reservations = append(res.Reservations, authorityapp.AdmissionReservation{ReservationID: h})
+		}
+	}
+	admissionInput := authorityapp.AdmissionInput{
+		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
+		Scope:          scopeFromCtx(ctx),
+		Dimensions:     attemptAuthorityDimensions(ctx, call, c),
+		Request:        attemptAuthorityRequestAmount(decision),
+		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
+		PreflightUsage: attemptAuthorityPreflightUsage(decision),
+		Spend:          attemptAuthoritySpendAmount(e.AccountingPriceCatalog, c, decision),
+		Authority:      domain.AuthorityLevelEstimated,
+		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
+	}
+	return attemptAuthorityState{
+		admissionInput:  admissionInput,
+		admissionResult: res,
+		cleanupTimeout:  e.UsageAuthorityCleanupTimeout,
+	}, nil
 }
 
 func attemptAuthorityCorrelation(traceID, requestID, aLegID string, call lipapi.Call, bleg b2bua.BLegRecord, c routing.AttemptCandidate) controlplane.Correlation {
