@@ -105,7 +105,7 @@
   - Model strict/advisory limits, safe scope matching, TTL, renewal, generation, replay, expiry, release, readiness, and denial evidence.
   - Ensure one logical request consumes one lease across retries and parallel legs.
   - _Requirements: 10.1, 10.3, 10.6, 10.7, 10.8, 10.10, 10.11_
-- [ ] 8.2 Build memory, SQLite, and PostgreSQL lease stores
+- [x] 8.2 Build memory, SQLite, and PostgreSQL lease stores
   - Prove at most five active leases for a five-slot principal across multiple proxy instances.
   - Reclaim expired leases transactionally using bounded indexed work.
   - _Requirements: 10.2, 10.6, 10.7, 10.9, 12.1, 13.5, 16.2, 16.3, 16.7_
@@ -183,3 +183,4 @@
 - Phase 7.1–7.3: rules require `perspective`/`lifecycle_scope`/`basis`/`namespace` (or explicit `basis: legacy_provider_preferred_attempt`); amounts selected from exposure/facts (legacy inputs only for compatibility basis); stage filter (legacy request-count → logical_request, other legacy → backend_attempt); store `limitRowKey` + optional `ReservationKey.Namespace` isolate dual-plane identity; empty namespace rows stay under `legacy` without reinterpretation; no DurableStore.mu removal.
 - Phase 7.2 settle remediation (req 9.5): `SettleInput.Facts`/`Exposure`; `storeSettle` calls `Rule.SelectAmount(..., ForSettlement: true)` before `store.Settle`; dual-plane missing selection fails closed without mutating; compatibility basis keeps `FinalUsage`/`FinalCost`; covered by `settlement_select_test.go`.
 - Phase 8.1: `internal/core/concurrencyauthority/{domain,app}` + public `LeaseRenew`/`RenewLease`; `LeaseStore` port for 8.2; aux inherit via AdmitInput (public LeaseAdmission aux fields deferred to 8.3).
+- Phase 8.2: `internal/infra/concurrencyauthority/leasestore` memory+Bun SQLite/PG; five-slot across shared handles; inline reclaim; PG integration skips without `LIP_TEST_POSTGRES_DSN`.
