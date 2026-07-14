@@ -14,7 +14,15 @@ import (
 )
 
 // Settle reconciles surfaced-attempt usage against a matching reservation.
-func (s *Service) Settle(ctx context.Context, in SettleInput) (SettleResult, error) {
+func (s *Service) Settle(ctx context.Context, in SettleInput) (result SettleResult, err error) {
+	start := time.Now()
+	defer func() {
+		outcome := OutcomeOK
+		if err != nil {
+			outcome = stageErrOutcome(err)
+		}
+		s.observeStage(StageSettle, outcome, time.Since(start).Seconds())
+	}()
 	if err := ctx.Err(); err != nil && !in.ClientCanceled {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return SettleResult{}, WrapError(ErrEvaluationTimeout, "settle", err)
@@ -31,7 +39,7 @@ func (s *Service) Settle(ctx context.Context, in SettleInput) (SettleResult, err
 		return SettleResult{}, err
 	}
 
-	result := SettleResult{
+	result = SettleResult{
 		Applied:         settle.Applied,
 		ReservationID:   settle.ReservationID,
 		ReleasedDelta:   settle.ReleasedDelta,
@@ -59,7 +67,15 @@ func (s *Service) Settle(ctx context.Context, in SettleInput) (SettleResult, err
 
 // Release marks reservations for swallowed and losing attempts without
 // attributing surfaced usage to the released attempt.
-func (s *Service) Release(ctx context.Context, in ReleaseInput) (ReleaseResult, error) {
+func (s *Service) Release(ctx context.Context, in ReleaseInput) (result ReleaseResult, err error) {
+	start := time.Now()
+	defer func() {
+		outcome := OutcomeOK
+		if err != nil {
+			outcome = stageErrOutcome(err)
+		}
+		s.observeStage(StageRelease, outcome, time.Since(start).Seconds())
+	}()
 	if err := ctx.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return ReleaseResult{}, WrapError(ErrEvaluationTimeout, "release", err)
@@ -76,7 +92,7 @@ func (s *Service) Release(ctx context.Context, in ReleaseInput) (ReleaseResult, 
 		return ReleaseResult{}, err
 	}
 
-	result := ReleaseResult{
+	result = ReleaseResult{
 		Applied:       release.Applied,
 		ReservationID: release.ReservationID,
 		ReleasedDelta: release.ReleasedDelta,

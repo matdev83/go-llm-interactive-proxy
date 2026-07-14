@@ -806,21 +806,27 @@ func evaluationContextFromAdmission(in AdmissionInput, at time.Time) domain.Eval
 
 func admitOutcome(res AdmissionResult, err error) string {
 	if err != nil {
-		switch {
-		case errors.Is(err, context.Canceled):
-			return OutcomeCanceled
-		case errors.Is(err, ErrEvaluationTimeout), errors.Is(err, context.DeadlineExceeded):
-			return OutcomeTimeout
-		case errors.Is(err, ErrDisabled):
-			return OutcomeDisabled
-		case errors.Is(err, ErrUnavailable), errors.Is(err, ErrDegraded):
-			return OutcomeUnavailable
-		default:
-			return OutcomeError
-		}
+		return stageErrOutcome(err)
 	}
 	if res.Outcome == domain.DecisionOutcomeDeny {
 		return OutcomeDeny
 	}
 	return OutcomeOK
+}
+
+func stageErrOutcome(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return OutcomeCanceled
+	case errors.Is(err, ErrEvaluationTimeout), errors.Is(err, context.DeadlineExceeded):
+		return OutcomeTimeout
+	case errors.Is(err, ErrDisabled):
+		return OutcomeDisabled
+	case errors.Is(err, ErrUnavailable), errors.Is(err, ErrDegraded):
+		return OutcomeUnavailable
+	case errors.Is(err, ErrInvalidQuery):
+		return OutcomeError
+	default:
+		return OutcomeError
+	}
 }
