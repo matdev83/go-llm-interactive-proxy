@@ -45,7 +45,7 @@
   - _Requirements: 9.2, 9.3, 12.1, 12.2, 12.7, 12.8, 15.1_
 
 - [ ] 4. Implement immutable metering checkpoints
-- [ ] 4.1 Capture frontend-ingress request state
+- [x] 4.1 Capture frontend-ingress request state
   - Clone the validated canonical call before submit hooks, transforms, compression, steering, and route shaping.
   - Bind trusted scope later without mutating the original checkpoint.
   - Reuse one frontend-ingress checkpoint for the complete logical request.

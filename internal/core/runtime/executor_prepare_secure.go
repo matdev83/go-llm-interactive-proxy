@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
-	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	coreauth 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
@@ -219,6 +220,13 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	preSession.ResumeEligible = br.Record.ResumeEligible
 	preSession.TurnID = string(br.TurnID)
 	preSession.WorkspaceID = strings.TrimSpace(wsView.ID)
+
+	var meteringHolder *checkpoint.RequestHolder
+	outCtx, meteringHolder, err = captureFrontendIngressBeforeSubmit(outCtx, work, reqScope, e.now())
+	if err != nil {
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+	}
+	_ = meteringHolder
 
 	submitMeta := &sdk.SubmitMeta{TraceID: traceID, Annotations: map[string]string{}}
 	if e.Log != nil {

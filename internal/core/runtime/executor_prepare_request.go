@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -33,6 +34,7 @@ type preparedRequest struct {
 	ctx            context.Context
 	streamReturned bool
 	execSpan       trace.Span
+	metering       *checkpoint.RequestHolder
 }
 
 // prepareRequest executes phases 1-9 of the former inline [Executor.Execute]:
@@ -84,6 +86,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		prep.finalize(err)
 		return nil, noop, fmt.Errorf("executor: prepare submit: %w", err)
 	}
+	prep.metering = meteringHolderFrom(prep.ctx)
 
 	lifecycle := e.lifecycleCoordinator()
 	prep.aScope = lifecycle.StartALeg(prep.aLeg.ALegID)
