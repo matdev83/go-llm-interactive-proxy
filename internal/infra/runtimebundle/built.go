@@ -82,4 +82,7 @@ type Built struct {
 	// MeteringQuerier is the optional production metering query mount injected via
 	// ProductionOptions (requirement 12.1). Nil when not supplied.
 	MeteringQuerier metering.Querier
+	// ReadinessReport aggregates independent authority/journal readiness and
+	// protected-traffic posture (requirements 15.7, 15.8).
+	ReadinessReport *controlplane.ReadinessReportService
 }

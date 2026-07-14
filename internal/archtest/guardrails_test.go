@@ -82,7 +82,7 @@ var lineBudgets = []struct {
 	{"internal/core", 48000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
-	{"internal/infra/runtimebundle", 4500},
+	{"internal/infra/runtimebundle", 4650}, // Phase 11.3 readiness report wiring
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

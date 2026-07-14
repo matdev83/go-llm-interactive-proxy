@@ -18,7 +18,9 @@ import (
 )
 
 type meteringRuntime struct {
-	Recorder metering.Recorder
+	Recorder     metering.Recorder
+	StoreBacking string
+	checkReady   func(context.Context) error
 }
 
 func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func() time.Time) (*meteringRuntime, []func() error, error) {
@@ -38,19 +40,27 @@ func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func()
 		if err != nil {
 			return nil, nil, fmt.Errorf("runtimebundle: metering memory: %w", err)
 		}
-		return &meteringRuntime{Recorder: store}, []func() error{store.Close}, nil
+		return &meteringRuntime{
+			Recorder:     store,
+			StoreBacking: "memory",
+			checkReady:   store.CheckReadiness,
+		}, []func() error{store.Close}, nil
 	case "sqlite", "postgres":
-		rec, closeFn, err := openDurableMeteringJournal(parent, cfg, now)
+		rec, closeFn, backing, checkReady, err := openDurableMeteringJournal(parent, cfg, now)
 		if err != nil {
 			return nil, nil, err
 		}
-		return &meteringRuntime{Recorder: rec}, []func() error{closeFn}, nil
+		return &meteringRuntime{
+			Recorder:     rec,
+			StoreBacking: backing,
+			checkReady:   checkReady,
+		}, []func() error{closeFn}, nil
 	default:
 		return nil, nil, fmt.Errorf("runtimebundle: metering.journal.store %q is invalid", cfg.Metering.Journal.Store)
 	}
 }
 
-func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now func() time.Time) (metering.Recorder, func() error, error) {
+func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now func() time.Time) (metering.Recorder, func() error, string, func(context.Context) error, error) {
 	store := strings.ToLower(strings.TrimSpace(cfg.Metering.Journal.Store))
 	var bunDB *bun.DB
 	var err error
@@ -67,17 +77,17 @@ func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now 
 			if sqlDB != nil {
 				_ = sqlDB.Close()
 			}
-			return nil, nil, fmt.Errorf("runtimebundle: metering journal sqlite open: %w", err)
+			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal sqlite open: %w", err)
 		}
 		bunDB, err = db.NewBunDB(sqlDB, db.DialectSQLite)
 		if err != nil {
 			_ = sqlDB.Close()
-			return nil, nil, fmt.Errorf("runtimebundle: metering journal sqlite bun: %w", err)
+			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal sqlite bun: %w", err)
 		}
 	case "postgres":
 		poolCfg, err := config.ParseDatabasePoolSettings(cfg.Database)
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: metering journal postgres pool: %w", err)
+			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal postgres pool: %w", err)
 		}
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
@@ -88,18 +98,18 @@ func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now 
 			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: metering journal postgres open: %w", err)
+			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal postgres open: %w", err)
 		}
 	default:
-		return nil, nil, fmt.Errorf("runtimebundle: metering journal store %q is invalid", cfg.Metering.Journal.Store)
+		return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal store %q is invalid", cfg.Metering.Journal.Store)
 	}
 	impl, err := journalstore.NewDurableStore(parent, bunDB, journalstore.DurableConfig{StoreID: "metering-" + store, Now: now})
 	if err != nil {
 		wrapped := fmt.Errorf("runtimebundle: metering journal schema: %w", err)
 		if cerr := bunDB.Close(); cerr != nil {
-			return nil, nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: metering journal close after schema error: %w", cerr))
+			return nil, nil, "", nil, errors.Join(wrapped, fmt.Errorf("runtimebundle: metering journal close after schema error: %w", cerr))
 		}
-		return nil, nil, wrapped
+		return nil, nil, "", nil, wrapped
 	}
-	return impl, impl.Close, nil
+	return impl, impl.Close, store, impl.CheckReadiness, nil
 }

@@ -30,6 +30,9 @@ type Options struct {
 	// Queries is the bounded query service. When nil, every route returns 404
 	// so the handler is inert when the capability is disabled or unavailable.
 	Queries cp.Queries
+	// ReadinessReport, when non-nil, exposes independent authority/journal
+	// readiness at /readiness (requirements 15.7, 15.8).
+	ReadinessReport cp.ReadinessReportReader
 	// DefaultVisibility is applied when a request omits the visibility query
 	// parameter. Empty defaults to cp.VisibilityDefault so privileged raw
 	// evidence is not surfaced (requirement 4.6, 6.5).
@@ -43,6 +46,7 @@ type Options struct {
 // base/policy-audit, and base/events.
 func NewHandler(opts Options) http.Handler {
 	queries := opts.Queries
+	readiness := opts.ReadinessReport
 	defaultVisibility := opts.DefaultVisibility
 	if defaultVisibility == "" {
 		defaultVisibility = cp.VisibilityDefault
@@ -80,6 +84,23 @@ func NewHandler(opts Options) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, status)
+	})
+	mux.HandleFunc("/readiness", func(w http.ResponseWriter, r *http.Request) {
+		if readiness == nil {
+			writeControlPlaneError(w, http.StatusNotFound, cp.ErrCodeDisabled)
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeControlPlaneError(w, http.StatusMethodNotAllowed, cp.ErrCodeMethodNotAllowed)
+			return
+		}
+		report, err := readiness.Report(r.Context())
+		if err != nil {
+			writeQueryError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
 	})
 	mux.HandleFunc("/sessions", func(w http.ResponseWriter, r *http.Request) {
 		servePage(w, r, queries, defaultVisibility, func(vis cp.Visibility, common cp.CommonFilters, limit int, cursor cp.Cursor) (any, error) {
