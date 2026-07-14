@@ -157,7 +157,7 @@
   - _Requirements: 4.7, 5.7, 14.6, 14.7, 15.7, 15.8_
 
 - [ ] 12. Remove global serialization and prove scalability
-- [ ] 12.1 Refactor durable authority synchronization
+- [x] 12.1 Refactor durable authority synchronization
   - Limit in-process locking to lifecycle/readiness state and rely on targeted database locks, unique constraints, and compare-and-swap for mutations.
   - Preserve memory-store correctness with sharded or keyed locking where beneficial.
   - _Requirements: 9.8, 16.1, 16.2_
@@ -201,3 +201,4 @@
 - Phase 11.3: DualPlaneReportInputs (customer/operator/compression/routing-overhead) with explicit ReportCalculationType; ReadinessReportReader + aggregate protected-traffic posture; memory backing always advisory_single_process; wired via Built/CP `/readiness`/lipruntime.ReadinessReport().
 - Phase 11 remediation (review REJECTED): ledgerstore applies perspective/boundary/lifecycle usage filters (and refuses rule_id without widen); Service.Limits/Decisions call ValidateAccounting* before store access and match perspective/lifecycle/basis on authority rows; durable limit/decision filter indexes include perspective/lifecycle_scope/basis; HTTP `/authority` parses perspective/lifecycle_scope/basis/class; 11.3 DualPlaneReportInputs remain construction contracts (+ calculators), readiness is the live wired surface.
   - RED_PHASE_OUTPUT: `TestMemoryStore_UsageAppliesDualPlaneFilters` / `TestMemoryStore_UsageRejectsRuleIDAsUnsupported` (ledgerstore); `TestLimitRowMatchesQueryPerspectiveAndLifecycle` / `TestDecisionRowMatchesQueryPerspectiveAndLifecycle` / `TestLimitRowMatchesQueryBasis` / `TestDecisionRowMatchesQueryBasis` (authoritystore) — fail under silent-ignore; GREEN after filter+validate+basis wiring.
+- Phase 12.1: `DurableStore` process mutex shrunk to Close/readiness lifecycle (`lifecycleMu` + `atomic.Bool` closed); mutations/queries use DB row locks/CAS only; RED `TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB` BeginTx barrier. Memory store retains its mutex.

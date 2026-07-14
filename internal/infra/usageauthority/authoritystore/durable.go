@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -26,7 +27,9 @@ import (
 // "?", PostgreSQL rewrites them to "$N"), which the raw database/sql driver
 // could not do.
 //
-// Concurrency model (requirements 10.6, 10.9, 11.1):
+// Concurrency model (requirements 10.6, 10.9, 11.1, 16.1, 16.2):
+//   - Process-wide locking is limited to Close and readiness lifecycle state.
+//     Mutations and queries do not hold an in-process mutex across database I/O.
 //   - Each mutating operation opens a Bun transaction and locks the affected
 //     live limit rows BEFORE the in-memory capacity check runs, so two proxy
 //     instances cannot reserve from stale copies. On PostgreSQL the lock is
@@ -49,10 +52,13 @@ import (
 //     writing, matching the prior behavior where the deny decision stays in
 //     the in-memory ledger.
 type DurableStore struct {
-	mu     sync.Mutex
-	closed bool
-	db     *bun.DB
-	c      *storeCore
+	lifecycleMu sync.Mutex // Close + readiness state only (16.1/16.2)
+	closed      atomic.Bool
+	db          *bun.DB
+	c           *storeCore
+	// beginTxHook is an optional test seam invoked immediately before BeginTx
+	// on mutation paths. Production code leaves it nil.
+	beginTxHook func()
 }
 
 // errDurableFlushFailed marks errors where the transactional flush did not
@@ -111,10 +117,10 @@ func (s *DurableStore) Close() error {
 	if s == nil {
 		return nil
 	}
-	s.mu.Lock()
+	s.lifecycleMu.Lock()
 	db := s.db
-	s.closed = true
-	s.mu.Unlock()
+	s.closed.Store(true)
+	s.lifecycleMu.Unlock()
 	if db == nil {
 		return nil
 	}
@@ -197,16 +203,18 @@ func (s *DurableStore) CheckReadiness(ctx context.Context) (domain.AuthorityStat
 	if err := ctx.Err(); err != nil {
 		return domain.AuthorityStatus{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		status := domain.StatusFromBacking(domain.BackingCapabilityUnavailable)
+		s.lifecycleMu.Lock()
 		s.c.state = status
+		s.lifecycleMu.Unlock()
 		return status, fmt.Errorf("authoritystore readiness: %w", app.ErrUnavailable)
 	}
 	if err := s.db.PingContext(ctx); err != nil {
 		status := domain.StatusFromBacking(domain.BackingCapabilityUnavailable)
+		s.lifecycleMu.Lock()
 		s.c.state = status
+		s.lifecycleMu.Unlock()
 		return status, fmt.Errorf("authoritystore readiness: %w", app.ErrUnavailable)
 	}
 	// A successful ping restores the configured readiness posture so a prior
@@ -215,8 +223,11 @@ func (s *DurableStore) CheckReadiness(ctx context.Context) (domain.AuthorityStat
 	// deliberately configure Readiness=advisory_only with Backing=atomic for
 	// startup_posture fail_open, and a successful probe must not promote that
 	// to ready.
+	s.lifecycleMu.Lock()
 	s.c.state = s.c.cfg.Readiness
-	return s.c.readiness(), nil
+	status := s.c.readiness()
+	s.lifecycleMu.Unlock()
+	return status, nil
 }
 
 // Reserve atomically records a reservation and persists only the rows this call mutated.
@@ -224,13 +235,10 @@ func (s *DurableStore) Reserve(ctx context.Context, cmd app.ReserveCommand) (app
 	if err := ctx.Err(); err != nil {
 		return app.ReserveResult{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return app.ReserveResult{}, unavailableError("reserve")
 	}
-	out, err := s.runReserveTx(ctx, cmd)
-	return out, err
+	return s.runReserveTx(ctx, cmd)
 }
 
 // Settle reconciles usage and persists only the rows this call mutated.
@@ -238,13 +246,10 @@ func (s *DurableStore) Settle(ctx context.Context, cmd app.SettleCommand) (app.S
 	if err := ctx.Err(); err != nil {
 		return app.SettleResult{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return app.SettleResult{}, unavailableError("settle")
 	}
-	out, err := s.runSettleTx(ctx, cmd)
-	return out, err
+	return s.runSettleTx(ctx, cmd)
 }
 
 // Release releases reservation capacity and persists only the rows this call mutated.
@@ -252,13 +257,10 @@ func (s *DurableStore) Release(ctx context.Context, cmd app.ReleaseCommand) (app
 	if err := ctx.Err(); err != nil {
 		return app.ReleaseResult{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return app.ReleaseResult{}, unavailableError("release")
 	}
-	out, err := s.runReleaseTx(ctx, cmd)
-	return out, err
+	return s.runReleaseTx(ctx, cmd)
 }
 
 // ApplyUsage applies usage/cost corrections to matched advisory windows without a
@@ -270,13 +272,10 @@ func (s *DurableStore) ApplyUsage(ctx context.Context, cmd app.ApplyUsageCommand
 	if err := ctx.Err(); err != nil {
 		return app.ApplyUsageResult{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return app.ApplyUsageResult{}, unavailableError("apply_usage")
 	}
-	out, err := s.runApplyUsageTx(ctx, cmd)
-	return out, err
+	return s.runApplyUsageTx(ctx, cmd)
 }
 
 // ActiveLimit resolves the configured current row key and reads at most that
@@ -285,9 +284,7 @@ func (s *DurableStore) ActiveLimit(ctx context.Context, q app.ActiveLimitQuery) 
 	if err := ctx.Err(); err != nil {
 		return controlplane.AccountingLimitStatusRow{}, false, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return controlplane.AccountingLimitStatusRow{}, false, unavailableError("active_limit")
 	}
 	candidate, key, ok := s.c.configuredLimitRow(q.RuleID, q.Dimensions, q.At)
@@ -314,9 +311,7 @@ func (s *DurableStore) LimitStatus(ctx context.Context, q controlplane.Accountin
 	if err := ctx.Err(); err != nil {
 		return controlplane.Page[controlplane.AccountingLimitStatusRow]{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return controlplane.Page[controlplane.AccountingLimitStatusRow]{}, unavailableError("limit_status")
 	}
 	return s.queryLimits(ctx, q)
@@ -327,9 +322,7 @@ func (s *DurableStore) DecisionHistory(ctx context.Context, q controlplane.Accou
 	if err := ctx.Err(); err != nil {
 		return controlplane.Page[controlplane.AccountingDecisionRow]{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed.Load() {
 		return controlplane.Page[controlplane.AccountingDecisionRow]{}, unavailableError("decision_history")
 	}
 	return s.queryDecisions(ctx, q)

@@ -19,6 +19,9 @@ func (s *DurableStore) runReserveTx(ctx context.Context, cmd app.ReserveCommand)
 }
 
 func (s *DurableStore) runReserveTxOnce(ctx context.Context, cmd app.ReserveCommand) (app.ReserveResult, error) {
+	if hook := s.beginTxHook; hook != nil {
+		hook()
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return app.ReserveResult{}, storeUnavailableError("reserve begin", err)
