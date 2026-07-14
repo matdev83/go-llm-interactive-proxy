@@ -11,8 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-// Phase 1.2 characterization: omitted max-output and total-token inference defects
-// on the attempt authority spend/usage paths (F-03, F-08).
+// Phase 2.3: spend uses resolved unknown-output bounds; totals keep inclusion schema.
 
 func phase12SpendCatalog(t *testing.T) accounting.PriceCatalog {
 	t.Helper()
@@ -32,49 +31,62 @@ func phase12SpendCatalog(t *testing.T) accounting.PriceCatalog {
 	return catalog
 }
 
-// TestAttemptAuthoritySpendAmount_omittedMaxCurrentlyReservesInputOnly locks F-03:
-// when Count.OutputTokens is 0 (omitted/unknown max path), spend equals input-only cost.
-// Phase 2 flip: unknown output must not reserve zero future exposure.
-func TestAttemptAuthoritySpendAmount_omittedMaxCurrentlyReservesInputOnly(t *testing.T) {
+// TestAttemptAuthoritySpendAmount_usesAdjustedMaxWhenCountOutputZero proves F-03 fix:
+// omitted max is resolved via AdjustedMaxOutputTokens / Count.OutputTokens, not zero exposure.
+func TestAttemptAuthoritySpendAmount_usesAdjustedMaxWhenCountOutputZero(t *testing.T) {
 	t.Parallel()
 
 	catalog := phase12SpendCatalog(t)
 	cand := authorityCandidate()
+	adjusted := 1_000_000
 	decision := accountingpreflight.Decision{
 		Allowed: true,
 		Count: accountingapp.CountResult{
 			InputTokens:  1_000_000,
-			OutputTokens: 0, // omitted / unknown future output
+			OutputTokens: 0,
 		},
+		AdjustedMaxOutputTokens: &adjusted,
 	}
 
 	got := attemptAuthoritySpendAmount(catalog, cand, decision)
-	inputOnly := accounting.EstimateCost(accounting.CostInput{
-		Backend: "backend-1",
-		Model:   "model-1",
-		Usage:   accounting.TokenUsage{InputTokens: 1_000_000, OutputTokens: 0},
-	}, catalog)
-
-	if got.Value != inputOnly.NanoUnits {
-		t.Fatalf("spend=%d want input-only %d", got.Value, inputOnly.NanoUnits)
-	}
-	if got.Value != 1_000_000_000 {
-		t.Fatalf("current defect characterization: spend=%d want 1e9 input-only; Phase 2 must apply conservative unknown-output policy", got.Value)
-	}
-
-	// Desired RED evidence: a non-zero output exposure bound would exceed input-only.
-	withOutput := accounting.EstimateCost(accounting.CostInput{
+	want := accounting.EstimateCost(accounting.CostInput{
 		Backend: "backend-1",
 		Model:   "model-1",
 		Usage:   accounting.TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
 	}, catalog)
-	if got.Value >= withOutput.NanoUnits {
-		t.Fatal("expected input-only spend to be strictly less than input+1M-output estimate")
+
+	if got.Value != want.NanoUnits {
+		t.Fatalf("spend=%d want %d (input+adjusted output)", got.Value, want.NanoUnits)
+	}
+	if got.Value == 1_000_000_000 {
+		t.Fatal("spend must not remain input-only when AdjustedMaxOutputTokens is set")
 	}
 }
 
-// TestAttemptAuthorityUsageAmount_infersTotalWithoutSubcomponentDoubleCount locks
-// inclusion schema on the runtime settlement path when TotalTokens is absent.
+func TestAttemptAuthoritySpendAmount_usesCountOutputBound(t *testing.T) {
+	t.Parallel()
+
+	catalog := phase12SpendCatalog(t)
+	decision := accountingpreflight.Decision{
+		Allowed: true,
+		Count: accountingapp.CountResult{
+			InputTokens:  1_000_000,
+			OutputTokens: 500_000,
+		},
+	}
+	got := attemptAuthoritySpendAmount(catalog, routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: "backend-1", Model: "model-1"},
+	}, decision)
+	want := accounting.EstimateCost(accounting.CostInput{
+		Backend: "backend-1",
+		Model:   "model-1",
+		Usage:   accounting.TokenUsage{InputTokens: 1_000_000, OutputTokens: 500_000},
+	}, catalog)
+	if got.Value != want.NanoUnits {
+		t.Fatalf("spend=%d want %d", got.Value, want.NanoUnits)
+	}
+}
+
 func TestAttemptAuthorityUsageAmount_infersTotalWithoutSubcomponentDoubleCount(t *testing.T) {
 	t.Parallel()
 
@@ -90,22 +102,5 @@ func TestAttemptAuthorityUsageAmount_infersTotalWithoutSubcomponentDoubleCount(t
 	got := attemptAuthorityUsageAmount(ev, authoritydomain.Amount{Unit: authoritydomain.AmountUnitTotalTokens})
 	if got.Value != 120 {
 		t.Fatalf("total=%d want 120 (input+output; cache/reasoning are subcomponents)", got.Value)
-	}
-}
-
-func TestPhase12_desiredSpendAndUsageSemanticsCurrentlyAbsent(t *testing.T) {
-	t.Parallel()
-
-	catalog := phase12SpendCatalog(t)
-	spend := attemptAuthoritySpendAmount(catalog, routing.AttemptCandidate{
-		Primary: routing.Primary{Backend: "backend-1", Model: "model-1"},
-	}, accountingpreflight.Decision{
-		Allowed: true,
-		Count:   accountingapp.CountResult{InputTokens: 1_000_000, OutputTokens: 0},
-	})
-	// Desired (Phase 2.3): omitted max must not reserve input-only (zero future output).
-	// While still defective until 2.3, spend stays at 1e9 input-only.
-	if spend.Value != 1_000_000_000 {
-		t.Fatalf("desired unknown-output spend semantics appear present (spend=%d, not input-only 1e9); Phase 2.3 flip due", spend.Value)
 	}
 }

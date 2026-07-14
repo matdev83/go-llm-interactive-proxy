@@ -75,6 +75,7 @@ func buildTokenAccountingRuntime(
 		MaxOutputTokens:      cfg.Accounting.Preflight.MaxOutputTokens,
 		MaxContextTokens:     cfg.Accounting.Preflight.MaxContextTokens,
 		ClampMaxOutputTokens: cfg.Accounting.Preflight.ClampMaxOutputTokens,
+		UnknownOutputPolicy:  accountingpreflight.UnknownOutputPolicy(strings.ToLower(strings.TrimSpace(cfg.Accounting.Preflight.UnknownOutputPolicy))),
 	})
 	out.StreamUsage = accountingstream.New(counter, accountingstream.Config{})
 	switch strings.ToLower(strings.TrimSpace(cfg.Accounting.Ledger.Store)) {

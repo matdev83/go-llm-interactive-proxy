@@ -437,6 +437,17 @@ func (e *Executor) openPlannedCandidate(
 			return noOpen, nil
 		}
 	}
+	// Preflight-applied max-output clamps must be enforceable on the wire (7.4).
+	if preflightDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {
+		diag.LogDecision(p.ctx, e.Log, "unknown_output_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+			slog.String("candidate_key", c.Key),
+			slog.String("backend", c.Primary.Backend),
+		)
+		releaseKind = authorityapp.ReleaseKindAdmissionFailure
+		p.budget.release()
+		p.excluded[c.Key] = struct{}{}
+		return noOpen, nil
+	}
 	if e.RuntimeSnapshot != nil {
 		if rawPayload, jerr := json.Marshal(openCall); jerr == nil {
 			sc := scopeFromCtx(p.ctx)

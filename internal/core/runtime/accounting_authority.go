@@ -153,10 +153,13 @@ func attemptAuthorityPreflightUsage(decision accountingpreflight.Decision) domai
 }
 
 func attemptAuthoritySpendAmount(catalog accounting.PriceCatalog, c routing.AttemptCandidate, decision accountingpreflight.Decision) domain.Amount {
-	outputTokens := max(decision.Count.OutputTokens, 0)
+	outputTokens := max(int64(decision.Count.OutputTokens), 0)
+	if outputTokens == 0 && decision.AdjustedMaxOutputTokens != nil && *decision.AdjustedMaxOutputTokens > 0 {
+		outputTokens = int64(*decision.AdjustedMaxOutputTokens)
+	}
 	usage := accounting.TokenUsage{
 		InputTokens:  int64(decision.Count.InputTokens),
-		OutputTokens: int64(outputTokens),
+		OutputTokens: outputTokens,
 	}
 	cost := accounting.EstimateCost(accounting.CostInput{
 		Backend: strings.TrimSpace(c.Primary.Backend),

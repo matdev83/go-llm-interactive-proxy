@@ -11,7 +11,7 @@
   - Require failures before implementation changes so each defect has an executable proof.
   - _Requirements: 3.6, 3.7, 3.8, 6.3, 6.4, 6.5, 7.2, 7.3_
 
-- [ ] 2. Correct existing token and money semantics
+- [x] 2. Correct existing token and money semantics
 - [x] 2.1 Implement explicit component inclusion and presence rules
   - Treat cache-read/write as input subcomponents and reasoning as an output subcomponent by default.
   - Keep separately reported components available for differential rating without adding them twice to totals.
@@ -22,7 +22,7 @@
   - Replace zero-as-missing price behavior with explicit optional presence.
   - Preserve authoritative zero provider cost instead of falling back to estimation.
   - _Requirements: 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8_
-- [ ] 2.3 Enforce conservative unknown-output policies
+- [x] 2.3 Enforce conservative unknown-output policies
   - Support require-client-limit, configured default, model/backend maximum, clamp, and deny policies.
   - Verify the selected backend can enforce the applied output clamp before opening provider work.
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.8, 7.9_
@@ -174,3 +174,4 @@
 - Phase 2 flip targets: (1) `EstimateCost` authoritative zero provider cost and explicit-zero rates without `fallbackPrice`; (2) checked money multiply; (3) total inference without double-counting cache/reasoning subcomponents in domain, streamusage, and `attemptAuthorityUsageAmount`; (4) omitted max-output spend path must not reserve input-only / zero future output.
 - 2.1 landed: inclusion schema `total=input+output`, `PreflightUsage.TotalTokensPresent`.
 - 2.2 landed: `ProviderCost.Present`, `OptionalNanoRate`, checked mul/add, `SubMoneyChecked`; overflow → Unavailable.
+- 2.3 landed: `unknown_output_policy` (require_client_limit|configured_default|model_backend_maximum|clamp|deny); empty defaults to model limit then configured max, else legacy unbound; spend uses AdjustedMax/Count output bound; `RequireMaxOutputEnforcement` excludes unenforceable backends before Open.

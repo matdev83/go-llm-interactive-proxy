@@ -74,6 +74,10 @@ type AccountingPreflightConfig struct {
 	MaxOutputTokens      int64  `yaml:"max_output_tokens"`
 	MaxContextTokens     int64  `yaml:"max_context_tokens"`
 	ClampMaxOutputTokens bool   `yaml:"clamp_max_output_tokens"`
+	// UnknownOutputPolicy selects how to bound exposure when the client omits
+	// max_output_tokens: require_client_limit | configured_default |
+	// model_backend_maximum | clamp | deny. Empty applies the documented default.
+	UnknownOutputPolicy string `yaml:"unknown_output_policy"`
 }
 
 type AccountingLedgerConfig struct {
