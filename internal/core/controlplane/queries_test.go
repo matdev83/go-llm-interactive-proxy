@@ -225,7 +225,7 @@ func TestQueryServiceAllReadViewsReachStoreWhenValid(t *testing.T) {
 	if _, err := qs.Attempts(ctx, cp.AttemptQuery{}); err != nil {
 		t.Fatalf("Attempts: %v", err)
 	}
-	if _, err := qs.Usage(ctx, cp.UsageQuery{}); err != nil {
+	if _, err := qs.Usage(ctx, cp.UsageQuery{Common: cp.CommonFilters{TraceID: "trace-1"}}); err != nil {
 		t.Fatalf("Usage: %v", err)
 	}
 	if _, err := qs.UsageAggregate(ctx, cp.UsageAggregateQuery{}); err != nil {

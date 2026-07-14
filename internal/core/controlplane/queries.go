@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -105,6 +106,15 @@ func (s *QueryService) Attempts(ctx context.Context, q cp.AttemptQuery) (cp.Page
 
 // Usage serves bounded usage rows (requirement 2.3, 9.2).
 func (s *QueryService) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.UsageRow], error) {
+	if err := cp.ValidateUsageQuery(q); err != nil {
+		if errors.Is(err, cp.ErrQueryTooBroad) {
+			return cp.Page[cp.UsageRow]{}, fmt.Errorf("%w: %v", ErrTooBroad, err)
+		}
+		if errors.Is(err, cp.ErrQueryUnsupported) {
+			return cp.Page[cp.UsageRow]{}, NewUnsupportedFilterError([]string{"class"})
+		}
+		return cp.Page[cp.UsageRow]{}, err
+	}
 	limit, vis, err := s.prepareQuery(q.Cursor, q.Limit, q.Common.TimeRange, q.Visibility)
 	if err != nil {
 		return cp.Page[cp.UsageRow]{}, err
