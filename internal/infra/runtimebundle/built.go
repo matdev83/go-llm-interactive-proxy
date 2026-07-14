@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -74,4 +75,7 @@ type Built struct {
 	// ConcurrencyAuthority is non-nil when accounting.concurrency.enabled wires
 	// the lease service used by protected lease queries (Phase 8.4).
 	ConcurrencyAuthority *concurrencyapp.Service
+	// SnapshotGeneration publishes immutable usage/concurrency/rating generations
+	// for admit-time binding (Phase 9.3). Always non-nil after successful Build.
+	SnapshotGeneration *snapshotgen.Publisher
 }

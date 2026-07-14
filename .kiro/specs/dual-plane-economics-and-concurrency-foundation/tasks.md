@@ -125,7 +125,7 @@
 - [x] 9.2 Bind versions to requests, attempts, reservations, and settlements
   - Keep in-flight work on its bound versions while new publications affect new admissions.
   - _Requirements: 11.2, 11.3, 11.4, 11.8, 6.2, 7.6_
-- [ ] 9.3 Publish runtime generations atomically
+- [x] 9.3 Publish runtime generations atomically
   - Avoid in-place mutation of active request pipelines and reject silent fallback to unrelated versions.
   - _Requirements: 11.3, 11.7, 12.8, 17.1_
 
@@ -188,3 +188,5 @@
 - Phase 8.4: CP lease DTOs + `/authority/leases*` protected queries; request-authority concurrency denials map to client-safe `concurrency_limit` without lease IDs.
 - Phase 8 remediation (validate-impl NO-GO): (10.5) prepare cleanup + uncommitted cancel call `releaseRequestAuthority`; (10.8) renew honors rule `failure_behavior` (`fail_closed` stop renew/keep occupancy, `fail_open` degrade+retry); (10.10) `accounting.concurrency.auxiliary_lease_policy` `inherit|acquire_own` wired to Admit; (8.4) capacity counts per `rule_id`, lease rows expose `rule_version`+`dimension_key`, Query projects `expiring`, unsupported CP filters fail closed.
 - Phase 9.1: `economics.SnapshotState`/`Snapshot[T]` + public `RuleSnapshotSource`/`RatingSnapshotSource`; enriched usage/concurrency `RuleSnapshot` ID/Version/State; YAML `snapshot_version`; injectable `internal/infra/snapshotsource` memory sources; static rating snapshot helper from catalog metadata.
+- Phase 9.2: Admit captures `BoundVersion`; settle uses version-indexed snapshot cache (fail closed on missing unrelated version); concurrency admit stamps `snap.PolicyRef()`; coordinators/adapters forward BoundVersions into settle.
+- Phase 9.3: `internal/core/snapshotgen` atomic `Publisher` (`RuntimeGeneration` + pointer swap); `MarkUnusable` keeps Value versions (no silent unrelated fallback; unknown state preserves prior); runtimebundle builds initial generation from static config and exposes `Built.SnapshotGeneration` / `TestingOptions.SnapshotPublisherOverride`; admit-time version binding remains on BoundVersions from 9.2.

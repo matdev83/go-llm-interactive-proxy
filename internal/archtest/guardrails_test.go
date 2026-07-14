@@ -77,7 +77,8 @@ var lineBudgets = []struct {
 	// Raised from 44000 to 45000 for Phase 6 authority coordinators + adapters.
 	// Raised from 45000 to 45500 for Phase 7 usage-authority dual-plane kernel.
 	// Raised from 45500 to 47000 for Phase 8 concurrencyauthority domain/app + runtime lease ownership.
-	{"internal/core", 47000},
+	// Raised from 47000 to 47500 for Phase 9 snapshotgen RuntimeGeneration publisher.
+	{"internal/core", 47500},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

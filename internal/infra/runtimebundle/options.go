@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
@@ -170,4 +171,7 @@ type TestingOptions struct {
 	// ConcurrencyLeaseStoreOverride, when non-nil, replaces the configured
 	// concurrency lease store. Tests only; production leaves this nil.
 	ConcurrencyLeaseStoreOverride concurrencyapp.LeaseStore
+	// SnapshotPublisherOverride, when non-nil, replaces the Build-constructed
+	// policy/rating generation publisher (Phase 9.3). Tests only.
+	SnapshotPublisherOverride *snapshotgen.Publisher
 }

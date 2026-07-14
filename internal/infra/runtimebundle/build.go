@@ -151,6 +151,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 		UsageAuthority:        usageAuthorityHandle,
 		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
+		SnapshotGeneration:    buildSnapshotGeneration(cfg, opts.Testing),
 	}, nil
 }
 
