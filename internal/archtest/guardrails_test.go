@@ -74,7 +74,8 @@ var lineBudgets = []struct {
 	// Raised from 42500 to 43500 for Phase 4 metering checkpoints (capture,
 	// widening, egress fact drafts) plus runtime hook wiring.
 	// Raised from 43500 to 44000 for Phase 5 aggregate + reconcile packages.
-	{"internal/core", 44000},
+	// Raised from 44000 to 45000 for Phase 6 authority coordinators + adapters.
+	{"internal/core", 45000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

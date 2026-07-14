@@ -227,6 +227,16 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}
 	_ = meteringHolder
+	outCtx, err = e.admitRequestAuthorityOnce(outCtx, work.ID, aLeg.ALegID, traceID, reqScope)
+	if err != nil {
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+	}
+	// Release request-stage holds if prepare fails after a successful admit
+	// (settlement only runs once output is committed).
+	failAfterRequestAdmit := func(err error) (string, lipapi.Call, b2bua.ALegRecord, context.Context, error) {
+		e.releaseRequestAuthority(outCtx)
+		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+	}
 
 	submitMeta := &sdk.SubmitMeta{TraceID: traceID, Annotations: map[string]string{}}
 	if e.Log != nil {
@@ -260,7 +270,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		outCtx = hooks.WithSubmitEvidence(outCtx, extensions.NewSubmitEvidenceFunc(baseEvidence))
 	}
 	if err := bus.RunSubmit(outCtx, &work, submitMeta); err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		return failAfterRequestAdmit(err)
 	}
 	if e.RuntimeSnapshot != nil {
 		ctpCall := work
@@ -336,7 +346,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			catalogMeta,
 			catSvc,
 		); err != nil {
-			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+			return failAfterRequestAdmit(err)
 		}
 		reqSvc := request.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
 		if err := extensions.RunRequestTransformStage(
@@ -348,7 +358,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			reqMeta,
 			reqSvc,
 		); err != nil {
-			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+			return failAfterRequestAdmit(err)
 		}
 		preMeta := prerequest.Meta{
 			TraceID:        traceID,
@@ -369,7 +379,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			preMeta,
 			preSvc,
 		); err != nil {
-			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+			return failAfterRequestAdmit(err)
 		}
 		hintIn := routehint.Input{
 			TraceID:   traceID,
@@ -386,7 +396,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			hintIn,
 		)
 		if err != nil {
-			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+			return failAfterRequestAdmit(err)
 		}
 		outCtx = execctx.WithRouteCandidatePreferences(outCtx, prefs)
 	}
@@ -434,7 +444,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 				e.SecureSessionMetrics.ObserveRecorderClientTurnFailed(e.SecureSessionRecordingMandatory)
 			}
 			if e.SecureSessionRecordingMandatory {
-				return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, fmt.Errorf("executor: secure session recording: %w", err)
+				return failAfterRequestAdmit(fmt.Errorf("executor: secure session recording: %w", err))
 			}
 			if e.Log != nil {
 				e.Log.DebugContext(outCtx, "secure_session recorder client turn", "error", err)
@@ -450,7 +460,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		work,
 		aLeg,
 	); err != nil {
-		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		return failAfterRequestAdmit(err)
 	}
 	return traceID, baseline, aLeg, outCtx, nil
 }

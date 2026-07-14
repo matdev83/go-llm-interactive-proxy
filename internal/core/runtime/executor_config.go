@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -87,6 +88,10 @@ type AccountingRuntime struct {
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
+	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
+	RequestCoordinator *authoritycoord.RequestCoordinator
+	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).
+	AttemptCoordinator *authoritycoord.AttemptCoordinator
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority
