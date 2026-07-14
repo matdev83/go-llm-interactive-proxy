@@ -6,6 +6,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -228,6 +230,11 @@ type AdmissionInput struct {
 	Authority      domain.AuthorityLevel
 	ReservationKey domain.ReservationKey
 	EstimateOnly   bool
+	// Phase 7.2: lifecycle stage for rule filtering; exposure/facts for amount selection.
+	LifecycleScope metering.LifecycleScope
+	Perspective    metering.EconomicPerspective
+	Exposure       economics.ExposureBasis
+	Facts          []metering.Fact
 }
 
 // AdmissionClamp reports a spend-cap clamp (requirement 6.5): the request's

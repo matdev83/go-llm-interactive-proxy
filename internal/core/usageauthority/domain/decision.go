@@ -3,6 +3,9 @@ package domain
 import (
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 type AuthorityLevel string
@@ -31,6 +34,11 @@ type EvaluationContext struct {
 	PreflightUsage PreflightUsage
 	Authority      AuthorityLevel
 	At             time.Time
+	// LifecycleScope filters rules for request vs attempt admission (Phase 7.2).
+	// Empty disables filtering.
+	LifecycleScope metering.LifecycleScope
+	Exposure       economics.ExposureBasis
+	Facts          []metering.Fact
 }
 
 type DecisionOutcome string
@@ -134,6 +142,9 @@ func EvaluateRules(rules []Rule, ctx EvaluationContext) EvaluationResult {
 	result := EvaluationResult{Selected: RuleMatch{Outcome: DecisionOutcomeAllow}}
 	matchedIDs := make([]string, 0, len(rules))
 	for _, rule := range rules {
+		if !rule.AppliesToLifecycle(ctx.LifecycleScope) {
+			continue
+		}
 		// Dimension mismatch is the only reason a rule is excluded from
 		// evidence. An authority mismatch no longer drops the rule: it
 		// matches with an authority-unavailable outcome so the app can
@@ -178,11 +189,19 @@ func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 		unit = r.Limit.Unit
 	}
 
-	basis := ctx.Amount
-	if unit == AmountUnitRequests && ctx.RequestCount.Unit != "" {
-		basis = ctx.RequestCount
-	} else if r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
-		basis = ctx.Spend
+	basis, ok := r.SelectAmount(AmountSelectionSource{
+		Amount:         ctx.Amount,
+		Spend:          ctx.Spend,
+		RequestCount:   ctx.RequestCount,
+		PreflightUsage: ctx.PreflightUsage,
+		Exposure:       ctx.Exposure,
+		Facts:          ctx.Facts,
+	})
+	if !ok {
+		match.Outcome = DecisionOutcomeUnavailable
+		return match
+	}
+	if r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
 		if strings.TrimSpace(basis.Currency) == "" {
 			match.Outcome = DecisionOutcomeUnavailable
 			return match
@@ -190,10 +209,6 @@ func (r Rule) evaluate(ctx EvaluationContext) RuleMatch {
 		if !strings.EqualFold(r.Currency, basis.Currency) {
 			match.Outcome = DecisionOutcomeUnavailable
 			return match
-		}
-	} else if unit != "" && basis.Unit != unit {
-		if amount, ok := ctx.PreflightUsage.AmountForUnit(unit); ok {
-			basis = amount
 		}
 	}
 	if unit != "" && basis.Unit != unit {

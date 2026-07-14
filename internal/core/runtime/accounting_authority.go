@@ -71,6 +71,9 @@ func (e *Executor) admitAttemptAuthority(
 	if requestAuthorityFrom(ctx) != nil {
 		admissionInput.RequestCount = domain.Amount{Unit: domain.AmountUnitRequests, Value: 0}
 	}
+	if !estimateOnly {
+		admissionInput.LifecycleScope = metering.LifecycleBackendAttempt
+	}
 	result, err := svc.Admit(ctx, admissionInput)
 	if err != nil {
 		// Cancellation must not be converted into an unrelated accounting denial

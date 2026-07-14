@@ -14,9 +14,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
-// usageAuthorityProviderAdapter is a thin Phase 6 bridge from today's
-// usageauthority.Service onto lipsdk RequestProvider / AttemptProvider.
-// Full rule perspective/basis split remains Phase 7.
+// usageAuthorityProviderAdapter bridges lipsdk RequestProvider / AttemptProvider
+// onto usageauthority.Service with Phase 7 lifecycle/exposure forwarding.
 type usageAuthorityProviderAdapter struct {
 	svc UsageAuthorityService
 }
@@ -49,6 +48,9 @@ func (a *usageAuthorityProviderAdapter) AdmitRequest(ctx context.Context, in aut
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: key,
+		LifecycleScope: metering.LifecycleLogicalRequest,
+		Perspective:    in.Perspective,
+		Exposure:       in.Exposure,
 	}
 	res, err := a.svc.Admit(ctx, input)
 	if err != nil {
@@ -129,6 +131,9 @@ func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in aut
 		Spend:          exposureSpend(in.Exposure),
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: key,
+		LifecycleScope: metering.LifecycleBackendAttempt,
+		Perspective:    in.Perspective,
+		Exposure:       in.Exposure,
 	}
 	if be := strings.TrimSpace(in.BackendID); be != "" {
 		input.Dimensions.Backend = scope.Known(be)
