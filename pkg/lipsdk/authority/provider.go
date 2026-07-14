@@ -13,16 +13,16 @@ import (
 // RequestAdmission is logical-request admit input. It intentionally has no
 // AttemptID or BLegID fields (requirements 9.2, 9.3).
 type RequestAdmission struct {
-	RequestID      string                       `json:"request_id"`
-	ALegID         string                       `json:"a_leg_id,omitempty"`
-	TraceID        string                       `json:"trace_id,omitempty"`
-	Perspective    metering.EconomicPerspective `json:"perspective"`
-	Lifecycle      metering.LifecycleScope      `json:"lifecycle"`
-	Scope          scope.PrincipalScopeView     `json:"scope"`
-	Exposure       economics.ExposureBasis      `json:"exposure"`
+	RequestID      string                        `json:"request_id"`
+	ALegID         string                        `json:"a_leg_id,omitempty"`
+	TraceID        string                        `json:"trace_id,omitempty"`
+	Perspective    metering.EconomicPerspective  `json:"perspective"`
+	Lifecycle      metering.LifecycleScope       `json:"lifecycle"`
+	Scope          scope.PrincipalScopeView      `json:"scope"`
+	Exposure       economics.ExposureBasis       `json:"exposure"`
 	BoundVersions  []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 	RatingVersions []economics.RatingSnapshotRef `json:"rating_versions,omitempty"`
-	IdempotencyKey string                       `json:"idempotency_key,omitempty"`
+	IdempotencyKey string                        `json:"idempotency_key,omitempty"`
 }
 
 // Validate checks required request identity and enums.
@@ -64,19 +64,19 @@ type RequestRelease struct {
 // AttemptAdmission is backend-attempt admit input and requires attempt/B-leg
 // identity (requirements 9.2, 9.3).
 type AttemptAdmission struct {
-	RequestID      string                       `json:"request_id"`
-	AttemptID      string                       `json:"attempt_id"`
-	BLegID         string                       `json:"b_leg_id"`
-	ALegID         string                       `json:"a_leg_id,omitempty"`
-	BackendID      string                       `json:"backend_id,omitempty"`
-	Model          string                       `json:"model,omitempty"`
-	Perspective    metering.EconomicPerspective `json:"perspective"`
-	Lifecycle      metering.LifecycleScope      `json:"lifecycle"`
-	Scope          scope.PrincipalScopeView     `json:"scope"`
-	Exposure       economics.ExposureBasis      `json:"exposure"`
+	RequestID      string                        `json:"request_id"`
+	AttemptID      string                        `json:"attempt_id"`
+	BLegID         string                        `json:"b_leg_id"`
+	ALegID         string                        `json:"a_leg_id,omitempty"`
+	BackendID      string                        `json:"backend_id,omitempty"`
+	Model          string                        `json:"model,omitempty"`
+	Perspective    metering.EconomicPerspective  `json:"perspective"`
+	Lifecycle      metering.LifecycleScope       `json:"lifecycle"`
+	Scope          scope.PrincipalScopeView      `json:"scope"`
+	Exposure       economics.ExposureBasis       `json:"exposure"`
 	BoundVersions  []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 	RatingVersions []economics.RatingSnapshotRef `json:"rating_versions,omitempty"`
-	IdempotencyKey string                       `json:"idempotency_key,omitempty"`
+	IdempotencyKey string                        `json:"idempotency_key,omitempty"`
 }
 
 // Validate requires request, attempt, and B-leg identity.

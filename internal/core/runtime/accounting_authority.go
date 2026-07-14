@@ -138,17 +138,14 @@ func attemptAuthorityRequestAmount(decision accountingpreflight.Decision) domain
 func attemptAuthorityPreflightUsage(decision accountingpreflight.Decision) domain.PreflightUsage {
 	count := decision.Count
 	output := max(int64(count.OutputTokens), 0)
-	total := int64(count.TotalTokens)
 	return domain.PreflightUsage{
-		InputTokens:      int64(count.InputTokens),
-		OutputTokens:     output,
-		CacheReadTokens:  int64(count.CacheReadTokens),
-		CacheWriteTokens: int64(count.CacheWriteTokens),
-		ReasoningTokens:  int64(count.ReasoningTokens),
-		TotalTokens:      total,
-		// Preflight CountResult has no presence bit; a positive total is present,
-		// while zero remains absent and may be inferred via the inclusion schema.
-		TotalTokensPresent: total > 0,
+		InputTokens:        int64(count.InputTokens),
+		OutputTokens:       output,
+		CacheReadTokens:    int64(count.CacheReadTokens),
+		CacheWriteTokens:   int64(count.CacheWriteTokens),
+		ReasoningTokens:    int64(count.ReasoningTokens),
+		TotalTokens:        int64(count.TotalTokens),
+		TotalTokensPresent: count.TotalTokensPresent,
 	}
 }
 

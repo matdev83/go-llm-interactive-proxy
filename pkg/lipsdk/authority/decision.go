@@ -98,11 +98,11 @@ func (k SettlementKind) IsKnown() bool {
 
 // Settlement is the result of settling a prior reservation.
 type Settlement struct {
-	Kind         SettlementKind   `json:"kind"`
-	Handle       string           `json:"handle,omitempty"`
-	Consumed     economics.Money  `json:"consumed,omitempty"`
-	Released     economics.Money  `json:"released,omitempty"`
-	Evidence     SafeEvidence     `json:"evidence,omitempty"`
+	Kind          SettlementKind                `json:"kind"`
+	Handle        string                        `json:"handle,omitempty"`
+	Consumed      economics.Money               `json:"consumed,omitempty"`
+	Released      economics.Money               `json:"released,omitempty"`
+	Evidence      SafeEvidence                  `json:"evidence,omitempty"`
 	BoundVersions []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 }
 
@@ -110,10 +110,10 @@ type Settlement struct {
 type Readiness string
 
 const (
-	ReadinessReady      Readiness = "ready"
-	ReadinessDegraded   Readiness = "degraded"
+	ReadinessReady       Readiness = "ready"
+	ReadinessDegraded    Readiness = "degraded"
 	ReadinessUnavailable Readiness = "unavailable"
-	ReadinessDisabled   Readiness = "disabled"
+	ReadinessDisabled    Readiness = "disabled"
 )
 
 // IsKnown reports whether r is a documented readiness value.

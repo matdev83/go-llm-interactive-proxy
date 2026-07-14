@@ -58,7 +58,7 @@ func TestRater_SeparatePerspectives(t *testing.T) {
 func TestExposureAndVersionRefs(t *testing.T) {
 	t.Parallel()
 	exp := economics.ConservativeOutputAssumption{
-		BoundKind:   economics.OutputBoundConfiguredDefault,
+		BoundKind:  economics.OutputBoundConfiguredDefault,
 		TokenCount: 1024,
 		PolicyID:   "unknown_output_policy",
 		Present:    true,

@@ -6,14 +6,14 @@ import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 type Stage string
 
 const (
-	StageRequestAdmit  Stage = "request_admit"
-	StageRequestSettle Stage = "request_settle"
+	StageRequestAdmit   Stage = "request_admit"
+	StageRequestSettle  Stage = "request_settle"
 	StageRequestRelease Stage = "request_release"
-	StageAttemptAdmit  Stage = "attempt_admit"
-	StageAttemptSettle Stage = "attempt_settle"
+	StageAttemptAdmit   Stage = "attempt_admit"
+	StageAttemptSettle  Stage = "attempt_settle"
 	StageAttemptRelease Stage = "attempt_release"
-	StageLeaseAdmit    Stage = "lease_admit"
-	StageLeaseRelease  Stage = "lease_release"
+	StageLeaseAdmit     Stage = "lease_admit"
+	StageLeaseRelease   Stage = "lease_release"
 )
 
 // IsKnown reports whether s is a documented authority stage.

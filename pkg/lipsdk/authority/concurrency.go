@@ -38,25 +38,25 @@ const (
 
 // LeaseAdmission requests a logical-request concurrency lease (Phase 8 implements).
 type LeaseAdmission struct {
-	RequestID      string                   `json:"request_id"`
-	Scope          scope.PrincipalScopeView `json:"scope"`
-	RuleID         string                   `json:"rule_id,omitempty"`
-	Namespace      string                   `json:"namespace,omitempty"`
-	TTL            time.Duration            `json:"ttl,omitempty"`
+	RequestID      string                      `json:"request_id"`
+	Scope          scope.PrincipalScopeView    `json:"scope"`
+	RuleID         string                      `json:"rule_id,omitempty"`
+	Namespace      string                      `json:"namespace,omitempty"`
+	TTL            time.Duration               `json:"ttl,omitempty"`
 	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitempty"`
-	IdempotencyKey string                   `json:"idempotency_key,omitempty"`
+	IdempotencyKey string                      `json:"idempotency_key,omitempty"`
 }
 
 // LeaseDecision is the admit result for a concurrency lease.
 type LeaseDecision struct {
-	Kind          LeaseDecisionKind           `json:"kind"`
-	LeaseID       string                      `json:"lease_id,omitempty"`
-	Generation    int64                       `json:"generation,omitempty"`
-	ExpiresAt     time.Time                   `json:"expires_at,omitempty"`
-	RemainingSlots int                        `json:"remaining_slots,omitempty"`
-	Readiness     Readiness                   `json:"readiness,omitempty"`
-	BoundVersion  economics.PolicySnapshotRef `json:"bound_version,omitempty"`
-	Evidence      SafeEvidence                `json:"evidence,omitempty"`
+	Kind           LeaseDecisionKind           `json:"kind"`
+	LeaseID        string                      `json:"lease_id,omitempty"`
+	Generation     int64                       `json:"generation,omitempty"`
+	ExpiresAt      time.Time                   `json:"expires_at,omitempty"`
+	RemainingSlots int                         `json:"remaining_slots,omitempty"`
+	Readiness      Readiness                   `json:"readiness,omitempty"`
+	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitempty"`
+	Evidence       SafeEvidence                `json:"evidence,omitempty"`
 }
 
 // LeaseRelease releases a previously acquired lease.

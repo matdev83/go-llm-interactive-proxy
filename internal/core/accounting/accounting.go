@@ -96,8 +96,26 @@ type ModelPrice struct {
 }
 
 func DeriveTokenBreakdown(usage TokenUsage) TokenBreakdown {
-	in := max(usage.InputTokens-usage.CacheReadTokens-usage.CacheWriteTokens, 0)
-	out := max(usage.OutputTokens-usage.ReasoningTokens, 0)
+	// Non-cached / non-reasoning residuals use checked non-negative subtraction
+	// (SubMoneyChecked) so underflow cannot wrap; clamp to zero when components
+	// exceed the parent total (malformed or provider-skewed usage).
+	in := usage.InputTokens
+	if v, ok := SubMoneyChecked(in, usage.CacheReadTokens); ok {
+		in = v
+	} else {
+		in = 0
+	}
+	if v, ok := SubMoneyChecked(in, usage.CacheWriteTokens); ok {
+		in = v
+	} else {
+		in = 0
+	}
+	out := usage.OutputTokens
+	if v, ok := SubMoneyChecked(out, usage.ReasoningTokens); ok {
+		out = v
+	} else {
+		out = 0
+	}
 	return TokenBreakdown{
 		TokenUsage:               usage,
 		NonCachedInputTokens:     in,
@@ -275,7 +293,8 @@ func addMoneyChecked(a, b int64) (int64, bool) {
 	return int64(sum), true
 }
 
-// SubMoneyChecked subtracts non-negative money amounts without underflow.
+// SubMoneyChecked subtracts non-negative money (nano) amounts without underflow.
+// Also used for non-negative token residuals in DeriveTokenBreakdown.
 func SubMoneyChecked(a, b int64) (int64, bool) {
 	if a < 0 || b < 0 || a < b {
 		return 0, false

@@ -137,7 +137,8 @@ func TestDecisionDTOFields(t *testing.T) {
 func TestProviderDescriptorPosture(t *testing.T) {
 	t.Parallel()
 	desc := authority.ProviderDescriptor{
-		ID: "customer-quota",
+		ID:   "customer-quota",
+		Kind: authority.ProviderKindAuthority,
 		Postures: []authority.StagePosture{{
 			Stage:           authority.StageRequestAdmit,
 			Strength:        authority.StrengthRequired,
@@ -146,6 +147,9 @@ func TestProviderDescriptorPosture(t *testing.T) {
 	}
 	if err := desc.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	if desc.EffectiveKind() != authority.ProviderKindAuthority {
+		t.Fatalf("EffectiveKind=%q", desc.EffectiveKind())
 	}
 	var d authority.Describer = staticDescriber{desc}
 	if got := d.Describe(); got.ID != "customer-quota" {
@@ -156,6 +160,52 @@ func TestProviderDescriptorPosture(t *testing.T) {
 	}}}
 	if err := bad.Validate(); err == nil {
 		t.Fatal("unknown strength must fail")
+	}
+}
+
+func TestProviderDescriptor_omittedKindDefaultsToAuthority(t *testing.T) {
+	t.Parallel()
+	desc := authority.ProviderDescriptor{
+		ID: "legacy-quota",
+		Postures: []authority.StagePosture{{
+			Stage:           authority.StageRequestAdmit,
+			Strength:        authority.StrengthRequired,
+			FailureBehavior: authority.FailureFailClosed,
+		}},
+	}
+	if err := desc.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := desc.EffectiveKind(); got != authority.ProviderKindAuthority {
+		t.Fatalf("EffectiveKind=%q want authority (additive optional Kind)", got)
+	}
+}
+
+func TestProviderDescriptor_observerCannotBeRequired(t *testing.T) {
+	t.Parallel()
+	observer := authority.ProviderDescriptor{
+		ID:   "traffic-observer",
+		Kind: authority.ProviderKindObserver,
+		Postures: []authority.StagePosture{{
+			Stage:           authority.StageRequestAdmit,
+			Strength:        authority.StrengthRequired,
+			FailureBehavior: authority.FailureFailOpen,
+		}},
+	}
+	if err := observer.Validate(); err == nil {
+		t.Fatal("observer + required strength must fail (requirement 12.7)")
+	}
+	ok := authority.ProviderDescriptor{
+		ID:   "traffic-observer",
+		Kind: authority.ProviderKindObserver,
+		Postures: []authority.StagePosture{{
+			Stage:           authority.StageRequestAdmit,
+			Strength:        authority.StrengthAdvisory,
+			FailureBehavior: authority.FailureFailOpen,
+		}},
+	}
+	if err := ok.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -25,6 +25,23 @@ func TestDeriveTokenBreakdown_clampsDerivedCategories(t *testing.T) {
 	}
 }
 
+func TestDeriveTokenBreakdown_subcomponentExceedsParentClampsToZero(t *testing.T) {
+	t.Parallel()
+
+	got := accounting.DeriveTokenBreakdown(accounting.TokenUsage{
+		InputTokens:     5,
+		CacheReadTokens: 9,
+		OutputTokens:    2,
+		ReasoningTokens: 5,
+	})
+	if got.NonCachedInputTokens != 0 {
+		t.Fatalf("NonCachedInputTokens=%d want 0 (cache exceeds input; SubMoneyChecked underflow)", got.NonCachedInputTokens)
+	}
+	if got.NonReasoningOutputTokens != 0 {
+		t.Fatalf("NonReasoningOutputTokens=%d want 0 (reasoning exceeds output)", got.NonReasoningOutputTokens)
+	}
+}
+
 func TestEstimateCost_providerReportedCostWins(t *testing.T) {
 	t.Parallel()
 

@@ -64,9 +64,9 @@ func (b Boundary) Validate() error {
 type LifecycleScope string
 
 const (
-	LifecycleLogicalRequest    LifecycleScope = "logical_request"
-	LifecycleBackendAttempt    LifecycleScope = "backend_attempt"
-	LifecycleAuxiliaryRequest  LifecycleScope = "auxiliary_request"
+	LifecycleLogicalRequest   LifecycleScope = "logical_request"
+	LifecycleBackendAttempt   LifecycleScope = "backend_attempt"
+	LifecycleAuxiliaryRequest LifecycleScope = "auxiliary_request"
 )
 
 // IsKnown reports whether s is a documented lifecycle scope.
@@ -235,11 +235,11 @@ func (s SurfacedState) Validate() error {
 type AttemptOutcome string
 
 const (
-	AttemptOutcomeWinner    AttemptOutcome = "winner"
-	AttemptOutcomeLoser     AttemptOutcome = "loser"
-	AttemptOutcomeCanceled  AttemptOutcome = "canceled"
-	AttemptOutcomeFailed    AttemptOutcome = "failed"
-	AttemptOutcomeUnknown   AttemptOutcome = "unknown"
+	AttemptOutcomeWinner   AttemptOutcome = "winner"
+	AttemptOutcomeLoser    AttemptOutcome = "loser"
+	AttemptOutcomeCanceled AttemptOutcome = "canceled"
+	AttemptOutcomeFailed   AttemptOutcome = "failed"
+	AttemptOutcomeUnknown  AttemptOutcome = "unknown"
 )
 
 // IsKnown reports whether o is a documented attempt outcome.

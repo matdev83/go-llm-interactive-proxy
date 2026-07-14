@@ -2,6 +2,39 @@ package authority
 
 import "fmt"
 
+// ProviderKind distinguishes enforceable authority providers from fail-open
+// usage/traffic observers (requirement 12.7). Observers must not be wired as
+// RequestProvider or AttemptProvider for strict admission.
+type ProviderKind string
+
+const (
+	// ProviderKindAuthority may participate in Admit/Settle/Release. Strength
+	// and FailureBehavior on StagePosture further classify required vs advisory
+	// and fail-open vs fail-closed infrastructure posture (requirement 15.1).
+	ProviderKindAuthority ProviderKind = "authority"
+	// ProviderKindObserver is diagnostic/observation only. It must never be
+	// treated as a strict admission authority, even when FailureBehavior is
+	// fail_open.
+	ProviderKindObserver ProviderKind = "observer"
+)
+
+// IsKnown reports whether k is a documented provider kind.
+func (k ProviderKind) IsKnown() bool {
+	switch k {
+	case ProviderKindAuthority, ProviderKindObserver:
+		return true
+	}
+	return false
+}
+
+// Validate returns an error when k is not a known provider kind.
+func (k ProviderKind) Validate() error {
+	if !k.IsKnown() {
+		return fmt.Errorf("authority: unknown provider kind %q", k)
+	}
+	return nil
+}
+
 // Strength classifies whether an authority provider is required or advisory
 // for a lifecycle stage (requirement 15.1).
 type Strength string
@@ -30,7 +63,9 @@ func (s Strength) Validate() error {
 
 // FailureBehavior classifies fail-open vs fail-closed infrastructure posture
 // for a provider at a lifecycle stage (requirement 15.1). Distinct from
-// deterministic capacity denials (requirement 15.4).
+// deterministic capacity denials (requirement 15.4). Fail-open observers use
+// ProviderKindObserver and must not be represented as strict authorities
+// (requirement 12.7).
 type FailureBehavior string
 
 const (
@@ -74,17 +109,36 @@ func (p StagePosture) Validate() error {
 }
 
 // ProviderDescriptor is the public registration/describe surface for request,
-// attempt, or concurrency authority providers (requirements 12.1, 15.1).
+// attempt, concurrency, or observer providers (requirements 12.1, 12.7, 15.1).
 // Coordinators consume descriptors; they are not store or executor types.
+//
+// Kind is optional for additive compatibility (requirement 12.8): omitted Kind
+// defaults to ProviderKindAuthority via EffectiveKind.
 type ProviderDescriptor struct {
-	ID      string         `json:"id"`
+	ID       string         `json:"id"`
+	Kind     ProviderKind   `json:"kind,omitempty"`
 	Postures []StagePosture `json:"postures"`
 }
 
-// Validate requires a non-empty ID and validates each posture row.
+// EffectiveKind returns Kind, defaulting omitted values to authority.
+func (d ProviderDescriptor) EffectiveKind() ProviderKind {
+	if d.Kind == "" {
+		return ProviderKindAuthority
+	}
+	return d.Kind
+}
+
+// Validate requires a non-empty ID and validates kind and each posture row.
+// Observers cannot declare StrengthRequired (requirement 12.7).
 func (d ProviderDescriptor) Validate() error {
 	if d.ID == "" {
 		return fmt.Errorf("authority: provider id required")
+	}
+	kind := d.EffectiveKind()
+	if d.Kind != "" {
+		if err := d.Kind.Validate(); err != nil {
+			return err
+		}
 	}
 	if len(d.Postures) == 0 {
 		return fmt.Errorf("authority: at least one stage posture required")
@@ -92,6 +146,9 @@ func (d ProviderDescriptor) Validate() error {
 	for i, p := range d.Postures {
 		if err := p.Validate(); err != nil {
 			return fmt.Errorf("authority: postures[%d]: %w", i, err)
+		}
+		if kind == ProviderKindObserver && p.Strength == StrengthRequired {
+			return fmt.Errorf("authority: postures[%d]: observer cannot declare required strength (requirement 12.7)", i)
 		}
 	}
 	return nil

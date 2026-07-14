@@ -46,6 +46,29 @@ func TestCountTextExplicitCL100KBase(t *testing.T) {
 	if got.TotalTokens != 2 {
 		t.Fatalf("TotalTokens = %d, want 2", got.TotalTokens)
 	}
+	if !got.TotalTokensPresent {
+		t.Fatal("TotalTokensPresent=false, want true for counted total")
+	}
+}
+
+func TestCountTextEmptyMarksTotalPresent(t *testing.T) {
+	t.Parallel()
+
+	counter, err := NewCounter(Config{DefaultEncoding: "cl100k_base"})
+	if err != nil {
+		t.Fatalf("NewCounter() error = %v", err)
+	}
+
+	got, err := counter.CountText(context.Background(), app.CountTextInput{Model: "cl100k_base", Text: ""})
+	if err != nil {
+		t.Fatalf("CountText() error = %v", err)
+	}
+	if got.TotalTokens != 0 {
+		t.Fatalf("TotalTokens=%d want 0", got.TotalTokens)
+	}
+	if !got.TotalTokensPresent {
+		t.Fatal("TotalTokensPresent=false; explicit zero count must remain present")
+	}
 }
 
 func TestCountTextExplicitO200KBase(t *testing.T) {

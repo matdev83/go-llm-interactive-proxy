@@ -25,28 +25,28 @@ type MoneyObservation struct {
 // different Sequence or Kind for the same FactID is a contract violation for
 // store implementations to reject.
 type Fact struct {
-	FactID         string                 `json:"fact_id"`
-	StreamID       string                 `json:"stream_id"`
-	Sequence       int64                  `json:"sequence"`
-	Kind           FactKind               `json:"kind"`
-	Perspective    EconomicPerspective    `json:"perspective"`
-	Boundary       Boundary               `json:"boundary"`
-	Lifecycle      LifecycleScope         `json:"lifecycle"`
-	Correlation    Correlation            `json:"correlation"`
+	FactID         string                   `json:"fact_id"`
+	StreamID       string                   `json:"stream_id"`
+	Sequence       int64                    `json:"sequence"`
+	Kind           FactKind                 `json:"kind"`
+	Perspective    EconomicPerspective      `json:"perspective"`
+	Boundary       Boundary                 `json:"boundary"`
+	Lifecycle      LifecycleScope           `json:"lifecycle"`
+	Correlation    Correlation              `json:"correlation"`
 	Scope          scope.PrincipalScopeView `json:"scope"`
-	FrontendID     string                 `json:"frontend_id,omitempty"`
-	BackendID      string                 `json:"backend_id,omitempty"`
-	Model          string                 `json:"model,omitempty"`
-	AttemptOutcome AttemptOutcome         `json:"attempt_outcome,omitempty"`
-	Surfaced       SurfacedState          `json:"surfaced,omitempty"`
-	Quantities     []Quantity             `json:"quantities,omitempty"`
-	Money          *MoneyObservation      `json:"money,omitempty"`
-	Source         Source                 `json:"source"`
-	Authority      Authority              `json:"authority"`
-	Presence       Presence               `json:"presence"`
-	Supersedes     []string               `json:"supersedes,omitempty"`
-	PolicyVersion  VersionRef             `json:"policy_version,omitempty"`
-	RecordedAt     time.Time              `json:"recorded_at"`
+	FrontendID     string                   `json:"frontend_id,omitempty"`
+	BackendID      string                   `json:"backend_id,omitempty"`
+	Model          string                   `json:"model,omitempty"`
+	AttemptOutcome AttemptOutcome           `json:"attempt_outcome,omitempty"`
+	Surfaced       SurfacedState            `json:"surfaced,omitempty"`
+	Quantities     []Quantity               `json:"quantities,omitempty"`
+	Money          *MoneyObservation        `json:"money,omitempty"`
+	Source         Source                   `json:"source"`
+	Authority      Authority                `json:"authority"`
+	Presence       Presence                 `json:"presence"`
+	Supersedes     []string                 `json:"supersedes,omitempty"`
+	PolicyVersion  VersionRef               `json:"policy_version,omitempty"`
+	RecordedAt     time.Time                `json:"recorded_at"`
 }
 
 // IdempotencyKey returns the stable journal key for this fact identity

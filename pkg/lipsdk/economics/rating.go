@@ -11,11 +11,11 @@ import (
 type RoundingPolicy string
 
 const (
-	RoundingUnspecified       RoundingPolicy = ""
-	RoundingHalfAwayFromZero  RoundingPolicy = "half_away_from_zero"
-	RoundingHalfEven          RoundingPolicy = "half_even"
-	RoundingTowardZero        RoundingPolicy = "toward_zero"
-	RoundingFloor             RoundingPolicy = "floor"
+	RoundingUnspecified      RoundingPolicy = ""
+	RoundingHalfAwayFromZero RoundingPolicy = "half_away_from_zero"
+	RoundingHalfEven         RoundingPolicy = "half_even"
+	RoundingTowardZero       RoundingPolicy = "toward_zero"
+	RoundingFloor            RoundingPolicy = "floor"
 )
 
 // RatingRequest asks a rater to price quantities for one economic perspective.

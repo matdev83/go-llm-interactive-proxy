@@ -11,12 +11,12 @@ import (
 type OutputBoundKind string
 
 const (
-	OutputBoundRequireClientLimit   OutputBoundKind = "require_client_limit"
-	OutputBoundConfiguredDefault    OutputBoundKind = "configured_default"
-	OutputBoundModelBackendMaximum  OutputBoundKind = "model_backend_maximum"
-	OutputBoundClamp                OutputBoundKind = "clamp"
-	OutputBoundDeny                 OutputBoundKind = "deny"
-	OutputBoundClientProvided       OutputBoundKind = "client_provided"
+	OutputBoundRequireClientLimit  OutputBoundKind = "require_client_limit"
+	OutputBoundConfiguredDefault   OutputBoundKind = "configured_default"
+	OutputBoundModelBackendMaximum OutputBoundKind = "model_backend_maximum"
+	OutputBoundClamp               OutputBoundKind = "clamp"
+	OutputBoundDeny                OutputBoundKind = "deny"
+	OutputBoundClientProvided      OutputBoundKind = "client_provided"
 )
 
 // IsKnown reports whether k is a documented output bound kind.
@@ -32,10 +32,10 @@ func (k OutputBoundKind) IsKnown() bool {
 // ConservativeOutputAssumption is the output token bound used for admission
 // exposure when actual output is unknown.
 type ConservativeOutputAssumption struct {
-	BoundKind   OutputBoundKind `json:"bound_kind"`
-	TokenCount int64          `json:"token_count"`
-	PolicyID   string         `json:"policy_id,omitempty"`
-	Present    bool           `json:"present"`
+	BoundKind  OutputBoundKind `json:"bound_kind"`
+	TokenCount int64           `json:"token_count"`
+	PolicyID   string          `json:"policy_id,omitempty"`
+	Present    bool            `json:"present"`
 }
 
 // Validate checks bound kind when Present.

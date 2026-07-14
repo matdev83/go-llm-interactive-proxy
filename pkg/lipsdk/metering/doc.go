@@ -8,4 +8,9 @@
 // Boundary rules:
 //   - Must not import internal/*, database/sql, net/http, or provider SDKs.
 //   - May import pkg/lipsdk/scope for safe principal attribution on facts.
+//
+// Compatibility (requirement 12.8): see CompatibilityPolicy and UnknownEnum.
+// Validate() rejects unknown enums for local strict construction; wire decode
+// may preserve unknowns via IsKnown/UnknownEnum without mapping them to known
+// constants. Optional fields and unknown JSON keys are additive.
 package metering
