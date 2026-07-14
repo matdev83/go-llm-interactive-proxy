@@ -134,7 +134,7 @@
   - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and query implementations.
   - Keep internal runtimebundle authoritative without exposing Executor internals.
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
-- [ ] 10.2 Add a separate-module enterprise compile and execution fixture
+- [x] 10.2 Add a separate-module enterprise compile and execution fixture
   - Implement fake external raters and authorities using only public packages.
   - Fail architecture CI if an internal import or runtime fork becomes necessary.
   - _Requirements: 12.6, 12.9, 17.7_
@@ -192,3 +192,4 @@
 - Phase 9.3: `internal/core/snapshotgen` atomic `Publisher` (`RuntimeGeneration` + pointer swap); `MarkUnusable` keeps Value versions (no silent unrelated fallback; unknown state preserves prior); runtimebundle builds initial generation from static config and exposes `Built.SnapshotGeneration` / `TestingOptions.SnapshotPublisherOverride`; admit-time version binding remains on BoundVersions from 9.2.
 - Phase 9 remediation (review REJECTED): (11.4) `authorityLifecycle.settlementInput` now forwards `admissionResult.BoundVersion`; attempt coordinator aggregates BoundVersions and `admitAttemptViaCoordinator` copies them into AdmissionResult; SnapshotGeneration is wired onto Executor and preferred at admit (`applyGenerationBoundVersion` / `mergeGenerationBoundVersions`); regression covers lifecycle settle after mid-flight rule publish.
 - Phase 10.1: `pkg/lipruntime` public facade (`Options`/`Build`/`Runtime`) delegates to `runtimebundle.BuildBootstrap`; first-class `ProductionOptions` on BuildOptions (metering/authority/concurrency/snapshot/observers) outside TestingOptions (12.4); opaque handle exposes `ExecutorView` only.
+- Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
