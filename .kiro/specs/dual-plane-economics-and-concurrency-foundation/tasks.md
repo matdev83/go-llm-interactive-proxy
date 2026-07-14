@@ -59,16 +59,16 @@
   - Measure the final client-visible stream after response mutation and completion gating.
   - _Requirements: 2.3, 2.4, 4.2, 4.4, 5.2, 5.3, 5.4, 8.4_
 
-- [ ] 5. Build the durable metering journal
+- [x] 5. Build the durable metering journal
 - [x] 5.1 Implement memory, SQLite, and PostgreSQL fact stores
   - Enforce unique fact/source identity, append-only correction history, bounded indexed queries, and safe scope projections.
   - Keep the journal independent from live authority counters and proprietary financial ledgers.
   - _Requirements: 3.1, 3.3, 3.4, 13.1, 13.2, 13.3, 13.4, 13.5, 13.8_
-- [ ] 5.2 Add correction aggregation and compatibility projections
+- [x] 5.2 Add correction aggregation and compatibility projections
   - Apply delta, cumulative, correction, and authoritative replacement facts idempotently.
   - Continue producing legacy token-ledger and usage views where representable.
   - _Requirements: 3.2, 3.3, 3.5, 9.5, 13.6, 17.1, 17.4_
-- [ ] 5.3 Add bounded reconciliation for orphaned and unavailable facts
+- [x] 5.3 Add bounded reconciliation for orphaned and unavailable facts
   - Recover restart state without double-counting and expose unresolved items for bounded reconciliation.
   - _Requirements: 13.6, 13.7, 14.5, 15.3_
 
