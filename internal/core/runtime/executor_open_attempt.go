@@ -26,6 +26,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -449,6 +450,13 @@ func (e *Executor) openPlannedCandidate(
 		p.excluded[c.Key] = struct{}{}
 		return noOpen, nil
 	}
+
+	// Authorized freeze is the final openCall after admit/hooks/route/clamps.
+	// Clone first so AssertNotWidened can detect any later in-place mutation of
+	// openCall before Open (requirement 7.5) — comparing Store's return to the
+	// same openCall value without an independent freeze copy is a tautology.
+	authorizedFreeze := lipapi.CloneCall(openCall)
+
 	if e.RuntimeSnapshot != nil {
 		if rawPayload, jerr := json.Marshal(openCall); jerr == nil {
 			sc := scopeFromCtx(p.ctx)
@@ -479,15 +487,15 @@ func (e *Executor) openPlannedCandidate(
 	}
 	defer cancelOpen()
 
-	// Freeze backend-ingress checkpoint after final openCall assembly and before Open
-	// (requirements 2.2, 5.1, 7.5). Reject unmeasured billable widening.
+	// Persist backend-ingress checkpoint from the authorized freeze, then reject
+	// unmeasured widening of the live openCall before Open (requirements 2.2, 5.1, 7.5).
 	if holder := meteringHolderFrom(p.ctx); holder != nil {
 		feStream := ""
 		if holder.FrontendIngress != nil {
 			feStream = holder.FrontendIngress.Public.StreamID
 		}
-		authorized, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
-			Call:         openCall,
+		if _, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
+			Call:         authorizedFreeze,
 			Scope:        scopeFromCtx(p.ctx),
 			AttemptID:    bleg.BLegID,
 			BLegID:       bleg.BLegID,
@@ -498,11 +506,10 @@ func (e *Executor) openPlannedCandidate(
 			StreamID:     "be-ingress:" + bleg.BLegID,
 			FEStreamID:   feStream,
 			Now:          e.now(),
-		})
-		if cerr != nil {
+		}); cerr != nil {
 			return zero, fmt.Errorf("executor: metering backend ingress: %w", cerr)
 		}
-		if werr := checkpoint.AssertNotWidened(authorized.Call, openCall); werr != nil {
+		if werr := checkpoint.AssertNotWidened(authorizedFreeze, openCall); werr != nil {
 			return zero, fmt.Errorf("executor: %w", werr)
 		}
 	}
@@ -516,8 +523,10 @@ func (e *Executor) openPlannedCandidate(
 	defer openSpan.End()
 	openStart := time.Now()
 	cleanupAuthority.backendAttempted.Store(true)
+	// Open the authorized freeze, not the live openCall, so post-freeze mutation
+	// cannot widen the wire payload (requirement 7.5).
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
-		return be.Open(openCtx, openCall, c)
+		return be.Open(openCtx, authorizedFreeze, c)
 	})
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
@@ -542,6 +551,7 @@ func (e *Executor) openPlannedCandidate(
 					Reason:    ttftAttemptReason(ttftScope),
 					DetailErr: tf,
 				}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
+				e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
 				releaseKind = authorityapp.ReleaseKindSwallowed
 				p.excluded[c.Key] = struct{}{}
 				return noOpen, nil
@@ -554,6 +564,7 @@ func (e *Executor) openPlannedCandidate(
 				Reason:    ttftAttemptReason(ttftScope),
 				DetailErr: tf,
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
+			e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedYes, lipapi.Event{Kind: lipapi.EventUsageDelta})
 			return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, lipapi.ErrTTFTTimeout)
 		}
 		openSpan.RecordError(err)
@@ -575,6 +586,7 @@ func (e *Executor) openPlannedCandidate(
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
 			)
+			e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
 			releaseKind = authorityapp.ReleaseKindSwallowed
 			p.excluded[c.Key] = struct{}{}
 			return noOpen, nil
@@ -587,6 +599,7 @@ func (e *Executor) openPlannedCandidate(
 			Reason:    attemptReasonDetail(err),
 			DetailErr: err,
 		}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
+		e.emitBackendEgressMeteringFact(p.ctx, bleg.BLegID, metering.AttemptOutcomeFailed, metering.SurfacedYes, lipapi.Event{Kind: lipapi.EventUsageDelta})
 		return zero, fmt.Errorf("executor: backend open %q: %w", c.Primary.Backend, err)
 	}
 	if nextCycle != nil {

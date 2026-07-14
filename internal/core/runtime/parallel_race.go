@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 const cancelLosersTimeout = 5 * time.Second
@@ -66,6 +67,10 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 	err := cancelLosers(ctx, legs)
 	for _, leg := range legs {
 		leg.authority.Release(ctx, authorityapp.ReleaseKindLosing)
+		// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
+		if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
+			e.emitBackendEgressMeteringFact(ctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
+		}
 	}
 	releaseBLegs(aScope, legs)
 	return err

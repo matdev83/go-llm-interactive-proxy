@@ -13,21 +13,21 @@ import (
 // never raw prompts, responses, headers, credentials, or resume tokens
 // (requirement 2.7).
 type Checkpoint struct {
-	CheckpointID string                 `json:"checkpoint_id"`
-	StreamID     string                 `json:"stream_id"`
-	Boundary     Boundary               `json:"boundary"`
-	Lifecycle    LifecycleScope         `json:"lifecycle"`
-	Perspective  EconomicPerspective    `json:"perspective"`
-	Correlation  Correlation            `json:"correlation"`
+	CheckpointID string                   `json:"checkpoint_id"`
+	StreamID     string                   `json:"stream_id"`
+	Boundary     Boundary                 `json:"boundary"`
+	Lifecycle    LifecycleScope           `json:"lifecycle"`
+	Perspective  EconomicPerspective      `json:"perspective"`
+	Correlation  Correlation              `json:"correlation"`
 	Scope        scope.PrincipalScopeView `json:"scope"`
-	FrontendID   string                 `json:"frontend_id,omitempty"`
-	BackendID    string                 `json:"backend_id,omitempty"`
-	Model        string                 `json:"model,omitempty"`
-	Quantities   []Quantity             `json:"quantities,omitempty"`
-	Presence     Presence               `json:"presence"`
-	Source       Source                 `json:"source,omitempty"`
-	Authority    Authority              `json:"authority,omitempty"`
-	CapturedAt   time.Time              `json:"captured_at"`
+	FrontendID   string                   `json:"frontend_id,omitempty"`
+	BackendID    string                   `json:"backend_id,omitempty"`
+	Model        string                   `json:"model,omitempty"`
+	Quantities   []Quantity               `json:"quantities,omitempty"`
+	Presence     Presence                 `json:"presence"`
+	Source       Source                   `json:"source,omitempty"`
+	Authority    Authority                `json:"authority,omitempty"`
+	CapturedAt   time.Time                `json:"captured_at"`
 }
 
 // Validate checks required identity and enums for a checkpoint record.

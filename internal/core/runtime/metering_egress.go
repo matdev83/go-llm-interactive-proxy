@@ -39,43 +39,53 @@ func moneyFromUsageEvent(ev lipapi.Event) *metering.MoneyObservation {
 	}
 }
 
-func (s *retryRecvStream) emitBackendEgressMeteringFact(ctx context.Context, outcome metering.AttemptOutcome, surfaced metering.SurfacedState, usageEv lipapi.Event) {
-	if s == nil || s.executor == nil {
+// emitBackendEgressMeteringFact appends a backend-egress fact when a freeze exists
+// for the B-leg (requirements 2.3, 5.3). Nil recorder / missing freeze are no-ops.
+func (e *Executor) emitBackendEgressMeteringFact(
+	ctx context.Context,
+	blegID string,
+	outcome metering.AttemptOutcome,
+	surfaced metering.SurfacedState,
+	usageEv lipapi.Event,
+) {
+	if e == nil {
 		return
 	}
 	holder := meteringHolderFrom(ctx)
 	if holder == nil {
 		return
 	}
-	beSnap := holder.BackendIngressFor(s.bleg.BLegID)
+	beSnap := holder.BackendIngressFor(blegID)
 	if beSnap == nil {
-		// No freeze available (estimate-only path); skip journal emit.
 		return
 	}
 	seq := holder.NextSequence()
 	fact, err := checkpoint.FactFromEgress(checkpoint.EgressFactInput{
 		Checkpoint: checkpoint.BackendEgressCheckpoint(*beSnap, outcome, surfaced),
-		FactID:     fmt.Sprintf("be-egress:%s:%d", strings.TrimSpace(s.bleg.BLegID), seq),
+		FactID:     fmt.Sprintf("be-egress:%s:%d", strings.TrimSpace(blegID), seq),
 		Sequence:   seq,
 		Quantities: quantitiesFromUsageEvent(usageEv),
 		Outcome:    outcome,
 		Surfaced:   surfaced,
 		Money:      moneyFromUsageEvent(usageEv),
-		Now:        s.executor.now(),
+		Now:        e.now(),
 	})
 	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "metering backend egress fact", "error", err)
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "metering backend egress fact", "error", err)
 		}
 		return
 	}
-	if err := s.executor.appendMeteringFact(ctx, fact); err != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(ctx, "metering recorder append", "error", err)
+	if err := e.appendMeteringFact(ctx, fact); err != nil && e.Log != nil {
+		e.Log.DebugContext(ctx, "metering recorder append", "error", err)
 	}
 }
 
-func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, usageEv lipapi.Event) {
-	if s == nil || s.executor == nil {
+// emitFrontendEgressMeteringFact appends a frontend-egress fact when FE ingress exists
+// (requirement 2.4). Safe to call from winner finalize, cancel-after-output, and
+// client-visible error terminals.
+func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID string, usageEv lipapi.Event) {
+	if e == nil {
 		return
 	}
 	holder := meteringHolderFrom(ctx)
@@ -85,19 +95,47 @@ func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, us
 	seq := holder.NextSequence()
 	fact, err := checkpoint.FactFromEgress(checkpoint.EgressFactInput{
 		Checkpoint: checkpoint.FrontendEgressCheckpoint(*holder.FrontendIngress),
-		FactID:     fmt.Sprintf("fe-egress:%s:%d", strings.TrimSpace(s.traceID), seq),
+		FactID:     fmt.Sprintf("fe-egress:%s:%d", strings.TrimSpace(traceID), seq),
 		Sequence:   seq,
 		Quantities: quantitiesFromUsageEvent(usageEv),
 		Money:      moneyFromUsageEvent(usageEv),
-		Now:        s.executor.now(),
+		Now:        e.now(),
 	})
 	if err != nil {
-		if s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "metering frontend egress fact", "error", err)
+		if e.Log != nil {
+			e.Log.DebugContext(ctx, "metering frontend egress fact", "error", err)
 		}
 		return
 	}
-	if err := s.executor.appendMeteringFact(ctx, fact); err != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(ctx, "metering recorder append", "error", err)
+	if err := e.appendMeteringFact(ctx, fact); err != nil && e.Log != nil {
+		e.Log.DebugContext(ctx, "metering recorder append", "error", err)
 	}
+}
+
+func (s *retryRecvStream) emitBackendEgressMeteringFact(ctx context.Context, outcome metering.AttemptOutcome, surfaced metering.SurfacedState, usageEv lipapi.Event) {
+	if s == nil || s.executor == nil {
+		return
+	}
+	s.executor.emitBackendEgressMeteringFact(ctx, s.bleg.BLegID, outcome, surfaced, usageEv)
+}
+
+func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, usageEv lipapi.Event) {
+	if s == nil || s.executor == nil {
+		return
+	}
+	s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, usageEv)
+}
+
+func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {
+	if s == nil {
+		return lipapi.Event{}
+	}
+	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+	if ev.Kind != "" {
+		return ev
+	}
+	if s.lastAuthorityUsage.Kind != "" {
+		return s.lastAuthorityUsage
+	}
+	return lipapi.Event{Kind: lipapi.EventUsageDelta}
 }

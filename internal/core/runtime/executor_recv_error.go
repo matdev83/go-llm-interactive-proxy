@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // cancellationAttemptReason returns a low-cardinality bucket for attempt records when
@@ -220,6 +221,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// fact. Apply only the unreserved projection here; do not settle the
 	// reservation before the replacement decision.
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 			s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	coreauth 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"

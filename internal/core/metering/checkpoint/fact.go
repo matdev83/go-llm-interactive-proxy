@@ -10,18 +10,18 @@ import (
 
 // EgressFactInput builds a metering fact for backend or frontend egress.
 type EgressFactInput struct {
-	Checkpoint   metering.Checkpoint // boundary/lifecycle/correlation template
-	FactID       string
-	Sequence     int64
-	Kind         metering.FactKind
-	Quantities   []metering.Quantity
-	Outcome      metering.AttemptOutcome
-	Surfaced     metering.SurfacedState
-	Presence     metering.Presence
-	Source       metering.Source
-	Authority    metering.Authority
-	Now          time.Time
-	Money        *metering.MoneyObservation
+	Checkpoint metering.Checkpoint // boundary/lifecycle/correlation template
+	FactID     string
+	Sequence   int64
+	Kind       metering.FactKind
+	Quantities []metering.Quantity
+	Outcome    metering.AttemptOutcome
+	Surfaced   metering.SurfacedState
+	Presence   metering.Presence
+	Source     metering.Source
+	Authority  metering.Authority
+	Now        time.Time
+	Money      *metering.MoneyObservation
 }
 
 // FactFromEgress drafts a Fact from an egress observation (requirements 2.3, 2.4).
