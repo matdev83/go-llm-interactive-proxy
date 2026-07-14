@@ -27,6 +27,7 @@ func benchEvents(nDeltas int) []lipapi.Event {
 	return ev
 }
 
+// BenchmarkExecutorExecuteAndDrain32Deltas is the no-authority/no-metering baseline (16.8).
 func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {

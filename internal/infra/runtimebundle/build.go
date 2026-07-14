@@ -97,6 +97,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 
 	obs := buildObservabilityRuntime(bctx)
+	if usageAuthorityHandle != nil && obs.Bundle != nil {
+		usageAuthorityHandle.SetStageMetrics(obs.Bundle.AuthorityStageSink())
+	}
 
 	model, closers, err := buildModelRuntime(bctx, obs.Upstream, closers)
 	if err != nil {

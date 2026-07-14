@@ -161,7 +161,7 @@
   - Limit in-process locking to lifecycle/readiness state and rely on targeted database locks, unique constraints, and compare-and-swap for mutations.
   - Preserve memory-store correctness with sharded or keyed locking where beneficial.
   - _Requirements: 9.8, 16.1, 16.2_
-- [ ] 12.2 Add metrics, time budgets, and contention benchmarks
+- [x] 12.2 Add metrics, time budgets, and contention benchmarks
   - Cover independent principals, a hot account, five slots with many contenders, two PostgreSQL instances, parallel 2/4/8-leg races, journal correction replay, and no-feature baseline.
   - _Requirements: 16.4, 16.5, 16.6, 16.8_
 - [ ] 12.3 Add race, fuzz, PostgreSQL, migration, and cross-protocol release gates
@@ -202,3 +202,4 @@
 - Phase 11 remediation (review REJECTED): ledgerstore applies perspective/boundary/lifecycle usage filters (and refuses rule_id without widen); Service.Limits/Decisions call ValidateAccounting* before store access and match perspective/lifecycle/basis on authority rows; durable limit/decision filter indexes include perspective/lifecycle_scope/basis; HTTP `/authority` parses perspective/lifecycle_scope/basis/class; 11.3 DualPlaneReportInputs remain construction contracts (+ calculators), readiness is the live wired surface.
   - RED_PHASE_OUTPUT: `TestMemoryStore_UsageAppliesDualPlaneFilters` / `TestMemoryStore_UsageRejectsRuleIDAsUnsupported` (ledgerstore); `TestLimitRowMatchesQueryPerspectiveAndLifecycle` / `TestDecisionRowMatchesQueryPerspectiveAndLifecycle` / `TestLimitRowMatchesQueryBasis` / `TestDecisionRowMatchesQueryBasis` (authoritystore) — fail under silent-ignore; GREEN after filter+validate+basis wiring.
 - Phase 12.1: `DurableStore` process mutex shrunk to Close/readiness lifecycle (`lifecycleMu` + `atomic.Bool` closed); mutations/queries use DB row locks/CAS only; RED `TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB` BeginTx barrier. Memory store retains its mutex.
+- Phase 12.2: `lip_authority_stage_*` Prometheus metrics + Admit stage observation (evaluation/cleanup budgets already wired); contention benches for independent principals, hot account, five-slot×100, journal correction append; executor bench documented as no-feature baseline (16.8). PG two-instance remains env-gated integration tests.

@@ -25,7 +25,11 @@ import (
 // returned for system-wide disabled/degraded/unavailable status where no
 // matched rules could be enforced; the runtimebundle startup-posture fallback
 // handles those. Deterministic capacity and reservation conflicts always deny.
-func (s *Service) Admit(ctx context.Context, in AdmissionInput) (AdmissionResult, error) {
+func (s *Service) Admit(ctx context.Context, in AdmissionInput) (res AdmissionResult, err error) {
+	start := time.Now()
+	defer func() {
+		s.observeStage(StageAdmit, admitOutcome(res, err), time.Since(start).Seconds())
+	}()
 	// Cancellation: stop accounting work without converting it into an unrelated
 	// denial (requirement 10.4). A canceled context returns the raw error so the
 	// runtime can distinguish cancellation from enforcement. A deadline-exceeded
@@ -798,4 +802,25 @@ func evaluationContextFromAdmission(in AdmissionInput, at time.Time) domain.Eval
 		Exposure:       in.Exposure,
 		Facts:          in.Facts,
 	}
+}
+
+func admitOutcome(res AdmissionResult, err error) string {
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return OutcomeCanceled
+		case errors.Is(err, ErrEvaluationTimeout), errors.Is(err, context.DeadlineExceeded):
+			return OutcomeTimeout
+		case errors.Is(err, ErrDisabled):
+			return OutcomeDisabled
+		case errors.Is(err, ErrUnavailable), errors.Is(err, ErrDegraded):
+			return OutcomeUnavailable
+		default:
+			return OutcomeError
+		}
+	}
+	if res.Outcome == domain.DecisionOutcomeDeny {
+		return OutcomeDeny
+	}
+	return OutcomeOK
 }
