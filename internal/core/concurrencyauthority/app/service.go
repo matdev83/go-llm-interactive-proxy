@@ -155,6 +155,8 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 			Acquired:       !acq.Replayed,
 			Replayed:       acq.Replayed,
 			RuleID:         rule.ID,
+			RenewBefore:    rule.EffectiveRenewBefore(),
+			TTL:            ttl,
 		}
 		lastAllow = out
 		haveAllow = true

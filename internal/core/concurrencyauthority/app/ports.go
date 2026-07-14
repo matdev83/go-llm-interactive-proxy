@@ -124,6 +124,8 @@ type AdmitResult struct {
 	Acquired       bool
 	Replayed       bool
 	RuleID         string
+	RenewBefore    time.Duration
+	TTL            time.Duration
 }
 
 // RenewInput is application-level lease renewal input.

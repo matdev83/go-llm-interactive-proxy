@@ -118,6 +118,8 @@ type CompositeDecision struct {
 	CompensateFailures []CompensateFailed
 	Evidence           authority.SafeEvidence
 	DeniedBy           string
+	// Lease captures concurrency admit metadata for heartbeat/release (Phase 8).
+	Lease authority.LeaseDecision
 }
 
 // ErrDenied is returned when a required provider denies admission.

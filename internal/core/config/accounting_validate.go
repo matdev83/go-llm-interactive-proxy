@@ -50,6 +50,9 @@ func validateAccounting(cfg *Config) error {
 	if err := validateAccountingAuthority(cfg); err != nil {
 		return err
 	}
+	if err := validateAccountingConcurrency(cfg); err != nil {
+		return err
+	}
 	if len(a.Pricing.Models) > 0 {
 		_, err := accounting.NewPriceCatalog(AccountingPriceCatalogConfig(a.Pricing))
 		if err != nil {

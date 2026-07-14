@@ -48,11 +48,15 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			RequestID:      in.RequestID,
 			Scope:          in.Scope,
 			IdempotencyKey: in.IdempotencyKey,
+			Lifecycle:      in.Lifecycle,
+			ParentLeaseID:  in.ParentLeaseID,
+			AuxPolicy:      in.AuxPolicy,
 		}
 		ld, err := c.Concurrency.AdmitLease(ctx, leaseIn)
 		if err != nil {
 			return CompositeDecision{}, &ErrUnavailable{ProviderID: "concurrency", Err: err}
 		}
+		out.Lease = ld
 		out.Readiness = AggregateReadiness(out.Readiness, ld.Readiness)
 		switch ld.Kind {
 		case authority.LeaseDeny:
@@ -165,6 +169,8 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 }
 
 // Settle settles all request providers that contributed handles (once per logical request).
+// Settle does not release the concurrency lease; callers must ReleaseLease (or Release the
+// compensation stack) at the logical-request terminal so occupancy does not leak (10.5).
 func (c *RequestCoordinator) Settle(ctx context.Context, in authority.RequestSettlement) error {
 	if c == nil {
 		return nil
@@ -179,6 +185,24 @@ func (c *RequestCoordinator) Settle(ctx context.Context, in authority.RequestSet
 		}
 	}
 	return first
+}
+
+// ReleaseLease releases a concurrency occupancy using a fresh cleanup context (15.3).
+func (c *RequestCoordinator) ReleaseLease(parent context.Context, leaseID, requestID, reason string) error {
+	if c == nil || c.Concurrency == nil || strings.TrimSpace(leaseID) == "" {
+		return nil
+	}
+	timeout := defaultCleanupTimeout
+	if c.CleanupTimeout > 0 {
+		timeout = c.CleanupTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	return c.Concurrency.ReleaseLease(ctx, authority.LeaseRelease{
+		LeaseID:   leaseID,
+		RequestID: requestID,
+		Reason:    reason,
+	})
 }
 
 // Release compensates request-stage holds using a fresh cleanup context.

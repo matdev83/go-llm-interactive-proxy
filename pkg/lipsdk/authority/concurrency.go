@@ -45,6 +45,12 @@ type LeaseAdmission struct {
 	TTL            time.Duration               `json:"ttl,omitempty"`
 	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitempty"`
 	IdempotencyKey string                      `json:"idempotency_key,omitempty"`
+	// Lifecycle identifies auxiliary vs top-level logical request (requirement 10.10).
+	Lifecycle LifecycleScope `json:"lifecycle,omitempty"`
+	// ParentLeaseID is the parent occupancy when Lifecycle is auxiliary and policy inherits.
+	ParentLeaseID string `json:"parent_lease_id,omitempty"`
+	// AuxPolicy controls whether auxiliary calls inherit the parent lease ("", "inherit", "acquire_own").
+	AuxPolicy string `json:"aux_policy,omitempty"`
 }
 
 // LeaseDecision is the admit result for a concurrency lease.
@@ -57,6 +63,10 @@ type LeaseDecision struct {
 	Readiness      Readiness                   `json:"readiness,omitempty"`
 	BoundVersion   economics.PolicySnapshotRef `json:"bound_version,omitempty"`
 	Evidence       SafeEvidence                `json:"evidence,omitempty"`
+	// RenewBefore is the configured offset before ExpiresAt when heartbeat should renew.
+	RenewBefore time.Duration `json:"renew_before,omitempty"`
+	// TTL is the lease lifetime used for renew extensions.
+	TTL time.Duration `json:"ttl,omitempty"`
 }
 
 // LeaseRelease releases a previously acquired lease.

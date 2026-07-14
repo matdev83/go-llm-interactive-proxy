@@ -109,7 +109,7 @@
   - Prove at most five active leases for a five-slot principal across multiple proxy instances.
   - Reclaim expired leases transactionally using bounded indexed work.
   - _Requirements: 10.2, 10.6, 10.7, 10.9, 12.1, 13.5, 16.2, 16.3, 16.7_
-- [ ] 8.3 Integrate lease ownership, renewal, and terminal release
+- [x] 8.3 Integrate lease ownership, renewal, and terminal release
   - Acquire after trusted identity and before expensive transforms.
   - Release on completion, denial, routing exhaustion, backend failure, cancellation, stream close, frontend encoding error, preparation failure, and panic paths.
   - Use one request-owned heartbeat and fresh cleanup contexts.
@@ -184,3 +184,4 @@
 - Phase 7.2 settle remediation (req 9.5): `SettleInput.Facts`/`Exposure`; `storeSettle` calls `Rule.SelectAmount(..., ForSettlement: true)` before `store.Settle`; dual-plane missing selection fails closed without mutating; compatibility basis keeps `FinalUsage`/`FinalCost`; covered by `settlement_select_test.go`.
 - Phase 8.1: `internal/core/concurrencyauthority/{domain,app}` + public `LeaseRenew`/`RenewLease`; `LeaseStore` port for 8.2; aux inherit via AdmitInput (public LeaseAdmission aux fields deferred to 8.3).
 - Phase 8.2: `internal/infra/concurrencyauthority/leasestore` memory+Bun SQLite/PG; five-slot across shared handles; inline reclaim; PG integration skips without `LIP_TEST_POSTGRES_DSN`.
+- Phase 8.3: `accounting.concurrency` config + configsource + runtimebundle wire; request-owned renew heartbeat; settle/release stop heartbeat and ReleaseLease with fresh cleanup ctx; aux depth inherits without extra slot.

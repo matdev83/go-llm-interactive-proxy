@@ -77,3 +77,11 @@ func (r Rule) EffectiveTTL() time.Duration {
 	}
 	return time.Minute
 }
+
+// EffectiveRenewBefore returns the renew-before offset, defaulting to 15s.
+func (r Rule) EffectiveRenewBefore() time.Duration {
+	if r.RenewBefore > 0 {
+		return r.RenewBefore
+	}
+	return 15 * time.Second
+}

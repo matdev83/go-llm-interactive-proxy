@@ -265,33 +265,38 @@ func exposureSpend(exp economics.ExposureBasis) domain.Amount {
 }
 
 // BuildAuthorityCoordinators wires thin adapters into request/attempt coordinators
-// when a usage-authority service is present (Phase 6). Concurrency remains nil until Phase 8.
-func BuildAuthorityCoordinators(svc UsageAuthorityService) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator) {
-	return buildDefaultCoordinators(svc)
+// when a usage-authority service and/or concurrency provider is present.
+func BuildAuthorityCoordinators(svc UsageAuthorityService, concurrency authority.ConcurrencyProvider) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator) {
+	return buildDefaultCoordinators(svc, concurrency)
 }
 
 // buildDefaultCoordinators wires thin adapters into request/attempt coordinators.
-func buildDefaultCoordinators(svc UsageAuthorityService) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator) {
+func buildDefaultCoordinators(svc UsageAuthorityService, concurrency authority.ConcurrencyProvider) (*authoritycoord.RequestCoordinator, *authoritycoord.AttemptCoordinator) {
 	adapter := newUsageAuthorityProviderAdapter(svc)
-	if adapter == nil {
+	if adapter == nil && concurrency == nil {
 		return nil, nil
 	}
 	req := &authoritycoord.RequestCoordinator{
-		Concurrency: nil, // Phase 8
-		Slots: []authoritycoord.RequestSlot{{
+		Concurrency: concurrency,
+	}
+	if adapter != nil {
+		req.Slots = []authoritycoord.RequestSlot{{
 			ID:       "usage-authority-request",
 			Class:    authoritycoord.PriorityQuotaBudgetRate,
 			Provider: adapter,
 			Strength: authority.StrengthRequired,
-		}},
+		}}
 	}
-	att := &authoritycoord.AttemptCoordinator{
-		Slots: []authoritycoord.AttemptSlot{{
-			ID:       "usage-authority-attempt",
-			Class:    authoritycoord.AttemptPriorityHardSpend,
-			Provider: adapter,
-			Strength: authority.StrengthRequired,
-		}},
+	var att *authoritycoord.AttemptCoordinator
+	if adapter != nil {
+		att = &authoritycoord.AttemptCoordinator{
+			Slots: []authoritycoord.AttemptSlot{{
+				ID:       "usage-authority-attempt",
+				Class:    authoritycoord.AttemptPriorityHardSpend,
+				Provider: adapter,
+				Strength: authority.StrengthRequired,
+			}},
+		}
 	}
 	return req, att
 }

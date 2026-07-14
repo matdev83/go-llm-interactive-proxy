@@ -23,6 +23,10 @@ type RequestAdmission struct {
 	BoundVersions  []economics.PolicySnapshotRef `json:"bound_versions,omitempty"`
 	RatingVersions []economics.RatingSnapshotRef `json:"rating_versions,omitempty"`
 	IdempotencyKey string                        `json:"idempotency_key,omitempty"`
+	// ParentLeaseID is set for auxiliary requests that inherit occupancy (10.10).
+	ParentLeaseID string `json:"parent_lease_id,omitempty"`
+	// AuxPolicy overrides default parent-lease inheritance for auxiliary admits.
+	AuxPolicy string `json:"aux_policy,omitempty"`
 }
 
 // Validate checks required request identity and enums.

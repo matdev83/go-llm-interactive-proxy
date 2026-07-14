@@ -16,7 +16,7 @@ func attachPhase6Coordinators(ex *Executor) {
 	if ex == nil || ex.UsageAuthority == nil {
 		return
 	}
-	req, att := BuildAuthorityCoordinators(ex.UsageAuthority)
+	req, att := BuildAuthorityCoordinators(ex.UsageAuthority, ex.ConcurrencyProvider)
 	ex.RequestCoordinator = req
 	ex.AttemptCoordinator = att
 }

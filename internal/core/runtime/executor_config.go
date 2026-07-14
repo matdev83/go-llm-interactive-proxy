@@ -29,6 +29,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -85,6 +86,12 @@ type AccountingRuntime struct {
 	AdminCountService            *accountingapp.Service
 	UsageAuthority               UsageAuthorityService
 	UsageAuthorityCleanupTimeout time.Duration
+	// ConcurrencyProvider is the optional Phase 8 logical-request lease authority.
+	ConcurrencyProvider authority.ConcurrencyProvider
+	// ConcurrencyLeaseTTL / ConcurrencyRenewBefore are defaults used by heartbeat
+	// when the admit decision omits rule-level values.
+	ConcurrencyLeaseTTL    time.Duration
+	ConcurrencyRenewBefore time.Duration
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder

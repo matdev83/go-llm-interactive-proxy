@@ -62,8 +62,9 @@ type AccountingConfig struct {
 	Observability AccountingObservabilityConfig `yaml:"observability"`
 	// StrictAuthoritative rejects backend wiring unless every configured backend can provide authoritative usage.
 	StrictAuthoritative bool                      `yaml:"strict_authoritative"`
-	Pricing             AccountingPricingConfig   `yaml:"pricing"`
-	Authority           AccountingAuthorityConfig `yaml:"authority"`
+	Pricing             AccountingPricingConfig     `yaml:"pricing"`
+	Authority           AccountingAuthorityConfig   `yaml:"authority"`
+	Concurrency         ConcurrencyAuthorityConfig `yaml:"concurrency"`
 }
 
 type AccountingTokenizerConfig struct {

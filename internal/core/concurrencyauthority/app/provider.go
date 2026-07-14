@@ -32,6 +32,9 @@ func (p *Provider) AdmitLease(ctx context.Context, in authority.LeaseAdmission) 
 		BoundVersion:   in.BoundVersion,
 		IdempotencyKey: in.IdempotencyKey,
 		RuleID:         in.RuleID,
+		Lifecycle:      in.Lifecycle,
+		ParentLeaseID:  in.ParentLeaseID,
+		AuxPolicy:      domain.AuxPolicy(in.AuxPolicy),
 	})
 	if err != nil {
 		return authority.LeaseDecision{}, err
@@ -106,6 +109,8 @@ func mapAdmitDecision(res AdmitResult) authority.LeaseDecision {
 		RemainingSlots: res.RemainingSlots,
 		Readiness:      mapReadiness(res.Readiness),
 		BoundVersion:   res.BoundVersion,
+		RenewBefore:    res.RenewBefore,
+		TTL:            res.TTL,
 		Evidence: authority.SafeEvidence{
 			Category: res.Evidence.Category,
 			Code:     res.Evidence.Code,

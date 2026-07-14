@@ -82,6 +82,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if usageAuthority != nil {
 		usageAuthorityHandle = usageAuthority.Service
 	}
+	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, cfg, log, opts.Testing)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
+	}
+	if concurrencyClosers != nil {
+		closers = append(closers, concurrencyClosers...)
+	}
 	reg := opts.PluginRegistry
 	sec, err := buildSecurityRuntime(bctx, controlPlane)
 	if err != nil {
@@ -115,6 +122,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Observability:  &obs,
 		ControlPlane:   controlPlane,
 		UsageAuthority: usageAuthorityHandle,
+		Concurrency:    concurrencyRT,
 	}, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)

@@ -4,13 +4,16 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 )
 
-// attachAuthorityCoordinators fills Phase 6 request/attempt coordinators when
-// usage authority is enabled. ConcurrencyProvider stays nil until Phase 8.
+// attachAuthorityCoordinators fills request/attempt coordinators when usage
+// authority and/or concurrency lease authority is enabled.
 func attachAuthorityCoordinators(rt *runtime.AccountingRuntime) {
-	if rt == nil || rt.UsageAuthority == nil {
+	if rt == nil {
 		return
 	}
-	req, att := runtime.BuildAuthorityCoordinators(rt.UsageAuthority)
+	if rt.UsageAuthority == nil && rt.ConcurrencyProvider == nil {
+		return
+	}
+	req, att := runtime.BuildAuthorityCoordinators(rt.UsageAuthority, rt.ConcurrencyProvider)
 	rt.RequestCoordinator = req
 	rt.AttemptCoordinator = att
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
@@ -166,4 +167,7 @@ type TestingOptions struct {
 	// AuthorityStoreOverride, when non-nil, replaces the configured usage-
 	// authority store. Tests only; production leaves this nil.
 	AuthorityStoreOverride authorityapp.StateStore
+	// ConcurrencyLeaseStoreOverride, when non-nil, replaces the configured
+	// concurrency lease store. Tests only; production leaves this nil.
+	ConcurrencyLeaseStoreOverride concurrencyapp.LeaseStore
 }
