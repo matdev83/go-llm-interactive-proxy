@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // Runtime is an opaque handle over a successfully built OSS composition.
@@ -18,6 +19,9 @@ type Runtime struct {
 	closers                  []func() error
 	trafficObserversAttached bool
 	usageObserversAttached   bool
+	evidenceSinkAttached     bool
+	raterAttached            bool
+	meteringQuerierAttached  bool
 }
 
 // Build constructs a production runtime from public options. The standard
@@ -52,6 +56,9 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			UsageSnapshotSource:       opts.UsageSnapshotSource,
 			ConcurrencySnapshotSource: opts.ConcurrencySnapshotSource,
 			RatingSnapshotSource:      opts.RatingSnapshotSource,
+			Rater:                     opts.Rater,
+			EvidenceSink:              opts.EvidenceSink,
+			MeteringQuerier:           opts.MeteringQuerier,
 			TrafficObservers:          opts.TrafficObservers,
 			UsageObservers:            opts.UsageObservers,
 			PolicyObservers:           opts.PolicyObservers,
@@ -72,6 +79,9 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		closers:                  append([]func() error(nil), res.Built.Closers...),
 		trafficObserversAttached: len(opts.TrafficObservers) > 0,
 		usageObserversAttached:   len(opts.UsageObservers) > 0,
+		evidenceSinkAttached:     opts.EvidenceSink != nil,
+		raterAttached:            opts.Rater != nil,
+		meteringQuerierAttached:  opts.MeteringQuerier != nil,
 	}, nil
 }
 
@@ -108,6 +118,32 @@ func (r *Runtime) HasTrafficObservers() bool {
 // at Build (requirement 12.7 compatibility).
 func (r *Runtime) HasUsageObservers() bool {
 	return r != nil && r.usageObserversAttached
+}
+
+// HasProductionEvidenceSink reports whether a production EvidenceSink was supplied.
+func (r *Runtime) HasProductionEvidenceSink() bool {
+	return r != nil && r.evidenceSinkAttached
+}
+
+// HasProductionRater reports whether a production Rater was wired onto the executor.
+func (r *Runtime) HasProductionRater() bool {
+	if r == nil || r.built == nil || r.built.Executor == nil {
+		return false
+	}
+	return r.raterAttached && r.built.Executor.EconomicsRater != nil
+}
+
+// MeteringQuerier returns the production metering query mount, or nil.
+func (r *Runtime) MeteringQuerier() metering.Querier {
+	if r == nil || r.built == nil {
+		return nil
+	}
+	return r.built.MeteringQuerier
+}
+
+// HasProductionMeteringQuerier reports whether a metering Querier was supplied.
+func (r *Runtime) HasProductionMeteringQuerier() bool {
+	return r != nil && r.meteringQuerierAttached && r.MeteringQuerier() != nil
 }
 
 // SnapshotGenerationID returns the published generation id, or 0 when absent.

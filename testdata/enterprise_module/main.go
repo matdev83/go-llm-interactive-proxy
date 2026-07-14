@@ -10,15 +10,51 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
 type enterpriseMeter struct{}
 
 func (enterpriseMeter) Append(context.Context, metering.Fact) error { return nil }
+
+type enterpriseQuerier struct{}
+
+func (enterpriseQuerier) List(context.Context, metering.Query) (metering.Page, error) {
+	return metering.Page{}, nil
+}
+
+type enterpriseEvidence struct {
+	policyN int
+}
+
+func (e *enterpriseEvidence) RecordPolicyDecision(context.Context, policydecision.Record) error {
+	e.policyN++
+	return nil
+}
+
+func (e *enterpriseEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
+	return nil
+}
+
+type enterpriseRater struct {
+	calls int
+}
+
+func (r *enterpriseRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
+	r.calls++
+	return economics.RatingResult{
+		Money:       economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		Source:      "enterprise-fixture",
+		Perspective: req.Perspective,
+		RaterID:     "enterprise-fake",
+	}, nil
+}
 
 type enterpriseRequestProvider struct{}
 
@@ -54,8 +90,8 @@ func repoConfigPath() (string, error) {
 	if !ok {
 		return "", fmt.Errorf("runtime.Caller failed")
 	}
-	// testdata/enterprise_module -> repo root config
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "config", "config.yaml")), nil
+	// Prefer deterministic local-stub dogfood config for Execute smoke (no live keys).
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "config", "examples", "dogfood-local-stub.yaml")), nil
 }
 
 func run(ctx context.Context) error {
@@ -63,9 +99,15 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	rater := &enterpriseRater{}
+	evidence := &enterpriseEvidence{}
+	querier := enterpriseQuerier{}
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath:          cfgPath,
 		MeteringRecorder:    enterpriseMeter{},
+		MeteringQuerier:     querier,
+		EvidenceSink:        evidence,
+		Rater:               rater,
 		RequestProviders:    []authority.RequestProvider{enterpriseRequestProvider{}},
 		UsageSnapshotSource: enterpriseRuleSource{},
 	})
@@ -78,6 +120,30 @@ func run(ctx context.Context) error {
 	}
 	if rt.SnapshotGenerationID() == 0 {
 		return fmt.Errorf("expected published generation")
+	}
+	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
+		return fmt.Errorf("production evidence/rater/query mounts not wired")
+	}
+	if _, err := rater.Rate(ctx, economics.RatingRequest{Perspective: metering.PerspectiveOperator}); err != nil {
+		return fmt.Errorf("fake rater: %w", err)
+	}
+	if rater.calls < 1 {
+		return fmt.Errorf("expected fake rater invocation")
+	}
+	view := rt.ExecutorView()
+	stream, err := view.Execute(ctx, &lipapi.Call{
+		Route:    lipapi.RouteIntent{Selector: "dogfood-local:stub-default"},
+		Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("ping")}}},
+	})
+	if err != nil {
+		return fmt.Errorf("ExecutorView.Execute: %w", err)
+	}
+	collected, err := lipapi.Collect(ctx, stream)
+	if err != nil {
+		return fmt.Errorf("collect: %w", err)
+	}
+	if collected.Text.String() == "" {
+		return fmt.Errorf("expected assistant text from local stub")
 	}
 	return nil
 }

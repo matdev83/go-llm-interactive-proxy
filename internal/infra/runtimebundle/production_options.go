@@ -32,6 +32,14 @@ type ProductionOptions struct {
 	// RatingSnapshotSource, when non-nil, supplies the rating/catalog snapshot
 	// for the initial RuntimeGeneration.
 	RatingSnapshotSource economics.RatingSnapshotSource
+	// Rater, when non-nil, is attached to the accounting runtime as the
+	// enterprise rating provider (requirement 12.1).
+	Rater economics.Rater
+	// EvidenceSink, when non-nil, replaces the default authority evidence adapter
+	// (requirement 12.1). PolicyObservers remain additive when the sink is nil.
+	EvidenceSink authority.EvidenceSink
+	// MeteringQuerier, when non-nil, is mounted on Built for enterprise query access.
+	MeteringQuerier metering.Querier
 	// TrafficObservers are merged into the runtime extension surface.
 	TrafficObservers []traffic.Observer
 	// UsageObservers are merged into the runtime extension surface.

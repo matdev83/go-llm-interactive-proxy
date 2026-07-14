@@ -83,6 +83,9 @@ func buildUsageAuthorityRuntime(parent context.Context, cfg *config.Config, log 
 // policy observer path is best-effort; required pre-work accounting evidence
 // is enforced by the recorder-aware adapter.
 func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecision.Observer, opts *BuildOptions) authorityapp.EvidenceSink {
+	if opts != nil && opts.Production.EvidenceSink != nil {
+		return opts.Production.EvidenceSink
+	}
 	var recorder *controlplane.RecorderService
 	if cp != nil {
 		recorder = cp.recorder

@@ -9,8 +9,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
 type prodMeter struct{}
@@ -46,6 +48,9 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 		MeteringRecorder:    prodMeter{},
 		RequestProviders:    []authority.RequestProvider{prodAllowRequest{}},
 		UsageSnapshotSource: prodRuleSource{ver: "prod-snap-v1"},
+		Rater:               prodRater{},
+		EvidenceSink:        prodEvidence{},
+		MeteringQuerier:     prodQuerier{},
 	}
 	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
 	if err != nil {
@@ -59,6 +64,12 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 	if built.Executor == nil || built.Executor.MeteringRecorder == nil {
 		t.Fatal("production metering must attach on executor")
 	}
+	if built.Executor.EconomicsRater == nil {
+		t.Fatal("production rater must attach on executor")
+	}
+	if built.MeteringQuerier == nil {
+		t.Fatal("production metering querier must mount on Built")
+	}
 	if built.Executor.RequestCoordinator == nil || len(built.Executor.RequestCoordinator.Slots) == 0 {
 		t.Fatal("production request provider must create coordinator slots")
 	}
@@ -67,4 +78,23 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 		t.Fatalf("generation usage=%+v", cur)
 	}
 	_ = time.Now()
+}
+
+type prodRater struct{}
+
+func (prodRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
+	return economics.RatingResult{Money: economics.Money{Present: true, NanoUnits: 1, Currency: "USD"}}, nil
+}
+
+type prodEvidence struct{}
+
+func (prodEvidence) RecordPolicyDecision(context.Context, policydecision.Record) error { return nil }
+func (prodEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
+	return nil
+}
+
+type prodQuerier struct{}
+
+func (prodQuerier) List(context.Context, metering.Query) (metering.Page, error) {
+	return metering.Page{}, nil
 }

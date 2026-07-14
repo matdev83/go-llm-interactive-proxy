@@ -131,8 +131,9 @@
 
 - [x] 10. Expose production open-core composition seams
 - [x] 10.1 Add a public runtime construction facade
-  - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and query implementations.
+  - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and metering query implementations.
   - Keep internal runtimebundle authoritative without exposing Executor internals.
+  - Bounded control-plane query filter expansion remains Phase 11; Phase 10 mounts `metering.Querier`.
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
 - [x] 10.2 Add a separate-module enterprise compile and execution fixture
   - Implement fake external raters and authorities using only public packages.
@@ -191,6 +192,7 @@
 - Phase 9.2: Admit captures `BoundVersion`; settle uses version-indexed snapshot cache (fail closed on missing unrelated version); concurrency admit stamps `snap.PolicyRef()`; coordinators/adapters forward BoundVersions into settle.
 - Phase 9.3: `internal/core/snapshotgen` atomic `Publisher` (`RuntimeGeneration` + pointer swap); `MarkUnusable` keeps Value versions (no silent unrelated fallback; unknown state preserves prior); runtimebundle builds initial generation from static config and exposes `Built.SnapshotGeneration` / `TestingOptions.SnapshotPublisherOverride`; admit-time version binding remains on BoundVersions from 9.2.
 - Phase 9 remediation (review REJECTED): (11.4) `authorityLifecycle.settlementInput` now forwards `admissionResult.BoundVersion`; attempt coordinator aggregates BoundVersions and `admitAttemptViaCoordinator` copies them into AdmissionResult; SnapshotGeneration is wired onto Executor and preferred at admit (`applyGenerationBoundVersion` / `mergeGenerationBoundVersions`); regression covers lifecycle settle after mid-flight rule publish.
-- Phase 10.1: `pkg/lipruntime` public facade (`Options`/`Build`/`Runtime`) delegates to `runtimebundle.BuildBootstrap`; first-class `ProductionOptions` on BuildOptions (metering/authority/concurrency/snapshot/observers) outside TestingOptions (12.4); opaque handle exposes `ExecutorView` only.
-- Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
+- Phase 10.1: `pkg/lipruntime` public facade (`Options`/`Build`/`Runtime`) delegates to `runtimebundle.BuildBootstrap`; first-class `ProductionOptions` on BuildOptions (metering/authority/concurrency/snapshot/observers/evidence/rater/query) outside TestingOptions (12.4); opaque handle exposes `ExecutorView` only.
+- Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers (request authority, rater, evidence sink, metering querier); Execute/Collect smoke via dogfood-local-stub; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
 - Phase 10.3: facade merges Traffic/Usage observers; `ProviderDescriptors` validated at Build so observers cannot declare StrengthRequired (12.7); authority descriptors remain allowed for strict admit.
+- Phase 10 remediation (review REJECTED): (12.1) public `authority.EvidenceSink` + `MeteringQuerier` production injection; `Options.Rater` forwarded onto `AccountingRuntime.EconomicsRater`; enterprise fixture proves fake rater + ExecutorView execute path. Bounded CP query filter expansion remains Phase 11 (query mount is metering.Querier).

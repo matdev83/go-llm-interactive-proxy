@@ -10,8 +10,10 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipruntime"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
 func repoConfigPath(t *testing.T) string {
@@ -65,9 +67,15 @@ func TestBuild_PublicOnlyOptions(t *testing.T) {
 	ctx := context.Background()
 	meter := &recordingMeter{}
 	now := time.Unix(200, 0).UTC()
+	sink := &recordingEvidence{}
+	rater := &recordingRater{}
+	querier := &recordingQuerier{}
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
 		ConfigPath:       repoConfigPath(t),
 		MeteringRecorder: meter,
+		MeteringQuerier:  querier,
+		EvidenceSink:     sink,
+		Rater:            rater,
 		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
 		UsageSnapshotSource: staticRuleSource{snap: economics.Snapshot[economics.PolicyRulesView]{
 			ID: "usage_authority", Version: "ent-v1", EffectiveAt: now, FetchedAt: now,
@@ -92,9 +100,39 @@ func TestBuild_PublicOnlyOptions(t *testing.T) {
 	if !rt.HasProductionMetering() {
 		t.Fatal("production metering recorder must be wired outside TestingOptions")
 	}
+	if !rt.HasProductionEvidenceSink() {
+		t.Fatal("production evidence sink must be accepted and retained")
+	}
+	if !rt.HasProductionRater() {
+		t.Fatal("production rater must be forwarded onto the accounting runtime")
+	}
+	if !rt.HasProductionMeteringQuerier() {
+		t.Fatal("production metering querier must be mounted")
+	}
 	if rt.SnapshotGenerationID() == 0 {
 		t.Fatal("expected published snapshot generation")
 	}
+}
+
+type recordingEvidence struct{}
+
+func (recordingEvidence) RecordPolicyDecision(context.Context, policydecision.Record) error {
+	return nil
+}
+func (recordingEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
+	return nil
+}
+
+type recordingRater struct{}
+
+func (recordingRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
+	return economics.RatingResult{Money: economics.Money{Present: true, NanoUnits: 1, Currency: "USD"}, Perspective: req.Perspective}, nil
+}
+
+type recordingQuerier struct{}
+
+func (recordingQuerier) List(context.Context, metering.Query) (metering.Page, error) {
+	return metering.Page{}, nil
 }
 
 func TestBuild_RejectsEmptyConfigPath(t *testing.T) {

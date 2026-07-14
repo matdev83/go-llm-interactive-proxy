@@ -17,6 +17,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -78,4 +79,7 @@ type Built struct {
 	// SnapshotGeneration publishes immutable usage/concurrency/rating generations
 	// for admit-time binding (Phase 9.3). Always non-nil after successful Build.
 	SnapshotGeneration *snapshotgen.Publisher
+	// MeteringQuerier is the optional production metering query mount injected via
+	// ProductionOptions (requirement 12.1). Nil when not supplied.
+	MeteringQuerier metering.Querier
 }

@@ -32,14 +32,18 @@ type Options struct {
 	ConcurrencySnapshotSource economics.RuleSnapshotSource
 	// RatingSnapshotSource supplies the rating/catalog snapshot for publication.
 	RatingSnapshotSource economics.RatingSnapshotSource
-	// Rater is reserved for enterprise rating injection; rating snapshot source
-	// is the Phase 10 publication seam (full rater wiring may extend later).
+	// Rater is the enterprise rating provider injected onto the accounting runtime.
 	Rater economics.Rater
+	// EvidenceSink projects authority decisions into policy and control-plane evidence.
+	EvidenceSink authority.EvidenceSink
+	// MeteringQuerier is the enterprise metering query mount (requirement 12.1).
+	// Bounded control-plane query filter expansion remains Phase 11.
+	MeteringQuerier metering.Querier
 	// TrafficObservers are merged with feature-bundle traffic observers.
 	TrafficObservers []traffic.Observer
 	// UsageObservers are merged with feature-bundle usage observers.
 	UsageObservers []usage.Observer
-	// PolicyObservers are chained into policy-decision evidence.
+	// PolicyObservers are chained into policy-decision evidence (additive to EvidenceSink).
 	PolicyObservers []policydecision.Observer
 	// ProviderDescriptors declare authority vs observer postures for injected
 	// providers. Observers cannot use StrengthRequired (requirement 12.7).

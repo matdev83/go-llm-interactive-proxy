@@ -154,6 +154,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		UsageAuthority:        usageAuthorityHandle,
 		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
 		SnapshotGeneration:    snapGen,
+		MeteringQuerier:       opts.Production.MeteringQuerier,
 	}, nil
 }
 

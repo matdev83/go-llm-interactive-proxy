@@ -122,6 +122,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
 		accountingRT.MeteringRecorder = in.Bctx.Opts.Production.MeteringRecorder
 	}
+	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.Rater != nil {
+		accountingRT.EconomicsRater = in.Bctx.Opts.Production.Rater
+	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
 		cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
