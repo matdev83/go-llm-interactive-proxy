@@ -11,6 +11,7 @@ package ledgerstore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -241,6 +242,10 @@ func (s *MemoryStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.Us
 	}
 	limit, cur, visibility := prep.limit, prep.cursor, prep.visibility
 	unsupported := unsupportedUsageFilters(s.unsupportedFields, q)
+	if strings.TrimSpace(q.RuleID) != "" {
+		// Refuse to return widened results when rule_id cannot be applied (14.8).
+		return paginate([]sequenced[cp.UsageRow]{}, limit, shapeHashUsage(q), visibility, unsupported), nil
+	}
 
 	s.mu.RLock()
 	rows := make([]sequenced[cp.UsageRow], 0)
@@ -252,10 +257,7 @@ func (s *MemoryStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.Us
 		if !commonFiltersMatch(q.Common, ev, s.unsupportedFields) {
 			continue
 		}
-		if q.Plane != "" && !isUnsupportedField(s.unsupportedFields, fields.UsagePlane) && string(ev.Usage.Plane) != q.Plane {
-			continue
-		}
-		if q.Availability != "" && !isUnsupportedField(s.unsupportedFields, fields.UsageAvailability) && string(ev.Usage.Availability) != q.Availability {
+		if !usageDetailMatchesQuery(ev.Usage, q, s.unsupportedFields) {
 			continue
 		}
 		rows = append(rows, sequenced[cp.UsageRow]{row: usageRowFromEvent(ev), seq: se.seq})

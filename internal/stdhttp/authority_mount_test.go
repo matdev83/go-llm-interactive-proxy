@@ -76,7 +76,7 @@ func TestAccountingAuthorityQueryMountedAndProtected(t *testing.T) {
 	}
 	assertNoUnsafeAuthorityBody(t, ok.Body.String())
 
-	page1Req := httptest.NewRequest(http.MethodGet, "/authority/decision-history?limit=1", nil)
+	page1Req := httptest.NewRequest(http.MethodGet, "/authority/decision-history?limit=1&rule_id=tenant.requests", nil)
 	page1Req.Header.Set(diag.HeaderDiagnosticsSecret, cfg.Diagnostics.SharedSecret)
 	page1 := httptest.NewRecorder()
 	h.ServeHTTP(page1, page1Req)
@@ -95,7 +95,7 @@ func TestAccountingAuthorityQueryMountedAndProtected(t *testing.T) {
 	}
 	assertNoUnsafeAuthorityBody(t, page1.Body.String())
 
-	page2Req := httptest.NewRequest(http.MethodGet, "/authority/decision-history?limit=1&cursor="+url.QueryEscape(page1Body.Page.Next.Token), nil)
+	page2Req := httptest.NewRequest(http.MethodGet, "/authority/decision-history?limit=1&rule_id=tenant.requests&cursor="+url.QueryEscape(page1Body.Page.Next.Token), nil)
 	page2Req.Header.Set(diag.HeaderDiagnosticsSecret, cfg.Diagnostics.SharedSecret)
 	page2 := httptest.NewRecorder()
 	h.ServeHTTP(page2, page2Req)
@@ -114,7 +114,7 @@ func TestAccountingAuthorityQueryMountedAndProtected(t *testing.T) {
 	}
 	assertNoUnsafeAuthorityBody(t, page2.Body.String())
 
-	unsupportedReq := httptest.NewRequest(http.MethodGet, "/authority/decision-history?limit=1&from=2026-01-01T00:00:00Z", nil)
+	unsupportedReq := httptest.NewRequest(http.MethodGet, "/authority/decision-history?limit=1&rule_id=tenant.requests&from=2026-01-01T00:00:00Z", nil)
 	unsupportedReq.Header.Set(diag.HeaderDiagnosticsSecret, cfg.Diagnostics.SharedSecret)
 	unsupported := httptest.NewRecorder()
 	h.ServeHTTP(unsupported, unsupportedReq)
@@ -130,7 +130,7 @@ func TestAccountingAuthorityQueryMountedAndProtected(t *testing.T) {
 	}
 	assertNoUnsafeAuthorityBody(t, unsupported.Body.String())
 
-	limitsUnsupportedReq := httptest.NewRequest(http.MethodGet, "/authority/limits?limit=1&settlement_state=settled", nil)
+	limitsUnsupportedReq := httptest.NewRequest(http.MethodGet, "/authority/limits?limit=1&rule_id=tenant.requests&settlement_state=settled", nil)
 	limitsUnsupportedReq.Header.Set(diag.HeaderDiagnosticsSecret, cfg.Diagnostics.SharedSecret)
 	limitsUnsupported := httptest.NewRecorder()
 	h.ServeHTTP(limitsUnsupported, limitsUnsupportedReq)

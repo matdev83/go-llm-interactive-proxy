@@ -1,6 +1,7 @@
 package ledgerstore
 
 import (
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/controlplane/ledgerstore/fields"
@@ -210,7 +211,44 @@ func unsupportedUsageFilters(set map[string]struct{}, q cp.UsageQuery) []cp.Unsu
 	if q.Availability != "" && isUnsupportedField(set, fields.UsageAvailability) {
 		out = append(out, cp.UnsupportedFilter{Field: fields.UsageAvailability, Reason: "usage.availability not supported by this store"})
 	}
+	if q.Perspective != "" && isUnsupportedField(set, fields.UsagePerspective) {
+		out = append(out, cp.UnsupportedFilter{Field: fields.UsagePerspective, Reason: "usage.perspective not supported by this store"})
+	}
+	if q.Boundary != "" && isUnsupportedField(set, fields.UsageBoundary) {
+		out = append(out, cp.UnsupportedFilter{Field: fields.UsageBoundary, Reason: "usage.boundary not supported by this store"})
+	}
+	if q.LifecycleScope != "" && isUnsupportedField(set, fields.UsageLifecycleScope) {
+		out = append(out, cp.UnsupportedFilter{Field: fields.UsageLifecycleScope, Reason: "usage.lifecycle_scope not supported by this store"})
+	}
+	// Usage evidence rows do not carry rule identity; refuse rather than widen (14.8).
+	if strings.TrimSpace(q.RuleID) != "" {
+		out = append(out, cp.UnsupportedFilter{Field: fields.UsageRuleID, Reason: "usage.rule_id is not indexed on usage evidence"})
+	}
 	return out
+}
+
+// usageDetailMatchesQuery applies dual-plane usage filters against decoded evidence.
+// Callers must skip matching when unsupportedUsageFilters already reported a field.
+func usageDetailMatchesQuery(u *cp.UsageDetail, q cp.UsageQuery, unsupportedSet map[string]struct{}) bool {
+	if u == nil {
+		return false
+	}
+	if q.Plane != "" && !isUnsupportedField(unsupportedSet, fields.UsagePlane) && string(u.Plane) != q.Plane {
+		return false
+	}
+	if q.Availability != "" && !isUnsupportedField(unsupportedSet, fields.UsageAvailability) && string(u.Availability) != q.Availability {
+		return false
+	}
+	if q.Perspective != "" && !isUnsupportedField(unsupportedSet, fields.UsagePerspective) && u.Perspective != q.Perspective {
+		return false
+	}
+	if q.Boundary != "" && !isUnsupportedField(unsupportedSet, fields.UsageBoundary) && u.Boundary != q.Boundary {
+		return false
+	}
+	if q.LifecycleScope != "" && !isUnsupportedField(unsupportedSet, fields.UsageLifecycleScope) && u.LifecycleScope != q.LifecycleScope {
+		return false
+	}
+	return true
 }
 
 func unsupportedUsageAggregateFilters(set map[string]struct{}, q cp.UsageAggregateQuery) []cp.UnsupportedFilter {

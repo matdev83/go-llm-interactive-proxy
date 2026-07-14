@@ -3,6 +3,7 @@ package ledgerstore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/controlplane/ledgerstore/fields"
@@ -200,6 +201,9 @@ func (s *DurableStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.U
 	}
 	limit, cur, visibility := prep.limit, prep.cursor, prep.visibility
 	unsupported := unsupportedUsageFilters(s.unsupportedFields, q)
+	if strings.TrimSpace(q.RuleID) != "" {
+		return paginateWithHasMore[cp.UsageRow](nil, limit, false, shapeHashUsage(q), visibility, unsupported), nil
+	}
 
 	w := newWhereBuilder(s.dialect)
 	w.eq("category", string(cp.CategoryUsage))
@@ -234,6 +238,9 @@ func (s *DurableStore) Usage(ctx context.Context, q cp.UsageQuery) (cp.Page[cp.U
 			return cp.Page[cp.UsageRow]{}, decodeErr
 		}
 		if ev.Usage == nil {
+			continue
+		}
+		if !usageDetailMatchesQuery(ev.Usage, q, s.unsupportedFields) {
 			continue
 		}
 		items = append(items, sequenced[cp.UsageRow]{row: usageRowFromEvent(ev), seq: r.id})

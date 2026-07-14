@@ -152,8 +152,8 @@
   - Return unsupported and too-broad outcomes instead of scanning.
   - _Requirements: 14.4, 14.5, 14.8, 16.3_
 - [x] 11.3 Expose independent customer, operator, compression, routing-overhead, and readiness inputs
-  - Never merge customer charge and operator cost without an explicit report calculation.
-  - Report every required authority/journal independently and aggregate protected-traffic posture.
+  - Public DualPlaneReportInputs contracts and explicit ReportCalculationType calculators (no implicit customer+operator merge).
+  - Report every required authority/journal independently and aggregate protected-traffic posture (live readiness wiring).
   - _Requirements: 4.7, 5.7, 14.6, 14.7, 15.7, 15.8_
 
 - [ ] 12. Remove global serialization and prove scalability
@@ -199,3 +199,5 @@
 - Phase 11.1: additive dual-plane fields on UsageDetail/UsageRow/UsageAggregate and AccountingAuthorityDetail/AccountingDecisionRow (perspective/boundary/lifecycle/provenance/fact_kind/surfaced/version refs); legacy plane/availability preserved; projectors + appendDecision populate decision-query rows.
 - Phase 11.2: metering.Query expanded filters + QueryClass; journalstore too-broad/unsupported; durable indexed list; CP UsageQuery/accounting query bounds validation before store access.
 - Phase 11.3: DualPlaneReportInputs (customer/operator/compression/routing-overhead) with explicit ReportCalculationType; ReadinessReportReader + aggregate protected-traffic posture; memory backing always advisory_single_process; wired via Built/CP `/readiness`/lipruntime.ReadinessReport().
+- Phase 11 remediation (review REJECTED): ledgerstore applies perspective/boundary/lifecycle usage filters (and refuses rule_id without widen); Service.Limits/Decisions call ValidateAccounting* before store access and match perspective/lifecycle/basis on authority rows; durable limit/decision filter indexes include perspective/lifecycle_scope/basis; HTTP `/authority` parses perspective/lifecycle_scope/basis/class; 11.3 DualPlaneReportInputs remain construction contracts (+ calculators), readiness is the live wired surface.
+  - RED_PHASE_OUTPUT: `TestMemoryStore_UsageAppliesDualPlaneFilters` / `TestMemoryStore_UsageRejectsRuleIDAsUnsupported` (ledgerstore); `TestLimitRowMatchesQueryPerspectiveAndLifecycle` / `TestDecisionRowMatchesQueryPerspectiveAndLifecycle` / `TestLimitRowMatchesQueryBasis` / `TestDecisionRowMatchesQueryBasis` (authoritystore) — fail under silent-ignore; GREEN after filter+validate+basis wiring.
