@@ -87,6 +87,7 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 |------|-----------|-------------------|
 | Cross-protocol baseline (17.1, 17.3) | OpenAI Responses/legacy, Anthropic, Gemini FE×BE matrix remains green (dual-plane features default-off compatible) | `make parity-checks` |
 | Shared checkpoint contract | Supported frontend `Operation` values share the same executor frontend-ingress checkpoint boundary/lifecycle | `go test ./internal/core/runtime/ -run SharedCheckpointAcrossFrontend` |
+| Parallel race benches (16.6) | Parallel routing under authority with 2/4/8 legs | `go test ./internal/core/runtime/ -run '^$' -bench BenchmarkParallelRaceLegsAuthority` |
 | Critical fuzz | Existing Tier-1 protocol/decode fuzz smoke (not dual-plane fact/correction fuzz) | `make test-fuzz` or `make release-gates` |
 | Race (17.9) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); Windows `make test-race` is a documented no-op |
 | PostgreSQL (9.9, 17.9) | Cross-instance durable **authority store**, **lease store**, and **metering journal** proofs | `make test-authority-postgres` with `LIP_TEST_POSTGRES_DSN` (`LIP_REQUIRE_POSTGRES=1` fails closed without DSN) |

@@ -79,7 +79,8 @@ var lineBudgets = []struct {
 	// Raised from 45500 to 47000 for Phase 8 concurrencyauthority domain/app + runtime lease ownership.
 	// Raised from 47000 to 47500 for Phase 9 snapshotgen RuntimeGeneration publisher.
 	// Raised from 47500 to 48000 for Phase 11.2 control-plane query bounds validation.
-	{"internal/core", 48000},
+	// Raised from 48000 to 48100 for Phase 12 rem: settle/release/query stage metrics (16.5).
+	{"internal/core", 48100},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4650}, // Phase 11.3 readiness report wiring

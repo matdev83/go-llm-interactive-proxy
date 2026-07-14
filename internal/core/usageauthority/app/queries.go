@@ -22,7 +22,15 @@ func (s *Service) Status(ctx context.Context) (controlplane.AccountingAuthorityS
 }
 
 // Limits returns bounded live limit rows plus a query state classification.
-func (s *Service) Limits(ctx context.Context, q controlplane.AccountingLimitStatusQuery) (LimitStatusResult, error) {
+func (s *Service) Limits(ctx context.Context, q controlplane.AccountingLimitStatusQuery) (result LimitStatusResult, err error) {
+	start := time.Now()
+	defer func() {
+		outcome := OutcomeOK
+		if err != nil {
+			outcome = stageErrOutcome(err)
+		}
+		s.observeStage(StageQuery, outcome, time.Since(start).Seconds())
+	}()
 	if q.Limit <= 0 {
 		return LimitStatusResult{}, WrapError(ErrInvalidQuery, "query", errors.New("limit must be positive"))
 	}
@@ -68,7 +76,15 @@ func (s *Service) Limits(ctx context.Context, q controlplane.AccountingLimitStat
 }
 
 // Decisions returns bounded live accounting decision rows plus a query state classification.
-func (s *Service) Decisions(ctx context.Context, q controlplane.AccountingDecisionQuery) (DecisionHistoryResult, error) {
+func (s *Service) Decisions(ctx context.Context, q controlplane.AccountingDecisionQuery) (result DecisionHistoryResult, err error) {
+	start := time.Now()
+	defer func() {
+		outcome := OutcomeOK
+		if err != nil {
+			outcome = stageErrOutcome(err)
+		}
+		s.observeStage(StageQuery, outcome, time.Since(start).Seconds())
+	}()
 	if q.Limit <= 0 {
 		return DecisionHistoryResult{}, WrapError(ErrInvalidQuery, "query", errors.New("limit must be positive"))
 	}

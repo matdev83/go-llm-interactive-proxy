@@ -27,6 +27,7 @@ func TestDualPlaneReleaseGateEvidencePresent(t *testing.T) {
 		"make test-authority-postgres",
 		"LIP_TEST_POSTGRES_DSN",
 		"SharedCheckpointAcrossFrontend",
+		"BenchmarkParallelRaceLegsAuthority",
 		"15.9",
 	} {
 		if !strings.Contains(body, needle) {
@@ -37,7 +38,9 @@ func TestDualPlaneReleaseGateEvidencePresent(t *testing.T) {
 	evidence := []string{
 		"internal/core/authoritycoord/provider_isolation_test.go",
 		"internal/core/runtime/dual_plane_cross_frontend_checkpoint_test.go",
+		"internal/core/runtime/parallel_race_legs_bench_test.go",
 		"internal/core/usageauthority/app/privacy_test.go",
+		"internal/core/usageauthority/app/stage_metrics_observation_test.go",
 		"internal/core/metering/reconcile/reconcile_test.go",
 		"internal/infra/metering/journalstore/memory_test.go",
 		"testdata/enterprise_module/main_test.go",

@@ -26,7 +26,7 @@ func BenchmarkDurableIndependentPrincipals(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	const principals = 32
+	const principals = 1000
 	rows := make([]controlplane.AccountingLimitStatusRow, 0, principals)
 	for i := 0; i < principals; i++ {
 		rows = append(rows, controlplane.AccountingLimitStatusRow{
