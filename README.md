@@ -14,7 +14,7 @@ The standard distribution, `cmd/lipstd`, serves bundled HTTP frontends, routes t
 - **Operator hardening** - typed config, auth/access modes, secure sessions, diagnostics secrets, pprof controls, Prometheus metrics, OpenTelemetry tracing, access logs, and resource limits.
 - **Extension platform** - feature bundles use `pkg/lipsdk` facades for request shaping, tools, completion gates, workspace/state, traffic observation, auxiliary calls, and compatibility hooks.
 - **Accounting authority SDK** - `pkg/lipsdk/controlplane` and `pkg/lipsdk/policydecision` expose safe accounting authority DTOs, bounded queries, and policy-compatible accounting evidence for operator-facing control-plane integrations. `AccountingDecisionRow` carries `released`/`overage`/`adjustment` settlement deltas (additive, `,omitzero`; zero for reserve decisions) so decision history explains per-mutation outcomes.
-- **Dual-plane economics contracts** - `pkg/lipsdk/metering`, `pkg/lipsdk/economics`, and `pkg/lipsdk/authority` define provider-neutral facts, money/rating/exposure, and request/attempt authority ports (import DAG: authority → economics → metering). Contracts only; journal and runtime wiring land in later phases.
+- **Dual-plane economics contracts** - `pkg/lipsdk/metering`, `pkg/lipsdk/economics`, and `pkg/lipsdk/authority` define provider-neutral facts, money/rating/exposure, and request/attempt authority ports (import DAG: authority → economics → metering). Runtime captures immutable metering checkpoints at frontend-ingress (before submit hooks), backend-ingress (before Open), and egress settlement; optional `MeteringRecorder` appends Facts (nil = in-request only). Durable journalstore is a later phase.
 
 ## Standard distribution
 
