@@ -38,4 +38,10 @@ func TestBuild_PublishesSnapshotGeneration(t *testing.T) {
 	if built.SnapshotGeneration.Current().State != economics.SnapshotDegraded {
 		t.Fatalf("expected degraded current")
 	}
+	if built.Executor == nil || built.Executor.SnapshotGeneration == nil {
+		t.Fatal("executor must receive SnapshotGeneration for admit-time binding")
+	}
+	if built.Executor.SnapshotGeneration != built.SnapshotGeneration {
+		t.Fatal("executor SnapshotGeneration must be the same publisher instance")
+	}
 }

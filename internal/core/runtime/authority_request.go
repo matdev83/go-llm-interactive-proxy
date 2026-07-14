@@ -108,6 +108,7 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 	if err != nil {
 		return ctx, mapRequestAuthorityError(err)
 	}
+	e.mergeGenerationBoundVersions(&d)
 	st := &requestAuthorityState{
 		Decision:        d,
 		RequestID:       in.RequestID,

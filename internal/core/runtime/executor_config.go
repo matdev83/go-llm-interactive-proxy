@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
@@ -101,6 +102,9 @@ type AccountingRuntime struct {
 	RequestCoordinator *authoritycoord.RequestCoordinator
 	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).
 	AttemptCoordinator *authoritycoord.AttemptCoordinator
+	// SnapshotGeneration is the atomic policy/rating generation publisher (Phase 9.3).
+	// Admit binds Current() usage/concurrency/rating refs when present.
+	SnapshotGeneration *snapshotgen.Publisher
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority

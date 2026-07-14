@@ -71,6 +71,33 @@ func TestAttemptCoordinator_IndependentBLegsAndCompensate(t *testing.T) {
 	}
 }
 
+func TestAttemptCoordinator_AggregatesBoundVersions(t *testing.T) {
+	t.Parallel()
+	prov := &fakeAttemptProvider{id: "spend"}
+	prov.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+		return authority.Decision{
+			Kind: authority.DecisionAllow,
+			BoundVersions: []economics.PolicySnapshotRef{{
+				VersionRef: economics.VersionRef{ID: "usage_authority", Version: "v1"},
+				PolicyID:   "usage_authority",
+			}},
+			Reservations: []authority.Reservation{{Handle: "h1", Kind: authority.ReservationSpend}},
+		}, nil
+	}
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "spend", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov},
+		},
+	}
+	d, err := coord.Admit(context.Background(), validAttemptAdmission("b-bound"))
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	if len(d.BoundVersions) != 1 || d.BoundVersions[0].Version != "v1" {
+		t.Fatalf("bound versions = %+v", d.BoundVersions)
+	}
+}
+
 func validAttemptAdmission(bleg string) authority.AttemptAdmission {
 	return authority.AttemptAdmission{
 		RequestID:   "req-1",
