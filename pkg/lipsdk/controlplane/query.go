@@ -171,35 +171,46 @@ type AttemptRow struct {
 
 // UsageRow is one row of a UsageQuery result (requirement 2.3, 9.2).
 type UsageRow struct {
-	Correlation      Correlation       `json:"correlation"`
-	Plane            UsagePlane        `json:"plane"`
-	Availability     UsageAvailability `json:"availability"`
-	InputTokens      int               `json:"input_tokens,omitempty"`
-	OutputTokens     int               `json:"output_tokens,omitempty"`
-	CacheReadTokens  int               `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens int               `json:"cache_write_tokens,omitempty"`
-	ReasoningTokens  int               `json:"reasoning_tokens,omitempty"`
-	TotalTokens      int               `json:"total_tokens,omitempty"`
-	CostNanoUnits    int64             `json:"cost_nano_units,omitempty"`
-	Currency         string            `json:"currency,omitempty"`
-	EvidenceState    EvidenceState     `json:"evidence_state"`
-	RedactionState   RedactionState    `json:"redaction_state"`
+	Correlation      Correlation         `json:"correlation"`
+	Plane            UsagePlane          `json:"plane"`
+	Availability     UsageAvailability   `json:"availability"`
+	Perspective      UsagePerspective    `json:"perspective,omitempty"`
+	Boundary         UsageBoundary       `json:"boundary,omitempty"`
+	LifecycleScope   UsageLifecycleScope `json:"lifecycle_scope,omitempty"`
+	Provenance       UsageProvenance     `json:"provenance,omitempty"`
+	FactKind         UsageFactKind       `json:"fact_kind,omitempty"`
+	Surfaced         UsageSurfaced       `json:"surfaced,omitempty"`
+	PolicyVersion    VersionRef          `json:"policy_version,omitzero"`
+	RatingVersion    VersionRef          `json:"rating_version,omitzero"`
+	InputTokens      int                 `json:"input_tokens,omitempty"`
+	OutputTokens     int                 `json:"output_tokens,omitempty"`
+	CacheReadTokens  int                 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int                 `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens  int                 `json:"reasoning_tokens,omitempty"`
+	TotalTokens      int                 `json:"total_tokens,omitempty"`
+	CostNanoUnits    int64               `json:"cost_nano_units,omitempty"`
+	Currency         string              `json:"currency,omitempty"`
+	EvidenceState    EvidenceState       `json:"evidence_state"`
+	RedactionState   RedactionState      `json:"redaction_state"`
 }
 
 // UsageAggregate is one row of a UsageAggregateQuery result (requirement 2.3,
 // 6.4). Aggregate rows are logically distinct from detailed usage rows.
 type UsageAggregate struct {
-	Scope         ScopeSnapshot `json:"scope,omitzero"`
-	BackendID     string        `json:"backend_id,omitempty"`
-	Model         string        `json:"model,omitempty"`
-	Plane         UsagePlane    `json:"plane"`
-	InputTokens   int64         `json:"input_tokens,omitempty"`
-	OutputTokens  int64         `json:"output_tokens,omitempty"`
-	TotalTokens   int64         `json:"total_tokens,omitempty"`
-	CostNanoUnits int64         `json:"cost_nano_units,omitempty"`
-	WindowStart   time.Time     `json:"window_start,omitzero"`
-	WindowEnd     time.Time     `json:"window_end,omitzero"`
-	EvidenceState EvidenceState `json:"evidence_state"`
+	Scope          ScopeSnapshot       `json:"scope,omitzero"`
+	BackendID      string              `json:"backend_id,omitempty"`
+	Model          string              `json:"model,omitempty"`
+	Plane          UsagePlane          `json:"plane"`
+	Perspective    UsagePerspective    `json:"perspective,omitempty"`
+	Boundary       UsageBoundary       `json:"boundary,omitempty"`
+	LifecycleScope UsageLifecycleScope `json:"lifecycle_scope,omitempty"`
+	InputTokens    int64               `json:"input_tokens,omitempty"`
+	OutputTokens   int64               `json:"output_tokens,omitempty"`
+	TotalTokens    int64               `json:"total_tokens,omitempty"`
+	CostNanoUnits  int64               `json:"cost_nano_units,omitempty"`
+	WindowStart    time.Time           `json:"window_start,omitzero"`
+	WindowEnd      time.Time           `json:"window_end,omitzero"`
+	EvidenceState  EvidenceState       `json:"evidence_state"`
 }
 
 // PolicyAuditRow is one row of an EvidenceQuery result for policy or audit

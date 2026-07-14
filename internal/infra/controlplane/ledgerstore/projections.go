@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
@@ -169,29 +170,7 @@ func attemptRowFromEvent(ev cp.Event) cp.AttemptRow {
 // ---- usage ----
 
 func usageRowFromEvent(ev cp.Event) cp.UsageRow {
-	u := ev.Usage
-	row := cp.UsageRow{
-		Correlation:      ev.Correlation,
-		Plane:            u.Plane,
-		Availability:     u.Availability,
-		InputTokens:      u.InputTokens,
-		OutputTokens:     u.OutputTokens,
-		CacheReadTokens:  u.CacheReadTokens,
-		CacheWriteTokens: u.CacheWriteTokens,
-		ReasoningTokens:  u.ReasoningTokens,
-		TotalTokens:      u.TotalTokens,
-		CostNanoUnits:    u.CostNanoUnits,
-		Currency:         u.Currency,
-		EvidenceState:    ev.EvidenceState,
-		RedactionState:   ev.RedactionState,
-	}
-	if row.EvidenceState == "" {
-		row.EvidenceState = cp.EvidenceRecorded
-	}
-	if row.RedactionState == "" {
-		row.RedactionState = cp.RedactionNone
-	}
-	return row
+	return corecp.UsageRowFromEvent(ev)
 }
 
 // ---- usage aggregate ----
@@ -200,12 +179,15 @@ func aggregateRow(groupBy []string, ev cp.Event) (string, *cp.UsageAggregate) {
 	u := ev.Usage
 	parts := make([]string, 0, len(groupBy))
 	agg := &cp.UsageAggregate{
-		Plane:         u.Plane,
-		InputTokens:   int64(u.InputTokens),
-		OutputTokens:  int64(u.OutputTokens),
-		TotalTokens:   int64(u.TotalTokens),
-		CostNanoUnits: u.CostNanoUnits,
-		EvidenceState: ev.EvidenceState,
+		Plane:          u.Plane,
+		Perspective:    u.Perspective,
+		Boundary:       u.Boundary,
+		LifecycleScope: u.LifecycleScope,
+		InputTokens:    int64(u.InputTokens),
+		OutputTokens:   int64(u.OutputTokens),
+		TotalTokens:    int64(u.TotalTokens),
+		CostNanoUnits:  u.CostNanoUnits,
+		EvidenceState:  ev.EvidenceState,
 	}
 	if agg.EvidenceState == "" {
 		agg.EvidenceState = cp.EvidenceRecorded

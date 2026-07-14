@@ -134,8 +134,12 @@ type unreservedUsageFact struct {
 }
 
 type commandSnapshot struct {
-	Correlation controlplane.Correlation
-	Scope       controlplane.ScopeSnapshot
+	Correlation        controlplane.Correlation
+	Scope              controlplane.ScopeSnapshot
+	Surfaced           controlplane.UsageSurfaced
+	ParentRequestID    string
+	BoundPolicyVersion controlplane.VersionRef
+	BoundRatingVersion controlplane.VersionRef
 }
 
 func newStoreCore(cfg Config) *storeCore {
@@ -353,17 +357,31 @@ func cloneLimitTemplates(in map[string][]controlplane.AccountingLimitStatusRow) 
 }
 
 func (c *storeCore) snapshotFromReserve(cmd app.ReserveCommand) commandSnapshot {
-	return commandSnapshot{
-		Correlation: cmd.Correlation,
-		Scope:       scopeSnapshotFromDimensionsWithFallback(cmd.Scope, cmd.Dimensions),
-	}
+	return enrichCommandSnapshot(commandSnapshot{
+		Correlation:        cmd.Correlation,
+		Scope:              scopeSnapshotFromDimensionsWithFallback(cmd.Scope, cmd.Dimensions),
+		Surfaced:           cmd.Surfaced,
+		ParentRequestID:    strings.TrimSpace(cmd.ParentRequestID),
+		BoundPolicyVersion: cmd.BoundPolicyVersion,
+		BoundRatingVersion: cmd.BoundRatingVersion,
+	})
 }
 
 func mutationSnapshot(correlation controlplane.Correlation, view scope.PrincipalScopeView, dims domain.Dimensions) commandSnapshot {
-	return commandSnapshot{
+	return enrichCommandSnapshot(commandSnapshot{
 		Correlation: correlation,
 		Scope:       scopeSnapshotFromDimensionsWithFallback(view, dims),
+	})
+}
+
+func enrichCommandSnapshot(snap commandSnapshot) commandSnapshot {
+	if strings.TrimSpace(snap.ParentRequestID) == "" {
+		snap.ParentRequestID = strings.TrimSpace(snap.Correlation.RequestID)
 	}
+	if snap.Surfaced == "" {
+		snap.Surfaced = controlplane.UsageSurfacedUnknown
+	}
+	return snap
 }
 
 func scopeSnapshotFromDimensionsWithFallback(view scope.PrincipalScopeView, dims domain.Dimensions) controlplane.ScopeSnapshot {

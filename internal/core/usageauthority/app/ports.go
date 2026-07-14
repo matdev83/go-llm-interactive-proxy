@@ -179,19 +179,23 @@ type ReleaseDescriptor struct {
 // ReserveCommand, SettleCommand, and ReleaseCommand are the app-owned mutation
 // ports passed to the backing authority store.
 type ReserveCommand struct {
-	Reservations   ReservationSet
-	Correlation    controlplane.Correlation
-	Scope          scope.PrincipalScopeView
-	ReservationKey domain.ReservationKey
-	RuleID         string
-	RuleType       string
-	Dimensions     domain.Dimensions
-	Request        domain.Amount
-	Spend          domain.Amount
-	Authority      domain.AuthorityLevel
-	EstimateOnly   bool
-	At             time.Time
-	SourceKey      string
+	Reservations       ReservationSet
+	Correlation        controlplane.Correlation
+	Scope              scope.PrincipalScopeView
+	ReservationKey     domain.ReservationKey
+	RuleID             string
+	RuleType           string
+	Dimensions         domain.Dimensions
+	Request            domain.Amount
+	Spend              domain.Amount
+	Authority          domain.AuthorityLevel
+	EstimateOnly       bool
+	At                 time.Time
+	SourceKey          string
+	Surfaced           controlplane.UsageSurfaced
+	ParentRequestID    string
+	BoundPolicyVersion controlplane.VersionRef
+	BoundRatingVersion controlplane.VersionRef
 }
 
 type SettleCommand struct {
@@ -319,6 +323,8 @@ type AdmissionResult struct {
 	AccountingEvent controlplane.Event
 	// BoundVersion is the policy snapshot identity captured at admission (11.2).
 	BoundVersion economics.PolicySnapshotRef
+	// BoundRatingVersion is the rating/catalog snapshot identity when known (14.3).
+	BoundRatingVersion economics.RatingSnapshotRef
 }
 
 // SettlementKind classifies the settlement path.
@@ -365,6 +371,8 @@ type SettleInput struct {
 	Facts    []metering.Fact
 	// BoundVersion pins settlement to the admission-time policy snapshot (11.4).
 	BoundVersion economics.PolicySnapshotRef
+	// BoundRatingVersion pins rating identity when known at settlement (14.3).
+	BoundRatingVersion economics.RatingSnapshotRef
 }
 
 // SettleResult reports the settlement outcome for surfaced attempts.
@@ -564,4 +572,15 @@ type Evidence struct {
 	Stage            string
 	BackendAttempted bool
 	OutputCommitted  bool
+	// Dual-plane identity and version refs (requirements 1.6, 14.3, 17.4).
+	AuthorityNamespace string
+	Perspective        string
+	LifecycleScope     string
+	Basis              string
+	RuleVersion        string
+	Surfaced           string
+	ReservationType    string
+	ParentRequestID    string
+	BoundPolicyVersion economics.PolicySnapshotRef
+	BoundRatingVersion economics.RatingSnapshotRef
 }
