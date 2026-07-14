@@ -129,8 +129,8 @@
   - Avoid in-place mutation of active request pipelines and reject silent fallback to unrelated versions.
   - _Requirements: 11.3, 11.7, 12.8, 17.1_
 
-- [ ] 10. Expose production open-core composition seams
-- [ ] 10.1 Add a public runtime construction facade
+- [x] 10. Expose production open-core composition seams
+- [x] 10.1 Add a public runtime construction facade
   - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and query implementations.
   - Keep internal runtimebundle authoritative without exposing Executor internals.
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
@@ -191,3 +191,4 @@
 - Phase 9.2: Admit captures `BoundVersion`; settle uses version-indexed snapshot cache (fail closed on missing unrelated version); concurrency admit stamps `snap.PolicyRef()`; coordinators/adapters forward BoundVersions into settle.
 - Phase 9.3: `internal/core/snapshotgen` atomic `Publisher` (`RuntimeGeneration` + pointer swap); `MarkUnusable` keeps Value versions (no silent unrelated fallback; unknown state preserves prior); runtimebundle builds initial generation from static config and exposes `Built.SnapshotGeneration` / `TestingOptions.SnapshotPublisherOverride`; admit-time version binding remains on BoundVersions from 9.2.
 - Phase 9 remediation (review REJECTED): (11.4) `authorityLifecycle.settlementInput` now forwards `admissionResult.BoundVersion`; attempt coordinator aggregates BoundVersions and `admitAttemptViaCoordinator` copies them into AdmissionResult; SnapshotGeneration is wired onto Executor and preferred at admit (`applyGenerationBoundVersion` / `mergeGenerationBoundVersions`); regression covers lifecycle settle after mid-flight rule publish.
+- Phase 10.1: `pkg/lipruntime` public facade (`Options`/`Build`/`Runtime`) delegates to `runtimebundle.BuildBootstrap`; first-class `ProductionOptions` on BuildOptions (metering/authority/concurrency/snapshot/observers) outside TestingOptions (12.4); opaque handle exposes `ExecutorView` only.

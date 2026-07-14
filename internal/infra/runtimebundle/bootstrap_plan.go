@@ -16,6 +16,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 // BootstrapMode selects how much runtime assembly [BuildBootstrap] performs.
@@ -40,6 +42,8 @@ type BuildBootstrapInput struct {
 	// LogWriter receives logger output; nil means [os.Stdout].
 	LogWriter               io.Writer
 	StreamRecoveryOverrides config.StreamRecoveryOverrides
+	// Production carries first-class enterprise injection seams (requirement 12.4).
+	Production ProductionOptions
 }
 
 // BootstrapResult is the shared output of [BuildBootstrap] for inspect and serve commands.
@@ -178,11 +182,12 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 				PreRequestHandlers: merged.PreRequestHandlers,
 				RouteHintProviders: merged.RouteHintProviders,
 				CompletionGates:    merged.CompletionGates,
-				TrafficObservers:   merged.TrafficObservers,
-				UsageObservers:     merged.UsageObservers,
+				TrafficObservers:   append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
+				UsageObservers:     append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
 				RawCaptureSinks:    merged.RawCaptureSinks,
 				TrafficRedactors:   merged.TrafficRedactors,
 			},
+			Production: in.Production,
 		})
 		if err != nil {
 			shutdownTracing(ctx, traceRes.Shutdown)

@@ -119,6 +119,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if meteringRT != nil {
 		accountingRT.MeteringRecorder = meteringRT.Recorder
 	}
+	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
+		accountingRT.MeteringRecorder = in.Bctx.Opts.Production.MeteringRecorder
+	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
 		cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
@@ -128,8 +131,12 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
-	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil {
-		attachAuthorityCoordinators(&accountingRT)
+	var prod ProductionOptions
+	if in.Bctx.Opts != nil {
+		prod = in.Bctx.Opts.Production
+	}
+	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil || prod.HasAuthorityOverrides() {
+		attachAuthorityCoordinators(&accountingRT, prod)
 	}
 	accountingRT.SnapshotGeneration = in.SnapshotGeneration
 	if len(cfg.Accounting.Pricing.Models) > 0 {

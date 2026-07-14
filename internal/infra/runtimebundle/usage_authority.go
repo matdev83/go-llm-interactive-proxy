@@ -87,7 +87,7 @@ func buildAuthorityEvidenceSink(cp *controlPlaneRuntime, policyObs policydecisio
 	if cp != nil {
 		recorder = cp.recorder
 	}
-	hasOperatorObservers := opts != nil && len(opts.Policy.PolicyObservers) > 0
+	hasOperatorObservers := opts != nil && (len(opts.Policy.PolicyObservers) > 0 || len(opts.Production.PolicyObservers) > 0)
 	if recorder == nil && !hasOperatorObservers {
 		return nil
 	}

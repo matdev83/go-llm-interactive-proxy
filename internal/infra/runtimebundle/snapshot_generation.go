@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -9,7 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
-func buildSnapshotGeneration(cfg *config.Config, testing TestingOptions) *snapshotgen.Publisher {
+func buildSnapshotGeneration(cfg *config.Config, testing TestingOptions, prod ProductionOptions) *snapshotgen.Publisher {
 	if testing.SnapshotPublisherOverride != nil {
 		return testing.SnapshotPublisherOverride
 	}
@@ -22,6 +23,7 @@ func buildSnapshotGeneration(cfg *config.Config, testing TestingOptions) *snapsh
 		PublishedAt: now,
 		State:       economics.SnapshotReady,
 	}
+	ctx := context.Background()
 	if cfg != nil {
 		usageVer := "static"
 		if v := cfg.Accounting.Authority.SnapshotVersion; v != "" {
@@ -57,6 +59,21 @@ func buildSnapshotGeneration(cfg *config.Config, testing TestingOptions) *snapsh
 		}
 		catVer := cfg.Accounting.Pricing.CatalogVersion
 		gen.Rating = snapshotsource.StaticRatingFromCatalog("rating", catVer, cfg.Accounting.Pricing.Currency, now)
+	}
+	if prod.UsageSnapshotSource != nil {
+		if snap, err := prod.UsageSnapshotSource.Snapshot(ctx); err == nil {
+			gen.Usage = snap
+		}
+	}
+	if prod.ConcurrencySnapshotSource != nil {
+		if snap, err := prod.ConcurrencySnapshotSource.Snapshot(ctx); err == nil {
+			gen.Concurrency = snap
+		}
+	}
+	if prod.RatingSnapshotSource != nil {
+		if snap, err := prod.RatingSnapshotSource.Snapshot(ctx); err == nil {
+			gen.Rating = snap
+		}
 	}
 	pub.Publish(gen)
 	return pub

@@ -49,6 +49,9 @@ type BuildOptions struct {
 	Policy      PolicyOptions
 	Diagnostics DiagnosticsOptions
 	Testing     TestingOptions
+	// Production holds first-class enterprise injection seams (requirement 12.4).
+	// Unlike Testing, these are supported for closed modules via pkg/lipruntime.
+	Production ProductionOptions
 }
 
 // StartupOptions carries startup-context configuration.

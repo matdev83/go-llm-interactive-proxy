@@ -70,6 +70,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity/memorystore",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities",
