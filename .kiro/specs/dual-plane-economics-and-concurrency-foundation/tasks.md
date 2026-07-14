@@ -12,7 +12,7 @@
   - _Requirements: 3.6, 3.7, 3.8, 6.3, 6.4, 6.5, 7.2, 7.3_
 
 - [ ] 2. Correct existing token and money semantics
-- [ ] 2.1 Implement explicit component inclusion and presence rules
+- [x] 2.1 Implement explicit component inclusion and presence rules
   - Treat cache-read/write as input subcomponents and reasoning as an output subcomponent by default.
   - Keep separately reported components available for differential rating without adding them twice to totals.
   - Preserve explicit zero independently from absence.

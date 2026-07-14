@@ -73,9 +73,9 @@ func TestAttemptAuthoritySpendAmount_omittedMaxCurrentlyReservesInputOnly(t *tes
 	}
 }
 
-// TestAttemptAuthorityUsageAmount_currentlyInfersWithSubcomponents locks F-08 on the
-// runtime settlement path when TotalTokens is absent.
-func TestAttemptAuthorityUsageAmount_currentlyInfersWithSubcomponents(t *testing.T) {
+// TestAttemptAuthorityUsageAmount_infersTotalWithoutSubcomponentDoubleCount locks
+// inclusion schema on the runtime settlement path when TotalTokens is absent.
+func TestAttemptAuthorityUsageAmount_infersTotalWithoutSubcomponentDoubleCount(t *testing.T) {
 	t.Parallel()
 
 	ev := lipapi.Event{
@@ -88,9 +88,8 @@ func TestAttemptAuthorityUsageAmount_currentlyInfersWithSubcomponents(t *testing
 		TotalTokens:      0,
 	}
 	got := attemptAuthorityUsageAmount(ev, authoritydomain.Amount{Unit: authoritydomain.AmountUnitTotalTokens})
-	// Current: 100+20+40+10+5 = 175. Desired: 120 (input includes cache, output includes reasoning).
-	if got.Value != 175 {
-		t.Fatalf("current defect characterization: total=%d want 175; Phase 2 must infer without double-count (120)", got.Value)
+	if got.Value != 120 {
+		t.Fatalf("total=%d want 120 (input+output; cache/reasoning are subcomponents)", got.Value)
 	}
 }
 
@@ -104,15 +103,9 @@ func TestPhase12_desiredSpendAndUsageSemanticsCurrentlyAbsent(t *testing.T) {
 		Allowed: true,
 		Count:   accountingapp.CountResult{InputTokens: 1_000_000, OutputTokens: 0},
 	})
-	// Desired (Phase 2): omitted max must not reserve input-only (zero future output).
-	// While still defective, spend stays at 1e9 input-only.
+	// Desired (Phase 2.3): omitted max must not reserve input-only (zero future output).
+	// While still defective until 2.3, spend stays at 1e9 input-only.
 	if spend.Value != 1_000_000_000 {
-		t.Fatalf("desired unknown-output spend semantics appear present (spend=%d, not input-only 1e9); Phase 2 flip of characterization tests is due", spend.Value)
-	}
-
-	ev := lipapi.Event{InputTokens: 100, OutputTokens: 20, CacheReadTokens: 40, CacheWriteTokens: 10, ReasoningTokens: 5}
-	got := attemptAuthorityUsageAmount(ev, authoritydomain.Amount{Unit: authoritydomain.AmountUnitTotalTokens})
-	if got.Value == 120 {
-		t.Fatal("desired non-double-count usage inference already present; Phase 2 flip due")
+		t.Fatalf("desired unknown-output spend semantics appear present (spend=%d, not input-only 1e9); Phase 2.3 flip due", spend.Value)
 	}
 }
