@@ -132,9 +132,10 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 		return
 	}
 	_ = e.RequestCoordinator.Settle(ctx, authority.RequestSettlement{
-		RequestID: st.RequestID,
-		Handles:   st.Decision.Stack.Handles(),
-		Facts:     facts,
+		RequestID:     st.RequestID,
+		Handles:       st.Decision.Stack.Handles(),
+		Facts:         facts,
+		BoundVersions: st.Decision.BoundVersions,
 	})
 	// RequestCoordinator.Settle does not release concurrency occupancy (10.5).
 	e.stopLeaseHeartbeat(st)

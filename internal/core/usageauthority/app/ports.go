@@ -317,6 +317,8 @@ type AdmissionResult struct {
 	Clamp           *AdmissionClamp
 	PolicyRecord    policydecision.Record
 	AccountingEvent controlplane.Event
+	// BoundVersion is the policy snapshot identity captured at admission (11.2).
+	BoundVersion economics.PolicySnapshotRef
 }
 
 // SettlementKind classifies the settlement path.
@@ -361,6 +363,8 @@ type SettleInput struct {
 	// Facts/Exposure; compatibility-basis rules keep FinalUsage/FinalCost.
 	Exposure economics.ExposureBasis
 	Facts    []metering.Fact
+	// BoundVersion pins settlement to the admission-time policy snapshot (11.4).
+	BoundVersion economics.PolicySnapshotRef
 }
 
 // SettleResult reports the settlement outcome for surfaced attempts.

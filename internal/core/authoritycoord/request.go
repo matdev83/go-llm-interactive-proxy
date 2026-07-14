@@ -58,6 +58,9 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 		}
 		out.Lease = ld
 		out.Readiness = AggregateReadiness(out.Readiness, ld.Readiness)
+		if ld.BoundVersion.Version != "" {
+			out.BoundVersions = append(out.BoundVersions, ld.BoundVersion)
+		}
 		switch ld.Kind {
 		case authority.LeaseDeny:
 			out.Kind = authority.DecisionDeny
@@ -127,6 +130,9 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
 		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
 		out.Clamps = mergeClampsNonWidening(out.Clamps, d.Clamps)
+		if len(d.BoundVersions) > 0 {
+			out.BoundVersions = append(out.BoundVersions, d.BoundVersions...)
+		}
 
 		switch d.Kind {
 		case authority.DecisionDeny:

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 const defaultCleanupTimeout = 2 * time.Second
@@ -120,6 +121,8 @@ type CompositeDecision struct {
 	DeniedBy           string
 	// Lease captures concurrency admit metadata for heartbeat/release (Phase 8).
 	Lease authority.LeaseDecision
+	// BoundVersions aggregates policy snapshot refs from providers and lease admit (11.2).
+	BoundVersions []economics.PolicySnapshotRef
 }
 
 // ErrDenied is returned when a required provider denies admission.

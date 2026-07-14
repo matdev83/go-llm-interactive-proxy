@@ -128,6 +128,7 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (AdmissionResult
 		AdvisoryRuleIDs: advisoryRuleIDs(evaluation.Matches, snap.Rules),
 		SelectedRuleID:  evaluation.Selected.RuleID,
 		RuleKind:        evaluation.Selected.Kind,
+		BoundVersion:    snap.PolicyRef(),
 	}
 
 	// Authority-unavailable outcome (authoritative-only rule under estimated
@@ -256,6 +257,7 @@ func (s *Service) resolveAdmissionFailure(ctx context.Context, in AdmissionInput
 		UnreservedRuleIDs: unreservedRuleIDs(evaluation, rules),
 		SelectedRuleID:    evaluation.Selected.RuleID,
 		RuleKind:          evaluation.Selected.Kind,
+		BoundVersion:      s.cachedSnapshot().PolicyRef(),
 	}
 	projection, err := s.projectAdmissionEvidence(ctx, in, result, status, rules, now, reason)
 	if err != nil {

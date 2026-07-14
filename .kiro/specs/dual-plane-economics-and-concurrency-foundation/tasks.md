@@ -122,7 +122,7 @@
 - [x] 9.1 Implement static and injectable snapshot sources
   - Support immutable authority, concurrency, and rating snapshots with ready, stale, degraded, unavailable, and disabled status.
   - _Requirements: 11.1, 11.5, 11.6, 11.7_
-- [ ] 9.2 Bind versions to requests, attempts, reservations, and settlements
+- [x] 9.2 Bind versions to requests, attempts, reservations, and settlements
   - Keep in-flight work on its bound versions while new publications affect new admissions.
   - _Requirements: 11.2, 11.3, 11.4, 11.8, 6.2, 7.6_
 - [ ] 9.3 Publish runtime generations atomically

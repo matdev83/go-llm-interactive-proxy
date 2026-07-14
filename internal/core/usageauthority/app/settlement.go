@@ -23,7 +23,7 @@ func (s *Service) Settle(ctx context.Context, in SettleInput) (SettleResult, err
 	}
 
 	now := s.now()
-	snap := s.snapshotTolerant(ctx)
+	snap := s.snapshotForSettle(ctx, in.BoundVersion)
 	in = s.normalizeSettleInput(snap.UnknownAttribution, in, snap.Rules)
 	settle, err := s.storeSettle(ctx, in, now, snap.Rules)
 	if err != nil {
