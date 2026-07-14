@@ -82,7 +82,7 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 			}
 		}
 
-		d, err := slot.Provider.AdmitAttempt(ctx, in)
+		d, err := invokeAdmitAttempt(slot.Provider, ctx, in)
 		if err != nil {
 			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
 				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)

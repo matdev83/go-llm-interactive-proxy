@@ -52,7 +52,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			ParentLeaseID:  in.ParentLeaseID,
 			AuxPolicy:      in.AuxPolicy,
 		}
-		ld, err := c.Concurrency.AdmitLease(ctx, leaseIn)
+		ld, err := invokeAdmitLease(c.Concurrency, ctx, leaseIn)
 		if err != nil {
 			return CompositeDecision{}, &ErrUnavailable{ProviderID: "concurrency", Err: err}
 		}
@@ -114,7 +114,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			}
 		}
 
-		d, err := slot.Provider.AdmitRequest(ctx, in)
+		d, err := invokeAdmitRequest(slot.Provider, ctx, in)
 		if err != nil {
 			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
 				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)

@@ -156,7 +156,7 @@
   - Report every required authority/journal independently and aggregate protected-traffic posture (live readiness wiring).
   - _Requirements: 4.7, 5.7, 14.6, 14.7, 15.7, 15.8_
 
-- [ ] 12. Remove global serialization and prove scalability
+- [x] 12. Remove global serialization and prove scalability
 - [x] 12.1 Refactor durable authority synchronization
   - Limit in-process locking to lifecycle/readiness state and rely on targeted database locks, unique constraints, and compare-and-swap for mutations.
   - Preserve memory-store correctness with sharded or keyed locking where beneficial.
@@ -164,7 +164,7 @@
 - [x] 12.2 Add metrics, time budgets, and contention benchmarks
   - Cover independent principals, a hot account, five slots with many contenders, two PostgreSQL instances, parallel 2/4/8-leg races, journal correction replay, and no-feature baseline.
   - _Requirements: 16.4, 16.5, 16.6, 16.8_
-- [ ] 12.3 Add race, fuzz, PostgreSQL, migration, and cross-protocol release gates
+- [x] 12.3 Add race, fuzz, PostgreSQL, migration, and cross-protocol release gates
   - Validate OpenAI, Anthropic, Gemini, and other supported frontend semantics against the same checkpoint and authority contracts.
   - Include crash recovery, cancellation, late correction, malformed external provider, privacy, and compatibility cases.
   - _Requirements: 15.9, 17.1, 17.2, 17.3, 17.5, 17.6, 17.8, 17.9_
@@ -203,3 +203,5 @@
   - RED_PHASE_OUTPUT: `TestMemoryStore_UsageAppliesDualPlaneFilters` / `TestMemoryStore_UsageRejectsRuleIDAsUnsupported` (ledgerstore); `TestLimitRowMatchesQueryPerspectiveAndLifecycle` / `TestDecisionRowMatchesQueryPerspectiveAndLifecycle` / `TestLimitRowMatchesQueryBasis` / `TestDecisionRowMatchesQueryBasis` (authoritystore) — fail under silent-ignore; GREEN after filter+validate+basis wiring.
 - Phase 12.1: `DurableStore` process mutex shrunk to Close/readiness lifecycle (`lifecycleMu` + `atomic.Bool` closed); mutations/queries use DB row locks/CAS only; RED `TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB` BeginTx barrier. Memory store retains its mutex.
 - Phase 12.2: `lip_authority_stage_*` Prometheus metrics + Admit stage observation (evaluation/cleanup budgets already wired); contention benches for independent principals, hot account, five-slot×100, journal correction append; executor bench documented as no-feature baseline (16.8). PG two-instance remains env-gated integration tests.
+- Phase 12.3: enterprise provider panic/malformed decision+lease isolation in `authoritycoord` (15.9); shared FE operation checkpoint contract test; `make test-authority-postgres` covers authoritystore+leasestore+journalstore; dual-plane section in `docs/release-gates.md` + `internal/qa` evidence pin; gates = `make parity-checks`, `make release-gates`/`test-fuzz`, `make test-race` (Windows no-op), PG when `LIP_TEST_POSTGRES_DSN` set.
+  - RED_PHASE_OUTPUT: `TestRequestCoordinator_IsolatesProviderPanicFailClosed` / `IsolatesMalformedDecisionKind` / `IsolatesConcurrencyPanic` / `IsolatesMalformedLeaseDecisionKind` / `TestAttemptCoordinator_IsolatesProviderPanic` / `TestCompensationStack_IsolatesReleasePanic` — panic under missing recover; GREEN after `invoke*` wiring + `LeaseDecision.Validate`.

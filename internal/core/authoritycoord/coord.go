@@ -95,7 +95,7 @@ func (s *CompensationStack) ReverseCompensate(parent context.Context, timeout ti
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-		err := e.Compensate(ctx)
+		err := invokeCompensate(e.Compensate, ctx)
 		cancel()
 		if err != nil {
 			failed = append(failed, CompensateFailed{

@@ -2,6 +2,7 @@ package authority
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -69,6 +70,14 @@ type LeaseDecision struct {
 	TTL time.Duration `json:"ttl,omitempty"`
 	// FailureBehavior is the post-admission renew-failure posture (fail_closed|fail_open).
 	FailureBehavior FailureBehavior `json:"failure_behavior,omitempty"`
+}
+
+// Validate checks LeaseDecisionKind when set.
+func (d LeaseDecision) Validate() error {
+	if d.Kind != "" && !d.Kind.IsKnown() {
+		return fmt.Errorf("authority: unknown lease decision kind %q", d.Kind)
+	}
+	return nil
 }
 
 // LeaseRelease releases a previously acquired lease.
