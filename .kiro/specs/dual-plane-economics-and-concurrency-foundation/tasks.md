@@ -60,7 +60,7 @@
   - _Requirements: 2.3, 2.4, 4.2, 4.4, 5.2, 5.3, 5.4, 8.4_
 
 - [ ] 5. Build the durable metering journal
-- [ ] 5.1 Implement memory, SQLite, and PostgreSQL fact stores
+- [x] 5.1 Implement memory, SQLite, and PostgreSQL fact stores
   - Enforce unique fact/source identity, append-only correction history, bounded indexed queries, and safe scope projections.
   - Keep the journal independent from live authority counters and proprietary financial ledgers.
   - _Requirements: 3.1, 3.3, 3.4, 13.1, 13.2, 13.3, 13.4, 13.5, 13.8_
@@ -177,3 +177,4 @@
 - 2.3 landed: `unknown_output_policy` (require_client_limit|configured_default|model_backend_maximum|clamp|deny); empty defaults to model limit then configured max, else legacy unbound; spend uses AdjustedMax/Count output bound; `RequireMaxOutputEnforcement` excludes unenforceable backends before Open.
 - Phase 3 public contracts: `pkg/lipsdk/metering` (facts/quantities/recorder/query/compat), `pkg/lipsdk/economics` (money/rating/exposure/version), `pkg/lipsdk/authority` (request/attempt providers, posture with ProviderKind observer vs authority, concurrency lease DTOs). Import DAG: `authority` → `economics` → `metering` (+ `scope` on facts/admissions). CompatibilityPolicy additive_v1 (12.8); observers cannot declare StrengthRequired (12.7). No journal/runtimebundle wiring.
 - Phase 4 checkpoints: public `metering.Checkpoint`; `internal/core/metering/checkpoint` Snapshot+sanitize+widening+egress Fact drafts; FE ingress captured before `RunSubmit` (distinct from post-submit `baseline`); backend ingress frozen via independent `CloneCall` before `be.Open` (Open uses freeze; `AssertNotWidened` rejects post-freeze live-call mutation); backend egress for winner/loser/failed/canceled/swallowed when freeze exists; frontend egress on winner finalize and committed cancel/partial-error terminals; optional `Executor.MeteringRecorder` (nil = no durable append). No durable journalstore (Phase 5).
+- Phase 5.1: `internal/infra/metering/journalstore` memory+SQLite+Postgres append-only facts (`UNIQUE(source_event_key)`=IdempotencyKey); money preserved in payload_json; bounded List requires stream_id|request_id; `metering.enabled` default off wires `runtimebundle/metering.go` → `MeteringRecorder`.

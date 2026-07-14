@@ -42,6 +42,9 @@ type Config struct {
 	// capability. Disabled by default; enabled requires explicit startup
 	// validation (see validateControlPlane).
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
+	// Metering is the optional durable metering journal (Phase 5). Disabled by
+	// default so Executor.MeteringRecorder stays nil until explicitly enabled.
+	Metering MeteringConfig `yaml:"metering"`
 	// ConfigDir is the directory containing the loaded config file. Set by [LoadFile];
 	// empty when Config is constructed without loading from disk.
 	ConfigDir string `yaml:"-"`
@@ -85,6 +88,20 @@ type AccountingLedgerConfig struct {
 	SQLitePath  string `yaml:"sqlite_path"`
 	PostgresDSN string `yaml:"postgres_dsn"`
 	WritePolicy string `yaml:"write_policy"`
+}
+
+// MeteringConfig enables the optional durable metering journal (requirements 13.1–13.5).
+// When Enabled is false, runtime leaves Executor.MeteringRecorder nil (requirement 17.1).
+type MeteringConfig struct {
+	Enabled bool                  `yaml:"enabled"`
+	Journal MeteringJournalConfig `yaml:"journal"`
+}
+
+// MeteringJournalConfig selects the journal store backend.
+type MeteringJournalConfig struct {
+	Store       string `yaml:"store"` // memory | sqlite | postgres; empty with enabled defaults to memory
+	SQLitePath  string `yaml:"sqlite_path"`
+	PostgresDSN string `yaml:"postgres_dsn"`
 }
 
 type AccountingAdminConfig struct {

@@ -90,6 +90,12 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	closers = append(closers, accountingClosers...)
 
+	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, cfg, in.NowFn)
+	if err != nil {
+		return nil, closers, err
+	}
+	closers = append(closers, meteringClosers...)
+
 	// Compute interleaved-thinking config before construction.
 	interleaved, err := interleavedExecutorRuntime(cfg)
 	if err != nil {
@@ -106,6 +112,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.Ledger = tokenAccounting.Ledger
 		accountingRT.TokenAccountingObservability = tokenAccounting.Observability
 		accountingRT.AdminCountService = tokenAccounting.Admin
+	}
+	if meteringRT != nil {
+		accountingRT.MeteringRecorder = meteringRT.Recorder
 	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority

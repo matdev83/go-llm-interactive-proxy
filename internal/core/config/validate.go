@@ -75,6 +75,9 @@ func Validate(cfg *Config) error {
 	if err := validateAccounting(cfg); err != nil {
 		return err
 	}
+	if err := validateMetering(cfg); err != nil {
+		return err
+	}
 	if err := validateRoutingHealth(cfg); err != nil {
 		return err
 	}
