@@ -100,22 +100,22 @@ func selectFactOrExposureAmount(r Rule, unit AmountUnit, src AmountSelectionSour
 	wantBoundary := metering.Boundary(r.Basis)
 	wantPersp := r.Perspective
 
-	if len(src.Facts) > 0 {
-		for _, f := range src.Facts {
-			if wantPersp != "" && f.Perspective != wantPersp {
-				continue
-			}
-			if wantBoundary != "" && f.Boundary != wantBoundary {
-				continue
-			}
-			if amt, ok := quantityAmountForUnit(f.Quantities, unit, r.Currency); ok {
-				return amt, true
-			}
+	if amt, ok := amountFromFacts(r, unit, src.Facts, wantPersp, wantBoundary, false); ok {
+		return amt, true
+	}
+	// Settlement may carry egress facts while the rule's admit basis is ingress.
+	if src.ForSettlement {
+		if amt, ok := amountFromFacts(r, unit, src.Facts, wantPersp, wantBoundary, true); ok {
+			return amt, true
 		}
 	}
 
 	exp := src.Exposure
-	if exp.Boundary != "" && wantBoundary != "" && exp.Boundary != wantBoundary {
+	if !src.ForSettlement {
+		if exp.Boundary != "" && wantBoundary != "" && exp.Boundary != wantBoundary {
+			return Amount{}, false
+		}
+	} else if exp.Boundary != "" && wantBoundary != "" && exp.Boundary != wantBoundary && !isEgressBoundary(exp.Boundary) {
 		return Amount{}, false
 	}
 	if exp.Perspective != "" && wantPersp != "" && exp.Perspective != wantPersp {
@@ -136,13 +136,46 @@ func selectFactOrExposureAmount(r Rule, unit AmountUnit, src AmountSelectionSour
 	}
 	// Allow request-count dual-plane rules to use explicit RequestCount when the
 	// exposure does not yet carry a request quantity component.
-	if unit == AmountUnitRequests && src.RequestCount.Unit == AmountUnitRequests {
+	if !src.ForSettlement && unit == AmountUnitRequests && src.RequestCount.Unit == AmountUnitRequests {
 		return src.RequestCount, true
 	}
-	if unit != AmountUnitMoneyNano && src.Amount.Unit == unit {
+	if !src.ForSettlement && unit != AmountUnitMoneyNano && src.Amount.Unit == unit {
 		return src.Amount, true
 	}
 	return Amount{}, false
+}
+
+func amountFromFacts(r Rule, unit AmountUnit, facts []metering.Fact, wantPersp metering.EconomicPerspective, wantBoundary metering.Boundary, egressFallback bool) (Amount, bool) {
+	for _, f := range facts {
+		if wantPersp != "" && f.Perspective != wantPersp {
+			continue
+		}
+		if !egressFallback {
+			if wantBoundary != "" && f.Boundary != wantBoundary {
+				continue
+			}
+		} else if !isEgressBoundary(f.Boundary) {
+			continue
+		}
+		if unit == AmountUnitMoneyNano || r.Kind == RuleKindBudget || r.Kind == RuleKindSpendCap {
+			if f.Money != nil && f.Money.Present {
+				cur := strings.TrimSpace(f.Money.Currency)
+				if cur == "" {
+					cur = strings.TrimSpace(r.Currency)
+				}
+				return Amount{Unit: AmountUnitMoneyNano, Value: f.Money.NanoUnits, Currency: cur}, true
+			}
+			continue
+		}
+		if amt, ok := quantityAmountForUnit(f.Quantities, unit, r.Currency); ok {
+			return amt, true
+		}
+	}
+	return Amount{}, false
+}
+
+func isEgressBoundary(b metering.Boundary) bool {
+	return b == metering.BoundaryBackendEgress || b == metering.BoundaryFrontendEgress
 }
 
 func quantityAmountForUnit(qs []metering.Quantity, unit AmountUnit, currency string) (Amount, bool) {

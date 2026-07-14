@@ -317,6 +317,10 @@ type SettleInput struct {
 	BackendAttempted     bool
 	OutputCommitted      bool
 	ClientCanceled       bool
+	// Phase 7.2 settlement selection: dual-plane rules resolve amounts from
+	// Facts/Exposure; compatibility-basis rules keep FinalUsage/FinalCost.
+	Exposure economics.ExposureBasis
+	Facts    []metering.Fact
 }
 
 // SettleResult reports the settlement outcome for surfaced attempts.

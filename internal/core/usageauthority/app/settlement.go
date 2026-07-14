@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -23,7 +25,7 @@ func (s *Service) Settle(ctx context.Context, in SettleInput) (SettleResult, err
 	now := s.now()
 	snap := s.snapshotTolerant(ctx)
 	in = s.normalizeSettleInput(snap.UnknownAttribution, in, snap.Rules)
-	settle, err := s.storeSettle(ctx, in, now)
+	settle, err := s.storeSettle(ctx, in, now, snap.Rules)
 	if err != nil {
 		s.emitSettlementFailureEvidence(ctx, in, now, snap)
 		return SettleResult{}, err
@@ -164,7 +166,7 @@ func (s *Service) emitReleaseFailureEvidence(ctx context.Context, in ReleaseInpu
 	_ = s.evidence.RecordAccountingAuthority(ctx, projection.Event)
 }
 
-func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time) (SettleResult, error) {
+func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time, rules []domain.Rule) (SettleResult, error) {
 	if s == nil || s.store == nil {
 		return SettleResult{}, WrapError(ErrUnavailable, "settle", errors.New("store not configured"))
 	}
@@ -174,6 +176,11 @@ func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time
 	descriptors := settlementDescriptors(in, now)
 	if len(descriptors) == 0 {
 		return SettleResult{}, WrapError(ErrReservationConflict, "settle", errors.New("settlement set is empty"))
+	}
+	var err error
+	descriptors, in, err = applySelectedSettlementAmounts(in, descriptors, rules)
+	if err != nil {
+		return SettleResult{}, WrapError(ErrUnavailable, "settle", err)
 	}
 	cmd := SettleCommand{
 		Reservations: descriptors,
@@ -217,6 +224,60 @@ func (s *Service) storeSettle(ctx context.Context, in SettleInput, now time.Time
 		settle.ReservationID = in.ReservationID
 	}
 	return settle, nil
+}
+
+// applySelectedSettlementAmounts resolves per-rule settle amounts before store
+// mutation (requirement 9.5). Dual-plane rules use Facts/Exposure; compatibility
+// basis keeps FinalUsage/FinalCost.
+func applySelectedSettlementAmounts(in SettleInput, descriptors []SettlementDescriptor, rules []domain.Rule) ([]SettlementDescriptor, SettleInput, error) {
+	if len(descriptors) == 0 {
+		return descriptors, in, nil
+	}
+	out := append([]SettlementDescriptor(nil), descriptors...)
+	for i := range out {
+		ruleID := strings.TrimSpace(out[i].Reservation.RuleID)
+		if ruleID == "" {
+			ruleID = strings.TrimSpace(in.RuleID)
+		}
+		rule, ok := ruleByID(rules, ruleID)
+		if !ok {
+			continue
+		}
+		src := domain.AmountSelectionSource{
+			FinalUsage:    out[i].FinalUsage,
+			FinalCost:     out[i].FinalCost,
+			Exposure:      in.Exposure,
+			Facts:         in.Facts,
+			ForSettlement: true,
+		}
+		if src.FinalUsage.Unit == "" {
+			src.FinalUsage = in.FinalUsage
+		}
+		if src.FinalCost.Unit == "" {
+			src.FinalCost = in.FinalCost
+		}
+		amt, selected := rule.SelectAmount(src)
+		if !selected {
+			if rule.Basis.IsLegacyCompatibility() || strings.TrimSpace(string(rule.Basis)) == "" {
+				continue
+			}
+			return nil, in, fmt.Errorf("settlement amount unavailable for rule %q basis %q (dual-plane requires matching Facts/Exposure)", rule.ID, rule.Basis)
+		}
+		unit := rule.Unit
+		if unit == "" {
+			unit = rule.Limit.Unit
+		}
+		if unit == domain.AmountUnitMoneyNano || rule.Kind == domain.RuleKindBudget || rule.Kind == domain.RuleKindSpendCap {
+			out[i].FinalCost = amt
+			in.FinalCost = amt
+			in.FinalCostPresent = true
+		} else {
+			out[i].FinalUsage = amt
+			in.FinalUsage = amt
+			in.FinalUsagePresent = true
+		}
+	}
+	return out, in, nil
 }
 
 func settlementDescriptors(in SettleInput, now time.Time) []SettlementDescriptor {
