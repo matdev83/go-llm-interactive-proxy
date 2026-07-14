@@ -56,8 +56,12 @@ func TestAppendDecisionMirrorsLimitWindow(t *testing.T) {
 			Backing: domain.BackingCapabilityAtomic,
 		})
 		snapshot := commandSnapshot{
-			Correlation: limitRow.Correlation,
-			Scope:       limitRow.Scope,
+			Correlation:        limitRow.Correlation,
+			Scope:              limitRow.Scope,
+			Surfaced:           controlplane.UsageSurfacedYes,
+			ParentRequestID:    "req-1",
+			BoundPolicyVersion: controlplane.VersionRef{ID: "usage_authority", Version: "pol-v1"},
+			BoundRatingVersion: controlplane.VersionRef{ID: "static", Version: "rate-v1"},
 		}
 		store.c.appendDecision(discardMutationLog{}, snapshot, limitRow, "res-1", "",
 			controlplane.AccountingOutcomeReserve, "reserved",
@@ -69,6 +73,18 @@ func TestAppendDecisionMirrorsLimitWindow(t *testing.T) {
 			t.Fatalf("decisions = %d, want 1", len(store.c.decisions))
 		}
 		got := store.c.decisions[0].Row
+		if got.ParentRequestID != "req-1" {
+			t.Errorf("ParentRequestID = %q, want req-1", got.ParentRequestID)
+		}
+		if got.Surfaced != controlplane.UsageSurfacedYes {
+			t.Errorf("Surfaced = %q, want yes", got.Surfaced)
+		}
+		if got.BoundPolicyVersion.Version != "pol-v1" {
+			t.Errorf("BoundPolicyVersion=%#v", got.BoundPolicyVersion)
+		}
+		if got.BoundRatingVersion.Version != "rate-v1" {
+			t.Errorf("BoundRatingVersion=%#v", got.BoundRatingVersion)
+		}
 		if !got.WindowStart.Equal(contractBaseTime) {
 			t.Errorf("decision WindowStart = %v, want %v", got.WindowStart, contractBaseTime)
 		}

@@ -638,29 +638,31 @@ func (s *Service) emitSettlementEvidence(ctx context.Context, in SettleInput, re
 		if reservationID == "" {
 			reservationID = descriptor.Reservation.ReservationID
 		}
-		projection, err := projectAuthorityEvidence(status, true, Evidence{
-			At:               now,
-			Correlation:      in.Correlation,
-			Scope:            in.Scope,
-			RuleID:           ruleID,
-			MatchedRuleIDs:   settlementRuleIDs(descriptors, ruleID),
-			RuleType:         string(selectedRuleKind([]string{ruleID}, rules)),
-			Outcome:          outcome,
-			ReasonCode:       reason,
-			ReservationID:    reservationID,
-			SettlementState:  state,
-			SourceKind:       string(in.Kind),
-			SourceSequence:   in.Sequence,
-			Unit:             string(usage.Unit),
-			Currency:         usage.Currency,
-			Consumed:         usage.Value,
-			Reserved:         reserved.Value,
-			Adjustment:       mutation.AdjustmentDelta.Value,
-			Authority:        authority,
-			Stage:            in.Stage,
-			BackendAttempted: in.BackendAttempted,
-			OutputCommitted:  in.OutputCommitted,
-		})
+		projection, err := projectAuthorityEvidence(status, true, EnrichEvidenceWithRule(Evidence{
+			At:                 now,
+			Correlation:        in.Correlation,
+			Scope:              in.Scope,
+			RuleID:             ruleID,
+			MatchedRuleIDs:     settlementRuleIDs(descriptors, ruleID),
+			RuleType:           string(selectedRuleKind([]string{ruleID}, rules)),
+			Outcome:            outcome,
+			ReasonCode:         reason,
+			ReservationID:      reservationID,
+			SettlementState:    state,
+			SourceKind:         string(in.Kind),
+			SourceSequence:     in.Sequence,
+			Unit:               string(usage.Unit),
+			Currency:           usage.Currency,
+			Consumed:           usage.Value,
+			Reserved:           reserved.Value,
+			Adjustment:         mutation.AdjustmentDelta.Value,
+			Authority:          authority,
+			Stage:              in.Stage,
+			BackendAttempted:   in.BackendAttempted,
+			OutputCommitted:    in.OutputCommitted,
+			BoundPolicyVersion: in.BoundVersion,
+			BoundRatingVersion: in.BoundRatingVersion,
+		}, rules))
 		if err != nil {
 			return policyAndControlPlane{}, err
 		}

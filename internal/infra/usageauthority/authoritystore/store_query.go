@@ -74,12 +74,25 @@ func (c *storeCore) appendDecision(log MutationLog, snapshot commandSnapshot, ro
 			// Mirror the live limit row's window bounds so decision history shows the same
 			// window context as the limit status. Rules without a window definition leave
 			// these as the zero time.Time, matching AccountingLimitStatusRow's semantics.
-			WindowStart:    row.WindowStart,
-			WindowEnd:      row.WindowEnd,
-			WindowResetAt:  row.WindowResetAt,
-			EvidenceState:  controlplane.EvidenceRecorded,
-			RedactionState: controlplane.RedactionSummarized,
+			WindowStart:        row.WindowStart,
+			WindowEnd:          row.WindowEnd,
+			WindowResetAt:      row.WindowResetAt,
+			EvidenceState:      controlplane.EvidenceRecorded,
+			RedactionState:     controlplane.RedactionSummarized,
+			AuthorityNamespace: row.AuthorityNamespace,
+			Perspective:        controlplane.UsagePerspective(row.Perspective),
+			LifecycleScope:     controlplane.UsageLifecycleScope(row.LifecycleScope),
+			Basis:              row.Basis,
+			RuleVersion:        row.RuleVersion,
+			ReservationType:    controlplane.AuthorityHandleReservation,
+			Surfaced:           snapshot.Surfaced,
+			ParentRequestID:    snapshot.ParentRequestID,
+			BoundPolicyVersion: snapshot.BoundPolicyVersion,
+			BoundRatingVersion: snapshot.BoundRatingVersion,
 		},
+	}
+	if rec.Row.BoundPolicyVersion.Version == "" && strings.TrimSpace(row.RuleVersion) != "" {
+		rec.Row.BoundPolicyVersion = controlplane.VersionRef{ID: row.RuleID, Version: row.RuleVersion}
 	}
 	if rec.Row.Unit == "" {
 		rec.Row.Unit = row.Unit

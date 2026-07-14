@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -110,27 +111,37 @@ func projectAuthorityEvidence(status domain.AuthorityStatus, reserved bool, in E
 		RedactionState: redactionLevel,
 		Summary:        summaryForReason(in.ReasonCode),
 		AccountingAuthority: &controlplane.AccountingAuthorityDetail{
-			Correlation:     correlation,
-			Scope:           snapshot,
-			RuleID:          in.RuleID,
-			RuleType:        in.RuleType,
-			Outcome:         in.Outcome,
-			ReasonCode:      string(in.ReasonCode),
-			Authority:       authority,
-			ReservationID:   in.ReservationID,
-			SettlementState: in.SettlementState,
-			Unit:            in.Unit,
-			Currency:        in.Currency,
-			Limit:           in.Limit,
-			Consumed:        in.Consumed,
-			Reserved:        in.Reserved,
-			Remaining:       deriveRemaining(in.Limit, in.Consumed, in.Reserved),
-			Adjustment:      in.Adjustment,
-			WindowStart:     time.Time{},
-			WindowEnd:       time.Time{},
-			WindowResetAt:   time.Time{},
-			EvidenceState:   evidenceLevel,
-			RedactionState:  redactionLevel,
+			Correlation:        correlation,
+			Scope:              snapshot,
+			RuleID:             in.RuleID,
+			RuleType:           in.RuleType,
+			Outcome:            in.Outcome,
+			ReasonCode:         string(in.ReasonCode),
+			Authority:          authority,
+			ReservationID:      in.ReservationID,
+			SettlementState:    in.SettlementState,
+			Unit:               in.Unit,
+			Currency:           in.Currency,
+			Limit:              in.Limit,
+			Consumed:           in.Consumed,
+			Reserved:           in.Reserved,
+			Remaining:          deriveRemaining(in.Limit, in.Consumed, in.Reserved),
+			Adjustment:         in.Adjustment,
+			WindowStart:        time.Time{},
+			WindowEnd:          time.Time{},
+			WindowResetAt:      time.Time{},
+			EvidenceState:      evidenceLevel,
+			RedactionState:     redactionLevel,
+			AuthorityNamespace: in.AuthorityNamespace,
+			Perspective:        controlplane.UsagePerspective(in.Perspective),
+			LifecycleScope:     controlplane.UsageLifecycleScope(in.LifecycleScope),
+			Basis:              in.Basis,
+			RuleVersion:        in.RuleVersion,
+			Surfaced:           authoritySurfaced(in),
+			ReservationType:    authorityHandleType(in),
+			ParentRequestID:    authorityParentRequestID(in),
+			BoundPolicyVersion: corecp.VersionRefFromPolicy(in.BoundPolicyVersion),
+			BoundRatingVersion: corecp.VersionRefFromRating(in.BoundRatingVersion),
 		},
 	}
 	if err := event.Validate(); err != nil {
@@ -210,4 +221,82 @@ func deriveRemaining(limit, consumed, reserved int64) int64 {
 		return 0
 	}
 	return remaining
+}
+
+// applyRuleContext copies immutable rule identity onto evidence before projection.
+func applyRuleContext(in Evidence, rule domain.Rule) Evidence {
+	in.AuthorityNamespace = ruleAuthorityNamespace(rule)
+	if rule.Perspective != "" {
+		in.Perspective = string(rule.Perspective)
+	}
+	if rule.LifecycleScope != "" {
+		in.LifecycleScope = string(rule.LifecycleScope)
+	}
+	if rule.Basis != "" {
+		in.Basis = string(rule.Basis)
+	}
+	if rule.Version != "" {
+		in.RuleVersion = rule.Version
+	}
+	if in.ReservationType == "" {
+		in.ReservationType = string(controlplane.AuthorityHandleReservation)
+	}
+	if in.Surfaced == "" {
+		in.Surfaced = string(surfacedFromAttemptFlags(in.OutputCommitted, in.BackendAttempted))
+	}
+	if in.ParentRequestID == "" {
+		in.ParentRequestID = strings.TrimSpace(in.Correlation.RequestID)
+	}
+	return in
+}
+
+func ruleAuthorityNamespace(rule domain.Rule) string {
+	if ns := strings.TrimSpace(rule.Namespace); ns != "" {
+		return ns
+	}
+	if rule.Basis.IsLegacyCompatibility() || !rule.IsDualPlaneConfigured() {
+		return domain.NamespaceLegacy
+	}
+	return domain.NamespaceDefault
+}
+
+func surfacedFromAttemptFlags(outputCommitted, backendAttempted bool) controlplane.UsageSurfaced {
+	switch {
+	case outputCommitted:
+		return controlplane.UsageSurfacedYes
+	case backendAttempted:
+		return controlplane.UsageSurfacedNo
+	default:
+		return controlplane.UsageSurfacedUnknown
+	}
+}
+
+func authoritySurfaced(in Evidence) controlplane.UsageSurfaced {
+	if in.Surfaced != "" {
+		return controlplane.UsageSurfaced(in.Surfaced)
+	}
+	return surfacedFromAttemptFlags(in.OutputCommitted, in.BackendAttempted)
+}
+
+func authorityHandleType(in Evidence) controlplane.AuthorityHandleType {
+	if in.ReservationType != "" {
+		return controlplane.AuthorityHandleType(in.ReservationType)
+	}
+	return controlplane.AuthorityHandleReservation
+}
+
+func authorityParentRequestID(in Evidence) string {
+	if in.ParentRequestID != "" {
+		return in.ParentRequestID
+	}
+	return strings.TrimSpace(in.Correlation.RequestID)
+}
+
+// EnrichEvidenceWithRule returns evidence with dual-plane rule identity applied.
+func EnrichEvidenceWithRule(in Evidence, rules []domain.Rule) Evidence {
+	rule, ok := ruleByID(rules, in.RuleID)
+	if !ok {
+		return in
+	}
+	return applyRuleContext(in, rule)
 }

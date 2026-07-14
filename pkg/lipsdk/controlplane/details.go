@@ -106,18 +106,31 @@ func (o AttemptOutcome) IsKnown() bool {
 // only typed safe token/cost/accounting fields and explicit availability
 // state are carried.
 type UsageDetail struct {
-	Plane               UsagePlane        `json:"plane"`
-	Availability        UsageAvailability `json:"availability"`
-	InputTokens         int               `json:"input_tokens,omitempty"`
-	OutputTokens        int               `json:"output_tokens,omitempty"`
-	CacheReadTokens     int               `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens    int               `json:"cache_write_tokens,omitempty"`
-	ReasoningTokens     int               `json:"reasoning_tokens,omitempty"`
-	TotalTokens         int               `json:"total_tokens,omitempty"`
-	CostNanoUnits       int64             `json:"cost_nano_units,omitempty"`
-	Currency            string            `json:"currency,omitempty"`
-	AccountingAuthority string            `json:"accounting_authority,omitempty"`
-	CostSource          string            `json:"cost_source,omitempty"`
+	// Legacy compatibility projections (requirement 14.2, 17.4). Plane and
+	// Availability remain for existing consumers; dual-plane fields below are
+	// authoritative when present.
+	Plane        UsagePlane        `json:"plane"`
+	Availability UsageAvailability `json:"availability"`
+	// Dual-plane identity (requirements 1.6, 14.1). Perspective, provenance,
+	// and boundary are independent dimensions.
+	Perspective         UsagePerspective    `json:"perspective,omitempty"`
+	Boundary            UsageBoundary       `json:"boundary,omitempty"`
+	LifecycleScope      UsageLifecycleScope `json:"lifecycle_scope,omitempty"`
+	Provenance          UsageProvenance     `json:"provenance,omitempty"`
+	FactKind            UsageFactKind       `json:"fact_kind,omitempty"`
+	Surfaced            UsageSurfaced       `json:"surfaced,omitempty"`
+	PolicyVersion       VersionRef          `json:"policy_version,omitzero"`
+	RatingVersion       VersionRef          `json:"rating_version,omitzero"`
+	InputTokens         int                 `json:"input_tokens,omitempty"`
+	OutputTokens        int                 `json:"output_tokens,omitempty"`
+	CacheReadTokens     int                 `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens    int                 `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens     int                 `json:"reasoning_tokens,omitempty"`
+	TotalTokens         int                 `json:"total_tokens,omitempty"`
+	CostNanoUnits       int64               `json:"cost_nano_units,omitempty"`
+	Currency            string              `json:"currency,omitempty"`
+	AccountingAuthority string              `json:"accounting_authority,omitempty"`
+	CostSource          string              `json:"cost_source,omitempty"`
 }
 
 // UsagePlane identifies whether usage evidence is observed from the provider

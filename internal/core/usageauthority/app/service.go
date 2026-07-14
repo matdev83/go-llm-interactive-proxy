@@ -327,28 +327,30 @@ func (s *Service) projectAdmissionEvidence(ctx context.Context, in AdmissionInpu
 	if reasonOverride != "" {
 		reason = reasonOverride
 	}
-	evidence, err := projectAuthorityEvidence(status, reserved, Evidence{
-		At:               now,
-		Correlation:      in.Correlation,
-		Scope:            in.Scope,
-		RuleID:           selectedRuleID,
-		MatchedRuleIDs:   append([]string(nil), res.RuleIDs...),
-		RuleType:         string(ruleKind),
-		RequestedMax:     requestedMax,
-		EffectiveMax:     effectiveMax,
-		ClampReason:      clampReason,
-		Outcome:          sdkOutcomeFromAdmission(res.Outcome),
-		ReasonCode:       reason,
-		ReservationID:    res.ReservationID,
-		SettlementState:  settlementStateForAdmission(res.Reserved),
-		Unit:             string(evidenceAmount.Unit),
-		Currency:         evidenceAmount.Currency,
-		Reserved:         res.ReservedAmount.Value,
-		Authority:        in.Authority,
-		Stage:            feature.StageIDPreRequest,
-		BackendAttempted: false,
-		OutputCommitted:  false,
-	})
+	evidence, err := projectAuthorityEvidence(status, reserved, EnrichEvidenceWithRule(Evidence{
+		At:                 now,
+		Correlation:        in.Correlation,
+		Scope:              in.Scope,
+		RuleID:             selectedRuleID,
+		MatchedRuleIDs:     append([]string(nil), res.RuleIDs...),
+		RuleType:           string(ruleKind),
+		RequestedMax:       requestedMax,
+		EffectiveMax:       effectiveMax,
+		ClampReason:        clampReason,
+		Outcome:            sdkOutcomeFromAdmission(res.Outcome),
+		ReasonCode:         reason,
+		ReservationID:      res.ReservationID,
+		SettlementState:    settlementStateForAdmission(res.Reserved),
+		Unit:               string(evidenceAmount.Unit),
+		Currency:           evidenceAmount.Currency,
+		Reserved:           res.ReservedAmount.Value,
+		Authority:          in.Authority,
+		Stage:              feature.StageIDPreRequest,
+		BackendAttempted:   false,
+		OutputCommitted:    false,
+		BoundPolicyVersion: res.BoundVersion,
+		BoundRatingVersion: res.BoundRatingVersion,
+	}, rules))
 	if err != nil {
 		return policyAndControlPlane{}, err
 	}
