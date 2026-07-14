@@ -43,8 +43,8 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{
-		MeteringRecorder: prodMeter{},
-		RequestProviders: []authority.RequestProvider{prodAllowRequest{}},
+		MeteringRecorder:    prodMeter{},
+		RequestProviders:    []authority.RequestProvider{prodAllowRequest{}},
 		UsageSnapshotSource: prodRuleSource{ver: "prod-snap-v1"},
 	}
 	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)

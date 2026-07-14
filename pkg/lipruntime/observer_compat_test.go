@@ -74,7 +74,7 @@ func TestBuild_AuthorityDescriptorAllowed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath: repoConfigPath(t),
+		ConfigPath:       repoConfigPath(t),
 		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
 		ProviderDescriptors: []authority.ProviderDescriptor{{
 			ID:   "enterprise-authority",
