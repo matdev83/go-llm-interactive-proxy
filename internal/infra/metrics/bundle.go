@@ -5,6 +5,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -17,6 +18,7 @@ type Bundle struct {
 	SecureSession *SecureSessionProm
 	// ExtensionStages is non-nil when metrics are enabled; used for extension pipeline histograms/counters.
 	ExtensionStages     *ExtensionStageProm
+	AuthorityStages     *AuthorityStageProm
 	Upstream            *UpstreamProm
 	TokenAccounting     *TokenAccountingProm
 	sink                runtime.MetricsSink
@@ -31,6 +33,7 @@ func NewBundle(cfg *config.Config) *Bundle {
 	exec := RegisterExecutorProm(r)
 	ss := RegisterSecureSessionProm(r)
 	ext := RegisterExtensionStageProm(r)
+	auth := RegisterAuthorityStageProm(r)
 	up := RegisterUpstreamProm(r, exemplars)
 	tok := RegisterTokenAccountingProm(r)
 	return &Bundle{
@@ -39,6 +42,7 @@ func NewBundle(cfg *config.Config) *Bundle {
 		Executor:            exec,
 		SecureSession:       ss,
 		ExtensionStages:     ext,
+		AuthorityStages:     auth,
 		Upstream:            up,
 		TokenAccounting:     tok,
 		sink:                NewExecutorPromSink(exec),
@@ -60,6 +64,14 @@ func (b *Bundle) ExtensionStageSink() extensions.StageMetrics {
 		return nil
 	}
 	return NewExtensionStageSink(b.ExtensionStages)
+}
+
+// AuthorityStageSink returns usage-authority stage metrics (req 16.5).
+func (b *Bundle) AuthorityStageSink() authorityapp.StageMetrics {
+	if b == nil {
+		return nil
+	}
+	return NewAuthorityStageSink(b.AuthorityStages)
 }
 
 // SecureSessionMetricsSink returns a [runtime.SecureSessionMetrics] backed by this bundle, or nil when b is nil.
