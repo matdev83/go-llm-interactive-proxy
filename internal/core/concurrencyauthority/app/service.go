@@ -293,6 +293,14 @@ func (s *Service) Release(ctx context.Context, in ReleaseInput) error {
 	return nil
 }
 
+// RulesSnapshot returns the current immutable rule set for capacity queries.
+func (s *Service) RulesSnapshot(ctx context.Context) (RuleSnapshot, error) {
+	if s == nil || s.rules == nil {
+		return RuleSnapshot{}, WrapError("rules", ErrUnavailable)
+	}
+	return s.rules.Snapshot(ctx)
+}
+
 // Query returns a bounded lease page.
 func (s *Service) Query(ctx context.Context, q QueryCommand) (QueryResult, error) {
 	if s == nil || s.store == nil {

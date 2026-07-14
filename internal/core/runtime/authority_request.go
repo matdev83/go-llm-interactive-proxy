@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -85,7 +87,7 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 	}
 	d, err := e.RequestCoordinator.Admit(ctx, in)
 	if err != nil {
-		return ctx, fmt.Errorf("executor: request authority: %w", err)
+		return ctx, mapRequestAuthorityError(err)
 	}
 	st := &requestAuthorityState{
 		Decision:        d,
@@ -132,4 +134,33 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) {
 	e.stopLeaseHeartbeat(st)
 	_ = e.RequestCoordinator.Release(ctx, st.Decision.Stack, st.RequestID)
 	st.Released = true
+}
+
+// mapRequestAuthorityError converts coordinator denials into client-safe policy
+// errors. Concurrency denials use the stable concurrency_limit category and must
+// not include internal lease IDs (requirements 10.11, 14.3).
+func mapRequestAuthorityError(err error) error {
+	var denied *authoritycoord.ErrDenied
+	if errors.As(err, &denied) && denied != nil && denied.ProviderID == "concurrency" {
+		return lipapi.NewPolicyDeniedError(
+			"request_authority",
+			"",
+			"concurrency_limit",
+			"concurrency_limit",
+			"active request limit reached",
+			nil,
+		)
+	}
+	var unavail *authoritycoord.ErrUnavailable
+	if errors.As(err, &unavail) && unavail != nil && unavail.ProviderID == "concurrency" {
+		return lipapi.NewPolicyFailureError(
+			"request_authority",
+			"",
+			"concurrency_unavailable",
+			"concurrency_limit",
+			"concurrency authority unavailable",
+			nil,
+		)
+	}
+	return fmt.Errorf("executor: request authority: %w", err)
 }

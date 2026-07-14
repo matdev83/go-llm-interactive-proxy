@@ -20,8 +20,9 @@ import (
 )
 
 type concurrencyAuthorityRuntime struct {
-	Provider   authority.ConcurrencyProvider
-	LeaseTTL   time.Duration
+	Provider    authority.ConcurrencyProvider
+	Service     *concurrencyapp.Service
+	LeaseTTL    time.Duration
 	RenewBefore time.Duration
 }
 
@@ -52,6 +53,7 @@ func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config
 	svc := concurrencyapp.NewService(src, store, clock)
 	return &concurrencyAuthorityRuntime{
 		Provider:    concurrencyapp.NewProvider(svc),
+		Service:     svc,
 		LeaseTTL:    leaseTTL,
 		RenewBefore: renewBefore,
 	}, closers, nil

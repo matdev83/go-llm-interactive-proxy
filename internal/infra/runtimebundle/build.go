@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
@@ -149,7 +150,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneStatus:    controlPlane.statusHandle(),
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 		UsageAuthority:        usageAuthorityHandle,
+		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
 	}, nil
+}
+
+func concurrencyServiceHandle(rt *concurrencyAuthorityRuntime) *concurrencyapp.Service {
+	if rt == nil {
+		return nil
+	}
+	return rt.Service
 }
 
 // validateRequiredAuthorityEvidenceWiring protects callers that assemble a

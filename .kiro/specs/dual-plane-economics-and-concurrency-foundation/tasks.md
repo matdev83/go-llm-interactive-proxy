@@ -100,7 +100,7 @@
   - Namespace legacy persisted state rather than reinterpreting it.
   - _Requirements: 9.1, 9.7, 9.9, 13.6, 17.2_
 
-- [ ] 8. Implement concurrent logical-request leases
+- [x] 8. Implement concurrent logical-request leases
 - [x] 8.1 Build the lease domain and application service
   - Model strict/advisory limits, safe scope matching, TTL, renewal, generation, replay, expiry, release, readiness, and denial evidence.
   - Ensure one logical request consumes one lease across retries and parallel legs.
@@ -114,7 +114,7 @@
   - Release on completion, denial, routing exhaustion, backend failure, cancellation, stream close, frontend encoding error, preparation failure, and panic paths.
   - Use one request-owned heartbeat and fresh cleanup contexts.
   - _Requirements: 10.4, 10.5, 10.8, 10.10, 15.3, 15.6_
-- [ ] 8.4 Add active-lease queries and client-safe error mapping
+- [x] 8.4 Add active-lease queries and client-safe error mapping
   - Expose active, expiring, expired, released, remaining-slot, rule-version, and readiness information through bounded protected queries.
   - _Requirements: 10.11, 10.12, 14.3, 14.4, 14.5_
 

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -70,4 +71,7 @@ type Built struct {
 	// UsageAuthority is non-nil when accounting.authority.enabled wires the
 	// config-backed rule source, store, and query/status service.
 	UsageAuthority *authorityapp.Service
+	// ConcurrencyAuthority is non-nil when accounting.concurrency.enabled wires
+	// the lease service used by protected lease queries (Phase 8.4).
+	ConcurrencyAuthority *concurrencyapp.Service
 }
