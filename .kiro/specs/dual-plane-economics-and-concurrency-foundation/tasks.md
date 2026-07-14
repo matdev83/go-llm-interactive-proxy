@@ -101,7 +101,7 @@
   - _Requirements: 9.1, 9.7, 9.9, 13.6, 17.2_
 
 - [ ] 8. Implement concurrent logical-request leases
-- [ ] 8.1 Build the lease domain and application service
+- [x] 8.1 Build the lease domain and application service
   - Model strict/advisory limits, safe scope matching, TTL, renewal, generation, replay, expiry, release, readiness, and denial evidence.
   - Ensure one logical request consumes one lease across retries and parallel legs.
   - _Requirements: 10.1, 10.3, 10.6, 10.7, 10.8, 10.10, 10.11_
@@ -182,3 +182,4 @@
 - Phase 6.1–6.3: `internal/core/authoritycoord` request/attempt coordinators (nil concurrency skips leases); thin `usageAuthorityProviderAdapter` over today's `usageauthority.Service` (no Phase 7 kernel rewrite); prepare admits request authority once after FE ingress; open path uses attempt coordinator when wired; attempt `RequestCount=0` when request already admitted; settle request once on FE egress/committed cancel, attempt settle/release remains per B-leg via `authorityLifecycle`; `runtimebundle/authority_coord.go` attaches both when `UsageAuthority` non-nil.
 - Phase 7.1–7.3: rules require `perspective`/`lifecycle_scope`/`basis`/`namespace` (or explicit `basis: legacy_provider_preferred_attempt`); amounts selected from exposure/facts (legacy inputs only for compatibility basis); stage filter (legacy request-count → logical_request, other legacy → backend_attempt); store `limitRowKey` + optional `ReservationKey.Namespace` isolate dual-plane identity; empty namespace rows stay under `legacy` without reinterpretation; no DurableStore.mu removal.
 - Phase 7.2 settle remediation (req 9.5): `SettleInput.Facts`/`Exposure`; `storeSettle` calls `Rule.SelectAmount(..., ForSettlement: true)` before `store.Settle`; dual-plane missing selection fails closed without mutating; compatibility basis keeps `FinalUsage`/`FinalCost`; covered by `settlement_select_test.go`.
+- Phase 8.1: `internal/core/concurrencyauthority/{domain,app}` + public `LeaseRenew`/`RenewLease`; `LeaseStore` port for 8.2; aux inherit via AdmitInput (public LeaseAdmission aux fields deferred to 8.3).

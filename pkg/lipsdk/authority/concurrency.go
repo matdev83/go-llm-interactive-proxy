@@ -66,6 +66,16 @@ type LeaseRelease struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+// LeaseRenew extends an active lease before expiry using generation CAS.
+// ExpectedGeneration must match the lease's current generation; a mismatch or
+// non-active lease must not resurrect released/expired capacity.
+type LeaseRenew struct {
+	LeaseID            string        `json:"lease_id"`
+	RequestID          string        `json:"request_id,omitempty"`
+	ExpectedGeneration int64         `json:"expected_generation"`
+	TTL                time.Duration `json:"ttl,omitempty"`
+}
+
 // LeaseQuery is a bounded filter for active/history lease queries.
 type LeaseQuery struct {
 	RequestID string                   `json:"request_id,omitempty"`
@@ -98,6 +108,7 @@ type LeasePage struct {
 // This package defines the contract only; no store implementation lives here.
 type ConcurrencyProvider interface {
 	AdmitLease(ctx context.Context, in LeaseAdmission) (LeaseDecision, error)
+	RenewLease(ctx context.Context, in LeaseRenew) (LeaseDecision, error)
 	ReleaseLease(ctx context.Context, in LeaseRelease) error
 	QueryLeases(ctx context.Context, q LeaseQuery) (LeasePage, error)
 }
