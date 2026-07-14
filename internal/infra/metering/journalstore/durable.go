@@ -179,15 +179,14 @@ VALUES (?,?,?,?)
 	return nil
 }
 
-// List returns a bounded page filtered by stream_id and/or request_id.
+// List returns a bounded page filtered by indexed selective bounds.
 func (s *DurableStore) List(ctx context.Context, q metering.Query) (metering.Page, error) {
 	if err := ctx.Err(); err != nil {
 		return metering.Page{}, err
 	}
-	streamID := strings.TrimSpace(q.StreamID)
-	requestID := strings.TrimSpace(q.RequestID)
-	if streamID == "" && requestID == "" {
-		return metering.Page{}, ErrQueryTooBroad
+	unsupported := metering.QueryUnsupported(q)
+	if err := metering.ValidateQuery(q); err != nil {
+		return metering.Page{}, err
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -205,36 +204,7 @@ func (s *DurableStore) List(ctx context.Context, q metering.Query) (metering.Pag
 		offset = n
 	}
 
-	where := []string{"1=1"}
-	args := []any{}
-	if streamID != "" {
-		where = append(where, "stream_id = ?")
-		args = append(args, streamID)
-	}
-	if requestID != "" {
-		where = append(where, "request_id = ?")
-		args = append(args, requestID)
-	}
-	if q.Perspective != "" {
-		where = append(where, "perspective = ?")
-		args = append(args, string(q.Perspective))
-	}
-	if q.Boundary != "" {
-		where = append(where, "boundary = ?")
-		args = append(args, string(q.Boundary))
-	}
-	if q.Lifecycle != "" {
-		where = append(where, "lifecycle_scope = ?")
-		args = append(args, string(q.Lifecycle))
-	}
-	query := fmt.Sprintf(`
-SELECT payload_json FROM metering_facts
-WHERE %s
-ORDER BY stream_id ASC, sequence ASC
-LIMIT ? OFFSET ?
-`, strings.Join(where, " AND "))
-	args = append(args, limit+1, offset)
-
+	query, args := buildDurableListQuery(s.cfg.StoreID, q, limit, offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return metering.Page{}, fmt.Errorf("metering/journalstore: list: %w", err)
@@ -256,7 +226,7 @@ LIMIT ? OFFSET ?
 	if err := rows.Err(); err != nil {
 		return metering.Page{}, err
 	}
-	page := metering.Page{}
+	page := metering.Page{Unsupported: append([]metering.UnsupportedFilter(nil), unsupported...)}
 	if len(facts) > limit {
 		page.NextCursor = strconv.Itoa(offset + limit)
 		facts = facts[:limit]

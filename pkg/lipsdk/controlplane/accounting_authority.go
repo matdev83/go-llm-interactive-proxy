@@ -117,6 +117,10 @@ type AccountingLimitStatusQuery struct {
 	SettlementState AccountingSettlementState `json:"settlement_state,omitempty"`
 	EvidenceState   EvidenceState             `json:"evidence_state,omitempty"`
 	RedactionState  RedactionState            `json:"redaction_state,omitempty"`
+	Perspective     UsagePerspective          `json:"perspective,omitempty"`
+	LifecycleScope  UsageLifecycleScope       `json:"lifecycle_scope,omitempty"`
+	Basis           string                    `json:"basis,omitempty"`
+	Class           QueryClass                `json:"class,omitempty"`
 	Limit           int                       `json:"limit,omitempty"`
 	Cursor          Cursor                    `json:"cursor,omitzero"`
 	Visibility      Visibility                `json:"visibility,omitempty"`
@@ -132,6 +136,10 @@ type AccountingDecisionQuery struct {
 	SettlementState AccountingSettlementState `json:"settlement_state,omitempty"`
 	EvidenceState   EvidenceState             `json:"evidence_state,omitempty"`
 	RedactionState  RedactionState            `json:"redaction_state,omitempty"`
+	Perspective     UsagePerspective          `json:"perspective,omitempty"`
+	LifecycleScope  UsageLifecycleScope       `json:"lifecycle_scope,omitempty"`
+	Basis           string                    `json:"basis,omitempty"`
+	Class           QueryClass                `json:"class,omitempty"`
 	Limit           int                       `json:"limit,omitempty"`
 	Cursor          Cursor                    `json:"cursor,omitzero"`
 	Visibility      Visibility                `json:"visibility,omitempty"`

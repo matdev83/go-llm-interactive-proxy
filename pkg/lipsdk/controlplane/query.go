@@ -88,12 +88,17 @@ type AttemptQuery struct {
 
 // UsageQuery requests bounded usage rows (requirement 2.3, 9.2).
 type UsageQuery struct {
-	Common       CommonFilters `json:"common,omitzero"`
-	Plane        string        `json:"plane,omitempty"`
-	Availability string        `json:"availability,omitempty"`
-	Limit        int           `json:"limit,omitempty"`
-	Cursor       Cursor        `json:"cursor,omitzero"`
-	Visibility   Visibility    `json:"visibility,omitempty"`
+	Common         CommonFilters       `json:"common,omitzero"`
+	Plane          string              `json:"plane,omitempty"`
+	Availability   string              `json:"availability,omitempty"`
+	Perspective    UsagePerspective    `json:"perspective,omitempty"`
+	Boundary       UsageBoundary       `json:"boundary,omitempty"`
+	LifecycleScope UsageLifecycleScope `json:"lifecycle_scope,omitempty"`
+	RuleID         string              `json:"rule_id,omitempty"`
+	Class          QueryClass          `json:"class,omitempty"`
+	Limit          int                 `json:"limit,omitempty"`
+	Cursor         Cursor              `json:"cursor,omitzero"`
+	Visibility     Visibility          `json:"visibility,omitempty"`
 }
 
 // UsageAggregateQuery requests bounded usage aggregates grouped by requested
