@@ -143,11 +143,11 @@
   - Keep traffic/usage observers supported while ensuring strict decisions use authority contracts rather than fail-open observation.
   - _Requirements: 12.7, 17.1, 17.4_
 
-- [ ] 11. Align control-plane evidence, readiness, and queries
-- [ ] 11.1 Add independent perspective, boundary, lifecycle, provenance, fact-kind, surfaced, and version fields
+- [x] 11. Align control-plane evidence, readiness, and queries
+- [x] 11.1 Add independent perspective, boundary, lifecycle, provenance, fact-kind, surfaced, and version fields
   - Preserve legacy observed/accounting projections for compatibility.
   - _Requirements: 1.6, 14.1, 14.2, 14.3, 17.4_
-- [ ] 11.2 Add bounded metering and authority query filters
+- [x] 11.2 Add bounded metering and authority query filters
   - Support indexed safe scope, backend, model, route, perspective, boundary, lifecycle, rule, and time filters.
   - Return unsupported and too-broad outcomes instead of scanning.
   - _Requirements: 14.4, 14.5, 14.8, 16.3_
