@@ -75,7 +75,8 @@ var lineBudgets = []struct {
 	// widening, egress fact drafts) plus runtime hook wiring.
 	// Raised from 43500 to 44000 for Phase 5 aggregate + reconcile packages.
 	// Raised from 44000 to 45000 for Phase 6 authority coordinators + adapters.
-	{"internal/core", 45000},
+	// Raised from 45000 to 45500 for Phase 7 usage-authority dual-plane kernel.
+	{"internal/core", 45500},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},
