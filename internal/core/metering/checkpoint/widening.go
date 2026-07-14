@@ -2,34 +2,69 @@ package checkpoint
 
 import (
 	"bytes"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // BillableFingerprint is a stable encoding of billable call content used to
 // detect unmeasured widening after an authorized backend-ingress freeze.
+// It avoids json.Marshal of json.RawMessage fields (tool Parameters) so invalid
+// or non-JSON parameter bytes do not fail Open.
 func BillableFingerprint(c lipapi.Call) ([]byte, error) {
-	type fp struct {
-		Instructions []lipapi.Message      `json:"instructions"`
-		Messages     []lipapi.Message      `json:"messages"`
-		Tools        []lipapi.ToolDef      `json:"tools"`
-		ToolChoice   lipapi.ToolChoice     `json:"tool_choice"`
-		MaxOut       *int                  `json:"max_output_tokens"`
-		Temp         *float64              `json:"temperature"`
-		TopP         *float64              `json:"top_p"`
+	var b strings.Builder
+	writeMessages(&b, "I", c.Instructions)
+	writeMessages(&b, "M", c.Messages)
+	for i, tool := range c.Tools {
+		b.WriteString("|T")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteByte('=')
+		b.WriteString(tool.Name)
+		b.WriteByte(':')
+		b.WriteString(string(tool.Parameters))
 	}
-	payload := fp{
-		Instructions: c.Instructions,
-		Messages:     c.Messages,
-		Tools:        c.Tools,
-		ToolChoice:   c.ToolChoice,
-		MaxOut:       c.Options.MaxOutputTokens,
-		Temp:         c.Options.Temperature,
-		TopP:         c.Options.TopP,
+	b.WriteString("|TC=")
+	b.WriteString(string(c.ToolChoice.Mode))
+	if c.Options.MaxOutputTokens != nil {
+		b.WriteString("|MO=")
+		b.WriteString(strconv.Itoa(*c.Options.MaxOutputTokens))
 	}
-	return json.Marshal(payload)
+	if c.Options.Temperature != nil {
+		b.WriteString("|TP=")
+		b.WriteString(strconv.FormatFloat(*c.Options.Temperature, 'g', -1, 64))
+	}
+	if c.Options.TopP != nil {
+		b.WriteString("|P=")
+		b.WriteString(strconv.FormatFloat(*c.Options.TopP, 'g', -1, 64))
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return []byte(hex.EncodeToString(sum[:])), nil
+}
+
+func writeMessages(b *strings.Builder, tag string, msgs []lipapi.Message) {
+	for i, m := range msgs {
+		b.WriteString("|")
+		b.WriteString(tag)
+		b.WriteString(strconv.Itoa(i))
+		b.WriteByte('=')
+		b.WriteString(string(m.Role))
+		for j, p := range m.Parts {
+			b.WriteByte('#')
+			b.WriteString(strconv.Itoa(j))
+			b.WriteByte(':')
+			b.WriteString(string(p.Kind))
+			b.WriteByte(':')
+			b.WriteString(p.Text)
+			if len(p.Content) > 0 {
+				b.WriteByte(':')
+				b.Write(p.Content)
+			}
+		}
+	}
 }
 
 // BillableWidened reports whether current has billable content beyond authorized.

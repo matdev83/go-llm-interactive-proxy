@@ -71,7 +71,9 @@ var lineBudgets = []struct {
 	// Raised from 42200 to 42500 for dual-plane economics Phase 2 correctness:
 	// token-total inclusion/presence, checked money arithmetic with optional
 	// rate presence, and unknown-output preflight policy resolution.
-	{"internal/core", 42500},
+	// Raised from 42500 to 43500 for Phase 4 metering checkpoints (capture,
+	// widening, egress fact drafts) plus runtime hook wiring.
+	{"internal/core", 43500},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},
