@@ -28,7 +28,7 @@
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.8, 7.9_
 
 - [ ] 3. Add public metering and economics contracts
-- [ ] 3.1 Define public metering facts and quantity vocabulary
+- [x] 3.1 Define public metering facts and quantity vocabulary
   - Add economic perspective, metering boundary, lifecycle scope, fact kind, presence, source, authority, surfaced state, safe correlation, and version references.
   - Use extensible component/unit quantities rather than one new field per provider feature.
   - Define stable idempotency, sequence, correction, and supersession semantics.
