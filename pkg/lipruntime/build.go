@@ -13,9 +13,11 @@ import (
 // Runtime is an opaque handle over a successfully built OSS composition.
 // It does not expose internal Executor or runtimebundle types.
 type Runtime struct {
-	built           *runtimebundle.Built
-	shutdownTracing func(context.Context) error
-	closers         []func() error
+	built                    *runtimebundle.Built
+	shutdownTracing          func(context.Context) error
+	closers                  []func() error
+	trafficObserversAttached bool
+	usageObserversAttached   bool
 }
 
 // Build constructs a production runtime from public options. The standard
@@ -27,6 +29,11 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	path := strings.TrimSpace(opts.ConfigPath)
 	if path == "" {
 		return nil, fmt.Errorf("lipruntime: empty config path")
+	}
+	for i, d := range opts.ProviderDescriptors {
+		if err := d.Validate(); err != nil {
+			return nil, fmt.Errorf("lipruntime: provider_descriptors[%d]: %w", i, err)
+		}
 	}
 	logOut := opts.LogWriter
 	if logOut == nil {
@@ -60,9 +67,11 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("lipruntime: bootstrap returned nil runtime")
 	}
 	return &Runtime{
-		built:           res.Built,
-		shutdownTracing: res.ShutdownTracing,
-		closers:         append([]func() error(nil), res.Built.Closers...),
+		built:                    res.Built,
+		shutdownTracing:          res.ShutdownTracing,
+		closers:                  append([]func() error(nil), res.Built.Closers...),
+		trafficObserversAttached: len(opts.TrafficObservers) > 0,
+		usageObserversAttached:   len(opts.UsageObservers) > 0,
 	}, nil
 }
 
@@ -87,6 +96,18 @@ func (r *Runtime) HasProductionMetering() bool {
 		return false
 	}
 	return r.built.Executor.MeteringRecorder != nil
+}
+
+// HasTrafficObservers reports whether production traffic observers were supplied
+// at Build (requirement 12.7 compatibility).
+func (r *Runtime) HasTrafficObservers() bool {
+	return r != nil && r.trafficObserversAttached
+}
+
+// HasUsageObservers reports whether production usage observers were supplied
+// at Build (requirement 12.7 compatibility).
+func (r *Runtime) HasUsageObservers() bool {
+	return r != nil && r.usageObserversAttached
 }
 
 // SnapshotGenerationID returns the published generation id, or 0 when absent.

@@ -41,4 +41,7 @@ type Options struct {
 	UsageObservers []usage.Observer
 	// PolicyObservers are chained into policy-decision evidence.
 	PolicyObservers []policydecision.Observer
+	// ProviderDescriptors declare authority vs observer postures for injected
+	// providers. Observers cannot use StrengthRequired (requirement 12.7).
+	ProviderDescriptors []authority.ProviderDescriptor
 }
