@@ -12,7 +12,8 @@ import (
 func TestSourceSnapshot(t *testing.T) {
 	t.Parallel()
 	src, err := configsource.New(config.ConcurrencyAuthorityConfig{
-		Enabled: true,
+		Enabled:         true,
+		SnapshotVersion: "conc-v2",
 		Rules: []config.ConcurrencyAuthorityRuleConfig{{
 			ID:                "max-active",
 			Mode:              "strict",
@@ -31,5 +32,8 @@ func TestSourceSnapshot(t *testing.T) {
 	}
 	if len(snap.Rules) != 1 || snap.Rules[0].Limit != 5 {
 		t.Fatalf("snap=%+v", snap)
+	}
+	if snap.ID != "concurrency" || snap.Version != "conc-v2" || snap.State != "ready" {
+		t.Fatalf("versioned snap=%+v", snap)
 	}
 }

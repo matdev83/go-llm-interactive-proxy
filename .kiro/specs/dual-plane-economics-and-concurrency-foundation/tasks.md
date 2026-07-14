@@ -118,8 +118,8 @@
   - Expose active, expiring, expired, released, remaining-slot, rule-version, and readiness information through bounded protected queries.
   - _Requirements: 10.11, 10.12, 14.3, 14.4, 14.5_
 
-- [ ] 9. Add dynamic versioned snapshots
-- [ ] 9.1 Implement static and injectable snapshot sources
+- [x] 9. Add dynamic versioned snapshots
+- [x] 9.1 Implement static and injectable snapshot sources
   - Support immutable authority, concurrency, and rating snapshots with ready, stale, degraded, unavailable, and disabled status.
   - _Requirements: 11.1, 11.5, 11.6, 11.7_
 - [ ] 9.2 Bind versions to requests, attempts, reservations, and settlements
@@ -187,3 +187,4 @@
 - Phase 8.3: `accounting.concurrency` config + configsource + runtimebundle wire; request-owned renew heartbeat; settle/release stop heartbeat and ReleaseLease with fresh cleanup ctx; aux depth inherits without extra slot.
 - Phase 8.4: CP lease DTOs + `/authority/leases*` protected queries; request-authority concurrency denials map to client-safe `concurrency_limit` without lease IDs.
 - Phase 8 remediation (validate-impl NO-GO): (10.5) prepare cleanup + uncommitted cancel call `releaseRequestAuthority`; (10.8) renew honors rule `failure_behavior` (`fail_closed` stop renew/keep occupancy, `fail_open` degrade+retry); (10.10) `accounting.concurrency.auxiliary_lease_policy` `inherit|acquire_own` wired to Admit; (8.4) capacity counts per `rule_id`, lease rows expose `rule_version`+`dimension_key`, Query projects `expiring`, unsupported CP filters fail closed.
+- Phase 9.1: `economics.SnapshotState`/`Snapshot[T]` + public `RuleSnapshotSource`/`RatingSnapshotSource`; enriched usage/concurrency `RuleSnapshot` ID/Version/State; YAML `snapshot_version`; injectable `internal/infra/snapshotsource` memory sources; static rating snapshot helper from catalog metadata.

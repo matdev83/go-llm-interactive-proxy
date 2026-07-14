@@ -13,17 +13,20 @@ import (
 // AccountingAuthorityConfig controls the optional usage-authority capability.
 // It is disabled by default and only becomes visible when explicitly enabled.
 type AccountingAuthorityConfig struct {
-	Enabled            bool                            `yaml:"enabled"`
-	Mode               string                          `yaml:"mode"`
-	Store              string                          `yaml:"store"`
-	SQLitePath         string                          `yaml:"sqlite_path"`
-	PostgresDSN        string                          `yaml:"postgres_dsn"`
-	StartupPosture     string                          `yaml:"startup_posture"`
-	UnknownAttribution string                          `yaml:"unknown_attribution"`
-	EvaluationTimeout  string                          `yaml:"evaluation_timeout"`
-	CleanupTimeout     string                          `yaml:"cleanup_timeout"`
-	Query              AccountingAuthorityQueryConfig  `yaml:"query"`
-	Rules              []AccountingAuthorityRuleConfig `yaml:"rules"`
+	Enabled            bool   `yaml:"enabled"`
+	Mode               string `yaml:"mode"`
+	Store              string `yaml:"store"`
+	SQLitePath         string `yaml:"sqlite_path"`
+	PostgresDSN        string `yaml:"postgres_dsn"`
+	StartupPosture     string `yaml:"startup_posture"`
+	UnknownAttribution string `yaml:"unknown_attribution"`
+	EvaluationTimeout  string `yaml:"evaluation_timeout"`
+	CleanupTimeout     string `yaml:"cleanup_timeout"`
+	// SnapshotVersion is the immutable config-backed policy version (requirement 11.5).
+	// Empty defaults to "static" at source construction.
+	SnapshotVersion string                          `yaml:"snapshot_version"`
+	Query           AccountingAuthorityQueryConfig  `yaml:"query"`
+	Rules           []AccountingAuthorityRuleConfig `yaml:"rules"`
 }
 
 const (

@@ -23,6 +23,9 @@ type ConcurrencyAuthorityConfig struct {
 	PostgresDSN string `yaml:"postgres_dsn"`
 	LeaseTTL    string `yaml:"lease_ttl"`
 	RenewBefore string `yaml:"renew_before"`
+	// SnapshotVersion is the immutable config-backed concurrency policy version (11.5).
+	// Empty defaults to "static" at source construction.
+	SnapshotVersion string `yaml:"snapshot_version"`
 	// AuxiliaryLeasePolicy controls whether auxiliary requests inherit the parent
 	// lease (default) or acquire their own top-level slot (requirement 10.10).
 	// Values: ""|"inherit" (default) | "acquire_own".

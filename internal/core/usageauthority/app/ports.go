@@ -54,10 +54,50 @@ type EvidenceSink interface {
 
 // RuleSnapshot is the immutable rule set consumed by admission orchestration.
 type RuleSnapshot struct {
+	ID                 string
+	Version            string
+	EffectiveAt        time.Time
+	FetchedAt          time.Time
+	State              economics.SnapshotState
 	Status             domain.AuthorityStatus
 	UnknownAttribution domain.UnknownAttribution
 	Rules              []domain.Rule
-	FetchedAt          time.Time
+}
+
+// PolicyRef returns the bindable policy snapshot identity for this rule set.
+func (s RuleSnapshot) PolicyRef() economics.PolicySnapshotRef {
+	id := s.ID
+	if id == "" {
+		id = "usage_authority"
+	}
+	return economics.PolicySnapshotRef{
+		VersionRef: economics.VersionRef{
+			ID:          id,
+			Version:     s.Version,
+			EffectiveAt: s.EffectiveAt,
+			FetchedAt:   s.FetchedAt,
+		},
+		PolicyID: id,
+	}
+}
+
+// SnapshotStateFromAuthority maps usage-authority status onto economics.SnapshotState.
+func SnapshotStateFromAuthority(st domain.AuthorityStatus) economics.SnapshotState {
+	switch st.State {
+	case domain.AuthorityStateReady:
+		return economics.SnapshotReady
+	case domain.AuthorityStateDegraded, domain.AuthorityStateAdvisoryOnly:
+		return economics.SnapshotDegraded
+	case domain.AuthorityStateUnavailable:
+		return economics.SnapshotUnavailable
+	case domain.AuthorityStateDisabled:
+		return economics.SnapshotDisabled
+	default:
+		if st.State == "" {
+			return economics.SnapshotReady
+		}
+		return economics.SnapshotUnavailable
+	}
 }
 
 // ReservationDescriptor is the app-owned, per-rule mutation descriptor. A

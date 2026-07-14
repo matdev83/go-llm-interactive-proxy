@@ -1,6 +1,6 @@
 // Package economics defines provider-neutral public contracts for money,
 // independent customer/operator rating, conservative exposure assumptions,
-// and immutable version snapshot references.
+// immutable version snapshot references, and versioned snapshot sources.
 //
 // Import DAG: authority → economics → metering (no cycles).
 //
