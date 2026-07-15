@@ -195,7 +195,9 @@ func totalTokens(usage lipapi.ScopedUsageDelta, inputTotal, outputTotal int) int
 	if inputTotal > 0 || outputTotal > 0 {
 		return inputTotal + outputTotal
 	}
-	return usage.InputTokens + usage.OutputTokens + usage.CacheReadTokens + usage.CacheWriteTokens + usage.ReasoningTokens
+	// Default inclusion schema: cache ⊂ input, reasoning ⊂ output.
+	// Do not re-add subcomponents into the inferred total.
+	return usage.InputTokens + usage.OutputTokens
 }
 
 func warningForCountError(code WarningCode, message string, err error) Warning {

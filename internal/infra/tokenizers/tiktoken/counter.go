@@ -109,8 +109,9 @@ func (c *Counter) CountCall(ctx context.Context, input app.CountCallInput) (app.
 	}
 
 	result := app.CountResult{
-		InputTokens: tokens,
-		TotalTokens: tokens,
+		InputTokens:        tokens,
+		TotalTokens:        tokens,
+		TotalTokensPresent: true,
 		Accounting: lipapi.UsageAccountingMetadata{
 			Source:    lipapi.UsageSourceLocalTokenizer,
 			Authority: lipapi.UsageAuthorityEstimated,
@@ -149,7 +150,8 @@ func (c *Counter) count(ctx context.Context, model, text string, input bool) (ap
 	}
 
 	result := app.CountResult{
-		TotalTokens: tokens,
+		TotalTokens:        tokens,
+		TotalTokensPresent: true,
 		Accounting: lipapi.UsageAccountingMetadata{
 			Source:    lipapi.UsageSourceLocalTokenizer,
 			Authority: lipapi.UsageAuthorityEstimated,

@@ -132,6 +132,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/policy",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/routing",

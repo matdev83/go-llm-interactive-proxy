@@ -104,6 +104,9 @@ func TestTokenCounterCountCallMapsResponse(t *testing.T) {
 	if result.InputTokens != 42 || result.TotalTokens != 42 || result.OutputTokens != 0 {
 		t.Fatalf("tokens = input %d output %d total %d, want 42/0/42", result.InputTokens, result.OutputTokens, result.TotalTokens)
 	}
+	if !result.TotalTokensPresent {
+		t.Fatal("TotalTokensPresent=false, want true for provider count_tokens total")
+	}
 	if result.Accounting.Source != lipapi.UsageSourceProviderCountAPI {
 		t.Fatalf("source = %q", result.Accounting.Source)
 	}

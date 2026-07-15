@@ -139,20 +139,24 @@ func attemptAuthorityPreflightUsage(decision accountingpreflight.Decision) domai
 	count := decision.Count
 	output := max(int64(count.OutputTokens), 0)
 	return domain.PreflightUsage{
-		InputTokens:      int64(count.InputTokens),
-		OutputTokens:     output,
-		CacheReadTokens:  int64(count.CacheReadTokens),
-		CacheWriteTokens: int64(count.CacheWriteTokens),
-		ReasoningTokens:  int64(count.ReasoningTokens),
-		TotalTokens:      int64(count.TotalTokens),
+		InputTokens:        int64(count.InputTokens),
+		OutputTokens:       output,
+		CacheReadTokens:    int64(count.CacheReadTokens),
+		CacheWriteTokens:   int64(count.CacheWriteTokens),
+		ReasoningTokens:    int64(count.ReasoningTokens),
+		TotalTokens:        int64(count.TotalTokens),
+		TotalTokensPresent: count.TotalTokensPresent,
 	}
 }
 
 func attemptAuthoritySpendAmount(catalog accounting.PriceCatalog, c routing.AttemptCandidate, decision accountingpreflight.Decision) domain.Amount {
-	outputTokens := max(decision.Count.OutputTokens, 0)
+	outputTokens := max(int64(decision.Count.OutputTokens), 0)
+	if outputTokens == 0 && decision.AdjustedMaxOutputTokens != nil && *decision.AdjustedMaxOutputTokens > 0 {
+		outputTokens = int64(*decision.AdjustedMaxOutputTokens)
+	}
 	usage := accounting.TokenUsage{
 		InputTokens:  int64(decision.Count.InputTokens),
-		OutputTokens: int64(outputTokens),
+		OutputTokens: outputTokens,
 	}
 	cost := accounting.EstimateCost(accounting.CostInput{
 		Backend: strings.TrimSpace(c.Primary.Backend),
@@ -325,13 +329,14 @@ func attemptAuthorityUsageAmount(ev lipapi.Event, estimate domain.Amount) domain
 	case domain.AmountUnitTotalTokens:
 		value := int64(ev.TotalTokens)
 		if value == 0 && !attemptAuthorityEventHasUsageForUnit(ev, domain.AmountUnitTotalTokens) {
-			value = int64(ev.InputTokens + ev.OutputTokens + ev.CacheReadTokens + ev.CacheWriteTokens + ev.ReasoningTokens)
+			// Default inclusion schema: cache ⊂ input, reasoning ⊂ output.
+			value = int64(ev.InputTokens + ev.OutputTokens)
 		}
 		amount = domain.Amount{Unit: domain.AmountUnitTotalTokens, Value: value}
 	default:
 		value := int64(ev.TotalTokens)
 		if value == 0 && !attemptAuthorityEventHasUsageForUnit(ev, domain.AmountUnitTotalTokens) {
-			value = int64(ev.InputTokens + ev.OutputTokens + ev.CacheReadTokens + ev.CacheWriteTokens + ev.ReasoningTokens)
+			value = int64(ev.InputTokens + ev.OutputTokens)
 		}
 		if estimate.Unit == "" {
 			amount = domain.Amount{Unit: domain.AmountUnitTotalTokens, Value: value}

@@ -83,13 +83,12 @@ func hasLocalTokenizerFallback(t AccountingTokenizerConfig) bool {
 
 func validateAccountingPreflight(a *AccountingConfig) error {
 	mode := strings.ToLower(strings.TrimSpace(a.Preflight.Mode))
-	if mode == "" {
-		return nil
-	}
-	switch mode {
-	case "required", "advisory":
-	default:
-		return fmt.Errorf("accounting.preflight.mode: want required or advisory, got %q", a.Preflight.Mode)
+	if mode != "" {
+		switch mode {
+		case "required", "advisory":
+		default:
+			return fmt.Errorf("accounting.preflight.mode: want required or advisory, got %q", a.Preflight.Mode)
+		}
 	}
 	for _, chk := range []struct {
 		name  string
@@ -101,6 +100,14 @@ func validateAccountingPreflight(a *AccountingConfig) error {
 	} {
 		if chk.value < 0 {
 			return fmt.Errorf("accounting.preflight.%s: must be >= 0", chk.name)
+		}
+	}
+	policy := strings.ToLower(strings.TrimSpace(a.Preflight.UnknownOutputPolicy))
+	if policy != "" {
+		switch policy {
+		case "require_client_limit", "configured_default", "model_backend_maximum", "clamp", "deny":
+		default:
+			return fmt.Errorf("accounting.preflight.unknown_output_policy: want require_client_limit, configured_default, model_backend_maximum, clamp, or deny, got %q", a.Preflight.UnknownOutputPolicy)
 		}
 	}
 	return nil

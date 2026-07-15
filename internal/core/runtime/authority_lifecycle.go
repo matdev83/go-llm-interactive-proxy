@@ -706,12 +706,14 @@ func (l *authorityLifecycle) advisorySourceKey() string {
 // reconstructed usage event so the store can select the right amount per
 // matched advisory rule unit (input/output/cache/reasoning/total tokens).
 func advisoryUsageBreakdown(ev lipapi.Event) domain.PreflightUsage {
+	totalPresent := attemptAuthorityEventHasUsageForUnit(ev, domain.AmountUnitTotalTokens)
 	return domain.PreflightUsage{
-		InputTokens:      int64(ev.InputTokens),
-		OutputTokens:     int64(ev.OutputTokens),
-		CacheReadTokens:  int64(ev.CacheReadTokens),
-		CacheWriteTokens: int64(ev.CacheWriteTokens),
-		ReasoningTokens:  int64(ev.ReasoningTokens),
-		TotalTokens:      int64(ev.TotalTokens),
+		InputTokens:        int64(ev.InputTokens),
+		OutputTokens:       int64(ev.OutputTokens),
+		CacheReadTokens:    int64(ev.CacheReadTokens),
+		CacheWriteTokens:   int64(ev.CacheWriteTokens),
+		ReasoningTokens:    int64(ev.ReasoningTokens),
+		TotalTokens:        int64(ev.TotalTokens),
+		TotalTokensPresent: totalPresent,
 	}
 }

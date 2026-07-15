@@ -129,8 +129,9 @@ func (c *TokenCounter) CountCall(ctx context.Context, input app.CountCallInput) 
 		return app.CountResult{}, fmt.Errorf("%w: anthropic count_tokens: negative input token count", app.ErrProviderUnavailable)
 	}
 	return app.CountResult{
-		InputTokens: out.InputTokens,
-		TotalTokens: out.InputTokens,
+		InputTokens:        out.InputTokens,
+		TotalTokens:        out.InputTokens,
+		TotalTokensPresent: true,
 		Accounting: lipapi.UsageAccountingMetadata{
 			Plane:     lipapi.UsagePlaneProviderBillable,
 			Source:    lipapi.UsageSourceProviderCountAPI,

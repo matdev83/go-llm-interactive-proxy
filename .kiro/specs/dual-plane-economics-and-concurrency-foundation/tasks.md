@@ -1,74 +1,74 @@
 # Implementation Plan
 
-- [ ] 1. Lock current behavior with regression tests
-- [ ] 1.1 Add characterization tests for existing usage-authority timing
+- [x] 1. Lock current behavior with regression tests
+- [x] 1.1 Add characterization tests for existing usage-authority timing
   - Prove logical request rules currently execute per backend attempt under failover and parallel racing.
   - Prove loser cleanup can release operator exposure after provider work has begun.
   - Prove request mutation may occur after the current cost reservation point.
   - _Requirements: 2.2, 5.3, 8.1, 8.2, 8.4, 8.5, 9.2, 9.3_
-- [ ] 1.2 Add monetary and token-component regression tests
+- [x] 1.2 Add monetary and token-component regression tests
   - Cover omitted output limits, explicit zero provider cost, explicit zero rates, overflow, cache subcomponents, reasoning subcomponents, and inferred totals.
   - Require failures before implementation changes so each defect has an executable proof.
   - _Requirements: 3.6, 3.7, 3.8, 6.3, 6.4, 6.5, 7.2, 7.3_
 
-- [ ] 2. Correct existing token and money semantics
-- [ ] 2.1 Implement explicit component inclusion and presence rules
+- [x] 2. Correct existing token and money semantics
+- [x] 2.1 Implement explicit component inclusion and presence rules
   - Treat cache-read/write as input subcomponents and reasoning as an output subcomponent by default.
   - Keep separately reported components available for differential rating without adding them twice to totals.
   - Preserve explicit zero independently from absence.
   - _Requirements: 3.6, 3.7, 3.8, 17.4_
-- [ ] 2.2 Implement checked money arithmetic and authoritative-zero handling
+- [x] 2.2 Implement checked money arithmetic and authoritative-zero handling
   - Add checked multiplication, addition, subtraction, clamp conversion, and aggregation.
   - Replace zero-as-missing price behavior with explicit optional presence.
   - Preserve authoritative zero provider cost instead of falling back to estimation.
   - _Requirements: 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8_
-- [ ] 2.3 Enforce conservative unknown-output policies
+- [x] 2.3 Enforce conservative unknown-output policies
   - Support require-client-limit, configured default, model/backend maximum, clamp, and deny policies.
   - Verify the selected backend can enforce the applied output clamp before opening provider work.
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.8, 7.9_
 
-- [ ] 3. Add public metering and economics contracts
-- [ ] 3.1 Define public metering facts and quantity vocabulary
+- [x] 3. Add public metering and economics contracts
+- [x] 3.1 Define public metering facts and quantity vocabulary
   - Add economic perspective, metering boundary, lifecycle scope, fact kind, presence, source, authority, surfaced state, safe correlation, and version references.
   - Use extensible component/unit quantities rather than one new field per provider feature.
   - Define stable idempotency, sequence, correction, and supersession semantics.
   - _Requirements: 1.1, 1.2, 1.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.9, 13.2_
-- [ ] 3.2 Define public money, rating, exposure, and version contracts
+- [x] 3.2 Define public money, rating, exposure, and version contracts
   - Permit customer and operator rating through independent providers.
   - Require currency, presence, source, immutable version, effective time, authority, line identity, and rounding policy.
   - Represent conservative output assumptions used at admission.
   - _Requirements: 1.4, 4.6, 5.8, 6.1, 6.2, 6.6, 6.9, 7.6_
-- [ ] 3.3 Define public request and attempt authority contracts
+- [x] 3.3 Define public request and attempt authority contracts
   - Separate logical-request admission/settlement from backend-attempt admission/settlement.
   - Include reservations, clamps, denials, advisory outcomes, compensation handles, readiness, and safe evidence.
   - Keep all contracts free of internal, SQL, HTTP, provider SDK, and executor-private types.
   - _Requirements: 9.2, 9.3, 12.1, 12.2, 12.7, 12.8, 15.1_
 
-- [ ] 4. Implement immutable metering checkpoints
-- [ ] 4.1 Capture frontend-ingress request state
+- [x] 4. Implement immutable metering checkpoints
+- [x] 4.1 Capture frontend-ingress request state
   - Clone the validated canonical call before submit hooks, transforms, compression, steering, and route shaping.
   - Bind trusted scope later without mutating the original checkpoint.
   - Reuse one frontend-ingress checkpoint for the complete logical request.
   - _Requirements: 2.1, 2.5, 2.6, 2.7, 2.8, 4.1, 17.5, 17.6_
-- [ ] 4.2 Capture final backend-ingress attempt state
+- [x] 4.2 Capture final backend-ingress attempt state
   - Freeze the final provider-neutral attempt after transforms, route parameters, hooks, and clamps and immediately before backend open.
   - Recount and rerate after any widening mutation; reject any unmeasured post-authorization widening.
   - _Requirements: 2.2, 5.1, 7.4, 7.5_
-- [ ] 4.3 Capture backend-egress and frontend-egress facts
+- [x] 4.3 Capture backend-egress and frontend-egress facts
   - Finalize one backend fact stream per B-leg, including losers, cancellations, swallowed attempts, and failures when evidence exists.
   - Measure the final client-visible stream after response mutation and completion gating.
   - _Requirements: 2.3, 2.4, 4.2, 4.4, 5.2, 5.3, 5.4, 8.4_
 
-- [ ] 5. Build the durable metering journal
-- [ ] 5.1 Implement memory, SQLite, and PostgreSQL fact stores
+- [x] 5. Build the durable metering journal
+- [x] 5.1 Implement memory, SQLite, and PostgreSQL fact stores
   - Enforce unique fact/source identity, append-only correction history, bounded indexed queries, and safe scope projections.
   - Keep the journal independent from live authority counters and proprietary financial ledgers.
   - _Requirements: 3.1, 3.3, 3.4, 13.1, 13.2, 13.3, 13.4, 13.5, 13.8_
-- [ ] 5.2 Add correction aggregation and compatibility projections
+- [x] 5.2 Add correction aggregation and compatibility projections
   - Apply delta, cumulative, correction, and authoritative replacement facts idempotently.
   - Continue producing legacy token-ledger and usage views where representable.
   - _Requirements: 3.2, 3.3, 3.5, 9.5, 13.6, 17.1, 17.4_
-- [ ] 5.3 Add bounded reconciliation for orphaned and unavailable facts
+- [x] 5.3 Add bounded reconciliation for orphaned and unavailable facts
   - Recover restart state without double-counting and expose unresolved items for bounded reconciliation.
   - _Requirements: 13.6, 13.7, 14.5, 15.3_
 
@@ -167,3 +167,15 @@
   - Validate OpenAI, Anthropic, Gemini, and other supported frontend semantics against the same checkpoint and authority contracts.
   - Include crash recovery, cancellation, late correction, malformed external provider, privacy, and compatibility cases.
   - _Requirements: 15.9, 17.1, 17.2, 17.3, 17.5, 17.6, 17.8, 17.9_
+
+## Implementation Notes
+
+- Phase 1.2 locks current defects as green characterization tests; `TestPhase12_desired*CurrentlyAbsent` tripwires fail once Phase 2 desired semantics land and must be inverted/deleted with the characterization assertions.
+- Phase 2 flip targets: (1) `EstimateCost` authoritative zero provider cost and explicit-zero rates without `fallbackPrice`; (2) checked money multiply; (3) total inference without double-counting cache/reasoning subcomponents in domain, streamusage, and `attemptAuthorityUsageAmount`; (4) omitted max-output spend path must not reserve input-only / zero future output.
+- 2.1 landed: inclusion schema `total=input+output`, `PreflightUsage.TotalTokensPresent`.
+- 2.2 landed: `ProviderCost.Present`, `OptionalNanoRate`, checked mul/add, `SubMoneyChecked`; overflow → Unavailable.
+- 2.3 landed: `unknown_output_policy` (require_client_limit|configured_default|model_backend_maximum|clamp|deny); empty defaults to model limit then configured max, else legacy unbound; spend uses AdjustedMax/Count output bound; `RequireMaxOutputEnforcement` excludes unenforceable backends before Open.
+- Phase 3 public contracts: `pkg/lipsdk/metering` (facts/quantities/recorder/query/compat), `pkg/lipsdk/economics` (money/rating/exposure/version), `pkg/lipsdk/authority` (request/attempt providers, posture with ProviderKind observer vs authority, concurrency lease DTOs). Import DAG: `authority` → `economics` → `metering` (+ `scope` on facts/admissions). CompatibilityPolicy additive_v1 (12.8); observers cannot declare StrengthRequired (12.7). No journal/runtimebundle wiring.
+- Phase 4 checkpoints: public `metering.Checkpoint`; `internal/core/metering/checkpoint` Snapshot+sanitize+widening+egress Fact drafts; FE ingress captured before `RunSubmit` (distinct from post-submit `baseline`); backend ingress frozen via independent `CloneCall` before `be.Open` (Open uses freeze; `AssertNotWidened` rejects post-freeze live-call mutation); backend egress for winner/loser/failed/canceled/swallowed when freeze exists; frontend egress on winner finalize and committed cancel/partial-error terminals; optional `Executor.MeteringRecorder` (nil = no durable append). No durable journalstore (Phase 5).
+- Phase 5.1: `internal/infra/metering/journalstore` memory+SQLite+Postgres append-only facts (`UNIQUE(source_event_key)`=IdempotencyKey); money preserved in payload_json; bounded List requires stream_id|request_id; `metering.enabled` default off wires `runtimebundle/metering.go` → `MeteringRecorder`.
+- Phase 5.2–5.3: `internal/core/metering/aggregate` replays delta/cumulative/correction/replacement/unavailable without double-count; `ProjectLedgerRecord` for legacy token views (money stays on journal); `internal/core/metering/reconcile.Stream` bounded hydrate + orphan/unavailable unresolved report (no lease/reservation stores).

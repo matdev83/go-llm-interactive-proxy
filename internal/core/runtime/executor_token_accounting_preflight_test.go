@@ -141,7 +141,8 @@ func TestExecutorPreflightOutputClampAppliesBeforeBackendOpen(t *testing.T) {
 	})
 	ex.Backends = map[string]execbackend.Backend{
 		"openai": {
-			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Caps:                    lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			EnforcesMaxOutputTokens: true,
 			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				if call.Options.MaxOutputTokens == nil {
 					t.Fatal("Backend.Open received nil MaxOutputTokens")

@@ -40,6 +40,9 @@ type PreflightUsage struct {
 	CacheWriteTokens int64
 	ReasoningTokens  int64
 	TotalTokens      int64
+	// TotalTokensPresent distinguishes an authoritative total (including explicit
+	// zero) from an omitted total that may be inferred via the inclusion schema.
+	TotalTokensPresent bool
 }
 
 func (p PreflightUsage) AmountForUnit(unit AmountUnit) (Amount, bool) {
@@ -56,11 +59,12 @@ func (p PreflightUsage) AmountForUnit(unit AmountUnit) (Amount, bool) {
 	case AmountUnitReasoningTokens:
 		return Amount{Unit: unit, Value: p.ReasoningTokens}, true
 	case AmountUnitTotalTokens:
-		value := p.TotalTokens
-		if value == 0 {
-			value = p.InputTokens + p.OutputTokens + p.CacheReadTokens + p.CacheWriteTokens + p.ReasoningTokens
+		if p.TotalTokensPresent {
+			return Amount{Unit: unit, Value: p.TotalTokens}, true
 		}
-		return Amount{Unit: unit, Value: value}, true
+		// Default inclusion schema: cache ⊂ input, reasoning ⊂ output.
+		// Infer total = input + output without re-adding subcomponents.
+		return Amount{Unit: unit, Value: p.InputTokens + p.OutputTokens}, true
 	default:
 		return Amount{}, false
 	}

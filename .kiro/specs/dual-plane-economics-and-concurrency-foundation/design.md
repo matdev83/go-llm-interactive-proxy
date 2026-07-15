@@ -193,10 +193,13 @@ Evidence provenance is separate:
 
 ```text
 pkg/lipsdk/metering/
-  types.go          # facts, quantities, boundaries, perspectives, fact kinds
-  presence.go       # explicit presence and component schemas
-  recorder.go       # append-only recorder and query contracts
-  checkpoint.go     # immutable checkpoint inputs
+  types.go          # facts, quantities, boundaries, perspectives, fact kinds, presence
+  quantity.go       # extensible component/unit quantities and inclusion schema
+  fact.go           # fact identity, validation, supersession
+  recorder.go       # append-only recorder contracts
+  query.go          # bounded query contracts
+  compat.go         # additive versioning / unknown-enum policy (12.8)
+  # checkpoint capture types land with Phase 4 runtime wiring
 
 pkg/lipsdk/economics/
   money.go          # checked money value and currency identity
@@ -210,10 +213,11 @@ pkg/lipsdk/authority/
   provider.go       # public authority provider contracts
   evidence.go       # safe public evidence types
   concurrency.go    # lease decision/query DTOs
+  posture.go        # provider kind (authority vs observer), strength, readiness posture
 
 pkg/lipruntime/
-  options.go        # public production composition options
-  build.go          # supported facade over internal runtimebundle
+  options.go        # public production composition options (Phase E)
+  build.go          # supported facade over internal runtimebundle (Phase E)
 ```
 
 Names may be adjusted to project conventions, but all enterprise-necessary contracts must be public and provider-neutral.
@@ -947,6 +951,7 @@ pkg/lipsdk/metering/
   fact.go
   recorder.go
   query.go
+  compat.go
 
 pkg/lipsdk/economics/
   money.go
@@ -960,6 +965,7 @@ pkg/lipsdk/authority/
   provider.go
   concurrency.go
   evidence.go
+  posture.go
 
 pkg/lipruntime/
   options.go

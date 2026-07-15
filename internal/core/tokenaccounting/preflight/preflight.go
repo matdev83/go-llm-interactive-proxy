@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
@@ -28,6 +29,18 @@ const (
 	ReasonInputLimitExceeded   Reason = "input_limit_exceeded"
 	ReasonContextLimitExceeded Reason = "context_limit_exceeded"
 	ReasonOutputLimitExceeded  Reason = "output_limit_exceeded"
+	ReasonUnknownOutputDenied  Reason = "unknown_output_denied"
+)
+
+// UnknownOutputPolicy bounds future output exposure when the client omits max output.
+type UnknownOutputPolicy string
+
+const (
+	UnknownOutputRequireClientLimit  UnknownOutputPolicy = "require_client_limit"
+	UnknownOutputConfiguredDefault   UnknownOutputPolicy = "configured_default"
+	UnknownOutputModelBackendMaximum UnknownOutputPolicy = "model_backend_maximum"
+	UnknownOutputClamp               UnknownOutputPolicy = "clamp"
+	UnknownOutputDeny                UnknownOutputPolicy = "deny"
 )
 
 type Counter interface {
@@ -41,6 +54,7 @@ type Config struct {
 	MaxOutputTokens      int64
 	MaxContextTokens     int64
 	ClampMaxOutputTokens bool
+	UnknownOutputPolicy  UnknownOutputPolicy
 }
 
 type Checker struct {
@@ -64,6 +78,9 @@ type Decision struct {
 	Err                     error
 	Count                   app.CountResult
 	AdjustedMaxOutputTokens *int
+	// RequireMaxOutputEnforcement is set when preflight applied a max-output
+	// clamp that must be enforceable on the selected backend before Open.
+	RequireMaxOutputEnforcement bool
 }
 
 func NewChecker(counter Counter, cfg Config) *Checker {
@@ -102,51 +119,153 @@ func (c *Checker) Check(ctx context.Context, in Input) Decision {
 
 	out := Decision{Allowed: true, Reason: ReasonAllowed, Count: count}
 	if c.cfg.MaxInputTokens > 0 && int64(count.InputTokens) > c.cfg.MaxInputTokens {
-		return Decision{Allowed: false, Reason: ReasonInputLimitExceeded, Count: count}
+		return Decision{Allowed: false, Reason: ReasonInputLimitExceeded, Count: count, Err: fmt.Errorf("input token limit exceeded")}
 	}
 
-	outputLimit := effectiveLimitFact(in.Facts.OutputLimit, c.cfg.MaxOutputTokens)
-	effectiveOutput, adjusted, ok := c.evaluateOutputLimit(in.RequestedMaxOutputTokens, outputLimit, count)
+	modelOutputLimit := in.Facts.OutputLimit
+	outputLimit := effectiveLimitFact(modelOutputLimit, c.cfg.MaxOutputTokens)
+	effectiveOutput, adjusted, ok := c.evaluateOutputLimit(in.RequestedMaxOutputTokens, modelOutputLimit, outputLimit, count)
 	if !ok {
 		return adjusted
 	}
 	if adjusted.AdjustedMaxOutputTokens != nil {
 		out.AdjustedMaxOutputTokens = adjusted.AdjustedMaxOutputTokens
+		out.RequireMaxOutputEnforcement = adjusted.RequireMaxOutputEnforcement
 	}
 	if len(adjusted.Warnings) > 0 {
 		out.Warnings = append(out.Warnings, adjusted.Warnings...)
 	}
+	// Persist the exposure bound on Count.OutputTokens so authority spend
+	// reservations see non-zero future output when the client omitted max.
+	if effectiveOutput > 0 && out.Count.OutputTokens == 0 {
+		if effectiveOutput > int64(math.MaxInt) {
+			out.Count.OutputTokens = math.MaxInt
+		} else {
+			out.Count.OutputTokens = int(effectiveOutput)
+		}
+	}
 
 	contextLimit := effectiveLimitFact(in.Facts.ContextLimit, c.cfg.MaxContextTokens)
 	if limitPresent(contextLimit) && exceedsLimit(int64(count.InputTokens), effectiveOutput, contextLimit.Tokens) {
-		return Decision{Allowed: false, Reason: ReasonContextLimitExceeded, Count: count}
+		return Decision{Allowed: false, Reason: ReasonContextLimitExceeded, Count: count, Err: fmt.Errorf("context token limit exceeded")}
 	}
 	return out
 }
 
 func (c *Checker) evaluateOutputLimit(
 	requested *int,
-	limit modelcatalog.LimitFact,
+	modelLimit modelcatalog.LimitFact,
+	mergedLimit modelcatalog.LimitFact,
 	count app.CountResult,
 ) (int64, Decision, bool) {
+	if requested == nil {
+		return c.resolveUnknownOutput(modelLimit, count)
+	}
+
 	effectiveOutput := int64(requestedOutputTokens(requested))
-	if requested == nil || !limitPresent(limit) {
+	if !limitPresent(mergedLimit) {
 		return effectiveOutput, Decision{}, true
 	}
 
-	if int64(*requested) > limit.Tokens {
+	if int64(*requested) > mergedLimit.Tokens {
 		if c.cfg.ClampMaxOutputTokens {
-			clamped := int(limit.Tokens)
-			return int64(clamped), Decision{Allowed: true, Reason: ReasonAllowed, Count: count, AdjustedMaxOutputTokens: &clamped}, true
+			clamped := int(mergedLimit.Tokens)
+			return int64(clamped), Decision{
+				Allowed:                     true,
+				Reason:                      ReasonAllowed,
+				Count:                       count,
+				AdjustedMaxOutputTokens:     &clamped,
+				RequireMaxOutputEnforcement: true,
+			}, true
 		}
 		if c.cfg.Mode == ModeStrict {
-			return 0, Decision{Allowed: false, Reason: ReasonOutputLimitExceeded, Count: count}, false
+			return 0, Decision{Allowed: false, Reason: ReasonOutputLimitExceeded, Count: count, Err: fmt.Errorf("output token limit exceeded")}, false
 		}
-		warning := fmt.Sprintf("requested max output tokens %d exceeds output limit %d", *requested, limit.Tokens)
+		warning := fmt.Sprintf("requested max output tokens %d exceeds output limit %d", *requested, mergedLimit.Tokens)
 		return effectiveOutput, Decision{Allowed: true, Reason: ReasonAllowed, Count: count, Warnings: []string{warning}}, true
 	}
 
 	return effectiveOutput, Decision{}, true
+}
+
+func (c *Checker) resolveUnknownOutput(modelLimit modelcatalog.LimitFact, count app.CountResult) (int64, Decision, bool) {
+	policy := c.effectiveUnknownOutputPolicy(modelLimit)
+	if policy == "" {
+		// Legacy unbound: no configured/model bound and no explicit policy.
+		return 0, Decision{}, true
+	}
+	switch policy {
+	case UnknownOutputRequireClientLimit, UnknownOutputDeny:
+		return 0, Decision{
+			Allowed: false,
+			Reason:  ReasonUnknownOutputDenied,
+			Count:   count,
+			Err:     fmt.Errorf("unknown output exposure denied by policy %q", policy),
+		}, false
+	case UnknownOutputConfiguredDefault:
+		if c.cfg.MaxOutputTokens <= 0 {
+			return 0, Decision{
+				Allowed: false,
+				Reason:  ReasonUnknownOutputDenied,
+				Count:   count,
+				Err:     fmt.Errorf("configured_default unknown-output policy requires max_output_tokens"),
+			}, false
+		}
+		bound := int(c.cfg.MaxOutputTokens)
+		if c.cfg.MaxOutputTokens > math.MaxInt {
+			bound = math.MaxInt
+		}
+		return int64(bound), Decision{Allowed: true, Reason: ReasonAllowed, Count: count, AdjustedMaxOutputTokens: &bound, RequireMaxOutputEnforcement: true}, true
+	case UnknownOutputModelBackendMaximum, UnknownOutputClamp:
+		if !limitPresent(modelLimit) {
+			// Clamp may fall back to configured default when model limit is absent.
+			if policy == UnknownOutputClamp && c.cfg.MaxOutputTokens > 0 {
+				bound := int(c.cfg.MaxOutputTokens)
+				if c.cfg.MaxOutputTokens > math.MaxInt {
+					bound = math.MaxInt
+				}
+				return int64(bound), Decision{Allowed: true, Reason: ReasonAllowed, Count: count, AdjustedMaxOutputTokens: &bound, RequireMaxOutputEnforcement: true}, true
+			}
+			return 0, Decision{
+				Allowed: false,
+				Reason:  ReasonUnknownOutputDenied,
+				Count:   count,
+				Err:     fmt.Errorf("%s unknown-output policy requires a model/backend output limit", policy),
+			}, false
+		}
+		bound := int(modelLimit.Tokens)
+		if modelLimit.Tokens > math.MaxInt {
+			bound = math.MaxInt
+		}
+		return int64(bound), Decision{Allowed: true, Reason: ReasonAllowed, Count: count, AdjustedMaxOutputTokens: &bound, RequireMaxOutputEnforcement: true}, true
+	default:
+		return 0, Decision{
+			Allowed: false,
+			Reason:  ReasonUnknownOutputDenied,
+			Count:   count,
+			Err:     fmt.Errorf("unknown output policy %q", policy),
+		}, false
+	}
+}
+
+// effectiveUnknownOutputPolicy resolves empty config to the Phase A default:
+// model_backend_maximum when a model limit exists, else configured_default when
+// MaxOutputTokens > 0. When neither bound exists, empty policy keeps legacy
+// allow-unbound behavior (callers must set an explicit deny/require_client_limit
+// policy to reject omitted max output).
+func (c *Checker) effectiveUnknownOutputPolicy(modelLimit modelcatalog.LimitFact) UnknownOutputPolicy {
+	raw := UnknownOutputPolicy(strings.ToLower(strings.TrimSpace(string(c.cfg.UnknownOutputPolicy))))
+	switch raw {
+	case UnknownOutputRequireClientLimit, UnknownOutputConfiguredDefault, UnknownOutputModelBackendMaximum, UnknownOutputClamp, UnknownOutputDeny:
+		return raw
+	}
+	if limitPresent(modelLimit) {
+		return UnknownOutputModelBackendMaximum
+	}
+	if c.cfg.MaxOutputTokens > 0 {
+		return UnknownOutputConfiguredDefault
+	}
+	return ""
 }
 
 func (c *Checker) failOrWarn(reason Reason, warning string, err error) Decision {

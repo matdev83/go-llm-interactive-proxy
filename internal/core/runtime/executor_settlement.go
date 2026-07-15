@@ -13,6 +13,7 @@ import (
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
@@ -36,16 +37,25 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	if s.accounting.usageObserved {
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+		if s.isCommitted() {
+			s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+		}
 		return
 	}
 	if s.finalizeBillingAfterCancel(ctx, reason) {
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+		if s.isCommitted() {
+			s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+		}
 		return
 	}
 	s.recordCancellationBillingMarker(ctx, reason)
 	s.settleCancellationAuthority(ctx)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+	if s.isCommitted() {
+		s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
+	}
 }
 
 // reconcileOrSettleCancellationAuthority routes the cancellation settlement based
@@ -75,7 +85,9 @@ func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
 	if s == nil || s.authority.Settled() {
 		return
 	}
-	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)), true)
+	usageEv := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
+	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
 }
 
 func (s *retryRecvStream) recordCancellationBillingMarker(ctx context.Context, reason string) {
@@ -269,6 +281,8 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 		authorityEv = usageEv
 	}
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, authorityEv)
+	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
+	s.emitFrontendEgressMeteringFact(ctx, authorityEv)
 	return usageEv, ok, nil
 }
 
@@ -512,6 +526,10 @@ func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reas
 	usageEv := authorityUsageEvent(events)
 	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
+	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedYes, usageEv)
+	if s.isCommitted() {
+		s.emitFrontendEgressMeteringFact(ctx, usageEv)
+	}
 }
 
 func (s *retryRecvStream) recordPartialTokenAccountingLedger(ctx context.Context, reason string, err error) {

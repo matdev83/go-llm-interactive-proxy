@@ -68,7 +68,13 @@ var lineBudgets = []struct {
 	// Raised from 41700 to 42200 to accommodate internal/core/codexcatalog, the
 	// auto-discovered Codex model catalog (parser, fallback snapshot, discovery,
 	// binary resolver) shared by the openai-codex and codex app-server connectors.
-	{"internal/core", 42200},
+	// Raised from 42200 to 42500 for dual-plane economics Phase 2 correctness:
+	// token-total inclusion/presence, checked money arithmetic with optional
+	// rate presence, and unknown-output preflight policy resolution.
+	// Raised from 42500 to 43500 for Phase 4 metering checkpoints (capture,
+	// widening, egress fact drafts) plus runtime hook wiring.
+	// Raised from 43500 to 44000 for Phase 5 aggregate + reconcile packages.
+	{"internal/core", 44000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	{"internal/infra/runtimebundle", 4500},

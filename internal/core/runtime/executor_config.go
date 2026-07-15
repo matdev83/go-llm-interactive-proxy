@@ -29,6 +29,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // CoreRuntime carries continuity store, backends, lifecycle coordination, and clocks.
@@ -83,6 +84,9 @@ type AccountingRuntime struct {
 	AdminCountService            *accountingapp.Service
 	UsageAuthority               UsageAuthorityService
 	UsageAuthorityCleanupTimeout time.Duration
+	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
+	// checkpoints are retained in-request only (no durable append until Phase 5).
+	MeteringRecorder metering.Recorder
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority

@@ -105,8 +105,11 @@ type CountResult struct {
 	CacheWriteTokens int
 	ReasoningTokens  int
 	TotalTokens      int
-	Accounting       lipapi.UsageAccountingMetadata
-	Fallbacks        []Fallback
+	// TotalTokensPresent distinguishes an authoritative total (including
+	// explicit zero) from an omitted total that may be inferred later.
+	TotalTokensPresent bool
+	Accounting         lipapi.UsageAccountingMetadata
+	Fallbacks          []Fallback
 }
 
 type FallbackReason string
