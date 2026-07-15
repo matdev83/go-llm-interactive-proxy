@@ -92,7 +92,10 @@ var lineBudgets = []struct {
 	// stays in internal/stdhttp (not core).
 	// Raised from 49950 to 50050 for issue #146 access-mode gate comments on
 	// CodexModelCatalogConfig (single_user + enabled-consumer discovery).
-	{"internal/core", 50050},
+	// Raised from 50050 to 50300 for issue #146/#149 model-registry perf and
+	// inventory completion: publish-time OpenAI list JSON, content fingerprint,
+	// parallel inventory fetch, and refresh overlap guard in modelregistry.
+	{"internal/core", 50300},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
