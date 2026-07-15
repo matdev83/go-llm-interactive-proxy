@@ -13,9 +13,12 @@ import (
 )
 
 type fakeAttemptProvider struct {
-	id       string
-	admit    func(context.Context, authority.AttemptAdmission) (authority.Decision, error)
-	released atomic.Int32
+	id                string
+	admit             func(context.Context, authority.AttemptAdmission) (authority.Decision, error)
+	settle            func(context.Context, authority.AttemptSettlement) (authority.Settlement, error)
+	released          atomic.Int32
+	settled           atomic.Int32
+	lastSettleHandles atomic.Value // []string
 }
 
 func (f *fakeAttemptProvider) AdmitAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
@@ -28,7 +31,13 @@ func (f *fakeAttemptProvider) AdmitAttempt(ctx context.Context, in authority.Att
 	}, nil
 }
 
-func (f *fakeAttemptProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
+func (f *fakeAttemptProvider) SettleAttempt(ctx context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	f.settled.Add(1)
+	handles := append([]string(nil), in.Handles...)
+	f.lastSettleHandles.Store(handles)
+	if f.settle != nil {
+		return f.settle(ctx, in)
+	}
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
 
@@ -111,5 +120,40 @@ func validAttemptAdmission(bleg string) authority.AttemptAdmission {
 			Boundary:    metering.BoundaryBackendIngress,
 			Lifecycle:   metering.LifecycleBackendAttempt,
 		},
+	}
+}
+
+func TestAttemptCoordinator_SettleRoutesHandlesToOwningProvider(t *testing.T) {
+	t.Parallel()
+	builtin := &fakeAttemptProvider{id: "usage-authority-attempt"}
+	external := &fakeAttemptProvider{id: "enterprise-attempt"}
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "usage-authority-attempt", Class: authoritycoord.AttemptPriorityHardSpend, Provider: builtin, Strength: authority.StrengthRequired},
+			{ID: "enterprise-attempt", Class: authoritycoord.AttemptPriorityQuotaRate, Provider: external, Strength: authority.StrengthRequired},
+		},
+	}
+	d, err := coord.Admit(context.Background(), validAttemptAdmission("b-mixed"))
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	if err := coord.Settle(context.Background(), d.Stack, authority.AttemptSettlement{
+		RequestID: "req-1",
+		AttemptID: "b-mixed",
+		BLegID:    "b-mixed",
+		Handles:   d.Stack.Handles(),
+	}); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	if builtin.settled.Load() != 1 || external.settled.Load() != 1 {
+		t.Fatalf("settled builtin=%d external=%d want 1 each", builtin.settled.Load(), external.settled.Load())
+	}
+	builtinHandles, _ := builtin.lastSettleHandles.Load().([]string)
+	externalHandles, _ := external.lastSettleHandles.Load().([]string)
+	if len(builtinHandles) != 1 || builtinHandles[0] != "usage-authority-attempt-h" {
+		t.Fatalf("builtin handles=%v want [usage-authority-attempt-h]", builtinHandles)
+	}
+	if len(externalHandles) != 1 || externalHandles[0] != "enterprise-attempt-h" {
+		t.Fatalf("external handles=%v want [enterprise-attempt-h]", externalHandles)
 	}
 }

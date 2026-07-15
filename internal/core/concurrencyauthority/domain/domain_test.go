@@ -13,14 +13,32 @@ func TestStableLeaseID_DeterministicAcrossRetries(t *testing.T) {
 	t.Parallel()
 
 	dims := domain.Dimensions{Principal: scope.Known("user-1"), Tenant: scope.Known("t1")}
-	a := domain.StableLeaseID("ns", "v1", "req-42", dims)
-	b := domain.StableLeaseID("ns", "v1", "req-42", dims)
+	a := domain.StableLeaseID("ns", "rule-a", "v1", "req-42", dims)
+	b := domain.StableLeaseID("ns", "rule-a", "v1", "req-42", dims)
 	if a == "" || a != b {
 		t.Fatalf("lease id unstable: %q vs %q", a, b)
 	}
-	other := domain.StableLeaseID("ns", "v1", "req-43", dims)
+	other := domain.StableLeaseID("ns", "rule-a", "v1", "req-43", dims)
 	if a == other {
 		t.Fatal("different logical requests must not share lease id")
+	}
+}
+
+func TestStableLeaseID_IncludesRuleIdentity(t *testing.T) {
+	t.Parallel()
+
+	dims := domain.Dimensions{Principal: scope.Known("user-1"), Tenant: scope.Known("t1")}
+	a := domain.StableLeaseID("ns", "rule-a", "v1", "req-42", dims)
+	b := domain.StableLeaseID("ns", "rule-b", "v1", "req-42", dims)
+	if a == "" || b == "" {
+		t.Fatalf("empty lease id: a=%q b=%q", a, b)
+	}
+	if a == b {
+		t.Fatal("different RuleIDs must produce different lease ids")
+	}
+	same := domain.StableLeaseID("ns", "rule-a", "v1", "req-42", dims)
+	if a != same {
+		t.Fatalf("same RuleID must be idempotent: %q vs %q", a, same)
 	}
 }
 

@@ -100,8 +100,9 @@ type AccountingRuntime struct {
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
 	// EconomicsRater is the optional enterprise rating provider (Phase 10).
-	// Nil keeps spend estimates on AccountingPriceCatalog until dual-plane rating
-	// replaces catalog-backed paths.
+	// When non-nil it is the exclusive pricing authority for admit spend, usage
+	// enrichment, and (via economics.OutputLimitQuoter) admission clamp conversion.
+	// Nil keeps those paths on AccountingPriceCatalog; there is no silent mix.
 	EconomicsRater economics.Rater
 	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
 	RequestCoordinator *authoritycoord.RequestCoordinator

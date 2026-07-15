@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -83,12 +84,16 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 	if err := pub.Validate(); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Public: pub, Call: cloned}, nil
+	snap := Snapshot{Public: pub, Call: cloned}
+	snap.DeriveAndApplyIngressQuantities()
+	return snap, nil
 }
 
 // RequestHolder retains the single frontend-ingress snapshot for one logical request
-// and per-attempt backend-ingress freezes.
+// and per-attempt backend-ingress freezes. Methods are safe for concurrent use by
+// parallel racing attempts that store distinct AttemptID keys.
 type RequestHolder struct {
+	mu              sync.Mutex
 	FrontendIngress *Snapshot
 	BackendIngress  map[string]*Snapshot // keyed by AttemptID
 	nextSeq         int64
@@ -99,6 +104,8 @@ func (h *RequestHolder) NextSequence() int64 {
 	if h == nil {
 		return 1
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.nextSeq++
 	return h.nextSeq
 }
@@ -109,6 +116,8 @@ func (h *RequestHolder) CaptureOrReuseFrontendIngress(in FrontendIngressInput) (
 	if h == nil {
 		return CaptureFrontendIngress(in)
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.FrontendIngress != nil {
 		return *h.FrontendIngress, nil
 	}
@@ -192,7 +201,9 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 	if err := pub.Validate(); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Public: pub, Call: cloned}, nil
+	snap := Snapshot{Public: pub, Call: cloned}
+	snap.DeriveAndApplyIngressQuantities()
+	return snap, nil
 }
 
 // StoreBackendIngress captures and retains a backend-ingress snapshot for an attempt.
@@ -204,6 +215,8 @@ func (h *RequestHolder) StoreBackendIngress(in BackendIngressInput) (Snapshot, e
 	if h == nil {
 		return snap, nil
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.BackendIngress == nil {
 		h.BackendIngress = make(map[string]*Snapshot)
 	}
@@ -214,8 +227,45 @@ func (h *RequestHolder) StoreBackendIngress(in BackendIngressInput) (Snapshot, e
 
 // BackendIngressFor returns the frozen snapshot for an attempt, if any.
 func (h *RequestHolder) BackendIngressFor(attemptID string) *Snapshot {
-	if h == nil || h.BackendIngress == nil {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.BackendIngress == nil {
 		return nil
 	}
 	return h.BackendIngress[strings.TrimSpace(attemptID)]
+}
+
+// MergeFrontendIngressQuantities merges deferred counts into the FE snapshot
+// without changing CheckpointID or the frozen Call (design deferred counting).
+func (h *RequestHolder) MergeFrontendIngressQuantities(additions []metering.Quantity) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.FrontendIngress == nil {
+		return
+	}
+	h.FrontendIngress.MergeQuantities(additions)
+}
+
+// MergeBackendIngressQuantities merges deferred counts into a stored BE snapshot.
+func (h *RequestHolder) MergeBackendIngressQuantities(attemptID string, additions []metering.Quantity) bool {
+	if h == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.BackendIngress == nil {
+		return false
+	}
+	snap := h.BackendIngress[strings.TrimSpace(attemptID)]
+	if snap == nil {
+		return false
+	}
+	snap.MergeQuantities(additions)
+	return true
 }

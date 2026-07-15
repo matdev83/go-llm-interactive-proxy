@@ -40,47 +40,93 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 	if e == nil || st == nil || e.RequestCoordinator == nil || e.RequestCoordinator.Concurrency == nil {
 		return
 	}
-	leaseID := st.LeaseID
-	if leaseID == "" {
-		leaseID = st.Decision.Lease.LeaseID
-	}
-	if leaseID == "" {
-		return
-	}
-	gen := st.LeaseGeneration
-	if gen == 0 {
-		gen = st.Decision.Lease.Generation
-	}
-	expires := st.LeaseExpiresAt
-	if expires.IsZero() {
-		expires = st.Decision.Lease.ExpiresAt
-	}
-	renewBefore := st.RenewBefore
-	if renewBefore <= 0 {
-		renewBefore = st.Decision.Lease.RenewBefore
-	}
-	if renewBefore <= 0 {
-		renewBefore = e.ConcurrencyRenewBefore
-	}
-	if renewBefore <= 0 {
-		renewBefore = 15 * time.Second
-	}
-	ttl := st.LeaseTTL
-	if ttl <= 0 {
-		ttl = st.Decision.Lease.TTL
-	}
-	if ttl <= 0 {
-		ttl = e.ConcurrencyLeaseTTL
-	}
-	if ttl <= 0 {
-		ttl = time.Minute
+	targets := append([]leaseRenewTarget(nil), st.LeaseTargets...)
+	if len(targets) == 0 {
+		leaseID := st.LeaseID
+		if leaseID == "" {
+			leaseID = st.Decision.Lease.LeaseID
+		}
+		if leaseID == "" {
+			return
+		}
+		gen := st.LeaseGeneration
+		if gen == 0 {
+			gen = st.Decision.Lease.Generation
+		}
+		expires := st.LeaseExpiresAt
+		if expires.IsZero() {
+			expires = st.Decision.Lease.ExpiresAt
+		}
+		targets = []leaseRenewTarget{{
+			LeaseID:         leaseID,
+			Generation:      gen,
+			ExpiresAt:       expires,
+			RenewBefore:     st.RenewBefore,
+			TTL:             st.LeaseTTL,
+			FailureBehavior: st.FailureBehavior,
+		}}
 	}
 
-	st.LeaseID = leaseID
-	st.LeaseGeneration = gen
-	st.LeaseExpiresAt = expires
-	st.RenewBefore = renewBefore
-	st.LeaseTTL = ttl
+	defaultRenewBefore := st.RenewBefore
+	if defaultRenewBefore <= 0 {
+		defaultRenewBefore = st.Decision.Lease.RenewBefore
+	}
+	if defaultRenewBefore <= 0 {
+		defaultRenewBefore = e.ConcurrencyRenewBefore
+	}
+	if defaultRenewBefore <= 0 {
+		defaultRenewBefore = 15 * time.Second
+	}
+	defaultTTL := st.LeaseTTL
+	if defaultTTL <= 0 {
+		defaultTTL = st.Decision.Lease.TTL
+	}
+	if defaultTTL <= 0 {
+		defaultTTL = e.ConcurrencyLeaseTTL
+	}
+	if defaultTTL <= 0 {
+		defaultTTL = time.Minute
+	}
+	defaultFB := st.FailureBehavior
+	if defaultFB == "" {
+		defaultFB = st.Decision.Lease.FailureBehavior
+	}
+	if defaultFB == "" {
+		defaultFB = authority.FailureFailClosed
+	}
+
+	for i := range targets {
+		if targets[i].RenewBefore <= 0 {
+			targets[i].RenewBefore = defaultRenewBefore
+		}
+		if targets[i].TTL <= 0 {
+			targets[i].TTL = defaultTTL
+		}
+		if targets[i].FailureBehavior == "" {
+			targets[i].FailureBehavior = defaultFB
+		}
+	}
+
+	st.LeaseTargets = targets
+	st.LeaseIDs = make([]string, 0, len(targets))
+	for _, t := range targets {
+		st.LeaseIDs = append(st.LeaseIDs, t.LeaseID)
+	}
+	// Keep scalar primary as set by admit (lastAllow); only fill when empty.
+	if st.LeaseID == "" {
+		st.LeaseID = targets[0].LeaseID
+		st.LeaseGeneration = targets[0].Generation
+		st.LeaseExpiresAt = targets[0].ExpiresAt
+	}
+	if st.RenewBefore <= 0 {
+		st.RenewBefore = targets[0].RenewBefore
+	}
+	if st.LeaseTTL <= 0 {
+		st.LeaseTTL = targets[0].TTL
+	}
+	if st.FailureBehavior == "" {
+		st.FailureBehavior = targets[0].FailureBehavior
+	}
 
 	hb := newLeaseHeartbeat()
 	st.heartbeat = hb
@@ -93,13 +139,9 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 	go func() {
 		defer close(hb.doneCh)
-		generation := gen
-		expiresAt := expires
+		live := append([]leaseRenewTarget(nil), targets...)
 		for {
-			wait := time.Until(expiresAt.Add(-renewBefore))
-			if wait < 0 {
-				wait = 0
-			}
+			wait := nextRenewWait(live)
 			timer := time.NewTimer(wait)
 			select {
 			case <-hb.stopCh:
@@ -115,38 +157,57 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 				return
 			default:
 			}
-			rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
-			dec, err := prov.RenewLease(rctx, authority.LeaseRenew{
-				LeaseID:            leaseID,
-				RequestID:          reqID,
-				ExpectedGeneration: generation,
-				TTL:                ttl,
-			})
-			cancel()
-			if err != nil {
-				// Renewal storage failure must not corrupt active count (10.8):
-				// leave the lease live until expiry/terminal release.
-				hb.degraded.Store(true)
-				behavior := st.FailureBehavior
-				if behavior == "" {
-					behavior = st.Decision.Lease.FailureBehavior
+
+			failClosed := false
+			anyFailOpenRetry := false
+			for i := range live {
+				t := &live[i]
+				rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
+				dec, err := prov.RenewLease(rctx, authority.LeaseRenew{
+					LeaseID:            t.LeaseID,
+					RequestID:          reqID,
+					ExpectedGeneration: t.Generation,
+					TTL:                t.TTL,
+				})
+				cancel()
+				if err != nil {
+					// Renewal storage failure must not corrupt active count (10.8):
+					// leave the lease live until expiry/terminal release.
+					hb.degraded.Store(true)
+					behavior := t.FailureBehavior
+					if behavior == "" {
+						behavior = defaultFB
+					}
+					if behavior == authority.FailureFailClosed {
+						failClosed = true
+						continue
+					}
+					anyFailOpenRetry = true
+					continue
 				}
-				if behavior == "" {
-					behavior = authority.FailureFailClosed
+				if dec.Generation > 0 {
+					t.Generation = dec.Generation
 				}
-				if behavior == authority.FailureFailClosed {
-					// Fail-closed: stop renewing; occupancy remains until expiry
-					// or terminal release without mutating the active count.
-					return
+				if !dec.ExpiresAt.IsZero() {
+					t.ExpiresAt = dec.ExpiresAt
 				}
-				// Fail-open: keep retrying to hold occupancy through transient failures.
-				retryWait := time.Until(expiresAt) / 2
-				if retryWait < 100*time.Millisecond {
-					retryWait = 100 * time.Millisecond
-				}
-				if retryWait > renewBefore {
-					retryWait = renewBefore
-				}
+			}
+			// Mirror primary generation/expiry from the primary lease when present.
+			if primary := findTarget(live, st.LeaseID); primary != nil {
+				st.LeaseGeneration = primary.Generation
+				st.LeaseExpiresAt = primary.ExpiresAt
+			} else if len(live) > 0 {
+				st.LeaseGeneration = live[0].Generation
+				st.LeaseExpiresAt = live[0].ExpiresAt
+			}
+			st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
+			if failClosed {
+				// Fail-closed: stop renewing; occupancy remains until expiry
+				// or terminal release without mutating the active count.
+				return
+			}
+			if anyFailOpenRetry {
+				retryWait := minFailOpenRetry(live, defaultRenewBefore)
 				retry := time.NewTimer(retryWait)
 				select {
 				case <-hb.stopCh:
@@ -157,18 +218,63 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 					return
 				case <-retry.C:
 				}
-				continue
-			}
-			if dec.Generation > 0 {
-				generation = dec.Generation
-				st.LeaseGeneration = dec.Generation
-			}
-			if !dec.ExpiresAt.IsZero() {
-				expiresAt = dec.ExpiresAt
-				st.LeaseExpiresAt = dec.ExpiresAt
 			}
 		}
 	}()
+}
+
+func findTarget(targets []leaseRenewTarget, leaseID string) *leaseRenewTarget {
+	for i := range targets {
+		if targets[i].LeaseID == leaseID {
+			return &targets[i]
+		}
+	}
+	return nil
+}
+
+func minFailOpenRetry(targets []leaseRenewTarget, renewBefore time.Duration) time.Duration {
+	retryWait := renewBefore
+	for _, t := range targets {
+		w := time.Until(t.ExpiresAt) / 2
+		if w < 100*time.Millisecond {
+			w = 100 * time.Millisecond
+		}
+		rb := t.RenewBefore
+		if rb <= 0 {
+			rb = renewBefore
+		}
+		if w > rb {
+			w = rb
+		}
+		if w < retryWait {
+			retryWait = w
+		}
+	}
+	if retryWait < 100*time.Millisecond {
+		return 100 * time.Millisecond
+	}
+	return retryWait
+}
+
+func nextRenewWait(targets []leaseRenewTarget) time.Duration {
+	var best time.Duration = -1
+	for _, t := range targets {
+		rb := t.RenewBefore
+		if rb <= 0 {
+			rb = 15 * time.Second
+		}
+		wait := time.Until(t.ExpiresAt.Add(-rb))
+		if wait < 0 {
+			wait = 0
+		}
+		if best < 0 || wait < best {
+			best = wait
+		}
+	}
+	if best < 0 {
+		return 0
+	}
+	return best
 }
 
 func (e *Executor) stopLeaseHeartbeat(st *requestAuthorityState) {

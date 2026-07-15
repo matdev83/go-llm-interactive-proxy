@@ -1,6 +1,8 @@
 package aggregate_test
 
 import (
+	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -49,6 +51,43 @@ func TestApply_UnavailableTrackedAndIdempotentFactID(t *testing.T) {
 	}
 	if len(snap.Unavailable) != 1 || snap.Unavailable[0] != "u1" {
 		t.Fatalf("unavailable=%v", snap.Unavailable)
+	}
+}
+
+func TestApply_MixedCurrencyRejected(t *testing.T) {
+	t.Parallel()
+	usd := fact("m1", 1, metering.FactKindDelta, nil, nil)
+	usd.Money = &metering.MoneyObservation{NanoUnits: 100, Currency: "USD", Present: true}
+	eur := fact("m2", 2, metering.FactKindDelta, nil, nil)
+	eur.Money = &metering.MoneyObservation{NanoUnits: 50, Currency: "EUR", Present: true}
+
+	_, err := aggregate.Apply([]metering.Fact{usd, eur})
+	if !errors.Is(err, aggregate.ErrMixedCurrency) {
+		t.Fatalf("err=%v want errors.Is ErrMixedCurrency", err)
+	}
+}
+
+func TestApply_QuantityOverflowRejected(t *testing.T) {
+	t.Parallel()
+	near := fact("q1", 1, metering.FactKindDelta, qty(metering.ComponentInputToken, math.MaxInt64-1), nil)
+	bump := fact("q2", 2, metering.FactKindDelta, qty(metering.ComponentInputToken, 2), nil)
+
+	_, err := aggregate.Apply([]metering.Fact{near, bump})
+	if !errors.Is(err, aggregate.ErrOverflow) {
+		t.Fatalf("err=%v want errors.Is ErrOverflow", err)
+	}
+}
+
+func TestApply_MoneyNanoOverflowRejected(t *testing.T) {
+	t.Parallel()
+	near := fact("n1", 1, metering.FactKindDelta, nil, nil)
+	near.Money = &metering.MoneyObservation{NanoUnits: math.MaxInt64 - 1, Currency: "USD", Present: true}
+	bump := fact("n2", 2, metering.FactKindDelta, nil, nil)
+	bump.Money = &metering.MoneyObservation{NanoUnits: 2, Currency: "USD", Present: true}
+
+	_, err := aggregate.Apply([]metering.Fact{near, bump})
+	if !errors.Is(err, aggregate.ErrOverflow) {
+		t.Fatalf("err=%v want errors.Is ErrOverflow", err)
 	}
 }
 

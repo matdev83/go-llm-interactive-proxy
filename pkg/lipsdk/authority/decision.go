@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // DecisionKind is the outcome of an admit call.
@@ -44,11 +45,15 @@ func (k ReservationKind) IsKnown() bool {
 	return false
 }
 
-// Reservation is an opaque successful admit hold to settle or compensate later.
+// Reservation is a successful admit hold to settle or compensate later. Handle
+// remains opaque; Quantity or Money carries safe provider-neutral reserved
+// exposure when later settlement needs the admission-time amount.
 type Reservation struct {
-	Handle string          `json:"handle"`
-	Kind   ReservationKind `json:"kind,omitempty"`
-	RuleID string          `json:"rule_id,omitempty"`
+	Handle   string             `json:"handle"`
+	Kind     ReservationKind    `json:"kind,omitempty"`
+	RuleID   string             `json:"rule_id,omitempty"`
+	Quantity *metering.Quantity `json:"quantity,omitempty"`
+	Money    *economics.Money   `json:"money,omitempty"`
 }
 
 // ClampKind classifies an enforcement clamp applied at admit.

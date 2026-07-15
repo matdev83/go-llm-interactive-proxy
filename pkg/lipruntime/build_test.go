@@ -135,6 +135,58 @@ func (recordingQuerier) List(context.Context, metering.Query) (metering.Page, er
 	return metering.Page{}, nil
 }
 
+type mutableRuleSource struct {
+	ver atomic.Value // string
+	err atomic.Value // error
+}
+
+func (m *mutableRuleSource) Snapshot(context.Context) (economics.Snapshot[economics.PolicyRulesView], error) {
+	if e, ok := m.err.Load().(error); ok && e != nil {
+		return economics.Snapshot[economics.PolicyRulesView]{}, e
+	}
+	ver, _ := m.ver.Load().(string)
+	now := time.Unix(300, 0).UTC()
+	return economics.Snapshot[economics.PolicyRulesView]{
+		ID: "usage_authority", Version: ver, EffectiveAt: now, FetchedAt: now,
+		State: economics.SnapshotReady,
+		Value: economics.PolicyRulesView{Kind: economics.PolicyKindUsageAuthority},
+	}, nil
+}
+
+// Requirement 11.3/11.6: public RefreshSnapshots republishes newer injected source versions.
+func TestRuntime_RefreshSnapshotsPublishesNewerSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	src := &mutableRuleSource{}
+	src.ver.Store("pub-v1")
+	rt, err := lipruntime.Build(ctx, lipruntime.Options{
+		ConfigPath:          repoConfigPath(t),
+		UsageSnapshotSource: src,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	t.Cleanup(func() { _ = rt.Close(ctx) })
+	beforeID := rt.SnapshotGenerationID()
+	if beforeID == 0 {
+		t.Fatal("expected initial generation")
+	}
+	if got := rt.SnapshotUsageVersion(); got != "pub-v1" {
+		t.Fatalf("usage version=%q want pub-v1", got)
+	}
+	src.ver.Store("pub-v2")
+	if err := rt.RefreshSnapshots(ctx); err != nil {
+		t.Fatalf("RefreshSnapshots: %v", err)
+	}
+	afterID := rt.SnapshotGenerationID()
+	if afterID <= beforeID {
+		t.Fatalf("refresh must publish new generation; before=%d after=%d", beforeID, afterID)
+	}
+	if got := rt.SnapshotUsageVersion(); got != "pub-v2" {
+		t.Fatalf("usage version=%q want pub-v2", got)
+	}
+}
+
 func TestBuild_RejectsEmptyConfigPath(t *testing.T) {
 	t.Parallel()
 	_, err := lipruntime.Build(context.Background(), lipruntime.Options{})

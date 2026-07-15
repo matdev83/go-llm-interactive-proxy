@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +28,19 @@ type memoryStore struct {
 	mu     sync.Mutex
 	leases map[string]domain.Lease
 	ready  domain.Readiness
+}
+
+type acquireErrorStore struct {
+	*memoryStore
+	ruleID string
+	err    error
+}
+
+func (s *acquireErrorStore) Acquire(ctx context.Context, cmd app.AcquireCommand) (app.AcquireResult, error) {
+	if cmd.RuleID == s.ruleID {
+		return app.AcquireResult{}, s.err
+	}
+	return s.memoryStore.Acquire(ctx, cmd)
 }
 
 func newMemoryStore() *memoryStore {
@@ -260,6 +274,324 @@ func TestAdmit_SafeScopeMatching(t *testing.T) {
 	if bob.Kind != domain.DecisionAllow || bob.LeaseID != "" {
 		t.Fatalf("unmatched principal should skip rules: %+v", bob)
 	}
+}
+
+func TestAdmit_DistinctLeasesPerMatchingRule(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	ruleA := strictRule(5)
+	ruleA.ID = "rule-a"
+	ruleB := strictRule(1)
+	ruleB.ID = "rule-b"
+
+	store := newMemoryStore()
+	svc := newService(t, []domain.Rule{ruleA, ruleB}, store, now)
+
+	first, err := svc.Admit(ctx, app.AdmitInput{
+		RequestID: "req-shared", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Kind != domain.DecisionAllow {
+		t.Fatalf("first admit=%+v", first)
+	}
+
+	q, err := svc.Query(ctx, app.QueryCommand{RequestID: "req-shared", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q.Leases) != 2 {
+		t.Fatalf("expected 2 leases (one per matching rule), got %d: %+v", len(q.Leases), q.Leases)
+	}
+	byRule := make(map[string]domain.Lease, 2)
+	for _, l := range q.Leases {
+		if l.LeaseID == "" {
+			t.Fatalf("empty lease id: %+v", l)
+		}
+		if _, dup := byRule[l.RuleID]; dup {
+			t.Fatalf("duplicate RuleID in leases: %+v", q.Leases)
+		}
+		byRule[l.RuleID] = l
+	}
+	la, okA := byRule["rule-a"]
+	lb, okB := byRule["rule-b"]
+	if !okA || !okB {
+		t.Fatalf("missing rule leases: %+v", byRule)
+	}
+	if la.LeaseID == lb.LeaseID {
+		t.Fatalf("distinct rules must not share lease id: %q", la.LeaseID)
+	}
+
+	// rule-b is at capacity (limit 1); a new logical request must be denied by rule-b
+	// even though rule-a still has free slots. Regression: shared lease id would
+	// replay rule-a into rule-b and leave rule-b capacity unused.
+	second, err := svc.Admit(ctx, app.AdmitInput{
+		RequestID: "req-next", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Kind != domain.DecisionDeny {
+		t.Fatalf("expected deny from rule-b capacity, got %+v", second)
+	}
+	if second.Evidence.RuleID != "rule-b" {
+		t.Fatalf("deny evidence rule_id=%q want rule-b", second.Evidence.RuleID)
+	}
+	if len(second.Leases) != 0 {
+		t.Fatalf("deny must not expose live leases: %+v", second.Leases)
+	}
+	// Mid-loop rule-a acquire must be rolled back; req-next must leave zero live leases.
+	nextLive := countLiveLeases(t, svc, "req-next", now)
+	if nextLive != 0 {
+		t.Fatalf("req-next live leases=%d want 0 after multi-rule deny rollback", nextLive)
+	}
+}
+
+func TestAdmit_MultiRuleDenyReleasesPriorAcquires(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	ruleA := strictRule(5)
+	ruleA.ID = "rule-a"
+	ruleB := strictRule(1)
+	ruleB.ID = "rule-b"
+
+	store := newMemoryStore()
+	svc := newService(t, []domain.Rule{ruleA, ruleB}, store, now)
+
+	// Fill rule-b (and acquire rule-a) with req-1.
+	first, err := svc.Admit(ctx, app.AdmitInput{
+		RequestID: "req-1", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Kind != domain.DecisionAllow {
+		t.Fatalf("first admit=%+v", first)
+	}
+	if countLiveLeases(t, svc, "req-1", now) != 2 {
+		t.Fatalf("req-1 should hold 2 live leases")
+	}
+
+	// req-2: rule-a acquires then rule-b denies → prior acquire must be released.
+	second, err := svc.Admit(ctx, app.AdmitInput{
+		RequestID: "req-2", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Kind != domain.DecisionDeny {
+		t.Fatalf("expected deny, got %+v", second)
+	}
+	if second.Evidence.RuleID != "rule-b" {
+		t.Fatalf("deny evidence rule_id=%q want rule-b", second.Evidence.RuleID)
+	}
+	if len(second.Leases) != 0 {
+		t.Fatalf("deny Leases must be empty, got %+v", second.Leases)
+	}
+	if countLiveLeases(t, svc, "req-2", now) != 0 {
+		t.Fatalf("req-2 must have zero live leases after deny rollback")
+	}
+
+	// rule-a capacity must not remain consumed by an orphan from req-2.
+	ruleALive := 0
+	q, err := svc.Query(ctx, app.QueryCommand{RuleID: "rule-a", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range q.Leases {
+		if l.IsLive(now) {
+			ruleALive++
+		}
+	}
+	if ruleALive != 1 {
+		t.Fatalf("rule-a live=%d want 1 (only req-1); orphan from req-2 not released", ruleALive)
+	}
+}
+
+func TestAdmit_MultiRuleDenyDoesNotReleaseReplayedLease(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	ruleA := strictRule(5)
+	ruleA.ID = "rule-a"
+	ruleB := strictRule(1)
+	ruleB.ID = "rule-b"
+
+	store := newMemoryStore()
+	serviceA := newService(t, []domain.Rule{ruleA}, store, now)
+	serviceB := newService(t, []domain.Rule{ruleB}, store, now)
+	serviceBoth := newService(t, []domain.Rule{ruleA, ruleB}, store, now)
+
+	replayed, err := serviceA.Admit(ctx, app.AdmitInput{
+		RequestID: "req-replayed", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil || replayed.Kind != domain.DecisionAllow {
+		t.Fatalf("seed replayed lease: result=%+v err=%v", replayed, err)
+	}
+	blocker, err := serviceB.Admit(ctx, app.AdmitInput{
+		RequestID: "req-blocker", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil || blocker.Kind != domain.DecisionAllow {
+		t.Fatalf("seed rule-b capacity: result=%+v err=%v", blocker, err)
+	}
+
+	denied, err := serviceBoth.Admit(ctx, app.AdmitInput{
+		RequestID: "req-replayed", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied.Kind != domain.DecisionDeny || denied.Evidence.RuleID != "rule-b" {
+		t.Fatalf("deny=%+v", denied)
+	}
+	if countLiveLeases(t, serviceBoth, "req-replayed", now) != 1 {
+		t.Fatal("deny rollback released the pre-existing replayed rule-a lease")
+	}
+}
+
+func TestAdmit_MultiRuleErrorDoesNotReleaseReplayedLease(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	ruleA := strictRule(5)
+	ruleA.ID = "rule-a"
+	ruleB := strictRule(5)
+	ruleB.ID = "rule-b"
+
+	store := newMemoryStore()
+	serviceA := newService(t, []domain.Rule{ruleA}, store, now)
+	seed, err := serviceA.Admit(ctx, app.AdmitInput{
+		RequestID: "req-replayed", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil || seed.Kind != domain.DecisionAllow {
+		t.Fatalf("seed replayed lease: result=%+v err=%v", seed, err)
+	}
+
+	wantErr := errors.New("rule-b acquire failed")
+	failingStore := &acquireErrorStore{memoryStore: store, ruleID: "rule-b", err: wantErr}
+	serviceBoth := app.NewService(staticRules{snap: app.RuleSnapshot{
+		Readiness: domain.Readiness{State: domain.ReadinessStateReady},
+		Rules:     []domain.Rule{ruleA, ruleB},
+	}}, failingStore, fixedClock{t: now})
+
+	_, err = serviceBoth.Admit(ctx, app.AdmitInput{
+		RequestID: "req-replayed", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err == nil || !errors.Is(err, wantErr) {
+		t.Fatalf("err=%v want wrapped %v", err, wantErr)
+	}
+	if countLiveLeases(t, serviceA, "req-replayed", now) != 1 {
+		t.Fatal("error rollback released the pre-existing replayed rule-a lease")
+	}
+}
+
+func TestAdmit_MultiRuleReplayThenAcquireReportsOwnership(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	ruleA := strictRule(5)
+	ruleA.ID = "rule-a"
+	ruleB := strictRule(5)
+	ruleB.ID = "rule-b"
+
+	store := newMemoryStore()
+	serviceA := newService(t, []domain.Rule{ruleA}, store, now)
+	serviceBoth := newService(t, []domain.Rule{ruleA, ruleB}, store, now)
+	if _, err := serviceA.Admit(ctx, app.AdmitInput{
+		RequestID: "req-mixed", Scope: principalScope("alice"), Namespace: "default",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := serviceBoth.Admit(ctx, app.AdmitInput{
+		RequestID: "req-mixed", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != domain.DecisionAllow || len(got.Leases) != 2 {
+		t.Fatalf("admit=%+v", got)
+	}
+	if !got.Leases[0].Replayed || got.Leases[0].Acquired {
+		t.Fatalf("first occupancy ownership=%+v want replayed", got.Leases[0])
+	}
+	if got.Leases[1].Replayed || !got.Leases[1].Acquired {
+		t.Fatalf("second occupancy ownership=%+v want newly acquired", got.Leases[1])
+	}
+	if got.LeaseID != got.Leases[1].LeaseID || !got.Acquired || got.Replayed {
+		t.Fatalf("primary scalar ownership=%+v leases=%+v", got, got.Leases)
+	}
+}
+
+func TestAdmit_MultiRuleAllowReturnsAllLeases(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+
+	ruleA := strictRule(5)
+	ruleA.ID = "rule-a"
+	ruleB := strictRule(5)
+	ruleB.ID = "rule-b"
+
+	store := newMemoryStore()
+	svc := newService(t, []domain.Rule{ruleA, ruleB}, store, now)
+
+	got, err := svc.Admit(ctx, app.AdmitInput{
+		RequestID: "req-multi", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != domain.DecisionAllow {
+		t.Fatalf("admit=%+v", got)
+	}
+	if got.LeaseID == "" {
+		t.Fatal("scalar LeaseID must remain set (primary = lastAllow)")
+	}
+	if len(got.Leases) != 2 {
+		t.Fatalf("Leases len=%d want 2: %+v", len(got.Leases), got.Leases)
+	}
+	ids := map[string]string{}
+	for _, occ := range got.Leases {
+		if occ.LeaseID == "" || occ.RuleID == "" {
+			t.Fatalf("incomplete occupancy: %+v", occ)
+		}
+		if _, dup := ids[occ.LeaseID]; dup {
+			t.Fatalf("duplicate LeaseID in Leases: %+v", got.Leases)
+		}
+		ids[occ.LeaseID] = occ.RuleID
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 distinct lease ids, got %v", ids)
+	}
+	// Primary scalar tracks lastAllow (last successfully acquired).
+	last := got.Leases[len(got.Leases)-1]
+	if got.LeaseID != last.LeaseID || got.RuleID != last.RuleID {
+		t.Fatalf("scalar primary=%s/%s want lastAllow %s/%s", got.LeaseID, got.RuleID, last.LeaseID, last.RuleID)
+	}
+}
+
+func countLiveLeases(t *testing.T, svc *app.Service, requestID string, now time.Time) int {
+	t.Helper()
+	q, err := svc.Query(context.Background(), app.QueryCommand{RequestID: requestID, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, l := range q.Leases {
+		if l.IsLive(now) {
+			n++
+		}
+	}
+	return n
 }
 
 func TestAdmit_IdempotentReplaySameLogicalRequest(t *testing.T) {

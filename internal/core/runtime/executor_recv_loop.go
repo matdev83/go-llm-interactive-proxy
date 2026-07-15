@@ -244,7 +244,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			// is not yet assigned to s.authority (that happens only on the success
 			// path below), so release it here to avoid leaking the reservation. The
 			// prior swallowed s.authority was already released before tryPlanOpenOnce.
-			l := newAuthorityLifecycle(s.executor.authorityService(), s.executor.Log, out.authority, out.cand)
+			l := s.executor.newAttemptAuthorityLifecycle(out.authority, out.cand)
 			l.Release(ctx, authorityapp.ReleaseKindSwallowed)
 			return false, err
 		}

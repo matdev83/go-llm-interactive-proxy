@@ -82,6 +82,7 @@ func (s *MemoryStore) CheckReadiness(ctx context.Context) error {
 }
 
 // Append validates and stores one fact with source-key idempotency.
+// SameFactReplay → no-op; same source key otherwise → ErrIdentityCollision.
 func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -103,7 +104,7 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 
 	if idx, ok := s.bySource[key]; ok {
 		existing := s.facts[idx].fact
-		if metering.SameFactIdentity(existing, cloned) {
+		if metering.SameFactReplay(existing, cloned) {
 			return nil
 		}
 		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",

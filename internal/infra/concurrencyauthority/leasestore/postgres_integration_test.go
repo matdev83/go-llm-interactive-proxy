@@ -47,6 +47,12 @@ func TestPostgresStore_ReadinessDistributedStrict(t *testing.T) {
 	}
 }
 
+func TestPostgresStore_ConcurrentReleaseRenew_NoResurrection(t *testing.T) {
+	dsn := testkit.SkipUnlessPostgres(t)
+	store := newPostgresStore(t, openLeaseSchemaDSN(t, dsn), "pg-cas-race")
+	runConcurrentReleaseRenewNoResurrection(t, store)
+}
+
 func openLeaseSchemaDSN(t *testing.T, dsn string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)

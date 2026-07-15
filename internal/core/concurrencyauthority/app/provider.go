@@ -126,6 +126,20 @@ func mapAdmitDecision(res AdmitResult) authority.LeaseDecision {
 			Attrs:    res.Evidence.Attrs,
 		},
 	}
+	if len(res.Leases) > 0 {
+		dec.Leases = make([]authority.LeaseOccupancy, 0, len(res.Leases))
+		for _, occ := range res.Leases {
+			dec.Leases = append(dec.Leases, authority.LeaseOccupancy{
+				LeaseID:         occ.LeaseID,
+				Generation:      occ.Generation,
+				RuleID:          occ.RuleID,
+				ExpiresAt:       occ.ExpiresAt,
+				RenewBefore:     occ.RenewBefore,
+				TTL:             occ.TTL,
+				FailureBehavior: authority.FailureBehavior(occ.FailureBehavior),
+			})
+		}
+	}
 	return dec
 }
 

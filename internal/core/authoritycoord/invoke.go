@@ -19,7 +19,8 @@ func invokeAdmitRequest(p authority.RequestProvider, ctx context.Context, in aut
 		return d, err
 	}
 	if vErr := d.Validate(); vErr != nil {
-		return authority.Decision{}, vErr
+		// Keep d so callers can reverse-compensate any claimed holds (req 15.9).
+		return d, vErr
 	}
 	return d, nil
 }
@@ -34,9 +35,36 @@ func invokeAdmitAttempt(p authority.AttemptProvider, ctx context.Context, in aut
 		return d, err
 	}
 	if vErr := d.Validate(); vErr != nil {
-		return authority.Decision{}, vErr
+		// Keep d so callers can reverse-compensate any claimed holds (req 15.9).
+		return d, vErr
 	}
 	return d, nil
+}
+
+func invokeSettleRequest(p authority.RequestProvider, ctx context.Context, in authority.RequestSettlement) (s authority.Settlement, err error) {
+	if p == nil {
+		return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s = authority.Settlement{}
+			err = fmt.Errorf("authoritycoord: provider panic: %v", r)
+		}
+	}()
+	return p.SettleRequest(ctx, in)
+}
+
+func invokeSettleAttempt(p authority.AttemptProvider, ctx context.Context, in authority.AttemptSettlement) (s authority.Settlement, err error) {
+	if p == nil {
+		return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s = authority.Settlement{}
+			err = fmt.Errorf("authoritycoord: provider panic: %v", r)
+		}
+	}()
+	return p.SettleAttempt(ctx, in)
 }
 
 func invokeAdmitLease(p authority.ConcurrencyProvider, ctx context.Context, in authority.LeaseAdmission) (d authority.LeaseDecision, err error) {
@@ -53,7 +81,8 @@ func invokeAdmitLease(p authority.ConcurrencyProvider, ctx context.Context, in a
 		return d, err
 	}
 	if vErr := d.Validate(); vErr != nil {
-		return authority.LeaseDecision{}, vErr
+		// Keep d so callers can reverse-compensate any claimed leases (req 15.9).
+		return d, vErr
 	}
 	return d, nil
 }

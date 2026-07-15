@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -48,7 +49,7 @@ func TestAuthorityClampNeverWidensClientCap(t *testing.T) {
 	max := 10
 	call := lipapi.Call{Options: lipapi.GenerationOptions{MaxOutputTokens: &max}}
 	executor := &Executor{AccountingRuntime: AccountingRuntime{AccountingPriceCatalog: clampTestCatalog(t)}}
-	err := executor.applyAuthorityClamp(&call, clampTestCandidate(), &authorityapp.AdmissionClamp{
+	err := executor.applyAuthorityClamp(context.Background(), &call, clampTestCandidate(), &authorityapp.AdmissionClamp{
 		EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 6_000_000_000, Currency: "USD"},
 		FailureBehavior: authoritydomain.FailureBehaviorFailClosed,
 	}, 1_000_000)
@@ -64,7 +65,7 @@ func TestAuthorityClampRejectsInputCostOverCap(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{}
 	executor := &Executor{AccountingRuntime: AccountingRuntime{AccountingPriceCatalog: clampTestCatalog(t)}}
-	err := executor.applyAuthorityClamp(&call, clampTestCandidate(), &authorityapp.AdmissionClamp{
+	err := executor.applyAuthorityClamp(context.Background(), &call, clampTestCandidate(), &authorityapp.AdmissionClamp{
 		EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 1_000_000_000, Currency: "USD"},
 		FailureBehavior: authoritydomain.FailureBehaviorFailClosed,
 	}, 1_000_000)
@@ -77,7 +78,7 @@ func TestAuthorityClampRejectsInputCostOverCapWhenFailOpen(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{}
 	executor := &Executor{AccountingRuntime: AccountingRuntime{AccountingPriceCatalog: clampTestCatalog(t)}}
-	err := executor.applyAuthorityClamp(&call, clampTestCandidate(), &authorityapp.AdmissionClamp{
+	err := executor.applyAuthorityClamp(context.Background(), &call, clampTestCandidate(), &authorityapp.AdmissionClamp{
 		EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 1_000_000_000, Currency: "USD"},
 		FailureBehavior: authoritydomain.FailureBehaviorFailOpen,
 	}, 1_000_000)
@@ -96,7 +97,7 @@ func TestAuthorityClampRejectsExactInputCostExhaustion(t *testing.T) {
 	}
 	call := lipapi.Call{}
 	executor := &Executor{AccountingRuntime: AccountingRuntime{AccountingPriceCatalog: clampTestCatalog(t)}}
-	err := executor.applyAuthorityClamp(&call, clampTestCandidate(), &authorityapp.AdmissionClamp{
+	err := executor.applyAuthorityClamp(context.Background(), &call, clampTestCandidate(), &authorityapp.AdmissionClamp{
 		EffectiveMax:    authoritydomain.Amount{Unit: authoritydomain.AmountUnitMoneyNano, Value: 2_000_000_000, Currency: "USD"},
 		FailureBehavior: authoritydomain.FailureBehaviorFailClosed,
 	}, 1_000_000)

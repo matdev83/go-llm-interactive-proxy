@@ -60,7 +60,7 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 				// out.authority is never stored into a holder field on this path and
 				// would otherwise be orphaned. Release it with ReleaseKindSwallowed,
 				// mirroring the swallowed-authority release sites in executor_recv_loop.
-				l := newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand)
+				l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
 				l.Release(prep.ctx, authorityapp.ReleaseKindSwallowed)
 				return attemptOpenResult{}, err
 			}

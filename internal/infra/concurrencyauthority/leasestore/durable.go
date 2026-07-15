@@ -388,25 +388,57 @@ func (s *DurableStore) Renew(ctx context.Context, cmd app.RenewCommand) (app.Ren
 	if err != nil {
 		return app.RenewResult{}, err
 	}
-	res, err := tx.NewRaw(`
-UPDATE concurrency_leases SET
-	renewed_at_unix=?, expires_at_unix=?, generation=?, state=?
-WHERE store_id=? AND lease_id=? AND generation=?
-`,
-		row.RenewedAtUnix, row.ExpiresAtUnix, row.Generation, row.State,
-		s.cfg.StoreID, cmd.LeaseID, cmd.ExpectedGeneration,
-	).Exec(ctx)
+	affected, err := s.renewCASUpdate(ctx, tx, cmd.LeaseID, cmd.ExpectedGeneration, row)
 	if err != nil {
-		return app.RenewResult{}, fmt.Errorf("leasestore: renew: %w", err)
+		return app.RenewResult{}, err
 	}
-	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return app.RenewResult{}, domain.ErrGenerationMismatch
+		return app.RenewResult{}, s.renewCASMissError(ctx, tx, cmd)
 	}
 	if err := tx.Commit(); err != nil {
 		return app.RenewResult{}, fmt.Errorf("leasestore: commit: %w", err)
 	}
 	return app.RenewResult{Lease: lease}, nil
+}
+
+// renewCASUpdate applies the Renew write under optimistic concurrency.
+// The preimage requires an active/expiring row so Release (same generation)
+// cannot be resurrected (requirements 10.7, 10.8, 16.2).
+// Callers must pass the preimage generation (ExpectedGeneration), not row.Generation.
+func (s *DurableStore) renewCASUpdate(ctx context.Context, tx bun.Tx, leaseID string, expectedGen int64, row leaseRow) (int64, error) {
+	res, err := tx.NewRaw(`
+UPDATE concurrency_leases SET
+	renewed_at_unix=?, expires_at_unix=?, generation=?, state=?
+WHERE store_id=? AND lease_id=? AND generation=? AND state IN (?, ?)
+`,
+		row.RenewedAtUnix, row.ExpiresAtUnix, row.Generation, row.State,
+		s.cfg.StoreID, leaseID, expectedGen,
+		string(domain.LeaseStateActive), string(domain.LeaseStateExpiring),
+	).Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("leasestore: renew: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("leasestore: renew rows affected: %w", err)
+	}
+	return affected, nil
+}
+
+// renewCASMissError reloads the lease after a lost Renew CAS and returns the
+// stable domain sentinel (released/expired/generation mismatch).
+func (s *DurableStore) renewCASMissError(ctx context.Context, tx bun.Tx, cmd app.RenewCommand) error {
+	current, found, err := s.loadLeaseTx(ctx, tx, cmd.LeaseID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return app.ErrNotFound
+	}
+	if err := current.Renew(cmd.Now, cmd.ExpectedGeneration, cmd.TTL); err != nil {
+		return err
+	}
+	return domain.ErrGenerationMismatch
 }
 
 // Release marks a lease released idempotently.

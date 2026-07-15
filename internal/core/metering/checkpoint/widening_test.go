@@ -37,6 +37,31 @@ func TestBillableWidened_DetectsAddedMessage(t *testing.T) {
 	}
 }
 
+func TestBillableWidened_AllowsMaxOutputNarrowing(t *testing.T) {
+	t.Parallel()
+	max := 100
+	base := lipapi.Call{
+		ID: "r",
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("a")},
+		}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &max},
+	}
+	narrowed := lipapi.CloneCall(base)
+	lower := 40
+	narrowed.Options.MaxOutputTokens = &lower
+	if err := checkpoint.AssertNotWidened(base, narrowed); err != nil {
+		t.Fatalf("narrowing MaxOutputTokens must be allowed: %v", err)
+	}
+	raised := lipapi.CloneCall(base)
+	higher := 200
+	raised.Options.MaxOutputTokens = &higher
+	if err := checkpoint.AssertNotWidened(base, raised); !errors.Is(err, checkpoint.ErrUnmeasuredWidening) {
+		t.Fatalf("raising MaxOutputTokens must widen: %v", err)
+	}
+}
+
 func TestCaptureBackendIngress(t *testing.T) {
 	t.Parallel()
 	snap, err := checkpoint.CaptureBackendIngress(checkpoint.BackendIngressInput{

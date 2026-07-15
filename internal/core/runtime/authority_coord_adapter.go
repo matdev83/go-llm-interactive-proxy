@@ -224,23 +224,27 @@ func mapAdmissionDecision(res authorityapp.AdmissionResult, providerID string, s
 	if res.BoundVersion.Version != "" {
 		d.BoundVersions = []economics.PolicySnapshotRef{res.BoundVersion}
 	}
-	if res.Reserved && strings.TrimSpace(res.ReservationID) != "" {
-		d.Reservations = append(d.Reservations, authority.Reservation{
-			Handle: res.ReservationID,
-			Kind:   authority.ReservationQuota,
-			RuleID: res.SelectedRuleID,
+	reservations := append([]authorityapp.AdmissionReservation(nil), res.Reservations...)
+	if len(reservations) == 0 && res.Reserved && strings.TrimSpace(res.ReservationID) != "" {
+		reservations = append(reservations, authorityapp.AdmissionReservation{
+			ReservationID:  res.ReservationID,
+			RuleID:         res.SelectedRuleID,
+			ReservedAmount: res.ReservedAmount,
 		})
-		d.CompensationHandle = res.ReservationID
 	}
-	for _, r := range res.Reservations {
+	seen := make(map[string]struct{}, len(reservations))
+	for _, r := range reservations {
 		if strings.TrimSpace(r.ReservationID) == "" {
 			continue
 		}
-		d.Reservations = append(d.Reservations, authority.Reservation{
-			Handle: r.ReservationID,
-			Kind:   authority.ReservationQuota,
-			RuleID: r.RuleID,
-		})
+		if _, ok := seen[r.ReservationID]; ok {
+			continue
+		}
+		seen[r.ReservationID] = struct{}{}
+		d.Reservations = append(d.Reservations, mapAdmissionReservation(r))
+		if d.CompensationHandle == "" {
+			d.CompensationHandle = r.ReservationID
+		}
 	}
 	if res.Clamp != nil && res.Clamp.EffectiveMax.Unit == domain.AmountUnitMoneyNano {
 		d.Clamps = append(d.Clamps, authority.Clamp{
@@ -249,6 +253,46 @@ func mapAdmissionDecision(res authorityapp.AdmissionResult, providerID string, s
 		})
 	}
 	return d
+}
+
+func mapAdmissionReservation(in authorityapp.AdmissionReservation) authority.Reservation {
+	out := authority.Reservation{
+		Handle: strings.TrimSpace(in.ReservationID),
+		Kind:   authority.ReservationQuota,
+		RuleID: strings.TrimSpace(in.RuleID),
+	}
+	amount := in.ReservedAmount
+	if amount.Unit == domain.AmountUnitMoneyNano {
+		out.Kind = authority.ReservationBudget
+		out.Money = &economics.Money{NanoUnits: amount.Value, Currency: strings.TrimSpace(amount.Currency), Present: true}
+		return out
+	}
+	component, unit := meteringComponentForAuthorityAmount(amount.Unit)
+	if component != "" {
+		out.Quantity = &metering.Quantity{Component: component, Unit: unit, Value: amount.Value, Present: true}
+	}
+	return out
+}
+
+func meteringComponentForAuthorityAmount(unit domain.AmountUnit) (string, string) {
+	switch unit {
+	case domain.AmountUnitRequests:
+		return metering.ComponentRequest, metering.UnitCount
+	case domain.AmountUnitInputTokens:
+		return metering.ComponentInputToken, metering.UnitToken
+	case domain.AmountUnitOutputTokens:
+		return metering.ComponentOutputToken, metering.UnitToken
+	case domain.AmountUnitCacheReadTokens:
+		return metering.ComponentCacheReadInputToken, metering.UnitToken
+	case domain.AmountUnitCacheWriteTokens:
+		return metering.ComponentCacheWriteInputToken, metering.UnitToken
+	case domain.AmountUnitReasoningTokens:
+		return metering.ComponentReasoningOutputToken, metering.UnitToken
+	case domain.AmountUnitTotalTokens:
+		return metering.ComponentTotalToken, metering.UnitToken
+	default:
+		return "", ""
+	}
 }
 
 func scopeToDimensions(sc scope.PrincipalScopeView) domain.Dimensions {

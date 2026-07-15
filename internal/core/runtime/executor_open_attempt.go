@@ -367,10 +367,74 @@ func (e *Executor) openPlannedCandidate(
 		p.budget.release()
 		return zero, fmt.Errorf("executor: next b-leg: %w", err)
 	}
-	authState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, bleg, attempt, c, preflightDecision, false)
+
+	// Assemble the final provider-neutral attempt call before attempt authorization
+	// (design Backend Ingress: transforms/hooks/route → freeze → count → admit → open).
+	hookCtx := p.ctx
+	if e != nil && e.Log != nil {
+		hookCtx = hooks.WithDiagnosticsLogger(p.ctx, e.Log)
+	}
+	if err := p.bus.RunRequestPartHooks(hookCtx, &attempt, sdk.PartMeta{
+		TraceID:    p.traceID,
+		ALegID:     p.aLegID,
+		BLegID:     bleg.BLegID,
+		AttemptSeq: bleg.Seq,
+		BackendID:  strings.TrimSpace(c.Primary.Backend),
+	}); err != nil {
+		p.budget.release()
+		return zero, fmt.Errorf("executor: request hooks: %w", err)
+	}
+	openCall, err := backendCallWithRouteParams(attempt, c)
+	if err != nil {
+		p.budget.release()
+		return zero, fmt.Errorf("executor: %w", err)
+	}
+
+	// Freeze/store BE ingress before authorization. Authority clamps may narrow
+	// MaxOutputTokens afterward; AssertNotWidened treats that as non-widening (7.5).
+	authorizedFreeze := lipapi.CloneCall(openCall)
+	admitDecision := preflightDecision
+	if holder := meteringHolderFrom(p.ctx); holder != nil {
+		feStream := ""
+		if holder.FrontendIngress != nil {
+			feStream = holder.FrontendIngress.Public.StreamID
+		}
+		if _, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
+			Call:         authorizedFreeze,
+			Scope:        scopeFromCtx(p.ctx),
+			AttemptID:    bleg.BLegID,
+			BLegID:       bleg.BLegID,
+			ALegID:       p.aLegID,
+			BackendID:    strings.TrimSpace(c.Primary.Backend),
+			Model:        strings.TrimSpace(c.Primary.Model),
+			CheckpointID: "be-ingress:" + bleg.BLegID,
+			StreamID:     "be-ingress:" + bleg.BLegID,
+			FEStreamID:   feStream,
+			Now:          e.now(),
+		}); cerr != nil {
+			p.budget.release()
+			return zero, fmt.Errorf("executor: metering backend ingress: %w", cerr)
+		}
+		if beDecision, ok := e.runPreflight(p.ctx, p.traceID, openCall, c, facts.Facts); ok {
+			if !beDecision.Allowed {
+				p.budget.release()
+				return zero, fmt.Errorf("executor: token accounting preflight: %w", beDecision.Err)
+			}
+			admitDecision = beDecision
+			e.enrichBackendIngressQuantities(holder, bleg.BLegID, beDecision.Count)
+			if beDecision.AdjustedMaxOutputTokens != nil {
+				adjusted := *beDecision.AdjustedMaxOutputTokens
+				openCall.Options.MaxOutputTokens = &adjusted
+			}
+		} else {
+			e.enrichBackendIngressQuantities(holder, bleg.BLegID, admitDecision.Count)
+		}
+	}
+
+	authState, err := e.admitAttemptAuthority(p.ctx, p.traceID, p.aLegID, bleg, openCall, c, admitDecision, false)
 	if err != nil {
 		if authState.admissionResult.Reserved {
-			cleanup := newAuthorityLifecycle(e.authorityService(), e.Log, authState, c)
+			cleanup := e.newAttemptAuthorityLifecycle(authState, c)
 			cleanup.backendAttempted.Store(false)
 			cleanup.Release(p.ctx, authorityapp.ReleaseKindAdmissionFailure)
 		}
@@ -384,7 +448,7 @@ func (e *Executor) openPlannedCandidate(
 	}
 	releaseKind := authorityapp.ReleaseKindLosing
 	opened := false
-	cleanupAuthority := newAuthorityLifecycle(e.authorityService(), e.Log, authState, c)
+	cleanupAuthority := e.newAttemptAuthorityLifecycle(authState, c)
 	// Admission happens before the backend open. Keep the cleanup evidence
 	// accurate until the actual Open call begins; the constructor's default is
 	// post-open because the other lifecycle owners are created from opened
@@ -396,33 +460,8 @@ func (e *Executor) openPlannedCandidate(
 		}
 	}()
 	if clamp := authState.admissionResult.Clamp; clamp != nil {
-		if err := e.applyAuthorityClamp(&attempt, c, clamp, int64(preflightDecision.Count.InputTokens)); err != nil {
+		if err := e.applyAuthorityClamp(p.ctx, &openCall, c, clamp, int64(admitDecision.Count.InputTokens)); err != nil {
 			p.budget.release()
-			return zero, err
-		}
-	}
-	hookCtx := p.ctx
-	if e != nil && e.Log != nil {
-		hookCtx = hooks.WithDiagnosticsLogger(p.ctx, e.Log)
-	}
-	if err := p.bus.RunRequestPartHooks(hookCtx, &attempt, sdk.PartMeta{
-		TraceID:    p.traceID,
-		ALegID:     p.aLegID,
-		BLegID:     bleg.BLegID,
-		AttemptSeq: bleg.Seq,
-		BackendID:  strings.TrimSpace(c.Primary.Backend),
-	}); err != nil {
-		return zero, fmt.Errorf("executor: request hooks: %w", err)
-	}
-	openCall, err := backendCallWithRouteParams(attempt, c)
-	if err != nil {
-		return zero, fmt.Errorf("executor: %w", err)
-	}
-	// Request hooks and route-parameter shaping run after admission. Reapply
-	// the authority clamp to the final backend call so neither trusted hook
-	// mutation nor route translation can widen a client-provided lower cap.
-	if clamp := authState.admissionResult.Clamp; clamp != nil {
-		if err := e.applyAuthorityClamp(&openCall, c, clamp, int64(preflightDecision.Count.InputTokens)); err != nil {
 			return zero, err
 		}
 		// Spend-cap clamps must bind on the wire. Backends that cannot represent
@@ -440,7 +479,7 @@ func (e *Executor) openPlannedCandidate(
 		}
 	}
 	// Preflight-applied max-output clamps must be enforceable on the wire (7.4).
-	if preflightDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {
+	if admitDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {
 		diag.LogDecision(p.ctx, e.Log, "unknown_output_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
@@ -450,15 +489,16 @@ func (e *Executor) openPlannedCandidate(
 		p.excluded[c.Key] = struct{}{}
 		return noOpen, nil
 	}
-
-	// Authorized freeze is the final openCall after admit/hooks/route/clamps.
-	// Clone first so AssertNotWidened can detect any later in-place mutation of
-	// openCall before Open (requirement 7.5) — comparing Store's return to the
-	// same openCall value without an independent freeze copy is a tautology.
-	authorizedFreeze := lipapi.CloneCall(openCall)
+	if werr := checkpoint.AssertNotWidened(authorizedFreeze, openCall); werr != nil {
+		p.budget.release()
+		return zero, fmt.Errorf("executor: %w", werr)
+	}
+	// Wire payload is the post-admit (possibly clamp-narrowed) call, cloned so
+	// later in-place mutation of openCall cannot widen what Open observes (7.5).
+	wireCall := lipapi.CloneCall(openCall)
 
 	if e.RuntimeSnapshot != nil {
-		if rawPayload, jerr := json.Marshal(openCall); jerr == nil {
+		if rawPayload, jerr := json.Marshal(wireCall); jerr == nil {
 			sc := scopeFromCtx(p.ctx)
 			meta := sdktraffic.CaptureMeta{
 				TraceID:     p.traceID,
@@ -487,33 +527,6 @@ func (e *Executor) openPlannedCandidate(
 	}
 	defer cancelOpen()
 
-	// Persist backend-ingress checkpoint from the authorized freeze, then reject
-	// unmeasured widening of the live openCall before Open (requirements 2.2, 5.1, 7.5).
-	if holder := meteringHolderFrom(p.ctx); holder != nil {
-		feStream := ""
-		if holder.FrontendIngress != nil {
-			feStream = holder.FrontendIngress.Public.StreamID
-		}
-		if _, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
-			Call:         authorizedFreeze,
-			Scope:        scopeFromCtx(p.ctx),
-			AttemptID:    bleg.BLegID,
-			BLegID:       bleg.BLegID,
-			ALegID:       p.aLegID,
-			BackendID:    strings.TrimSpace(c.Primary.Backend),
-			Model:        strings.TrimSpace(c.Primary.Model),
-			CheckpointID: "be-ingress:" + bleg.BLegID,
-			StreamID:     "be-ingress:" + bleg.BLegID,
-			FEStreamID:   feStream,
-			Now:          e.now(),
-		}); cerr != nil {
-			return zero, fmt.Errorf("executor: metering backend ingress: %w", cerr)
-		}
-		if werr := checkpoint.AssertNotWidened(authorizedFreeze, openCall); werr != nil {
-			return zero, fmt.Errorf("executor: %w", werr)
-		}
-	}
-
 	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(baseOpenCtx, "lip.executor.backend_open",
 		trace.WithAttributes(
 			attribute.String("lip.backend", c.Primary.Backend),
@@ -523,10 +536,8 @@ func (e *Executor) openPlannedCandidate(
 	defer openSpan.End()
 	openStart := time.Now()
 	cleanupAuthority.backendAttempted.Store(true)
-	// Open the authorized freeze, not the live openCall, so post-freeze mutation
-	// cannot widen the wire payload (requirement 7.5).
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
-		return be.Open(openCtx, authorizedFreeze, c)
+		return be.Open(openCtx, wireCall, c)
 	})
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {

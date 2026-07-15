@@ -28,6 +28,18 @@ type attemptAuthorityState struct {
 	admissionInput  authorityapp.AdmissionInput
 	admissionResult authorityapp.AdmissionResult
 	cleanupTimeout  time.Duration
+	// viaCoordinator is set when admit ran through AttemptCoordinator so settle/
+	// release must preserve stack provider identity (not flatten to UA-only handles).
+	viaCoordinator bool
+	stack          authoritycoord.CompensationStack
+	boundVersions  []economics.PolicySnapshotRef
+	requestID      string
+	attemptID      string
+	bLegID         string
+	// settledProviders tracks AttemptCoordinator / built-in UA providers that
+	// already completed Settle successfully so retries skip them and Release
+	// never runs after a successful Settle (requirement 15.5).
+	settledProviders map[string]struct{}
 }
 
 func (e *Executor) authorityService() UsageAuthorityService {
@@ -47,12 +59,23 @@ func (e *Executor) admitAttemptAuthority(
 	decision accountingpreflight.Decision,
 	estimateOnly bool,
 ) (attemptAuthorityState, error) {
-	if !estimateOnly && e != nil && e.AttemptCoordinator != nil && e.authorityService() != nil {
+	// External AttemptProviders must run even when built-in UsageAuthority is disabled.
+	if !estimateOnly && e != nil && e.AttemptCoordinator != nil {
 		return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
 	}
 	svc := e.authorityService()
 	if svc == nil {
 		return attemptAuthorityState{}, nil
+	}
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision)
+	if rateErr != nil {
+		if errors.Is(rateErr, context.Canceled) {
+			return attemptAuthorityState{}, rateErr
+		}
+		return attemptAuthorityState{}, attemptAuthorityAdmissionError(
+			authorityapp.AdmissionResult{Outcome: domain.DecisionOutcomeUnavailable},
+			rateErr,
+		)
 	}
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
@@ -61,10 +84,27 @@ func (e *Executor) admitAttemptAuthority(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		Spend:          attemptAuthoritySpendAmount(e.AccountingPriceCatalog, c, decision),
+		Spend:          spend,
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
+	}
+	quantities := attemptRatingQuantities(decision)
+	if !estimateOnly {
+		if holder := meteringHolderFrom(ctx); holder != nil {
+			if be := holder.BackendIngressFor(bleg.BLegID); be != nil && len(be.Public.Quantities) > 0 {
+				quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
+			}
+		}
+	}
+	if rated.Money.Present || len(quantities) > 0 {
+		admissionInput.Exposure = economics.ExposureBasis{
+			Perspective: metering.PerspectiveOperator,
+			Boundary:    metering.BoundaryBackendIngress,
+			Lifecycle:   metering.LifecycleBackendAttempt,
+			Quantities:  quantities,
+			Money:       rated.Money,
+		}
 	}
 	// When request coordinator already reserved request-count, avoid double-charging
 	// customer request quotas on each B-leg (requirements 4.5, 8.3).
@@ -92,6 +132,7 @@ func (e *Executor) admitAttemptAuthority(
 		admissionInput.Request = result.ReservedAmount
 	}
 	e.applyGenerationBoundVersion(&result)
+	bindAdmissionRatingVersion(&result, rated)
 	state := attemptAuthorityState{
 		admissionInput:  admissionInput,
 		admissionResult: result,
@@ -112,6 +153,17 @@ func (e *Executor) admitAttemptViaCoordinator(
 	c routing.AttemptCandidate,
 	decision accountingpreflight.Decision,
 ) (attemptAuthorityState, error) {
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision)
+	if rateErr != nil {
+		if errors.Is(rateErr, context.Canceled) {
+			return attemptAuthorityState{}, rateErr
+		}
+		return attemptAuthorityState{}, attemptAuthorityAdmissionError(
+			authorityapp.AdmissionResult{Outcome: domain.DecisionOutcomeUnavailable},
+			rateErr,
+		)
+	}
+	quantities := attemptRatingQuantities(decision)
 	in := authority.AttemptAdmission{
 		RequestID:      strings.TrimSpace(call.ID),
 		AttemptID:      strings.TrimSpace(bleg.BLegID),
@@ -127,17 +179,20 @@ func (e *Executor) admitAttemptViaCoordinator(
 			Perspective: metering.PerspectiveOperator,
 			Boundary:    metering.BoundaryBackendIngress,
 			Lifecycle:   metering.LifecycleBackendAttempt,
-			Quantities: []metering.Quantity{{
-				Component: metering.ComponentInputToken,
-				Unit:      metering.UnitToken,
-				Value:     int64(decision.Count.InputTokens),
-				Present:   true,
-			}},
+			Quantities:  quantities,
+			Money:       rated.Money,
 		},
+	}
+	if rated.Money.Present {
+		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
 	}
 	if holder := meteringHolderFrom(ctx); holder != nil {
 		if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
 			in.Exposure.Quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
+			// Keep rated money; re-rate is not performed after backend-ingress merge.
+			if !in.Exposure.Money.Present && rated.Money.Present {
+				in.Exposure.Money = rated.Money
+			}
 		}
 	}
 	d, err := e.AttemptCoordinator.Admit(ctx, in)
@@ -151,19 +206,37 @@ func (e *Executor) admitAttemptViaCoordinator(
 		}
 		return attemptAuthorityState{}, attemptAuthorityAdmissionError(authorityapp.AdmissionResult{Outcome: outcome}, err)
 	}
+	entries := d.Stack.Entries()
 	handles := d.Stack.Handles()
 	res := authorityapp.AdmissionResult{Allowed: true, Outcome: domain.DecisionOutcomeAllow}
 	if len(handles) > 0 {
 		res.Reserved = true
 		res.ReservationID = handles[0]
-		for _, h := range handles {
-			res.Reservations = append(res.Reservations, authorityapp.AdmissionReservation{ReservationID: h})
+		for _, entry := range entries {
+			if strings.TrimSpace(entry.ProviderID) != usageAuthorityAttemptProviderID {
+				continue
+			}
+			reservation := authorityapp.AdmissionReservation{
+				ReservationID:  strings.TrimSpace(entry.Handle),
+				RuleID:         strings.TrimSpace(entry.Reservation.RuleID),
+				ReservedAmount: authorityAmountFromReservation(entry.Reservation),
+			}
+			res.Reservations = append(res.Reservations, reservation)
+			if len(res.Reservations) == 1 {
+				res.ReservationID = reservation.ReservationID
+				res.ReservedAmount = reservation.ReservedAmount
+				res.SelectedRuleID = reservation.RuleID
+			}
+			if reservation.RuleID != "" {
+				res.RuleIDs = append(res.RuleIDs, reservation.RuleID)
+			}
 		}
 	}
 	if len(d.BoundVersions) > 0 {
 		res.BoundVersion = d.BoundVersions[0]
 	}
 	e.applyGenerationBoundVersion(&res)
+	bindAdmissionRatingVersion(&res, rated)
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
 		Scope:          scopeFromCtx(ctx),
@@ -171,15 +244,53 @@ func (e *Executor) admitAttemptViaCoordinator(
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 0},
 		PreflightUsage: attemptAuthorityPreflightUsage(decision),
-		Spend:          attemptAuthoritySpendAmount(e.AccountingPriceCatalog, c, decision),
+		Spend:          spend,
 		Authority:      domain.AuthorityLevelEstimated,
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
+		Exposure:       in.Exposure,
+		Perspective:    metering.PerspectiveOperator,
+		LifecycleScope: metering.LifecycleBackendAttempt,
 	}
 	return attemptAuthorityState{
 		admissionInput:  admissionInput,
 		admissionResult: res,
 		cleanupTimeout:  e.UsageAuthorityCleanupTimeout,
+		viaCoordinator:  true,
+		stack:           d.Stack,
+		boundVersions:   append([]economics.PolicySnapshotRef(nil), d.BoundVersions...),
+		requestID:       in.RequestID,
+		attemptID:       in.AttemptID,
+		bLegID:          in.BLegID,
 	}, nil
+}
+
+func authorityAmountFromReservation(in authority.Reservation) domain.Amount {
+	if in.Money != nil && in.Money.Present {
+		return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: in.Money.NanoUnits, Currency: strings.TrimSpace(in.Money.Currency)}
+	}
+	if in.Quantity == nil || !in.Quantity.Present {
+		return domain.Amount{}
+	}
+	var unit domain.AmountUnit
+	switch in.Quantity.Component {
+	case metering.ComponentRequest:
+		unit = domain.AmountUnitRequests
+	case metering.ComponentInputToken:
+		unit = domain.AmountUnitInputTokens
+	case metering.ComponentOutputToken:
+		unit = domain.AmountUnitOutputTokens
+	case metering.ComponentCacheReadInputToken:
+		unit = domain.AmountUnitCacheReadTokens
+	case metering.ComponentCacheWriteInputToken:
+		unit = domain.AmountUnitCacheWriteTokens
+	case metering.ComponentReasoningOutputToken:
+		unit = domain.AmountUnitReasoningTokens
+	case metering.ComponentTotalToken:
+		unit = domain.AmountUnitTotalTokens
+	default:
+		return domain.Amount{}
+	}
+	return domain.Amount{Unit: unit, Value: in.Quantity.Value}
 }
 
 func attemptAuthorityCorrelation(traceID, requestID, aLegID string, call lipapi.Call, bleg b2bua.BLegRecord, c routing.AttemptCandidate) controlplane.Correlation {
@@ -336,11 +447,25 @@ func authorityClampMaxOutputTokens(catalog accounting.PriceCatalog, c routing.At
 // unavailable, the rule's cost-unavailable behavior applies: fail-open
 // proceeds without clamping (the clamp intent was already recorded in
 // evidence), fail-closed denies before protected work (requirement 5.5).
-func (e *Executor) applyAuthorityClamp(call *lipapi.Call, c routing.AttemptCandidate, clamp *authorityapp.AdmissionClamp, inputTokens ...int64) error {
+//
+// When EconomicsRater is injected, money→token conversion uses the public
+// OutputLimitQuoter contract exclusively — AccountingPriceCatalog must not
+// silently substitute (requirements 6.1–6.5, 12.1).
+func (e *Executor) applyAuthorityClamp(ctx context.Context, call *lipapi.Call, c routing.AttemptCandidate, clamp *authorityapp.AdmissionClamp, inputTokens ...int64) error {
 	if clamp == nil {
 		return nil
 	}
-	maxOutput, outcome := authorityClampMaxOutputTokens(e.AccountingPriceCatalog, c, clamp.EffectiveMax.Value, inputTokens...)
+	var maxOutput int64
+	var outcome authorityClampOutcome
+	if e != nil && e.EconomicsRater != nil {
+		maxOutput, outcome = e.authorityClampViaEconomics(ctx, c, clamp, inputTokens...)
+	} else {
+		catalog := accounting.PriceCatalog{}
+		if e != nil {
+			catalog = e.AccountingPriceCatalog
+		}
+		maxOutput, outcome = authorityClampMaxOutputTokens(catalog, c, clamp.EffectiveMax.Value, inputTokens...)
+	}
 	switch outcome {
 	case authorityClampCapacityExhausted:
 		return lipapi.NewPolicyDeniedError("usage_authority_admission", "", "budget_exceeded", "accounting_authority", "spend cap exhausted by fixed input cost", nil)
@@ -359,6 +484,62 @@ func (e *Executor) applyAuthorityClamp(call *lipapi.Call, c routing.AttemptCandi
 	adjusted := int(maxOutput)
 	call.Options.MaxOutputTokens = &adjusted
 	return nil
+}
+
+func (e *Executor) authorityClampViaEconomics(ctx context.Context, c routing.AttemptCandidate, clamp *authorityapp.AdmissionClamp, inputTokens ...int64) (int64, authorityClampOutcome) {
+	if e == nil || e.EconomicsRater == nil || clamp == nil {
+		return 0, authorityClampPricingUnavailable
+	}
+	quoter, ok := e.EconomicsRater.(economics.OutputLimitQuoter)
+	if !ok {
+		return 0, authorityClampPricingUnavailable
+	}
+	input := int64(0)
+	if len(inputTokens) > 0 && inputTokens[0] > 0 {
+		input = inputTokens[0]
+	}
+	at := e.now()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := quoter.QuoteOutputLimit(ctx, economics.OutputLimitRequest{
+		Perspective: metering.PerspectiveOperator,
+		BackendID:   strings.TrimSpace(c.Primary.Backend),
+		Model:       strings.TrimSpace(c.Primary.Model),
+		FixedQuantities: []metering.Quantity{{
+			Component: metering.ComponentInputToken,
+			Unit:      metering.UnitToken,
+			Value:     input,
+			Present:   true,
+		}},
+		MaxMoney: economics.Money{
+			NanoUnits: clamp.EffectiveMax.Value,
+			Currency:  strings.TrimSpace(clamp.EffectiveMax.Currency),
+			Present:   true,
+		},
+		At: at,
+	})
+	if err != nil {
+		return 0, authorityClampPricingUnavailable
+	}
+	switch res.Status {
+	case economics.OutputLimitOK:
+		if res.MaxOutputTokens < 0 {
+			return 0, authorityClampPricingUnavailable
+		}
+		if res.MaxOutputTokens == 0 {
+			// Zero remaining output budget must deny; several backends omit a
+			// zero MaxOutputTokens and would otherwise open with defaults.
+			return 0, authorityClampCapacityExhausted
+		}
+		return res.MaxOutputTokens, authorityClampApplied
+	case economics.OutputLimitCapacityExhausted:
+		return 0, authorityClampCapacityExhausted
+	case economics.OutputLimitUnsupported, economics.OutputLimitOverflow:
+		return 0, authorityClampPricingUnavailable
+	default:
+		return 0, authorityClampPricingUnavailable
+	}
 }
 
 // authorityClampIgnoreUnsupportedGenParamsExt is the extension key used by

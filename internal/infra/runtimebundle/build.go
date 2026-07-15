@@ -114,7 +114,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts.Testing.Clock != nil {
 		nowFn = opts.Testing.Clock
 	}
-	snapGen := buildSnapshotGeneration(cfg, opts.Testing, opts.Production)
+	snapGen, snapCtrl := buildSnapshotGeneration(cfg, opts.Testing, opts.Production)
 	var exec *runtime.Executor
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs)
 	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
@@ -157,6 +157,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		UsageAuthority:        usageAuthorityHandle,
 		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
 		SnapshotGeneration:    snapGen,
+		SnapshotController:    snapCtrl,
 		MeteringQuerier:       opts.Production.MeteringQuerier,
 		ReadinessReport:       execRun.ReadinessReport,
 	}, nil

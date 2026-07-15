@@ -1,6 +1,8 @@
 package checkpoint_test
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,6 +118,44 @@ func TestCaptureCreatesNoReservations(t *testing.T) {
 		Now:          time.Unix(1, 0).UTC(),
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRequestHolder_StoreBackendIngressConcurrent(t *testing.T) {
+	t.Parallel()
+	h := &checkpoint.RequestHolder{}
+	const n = 32
+	var wg sync.WaitGroup
+	errCh := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			id := fmt.Sprintf("attempt-%d", i)
+			_, err := h.StoreBackendIngress(checkpoint.BackendIngressInput{
+				Call:         lipapi.Call{ID: "req-race", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
+				AttemptID:    id,
+				BLegID:       id,
+				ALegID:       "a-1",
+				BackendID:    "b",
+				Model:        "m",
+				CheckpointID: "cp-" + id,
+				StreamID:     "s-" + id,
+				Now:          time.Unix(1, 0).UTC(),
+			})
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if got := h.BackendIngressFor(id); got == nil {
+				errCh <- fmt.Errorf("missing snapshot for %s", id)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
 		t.Fatal(err)
 	}
 }

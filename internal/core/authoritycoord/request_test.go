@@ -14,9 +14,13 @@ import (
 )
 
 type fakeRequestProvider struct {
-	id       string
-	admit    func(context.Context, authority.RequestAdmission) (authority.Decision, error)
-	released atomic.Int32
+	id                  string
+	admit               func(context.Context, authority.RequestAdmission) (authority.Decision, error)
+	settle              func(context.Context, authority.RequestSettlement) (authority.Settlement, error)
+	released            atomic.Int32
+	settled             atomic.Int32
+	lastSettleHandles   atomic.Value // []string
+	lastSettleCtxActive atomic.Bool  // true when SettleRequest saw a non-canceled ctx
 }
 
 func (f *fakeRequestProvider) AdmitRequest(ctx context.Context, in authority.RequestAdmission) (authority.Decision, error) {
@@ -32,7 +36,13 @@ func (f *fakeRequestProvider) AdmitRequest(ctx context.Context, in authority.Req
 	}, nil
 }
 
-func (f *fakeRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
+func (f *fakeRequestProvider) SettleRequest(ctx context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	f.settled.Add(1)
+	f.lastSettleHandles.Store(append([]string(nil), in.Handles...))
+	f.lastSettleCtxActive.Store(ctx != nil && ctx.Err() == nil)
+	if f.settle != nil {
+		return f.settle(ctx, in)
+	}
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
 
@@ -147,5 +157,74 @@ func validRequestAdmission() authority.RequestAdmission {
 			Boundary:    metering.BoundaryFrontendIngress,
 			Lifecycle:   metering.LifecycleLogicalRequest,
 		},
+	}
+}
+
+func TestRequestCoordinator_SettleRoutesHandlesToOwningProvider(t *testing.T) {
+	t.Parallel()
+	conc := &fakeConcurrencyProvider{}
+	quota := &fakeRequestProvider{id: "usage-authority-request"}
+	wallet := &fakeRequestProvider{id: "wallet"}
+	coord := &authoritycoord.RequestCoordinator{
+		Concurrency: conc,
+		Slots: []authoritycoord.RequestSlot{
+			{ID: "wallet", Class: authoritycoord.PriorityCreditWallet, Provider: wallet, Strength: authority.StrengthRequired},
+			{ID: "usage-authority-request", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: quota, Strength: authority.StrengthRequired},
+		},
+	}
+	d, err := coord.Admit(context.Background(), validRequestAdmission())
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	if err := coord.Settle(context.Background(), d.Stack, authority.RequestSettlement{
+		RequestID: "req-1",
+		Handles:   d.Stack.Handles(),
+	}); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	if quota.settled.Load() != 1 || wallet.settled.Load() != 1 {
+		t.Fatalf("settled quota=%d wallet=%d want 1 each", quota.settled.Load(), wallet.settled.Load())
+	}
+	quotaHandles, _ := quota.lastSettleHandles.Load().([]string)
+	walletHandles, _ := wallet.lastSettleHandles.Load().([]string)
+	if len(quotaHandles) != 1 || quotaHandles[0] != "usage-authority-request-h" {
+		t.Fatalf("quota handles=%v want [usage-authority-request-h] (concurrency lease must not be included)", quotaHandles)
+	}
+	if len(walletHandles) != 1 || walletHandles[0] != "wallet-h" {
+		t.Fatalf("wallet handles=%v want [wallet-h]", walletHandles)
+	}
+	for _, h := range append(quotaHandles, walletHandles...) {
+		if h == d.Lease.LeaseID {
+			t.Fatalf("concurrency lease ID %q must not be sent to request-provider settlement", h)
+		}
+	}
+}
+
+func TestRequestCoordinator_SettleUsesFreshCleanupContext(t *testing.T) {
+	t.Parallel()
+	quota := &fakeRequestProvider{id: "quota"}
+	coord := &authoritycoord.RequestCoordinator{
+		Slots: []authoritycoord.RequestSlot{
+			{ID: "quota", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: quota, Strength: authority.StrengthRequired},
+		},
+		CleanupTimeout: time.Second,
+	}
+	d, err := coord.Admit(context.Background(), validRequestAdmission())
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := coord.Settle(canceled, d.Stack, authority.RequestSettlement{
+		RequestID: "req-1",
+		Handles:   d.Stack.Handles(),
+	}); err != nil {
+		t.Fatalf("settle on canceled parent: %v", err)
+	}
+	if quota.settled.Load() != 1 {
+		t.Fatalf("settled=%d want 1", quota.settled.Load())
+	}
+	if !quota.lastSettleCtxActive.Load() {
+		t.Fatal("SettleRequest must receive fresh non-canceled cleanup context")
 	}
 }

@@ -8,11 +8,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 // authorityLifecycle owns one admission result's synchronized settle/release
@@ -20,6 +24,8 @@ import (
 type authorityLifecycle struct {
 	svc UsageAuthorityService
 	log *slog.Logger
+	// attemptCoord settles/releases coordinator-admitted holds through owning providers.
+	attemptCoord *authoritycoord.AttemptCoordinator
 	// Pointers keep the value-shaped lifecycle copyable for existing stream and
 	// race-owner structs without copying sync/atomic noCopy values. The owner
 	// created by newAuthorityLifecycle always initializes them.
@@ -81,6 +87,17 @@ func newAuthorityLifecycle(svc UsageAuthorityService, log *slog.Logger, state at
 	// is true. The pre-open cleanup owner in tryPlanOpenOnce explicitly resets
 	// this until the actual backend Open call begins.
 	lifecycle.backendAttempted.Store(true)
+	return lifecycle
+}
+
+// newAttemptAuthorityLifecycle builds a lifecycle owner wired to both the
+// built-in usage-authority service and the attempt coordinator (when present).
+func (e *Executor) newAttemptAuthorityLifecycle(state attemptAuthorityState, cand routing.AttemptCandidate) authorityLifecycle {
+	if e == nil {
+		return newAuthorityLifecycle(nil, nil, state, cand)
+	}
+	lifecycle := newAuthorityLifecycle(e.authorityService(), e.Log, state, cand)
+	lifecycle.attemptCoord = e.AttemptCoordinator
 	return lifecycle
 }
 
@@ -401,6 +418,9 @@ func (l *authorityLifecycle) Settle(ctx context.Context, kind authorityapp.Settl
 	if l.control.terminal == authorityTerminalSettled {
 		return l.reconcileAuthoritativeLocked(ctx, usageEv)
 	}
+	if l.control.state.viaCoordinator {
+		return l.settleViaCoordinatorLocked(ctx, kind, usageEv, clientCanceled)
+	}
 	if l.svc == nil {
 		return false
 	}
@@ -435,6 +455,266 @@ func (l *authorityLifecycle) Settle(ctx context.Context, kind authorityapp.Settl
 	return false
 }
 
+// usageAuthorityAttemptProviderID is the stable AttemptCoordinator slot ID used
+// by BuildAuthorityCoordinators for the built-in usage-authority adapter.
+const usageAuthorityAttemptProviderID = "usage-authority-attempt"
+
+func (l *authorityLifecycle) settleViaCoordinatorLocked(ctx context.Context, kind authorityapp.SettlementKind, usageEv lipapi.Event, clientCanceled bool) bool {
+	if l.attemptCoord == nil {
+		return false
+	}
+	cleanupCtx, cancel := cleanupContext(ctx, l.control.state.cleanupTimeout)
+	defer cancel()
+	if l.control.state.settledProviders == nil {
+		l.control.state.settledProviders = make(map[string]struct{})
+	}
+	state := l.control.state
+	outputCommitted := l.outputCommitted != nil && l.outputCommitted.Load()
+	evidence := attemptSettlementEvidence(state, kind, usageEv, outputCommitted, clientCanceled)
+
+	uaStack, externalStack := splitAttemptStackByProvider(state.stack, usageAuthorityAttemptProviderID)
+	// Built-in usage authority keeps the rich reservation-set settle path so
+	// FinalUsage/cost authority are preserved. External providers settle only
+	// through AttemptCoordinator with their owning handles and full evidence.
+	if l.svc != nil && len(uaStack.Handles()) > 0 && !providerSettled(state.settledProviders, usageAuthorityAttemptProviderID) {
+		reservations := filterReservationsByHandles(l.reservationStates(), uaStack.Handles())
+		result, err := l.svc.Settle(cleanupCtx, l.settlementInput(kind, usageEv, clientCanceled, reservations))
+		if result.Applied {
+			markProviderSettled(&l.control.state, usageAuthorityAttemptProviderID)
+			for _, reservation := range reservations {
+				incoming := measurementAuthorityForUnit(usageEv, reservation.reservedAmount.Unit)
+				l.control.authority = mergeMeasurementAuthorityForAmount(l.control.authority, incoming, reservation.reservedAmount)
+			}
+			if err != nil && l.log != nil {
+				l.log.DebugContext(ctx, "usage authority settle evidence failed after commit", "error", err, "candidate_key", l.control.cand.Key)
+			}
+		} else if err != nil && l.log != nil {
+			l.log.DebugContext(ctx, "usage authority settle failed", "error", err, "candidate_key", l.control.cand.Key)
+		}
+	} else if l.svc == nil && len(uaStack.Handles()) > 0 {
+		// No direct service: settle the built-in adapter via the coordinator too.
+		externalStack = state.stack
+	}
+
+	for _, providerID := range uniqueStackProviderIDs(externalStack) {
+		if providerSettled(l.control.state.settledProviders, providerID) {
+			continue
+		}
+		if l.svc != nil && providerID == usageAuthorityAttemptProviderID {
+			continue
+		}
+		sub := filterStackByProvider(externalStack, providerID)
+		if len(sub.Handles()) == 0 {
+			continue
+		}
+		settleIn := evidence
+		settleIn.Handles = sub.Handles()
+		if err := l.attemptCoord.Settle(cleanupCtx, sub, settleIn); err != nil {
+			if l.log != nil {
+				l.log.DebugContext(ctx, "attempt coordinator settle failed", "error", err, "provider_id", providerID, "candidate_key", l.control.cand.Key)
+			}
+			continue
+		}
+		markProviderSettled(&l.control.state, providerID)
+	}
+
+	unfinished := unfinishedStack(l.control.state.stack, l.control.state.settledProviders)
+	if len(unfinished.Handles()) == 0 {
+		l.control.terminal = authorityTerminalSettled
+		return true
+	}
+
+	if outputCommitted {
+		// Keep terminal open so only unfinished providers are retried (15.5).
+		return false
+	}
+
+	// Before output is committed, release only providers that never settled.
+	if l.releaseViaCoordinatorStackLocked(ctx, unfinished) {
+		if len(l.control.state.settledProviders) > 0 {
+			l.control.terminal = authorityTerminalSettled
+			return true
+		}
+		l.control.terminal = authorityTerminalReleased
+	}
+	return false
+}
+
+func attemptSettlementEvidence(
+	state attemptAuthorityState,
+	kind authorityapp.SettlementKind,
+	usageEv lipapi.Event,
+	outputCommitted bool,
+	clientCanceled bool,
+) authority.AttemptSettlement {
+	outcome, surfaced := mapAttemptSettlementPosture(kind, outputCommitted, clientCanceled)
+	qs := quantitiesFromUsageEvent(usageEv)
+	presence := metering.PresenceUnknown
+	if len(qs) > 0 {
+		presence = metering.PresencePresent
+	}
+	authorityLevel := metering.AuthorityEstimated
+	if eventCarriesAuthoritativeProviderUsage(usageEv) {
+		authorityLevel = metering.AuthorityAuthoritative
+	}
+	fact := metering.Fact{
+		FactID:         "attempt-settle:" + strings.TrimSpace(state.attemptID),
+		StreamID:       "be-egress:" + strings.TrimSpace(state.bLegID),
+		Sequence:       1,
+		Kind:           metering.FactKindCumulative,
+		Perspective:    metering.PerspectiveOperator,
+		Boundary:       metering.BoundaryBackendEgress,
+		Lifecycle:      metering.LifecycleBackendAttempt,
+		Correlation:    metering.Correlation{RequestID: state.requestID, AttemptID: state.attemptID, BLegID: state.bLegID},
+		Quantities:     qs,
+		Money:          moneyFromUsageEvent(usageEv),
+		Source:         metering.SourceObserved,
+		Authority:      authorityLevel,
+		Presence:       presence,
+		AttemptOutcome: outcome,
+		Surfaced:       surfaced,
+		RecordedAt:     time.Now().UTC(),
+	}
+	var facts []metering.Fact
+	if err := fact.Validate(); err == nil {
+		facts = []metering.Fact{fact}
+	}
+	var rated []economics.RatingResult
+	if usageEv.CostPresent {
+		rated = []economics.RatingResult{{
+			Money: economics.Money{
+				NanoUnits: usageEv.CostNanoUnits,
+				Currency:  strings.TrimSpace(usageEv.Currency),
+				Present:   true,
+			},
+			Source:      strings.TrimSpace(usageEv.CostSource),
+			Perspective: metering.PerspectiveOperator,
+		}}
+	}
+	return authority.AttemptSettlement{
+		RequestID:     state.requestID,
+		AttemptID:     state.attemptID,
+		BLegID:        state.bLegID,
+		Facts:         facts,
+		Rated:         rated,
+		Outcome:       outcome,
+		Surfaced:      surfaced,
+		BoundVersions: append([]economics.PolicySnapshotRef(nil), state.boundVersions...),
+	}
+}
+
+func mapAttemptSettlementPosture(kind authorityapp.SettlementKind, outputCommitted, clientCanceled bool) (metering.AttemptOutcome, metering.SurfacedState) {
+	switch kind {
+	case authorityapp.SettlementKindCancellation:
+		if clientCanceled {
+			return metering.AttemptOutcomeCanceled, metering.SurfacedNo
+		}
+		return metering.AttemptOutcomeCanceled, metering.SurfacedUnknown
+	case authorityapp.SettlementKindLosing, authorityapp.SettlementKindSwallowed:
+		return metering.AttemptOutcomeLoser, metering.SurfacedNo
+	case authorityapp.SettlementKindUnavailable, authorityapp.SettlementKindPartial:
+		return metering.AttemptOutcomeFailed, metering.SurfacedNo
+	default:
+		if outputCommitted {
+			return metering.AttemptOutcomeWinner, metering.SurfacedYes
+		}
+		return metering.AttemptOutcomeUnknown, metering.SurfacedUnknown
+	}
+}
+
+func providerSettled(settled map[string]struct{}, providerID string) bool {
+	if settled == nil {
+		return false
+	}
+	_, ok := settled[strings.TrimSpace(providerID)]
+	return ok
+}
+
+func markProviderSettled(state *attemptAuthorityState, providerID string) {
+	if state == nil {
+		return
+	}
+	id := strings.TrimSpace(providerID)
+	if id == "" {
+		return
+	}
+	if state.settledProviders == nil {
+		state.settledProviders = make(map[string]struct{})
+	}
+	state.settledProviders[id] = struct{}{}
+}
+
+func uniqueStackProviderIDs(stack authoritycoord.CompensationStack) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, e := range stack.Entries() {
+		id := strings.TrimSpace(e.ProviderID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func filterStackByProvider(stack authoritycoord.CompensationStack, providerID string) authoritycoord.CompensationStack {
+	want := strings.TrimSpace(providerID)
+	var out authoritycoord.CompensationStack
+	for _, e := range stack.Entries() {
+		if strings.TrimSpace(e.ProviderID) == want {
+			out.Push(e)
+		}
+	}
+	return out
+}
+
+func unfinishedStack(stack authoritycoord.CompensationStack, settled map[string]struct{}) authoritycoord.CompensationStack {
+	var out authoritycoord.CompensationStack
+	for _, e := range stack.Entries() {
+		if providerSettled(settled, e.ProviderID) {
+			continue
+		}
+		out.Push(e)
+	}
+	return out
+}
+
+func splitAttemptStackByProvider(stack authoritycoord.CompensationStack, providerID string) (match, other authoritycoord.CompensationStack) {
+	want := strings.TrimSpace(providerID)
+	for _, e := range stack.Entries() {
+		if strings.TrimSpace(e.ProviderID) == want {
+			match.Push(e)
+			continue
+		}
+		other.Push(e)
+	}
+	return match, other
+}
+
+func filterReservationsByHandles(reservations []authorityReservationState, handles []string) []authorityReservationState {
+	if len(reservations) == 0 || len(handles) == 0 {
+		return nil
+	}
+	allow := make(map[string]struct{}, len(handles))
+	for _, h := range handles {
+		h = strings.TrimSpace(h)
+		if h != "" {
+			allow[h] = struct{}{}
+		}
+	}
+	out := make([]authorityReservationState, 0, len(handles))
+	for _, r := range reservations {
+		if _, ok := allow[strings.TrimSpace(r.reservationID)]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // Release releases every reservation in the admission result once with the
 // supplied kind. It marks settled only after the atomic release succeeds, so a
 // failed cleanup can be retried. No-op when inactive or when svc is nil.
@@ -450,6 +730,23 @@ func (l *authorityLifecycle) Release(ctx context.Context, kind authorityapp.Rele
 	if l.control.terminal != authorityTerminalOpen {
 		return
 	}
+	if l.control.state.viaCoordinator {
+		// Release never re-touches providers that already settled successfully.
+		unfinished := unfinishedStack(l.control.state.stack, l.control.state.settledProviders)
+		if len(unfinished.Handles()) == 0 {
+			l.control.terminal = authorityTerminalSettled
+			return
+		}
+		if l.releaseViaCoordinatorStackLocked(ctx, unfinished) {
+			if len(l.control.state.settledProviders) > 0 {
+				l.control.terminal = authorityTerminalSettled
+			} else {
+				l.control.terminal = authorityTerminalReleased
+				l.control.authority = newSettlementAuthorityState()
+			}
+		}
+		return
+	}
 	if l.svc == nil {
 		return
 	}
@@ -459,6 +756,29 @@ func (l *authorityLifecycle) Release(ctx context.Context, kind authorityapp.Rele
 		l.control.terminal = authorityTerminalReleased
 		l.control.authority = newSettlementAuthorityState()
 	}
+}
+
+func (l *authorityLifecycle) releaseViaCoordinatorLocked(ctx context.Context) bool {
+	return l.releaseViaCoordinatorStackLocked(ctx, l.control.state.stack)
+}
+
+func (l *authorityLifecycle) releaseViaCoordinatorStackLocked(ctx context.Context, stack authoritycoord.CompensationStack) bool {
+	if l.attemptCoord == nil {
+		return false
+	}
+	if len(stack.Handles()) == 0 {
+		return true
+	}
+	cleanupCtx, cancel := cleanupContext(ctx, l.control.state.cleanupTimeout)
+	defer cancel()
+	fails := l.attemptCoord.Release(cleanupCtx, stack)
+	if len(fails) > 0 {
+		if l.log != nil {
+			l.log.DebugContext(ctx, "attempt coordinator release failures", "count", len(fails), "candidate_key", l.control.cand.Key)
+		}
+		return false
+	}
+	return true
 }
 
 func (l *authorityLifecycle) releaseReservationSet(ctx context.Context, kind authorityapp.ReleaseKind, reservations []authorityReservationState) bool {
