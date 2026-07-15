@@ -173,6 +173,8 @@ Before adding a direct dependency, record why stdlib and existing dependencies a
 
 Schema and persistence changes need human-readable migration/review evidence. Do not generate or mutate production schemas implicitly from application startup code.
 
+When PostgreSQL is reached through a **transaction pooler** (for example PgBouncer transaction mode or a managed pooled endpoint), treat session affinity as unavailable: runtime SQL must not depend on `SET search_path`, session GUCs, temporary tables, SQL PREPARE/DEALLOCATE, session advisory locks, or sticky multi-statement scripts outside an explicit transaction. Prefer distinct migration/admin (direct) versus runtime roles, explicit `direct`|`transaction_pool` connection mode and `auto_migrate`|`verify_only` schema mode, and reject `transaction_pool` + `auto_migrate`. Shared bounded pools for dual-plane stores belong at the composition root (one pool per sanitized runtime DSN + pool config; inject handles; close once). Do not infer providers from hostname substrings such as `-pooler`; behavior is explicit configuration only. Keep `direct` + `auto_migrate` as compatibility defaults until an explicit rollout changes generated config.
+
 ## Pragmatic port and query rules
 
 - define outbound seams where the core consumes them,

@@ -551,3 +551,22 @@ Do not revert or rewrite PR #128 wholesale.
 Freeze further proprietary billing feature development on top of the current single `Spend` path until the P0 correctness and lifecycle alignment tasks in this specification are complete.
 
 Treat the existing authority as a reusable fixed-window enforcement implementation, then build the missing public metering, rating, request/attempt coordination, and concurrency lease foundations around it. This provides a clean OSS substrate while preserving the commercial moat in external pricebooks, wallets, credit policy, financial journals, payments, invoices, and analytics.
+
+## Amendment Note — Transaction-Pooled PostgreSQL (2026-07-15)
+
+### Evidence
+
+Observed during dual-plane PostgreSQL release-gate runs: managed transaction-pooler endpoints do not preserve session/`search_path` isolation used by some multi-statement contract harnesses. Direct endpoints pass the same suite. Coupling migration DDL and runtime DML through one DSN, plus independent pools per store, further mismatches production PgBouncer/Neon transaction-pooling deployments. This is an operational compatibility gap for pooled production runtimes, not a reason to abandon PostgreSQL as the distributed strict reference.
+
+### Decision
+
+Approve an additive remediation (Requirement 18 / design amendment / tasks 13–18) with six execution phases:
+
+1. Two-endpoint harness (`LIP_TEST_POSTGRES_ADMIN_DSN` + `LIP_TEST_POSTGRES_DSN`), pooler-safe isolation, RED pooled contracts, `make test-authority-postgres-pooled` at `-parallel=8`.
+2. Typed modes with compatibility defaults; composition-owned pool registry keyed by sanitized DSN + pool config; inject handles into authority/lease/journal.
+3. Split Migrate / VerifySchema / open-with-injected-handle; `lipstd migrate` via `LIP_MIGRATION_POSTGRES_DSN`; `verify_only` runtime never mutates schema.
+4. Remove session-dependent runtime SQL; explicit transactions + row locks/CAS; bounded retry only for SQLSTATE 40001/40P01.
+5. Load/pool-sharing proofs, infra-vs-capacity classification, bounded metrics, Linux race on registry/stores/heartbeat.
+6. Local PostgreSQL + PgBouncer transaction-mode CI; separate migration/direct/pooled Make targets; docs and compatibility rollout (`direct`+`auto_migrate` default initially).
+
+Non-negotiable: no hostname/`-pooler` inference; direct-only or `-parallel=1` cannot satisfy pooled runtime completion; migration compatibility and runtime pool compatibility remain separate gates.
