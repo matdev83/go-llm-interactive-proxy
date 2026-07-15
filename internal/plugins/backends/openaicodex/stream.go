@@ -21,13 +21,14 @@ import (
 // WebSocket transports. It is not concurrency-safe; callers must serialize
 // handleData calls (the EventPump does this under its lock).
 type codexEventMapper struct {
-	pending     stream.PendingEventQueue
-	mapper      *openairesponsestream.Mapper
-	responseID  string
-	outputItems []inputItem
-	toolCallIDs map[string]string
-	provisional map[string]bool
-	terminal    bool
+	pending                   stream.PendingEventQueue
+	mapper                    *openairesponsestream.Mapper
+	reasoningSummarySanitizer codexreasoning.SummarySanitizer
+	responseID                string
+	outputItems               []inputItem
+	toolCallIDs               map[string]string
+	provisional               map[string]bool
+	terminal                  bool
 }
 
 func newCodexEventMapper(maxPending int) *codexEventMapper {
@@ -94,7 +95,7 @@ func (m *codexEventMapper) handleReasoningDelta(data string, stripEmptyHTMLComme
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
 	if stripEmptyHTMLComments {
-		ev.Delta = codexreasoning.StripEmptyHTMLCommentMarkers(ev.Delta)
+		ev.Delta = m.reasoningSummarySanitizer.SanitizeDelta(ev.Delta)
 		if ev.Delta == "" {
 			return nil
 		}
@@ -128,6 +129,7 @@ func (m *codexEventMapper) handleResponseCreated(data string) error {
 	if err := json.Unmarshal([]byte(data), &ev); err != nil {
 		return fmt.Errorf("%s: malformed stream event: %w", ID, err)
 	}
+	m.reasoningSummarySanitizer.Reset()
 	m.responseID = strings.TrimSpace(ev.Response.ID)
 	return m.mapper.ResponseCreated()
 }
@@ -172,6 +174,7 @@ func (m *codexEventMapper) handleResponseCompleted(data string) error {
 	if err := m.mapper.ResponseFinished(); err != nil {
 		return err
 	}
+	m.reasoningSummarySanitizer.Reset()
 	m.terminal = true
 	return nil
 }
@@ -320,6 +323,7 @@ func (m *codexEventMapper) handleStreamError(data string) error {
 	if debugTurnsEnabled() {
 		slog.Debug("openaicodex.debug.upstream_error", "code", code, "message", msg)
 	}
+	m.reasoningSummarySanitizer.Reset()
 	return m.mapper.StreamError(code, msg, "upstream error")
 }
 

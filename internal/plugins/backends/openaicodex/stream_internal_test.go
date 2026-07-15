@@ -486,6 +486,34 @@ func TestHandleData_reasoningSummaryTextDelta_suppressesSplitCommentClose(t *tes
 	}
 }
 
+func TestHandleData_reasoningSummaryTextDelta_preservesSeparatorAcrossDeltas(t *testing.T) {
+	t.Parallel()
+	s := testCodexStream()
+
+	rawEvents := []string{
+		`{"type":"response.created","response":{"id":"resp_reasoning"}}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":"thought"}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":"<!--"}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":" -->"}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":"next"}`,
+	}
+	for _, raw := range rawEvents {
+		if err := s.mapper.handleData(raw); err != nil {
+			t.Fatalf("handleData: %v", err)
+		}
+	}
+
+	var got strings.Builder
+	for _, ev := range stream.DrainPending(&s.mapper.pending) {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			got.WriteString(ev.Delta)
+		}
+	}
+	if got.String() != "thought\nnext" {
+		t.Fatalf("reasoning = %q, want %q", got.String(), "thought\nnext")
+	}
+}
+
 func TestHandleData_reasoningTextDelta_emitsReasoningDelta(t *testing.T) {
 	t.Parallel()
 	s := testCodexStream()
