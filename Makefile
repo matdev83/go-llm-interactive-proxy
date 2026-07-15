@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-authority-postgres qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -10,7 +10,10 @@ help:
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
-	@echo "  make test-authority-postgres - required PostgreSQL dual-plane proof (authority+lease+journal; requires a DSN)"
+	@echo "  make test-postgres-migrations - apply and verify dual-plane PostgreSQL migrations"
+	@echo "  make test-authority-postgres-direct - direct PostgreSQL runtime proof"
+	@echo "  make test-authority-postgres-pooled - transaction-pooled runtime proof"
+	@echo "  make test-authority-postgres - aggregate direct + pooled proof"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
@@ -56,12 +59,32 @@ test-unit:
 # PostgreSQL is the required proof surface for cross-instance authority
 # semantics. The test helper fails instead of skipping when this target is
 # invoked without a configured DSN.
-test-authority-postgres:
+test-authority-postgres-direct:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -skip '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore"
 else
-	@LIP_REQUIRE_POSTGRES=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) test $(GO_TEST_FLAGS) -tags=integration -skip '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore
 endif
+
+test-postgres-migrations:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "if (-not [Environment]::GetEnvironmentVariable('LIP_MIGRATION_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_MIGRATION_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; if (-not [Environment]::GetEnvironmentVariable('LIP_MIGRATION_POSTGRES_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_MIGRATION_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_DSN','Process'),'Process') }; & '$(GO)' run ./cmd/lipstd migrate --components usage-authority,concurrency,metering"
+else
+	@LIP_MIGRATION_POSTGRES_DSN="$${LIP_MIGRATION_POSTGRES_DSN:-$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}}" $(GO) run ./cmd/lipstd migrate --components usage-authority,concurrency,metering
+endif
+
+# Transaction-pooled runtime proof. Requires LIP_TEST_POSTGRES_DSN to be an
+# actual transaction-pooler endpoint and explicit topology attestation.
+# Uses normal parallelism (-parallel=8 by default); do not force -parallel=1.
+test-authority-postgres-pooled:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES_POOLER','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_RUNTIME_IS_POOLER','Process') -ne '1') { throw 'set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint' }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -run '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/runtimebundle"
+else
+	@test "$${LIP_TEST_POSTGRES_RUNTIME_IS_POOLER:-}" = "1" || { echo "set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint" >&2; exit 1; }
+	@LIP_REQUIRE_POSTGRES_POOLER=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration -run '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/runtimebundle
+endif
+
+test-authority-postgres: test-postgres-migrations test-authority-postgres-direct test-authority-postgres-pooled
 
 test-precommit-extra:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit ./internal/qa/... ./internal/core/runtime/...
