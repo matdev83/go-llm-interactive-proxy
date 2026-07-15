@@ -15,13 +15,15 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/dbmigrate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
 func printLipstdUsage(fs *flag.FlagSet) {
 	_, _ = fmt.Fprintf(fs.Output(),
-		"Usage: lipstd [--config path] [serve|check-config|routes|inventory]\n\n",
+		"Usage: lipstd [--config path] [serve|check-config|routes|inventory|migrate]\n\n",
 	)
 	fs.PrintDefaults()
 }
@@ -33,6 +35,7 @@ const (
 	CommandCheckConfig CommandName = "check-config"
 	CommandRoutes      CommandName = "routes"
 	CommandInventory   CommandName = "inventory"
+	CommandMigrate     CommandName = "migrate"
 )
 
 type CommandOptions struct {
@@ -42,6 +45,7 @@ type CommandOptions struct {
 	MultiUser      *bool
 	Output         io.Writer
 	ErrorOut       io.Writer
+	Components     string
 }
 
 type ParsedArgs struct {
@@ -49,6 +53,7 @@ type ParsedArgs struct {
 	Name           CommandName
 	StreamRecovery config.StreamRecoveryOverrides
 	MultiUser      *bool
+	Components     string
 }
 
 func RunCommand(ctx context.Context, opts CommandOptions) int {
@@ -71,10 +76,37 @@ func RunCommand(ctx context.Context, opts CommandOptions) int {
 		return runRoutesCommand(ctx, opts)
 	case CommandInventory:
 		return runInventoryCommand(ctx, opts)
+	case CommandMigrate:
+		return runMigrateCommand(ctx, opts)
 	default:
 		_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd: unknown command %q\n", opts.Name)
 		return 2
 	}
+}
+
+const migrationPostgresDSNEnv = "LIP_MIGRATION_POSTGRES_DSN"
+
+// runPostgresMigrate applies and verifies selected components. Tests may override.
+var runPostgresMigrate = dbmigrate.PostgresComponents
+
+func runMigrateCommand(ctx context.Context, opts CommandOptions) int {
+	components, err := dbmigrate.ParseComponents(opts.Components)
+	if err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd migrate: %v\n", err)
+		return 2
+	}
+	dsn := strings.TrimSpace(os.Getenv(migrationPostgresDSNEnv))
+	if dsn == "" {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd migrate: set %s\n", migrationPostgresDSNEnv)
+		return 1
+	}
+	child, cancel := context.WithTimeout(ctx, db.DefaultPostgresOpenMigrateTimeout)
+	defer cancel()
+	if err := runPostgresMigrate(child, dsn, components); err != nil {
+		_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd migrate: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func parseCommandName(args []string) (CommandName, error) {
@@ -90,6 +122,8 @@ func parseCommandName(args []string) (CommandName, error) {
 		return CommandRoutes, nil
 	case string(CommandInventory):
 		return CommandInventory, nil
+	case string(CommandMigrate):
+		return CommandMigrate, nil
 	default:
 		return "", fmt.Errorf("unknown command %q", args[0])
 	}
@@ -109,7 +143,7 @@ func parseCLIPrefix(argv []string) (prefixArgs []string, name CommandName, tail 
 			continue
 		}
 		switch CommandName(a) {
-		case CommandServe, CommandCheckConfig, CommandRoutes, CommandInventory:
+		case CommandServe, CommandCheckConfig, CommandRoutes, CommandInventory, CommandMigrate:
 			return prefixArgs, CommandName(a), argv[i+1:]
 		default:
 			prefixArgs = append(prefixArgs, a)
@@ -171,6 +205,7 @@ func parseCommandFlags(name string, args []string, usageOut io.Writer, out *Pars
 	fs.StringVar(&autoResume, "auto-resume", "", "enable stream auto-resume/recovery")
 	fs.StringVar(&idleTimeout, "auto-resume-idle-timeout", "", "auto-resume idle timeout")
 	fs.StringVar(&gracePeriod, "auto-resume-grace-period", "", "auto-resume grace period")
+	fs.StringVar(&out.Components, "components", out.Components, "comma-separated migration components")
 	var multiUser bool
 	fs.BoolVar(&multiUser, "multi-user", false, "opt in to access.mode multi_user for serve")
 	fs.Usage = func() { printLipstdUsage(fs) }

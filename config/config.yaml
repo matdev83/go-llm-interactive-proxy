@@ -75,9 +75,14 @@ server:
 #   response_header_timeout: 60s
 #   client_timeout: 120s
 
-# Optional connection pool for managed PostgreSQL (store: postgres for continuity and/or secure_session).
-# Omitted or zero values leave driver defaults. Durations are Go duration strings (e.g. 30m, 90s).
+# Optional connection pool for managed PostgreSQL (any store: postgres path).
+# When any store is postgres, max_open_conns must be > 0 (example: 8). Other omitted/zero
+# fields leave driver defaults. Durations are Go duration strings (e.g. 30m, 90s).
+# connection_mode and schema_mode apply only to dual-plane authority, concurrency, and
+# metering PostgreSQL runtime stores; other PostgreSQL stores retain their own lifecycle.
 # database:
+#   connection_mode: direct        # direct or transaction_pool
+#   schema_mode: auto_migrate       # auto_migrate or verify_only
 #   max_open_conns: 8
 #   max_idle_conns: 2
 #   conn_max_lifetime: 30m
