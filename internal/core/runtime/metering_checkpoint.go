@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -66,4 +67,67 @@ func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) e
 		return nil
 	}
 	return e.MeteringRecorder.Append(ctx, fact)
+}
+
+// enrichFrontendIngressQuantities deferred-counts the immutable FE call via the
+// existing AdminCountService (tiktoken/provider path) and merges input_token
+// without replacing a Present output_token bound (requirements 2.1, 4.1, 7.2).
+func (e *Executor) enrichFrontendIngressQuantities(ctx context.Context) error {
+	if e == nil || e.AdminCountService == nil {
+		return nil
+	}
+	holder := meteringHolderFrom(ctx)
+	if holder == nil || holder.FrontendIngress == nil {
+		return nil
+	}
+	if _, ok := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken); ok {
+		return nil
+	}
+	call := holder.FrontendIngress.Call
+	count, err := e.AdminCountService.CountCall(ctx, accountingapp.CountCallInput{
+		CallID: strings.TrimSpace(call.ID),
+		Call:   call,
+	})
+	if err != nil {
+		return err
+	}
+	holder.MergeFrontendIngressQuantities(countedInputQuantities(count))
+	return nil
+}
+
+// countedInputQuantities maps a CountResult to deferred ingress additions.
+// Output bounds are omitted so MergeQuantities keeps QuantitiesFromCall max-output.
+func countedInputQuantities(count accountingapp.CountResult) []metering.Quantity {
+	out := []metering.Quantity{{
+		Component: metering.ComponentInputToken,
+		Unit:      metering.UnitToken,
+		Value:     int64(count.InputTokens),
+		Present:   true,
+	}}
+	if count.CacheReadTokens > 0 {
+		out = append(out, metering.Quantity{
+			Component: metering.ComponentCacheReadInputToken,
+			Unit:      metering.UnitToken,
+			Value:     int64(count.CacheReadTokens),
+			Present:   true,
+		})
+	}
+	if count.CacheWriteTokens > 0 {
+		out = append(out, metering.Quantity{
+			Component: metering.ComponentCacheWriteInputToken,
+			Unit:      metering.UnitToken,
+			Value:     int64(count.CacheWriteTokens),
+			Present:   true,
+		})
+	}
+	return out
+}
+
+// enrichBackendIngressQuantities merges deferred operator counts into a stored
+// BE snapshot without replacing conservative output bounds (reqs 2.2, 5.1).
+func (e *Executor) enrichBackendIngressQuantities(holder *checkpoint.RequestHolder, attemptID string, count accountingapp.CountResult) {
+	if holder == nil {
+		return
+	}
+	holder.MergeBackendIngressQuantities(attemptID, countedInputQuantities(count))
 }

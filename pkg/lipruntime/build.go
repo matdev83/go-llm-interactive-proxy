@@ -167,6 +167,33 @@ func (r *Runtime) SnapshotGenerationID() int64 {
 	return cur.ID
 }
 
+// SnapshotUsageVersion returns the active usage-authority snapshot version, or "".
+func (r *Runtime) SnapshotUsageVersion() string {
+	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+		return ""
+	}
+	cur := r.built.SnapshotGeneration.Current()
+	if cur == nil {
+		return ""
+	}
+	return cur.Usage.Version
+}
+
+// RefreshSnapshots re-reads injectable snapshot sources and atomically publishes
+// a new immutable generation for subsequent admissions (requirements 11.3, 11.6).
+// In-flight requests keep their previously bound generation pointers.
+// Source failures expose degraded/unavailable posture without substituting an
+// unrelated policy version (requirement 11.7).
+func (r *Runtime) RefreshSnapshots(ctx context.Context) error {
+	if r == nil || r.built == nil || r.built.SnapshotController == nil {
+		return fmt.Errorf("lipruntime: snapshot refresh not available")
+	}
+	if ctx == nil {
+		return fmt.Errorf("lipruntime: nil context")
+	}
+	return r.built.SnapshotController.Refresh(ctx)
+}
+
 // Close releases runtime resources and tracing.
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {

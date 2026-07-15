@@ -44,6 +44,32 @@ func TestSQLiteStore_AppendIdempotentMoneyAndList(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteJournal(t)
+	ctx := context.Background()
+	f := validFact("fact-sql-content", "stream-sql-content", 1)
+	if err := store.Append(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+
+	diffKind := f
+	diffKind.Kind = metering.FactKindDelta
+	if err := store.Append(ctx, diffKind); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different Kind collision got %v", err)
+	}
+
+	diffPayload := f
+	diffPayload.Money = &metering.MoneyObservation{NanoUnits: 1, Currency: "USD", Present: true, Source: metering.SourceProviderReported}
+	if err := store.Append(ctx, diffPayload); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different Money collision got %v", err)
+	}
+
+	if err := store.Append(ctx, f); err != nil {
+		t.Fatalf("identical content must stay idempotent: %v", err)
+	}
+}
+
 func newSQLiteJournal(t *testing.T) *journalstore.DurableStore {
 	t.Helper()
 	dir := t.TempDir()

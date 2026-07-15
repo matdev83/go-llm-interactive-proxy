@@ -13,6 +13,7 @@ import (
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
@@ -38,10 +39,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 		if s.isCommitted() {
-			s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
-			if s.executor != nil {
-				s.executor.settleRequestAuthority(ctx, nil)
-			}
+			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
 			s.executor.releaseRequestAuthority(ctx)
 		}
@@ -51,10 +49,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 		if s.isCommitted() {
-			s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
-			if s.executor != nil {
-				s.executor.settleRequestAuthority(ctx, nil)
-			}
+			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
 			s.executor.releaseRequestAuthority(ctx)
 		}
@@ -64,10 +59,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	s.settleCancellationAuthority(ctx)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 	if s.isCommitted() {
-		s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
-		if s.executor != nil {
-			s.executor.settleRequestAuthority(ctx, nil)
-		}
+		s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	} else if s.executor != nil {
 		s.executor.releaseRequestAuthority(ctx)
 	}
@@ -297,11 +289,46 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	}
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, authorityEv)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-	s.emitFrontendEgressMeteringFact(ctx, authorityEv)
-	if s.executor != nil {
-		s.executor.settleRequestAuthority(ctx, nil)
-	}
+	s.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 	return usageEv, ok, nil
+}
+
+// settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
+// delivered/committed usage and passes that fact into request settlement (4.2).
+// When EconomicsRater is attached, customer FE-egress quantities are rated and
+// forwarded on RequestSettlement.Rated (requirements 6.1, 4.2).
+func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) {
+	if s == nil {
+		return
+	}
+	var facts []metering.Fact
+	fact, persisted := s.emitFrontendEgressMeteringFact(ctx, usageEv)
+	if persisted {
+		facts = []metering.Fact{fact}
+	} else if s.executor != nil && s.executor.MeteringRecorder != nil {
+		// Required settlement evidence was not persisted. Keep request authority
+		// open so a later terminal/reconciliation attempt can retry the append.
+		return
+	}
+	var rated []economics.RatingResult
+	if s.executor != nil && s.executor.EconomicsRater != nil {
+		qs := usageEventRatingQuantities(usageEv)
+		if len(facts) > 0 && len(facts[0].Quantities) > 0 {
+			qs = facts[0].Quantities
+		}
+		if res, err := s.executor.rateMonetaryExposure(ctx, economics.RatingRequest{
+			Perspective: metering.PerspectiveCustomer,
+			Quantities:  qs,
+			At:          s.executor.now(),
+		}); err == nil {
+			rated = []economics.RatingResult{res}
+		}
+		// Rating failure after committed output must not erase the fact or block
+		// settle retry; settle still runs with facts (15.5).
+	}
+	if s.executor != nil {
+		s.executor.settleRequestAuthority(ctx, facts, rated...)
+	}
 }
 
 func mergeUsageEvents(events []lipapi.Event) lipapi.Event {

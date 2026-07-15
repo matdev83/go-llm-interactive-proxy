@@ -28,10 +28,11 @@ type Compensator func(ctx context.Context) error
 
 // StackEntry records one successful reservation for reverse compensation.
 type StackEntry struct {
-	ProviderID string
-	Handle     string
-	Compensate Compensator
-	Evidence   authority.SafeEvidence
+	ProviderID  string
+	Handle      string
+	Reservation authority.Reservation
+	Compensate  Compensator
+	Evidence    authority.SafeEvidence
 }
 
 // CompensationStack holds successful admits in acquisition order.
@@ -95,7 +96,7 @@ func (s *CompensationStack) ReverseCompensate(parent context.Context, timeout ti
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-		err := e.Compensate(ctx)
+		err := invokeCompensate(e.Compensate, ctx)
 		cancel()
 		if err != nil {
 			failed = append(failed, CompensateFailed{

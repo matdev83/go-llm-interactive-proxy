@@ -82,14 +82,18 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 			}
 		}
 
-		d, err := slot.Provider.AdmitAttempt(ctx, in)
+		d, err := invokeAdmitAttempt(slot.Provider, ctx, in)
 		if err != nil {
+			var claimed CompensationStack
+			pushAttemptDecisionHolds(&claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+			claimedFails := claimed.ReverseCompensate(ctx, timeout)
 			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
+				out.CompensateFailures = append(out.CompensateFailures, claimedFails...)
 				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
 				continue
 			}
 			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = fails
+			out.CompensateFailures = append(claimedFails, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, &ErrUnavailable{ProviderID: id, Err: err}
@@ -109,49 +113,76 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 			out.DeniedBy = id
 			return out, &ErrDenied{ProviderID: id, Decision: d}
 		case authority.DecisionAllow, authority.DecisionAdvisory, "":
-			for _, r := range d.Reservations {
-				handle := strings.TrimSpace(r.Handle)
-				if handle == "" {
-					handle = strings.TrimSpace(d.CompensationHandle)
-				}
-				if handle == "" {
-					continue
-				}
-				h := handle
-				prov := slot.Provider
-				reqID, attID, bleg := in.RequestID, in.AttemptID, in.BLegID
-				out.Stack.Push(StackEntry{
-					ProviderID: id,
-					Handle:     h,
-					Evidence:   d.Evidence,
-					Compensate: func(cctx context.Context) error {
-						return prov.ReleaseAttempt(cctx, authority.AttemptRelease{
-							RequestID:          reqID,
-							AttemptID:          attID,
-							BLegID:             bleg,
-							Handles:            []string{h},
-							CompensationHandle: h,
-						})
-					},
-				})
-			}
+			pushAttemptDecisionHolds(&out.Stack, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
 		}
 	}
 	return out, nil
 }
 
-// Settle settles attempt providers for one B-leg.
-func (c *AttemptCoordinator) Settle(ctx context.Context, in authority.AttemptSettlement) error {
+// Settle settles attempt reservations through their owning providers using the
+// compensation stack from Admit (requirements 5.3, 5.4, 15.9). Handles are never
+// broadcast across providers: each slot receives only its own reservation handles.
+// An empty stack is a no-op. Each provider callback runs on a fresh bounded
+// cleanup context independent of client cancellation (requirements 8.7, 15.3).
+func (c *AttemptCoordinator) Settle(parent context.Context, stack CompensationStack, in authority.AttemptSettlement) error {
 	if c == nil {
 		return nil
+	}
+	timeout := defaultCleanupTimeout
+	if c.CleanupTimeout > 0 {
+		timeout = c.CleanupTimeout
+	}
+	handlesByProvider := make(map[string][]string)
+	for _, e := range stack.Entries() {
+		id := strings.TrimSpace(e.ProviderID)
+		h := strings.TrimSpace(e.Handle)
+		if id == "" || h == "" {
+			continue
+		}
+		handlesByProvider[id] = append(handlesByProvider[id], h)
 	}
 	var first error
 	for _, slot := range c.Slots {
 		if slot.Provider == nil {
 			continue
 		}
-		if _, err := slot.Provider.SettleAttempt(ctx, in); err != nil && first == nil {
-			first = err
+		id := strings.TrimSpace(slot.ID)
+		if id == "" {
+			id = fmt.Sprintf("attempt-class-%d", slot.Class)
+		}
+		handles := handlesByProvider[id]
+		if len(handles) == 0 {
+			continue
+		}
+		strength := slot.Strength
+		if strength == "" {
+			if slot.Class == AttemptPriorityAdvisory {
+				strength = authority.StrengthAdvisory
+			} else {
+				strength = authority.StrengthRequired
+			}
+		}
+		failBeh := slot.FailureBehavior
+		if failBeh == "" {
+			if strength == authority.StrengthAdvisory {
+				failBeh = authority.FailureFailOpen
+			} else {
+				failBeh = authority.FailureFailClosed
+			}
+		}
+		settlement := in
+		settlement.Handles = append([]string(nil), handles...)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+		_, err := invokeSettleAttempt(slot.Provider, ctx, settlement)
+		cancel()
+		if err == nil {
+			continue
+		}
+		if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
+			continue
+		}
+		if first == nil {
+			first = &ErrUnavailable{ProviderID: id, Err: err}
 		}
 	}
 	return first

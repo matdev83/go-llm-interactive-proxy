@@ -4,6 +4,7 @@ package aggregate
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -62,24 +63,36 @@ func Apply(facts []metering.Fact) (Snapshot, error) {
 			// Estimates do not settle into the metering total; tracked for reconcile only.
 			continue
 		case metering.FactKindDelta:
-			applyDelta(snap.Quantities, f.Quantities, 1)
-			applyMoneyDelta(&snap, f.Money, 1)
+			if err := applyDelta(snap.Quantities, f.Quantities, 1); err != nil {
+				return Snapshot{}, err
+			}
+			if err := applyMoneyDelta(&snap, f.Money, 1); err != nil {
+				return Snapshot{}, err
+			}
 		case metering.FactKindCumulative:
 			replacePresent(snap.Quantities, f.Quantities)
-			applyMoneyReplace(&snap, f.Money)
+			if err := applyMoneyReplace(&snap, f.Money); err != nil {
+				return Snapshot{}, err
+			}
 		case metering.FactKindCorrection:
 			for _, id := range f.Supersedes {
 				snap.Superseded[strings.TrimSpace(id)] = struct{}{}
 			}
-			applyDelta(snap.Quantities, f.Quantities, 1)
-			applyMoneyDelta(&snap, f.Money, 1)
+			if err := applyDelta(snap.Quantities, f.Quantities, 1); err != nil {
+				return Snapshot{}, err
+			}
+			if err := applyMoneyDelta(&snap, f.Money, 1); err != nil {
+				return Snapshot{}, err
+			}
 		case metering.FactKindAuthoritativeReplacement:
 			for _, id := range f.Supersedes {
 				snap.Superseded[strings.TrimSpace(id)] = struct{}{}
 			}
 			snap.Quantities = make(map[string]int64)
 			replacePresent(snap.Quantities, f.Quantities)
-			applyMoneyReplace(&snap, f.Money)
+			if err := applyMoneyReplace(&snap, f.Money); err != nil {
+				return Snapshot{}, err
+			}
 		default:
 			return Snapshot{}, fmt.Errorf("metering/aggregate: unsupported kind %q", f.Kind)
 		}
@@ -87,13 +100,22 @@ func Apply(facts []metering.Fact) (Snapshot, error) {
 	return snap, nil
 }
 
-func applyDelta(dst map[string]int64, qs []metering.Quantity, sign int64) {
+func applyDelta(dst map[string]int64, qs []metering.Quantity, sign int64) error {
 	for _, q := range qs {
 		if !q.Present {
 			continue
 		}
-		dst[q.Component] += sign * q.Value
+		delta, err := mulInt64Checked(sign, q.Value)
+		if err != nil {
+			return err
+		}
+		sum, err := addInt64Checked(dst[q.Component], delta)
+		if err != nil {
+			return err
+		}
+		dst[q.Component] = sum
 	}
+	return nil
 }
 
 func replacePresent(dst map[string]int64, qs []metering.Quantity) {
@@ -105,27 +127,99 @@ func replacePresent(dst map[string]int64, qs []metering.Quantity) {
 	}
 }
 
-func applyMoneyDelta(snap *Snapshot, m *metering.MoneyObservation, sign int64) {
+func applyMoneyDelta(snap *Snapshot, m *metering.MoneyObservation, sign int64) error {
 	if m == nil || !m.Present {
-		return
+		return nil
+	}
+	if err := acceptMoneyCurrency(snap, m.Currency); err != nil {
+		return err
+	}
+	delta, err := mulInt64Checked(sign, m.NanoUnits)
+	if err != nil {
+		return err
+	}
+	sum, err := addInt64Checked(snap.MoneyNano, delta)
+	if err != nil {
+		return err
 	}
 	snap.MoneyPresent = true
-	snap.MoneyNano += sign * m.NanoUnits
-	if cur := strings.TrimSpace(m.Currency); cur != "" {
-		snap.MoneyCurrency = cur
-	}
+	snap.MoneyNano = sum
+	return nil
 }
 
-func applyMoneyReplace(snap *Snapshot, m *metering.MoneyObservation) {
+func applyMoneyReplace(snap *Snapshot, m *metering.MoneyObservation) error {
 	if m == nil || !m.Present {
 		snap.MoneyPresent = false
 		snap.MoneyNano = 0
 		snap.MoneyCurrency = ""
-		return
+		return nil
+	}
+	if err := acceptMoneyCurrency(snap, m.Currency); err != nil {
+		return err
 	}
 	snap.MoneyPresent = true
 	snap.MoneyNano = m.NanoUnits
-	snap.MoneyCurrency = strings.TrimSpace(m.Currency)
+	return nil
+}
+
+// acceptMoneyCurrency enforces normalized currency identity for present money
+// (requirement 6.7). First present money sets currency; empty currency and
+// subsequent mismatches return ErrMixedCurrency.
+func acceptMoneyCurrency(snap *Snapshot, currency string) error {
+	cur := strings.TrimSpace(currency)
+	if cur == "" {
+		return ErrMixedCurrency
+	}
+	if snap.MoneyPresent {
+		if strings.TrimSpace(snap.MoneyCurrency) != cur {
+			return ErrMixedCurrency
+		}
+		return nil
+	}
+	snap.MoneyCurrency = cur
+	return nil
+}
+
+func addInt64Checked(a, b int64) (int64, error) {
+	if b > 0 {
+		if a > math.MaxInt64-b {
+			return 0, ErrOverflow
+		}
+	} else if b < 0 {
+		if a < math.MinInt64-b {
+			return 0, ErrOverflow
+		}
+	}
+	return a + b, nil
+}
+
+func mulInt64Checked(a, b int64) (int64, error) {
+	if a == 0 || b == 0 {
+		return 0, nil
+	}
+	if a == 1 {
+		return b, nil
+	}
+	if b == 1 {
+		return a, nil
+	}
+	if a == -1 {
+		if b == math.MinInt64 {
+			return 0, ErrOverflow
+		}
+		return -b, nil
+	}
+	if b == -1 {
+		if a == math.MinInt64 {
+			return 0, ErrOverflow
+		}
+		return -a, nil
+	}
+	result := a * b
+	if result/a != b {
+		return 0, ErrOverflow
+	}
+	return result, nil
 }
 
 func appendUnique(in []string, v string) []string {

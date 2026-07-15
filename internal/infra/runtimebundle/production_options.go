@@ -24,13 +24,13 @@ type ProductionOptions struct {
 	// lease provider on the executor.
 	ConcurrencyProvider authority.ConcurrencyProvider
 	// UsageSnapshotSource, when non-nil, supplies the usage-authority snapshot
-	// identity published into the initial RuntimeGeneration.
+	// for Build publication and later SnapshotController.Refresh calls.
 	UsageSnapshotSource economics.RuleSnapshotSource
 	// ConcurrencySnapshotSource, when non-nil, supplies the concurrency snapshot
-	// identity for the initial RuntimeGeneration.
+	// for Build publication and later SnapshotController.Refresh calls.
 	ConcurrencySnapshotSource economics.RuleSnapshotSource
 	// RatingSnapshotSource, when non-nil, supplies the rating/catalog snapshot
-	// for the initial RuntimeGeneration.
+	// for Build publication and later SnapshotController.Refresh calls.
 	RatingSnapshotSource economics.RatingSnapshotSource
 	// Rater, when non-nil, is attached to the accounting runtime as the
 	// enterprise rating provider (requirement 12.1).

@@ -31,7 +31,9 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-// Admit acquires or replays one logical-request lease for matching rules.
+// Admit acquires or replays one lease per matching rule for a logical request.
+// On multi-rule allow, scalar fields reflect the lastAllow primary; Leases lists all.
+// On strict deny, prior acquires from this Admit are released before return.
 func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error) {
 	if s == nil || s.store == nil || s.rules == nil {
 		return AdmitResult{}, WrapError("admit", ErrUnavailable)
@@ -73,12 +75,14 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 	}
 
 	var (
-		best      AdmitResult
-		haveBest  bool
-		sawDeny   bool
-		sawAdvise bool
-		lastAllow AdmitResult
-		haveAllow bool
+		best           AdmitResult
+		haveBest       bool
+		sawDeny        bool
+		sawAdvise      bool
+		lastAllow      AdmitResult
+		haveAllow      bool
+		rollbackIDs    []string
+		acquiredLeases []AdmittedLease
 	)
 	best = AdmitResult{Kind: domain.DecisionAllow, Readiness: ready}
 
@@ -91,7 +95,7 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 		if ns == "" {
 			ns = namespace
 		}
-		leaseID := domain.StableLeaseID(ns, rule.Version, requestID, dims)
+		leaseID := domain.StableLeaseID(ns, rule.ID, rule.Version, requestID, dims)
 		proposed := domain.NewLease(domain.NewLeaseParams{
 			LeaseID:     leaseID,
 			RuleID:      rule.ID,
@@ -111,6 +115,7 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 			Now:        now,
 		})
 		if acqErr != nil {
+			s.rollbackAcquired(ctx, rollbackIDs, requestID, now)
 			return AdmitResult{}, WrapError("admit", acqErr)
 		}
 
@@ -138,11 +143,28 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 				BoundVersion:   in.BoundVersion,
 			}
 			haveBest = true
-			continue
+			// Stop matching further rules; prior acquires are rolled back below.
+			break
 		}
 		if acq.Rejected {
 			continue
 		}
+
+		occ := AdmittedLease{
+			LeaseID:         acq.Lease.LeaseID,
+			RuleID:          rule.ID,
+			Generation:      acq.Lease.Generation,
+			ExpiresAt:       acq.Lease.ExpiresAt,
+			RenewBefore:     rule.EffectiveRenewBefore(),
+			TTL:             ttl,
+			FailureBehavior: rule.FailureBehavior,
+			Acquired:        !acq.Replayed,
+			Replayed:        acq.Replayed,
+		}
+		if occ.Acquired {
+			rollbackIDs = append(rollbackIDs, occ.LeaseID)
+		}
+		acquiredLeases = append(acquiredLeases, occ)
 
 		out := AdmitResult{
 			Kind:            domain.DecisionAllow,
@@ -158,6 +180,7 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 			RenewBefore:     rule.EffectiveRenewBefore(),
 			TTL:             ttl,
 			FailureBehavior: rule.FailureBehavior,
+			Leases:          append([]AdmittedLease(nil), acquiredLeases...),
 		}
 		if in.BoundVersion.Version != "" {
 			out.BoundVersion = in.BoundVersion
@@ -171,18 +194,47 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 	}
 
 	if sawDeny {
+		// Strict capacity deny: release every occupancy acquired in this Admit
+		// so prior rules do not leave orphans (multi-rule mid-loop deny).
+		s.rollbackAcquired(ctx, rollbackIDs, requestID, now)
+		best.Leases = nil
+		best.LeaseID = ""
+		best.Generation = 0
+		best.ExpiresAt = time.Time{}
+		best.Acquired = false
+		best.Replayed = false
 		return best, nil
 	}
 	if sawAdvise && !haveAllow {
 		return best, nil
 	}
 	if haveAllow {
+		lastAllow.Leases = append([]AdmittedLease(nil), acquiredLeases...)
 		return lastAllow, nil
 	}
 	if haveBest {
 		return best, nil
 	}
 	return AdmitResult{Kind: domain.DecisionAllow, Readiness: ready}, nil
+}
+
+// rollbackAcquired idempotently releases leases acquired earlier in the same Admit.
+func (s *Service) rollbackAcquired(ctx context.Context, leaseIDs []string, requestID string, now time.Time) {
+	if s == nil || s.store == nil {
+		return
+	}
+	for _, id := range leaseIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		_, _ = s.store.Release(ctx, ReleaseCommand{
+			LeaseID:   id,
+			RequestID: requestID,
+			Reason:    "admit_deny_rollback",
+			Now:       now,
+		})
+	}
 }
 
 func matchRules(rules []domain.Rule, dims domain.Dimensions, namespace, ruleID string) []domain.Rule {

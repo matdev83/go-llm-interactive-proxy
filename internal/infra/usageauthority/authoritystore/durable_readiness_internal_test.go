@@ -21,9 +21,9 @@ func TestDurableStore_ReadinessRecoversAfterTransientPingFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	store.mu.Lock()
+	store.lifecycleMu.Lock()
 	store.c.state = domain.StatusFromBacking(domain.BackingCapabilityUnavailable)
-	store.mu.Unlock()
+	store.lifecycleMu.Unlock()
 
 	status, readErr := store.CheckReadiness(context.Background())
 	if readErr != nil {
@@ -52,9 +52,9 @@ func TestDurableStore_ReadinessPreservesAdvisoryOnlyAfterRecovery(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	store.mu.Lock()
+	store.lifecycleMu.Lock()
 	store.c.state = domain.StatusFromBacking(domain.BackingCapabilityUnavailable)
-	store.mu.Unlock()
+	store.lifecycleMu.Unlock()
 
 	status, readErr := store.CheckReadiness(context.Background())
 	if readErr != nil {

@@ -52,9 +52,15 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			ParentLeaseID:  in.ParentLeaseID,
 			AuxPolicy:      in.AuxPolicy,
 		}
-		ld, err := c.Concurrency.AdmitLease(ctx, leaseIn)
+		ld, err := invokeAdmitLease(c.Concurrency, ctx, leaseIn)
 		if err != nil {
-			return CompositeDecision{}, &ErrUnavailable{ProviderID: "concurrency", Err: err}
+			var claimed CompensationStack
+			pushLeaseDecisionHolds(&claimed, c.Concurrency, in.RequestID, ld)
+			fails := claimed.ReverseCompensate(ctx, timeout)
+			out.CompensateFailures = fails
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = "concurrency"
+			return out, &ErrUnavailable{ProviderID: "concurrency", Err: err}
 		}
 		out.Lease = ld
 		out.Readiness = AggregateReadiness(out.Readiness, ld.Readiness)
@@ -67,17 +73,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			out.DeniedBy = "concurrency"
 			return out, &ErrDenied{ProviderID: "concurrency"}
 		case authority.LeaseAllow, authority.LeaseAdvisory, "":
-			if strings.TrimSpace(ld.LeaseID) != "" {
-				leaseID := ld.LeaseID
-				reqID := in.RequestID
-				out.Stack.Push(StackEntry{
-					ProviderID: "concurrency",
-					Handle:     leaseID,
-					Compensate: func(cctx context.Context) error {
-						return c.Concurrency.ReleaseLease(cctx, authority.LeaseRelease{LeaseID: leaseID, RequestID: reqID})
-					},
-				})
-			}
+			pushLeaseDecisionHolds(&out.Stack, c.Concurrency, in.RequestID, ld)
 		}
 	}
 
@@ -114,15 +110,19 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			}
 		}
 
-		d, err := slot.Provider.AdmitRequest(ctx, in)
+		d, err := invokeAdmitRequest(slot.Provider, ctx, in)
 		if err != nil {
+			var claimed CompensationStack
+			pushRequestDecisionHolds(&claimed, id, slot.Provider, in.RequestID, d)
+			claimedFails := claimed.ReverseCompensate(ctx, timeout)
 			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
+				out.CompensateFailures = append(out.CompensateFailures, claimedFails...)
 				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
 				continue
 			}
 			// Capacity-style denials wrapped as ErrDenied must not fail-open (15.4).
 			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = fails
+			out.CompensateFailures = append(claimedFails, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, &ErrUnavailable{ProviderID: id, Err: err}
@@ -142,30 +142,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			out.DeniedBy = id
 			return out, &ErrDenied{ProviderID: id, Decision: d}
 		case authority.DecisionAllow, authority.DecisionAdvisory, "":
-			for _, r := range d.Reservations {
-				handle := strings.TrimSpace(r.Handle)
-				if handle == "" {
-					handle = strings.TrimSpace(d.CompensationHandle)
-				}
-				if handle == "" {
-					continue
-				}
-				h := handle
-				prov := slot.Provider
-				reqID := in.RequestID
-				out.Stack.Push(StackEntry{
-					ProviderID: id,
-					Handle:     h,
-					Evidence:   d.Evidence,
-					Compensate: func(cctx context.Context) error {
-						return prov.ReleaseRequest(cctx, authority.RequestRelease{
-							RequestID:          reqID,
-							Handles:            []string{h},
-							CompensationHandle: h,
-						})
-					},
-				})
-			}
+			pushRequestDecisionHolds(&out.Stack, id, slot.Provider, in.RequestID, d)
 			if d.Kind == authority.DecisionAdvisory && out.Kind == authority.DecisionAllow {
 				// advisory does not downgrade an allow
 			}
@@ -174,20 +151,54 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 	return out, nil
 }
 
-// Settle settles all request providers that contributed handles (once per logical request).
-// Settle does not release the concurrency lease; callers must ReleaseLease (or Release the
-// compensation stack) at the logical-request terminal so occupancy does not leak (10.5).
-func (c *RequestCoordinator) Settle(ctx context.Context, in authority.RequestSettlement) error {
+// Settle settles request reservations through their owning providers using the
+// compensation stack from Admit. Concurrency lease IDs on the stack are never
+// forwarded to RequestProvider.SettleRequest (requirement 10.5). Each provider
+// callback runs on a fresh bounded cleanup context independent of client
+// cancellation (requirements 8.7, 15.3). Handles are never broadcast: each slot
+// receives only its own stack handles. Settlement failures remain observable for
+// retry regardless of admission-time fail-open/advisory posture (requirement 15.5).
+// An empty stack is a no-op.
+func (c *RequestCoordinator) Settle(parent context.Context, stack CompensationStack, in authority.RequestSettlement) error {
 	if c == nil {
 		return nil
+	}
+	timeout := defaultCleanupTimeout
+	if c.CleanupTimeout > 0 {
+		timeout = c.CleanupTimeout
+	}
+	handlesByProvider := make(map[string][]string)
+	for _, e := range stack.Entries() {
+		id := strings.TrimSpace(e.ProviderID)
+		h := strings.TrimSpace(e.Handle)
+		if id == "" || h == "" || id == "concurrency" {
+			continue
+		}
+		handlesByProvider[id] = append(handlesByProvider[id], h)
 	}
 	var first error
 	for _, slot := range c.Slots {
 		if slot.Provider == nil {
 			continue
 		}
-		if _, err := slot.Provider.SettleRequest(ctx, in); err != nil && first == nil {
-			first = err
+		id := strings.TrimSpace(slot.ID)
+		if id == "" {
+			id = fmt.Sprintf("class-%d", slot.Class)
+		}
+		handles := handlesByProvider[id]
+		if len(handles) == 0 {
+			continue
+		}
+		settlement := in
+		settlement.Handles = append([]string(nil), handles...)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+		_, err := invokeSettleRequest(slot.Provider, ctx, settlement)
+		cancel()
+		if err == nil {
+			continue
+		}
+		if first == nil {
+			first = &ErrUnavailable{ProviderID: id, Err: err}
 		}
 	}
 	return first
@@ -209,6 +220,44 @@ func (c *RequestCoordinator) ReleaseLease(parent context.Context, leaseID, reque
 		RequestID: requestID,
 		Reason:    reason,
 	})
+}
+
+// ReleaseLeases releases each lease ID with a fresh cleanup context (idempotent per ID).
+func (c *RequestCoordinator) ReleaseLeases(parent context.Context, leaseIDs []string, requestID, reason string) error {
+	var first error
+	for _, id := range leaseIDs {
+		if err := c.ReleaseLease(parent, id, requestID, reason); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// leaseIDsFromDecision returns all occupancy IDs from a lease decision.
+// Prefers Leases when non-empty; otherwise falls back to the primary LeaseID.
+func leaseIDsFromDecision(ld authority.LeaseDecision) []string {
+	if len(ld.Leases) > 0 {
+		out := make([]string, 0, len(ld.Leases))
+		seen := make(map[string]struct{}, len(ld.Leases))
+		for _, occ := range ld.Leases {
+			id := strings.TrimSpace(occ.LeaseID)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if id := strings.TrimSpace(ld.LeaseID); id != "" {
+		return []string{id}
+	}
+	return nil
 }
 
 // Release compensates request-stage holds using a fresh cleanup context.

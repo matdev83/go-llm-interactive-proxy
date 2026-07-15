@@ -78,3 +78,25 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 
 - `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on CI (`bash scripts/race-check.sh --strict`; Windows skips race via `scripts/race-check.ps1`).
 - Full QA remains `make qa` (quality + unit tests + lint + vuln). CI also runs race, lint, and vuln as separate steps (see `.github/workflows/qa.yml`).
+
+## Dual-plane economics and concurrency (feature gates)
+
+Normative completion gates for dual-plane metering / authority / concurrency (requirements **15.9**, **17.1–17.9**). These complement the Tier-1 table above; they do not replace `make release-gates`. Prefer existing harnesses over new protocol stacks.
+
+| Gate | Criterion | Command / evidence |
+|------|-----------|-------------------|
+| Cross-protocol baseline (17.1, 17.3) | OpenAI Responses/legacy, Anthropic, Gemini FE×BE matrix remains green (dual-plane features default-off compatible) | `make parity-checks` |
+| Shared checkpoint contract | Supported frontend `Operation` values share the same executor frontend-ingress checkpoint boundary/lifecycle | `go test ./internal/core/runtime/ -run SharedCheckpointAcrossFrontend` |
+| Parallel race benches (16.6) | Parallel routing under authority with 2/4/8 legs | `go test ./internal/core/runtime/ -run '^$' -bench BenchmarkParallelRaceLegsAuthority` |
+| Critical fuzz | Existing Tier-1 protocol/decode fuzz smoke (not dual-plane fact/correction fuzz) | `make test-fuzz` or `make release-gates` |
+| Race (17.9) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); Windows `make test-race` is a documented no-op |
+| PostgreSQL (9.9, 17.9) | Cross-instance durable **authority store**, **lease store**, and **metering journal** proofs | `make test-authority-postgres` with `LIP_TEST_POSTGRES_DSN` (`LIP_REQUIRE_POSTGRES=1` fails closed without DSN) |
+| Migration fixtures (15.13 / 17.2) | Golden inventory under `testdata/migration/` | conformance `TestMigrationGoldenFixtureInventory` via `make parity-checks` |
+| Enterprise panic / malformed isolation (15.9) | Injected request/attempt/concurrency providers map panic and unknown decision/lease kinds through fail-closed `ErrUnavailable` (advisory may degrade); release compensate panics are isolated | `go test ./internal/core/authoritycoord/ -run Isolates` |
+| Privacy (17.5–17.6) | No raw bearer/API-key/header leakage in default authority evidence | `go test ./internal/core/usageauthority/app/ -run ProjectAuthorityEvidence` |
+| Crash / cancel / late correction | Reconcile orphans, journal corrections, authority release on cancel paths | `go test ./internal/core/metering/reconcile/ ./internal/infra/metering/journalstore/ ./internal/core/runtime/ -run 'Reconcile\|Correction\|AuthorityRelease\|Cancel'` |
+| Compatibility when disabled (17.1) | Default dogfood path with metering/authority off remains functional | `go run ./cmd/lipstd check-config --config config/examples/dogfood-local-stub.yaml` + `testdata/enterprise_module` |
+| Explicit non-goals (17.8) | No web GUI, payments, invoices, tax, SSO/SAML/SCIM, CSP, or compression algorithms in this feature | design / requirements exclusions |
+| Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
+
+Do **not** claim Windows race-green without Linux/CI evidence. Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.

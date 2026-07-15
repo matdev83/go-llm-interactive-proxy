@@ -24,12 +24,16 @@ func TestNewBundle_executorSink(t *testing.T) {
 		b.Executor != nil &&
 		b.SecureSession != nil &&
 		b.ExtensionStages != nil &&
+		b.AuthorityStages != nil &&
 		b.Upstream != nil
 	if !allPresent {
 		t.Fatal("expected non-nil bundle components")
 	}
 	if b.ExtensionStageSink() == nil {
 		t.Fatal("expected extension stage sink")
+	}
+	if b.AuthorityStageSink() == nil {
+		t.Fatal("expected authority stage sink")
 	}
 	sink := b.ExecutorSink()
 	if sink == nil {

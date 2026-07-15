@@ -79,6 +79,10 @@ type Built struct {
 	// SnapshotGeneration publishes immutable usage/concurrency/rating generations
 	// for admit-time binding (Phase 9.3). Always non-nil after successful Build.
 	SnapshotGeneration *snapshotgen.Publisher
+	// SnapshotController republishes generations from injectable sources via
+	// Refresh (requirements 11.3, 11.6, 11.7). Nil when TestingOptions overrides
+	// the publisher.
+	SnapshotController *SnapshotController
 	// MeteringQuerier is the optional production metering query mount injected via
 	// ProductionOptions (requirement 12.1). Nil when not supplied.
 	MeteringQuerier metering.Querier

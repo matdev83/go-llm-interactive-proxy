@@ -10,7 +10,7 @@ help:
 	@echo "  make test            - quality-checks, full unit tests, and conformance parity checks"
 	@echo "  make test-fast       - quality-checks then tests for staged packages (or all)"
 	@echo "  make test-unit       - go test $(GO_TEST_FLAGS) ./... (excludes //go:build precommit tests)"
-	@echo "  make test-authority-postgres - required PostgreSQL authority integration proof (requires a DSN)"
+	@echo "  make test-authority-postgres - required PostgreSQL dual-plane proof (authority+lease+journal; requires a DSN)"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
@@ -58,9 +58,9 @@ test-unit:
 # invoked without a configured DSN.
 test-authority-postgres:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore"
 else
-	@LIP_REQUIRE_POSTGRES=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore
+	@LIP_REQUIRE_POSTGRES=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore
 endif
 
 test-precommit-extra:

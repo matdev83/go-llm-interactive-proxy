@@ -2,6 +2,7 @@ package authority
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -53,7 +54,22 @@ type LeaseAdmission struct {
 	AuxPolicy string `json:"aux_policy,omitempty"`
 }
 
+// LeaseOccupancy is one rule-scoped lease held for a logical request after Admit.
+type LeaseOccupancy struct {
+	LeaseID         string          `json:"lease_id"`
+	Generation      int64           `json:"generation,omitempty"`
+	RuleID          string          `json:"rule_id,omitempty"`
+	ExpiresAt       time.Time       `json:"expires_at,omitempty"`
+	RenewBefore     time.Duration   `json:"renew_before,omitempty"`
+	TTL             time.Duration   `json:"ttl,omitempty"`
+	FailureBehavior FailureBehavior `json:"failure_behavior,omitempty"`
+}
+
 // LeaseDecision is the admit result for a concurrency lease.
+//
+// LeaseID/Generation/... remain the primary occupancy (last successfully
+// acquired for multi-rule allow). Leases enumerates every occupancy when
+// multiple rules matched; empty means callers should fall back to LeaseID.
 type LeaseDecision struct {
 	Kind           LeaseDecisionKind           `json:"kind"`
 	LeaseID        string                      `json:"lease_id,omitempty"`
@@ -69,6 +85,16 @@ type LeaseDecision struct {
 	TTL time.Duration `json:"ttl,omitempty"`
 	// FailureBehavior is the post-admission renew-failure posture (fail_closed|fail_open).
 	FailureBehavior FailureBehavior `json:"failure_behavior,omitempty"`
+	// Leases lists all rule occupancies from multi-rule Admit (omitempty for single-lease).
+	Leases []LeaseOccupancy `json:"leases,omitempty"`
+}
+
+// Validate checks LeaseDecisionKind when set.
+func (d LeaseDecision) Validate() error {
+	if d.Kind != "" && !d.Kind.IsKnown() {
+		return fmt.Errorf("authority: unknown lease decision kind %q", d.Kind)
+	}
+	return nil
 }
 
 // LeaseRelease releases a previously acquired lease.

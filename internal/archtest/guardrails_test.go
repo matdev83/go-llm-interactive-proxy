@@ -79,10 +79,17 @@ var lineBudgets = []struct {
 	// Raised from 45500 to 47000 for Phase 8 concurrencyauthority domain/app + runtime lease ownership.
 	// Raised from 47000 to 47500 for Phase 9 snapshotgen RuntimeGeneration publisher.
 	// Raised from 47500 to 48000 for Phase 11.2 control-plane query bounds validation.
-	{"internal/core", 48000},
+	// Raised from 48000 to 48100 for Phase 12 rem: settle/release/query stage metrics (16.5).
+	// Raised from 48100 to 49400 for injected-rater OutputLimitQuoter clamp path
+	// plus dual-plane remediations on this branch (no silent catalog fallback).
+	// Raised from 49400 to 49600 for FE/BE deferred ingress counting + BE freeze
+	// before attempt authorization (reqs 2.1, 2.2, 4.1, 5.1).
+	{"internal/core", 49600},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
-	{"internal/infra/runtimebundle", 4650}, // Phase 11.3 readiness report wiring
+	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
+	// lifecycle (requirements 11.3, 11.6, 11.7).
+	{"internal/infra/runtimebundle", 4800},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

@@ -232,7 +232,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			// avoid leaking the reservation. Mirrors the sibling RegisterBLeg-failure release
 			// in tryReplacementIteration (executor_recv_loop.go): ReleaseKindSwallowed, since
 			// the opened attempt produced no client-facing output and is being discarded.
-			l := newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand)
+			l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
 			l.Release(ctx, authorityapp.ReleaseKindSwallowed)
 			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 				_ = out.stream.Close()
@@ -267,7 +267,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		suppressVisibleMemo: true,
 		accounting:          newAttemptAccountingTracker(e.now()),
 		recoverPolicy:       streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
-		authority:           newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand),
+		authority:           e.newAttemptAuthorityLifecycle(out.authority, out.cand),
 		bleg:                out.bleg,
 		cand:                out.cand,
 	}

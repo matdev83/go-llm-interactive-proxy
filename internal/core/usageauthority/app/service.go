@@ -22,6 +22,7 @@ type Service struct {
 	store                  StateStore
 	evidence               EvidenceSink
 	clock                  Clock
+	stageMetrics           StageMetrics
 	evaluationTimeout      time.Duration
 	cleanupTimeout         time.Duration
 	defaultFailureBehavior domain.FailureBehavior
@@ -36,6 +37,7 @@ type ServiceOptions struct {
 	EvaluationTimeout      time.Duration
 	CleanupTimeout         time.Duration
 	DefaultFailureBehavior domain.FailureBehavior
+	StageMetrics           StageMetrics
 }
 
 const (
@@ -65,8 +67,26 @@ func NewService(rules RuleSource, store StateStore, evidence EvidenceSink, clock
 		if options[0].DefaultFailureBehavior != "" {
 			service.defaultFailureBehavior = options[0].DefaultFailureBehavior
 		}
+		if options[0].StageMetrics != nil {
+			service.stageMetrics = options[0].StageMetrics
+		}
 	}
 	return service
+}
+
+// SetStageMetrics attaches stage latency metrics after construction (bundle wiring).
+func (s *Service) SetStageMetrics(m StageMetrics) {
+	if s == nil {
+		return
+	}
+	s.stageMetrics = m
+}
+
+func (s *Service) observeStage(stage, outcome string, seconds float64) {
+	if s == nil || s.stageMetrics == nil {
+		return
+	}
+	s.stageMetrics.ObserveStage(stage, ProviderUsageAuthority, outcome, seconds)
 }
 
 func (s *Service) cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {

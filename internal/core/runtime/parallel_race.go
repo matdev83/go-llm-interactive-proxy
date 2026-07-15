@@ -250,7 +250,7 @@ func (e *Executor) tryOpenParallelGroup(
 					}
 					// legs[idx].authority is not assigned until after RegisterBLeg succeeds, so
 					// release the just-opened local reservation (out.authority) before returning.
-					l := newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, entry.cand)
+					l := e.newAttemptAuthorityLifecycle(out.authority, entry.cand)
 					l.Release(ctx, authorityapp.ReleaseKindLosing)
 					return
 				}
@@ -267,7 +267,7 @@ func (e *Executor) tryOpenParallelGroup(
 			mu.Lock()
 			legs[idx].stream = out.stream
 			legs[idx].bleg = out.bleg
-			legs[idx].authority = newAuthorityLifecycle(e.authorityService(), e.Log, out.authority, out.cand)
+			legs[idx].authority = e.newAttemptAuthorityLifecycle(out.authority, out.cand)
 			legs[idx].interleaved = out.interleaved
 			legs[idx].memoUpdate = out.memoUpdate
 			if winnerIdx >= 0 {
