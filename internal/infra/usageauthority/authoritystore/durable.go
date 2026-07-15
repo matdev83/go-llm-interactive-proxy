@@ -12,8 +12,10 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
+	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 	_ "modernc.org/sqlite" // register sqlite driver for durable authority stores
 )
 
@@ -59,6 +61,7 @@ type DurableStore struct {
 	// beginTxHook is an optional test seam invoked immediately before BeginTx
 	// on mutation paths. Production code leaves it nil.
 	beginTxHook func()
+	nonOwning   bool
 }
 
 // errDurableFlushFailed marks errors where the transactional flush did not
@@ -84,10 +87,23 @@ func NewDurable(ctx context.Context, db *bun.DB, cfg Config) (*DurableStore, err
 	if err := Migrate(ctx, db); err != nil {
 		return nil, err
 	}
-	st := &DurableStore{
-		db: db,
-		c:  newStoreCore(cfg),
+	return openStore(ctx, db, cfg, false)
+}
+
+// OpenStore opens an authority store without running migrations and without
+// taking ownership of db. The composition root owns the shared runtime pool.
+func OpenStore(ctx context.Context, db *bun.DB, cfg Config) (*DurableStore, error) {
+	return openStore(ctx, db, cfg, true)
+}
+
+func openStore(ctx context.Context, db *bun.DB, cfg Config, nonOwning bool) (*DurableStore, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("authoritystore: nil context")
 	}
+	if db == nil {
+		return nil, fmt.Errorf("authoritystore: nil db")
+	}
+	st := &DurableStore{db: db, c: newStoreCore(cfg), nonOwning: nonOwning}
 	if err := st.backfillDecisionFilters(ctx); err != nil {
 		return nil, err
 	}
@@ -121,15 +137,13 @@ func (s *DurableStore) Close() error {
 	db := s.db
 	s.closed.Store(true)
 	s.lifecycleMu.Unlock()
-	if db == nil {
+	if db == nil || s.nonOwning {
 		return nil
 	}
 	return db.Close()
 }
 
-// Migrate creates the durable authority-store tables. DDL has no placeholders,
-// so it is dialect-agnostic; it is executed through Bun for consistency with
-// the rest of the adapter and to honor query hooks.
+// Migrate applies the durable authority-store schema via bun/migrate.
 func Migrate(ctx context.Context, db *bun.DB) error {
 	if ctx == nil {
 		return fmt.Errorf("authoritystore: nil context")
@@ -137,62 +151,191 @@ func Migrate(ctx context.Context, db *bun.DB) error {
 	if db == nil {
 		return fmt.Errorf("authoritystore: nil db")
 	}
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS usage_authority_state (
-			store_id TEXT NOT NULL PRIMARY KEY,
-			readiness_json TEXT NOT NULL,
-			next_decision_seq INTEGER NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS usage_authority_limit_rows (
-			store_id TEXT NOT NULL,
-			row_key TEXT NOT NULL,
-			row_json TEXT NOT NULL,
-			PRIMARY KEY (store_id, row_key)
-		)`,
-		`CREATE TABLE IF NOT EXISTS usage_authority_decisions (
-			store_id TEXT NOT NULL,
-			decision_seq INTEGER NOT NULL,
-			source_key TEXT NOT NULL,
-			row_json TEXT NOT NULL,
-			PRIMARY KEY (store_id, decision_seq),
-			UNIQUE (store_id, source_key)
-		)`,
-		`CREATE TABLE IF NOT EXISTS usage_authority_decision_filters (
-			store_id TEXT NOT NULL,
-			decision_seq INTEGER NOT NULL,
-			field_name TEXT NOT NULL,
-			field_value TEXT NOT NULL,
-			PRIMARY KEY (store_id, decision_seq, field_name)
-		)`,
-		`CREATE INDEX IF NOT EXISTS usage_authority_decision_filters_lookup
-			ON usage_authority_decision_filters(store_id, field_name, field_value, decision_seq)`,
-		`CREATE TABLE IF NOT EXISTS usage_authority_limit_filters (
-			store_id TEXT NOT NULL,
-			row_key TEXT NOT NULL,
-			field_name TEXT NOT NULL,
-			field_value TEXT NOT NULL,
-			PRIMARY KEY (store_id, row_key, field_name)
-		)`,
-		`CREATE INDEX IF NOT EXISTS usage_authority_limit_filters_lookup
-			ON usage_authority_limit_filters(store_id, field_name, field_value, row_key)`,
-		`CREATE TABLE IF NOT EXISTS usage_authority_reservations (
-			store_id TEXT NOT NULL,
-			reservation_key TEXT NOT NULL,
-			source_key TEXT NOT NULL,
-			record_json TEXT NOT NULL,
-			PRIMARY KEY (store_id, reservation_key),
-			UNIQUE (store_id, source_key)
-		)`,
-		`CREATE TABLE IF NOT EXISTS usage_authority_unreserved_usage_facts (
-			store_id TEXT NOT NULL,
-			fact_key TEXT NOT NULL,
-			record_json TEXT NOT NULL,
-			PRIMARY KEY (store_id, fact_key)
-		)`,
+	if err := runSchemaMigrate(ctx, db); err != nil {
+		return storeUnavailableError("migrate", err)
 	}
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return storeUnavailableError("migrate", err)
+	return nil
+}
+
+// VerifySchema checks the required runtime relations without mutating schema.
+func VerifySchema(ctx context.Context, db *bun.DB) error {
+	if ctx == nil {
+		return fmt.Errorf("authoritystore: nil context")
+	}
+	if db == nil {
+		return fmt.Errorf("authoritystore: nil db")
+	}
+	if db.Dialect().Name() != dialect.PG {
+		for _, probe := range []string{
+			`SELECT 1 FROM usage_authority_state WHERE 1 = 0`,
+			`SELECT 1 FROM usage_authority_limit_rows WHERE 1 = 0`,
+			`SELECT 1 FROM usage_authority_decisions WHERE 1 = 0`,
+			`SELECT 1 FROM usage_authority_decision_filters WHERE 1 = 0`,
+			`SELECT 1 FROM usage_authority_limit_filters WHERE 1 = 0`,
+			`SELECT 1 FROM usage_authority_reservations WHERE 1 = 0`,
+			`SELECT 1 FROM usage_authority_unreserved_usage_facts WHERE 1 = 0`,
+		} {
+			if _, err := db.ExecContext(ctx, probe); err != nil {
+				return fmt.Errorf("authoritystore: schema verification failed: %w", err)
+			}
+		}
+		return nil
+	}
+	for _, probe := range []string{
+		`SELECT * FROM usage_authority_state WHERE 1 = 0`,
+		`SELECT * FROM usage_authority_limit_rows WHERE 1 = 0`,
+		`SELECT * FROM usage_authority_decisions WHERE 1 = 0`,
+		`SELECT * FROM usage_authority_decision_filters WHERE 1 = 0`,
+		`SELECT * FROM usage_authority_limit_filters WHERE 1 = 0`,
+		`SELECT * FROM usage_authority_reservations WHERE 1 = 0`,
+		`SELECT * FROM usage_authority_unreserved_usage_facts WHERE 1 = 0`,
+	} {
+		if _, err := db.ExecContext(ctx, probe); err != nil {
+			return fmt.Errorf("authoritystore: schema verification failed: %w", err)
+		}
+	}
+	checks := []struct {
+		description string
+		query       string
+		args        []any
+		fragments   []string
+	}{
+		{
+			description: "migration history",
+			query:       `SELECT name FROM bun_usage_authority_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{BaselineMigrationName},
+			fragments:   []string{BaselineMigrationName},
+		},
+		{
+			description: "usage_authority_state primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_state'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id)"},
+		},
+		{
+			description: "usage_authority_limit_rows primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_limit_rows'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id, row_key)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, row_key)"},
+		},
+		{
+			description: "usage_authority_decisions primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_decisions'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id, decision_seq)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, decision_seq)"},
+		},
+		{
+			description: "usage_authority_decisions source_key unique constraint",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_decisions'
+  AND c.contype = 'u'
+  AND lower(pg_get_constraintdef(c.oid)) = 'unique (store_id, source_key)'
+LIMIT 1`,
+			fragments: []string{"unique (store_id, source_key)"},
+		},
+		{
+			description: "usage_authority_decision_filters primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_decision_filters'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id, decision_seq, field_name)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, decision_seq, field_name)"},
+		},
+		{
+			description: "usage_authority_decision_filters_lookup",
+			query: `SELECT lower(indexdef) FROM pg_indexes
+WHERE schemaname = current_schema()
+  AND tablename = 'usage_authority_decision_filters'
+  AND indexname = 'usage_authority_decision_filters_lookup'
+LIMIT 1`,
+			fragments: []string{"(store_id, field_name, field_value, decision_seq)"},
+		},
+		{
+			description: "usage_authority_limit_filters primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_limit_filters'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id, row_key, field_name)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, row_key, field_name)"},
+		},
+		{
+			description: "usage_authority_limit_filters_lookup",
+			query: `SELECT lower(indexdef) FROM pg_indexes
+WHERE schemaname = current_schema()
+  AND tablename = 'usage_authority_limit_filters'
+  AND indexname = 'usage_authority_limit_filters_lookup'
+LIMIT 1`,
+			fragments: []string{"(store_id, field_name, field_value, row_key)"},
+		},
+		{
+			description: "usage_authority_reservations primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_reservations'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id, reservation_key)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, reservation_key)"},
+		},
+		{
+			description: "usage_authority_reservations source_key unique constraint",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_reservations'
+  AND c.contype = 'u'
+  AND lower(pg_get_constraintdef(c.oid)) = 'unique (store_id, source_key)'
+LIMIT 1`,
+			fragments: []string{"unique (store_id, source_key)"},
+		},
+		{
+			description: "usage_authority_unreserved_usage_facts primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'usage_authority_unreserved_usage_facts'
+  AND c.contype = 'p'
+  AND lower(pg_get_constraintdef(c.oid)) = 'primary key (store_id, fact_key)'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, fact_key)"},
+		},
+	}
+	for _, check := range checks {
+		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, db, check.description, check.query, check.args, check.fragments...); err != nil {
+			return fmt.Errorf("authoritystore: schema verification failed: %w", err)
 		}
 	}
 	return nil
@@ -200,6 +343,9 @@ func Migrate(ctx context.Context, db *bun.DB) error {
 
 // CheckReadiness returns the current posture and surfaces backing failures without leaking driver details.
 func (s *DurableStore) CheckReadiness(ctx context.Context) (domain.AuthorityStatus, error) {
+	if s == nil || s.db == nil {
+		return domain.StatusFromBacking(domain.BackingCapabilityUnavailable), fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return domain.AuthorityStatus{}, err
 	}
@@ -232,6 +378,9 @@ func (s *DurableStore) CheckReadiness(ctx context.Context) (domain.AuthorityStat
 
 // Reserve atomically records a reservation and persists only the rows this call mutated.
 func (s *DurableStore) Reserve(ctx context.Context, cmd app.ReserveCommand) (app.ReserveResult, error) {
+	if s == nil || s.db == nil {
+		return app.ReserveResult{}, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.ReserveResult{}, err
 	}
@@ -243,6 +392,9 @@ func (s *DurableStore) Reserve(ctx context.Context, cmd app.ReserveCommand) (app
 
 // Settle reconciles usage and persists only the rows this call mutated.
 func (s *DurableStore) Settle(ctx context.Context, cmd app.SettleCommand) (app.SettleResult, error) {
+	if s == nil || s.db == nil {
+		return app.SettleResult{}, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.SettleResult{}, err
 	}
@@ -254,6 +406,9 @@ func (s *DurableStore) Settle(ctx context.Context, cmd app.SettleCommand) (app.S
 
 // Release releases reservation capacity and persists only the rows this call mutated.
 func (s *DurableStore) Release(ctx context.Context, cmd app.ReleaseCommand) (app.ReleaseResult, error) {
+	if s == nil || s.db == nil {
+		return app.ReleaseResult{}, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.ReleaseResult{}, err
 	}
@@ -269,6 +424,9 @@ func (s *DurableStore) Release(ctx context.Context, cmd app.ReleaseCommand) (app
 // survive restarts. Each transaction hydrates the exact source-and-rule fact,
 // allowing same-authority amount corrections while exact replays remain no-ops.
 func (s *DurableStore) ApplyUsage(ctx context.Context, cmd app.ApplyUsageCommand) (app.ApplyUsageResult, error) {
+	if s == nil || s.db == nil {
+		return app.ApplyUsageResult{}, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.ApplyUsageResult{}, err
 	}
@@ -281,6 +439,9 @@ func (s *DurableStore) ApplyUsage(ctx context.Context, cmd app.ApplyUsageCommand
 // ActiveLimit resolves the configured current row key and reads at most that
 // one durable row. An unpersisted current window has zero counters.
 func (s *DurableStore) ActiveLimit(ctx context.Context, q app.ActiveLimitQuery) (controlplane.AccountingLimitStatusRow, bool, error) {
+	if s == nil || s.db == nil {
+		return controlplane.AccountingLimitStatusRow{}, false, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return controlplane.AccountingLimitStatusRow{}, false, err
 	}
@@ -308,6 +469,9 @@ func (s *DurableStore) ActiveLimit(ctx context.Context, q app.ActiveLimitQuery) 
 
 // LimitStatus returns bounded live limit rows from committed durable state.
 func (s *DurableStore) LimitStatus(ctx context.Context, q controlplane.AccountingLimitStatusQuery) (controlplane.Page[controlplane.AccountingLimitStatusRow], error) {
+	if s == nil || s.db == nil {
+		return controlplane.Page[controlplane.AccountingLimitStatusRow]{}, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return controlplane.Page[controlplane.AccountingLimitStatusRow]{}, err
 	}
@@ -319,6 +483,9 @@ func (s *DurableStore) LimitStatus(ctx context.Context, q controlplane.Accountin
 
 // DecisionHistory returns bounded decision rows from committed durable state.
 func (s *DurableStore) DecisionHistory(ctx context.Context, q controlplane.AccountingDecisionQuery) (controlplane.Page[controlplane.AccountingDecisionRow], error) {
+	if s == nil || s.db == nil {
+		return controlplane.Page[controlplane.AccountingDecisionRow]{}, fmt.Errorf("authoritystore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return controlplane.Page[controlplane.AccountingDecisionRow]{}, err
 	}

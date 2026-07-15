@@ -5,25 +5,30 @@ package journalstore_test
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
+var (
+	directJournalSchemaOnce sync.Once
+	directJournalSchemaErr  error
+)
+
 func TestPostgresStore_AppendIdempotent(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
-	store := newPostgresJournal(t, dsn)
-	ctx := context.Background()
-	f := validFact("pg-fact-1", "pg-stream", 1)
+	storeID := testkit.UniquePostgresStoreID("pg-journal")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(dsn), storeID, testkit.PostgresComponentJournal)
+	})
+	store := newPostgresJournal(t, dsn, storeID)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	f := validFact(storeID+"-fact-1", storeID+"-stream", 1)
 	f.Money = &metering.MoneyObservation{NanoUnits: 9, Currency: "USD", Present: true, Source: metering.SourceProviderReported}
 	if err := store.Append(ctx, f); err != nil {
 		t.Fatal(err)
@@ -36,7 +41,7 @@ func TestPostgresStore_AppendIdempotent(t *testing.T) {
 	if err := store.Append(ctx, collide); !errors.Is(err, journalstore.ErrIdentityCollision) {
 		t.Fatalf("got %v", err)
 	}
-	page, err := store.List(ctx, metering.Query{StreamID: "pg-stream"})
+	page, err := store.List(ctx, metering.Query{StreamID: storeID + "-stream"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +52,14 @@ func TestPostgresStore_AppendIdempotent(t *testing.T) {
 
 func TestPostgresStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
-	store := newPostgresJournal(t, dsn)
-	ctx := context.Background()
-	f := validFact("pg-fact-content", "pg-stream-content", 1)
+	storeID := testkit.UniquePostgresStoreID("pg-journal-content")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(dsn), storeID, testkit.PostgresComponentJournal)
+	})
+	store := newPostgresJournal(t, dsn, storeID)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	f := validFact(storeID+"-fact-content", storeID+"-stream-content", 1)
 	if err := store.Append(ctx, f); err != nil {
 		t.Fatal(err)
 	}
@@ -76,53 +86,45 @@ func TestPostgresStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 	}
 }
 
-var (
-	pgBuildMu   sync.Mutex
-	pgSchemaSeq uint64
-)
+func adminDSNForCleanup(runtimeDSN string) string {
+	if admin, ok := testkit.PostgresAdminDSN(); ok {
+		return admin
+	}
+	return runtimeDSN
+}
 
-func newPostgresJournal(t *testing.T, dsn string) *journalstore.DurableStore {
+func ensureDirectJournalSchema(t *testing.T, dsn string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
-	defer cancel()
-	poolCfg, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{MaxOpenConns: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool := db.PoolSettings{
-		MaxOpenConns:    1,
-		MaxIdleConns:    1,
-		ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-		ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-	}
-	pgBuildMu.Lock()
-	seq := atomic.AddUint64(&pgSchemaSeq, 1)
-	schema := fmt.Sprintf("metering_test_%d_%d", time.Now().UnixNano(), seq)
-	bootstrap, err := db.OpenPostgresBun(ctx, dsn, pool)
-	if err != nil {
-		pgBuildMu.Unlock()
-		t.Fatal(err)
-	}
-	if _, err := bootstrap.ExecContext(ctx, "CREATE SCHEMA "+schema); err != nil {
-		_ = bootstrap.Close()
-		pgBuildMu.Unlock()
-		t.Fatal(err)
-	}
-	_ = bootstrap.Close()
-	schemaDSN := dsn
-	if !strings.Contains(dsn, "search_path=") {
-		sep := "?"
-		if strings.Contains(dsn, "?") {
-			sep = "&"
+	directJournalSchemaOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		bunDB, err := testkit.OpenPostgresBun(dsn, 2)
+		if err != nil {
+			directJournalSchemaErr = err
+			return
 		}
-		schemaDSN = dsn + sep + "search_path=" + schema
+		store, err := journalstore.NewDurableStore(ctx, bunDB, journalstore.DurableConfig{
+			StoreID: testkit.UniquePostgresStoreID("pg-journal-direct-schema"),
+		})
+		if err != nil {
+			_ = bunDB.Close()
+			directJournalSchemaErr = err
+			return
+		}
+		directJournalSchemaErr = store.Close()
+	})
+	if directJournalSchemaErr != nil {
+		t.Fatalf("direct schema bootstrap: %v", directJournalSchemaErr)
 	}
-	bunDB, err := db.OpenPostgresBun(ctx, schemaDSN, pool)
-	pgBuildMu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := journalstore.NewDurableStore(ctx, bunDB, journalstore.DurableConfig{StoreID: "pg-test"})
+}
+
+func newPostgresJournal(t *testing.T, dsn, storeID string) *journalstore.DurableStore {
+	t.Helper()
+	ensureDirectJournalSchema(t, dsn)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	bunDB := testkit.OpenPostgresBunForTest(t, dsn, 2)
+	store, err := journalstore.NewDurableStore(ctx, bunDB, journalstore.DurableConfig{StoreID: storeID})
 	if err != nil {
 		_ = bunDB.Close()
 		t.Fatal(err)

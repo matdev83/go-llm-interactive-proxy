@@ -5,17 +5,14 @@ package authoritystore_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/authoritystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/authoritystore/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -24,11 +21,22 @@ import (
 	"github.com/uptrace/bun"
 )
 
-var pgAuthorityStoreSeq atomic.Int64
-var pgAuthorityRunID = time.Now().UnixNano()
-
 func nextPGStoreID(prefix string) string {
-	return fmt.Sprintf("%s-%d-%d", prefix, pgAuthorityRunID, pgAuthorityStoreSeq.Add(1))
+	return testkit.UniquePostgresStoreID(prefix)
+}
+
+func adminDSNForCleanup(runtimeDSN string) string {
+	if admin, ok := testkit.PostgresAdminDSN(); ok {
+		return admin
+	}
+	return runtimeDSN
+}
+
+func cleanupAuthorityStore(t *testing.T, runtimeDSN, storeID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(runtimeDSN), storeID, testkit.PostgresComponentAuthority)
+	})
 }
 
 type pgUsageFactReadBarrier struct {
@@ -93,22 +101,7 @@ func (*pgLimitRowReadBarrier) AfterQuery(context.Context, *bun.QueryEvent) {}
 // subtests do not share a connection pool.
 func openPostgresAuthorityBun(t *testing.T, dsn string) *bun.DB {
 	t.Helper()
-	poolCfg, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{MaxOpenConns: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
-	defer cancel()
-	bunDB, err := db.OpenPostgresBun(ctx, dsn, db.PoolSettings{
-		MaxOpenConns:    poolCfg.MaxOpenConns,
-		MaxIdleConns:    poolCfg.MaxIdleConns,
-		ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-		ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return bunDB
+	return testkit.OpenPostgresBunForTest(t, dsn, 4)
 }
 
 // pgFactory builds a fresh DurableStore against a shared PostgreSQL database,
@@ -132,7 +125,10 @@ func (f pgFactory) Build(t *testing.T) app.StateStore {
 		_ = bunDB.Close()
 		t.Fatalf("NewDurable: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+	t.Cleanup(func() {
+		_ = store.Close()
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(f.dsn), storeID, testkit.PostgresComponentAuthority)
+	})
 	return store
 }
 
@@ -158,6 +154,7 @@ func TestPostgresAuthorityStore_Contract(t *testing.T) {
 func TestPostgresAuthorityStore_ConcurrentReserveCannotExceedLimit(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	storeID := nextPGStoreID("pg-cross")
+	cleanupAuthorityStore(t, dsn, storeID)
 	seed := authoritystore.Config{
 		StoreID:   storeID,
 		Backing:   domain.BackingCapabilityAtomic,
@@ -265,6 +262,7 @@ func TestPostgresAuthorityStore_ConcurrentReserveCannotExceedLimit(t *testing.T)
 func TestPostgresAuthorityStore_ConcurrentIdenticalReserveIsIdempotent(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	storeID := nextPGStoreID("pg-identical")
+	cleanupAuthorityStore(t, dsn, storeID)
 	seed := authoritystore.Config{StoreID: storeID, Backing: domain.BackingCapabilityAtomic, LimitRows: contract.SeededLimitRows(), Readiness: contract.SeededReadiness()}
 	dbA := openPostgresAuthorityBun(t, dsn)
 	storeA, err := authoritystore.NewDurable(context.Background(), dbA, seed)
@@ -323,6 +321,7 @@ func TestPostgresAuthorityStore_ConcurrentIdenticalReserveIsIdempotent(t *testin
 func TestPostgresAuthorityStore_RepeatedCapacityDenialIsIdempotent(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	storeID := nextPGStoreID("pg-capacity-denial")
+	cleanupAuthorityStore(t, dsn, storeID)
 	seed := authoritystore.Config{StoreID: storeID, Backing: domain.BackingCapabilityAtomic, LimitRows: contract.SeededLimitRows(), Readiness: contract.SeededReadiness()}
 	db := openPostgresAuthorityBun(t, dsn)
 	store, err := authoritystore.NewDurable(context.Background(), db, seed)
@@ -363,7 +362,9 @@ func TestPostgresAuthorityStore_ConcurrentUsageFactsConvergeToFinal(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	seed := authoritystore.Config{StoreID: nextPGStoreID("pg-fact"), Backing: domain.BackingCapabilityAtomic, LimitRows: rows, Readiness: contract.SeededReadiness()}
+	storeID := nextPGStoreID("pg-fact")
+	cleanupAuthorityStore(t, dsn, storeID)
+	seed := authoritystore.Config{StoreID: storeID, Backing: domain.BackingCapabilityAtomic, LimitRows: rows, Readiness: contract.SeededReadiness()}
 	barrier := newPGUsageFactReadBarrier()
 	dbA := openPostgresAuthorityBun(t, dsn)
 	dbA.AddQueryHook(barrier)
@@ -428,8 +429,10 @@ func TestPostgresAuthorityStore_ConcurrentRolloverReservationsRetry(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	storeID := nextPGStoreID("pg-rollover")
+	cleanupAuthorityStore(t, dsn, storeID)
 	seed := authoritystore.Config{
-		StoreID:     nextPGStoreID("pg-rollover"),
+		StoreID:     storeID,
 		Backing:     domain.BackingCapabilityAtomic,
 		LimitRows:   rows,
 		RuleWindows: map[string]domain.WindowSpec{rule.ID: rule.Window},
