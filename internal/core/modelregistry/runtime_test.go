@@ -1254,4 +1254,3 @@ func (p *blockingInventoryProvider) LoadModels(ctx context.Context) (modelinvent
 		Models: p.models,
 	}, nil
 }
-
