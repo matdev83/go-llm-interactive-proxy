@@ -121,10 +121,9 @@ func (s *MemoryStore) List(ctx context.Context, q metering.Query) (metering.Page
 	if err := ctx.Err(); err != nil {
 		return metering.Page{}, err
 	}
-	streamID := strings.TrimSpace(q.StreamID)
-	requestID := strings.TrimSpace(q.RequestID)
-	if streamID == "" && requestID == "" {
-		return metering.Page{}, ErrQueryTooBroad
+	unsupported := metering.QueryUnsupported(q)
+	if err := metering.ValidateQuery(q); err != nil {
+		return metering.Page{}, err
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -147,7 +146,7 @@ func (s *MemoryStore) List(ctx context.Context, q metering.Query) (metering.Page
 
 	matched := make([]metering.Fact, 0)
 	for _, row := range s.facts {
-		if !factMatchesQuery(row.fact, streamID, requestID, q) {
+		if !metering.FactMatchesQuery(row.fact, q) {
 			continue
 		}
 		cloned, err := cloneFact(row.fact)
@@ -169,30 +168,14 @@ func (s *MemoryStore) List(ctx context.Context, q metering.Query) (metering.Page
 	if end > len(matched) {
 		end = len(matched)
 	}
-	page := metering.Page{Facts: matched[offset:end]}
+	page := metering.Page{
+		Facts:       matched[offset:end],
+		Unsupported: append([]metering.UnsupportedFilter(nil), unsupported...),
+	}
 	if end < len(matched) {
 		page.NextCursor = strconv.Itoa(end)
 	}
 	return page, nil
-}
-
-func factMatchesQuery(f metering.Fact, streamID, requestID string, q metering.Query) bool {
-	if streamID != "" && strings.TrimSpace(f.StreamID) != streamID {
-		return false
-	}
-	if requestID != "" && strings.TrimSpace(f.Correlation.RequestID) != requestID {
-		return false
-	}
-	if q.Perspective != "" && f.Perspective != q.Perspective {
-		return false
-	}
-	if q.Boundary != "" && f.Boundary != q.Boundary {
-		return false
-	}
-	if q.Lifecycle != "" && f.Lifecycle != q.Lifecycle {
-		return false
-	}
-	return true
 }
 
 func cloneFact(f metering.Fact) (metering.Fact, error) {
@@ -231,10 +214,16 @@ func filterPairs(f metering.Fact) [][2]string {
 		}
 	}
 	addScope("principal_id", f.Scope.PrincipalID)
+	addScope("credential_id", f.Scope.CredentialID)
 	addScope("tenant_id", f.Scope.TenantID)
 	addScope("organization_id", f.Scope.OrganizationID)
 	addScope("workspace_id", f.Scope.WorkspaceID)
 	addScope("project_id", f.Scope.ProjectID)
+	addScope("department_id", f.Scope.DepartmentID)
+	addScope("cost_center_id", f.Scope.CostCenterID)
+	if id := strings.TrimSpace(f.PolicyVersion.ID); id != "" {
+		pairs = append(pairs, [2]string{"rule_id", id})
+	}
 	out := make([][2]string, 0, len(pairs))
 	for _, p := range pairs {
 		if p[1] == "" {

@@ -74,12 +74,25 @@ func (c *storeCore) appendDecision(log MutationLog, snapshot commandSnapshot, ro
 			// Mirror the live limit row's window bounds so decision history shows the same
 			// window context as the limit status. Rules without a window definition leave
 			// these as the zero time.Time, matching AccountingLimitStatusRow's semantics.
-			WindowStart:    row.WindowStart,
-			WindowEnd:      row.WindowEnd,
-			WindowResetAt:  row.WindowResetAt,
-			EvidenceState:  controlplane.EvidenceRecorded,
-			RedactionState: controlplane.RedactionSummarized,
+			WindowStart:        row.WindowStart,
+			WindowEnd:          row.WindowEnd,
+			WindowResetAt:      row.WindowResetAt,
+			EvidenceState:      controlplane.EvidenceRecorded,
+			RedactionState:     controlplane.RedactionSummarized,
+			AuthorityNamespace: row.AuthorityNamespace,
+			Perspective:        controlplane.UsagePerspective(row.Perspective),
+			LifecycleScope:     controlplane.UsageLifecycleScope(row.LifecycleScope),
+			Basis:              row.Basis,
+			RuleVersion:        row.RuleVersion,
+			ReservationType:    controlplane.AuthorityHandleReservation,
+			Surfaced:           snapshot.Surfaced,
+			ParentRequestID:    snapshot.ParentRequestID,
+			BoundPolicyVersion: snapshot.BoundPolicyVersion,
+			BoundRatingVersion: snapshot.BoundRatingVersion,
 		},
+	}
+	if rec.Row.BoundPolicyVersion.Version == "" && strings.TrimSpace(row.RuleVersion) != "" {
+		rec.Row.BoundPolicyVersion = controlplane.VersionRef{ID: row.RuleID, Version: row.RuleVersion}
 	}
 	if rec.Row.Unit == "" {
 		rec.Row.Unit = row.Unit
@@ -163,6 +176,15 @@ func limitRowMatchesQuery(row controlplane.AccountingLimitStatusRow, q controlpl
 	) {
 		return false
 	}
+	if q.Perspective != "" && row.Perspective != string(q.Perspective) {
+		return false
+	}
+	if q.LifecycleScope != "" && row.LifecycleScope != string(q.LifecycleScope) {
+		return false
+	}
+	if basis := strings.TrimSpace(q.Basis); basis != "" && strings.TrimSpace(row.Basis) != basis {
+		return false
+	}
 	if !q.Common.TimeRange.From.IsZero() && !row.WindowEnd.IsZero() && row.WindowEnd.Before(q.Common.TimeRange.From) {
 		return false
 	}
@@ -177,6 +199,15 @@ func decisionRowMatchesQuery(row controlplane.AccountingDecisionRow, q controlpl
 		commonQueryFields{Common: q.Common, RuleID: q.RuleID, Unit: q.Unit, Currency: q.Currency, Authority: q.Authority, EvidenceState: q.EvidenceState, RedactionState: q.RedactionState},
 		commonRowFields{Correlation: row.Correlation, Scope: row.Scope, RuleID: row.RuleID, Unit: row.Unit, Currency: row.Currency, Authority: row.Authority, EvidenceState: row.EvidenceState, RedactionState: row.RedactionState},
 	) {
+		return false
+	}
+	if q.Perspective != "" && row.Perspective != q.Perspective {
+		return false
+	}
+	if q.LifecycleScope != "" && row.LifecycleScope != q.LifecycleScope {
+		return false
+	}
+	if basis := strings.TrimSpace(q.Basis); basis != "" && strings.TrimSpace(row.Basis) != basis {
 		return false
 	}
 	if q.SettlementState != "" && row.SettlementState != q.SettlementState {

@@ -291,20 +291,17 @@ func (n *Normalizer) FromUsageRecord(rec UsageSourceRecord) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Usage = &cp.UsageDetail{
-		Plane:               cp.UsagePlaneObserved,
-		Availability:        cp.UsageAvailabilityObserved,
-		InputTokens:         rec.InputTokens,
-		OutputTokens:        rec.OutputTokens,
-		CacheReadTokens:     rec.CacheReadTokens,
-		CacheWriteTokens:    rec.CacheWriteTokens,
-		ReasoningTokens:     rec.ReasoningTokens,
-		TotalTokens:         rec.TotalTokens,
-		CostNanoUnits:       rec.CostNanoUnits,
-		Currency:            rec.Currency,
-		AccountingAuthority: rec.CostSource,
-		CostSource:          rec.CostSource,
-	}
+	out.Usage = ptrUsage(ProjectObservedStreamUsage(ObservedStreamUsageInput{
+		InputTokens:      rec.InputTokens,
+		OutputTokens:     rec.OutputTokens,
+		CacheReadTokens:  rec.CacheReadTokens,
+		CacheWriteTokens: rec.CacheWriteTokens,
+		ReasoningTokens:  rec.ReasoningTokens,
+		TotalTokens:      rec.TotalTokens,
+		CostNanoUnits:    rec.CostNanoUnits,
+		Currency:         rec.Currency,
+		CostSource:       rec.CostSource,
+	}))
 	if err := ValidateEvent(out); err != nil {
 		return cp.Event{}, fmt.Errorf("%w: usage record: %v", ErrUnsafeEvidence, err)
 	}
@@ -392,22 +389,7 @@ func (n *Normalizer) FromUsage(ev usage.Event) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	plane := cp.UsagePlaneObserved
-	availability := cp.UsageAvailabilityObserved
-	out.Usage = &cp.UsageDetail{
-		Plane:               plane,
-		Availability:        availability,
-		InputTokens:         ev.InputTokens,
-		OutputTokens:        ev.OutputTokens,
-		CacheReadTokens:     ev.CacheReadTokens,
-		CacheWriteTokens:    ev.CacheWriteTokens,
-		ReasoningTokens:     ev.ReasoningTokens,
-		TotalTokens:         ev.TotalTokens,
-		CostNanoUnits:       ev.CostNanoUnits,
-		Currency:            ev.Currency,
-		AccountingAuthority: ev.CostSource,
-		CostSource:          ev.CostSource,
-	}
+	out.Usage = ptrUsage(ProjectObservedStreamUsage(ObservedStreamInputFromUsageEvent(ev)))
 	if err := ValidateEvent(out); err != nil {
 		return cp.Event{}, fmt.Errorf("%w: usage: %v", ErrUnsafeEvidence, err)
 	}
@@ -594,4 +576,8 @@ func joinKey(parts ...string) string {
 		}
 	}
 	return strings.Join(parts, ":")
+}
+
+func ptrUsage(d cp.UsageDetail) *cp.UsageDetail {
+	return &d
 }

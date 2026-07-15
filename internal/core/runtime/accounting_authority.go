@@ -624,14 +624,20 @@ func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult
 	if gen == nil {
 		return
 	}
-	if strings.TrimSpace(gen.Usage.Version) == "" {
-		return
+	if strings.TrimSpace(gen.Usage.Version) != "" {
+		policyID := strings.TrimSpace(gen.Usage.ID)
+		if policyID == "" {
+			policyID = string(economics.PolicyKindUsageAuthority)
+		}
+		res.BoundVersion = gen.Usage.PolicyRef(policyID)
 	}
-	policyID := strings.TrimSpace(gen.Usage.ID)
-	if policyID == "" {
-		policyID = string(economics.PolicyKindUsageAuthority)
+	if strings.TrimSpace(gen.Rating.Version) != "" {
+		raterID := strings.TrimSpace(gen.Rating.ID)
+		if raterID == "" {
+			raterID = "rating"
+		}
+		res.BoundRatingVersion = gen.Rating.RatingRef(raterID)
 	}
-	res.BoundVersion = gen.Usage.PolicyRef(policyID)
 }
 
 // mergeGenerationBoundVersions appends Current() usage/concurrency refs onto a

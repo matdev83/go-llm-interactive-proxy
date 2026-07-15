@@ -143,17 +143,17 @@
   - Keep traffic/usage observers supported while ensuring strict decisions use authority contracts rather than fail-open observation.
   - _Requirements: 12.7, 17.1, 17.4_
 
-- [ ] 11. Align control-plane evidence, readiness, and queries
-- [ ] 11.1 Add independent perspective, boundary, lifecycle, provenance, fact-kind, surfaced, and version fields
+- [x] 11. Align control-plane evidence, readiness, and queries
+- [x] 11.1 Add independent perspective, boundary, lifecycle, provenance, fact-kind, surfaced, and version fields
   - Preserve legacy observed/accounting projections for compatibility.
   - _Requirements: 1.6, 14.1, 14.2, 14.3, 17.4_
-- [ ] 11.2 Add bounded metering and authority query filters
+- [x] 11.2 Add bounded metering and authority query filters
   - Support indexed safe scope, backend, model, route, perspective, boundary, lifecycle, rule, and time filters.
   - Return unsupported and too-broad outcomes instead of scanning.
   - _Requirements: 14.4, 14.5, 14.8, 16.3_
-- [ ] 11.3 Expose independent customer, operator, compression, routing-overhead, and readiness inputs
-  - Never merge customer charge and operator cost without an explicit report calculation.
-  - Report every required authority/journal independently and aggregate protected-traffic posture.
+- [x] 11.3 Expose independent customer, operator, compression, routing-overhead, and readiness inputs
+  - Public DualPlaneReportInputs contracts and explicit ReportCalculationType calculators (no implicit customer+operator merge).
+  - Report every required authority/journal independently and aggregate protected-traffic posture (live readiness wiring).
   - _Requirements: 4.7, 5.7, 14.6, 14.7, 15.7, 15.8_
 
 - [ ] 12. Remove global serialization and prove scalability
@@ -196,3 +196,8 @@
 - Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers (request authority, rater, evidence sink, metering querier); Execute/Collect smoke via dogfood-local-stub; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
 - Phase 10.3: facade merges Traffic/Usage observers; `ProviderDescriptors` validated at Build so observers cannot declare StrengthRequired (12.7); authority descriptors remain allowed for strict admit.
 - Phase 10 remediation (review REJECTED): (12.1) public `authority.EvidenceSink` + `MeteringQuerier` production injection; `Options.Rater` forwarded onto `AccountingRuntime.EconomicsRater`; enterprise fixture proves fake rater + ExecutorView execute path. Bounded CP query filter expansion remains Phase 11 (query mount is metering.Querier).
+- Phase 11.1: additive dual-plane fields on UsageDetail/UsageRow/UsageAggregate and AccountingAuthorityDetail/AccountingDecisionRow (perspective/boundary/lifecycle/provenance/fact_kind/surfaced/version refs); legacy plane/availability preserved; projectors + appendDecision populate decision-query rows.
+- Phase 11.2: metering.Query expanded filters + QueryClass; journalstore too-broad/unsupported; durable indexed list; CP UsageQuery/accounting query bounds validation before store access.
+- Phase 11.3: DualPlaneReportInputs (customer/operator/compression/routing-overhead) with explicit ReportCalculationType; ReadinessReportReader + aggregate protected-traffic posture; memory backing always advisory_single_process; wired via Built/CP `/readiness`/lipruntime.ReadinessReport().
+- Phase 11 remediation (review REJECTED): ledgerstore applies perspective/boundary/lifecycle usage filters (and refuses rule_id without widen); Service.Limits/Decisions call ValidateAccounting* before store access and match perspective/lifecycle/basis on authority rows; durable limit/decision filter indexes include perspective/lifecycle_scope/basis; HTTP `/authority` parses perspective/lifecycle_scope/basis/class; 11.3 DualPlaneReportInputs remain construction contracts (+ calculators), readiness is the live wired surface.
+  - RED_PHASE_OUTPUT: `TestMemoryStore_UsageAppliesDualPlaneFilters` / `TestMemoryStore_UsageRejectsRuleIDAsUnsupported` (ledgerstore); `TestLimitRowMatchesQueryPerspectiveAndLifecycle` / `TestDecisionRowMatchesQueryPerspectiveAndLifecycle` / `TestLimitRowMatchesQueryBasis` / `TestDecisionRowMatchesQueryBasis` (authoritystore) — fail under silent-ignore; GREEN after filter+validate+basis wiring.

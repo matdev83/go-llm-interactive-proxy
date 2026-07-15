@@ -117,6 +117,10 @@ type AccountingLimitStatusQuery struct {
 	SettlementState AccountingSettlementState `json:"settlement_state,omitempty"`
 	EvidenceState   EvidenceState             `json:"evidence_state,omitempty"`
 	RedactionState  RedactionState            `json:"redaction_state,omitempty"`
+	Perspective     UsagePerspective          `json:"perspective,omitempty"`
+	LifecycleScope  UsageLifecycleScope       `json:"lifecycle_scope,omitempty"`
+	Basis           string                    `json:"basis,omitempty"`
+	Class           QueryClass                `json:"class,omitempty"`
 	Limit           int                       `json:"limit,omitempty"`
 	Cursor          Cursor                    `json:"cursor,omitzero"`
 	Visibility      Visibility                `json:"visibility,omitempty"`
@@ -132,6 +136,10 @@ type AccountingDecisionQuery struct {
 	SettlementState AccountingSettlementState `json:"settlement_state,omitempty"`
 	EvidenceState   EvidenceState             `json:"evidence_state,omitempty"`
 	RedactionState  RedactionState            `json:"redaction_state,omitempty"`
+	Perspective     UsagePerspective          `json:"perspective,omitempty"`
+	LifecycleScope  UsageLifecycleScope       `json:"lifecycle_scope,omitempty"`
+	Basis           string                    `json:"basis,omitempty"`
+	Class           QueryClass                `json:"class,omitempty"`
 	Limit           int                       `json:"limit,omitempty"`
 	Cursor          Cursor                    `json:"cursor,omitzero"`
 	Visibility      Visibility                `json:"visibility,omitempty"`
@@ -174,6 +182,17 @@ type AccountingAuthorityDetail struct {
 	WindowResetAt   time.Time                 `json:"window_reset_at,omitzero"`
 	EvidenceState   EvidenceState             `json:"evidence_state"`
 	RedactionState  RedactionState            `json:"redaction_state"`
+	// Dual-plane identity (requirements 1.6, 14.3, 17.4).
+	AuthorityNamespace string              `json:"authority_namespace,omitempty"`
+	Perspective        UsagePerspective    `json:"perspective,omitempty"`
+	LifecycleScope     UsageLifecycleScope `json:"lifecycle_scope,omitempty"`
+	Basis              string              `json:"basis,omitempty"`
+	RuleVersion        string              `json:"rule_version,omitempty"`
+	Surfaced           UsageSurfaced       `json:"surfaced,omitempty"`
+	ReservationType    AuthorityHandleType `json:"reservation_type,omitempty"`
+	ParentRequestID    string              `json:"parent_request_id,omitempty"`
+	BoundPolicyVersion VersionRef          `json:"bound_policy_version,omitzero"`
+	BoundRatingVersion VersionRef          `json:"bound_rating_version,omitzero"`
 }
 
 // AccountingLimitStatusRow is the live accounting limit view distinct from
@@ -253,6 +272,17 @@ type AccountingDecisionRow struct {
 	WindowResetAt   time.Time                 `json:"window_reset_at,omitzero"`
 	EvidenceState   EvidenceState             `json:"evidence_state"`
 	RedactionState  RedactionState            `json:"redaction_state"`
+	// Dual-plane identity (requirements 1.6, 14.3, 17.4).
+	AuthorityNamespace string              `json:"authority_namespace,omitempty"`
+	Perspective        UsagePerspective    `json:"perspective,omitempty"`
+	LifecycleScope     UsageLifecycleScope `json:"lifecycle_scope,omitempty"`
+	Basis              string              `json:"basis,omitempty"`
+	RuleVersion        string              `json:"rule_version,omitempty"`
+	Surfaced           UsageSurfaced       `json:"surfaced,omitempty"`
+	ReservationType    AuthorityHandleType `json:"reservation_type,omitempty"`
+	ParentRequestID    string              `json:"parent_request_id,omitempty"`
+	BoundPolicyVersion VersionRef          `json:"bound_policy_version,omitzero"`
+	BoundRatingVersion VersionRef          `json:"bound_rating_version,omitzero"`
 }
 
 // AccountingStatusReader is the stable service contract for reading the live

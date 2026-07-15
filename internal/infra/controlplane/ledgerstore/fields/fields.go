@@ -37,11 +37,15 @@ const (
 
 // View-specific filter field names.
 const (
-	AttemptSurfaced   = "attempt.surfaced"
-	UsagePlane        = "usage.plane"
-	UsageAvailability = "usage.availability"
-	EvidenceEffect    = "evidence.effect"
-	EvidenceCategory  = "evidence.category"
-	EventCategory     = "event.category"
-	UsageGroupBy      = "usage.group_by"
+	AttemptSurfaced     = "attempt.surfaced"
+	UsagePlane          = "usage.plane"
+	UsageAvailability   = "usage.availability"
+	UsagePerspective    = "usage.perspective"
+	UsageBoundary       = "usage.boundary"
+	UsageLifecycleScope = "usage.lifecycle_scope"
+	UsageRuleID         = "usage.rule_id"
+	EvidenceEffect      = "evidence.effect"
+	EvidenceCategory    = "evidence.category"
+	EventCategory       = "event.category"
+	UsageGroupBy        = "usage.group_by"
 )

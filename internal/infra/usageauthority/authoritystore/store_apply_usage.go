@@ -31,10 +31,10 @@ func (c *storeCore) applyUsageInPlace(cmd app.ApplyUsageCommand, log MutationLog
 	if err := c.ensureWritable(); err != nil {
 		return app.ApplyUsageResult{}, err
 	}
-	snapshot := commandSnapshot{
+	snapshot := enrichCommandSnapshot(commandSnapshot{
 		Correlation: cmd.Correlation,
 		Scope:       scopeSnapshotFromDimensionsWithFallback(cmd.Scope, cmd.Dimensions),
-	}
+	})
 	if len(cmd.RuleIDs) == 0 {
 		return app.ApplyUsageResult{}, fmt.Errorf("%w: advisory rule set is empty", app.ErrReservationConflict)
 	}

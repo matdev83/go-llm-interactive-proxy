@@ -78,10 +78,11 @@ var lineBudgets = []struct {
 	// Raised from 45000 to 45500 for Phase 7 usage-authority dual-plane kernel.
 	// Raised from 45500 to 47000 for Phase 8 concurrencyauthority domain/app + runtime lease ownership.
 	// Raised from 47000 to 47500 for Phase 9 snapshotgen RuntimeGeneration publisher.
-	{"internal/core", 47500},
+	// Raised from 47500 to 48000 for Phase 11.2 control-plane query bounds validation.
+	{"internal/core", 48000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
-	{"internal/infra/runtimebundle", 4500},
+	{"internal/infra/runtimebundle", 4650}, // Phase 11.3 readiness report wiring
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

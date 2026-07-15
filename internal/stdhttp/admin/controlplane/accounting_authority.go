@@ -72,14 +72,18 @@ func NewAccountingAuthorityHandler(opts AuthorityOptions) http.Handler {
 	mux.HandleFunc("/limits", func(w http.ResponseWriter, r *http.Request) {
 		serveAuthorityPage(w, r, queries, defaultPageSize, maxPageSize, func(limit int) (authorityapp.QueryState, cp.Page[cp.AccountingLimitStatusRow], error) {
 			q := cp.AccountingLimitStatusQuery{
-				Common:     parseCommonFilters(r),
-				RuleID:     strings.TrimSpace(r.URL.Query().Get("rule_id")),
-				Unit:       strings.TrimSpace(r.URL.Query().Get("unit")),
-				Currency:   strings.TrimSpace(r.URL.Query().Get("currency")),
-				Authority:  cp.AccountingAuthoritySource(strings.TrimSpace(r.URL.Query().Get("authority"))),
-				Limit:      limit,
-				Cursor:     cp.Cursor{Token: strings.TrimSpace(r.URL.Query().Get("cursor"))},
-				Visibility: cp.Visibility(strings.TrimSpace(r.URL.Query().Get("visibility"))),
+				Common:         parseCommonFilters(r),
+				RuleID:         strings.TrimSpace(r.URL.Query().Get("rule_id")),
+				Unit:           strings.TrimSpace(r.URL.Query().Get("unit")),
+				Currency:       strings.TrimSpace(r.URL.Query().Get("currency")),
+				Authority:      cp.AccountingAuthoritySource(strings.TrimSpace(r.URL.Query().Get("authority"))),
+				Perspective:    cp.UsagePerspective(strings.TrimSpace(r.URL.Query().Get("perspective"))),
+				LifecycleScope: cp.UsageLifecycleScope(strings.TrimSpace(r.URL.Query().Get("lifecycle_scope"))),
+				Basis:          strings.TrimSpace(r.URL.Query().Get("basis")),
+				Class:          cp.QueryClass(strings.TrimSpace(r.URL.Query().Get("class"))),
+				Limit:          limit,
+				Cursor:         cp.Cursor{Token: strings.TrimSpace(r.URL.Query().Get("cursor"))},
+				Visibility:     cp.Visibility(strings.TrimSpace(r.URL.Query().Get("visibility"))),
 			}
 			if raw := strings.TrimSpace(r.URL.Query().Get("settlement_state")); raw != "" {
 				q.SettlementState = cp.AccountingSettlementState(raw)
@@ -100,14 +104,18 @@ func NewAccountingAuthorityHandler(opts AuthorityOptions) http.Handler {
 	mux.HandleFunc("/decision-history", func(w http.ResponseWriter, r *http.Request) {
 		serveAuthorityPage(w, r, queries, defaultPageSize, maxPageSize, func(limit int) (authorityapp.QueryState, cp.Page[cp.AccountingDecisionRow], error) {
 			q := cp.AccountingDecisionQuery{
-				Common:     parseCommonFilters(r),
-				RuleID:     strings.TrimSpace(r.URL.Query().Get("rule_id")),
-				Unit:       strings.TrimSpace(r.URL.Query().Get("unit")),
-				Currency:   strings.TrimSpace(r.URL.Query().Get("currency")),
-				Authority:  cp.AccountingAuthoritySource(strings.TrimSpace(r.URL.Query().Get("authority"))),
-				Limit:      limit,
-				Cursor:     cp.Cursor{Token: strings.TrimSpace(r.URL.Query().Get("cursor"))},
-				Visibility: cp.Visibility(strings.TrimSpace(r.URL.Query().Get("visibility"))),
+				Common:         parseCommonFilters(r),
+				RuleID:         strings.TrimSpace(r.URL.Query().Get("rule_id")),
+				Unit:           strings.TrimSpace(r.URL.Query().Get("unit")),
+				Currency:       strings.TrimSpace(r.URL.Query().Get("currency")),
+				Authority:      cp.AccountingAuthoritySource(strings.TrimSpace(r.URL.Query().Get("authority"))),
+				Perspective:    cp.UsagePerspective(strings.TrimSpace(r.URL.Query().Get("perspective"))),
+				LifecycleScope: cp.UsageLifecycleScope(strings.TrimSpace(r.URL.Query().Get("lifecycle_scope"))),
+				Basis:          strings.TrimSpace(r.URL.Query().Get("basis")),
+				Class:          cp.QueryClass(strings.TrimSpace(r.URL.Query().Get("class"))),
+				Limit:          limit,
+				Cursor:         cp.Cursor{Token: strings.TrimSpace(r.URL.Query().Get("cursor"))},
+				Visibility:     cp.Visibility(strings.TrimSpace(r.URL.Query().Get("visibility"))),
 			}
 			if raw := strings.TrimSpace(r.URL.Query().Get("settlement_state")); raw != "" {
 				q.SettlementState = cp.AccountingSettlementState(raw)

@@ -98,7 +98,8 @@ func mountControlPlaneQuery(in controlPlaneQueryMount) {
 		return
 	}
 	handler := cpadmin.NewHandler(cpadmin.Options{
-		Queries: built.ControlPlaneQueries,
+		Queries:         built.ControlPlaneQueries,
+		ReadinessReport: built.ReadinessReport,
 	})
 	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(base, handler))
 	mux.Handle(base, protected)
