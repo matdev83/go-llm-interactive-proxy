@@ -23,7 +23,7 @@ type meteringRuntime struct {
 	checkReady   func(context.Context) error
 }
 
-func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func() time.Time) (*meteringRuntime, []func() error, error) {
+func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*meteringRuntime, []func() error, error) {
 	if cfg == nil || !cfg.Metering.Enabled {
 		return nil, nil, nil
 	}
@@ -46,7 +46,7 @@ func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func()
 			checkReady:   store.CheckReadiness,
 		}, []func() error{store.Close}, nil
 	case "sqlite", "postgres":
-		rec, closeFn, backing, checkReady, err := openDurableMeteringJournal(parent, cfg, now)
+		rec, closeFn, backing, checkReady, err := openDurableMeteringJournal(parent, cfg, now, registry, migrator)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -60,14 +60,14 @@ func buildMeteringRuntime(parent context.Context, cfg *config.Config, now func()
 	}
 }
 
-func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now func() time.Time) (metering.Recorder, func() error, string, func(context.Context) error, error) {
+func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now func() time.Time, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (metering.Recorder, func() error, string, func(context.Context) error, error) {
 	store := strings.ToLower(strings.TrimSpace(cfg.Metering.Journal.Store))
 	var bunDB *bun.DB
 	var err error
 	switch store {
 	case "sqlite":
 		path := strings.TrimSpace(cfg.Metering.Journal.SQLitePath)
-		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+		dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_txlock=immediate"
 		var sqlDB *sql.DB
 		sqlDB, err = sql.Open("sqlite", dsn)
 		if err == nil {
@@ -79,6 +79,7 @@ func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now 
 			}
 			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal sqlite open: %w", err)
 		}
+		sqlDB.SetMaxOpenConns(1)
 		bunDB, err = db.NewBunDB(sqlDB, db.DialectSQLite)
 		if err != nil {
 			_ = sqlDB.Close()
@@ -91,19 +92,29 @@ func openDurableMeteringJournal(parent context.Context, cfg *config.Config, now 
 		}
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		bunDB, err = db.OpenPostgresBun(child, cfg.Metering.Journal.PostgresDSN, db.PoolSettings{
+		pool := db.PoolSettings{
 			MaxOpenConns:    poolCfg.MaxOpenConns,
 			MaxIdleConns:    poolCfg.MaxIdleConns,
 			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
 			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		}
+		impl, closeFn, err := openPostgresStore(child, cfg.Metering.Journal.PostgresDSN, pool, cfg.Database, registry, migrator, postgresStoreLifecycle[*journalstore.DurableStore]{
+			Migrate: journalstore.Migrate,
+			Verify:  journalstore.VerifySchema,
+			Open: func(ctx context.Context, handle *bun.DB) (*journalstore.DurableStore, error) {
+				return journalstore.OpenStore(ctx, handle, journalstore.DurableConfig{StoreID: "metering-postgres", Now: now})
+			},
+			Close: (*journalstore.DurableStore).Close,
 		})
 		if err != nil {
-			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal postgres open: %w", err)
+			return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal postgres: %w", err)
 		}
+		return impl, closeFn, store, impl.CheckReadiness, nil
 	default:
 		return nil, nil, "", nil, fmt.Errorf("runtimebundle: metering journal store %q is invalid", cfg.Metering.Journal.Store)
 	}
-	impl, err := journalstore.NewDurableStore(parent, bunDB, journalstore.DurableConfig{StoreID: "metering-" + store, Now: now})
+	var impl *journalstore.DurableStore
+	impl, err = journalstore.NewDurableStore(parent, bunDB, journalstore.DurableConfig{StoreID: "metering-" + store, Now: now})
 	if err != nil {
 		wrapped := fmt.Errorf("runtimebundle: metering journal schema: %w", err)
 		if cerr := bunDB.Close(); cerr != nil {

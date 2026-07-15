@@ -1,8 +1,10 @@
 package runtimebundle_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -127,6 +129,38 @@ func TestBuildUsageAuthorityFailOpenStartsAdvisory(t *testing.T) {
 	}
 }
 
+func TestBuildUsageAuthorityFailClosedPostgresLogsCauseWithoutLeakingDSN(t *testing.T) {
+	t.Parallel()
+	const secret = "NEVER_EMBED_THIS_AUTHORITY_SECRET"
+	cfg := baseAuthorityConfig(true, "fail_closed")
+	cfg.Accounting.Authority.Store = "postgres"
+	cfg.Accounting.Authority.PostgresDSN = "postgres://u:" + secret + "@127.0.0.1:1/nosuch?sslmode=disable"
+
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelError}))
+	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, baseAuthorityOptions(t, nil))
+	if err == nil {
+		t.Fatal("expected fail-closed postgres open to fail Build")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, secret) {
+		t.Fatalf("returned error leaked DSN secret: %s", msg)
+	}
+	if !strings.Contains(msg, "usage authority durable postgres") {
+		t.Fatalf("want opaque usage-authority postgres error, got: %s", msg)
+	}
+	logs := logBuf.String()
+	if !strings.Contains(logs, `"notice":"store_unavailable"`) {
+		t.Fatalf("want Error log with store_unavailable notice, got: %s", logs)
+	}
+	if !strings.Contains(logs, `"store":"postgres"`) || !strings.Contains(logs, `"phase":"init"`) {
+		t.Fatalf("want store=postgres phase=init attrs, got: %s", logs)
+	}
+	if !strings.Contains(logs, `"error":`) {
+		t.Fatalf("want underlying error attr in diagnostics log, got: %s", logs)
+	}
+}
+
 func authorityAdmissionInput() authorityapp.AdmissionInput {
 	return authorityapp.AdmissionInput{
 		Correlation: controlplane.Correlation{
@@ -169,6 +203,7 @@ func baseAuthorityConfig(enabled bool, startupPosture string) *config.Config {
 		Server:      config.ServerConfig{Address: "127.0.0.1:0"},
 		Routing:     config.RoutingConfig{DefaultRoute: "stub:model", MaxAttempts: 3},
 		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Database:    config.DatabaseConfig{MaxOpenConns: 8},
 		Diagnostics: config.DiagnosticsConfig{SharedSecret: strings.Repeat("s", 12)},
 		Plugins:     config.PluginsConfig{},
 		Accounting: config.AccountingConfig{
