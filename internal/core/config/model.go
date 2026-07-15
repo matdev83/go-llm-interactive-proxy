@@ -132,12 +132,46 @@ type AccountingModelPriceConfig struct {
 }
 
 // DatabaseConfig is optional connection pool tuning for managed PostgreSQL handles
-// opened by the proxy (see internal/infra/db). Omitted or zero values preserve driver defaults.
+// opened by the proxy (see internal/infra/db). Omitted or zero values preserve driver
+// defaults when no store is postgres; max_open_conns must be > 0 when any store is postgres.
+// ConnectionMode and SchemaMode apply only to the dual-plane authority, concurrency,
+// and metering PostgreSQL runtime paths. Other PostgreSQL stores retain their own
+// owning lifecycle and compatibility migration behavior.
 type DatabaseConfig struct {
-	MaxOpenConns    int    `yaml:"max_open_conns"`
-	MaxIdleConns    int    `yaml:"max_idle_conns"`
-	ConnMaxLifetime string `yaml:"conn_max_lifetime"`
-	ConnMaxIdleTime string `yaml:"conn_max_idle_time"`
+	ConnectionMode  DatabaseConnectionMode `yaml:"connection_mode"`
+	SchemaMode      DatabaseSchemaMode     `yaml:"schema_mode"`
+	MaxOpenConns    int                    `yaml:"max_open_conns"`
+	MaxIdleConns    int                    `yaml:"max_idle_conns"`
+	ConnMaxLifetime string                 `yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime string                 `yaml:"conn_max_idle_time"`
+}
+
+type DatabaseConnectionMode string
+
+const (
+	DatabaseConnectionModeDirect          DatabaseConnectionMode = "direct"
+	DatabaseConnectionModeTransactionPool DatabaseConnectionMode = "transaction_pool"
+)
+
+type DatabaseSchemaMode string
+
+const (
+	DatabaseSchemaModeAutoMigrate DatabaseSchemaMode = "auto_migrate"
+	DatabaseSchemaModeVerifyOnly  DatabaseSchemaMode = "verify_only"
+)
+
+func (c DatabaseConfig) EffectiveConnectionMode() DatabaseConnectionMode {
+	if c.ConnectionMode == "" {
+		return DatabaseConnectionModeDirect
+	}
+	return c.ConnectionMode
+}
+
+func (c DatabaseConfig) EffectiveSchemaMode() DatabaseSchemaMode {
+	if c.SchemaMode == "" {
+		return DatabaseSchemaModeAutoMigrate
+	}
+	return c.SchemaMode
 }
 
 // ModelAliasConfig is one regexp-based rewrite of an incoming route selector (see internal/core/routing/aliases.go).
