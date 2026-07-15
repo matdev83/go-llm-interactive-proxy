@@ -2,6 +2,9 @@ package metering
 
 import (
 	"fmt"
+	"maps"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,9 +24,9 @@ type MoneyObservation struct {
 // Fact is one idempotent metering journal record (requirements 3.1–3.5, 13.2).
 //
 // Idempotency: the same FactID within a StreamID must be treated as the same
-// fact. Replaying Append with SameFactIdentity is a no-op at the store; a
-// different Sequence or Kind for the same FactID is a contract violation for
-// store implementations to reject.
+// fact. Replaying Append with SameFactReplay is a no-op at the store; a
+// different Sequence, Kind, or double-count-sensitive payload for the same
+// FactID is a contract violation for store implementations to reject.
 type Fact struct {
 	FactID         string                   `json:"fact_id"`
 	StreamID       string                   `json:"stream_id"`
@@ -52,17 +55,134 @@ type Fact struct {
 // IdempotencyKey returns the stable journal key for this fact identity
 // (requirement 3.1): StreamID + FactID. It intentionally excludes quantities,
 // money, and other payload fields so replays with identical identity collide.
-// Sequence is checked separately via SameFactIdentity for ordered stream membership.
+// Sequence is checked separately via SameFactIdentity for ordered stream membership;
+// payload equality for idempotent replay is SameFactReplay.
 func (f Fact) IdempotencyKey() string {
 	return strings.TrimSpace(f.StreamID) + "\x00" + strings.TrimSpace(f.FactID)
 }
 
-// SameFactIdentity reports whether a and b share FactID, StreamID, and Sequence.
-// Stores treat matching identity as an idempotent replay of the same fact.
+// SameFactIdentity reports whether a and b share FactID, StreamID, and Sequence
+// (ordered stream membership). Matching identity alone is not sufficient for an
+// idempotent Append replay; stores also require SameFactReplay content equality.
 func SameFactIdentity(a, b Fact) bool {
 	return strings.TrimSpace(a.FactID) == strings.TrimSpace(b.FactID) &&
 		strings.TrimSpace(a.StreamID) == strings.TrimSpace(b.StreamID) &&
 		a.Sequence == b.Sequence
+}
+
+// SameFactReplay reports whether a and b share stream membership
+// (SameFactIdentity) and equal semantic payloads. Quantities and Supersedes
+// compare as multisets (order-independent). RecordedAt is intentionally
+// excluded because journal stores assign it when producers omit it; that
+// store-assigned timestamp does not change the producer fact being replayed.
+func SameFactReplay(a, b Fact) bool {
+	if !SameFactIdentity(a, b) {
+		return false
+	}
+	if a.Kind != b.Kind ||
+		a.Perspective != b.Perspective ||
+		a.Boundary != b.Boundary ||
+		a.Lifecycle != b.Lifecycle ||
+		a.Correlation != b.Correlation ||
+		a.FrontendID != b.FrontendID ||
+		a.BackendID != b.BackendID ||
+		a.Model != b.Model ||
+		a.AttemptOutcome != b.AttemptOutcome ||
+		a.Surfaced != b.Surfaced ||
+		a.Source != b.Source ||
+		a.Authority != b.Authority ||
+		a.Presence != b.Presence ||
+		a.PolicyVersion != b.PolicyVersion ||
+		!scopeViewsEqual(a.Scope, b.Scope) {
+		return false
+	}
+	if !quantitiesEqual(a.Quantities, b.Quantities) {
+		return false
+	}
+	if !moneyEqual(a.Money, b.Money) {
+		return false
+	}
+	if !stringSetEqual(a.Supersedes, b.Supersedes) {
+		return false
+	}
+	return true
+}
+
+func scopeViewsEqual(a, b scope.PrincipalScopeView) bool {
+	return a.SubjectKind == b.SubjectKind &&
+		a.PrincipalID == b.PrincipalID &&
+		a.DisplayName == b.DisplayName &&
+		a.AuthMethod == b.AuthMethod &&
+		a.CredentialID == b.CredentialID &&
+		slices.Equal(a.Roles, b.Roles) &&
+		maps.Equal(a.SafeClaims, b.SafeClaims) &&
+		a.TenantID == b.TenantID &&
+		a.OrganizationID == b.OrganizationID &&
+		a.WorkspaceID == b.WorkspaceID &&
+		a.ProjectID == b.ProjectID &&
+		a.DepartmentID == b.DepartmentID &&
+		a.CostCenterID == b.CostCenterID &&
+		maps.Equal(a.PolicyLabels, b.PolicyLabels) &&
+		a.Origin == b.Origin &&
+		a.ParentTraceID == b.ParentTraceID
+}
+
+func quantitiesEqual(a, b []Quantity) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ac := append([]Quantity(nil), a...)
+	bc := append([]Quantity(nil), b...)
+	sort.Slice(ac, func(i, j int) bool { return quantityLess(ac[i], ac[j]) })
+	sort.Slice(bc, func(i, j int) bool { return quantityLess(bc[i], bc[j]) })
+	for i := range ac {
+		if ac[i] != bc[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func quantityLess(a, b Quantity) bool {
+	if a.Component != b.Component {
+		return a.Component < b.Component
+	}
+	if a.Unit != b.Unit {
+		return a.Unit < b.Unit
+	}
+	if a.Value != b.Value {
+		return a.Value < b.Value
+	}
+	if a.Present != b.Present {
+		return !a.Present && b.Present
+	}
+	return a.Schema < b.Schema
+}
+
+func moneyEqual(a, b *MoneyObservation) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.NanoUnits == b.NanoUnits &&
+		a.Currency == b.Currency &&
+		a.Present == b.Present &&
+		a.Source == b.Source
+}
+
+func stringSetEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ac := append([]string(nil), a...)
+	bc := append([]string(nil), b...)
+	sort.Strings(ac)
+	sort.Strings(bc)
+	for i := range ac {
+		if ac[i] != bc[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Validate checks required identity and enum fields, quantity rows, and

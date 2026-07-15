@@ -244,7 +244,7 @@ func authorityCandidate() routing.AttemptCandidate {
 // literal without repeating the owner wiring. The candidate only feeds debug log
 // attributes, so passing the stream's cand keeps log correlation consistent.
 func testAuthorityLifecycle(ex *Executor, state attemptAuthorityState, cand routing.AttemptCandidate) authorityLifecycle {
-	return newAuthorityLifecycle(ex.authorityService(), ex.Log, state, cand)
+	return ex.newAttemptAuthorityLifecycle(state, cand)
 }
 
 // authorityInputAmount builds the standard InputTokens amount used to reserve

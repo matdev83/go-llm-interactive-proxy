@@ -43,7 +43,8 @@ func (e *enterpriseEvidence) RecordAccountingAuthority(context.Context, controlp
 }
 
 type enterpriseRater struct {
-	calls int
+	calls      int
+	quoteCalls int
 }
 
 func (r *enterpriseRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
@@ -53,6 +54,28 @@ func (r *enterpriseRater) Rate(_ context.Context, req economics.RatingRequest) (
 		Source:      "enterprise-fixture",
 		Perspective: req.Perspective,
 		RaterID:     "enterprise-fake",
+	}, nil
+}
+
+func (r *enterpriseRater) QuoteOutputLimit(_ context.Context, req economics.OutputLimitRequest) (economics.OutputLimitResult, error) {
+	r.quoteCalls++
+	if !req.MaxMoney.Present {
+		return economics.OutputLimitResult{
+			Status:      economics.OutputLimitUnsupported,
+			Reason:      "max_money absent",
+			Perspective: req.Perspective,
+			RaterID:     "enterprise-fake",
+		}, nil
+	}
+	// Deterministic fixture bound: leave a positive enforceable output limit when
+	// any monetary cap is present. Closed modules replace this with real inversion.
+	return economics.OutputLimitResult{
+		Status:          economics.OutputLimitOK,
+		MaxOutputTokens: 1024,
+		Source:          "enterprise-fixture",
+		Perspective:     req.Perspective,
+		RaterID:         "enterprise-fake",
+		Version:         economics.VersionRef{ID: "enterprise-fixture", Version: "v1"},
 	}, nil
 }
 
@@ -129,6 +152,16 @@ func run(ctx context.Context) error {
 	}
 	if rater.calls < 1 {
 		return fmt.Errorf("expected fake rater invocation")
+	}
+	var quoter economics.OutputLimitQuoter = rater
+	if _, err := quoter.QuoteOutputLimit(ctx, economics.OutputLimitRequest{
+		Perspective: metering.PerspectiveOperator,
+		MaxMoney:    economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+	}); err != nil {
+		return fmt.Errorf("fake output-limit quoter: %w", err)
+	}
+	if rater.quoteCalls < 1 {
+		return fmt.Errorf("expected fake QuoteOutputLimit invocation")
 	}
 	view := rt.ExecutorView()
 	stream, err := view.Execute(ctx, &lipapi.Call{

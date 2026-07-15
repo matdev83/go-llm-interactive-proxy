@@ -25,6 +25,8 @@ type recordingConcurrency struct {
 	failureBehavior authority.FailureBehavior
 	lastAdmit       atomic.Pointer[authority.LeaseAdmission]
 	admitCount      atomic.Int32
+	multiLeases     []authority.LeaseOccupancy
+	primaryLeaseID  string
 }
 
 func (r *recordingConcurrency) AdmitLease(_ context.Context, in authority.LeaseAdmission) (authority.LeaseDecision, error) {
@@ -40,6 +42,51 @@ func (r *recordingConcurrency) AdmitLease(_ context.Context, in authority.LeaseA
 		renewBefore = 50 * time.Millisecond
 	}
 	n := r.admitCount.Load()
+	if len(r.multiLeases) > 0 {
+		leases := make([]authority.LeaseOccupancy, len(r.multiLeases))
+		copy(leases, r.multiLeases)
+		for i := range leases {
+			if leases[i].ExpiresAt.IsZero() {
+				leases[i].ExpiresAt = time.Now().Add(ttl)
+			}
+			if leases[i].RenewBefore <= 0 {
+				leases[i].RenewBefore = renewBefore
+			}
+			if leases[i].TTL <= 0 {
+				leases[i].TTL = ttl
+			}
+			if leases[i].FailureBehavior == "" {
+				leases[i].FailureBehavior = r.failureBehavior
+			}
+			if leases[i].Generation == 0 {
+				leases[i].Generation = 1
+			}
+		}
+		primary := r.primaryLeaseID
+		if primary == "" {
+			primary = leases[len(leases)-1].LeaseID
+		}
+		var primaryOcc authority.LeaseOccupancy
+		for _, occ := range leases {
+			if occ.LeaseID == primary {
+				primaryOcc = occ
+				break
+			}
+		}
+		if primaryOcc.LeaseID == "" {
+			primaryOcc = leases[len(leases)-1]
+		}
+		return authority.LeaseDecision{
+			Kind:            authority.LeaseAllow,
+			LeaseID:         primaryOcc.LeaseID,
+			Generation:      primaryOcc.Generation,
+			ExpiresAt:       primaryOcc.ExpiresAt,
+			RenewBefore:     renewBefore,
+			TTL:             ttl,
+			FailureBehavior: r.failureBehavior,
+			Leases:          leases,
+		}, nil
+	}
 	return authority.LeaseDecision{
 		Kind:            authority.LeaseAllow,
 		LeaseID:         fmt.Sprintf("lease-hb-%d", n),
@@ -111,6 +158,89 @@ func TestPhase83_settleReleasesConcurrencyLease(t *testing.T) {
 	ex.settleRequestAuthority(ctx, nil) // idempotent
 	if conc.released.Load() != 1 {
 		t.Fatalf("idempotent settle released=%d", conc.released.Load())
+	}
+}
+
+func TestPhase83_settleReleasesAllMultiLeases(t *testing.T) {
+	t.Parallel()
+	conc := &recordingConcurrency{
+		releaseCh: make(chan struct{}, 4),
+		multiLeases: []authority.LeaseOccupancy{
+			{LeaseID: "lease-a", Generation: 1, RuleID: "rule-a", ExpiresAt: time.Now().Add(time.Minute)},
+			{LeaseID: "lease-b", Generation: 1, RuleID: "rule-b", ExpiresAt: time.Now().Add(time.Minute)},
+		},
+		primaryLeaseID: "lease-b",
+	}
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency:    conc,
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-multi-settle", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := requestAuthorityFrom(ctx)
+	if st == nil {
+		t.Fatal("missing authority state")
+	}
+	if st.LeaseID != "lease-b" {
+		t.Fatalf("primary LeaseID=%q want lease-b", st.LeaseID)
+	}
+	if len(st.LeaseIDs) != 2 {
+		t.Fatalf("LeaseIDs=%v want 2", st.LeaseIDs)
+	}
+	ex.settleRequestAuthority(ctx, nil)
+	if conc.released.Load() != 2 {
+		t.Fatalf("released=%d want 2", conc.released.Load())
+	}
+	ex.settleRequestAuthority(ctx, nil)
+	if conc.released.Load() != 2 {
+		t.Fatalf("idempotent settle released=%d", conc.released.Load())
+	}
+}
+
+func TestPhase83_heartbeatRenewsAllMultiLeases(t *testing.T) {
+	t.Parallel()
+	conc := &recordingConcurrency{
+		expiresIn:   150 * time.Millisecond,
+		renewBefore: 100 * time.Millisecond,
+		renewCh:     make(chan struct{}, 8),
+		releaseCh:   make(chan struct{}, 4),
+		multiLeases: []authority.LeaseOccupancy{
+			{LeaseID: "lease-a", Generation: 1, RuleID: "rule-a"},
+			{LeaseID: "lease-b", Generation: 1, RuleID: "rule-b"},
+		},
+		primaryLeaseID: "lease-b",
+	}
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency:    conc,
+				CleanupTimeout: time.Second,
+			},
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-multi-hb", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if conc.renewed.Load() >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if conc.renewed.Load() < 2 {
+		t.Fatalf("renewed=%d want >=2 (both leases)", conc.renewed.Load())
+	}
+	ex.settleRequestAuthority(ctx, nil)
+	if conc.released.Load() != 2 {
+		t.Fatalf("released=%d want 2", conc.released.Load())
 	}
 }
 

@@ -117,7 +117,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.StreamUsage = tokenAccounting.StreamUsage
 		accountingRT.Ledger = tokenAccounting.Ledger
 		accountingRT.TokenAccountingObservability = tokenAccounting.Observability
-		accountingRT.AdminCountService = tokenAccounting.Admin
+		// Request metering admission needs the same configured counter regardless
+		// of whether the optional public/admin count endpoint is mounted.
+		accountingRT.AdminCountService = tokenAccounting.Counter
 	}
 	if meteringRT != nil {
 		accountingRT.MeteringRecorder = meteringRT.Recorder

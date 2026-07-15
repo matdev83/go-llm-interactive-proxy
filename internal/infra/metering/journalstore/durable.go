@@ -88,6 +88,7 @@ func (s *DurableStore) CheckReadiness(ctx context.Context) error {
 }
 
 // Append inserts one fact or applies idempotent/collision rules on UNIQUE source_event_key.
+// SameFactReplay → no-op; same source key otherwise → ErrIdentityCollision.
 func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -121,7 +122,7 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 		if uerr := json.Unmarshal([]byte(existingPayload), &existing); uerr != nil {
 			return fmt.Errorf("metering/journalstore: decode existing: %w", uerr)
 		}
-		if metering.SameFactIdentity(existing, cloned) {
+		if metering.SameFactReplay(existing, cloned) {
 			return nil
 		}
 		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",

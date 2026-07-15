@@ -26,11 +26,14 @@ type Options struct {
 	AttemptProviders []authority.AttemptProvider
 	// ConcurrencyProvider overrides the config-built concurrency lease provider.
 	ConcurrencyProvider authority.ConcurrencyProvider
-	// UsageSnapshotSource supplies the usage-authority snapshot for publication.
+	// UsageSnapshotSource supplies the usage-authority snapshot for publication
+	// and RefreshSnapshots.
 	UsageSnapshotSource economics.RuleSnapshotSource
-	// ConcurrencySnapshotSource supplies the concurrency snapshot for publication.
+	// ConcurrencySnapshotSource supplies the concurrency snapshot for publication
+	// and RefreshSnapshots.
 	ConcurrencySnapshotSource economics.RuleSnapshotSource
-	// RatingSnapshotSource supplies the rating/catalog snapshot for publication.
+	// RatingSnapshotSource supplies the rating/catalog snapshot for publication
+	// and RefreshSnapshots.
 	RatingSnapshotSource economics.RatingSnapshotSource
 	// Rater is the enterprise rating provider injected onto the accounting runtime.
 	Rater economics.Rater

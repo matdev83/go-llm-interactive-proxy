@@ -29,10 +29,8 @@ func BillableFingerprint(c lipapi.Call) ([]byte, error) {
 	}
 	b.WriteString("|TC=")
 	b.WriteString(string(c.ToolChoice.Mode))
-	if c.Options.MaxOutputTokens != nil {
-		b.WriteString("|MO=")
-		b.WriteString(strconv.Itoa(*c.Options.MaxOutputTokens))
-	}
+	// MaxOutputTokens is compared separately so authority clamps may narrow the
+	// bound after freeze without failing the no-widening invariant (req 7.5).
 	if c.Options.Temperature != nil {
 		b.WriteString("|TP=")
 		b.WriteString(strconv.FormatFloat(*c.Options.Temperature, 'g', -1, 64))
@@ -43,6 +41,13 @@ func BillableFingerprint(c lipapi.Call) ([]byte, error) {
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return []byte(hex.EncodeToString(sum[:])), nil
+}
+
+func maxOutputTokensOrNeg(c lipapi.Call) int {
+	if c.Options.MaxOutputTokens == nil {
+		return -1
+	}
+	return *c.Options.MaxOutputTokens
 }
 
 func writeMessages(b *strings.Builder, tag string, msgs []lipapi.Message) {
@@ -68,6 +73,8 @@ func writeMessages(b *strings.Builder, tag string, msgs []lipapi.Message) {
 }
 
 // BillableWidened reports whether current has billable content beyond authorized.
+// Lowering MaxOutputTokens (authority/preflight clamp) is narrowing, not widening.
+// Raising MaxOutputTokens or introducing a max when the freeze had none is widening.
 func BillableWidened(authorized, current lipapi.Call) (bool, error) {
 	a, err := BillableFingerprint(authorized)
 	if err != nil {
@@ -77,7 +84,24 @@ func BillableWidened(authorized, current lipapi.Call) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return !bytes.Equal(a, b), nil
+	if !bytes.Equal(a, b) {
+		return true, nil
+	}
+	authMO := maxOutputTokensOrNeg(authorized)
+	curMO := maxOutputTokensOrNeg(current)
+	switch {
+	case authMO < 0 && curMO < 0:
+		return false, nil
+	case authMO < 0 && curMO >= 0:
+		// Freeze had unbounded output; binding a max is not billable content widening.
+		return false, nil
+	case authMO >= 0 && curMO < 0:
+		return true, nil
+	case curMO > authMO:
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
 // ErrUnmeasuredWidening is returned when a call changes billable content after

@@ -93,7 +93,7 @@ func TestRequestCoordinator_SettleDoesNotReleaseLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := coord.Settle(context.Background(), authority.RequestSettlement{RequestID: "req-1", Handles: d.Stack.Handles()}); err != nil {
+	if err := coord.Settle(context.Background(), d.Stack, authority.RequestSettlement{RequestID: "req-1", Handles: d.Stack.Handles()}); err != nil {
 		t.Fatal(err)
 	}
 	if conc.released.Load() != 0 {
@@ -105,4 +105,109 @@ func TestRequestCoordinator_SettleDoesNotReleaseLease(t *testing.T) {
 	if conc.released.Load() != 1 {
 		t.Fatalf("ReleaseLease released=%d want 1", conc.released.Load())
 	}
+}
+
+func TestRequestCoordinator_MultiLeaseCompensateAndReleaseAll(t *testing.T) {
+	t.Parallel()
+	var released []string
+	conc := &fakeConcurrencyProvider{
+		admit: func(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
+			return authority.LeaseDecision{
+				Kind:       authority.LeaseAllow,
+				LeaseID:    "lease-b", // primary = lastAllow
+				Generation: 2,
+				ExpiresAt:  time.Now().Add(time.Minute),
+				Leases: []authority.LeaseOccupancy{
+					{LeaseID: "lease-a", Generation: 1, RuleID: "rule-a"},
+					{LeaseID: "lease-b", Generation: 2, RuleID: "rule-b"},
+				},
+			}, nil
+		},
+	}
+	tracking := &trackingConcurrency{fake: conc, onRelease: func(id string) {
+		released = append(released, id)
+	}}
+
+	denyQuota := &fakeRequestProvider{
+		id: "quota",
+		admit: func(context.Context, authority.RequestAdmission) (authority.Decision, error) {
+			return authority.Decision{Kind: authority.DecisionDeny}, nil
+		},
+	}
+	coord := &authoritycoord.RequestCoordinator{
+		Concurrency: tracking,
+		Slots: []authoritycoord.RequestSlot{{
+			ID: "quota", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: denyQuota,
+		}},
+		CleanupTimeout: time.Second,
+	}
+	_, err := coord.Admit(context.Background(), validRequestAdmission())
+	if err == nil {
+		t.Fatal("expected deny from quota")
+	}
+	if len(released) != 2 {
+		t.Fatalf("compensate released=%v want both lease-a and lease-b", released)
+	}
+	byID := map[string]int{}
+	for _, id := range released {
+		byID[id]++
+	}
+	if byID["lease-a"] != 1 || byID["lease-b"] != 1 {
+		t.Fatalf("released counts=%v", byID)
+	}
+}
+
+func TestRequestCoordinator_MultiLeaseStackHandlesAll(t *testing.T) {
+	t.Parallel()
+	conc := &fakeConcurrencyProvider{
+		admit: func(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
+			return authority.LeaseDecision{
+				Kind:    authority.LeaseAllow,
+				LeaseID: "lease-b",
+				Leases: []authority.LeaseOccupancy{
+					{LeaseID: "lease-a", RuleID: "rule-a"},
+					{LeaseID: "lease-b", RuleID: "rule-b"},
+				},
+			}, nil
+		},
+	}
+	coord := &authoritycoord.RequestCoordinator{Concurrency: conc}
+	d, err := coord.Admit(context.Background(), validRequestAdmission())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handles := d.Stack.Handles()
+	if len(handles) != 2 {
+		t.Fatalf("handles=%v want 2", handles)
+	}
+	if err := coord.ReleaseLeases(context.Background(), []string{"lease-a", "lease-b"}, "req-1", "settled"); err != nil {
+		t.Fatal(err)
+	}
+	if conc.released.Load() != 2 {
+		t.Fatalf("ReleaseLeases released=%d want 2", conc.released.Load())
+	}
+}
+
+type trackingConcurrency struct {
+	fake      *fakeConcurrencyProvider
+	onRelease func(leaseID string)
+}
+
+func (t *trackingConcurrency) AdmitLease(ctx context.Context, in authority.LeaseAdmission) (authority.LeaseDecision, error) {
+	return t.fake.AdmitLease(ctx, in)
+}
+
+func (t *trackingConcurrency) RenewLease(ctx context.Context, in authority.LeaseRenew) (authority.LeaseDecision, error) {
+	return t.fake.RenewLease(ctx, in)
+}
+
+func (t *trackingConcurrency) ReleaseLease(ctx context.Context, in authority.LeaseRelease) error {
+	if t.onRelease != nil {
+		t.onRelease(in.LeaseID)
+	}
+	return t.fake.ReleaseLease(ctx, in)
+}
+
+func (t *trackingConcurrency) QueryLeases(ctx context.Context, q authority.LeaseQuery) (authority.LeasePage, error) {
+	return t.fake.QueryLeases(ctx, q)
 }

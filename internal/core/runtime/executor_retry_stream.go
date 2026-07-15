@@ -34,7 +34,9 @@ import (
 	coretraffic "github.com/matdev83/go-llm-interactive-proxy/internal/core/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -498,8 +500,33 @@ func (s *retryRecvStream) applyToolPolicies(ctx context.Context, te lipapi.ToolE
 // path. It fills in cost, currency, and price-catalog-derived cost source on
 // usage deltas that the backend did not annotate itself, so downstream usage
 // observers and authority settlement see consistent per-event evidence.
+// When EconomicsRater is attached, it is the exclusive pricing authority and
+// catalog EstimateCost must not silently substitute (requirements 6.3, 6.4, 12.1).
 func (s *retryRecvStream) enrichUsageCost(ev lipapi.Event) lipapi.Event {
 	if s == nil || s.executor == nil || ev.Kind != lipapi.EventUsageDelta || ev.CostPresent {
+		return ev
+	}
+	if s.executor.EconomicsRater != nil {
+		rated, err := s.executor.rateMonetaryExposure(context.Background(), economics.RatingRequest{
+			Perspective: metering.PerspectiveOperator,
+			BackendID:   strings.TrimSpace(s.cand.Primary.Backend),
+			Model:       strings.TrimSpace(s.cand.Primary.Model),
+			Quantities:  usageEventRatingQuantities(ev),
+			At:          s.executor.now(),
+		})
+		if err != nil {
+			if strings.TrimSpace(ev.CostSource) == "" {
+				ev.CostSource = accounting.CostSourceUnavailable
+			}
+			return ev
+		}
+		ev.CostNanoUnits = rated.Money.NanoUnits
+		ev.Currency = rated.Money.Currency
+		ev.CostSource = accounting.CostSourceEstimated
+		if src := strings.TrimSpace(rated.Source); src != "" {
+			ev.CostSource = src
+		}
+		ev.CostPresent = true
 		return ev
 	}
 	model := strings.TrimSpace(s.cand.Primary.Model)

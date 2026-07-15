@@ -45,6 +45,37 @@ func TestPostgresStore_AppendIdempotent(t *testing.T) {
 	}
 }
 
+func TestPostgresStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
+	dsn := testkit.SkipUnlessPostgres(t)
+	store := newPostgresJournal(t, dsn)
+	ctx := context.Background()
+	f := validFact("pg-fact-content", "pg-stream-content", 1)
+	if err := store.Append(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+
+	diffKind := f
+	diffKind.Kind = metering.FactKindDelta
+	if err := store.Append(ctx, diffKind); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different Kind collision got %v", err)
+	}
+
+	diffPayload := f
+	diffPayload.Quantities = []metering.Quantity{{
+		Component: metering.ComponentInputToken,
+		Unit:      metering.UnitToken,
+		Value:     99,
+		Present:   true,
+	}}
+	if err := store.Append(ctx, diffPayload); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different Quantities collision got %v", err)
+	}
+
+	if err := store.Append(ctx, f); err != nil {
+		t.Fatalf("identical content must stay idempotent: %v", err)
+	}
+}
+
 var (
 	pgBuildMu   sync.Mutex
 	pgSchemaSeq uint64

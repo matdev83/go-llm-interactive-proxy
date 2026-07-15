@@ -329,10 +329,11 @@ func TestAuthorityTiming_loserReleaseAfterOpenSetsBackendAttempted(t *testing.T)
 	// (operator incurred cost is erased). Phase 6 settles before residual release.
 }
 
-// TestAuthorityTiming_requestHookMutatesAfterAuthoritativeAdmit proves F-04 current
-// order: authoritative Admit (reserve) runs, then request-part hooks may mutate the
-// call, then Open sees the mutated call while the reservation remains held.
-func TestAuthorityTiming_requestHookMutatesAfterAuthoritativeAdmit(t *testing.T) {
+// TestAuthorityTiming_requestHookMutatesBeforeAuthoritativeAdmit locks the
+// approved dual-plane Backend Ingress order: request-part hooks / route shaping
+// run, BE freeze+count, then authoritative Admit, then Open sees the mutated
+// call while the reservation remains held (design Lifecycle Placement).
+func TestAuthorityTiming_requestHookMutatesBeforeAuthoritativeAdmit(t *testing.T) {
 	t.Parallel()
 
 	auth := &recordingAuthorityService{
@@ -354,23 +355,23 @@ func TestAuthorityTiming_requestHookMutatesAfterAuthoritativeAdmit(t *testing.T)
 	}
 
 	hookRan := atomic.Bool{}
-	admitBeforeHook := atomic.Bool{}
+	hookBeforeAuthoritativeAdmit := atomic.Bool{}
 	mutatedMax := 4242
 	bus := hooks.New(hooks.Config{
 		RequestPartHooks: []sdk.RequestPartHook{
 			&timingReqPartHook{
-				id:    "mutate-after-admit",
+				id:    "mutate-before-admit",
 				order: 0,
 				fn: func(_ context.Context, call *lipapi.Call, _ sdk.PartMeta) error {
-					// Characterize ordering: Admit must already have recorded by the time hooks run.
-					if auth.admitCalls.Load() >= 2 { // estimate + authoritative
-						admitBeforeHook.Store(true)
+					// Estimate-only precheck may have run; authoritative admit (2nd) must not.
+					if auth.admitCalls.Load() < 2 {
+						hookBeforeAuthoritativeAdmit.Store(true)
 					}
 					hookRan.Store(true)
 					call.Options.MaxOutputTokens = &mutatedMax
 					call.Messages = append(call.Messages, lipapi.Message{
 						Role:  lipapi.RoleUser,
-						Parts: []lipapi.Part{lipapi.TextPart("post-admit mutation")},
+						Parts: []lipapi.Part{lipapi.TextPart("pre-admit mutation")},
 					})
 					return nil
 				},
@@ -395,14 +396,17 @@ func TestAuthorityTiming_requestHookMutatesAfterAuthoritativeAdmit(t *testing.T)
 	if !hookRan.Load() {
 		t.Fatal("expected request-part hook to run")
 	}
-	if !admitBeforeHook.Load() {
-		t.Fatal("expected authoritative Admit to complete before request-part hook mutation")
+	if !hookBeforeAuthoritativeAdmit.Load() {
+		t.Fatal("expected request-part hook mutation before authoritative Admit")
+	}
+	if auth.admitCalls.Load() < 2 {
+		t.Fatalf("admit calls = %d, want estimate + authoritative", auth.admitCalls.Load())
 	}
 	if openedCall.Options.MaxOutputTokens == nil || *openedCall.Options.MaxOutputTokens != mutatedMax {
-		t.Fatalf("Open call MaxOutputTokens = %v, want %d (hooks mutate after reserve)", openedCall.Options.MaxOutputTokens, mutatedMax)
+		t.Fatalf("Open call MaxOutputTokens = %v, want %d (hooks mutate before reserve)", openedCall.Options.MaxOutputTokens, mutatedMax)
 	}
 	if len(openedCall.Messages) < 2 {
-		t.Fatalf("Open call messages = %d, want >= 2 after post-admit mutation", len(openedCall.Messages))
+		t.Fatalf("Open call messages = %d, want >= 2 after pre-admit mutation", len(openedCall.Messages))
 	}
 	if out.authority.admissionResult.ReservationID != "reservation-mutate" {
 		t.Fatalf("reservation ID = %q, want reservation-mutate still held through Open", out.authority.admissionResult.ReservationID)

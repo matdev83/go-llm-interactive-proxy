@@ -152,7 +152,24 @@ type AdmitInput struct {
 	RuleID         string
 }
 
+// AdmittedLease is one rule occupancy acquired or replayed during Admit.
+type AdmittedLease struct {
+	LeaseID         string
+	RuleID          string
+	Generation      int64
+	ExpiresAt       time.Time
+	RenewBefore     time.Duration
+	TTL             time.Duration
+	FailureBehavior domain.FailureBehavior
+	Acquired        bool
+	Replayed        bool
+}
+
 // AdmitResult is the application admit outcome.
+//
+// For multi-rule allow, scalar LeaseID/Generation/... are the primary lease
+// (last successfully acquired / lastAllow) for backward compatibility. Leases
+// lists every occupancy acquired or replayed in this Admit.
 type AdmitResult struct {
 	Kind            domain.DecisionKind
 	LeaseID         string
@@ -168,6 +185,8 @@ type AdmitResult struct {
 	RenewBefore     time.Duration
 	TTL             time.Duration
 	FailureBehavior domain.FailureBehavior
+	// Leases holds all rule occupancies from this Admit (empty on deny after rollback).
+	Leases []AdmittedLease
 }
 
 // RenewInput is application-level lease renewal input.

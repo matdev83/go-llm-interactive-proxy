@@ -46,6 +46,65 @@ func TestMemoryStore_AppendIdempotentAndCollision(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
+	t.Parallel()
+	s, err := journalstore.NewMemoryStore(journalstore.MemoryConfig{StoreID: "mem-content-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	f := validFact("fact-content-1", "stream-content", 1)
+	if err := s.Append(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+
+	diffKind := f
+	diffKind.Kind = metering.FactKindDelta
+	if err := s.Append(ctx, diffKind); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different Kind collision got %v", err)
+	}
+
+	diffPayload := f
+	diffPayload.Quantities = []metering.Quantity{{
+		Component: metering.ComponentInputToken,
+		Unit:      metering.UnitToken,
+		Value:     99,
+		Present:   true,
+	}}
+	if err := s.Append(ctx, diffPayload); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different Quantities collision got %v", err)
+	}
+
+	replay := f
+	replay.Quantities = []metering.Quantity{{
+		Component: metering.ComponentInputToken,
+		Unit:      metering.UnitToken,
+		Value:     3,
+		Present:   true,
+	}}
+	if err := s.Append(ctx, replay); err != nil {
+		t.Fatalf("identical content must stay idempotent: %v", err)
+	}
+}
+
+func TestMemoryStore_AppendRejectsSameIdentityDifferentCorrelation(t *testing.T) {
+	t.Parallel()
+	s, err := journalstore.NewMemoryStore(journalstore.MemoryConfig{StoreID: "mem-correlation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := validFact("fact-correlation-1", "stream-correlation", 1)
+	f.Correlation = metering.Correlation{RequestID: "request-1", TraceID: "trace-1"}
+	if err := s.Append(context.Background(), f); err != nil {
+		t.Fatal(err)
+	}
+	conflict := f
+	conflict.Correlation.TraceID = "trace-2"
+	if err := s.Append(context.Background(), conflict); !errors.Is(err, journalstore.ErrIdentityCollision) {
+		t.Fatalf("different correlation collision got %v", err)
+	}
+}
+
 func TestMemoryStore_ListRequiresBoundAndPaginates(t *testing.T) {
 	t.Parallel()
 	s, err := journalstore.NewMemoryStore(journalstore.MemoryConfig{
