@@ -54,12 +54,17 @@ func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunner
 func assemblePolicyObserverChain(opts *BuildOptions, cp *controlPlaneRuntime) policydecision.Observer {
 	var policyObs policydecision.Observer = policydecision.NoopObserver{}
 	cpPolicyObs := cp.policyObserver()
-	if opts != nil && len(opts.Policy.PolicyObservers) > 0 {
-		chain := make([]policydecision.Observer, 0, len(opts.Policy.PolicyObservers)+1)
+	var operators []policydecision.Observer
+	if opts != nil {
+		operators = append(operators, opts.Policy.PolicyObservers...)
+		operators = append(operators, opts.Production.PolicyObservers...)
+	}
+	if len(operators) > 0 {
+		chain := make([]policydecision.Observer, 0, len(operators)+1)
 		if cpPolicyObs != nil {
 			chain = append(chain, cpPolicyObs)
 		}
-		chain = append(chain, opts.Policy.PolicyObservers...)
+		chain = append(chain, operators...)
 		policyObs = policydecision.NewChainObserver(chain...)
 	} else if cpPolicyObs != nil {
 		policyObs = cpPolicyObs

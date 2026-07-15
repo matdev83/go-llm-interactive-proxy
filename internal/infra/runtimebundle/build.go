@@ -111,19 +111,21 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts.Testing.Clock != nil {
 		nowFn = opts.Testing.Clock
 	}
+	snapGen := buildSnapshotGeneration(cfg, opts.Testing, opts.Production)
 	var exec *runtime.Executor
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs)
 	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
-		Bctx:           bctx,
-		NowFn:          nowFn,
-		Ext:            ext,
-		Model:          model,
-		Persistence:    persist,
-		Security:       sec,
-		Observability:  &obs,
-		ControlPlane:   controlPlane,
-		UsageAuthority: usageAuthorityHandle,
-		Concurrency:    concurrencyRT,
+		Bctx:               bctx,
+		NowFn:              nowFn,
+		Ext:                ext,
+		Model:              model,
+		Persistence:        persist,
+		Security:           sec,
+		Observability:      &obs,
+		ControlPlane:       controlPlane,
+		UsageAuthority:     usageAuthorityHandle,
+		Concurrency:        concurrencyRT,
+		SnapshotGeneration: snapGen,
 	}, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
@@ -151,6 +153,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 		UsageAuthority:        usageAuthorityHandle,
 		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
+		SnapshotGeneration:    snapGen,
+		MeteringQuerier:       opts.Production.MeteringQuerier,
 	}, nil
 }
 

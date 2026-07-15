@@ -2,6 +2,7 @@ package configsource
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
@@ -24,10 +25,19 @@ func New(cfg config.ConcurrencyAuthorityConfig) (*Source, error) {
 	if !cfg.Enabled {
 		ready = domain.Readiness{State: domain.ReadinessStateDisabled}
 	}
+	now := time.Now().UTC()
+	version := strings.TrimSpace(cfg.SnapshotVersion)
+	if version == "" {
+		version = "static"
+	}
 	return &Source{snap: app.RuleSnapshot{
-		Readiness: ready,
-		Rules:     cloneRules(rules),
-		FetchedAt: time.Now().UTC(),
+		ID:          "concurrency",
+		Version:     version,
+		EffectiveAt: now,
+		FetchedAt:   now,
+		State:       app.SnapshotStateFromReadiness(ready),
+		Readiness:   ready,
+		Rules:       cloneRules(rules),
 	}}, nil
 }
 
@@ -37,7 +47,12 @@ func (s *Source) Snapshot(ctx context.Context) (app.RuleSnapshot, error) {
 		return app.RuleSnapshot{}, err
 	}
 	if s == nil {
-		return app.RuleSnapshot{Readiness: domain.Readiness{State: domain.ReadinessStateDisabled}}, nil
+		ready := domain.Readiness{State: domain.ReadinessStateDisabled}
+		return app.RuleSnapshot{
+			ID:        "concurrency",
+			State:     app.SnapshotStateFromReadiness(ready),
+			Readiness: ready,
+		}, nil
 	}
 	out := s.snap
 	out.Rules = cloneRules(s.snap.Rules)

@@ -64,7 +64,7 @@ func (a *usageAuthorityProviderAdapter) SettleRequest(ctx context.Context, in au
 		return authority.Settlement{Kind: authority.SettlementFinal}, nil
 	}
 	for _, h := range in.Handles {
-		_, err := a.svc.Settle(ctx, authorityapp.SettleInput{
+		settleIn := authorityapp.SettleInput{
 			ReservationID: strings.TrimSpace(h),
 			ReservationKey: domain.ReservationKey{
 				LogicalRequestID: strings.TrimSpace(in.RequestID),
@@ -73,7 +73,12 @@ func (a *usageAuthorityProviderAdapter) SettleRequest(ctx context.Context, in au
 			Correlation: controlplane.Correlation{RequestID: strings.TrimSpace(in.RequestID)},
 			Kind:        authorityapp.SettlementKindFinal,
 			Stage:       string(authority.StageRequestSettle),
-		})
+			Facts:       in.Facts,
+		}
+		if len(in.BoundVersions) > 0 {
+			settleIn.BoundVersion = in.BoundVersions[0]
+		}
+		_, err := a.svc.Settle(ctx, settleIn)
 		if err != nil {
 			return authority.Settlement{}, err
 		}
@@ -153,7 +158,7 @@ func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in au
 		return authority.Settlement{Kind: authority.SettlementFinal}, nil
 	}
 	for _, h := range in.Handles {
-		_, err := a.svc.Settle(ctx, authorityapp.SettleInput{
+		settleIn := authorityapp.SettleInput{
 			ReservationID: strings.TrimSpace(h),
 			ReservationKey: domain.ReservationKey{
 				LogicalRequestID: strings.TrimSpace(in.RequestID),
@@ -165,7 +170,12 @@ func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in au
 			Kind:             authorityapp.SettlementKindFinal,
 			Stage:            string(authority.StageAttemptSettle),
 			BackendAttempted: true,
-		})
+			Facts:            in.Facts,
+		}
+		if len(in.BoundVersions) > 0 {
+			settleIn.BoundVersion = in.BoundVersions[0]
+		}
+		_, err := a.svc.Settle(ctx, settleIn)
 		if err != nil {
 			return authority.Settlement{}, err
 		}
@@ -205,9 +215,15 @@ func mapAdmissionDecision(res authorityapp.AdmissionResult, providerID string, s
 	d := authority.Decision{ProviderID: providerID, Stage: stage}
 	if !res.Allowed {
 		d.Kind = authority.DecisionDeny
+		if res.BoundVersion.Version != "" {
+			d.BoundVersions = []economics.PolicySnapshotRef{res.BoundVersion}
+		}
 		return d
 	}
 	d.Kind = authority.DecisionAllow
+	if res.BoundVersion.Version != "" {
+		d.BoundVersions = []economics.PolicySnapshotRef{res.BoundVersion}
+	}
 	if res.Reserved && strings.TrimSpace(res.ReservationID) != "" {
 		d.Reservations = append(d.Reservations, authority.Reservation{
 			Handle: res.ReservationID,

@@ -312,6 +312,8 @@ func (l *authorityLifecycle) settlementInput(kind authorityapp.SettlementKind, u
 		ClientCanceled:       clientCanceled,
 		FinalUsagePresent:    usageEventPresent(usageEv),
 		FinalCostPresent:     costEventPresent(usageEv),
+		// Pin settle to the admission-time snapshot (requirement 11.4).
+		BoundVersion: state.admissionResult.BoundVersion,
 	}
 	input.Reservations = make([]authorityapp.SettlementDescriptor, 0, len(reservations))
 	for _, reservation := range reservations {

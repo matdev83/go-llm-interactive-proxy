@@ -31,9 +31,49 @@ type LeaseStore interface {
 
 // RuleSnapshot is the immutable rule set consumed by admit orchestration.
 type RuleSnapshot struct {
-	Readiness domain.Readiness
-	Rules     []domain.Rule
-	FetchedAt time.Time
+	ID          string
+	Version     string
+	EffectiveAt time.Time
+	FetchedAt   time.Time
+	State       economics.SnapshotState
+	Readiness   domain.Readiness
+	Rules       []domain.Rule
+}
+
+// PolicyRef returns the bindable policy snapshot identity for this rule set.
+func (s RuleSnapshot) PolicyRef() economics.PolicySnapshotRef {
+	id := s.ID
+	if id == "" {
+		id = "concurrency"
+	}
+	return economics.PolicySnapshotRef{
+		VersionRef: economics.VersionRef{
+			ID:          id,
+			Version:     s.Version,
+			EffectiveAt: s.EffectiveAt,
+			FetchedAt:   s.FetchedAt,
+		},
+		PolicyID: id,
+	}
+}
+
+// SnapshotStateFromReadiness maps concurrency readiness onto economics.SnapshotState.
+func SnapshotStateFromReadiness(r domain.Readiness) economics.SnapshotState {
+	switch r.State {
+	case domain.ReadinessStateReady:
+		return economics.SnapshotReady
+	case domain.ReadinessStateDegraded:
+		return economics.SnapshotDegraded
+	case domain.ReadinessStateUnavailable:
+		return economics.SnapshotUnavailable
+	case domain.ReadinessStateDisabled:
+		return economics.SnapshotDisabled
+	default:
+		if r.State == "" {
+			return economics.SnapshotReady
+		}
+		return economics.SnapshotUnavailable
+	}
 }
 
 // AcquireCommand requests an idempotent lease insert under a capacity limit.

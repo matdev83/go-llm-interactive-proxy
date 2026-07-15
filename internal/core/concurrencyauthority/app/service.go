@@ -151,13 +151,16 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 			ExpiresAt:       acq.Lease.ExpiresAt,
 			RemainingSlots:  acq.RemainingSlots,
 			Readiness:       ready,
-			BoundVersion:    in.BoundVersion,
+			BoundVersion:    snap.PolicyRef(),
 			Acquired:        !acq.Replayed,
 			Replayed:        acq.Replayed,
 			RuleID:          rule.ID,
 			RenewBefore:     rule.EffectiveRenewBefore(),
 			TTL:             ttl,
 			FailureBehavior: rule.FailureBehavior,
+		}
+		if in.BoundVersion.Version != "" {
+			out.BoundVersion = in.BoundVersion
 		}
 		lastAllow = out
 		haveAllow = true

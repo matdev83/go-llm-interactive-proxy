@@ -97,6 +97,9 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
 		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
 		out.Clamps = mergeClampsNonWidening(out.Clamps, d.Clamps)
+		if len(d.BoundVersions) > 0 {
+			out.BoundVersions = append(out.BoundVersions, d.BoundVersions...)
+		}
 
 		switch d.Kind {
 		case authority.DecisionDeny:

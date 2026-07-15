@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -25,6 +27,7 @@ type Service struct {
 	defaultFailureBehavior domain.FailureBehavior
 	snapshotMu             sync.RWMutex
 	lastSnapshot           RuleSnapshot
+	versionSnapshots       map[string]RuleSnapshot
 }
 
 // ServiceOptions controls application-level admission behavior without making
@@ -87,6 +90,17 @@ func (s *Service) cacheSnapshot(snap RuleSnapshot) {
 	}
 	s.snapshotMu.Lock()
 	s.lastSnapshot = snap
+	if ver := strings.TrimSpace(snap.Version); ver != "" {
+		if s.versionSnapshots == nil {
+			s.versionSnapshots = make(map[string]RuleSnapshot)
+		}
+		// Deep-copy rules so later publishes cannot mutate cached versions.
+		cp := snap
+		if len(snap.Rules) > 0 {
+			cp.Rules = append([]domain.Rule(nil), snap.Rules...)
+		}
+		s.versionSnapshots[ver] = cp
+	}
 	s.snapshotMu.Unlock()
 }
 
@@ -98,6 +112,46 @@ func (s *Service) cachedSnapshot() RuleSnapshot {
 	snap := s.lastSnapshot
 	s.snapshotMu.RUnlock()
 	return snap
+}
+
+// versionSnapshot returns a previously admitted snapshot by version identity.
+func (s *Service) versionSnapshot(version string) (RuleSnapshot, bool) {
+	if s == nil {
+		return RuleSnapshot{}, false
+	}
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return RuleSnapshot{}, false
+	}
+	s.snapshotMu.RLock()
+	defer s.snapshotMu.RUnlock()
+	snap, ok := s.versionSnapshots[version]
+	return snap, ok
+}
+
+// snapshotForSettle resolves rules using the reservation-bound version when set
+// (requirements 11.2, 11.4). Missing bound versions fail closed rather than
+// silently substituting an unrelated current snapshot.
+func (s *Service) snapshotForSettle(ctx context.Context, bound economics.PolicySnapshotRef) RuleSnapshot {
+	if ver := strings.TrimSpace(bound.Version); ver != "" {
+		if snap, ok := s.versionSnapshot(ver); ok {
+			return snap
+		}
+		current := s.snapshotTolerant(ctx)
+		if strings.TrimSpace(current.Version) == ver {
+			return current
+		}
+		return RuleSnapshot{
+			ID:      bound.ID,
+			Version: ver,
+			State:   economics.SnapshotUnavailable,
+			Status: domain.AuthorityStatus{
+				State:  domain.AuthorityStateUnavailable,
+				Reason: domain.StatusReasonBackingUnavailable,
+			},
+		}
+	}
+	return s.snapshotTolerant(ctx)
 }
 
 func (s *Service) now() time.Time {

@@ -3,6 +3,7 @@ package configsource
 import (
 	"context"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -21,11 +22,21 @@ func New(cfg config.AccountingAuthorityConfig) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UTC()
+	version := strings.TrimSpace(cfg.SnapshotVersion)
+	if version == "" {
+		version = "static"
+	}
+	status := domainCfg.Status()
 	snap := app.RuleSnapshot{
-		Status:             domainCfg.Status(),
+		ID:                 "usage_authority",
+		Version:            version,
+		EffectiveAt:        now,
+		FetchedAt:          now,
+		State:              app.SnapshotStateFromAuthority(status),
+		Status:             status,
 		UnknownAttribution: domainCfg.UnknownAttribution,
 		Rules:              cloneRules(domainCfg.Rules),
-		FetchedAt:          time.Now().UTC(),
 	}
 	return &Source{snap: snap}, nil
 }
@@ -36,7 +47,11 @@ func (s *Source) Snapshot(ctx context.Context) (app.RuleSnapshot, error) {
 		return app.RuleSnapshot{}, err
 	}
 	if s == nil {
-		return app.RuleSnapshot{Status: authoritydomain.StatusFromBacking(authoritydomain.BackingCapabilityDisabled)}, nil
+		return app.RuleSnapshot{
+			ID:     "usage_authority",
+			State:  app.SnapshotStateFromAuthority(authoritydomain.StatusFromBacking(authoritydomain.BackingCapabilityDisabled)),
+			Status: authoritydomain.StatusFromBacking(authoritydomain.BackingCapabilityDisabled),
+		}, nil
 	}
 	out := s.snap
 	out.Rules = cloneRules(s.snap.Rules)

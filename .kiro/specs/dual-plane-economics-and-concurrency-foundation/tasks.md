@@ -118,27 +118,28 @@
   - Expose active, expiring, expired, released, remaining-slot, rule-version, and readiness information through bounded protected queries.
   - _Requirements: 10.11, 10.12, 14.3, 14.4, 14.5_
 
-- [ ] 9. Add dynamic versioned snapshots
-- [ ] 9.1 Implement static and injectable snapshot sources
+- [x] 9. Add dynamic versioned snapshots
+- [x] 9.1 Implement static and injectable snapshot sources
   - Support immutable authority, concurrency, and rating snapshots with ready, stale, degraded, unavailable, and disabled status.
   - _Requirements: 11.1, 11.5, 11.6, 11.7_
-- [ ] 9.2 Bind versions to requests, attempts, reservations, and settlements
+- [x] 9.2 Bind versions to requests, attempts, reservations, and settlements
   - Keep in-flight work on its bound versions while new publications affect new admissions.
   - _Requirements: 11.2, 11.3, 11.4, 11.8, 6.2, 7.6_
-- [ ] 9.3 Publish runtime generations atomically
+- [x] 9.3 Publish runtime generations atomically
   - Avoid in-place mutation of active request pipelines and reject silent fallback to unrelated versions.
   - _Requirements: 11.3, 11.7, 12.8, 17.1_
 
-- [ ] 10. Expose production open-core composition seams
-- [ ] 10.1 Add a public runtime construction facade
-  - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and query implementations.
+- [x] 10. Expose production open-core composition seams
+- [x] 10.1 Add a public runtime construction facade
+  - Accept public metering, rating, request authority, attempt authority, concurrency authority, snapshot source, evidence, and metering query implementations.
   - Keep internal runtimebundle authoritative without exposing Executor internals.
+  - Bounded control-plane query filter expansion remains Phase 11; Phase 10 mounts `metering.Querier`.
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
-- [ ] 10.2 Add a separate-module enterprise compile and execution fixture
+- [x] 10.2 Add a separate-module enterprise compile and execution fixture
   - Implement fake external raters and authorities using only public packages.
   - Fail architecture CI if an internal import or runtime fork becomes necessary.
   - _Requirements: 12.6, 12.9, 17.7_
-- [ ] 10.3 Preserve feature-bundle and observer compatibility
+- [x] 10.3 Preserve feature-bundle and observer compatibility
   - Keep traffic/usage observers supported while ensuring strict decisions use authority contracts rather than fail-open observation.
   - _Requirements: 12.7, 17.1, 17.4_
 
@@ -187,3 +188,11 @@
 - Phase 8.3: `accounting.concurrency` config + configsource + runtimebundle wire; request-owned renew heartbeat; settle/release stop heartbeat and ReleaseLease with fresh cleanup ctx; aux depth inherits without extra slot.
 - Phase 8.4: CP lease DTOs + `/authority/leases*` protected queries; request-authority concurrency denials map to client-safe `concurrency_limit` without lease IDs.
 - Phase 8 remediation (validate-impl NO-GO): (10.5) prepare cleanup + uncommitted cancel call `releaseRequestAuthority`; (10.8) renew honors rule `failure_behavior` (`fail_closed` stop renew/keep occupancy, `fail_open` degrade+retry); (10.10) `accounting.concurrency.auxiliary_lease_policy` `inherit|acquire_own` wired to Admit; (8.4) capacity counts per `rule_id`, lease rows expose `rule_version`+`dimension_key`, Query projects `expiring`, unsupported CP filters fail closed.
+- Phase 9.1: `economics.SnapshotState`/`Snapshot[T]` + public `RuleSnapshotSource`/`RatingSnapshotSource`; enriched usage/concurrency `RuleSnapshot` ID/Version/State; YAML `snapshot_version`; injectable `internal/infra/snapshotsource` memory sources; static rating snapshot helper from catalog metadata.
+- Phase 9.2: Admit captures `BoundVersion`; settle uses version-indexed snapshot cache (fail closed on missing unrelated version); concurrency admit stamps `snap.PolicyRef()`; coordinators/adapters forward BoundVersions into settle.
+- Phase 9.3: `internal/core/snapshotgen` atomic `Publisher` (`RuntimeGeneration` + pointer swap); `MarkUnusable` keeps Value versions (no silent unrelated fallback; unknown state preserves prior); runtimebundle builds initial generation from static config and exposes `Built.SnapshotGeneration` / `TestingOptions.SnapshotPublisherOverride`; admit-time version binding remains on BoundVersions from 9.2.
+- Phase 9 remediation (review REJECTED): (11.4) `authorityLifecycle.settlementInput` now forwards `admissionResult.BoundVersion`; attempt coordinator aggregates BoundVersions and `admitAttemptViaCoordinator` copies them into AdmissionResult; SnapshotGeneration is wired onto Executor and preferred at admit (`applyGenerationBoundVersion` / `mergeGenerationBoundVersions`); regression covers lifecycle settle after mid-flight rule publish.
+- Phase 10.1: `pkg/lipruntime` public facade (`Options`/`Build`/`Runtime`) delegates to `runtimebundle.BuildBootstrap`; first-class `ProductionOptions` on BuildOptions (metering/authority/concurrency/snapshot/observers/evidence/rater/query) outside TestingOptions (12.4); opaque handle exposes `ExecutorView` only.
+- Phase 10.2: `testdata/enterprise_module` sibling module (replace → OSS) builds via lipruntime with fake public providers (request authority, rater, evidence sink, metering querier); Execute/Collect smoke via dogfood-local-stub; archtest `TestEnterpriseModulePublicOnlyCompileGate` fails on `internal/` imports (12.6).
+- Phase 10.3: facade merges Traffic/Usage observers; `ProviderDescriptors` validated at Build so observers cannot declare StrengthRequired (12.7); authority descriptors remain allowed for strict admit.
+- Phase 10 remediation (review REJECTED): (12.1) public `authority.EvidenceSink` + `MeteringQuerier` production injection; `Options.Rater` forwarded onto `AccountingRuntime.EconomicsRater`; enterprise fixture proves fake rater + ExecutorView execute path. Bounded CP query filter expansion remains Phase 11 (query mount is metering.Querier).

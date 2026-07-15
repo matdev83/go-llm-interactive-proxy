@@ -20,6 +20,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
@@ -31,6 +32,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
@@ -97,10 +99,17 @@ type AccountingRuntime struct {
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
+	// EconomicsRater is the optional enterprise rating provider (Phase 10).
+	// Nil keeps spend estimates on AccountingPriceCatalog until dual-plane rating
+	// replaces catalog-backed paths.
+	EconomicsRater economics.Rater
 	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
 	RequestCoordinator *authoritycoord.RequestCoordinator
 	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).
 	AttemptCoordinator *authoritycoord.AttemptCoordinator
+	// SnapshotGeneration is the atomic policy/rating generation publisher (Phase 9.3).
+	// Admit binds Current() usage/concurrency/rating refs when present.
+	SnapshotGeneration *snapshotgen.Publisher
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority

@@ -19,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -42,16 +43,17 @@ type executorRuntime struct {
 // executorBuildInput groups the upstream unit results consumed by
 // [buildExecutorRuntime].
 type executorBuildInput struct {
-	Bctx           buildContext
-	NowFn          func() time.Time
-	Ext            *extensionRuntime
-	Model          *modelRuntime
-	Persistence    *persistenceRuntime
-	Security       *securityRuntime
-	Observability  *observabilityRuntime
-	ControlPlane   *controlPlaneRuntime
-	UsageAuthority *authorityapp.Service
-	Concurrency    *concurrencyAuthorityRuntime
+	Bctx               buildContext
+	NowFn              func() time.Time
+	Ext                *extensionRuntime
+	Model              *modelRuntime
+	Persistence        *persistenceRuntime
+	Security           *securityRuntime
+	Observability      *observabilityRuntime
+	ControlPlane       *controlPlaneRuntime
+	UsageAuthority     *authorityapp.Service
+	Concurrency        *concurrencyAuthorityRuntime
+	SnapshotGeneration *snapshotgen.Publisher
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -117,6 +119,12 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if meteringRT != nil {
 		accountingRT.MeteringRecorder = meteringRT.Recorder
 	}
+	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
+		accountingRT.MeteringRecorder = in.Bctx.Opts.Production.MeteringRecorder
+	}
+	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.Rater != nil {
+		accountingRT.EconomicsRater = in.Bctx.Opts.Production.Rater
+	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
 		cleanupTimeout, err := cfg.Accounting.Authority.CleanupTimeoutDuration()
@@ -126,9 +134,14 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
-	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil {
-		attachAuthorityCoordinators(&accountingRT)
+	var prod ProductionOptions
+	if in.Bctx.Opts != nil {
+		prod = in.Bctx.Opts.Production
 	}
+	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil || prod.HasAuthorityOverrides() {
+		attachAuthorityCoordinators(&accountingRT, prod)
+	}
+	accountingRT.SnapshotGeneration = in.SnapshotGeneration
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
 		if err != nil {

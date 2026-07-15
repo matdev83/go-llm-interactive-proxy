@@ -16,10 +16,11 @@ func TestSourceSnapshotCapturesValidatedConfigSnapshot(t *testing.T) {
 
 	anchor := time.Date(2026, 7, 9, 0, 0, 0, 0, time.UTC)
 	cfg := config.AccountingAuthorityConfig{
-		Enabled:        true,
-		Mode:           "strict",
-		Store:          "memory",
-		StartupPosture: "fail_closed",
+		Enabled:         true,
+		Mode:            "strict",
+		Store:           "memory",
+		StartupPosture:  "fail_closed",
+		SnapshotVersion: "auth-v7",
 		Rules: []config.AccountingAuthorityRuleConfig{
 			{
 				ID:       "tenant.requests",
@@ -57,6 +58,9 @@ func TestSourceSnapshotCapturesValidatedConfigSnapshot(t *testing.T) {
 
 	if snap.Status.State != authoritydomain.AuthorityStateReady {
 		t.Fatalf("status.state = %q, want %q", snap.Status.State, authoritydomain.AuthorityStateReady)
+	}
+	if snap.ID != "usage_authority" || snap.Version != "auth-v7" || string(snap.State) != "ready" {
+		t.Fatalf("versioned snap id=%q version=%q state=%q", snap.ID, snap.Version, snap.State)
 	}
 	if snap.Status.Reason != authoritydomain.StatusReasonNone {
 		t.Fatalf("status.reason = %q, want %q", snap.Status.Reason, authoritydomain.StatusReasonNone)

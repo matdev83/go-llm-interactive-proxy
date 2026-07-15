@@ -1,7 +1,8 @@
 // Package authority defines public request- and attempt-level authority
 // provider contracts, decisions, safe evidence, and concurrency lease DTOs.
 //
-// Import DAG: authority → economics → metering (no cycles).
+// Import DAG: authority → economics → metering; authority also uses
+// policydecision and controlplane for EvidenceSink (no cycles).
 // Implementations and stores live outside this package (Phase 6+ / 8).
 //
 // Boundary rules:

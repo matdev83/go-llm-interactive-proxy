@@ -1,0 +1,85 @@
+package snapshotgen
+
+import (
+	"sync/atomic"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+)
+
+// RuntimeGeneration is one immutable published set of usage, concurrency, and
+// rating snapshots (design: Publication).
+type RuntimeGeneration struct {
+	ID          int64
+	PublishedAt time.Time
+	State       economics.SnapshotState
+	Reason      string
+	Usage       economics.Snapshot[economics.PolicyRulesView]
+	Concurrency economics.Snapshot[economics.PolicyRulesView]
+	Rating      economics.Snapshot[economics.RatingCatalogView]
+}
+
+// Publisher atomically publishes immutable generations for request binding.
+type Publisher struct {
+	active atomic.Pointer[RuntimeGeneration]
+	seq    atomic.Int64
+}
+
+// NewPublisher returns an empty publisher (Current is nil until Publish).
+func NewPublisher() *Publisher {
+	return &Publisher{}
+}
+
+// Current returns the active generation pointer, or nil when none published.
+func (p *Publisher) Current() *RuntimeGeneration {
+	if p == nil {
+		return nil
+	}
+	return p.active.Load()
+}
+
+// Publish stores gen as the active generation with a new monotonic ID.
+// Callers must treat returned generations as immutable.
+func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
+	if p == nil {
+		return nil
+	}
+	if gen.PublishedAt.IsZero() {
+		gen.PublishedAt = time.Now().UTC()
+	}
+	if gen.State == "" {
+		gen.State = economics.SnapshotReady
+	}
+	gen.ID = p.seq.Add(1)
+	cp := gen
+	p.active.Store(&cp)
+	return &cp
+}
+
+// MarkUnusable updates readiness of the active generation without replacing
+// snapshot Values with an unrelated version (requirements 11.3, 11.7).
+// Unknown states are rejected and the prior generation is preserved.
+func (p *Publisher) MarkUnusable(state economics.SnapshotState, reason string) *RuntimeGeneration {
+	if p == nil {
+		return nil
+	}
+	if !state.IsKnown() || state == economics.SnapshotReady {
+		return p.Current()
+	}
+	cur := p.active.Load()
+	if cur == nil {
+		gen := RuntimeGeneration{
+			State:  state,
+			Reason: reason,
+		}
+		return p.Publish(gen)
+	}
+	next := *cur
+	next.State = state
+	next.Reason = reason
+	next.PublishedAt = time.Now().UTC()
+	// Preserve Value identities (ID/Version) on Usage/Concurrency/Rating.
+	next.ID = p.seq.Add(1)
+	p.active.Store(&next)
+	return &next
+}

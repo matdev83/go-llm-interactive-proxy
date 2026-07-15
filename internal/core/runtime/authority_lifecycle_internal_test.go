@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/usageauthority/authoritystore"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
@@ -80,6 +81,31 @@ func TestAuthorityLifecycle(t *testing.T) {
 		}
 		if got := rec.releaseCalls.Load(); got != 0 {
 			t.Fatalf("release calls after second Settle = %d, want 0", got)
+		}
+	})
+
+	t.Run("Settle forwards BoundVersion from admission", func(t *testing.T) {
+		t.Parallel()
+		rec := newRecorder()
+		state := attemptAuthorityState{
+			admissionInput: testAuthorityAdmissionInput(100),
+			admissionResult: authorityapp.AdmissionResult{
+				Reserved:       true,
+				ReservationID:  "r1",
+				ReservedAmount: authorityInputAmount(100),
+				BoundVersion: economics.PolicySnapshotRef{
+					VersionRef: economics.VersionRef{ID: "usage_authority", Version: "v1"},
+					PolicyID:   "usage_authority",
+				},
+			},
+		}
+		l := newAuthorityLifecycle(rec, nil, state, authorityCandidate())
+		if applied := l.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{}, false); !applied {
+			t.Fatal("Settle = false, want true")
+		}
+		got := rec.lastSettle().BoundVersion
+		if got.Version != "v1" || got.PolicyID != "usage_authority" {
+			t.Fatalf("Bound version = %+v, want v1/usage_authority", got)
 		}
 	})
 

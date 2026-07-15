@@ -91,6 +91,7 @@ func (e *Executor) admitAttemptAuthority(
 	if result.ReservedAmount.Unit != "" {
 		admissionInput.Request = result.ReservedAmount
 	}
+	e.applyGenerationBoundVersion(&result)
 	state := attemptAuthorityState{
 		admissionInput:  admissionInput,
 		admissionResult: result,
@@ -159,6 +160,10 @@ func (e *Executor) admitAttemptViaCoordinator(
 			res.Reservations = append(res.Reservations, authorityapp.AdmissionReservation{ReservationID: h})
 		}
 	}
+	if len(d.BoundVersions) > 0 {
+		res.BoundVersion = d.BoundVersions[0]
+	}
+	e.applyGenerationBoundVersion(&res)
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
 		Scope:          scopeFromCtx(ctx),
@@ -607,4 +612,64 @@ func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err err
 		}
 		return nil
 	}
+}
+
+// applyGenerationBoundVersion prefers the published runtime generation's usage
+// snapshot identity when SnapshotGeneration is wired (design: Publication).
+func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult) {
+	if e == nil || res == nil || e.SnapshotGeneration == nil {
+		return
+	}
+	gen := e.SnapshotGeneration.Current()
+	if gen == nil {
+		return
+	}
+	if strings.TrimSpace(gen.Usage.Version) == "" {
+		return
+	}
+	policyID := strings.TrimSpace(gen.Usage.ID)
+	if policyID == "" {
+		policyID = string(economics.PolicyKindUsageAuthority)
+	}
+	res.BoundVersion = gen.Usage.PolicyRef(policyID)
+}
+
+// mergeGenerationBoundVersions appends Current() usage/concurrency refs onto a
+// request-stage composite decision when SnapshotGeneration is wired.
+func (e *Executor) mergeGenerationBoundVersions(d *authoritycoord.CompositeDecision) {
+	if e == nil || d == nil || e.SnapshotGeneration == nil {
+		return
+	}
+	gen := e.SnapshotGeneration.Current()
+	if gen == nil {
+		return
+	}
+	if strings.TrimSpace(gen.Usage.Version) != "" {
+		policyID := strings.TrimSpace(gen.Usage.ID)
+		if policyID == "" {
+			policyID = string(economics.PolicyKindUsageAuthority)
+		}
+		ref := gen.Usage.PolicyRef(policyID)
+		d.BoundVersions = prependPolicyRef(d.BoundVersions, ref)
+	}
+	if strings.TrimSpace(gen.Concurrency.Version) != "" {
+		policyID := strings.TrimSpace(gen.Concurrency.ID)
+		if policyID == "" {
+			policyID = string(economics.PolicyKindConcurrency)
+		}
+		ref := gen.Concurrency.PolicyRef(policyID)
+		d.BoundVersions = prependPolicyRef(d.BoundVersions, ref)
+	}
+}
+
+func prependPolicyRef(existing []economics.PolicySnapshotRef, ref economics.PolicySnapshotRef) []economics.PolicySnapshotRef {
+	out := make([]economics.PolicySnapshotRef, 0, len(existing)+1)
+	out = append(out, ref)
+	for _, cur := range existing {
+		if cur.Version == ref.Version && cur.ID == ref.ID && cur.PolicyID == ref.PolicyID {
+			continue
+		}
+		out = append(out, cur)
+	}
+	return out
 }
