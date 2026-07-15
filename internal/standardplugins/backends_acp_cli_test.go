@@ -3,7 +3,11 @@ package standardplugins
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -356,8 +360,18 @@ func TestBackendCodexAppServer_sourceMatrixOpenAllowlist(t *testing.T) {
 	if len(slugs) == 0 {
 		t.Fatal("expected shipped catalog slugs")
 	}
+	// Resolve-once Open surfaces exe errors before allowlist checks; provide a
+	// real placeholder binary so CI (no codex on PATH) still reaches model checks.
+	exe := filepath.Join(t.TempDir(), "codex")
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := "executable: " + strconv.Quote(exe) + "\ndefault_workspace: /tmp/ws\n"
 	var root yaml.Node
-	if err := yaml.Unmarshal([]byte("executable: /usr/local/bin/codex\ndefault_workspace: /tmp/ws\n"), &root); err != nil {
+	if err := yaml.Unmarshal([]byte(raw), &root); err != nil {
 		t.Fatal(err)
 	}
 
@@ -385,7 +399,7 @@ func TestBackendCodexAppServer_sourceMatrixOpenAllowlist(t *testing.T) {
 			if a, ok := be.ModelInventory.(modelinventory.AcceptedInventory); ok {
 				a.AcceptInventory(snap.Models)
 			}
-			// Open will fail on missing exe after allowlist; distinguish via ErrUnknownModel.
+			// Open will fail on spawn after allowlist; distinguish via ErrUnknownModel.
 			call := lipapi.Call{
 				Route: lipapi.RouteIntent{Selector: "openai-codex-app-server:" + slugs[0]},
 				Messages: []lipapi.Message{{

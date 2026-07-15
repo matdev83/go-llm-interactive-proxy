@@ -374,6 +374,8 @@ func TestResolveAGYBinary_configuredAndEnv(t *testing.T) {
 }
 
 func TestResolveAGYBinary_pathLookup(t *testing.T) {
+	acp.ResetLookPathCache()
+	t.Cleanup(acp.ResetLookPathCache)
 	dir := t.TempDir()
 	name := "agy"
 	if runtime.GOOS == "windows" {
