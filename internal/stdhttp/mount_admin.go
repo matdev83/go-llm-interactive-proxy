@@ -151,11 +151,28 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 	if base == "" {
 		return
 	}
-	handler := cpadmin.NewAccountingAuthorityHandler(cpadmin.AuthorityOptions{
+	accHandler := cpadmin.NewAccountingAuthorityHandler(cpadmin.AuthorityOptions{
 		Queries:         built.UsageAuthority,
 		DefaultPageSize: cfg.Accounting.Authority.Query.DefaultPageSize,
 		MaxPageSize:     cfg.Accounting.Authority.Query.MaxPageSize,
 	})
+	var handler http.Handler = accHandler
+	if built.Executor != nil && built.Executor.ConcurrencyProvider != nil {
+		leaseHandler := cpadmin.NewConcurrencyAuthorityHandler(cpadmin.ConcurrencyOptions{
+			Provider:        built.Executor.ConcurrencyProvider,
+			Service:         built.ConcurrencyAuthority,
+			DefaultPageSize: cfg.Accounting.Authority.Query.DefaultPageSize,
+			MaxPageSize:     cfg.Accounting.Authority.Query.MaxPageSize,
+		})
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := strings.TrimPrefix(r.URL.Path, "/")
+			if strings.HasPrefix(path, "leases") {
+				leaseHandler.ServeHTTP(w, r)
+				return
+			}
+			accHandler.ServeHTTP(w, r)
+		})
+	}
 	protected := diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, http.StripPrefix(base, handler))
 	mux.Handle(base, protected)
 	mux.Handle(base+"/", protected)

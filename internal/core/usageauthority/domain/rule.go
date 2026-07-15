@@ -1,5 +1,9 @@
 package domain
 
+import (
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+)
+
 type RuleKind string
 
 const (
@@ -74,6 +78,14 @@ type Rule struct {
 	FailureBehavior      FailureBehavior
 	Window               WindowSpec
 	Match                DimensionsMatcher
+	// Dual-plane metadata (Phase 7). Legacy rules must set Basis to
+	// BasisLegacyProviderPreferredAttempt; new rules require perspective,
+	// lifecycle_scope, basis, and namespace.
+	Perspective    metering.EconomicPerspective
+	LifecycleScope metering.LifecycleScope
+	Basis          MeteringBasis
+	Namespace      string
+	Version        string
 }
 
 func (r Rule) Matches(actual Dimensions) bool {

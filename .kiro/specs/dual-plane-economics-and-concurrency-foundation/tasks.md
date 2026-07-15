@@ -72,49 +72,49 @@
   - Recover restart state without double-counting and expose unresolved items for bounded reconciliation.
   - _Requirements: 13.6, 13.7, 14.5, 15.3_
 
-- [ ] 6. Split authority orchestration by lifecycle and perspective
-- [ ] 6.1 Implement the logical-request authority coordinator
+- [x] 6. Split authority orchestration by lifecycle and perspective
+- [x] 6.1 Implement the logical-request authority coordinator
   - Evaluate concurrency, customer credit/wallet provider, customer quota/budget/rate provider, then advisory providers in deterministic priority order.
   - Record successful handles and compensate in reverse order with fresh bounded contexts on later denial or failure.
   - _Requirements: 4.5, 8.1, 8.3, 9.3, 15.1, 15.2, 15.3, 15.4_
-- [ ] 6.2 Implement the backend-attempt authority coordinator
+- [x] 6.2 Implement the backend-attempt authority coordinator
   - Evaluate operator spend and provider/credential quota/rate authority from final backend-ingress exposure.
   - Preserve one independent operator lifecycle per committed B-leg.
   - _Requirements: 5.1, 5.3, 5.5, 5.6, 8.2, 9.3_
-- [ ] 6.3 Integrate request and attempt settlement
+- [x] 6.3 Integrate request and attempt settlement
   - Settle customer authority once from frontend basis and operator authority per incurred attempt.
   - Preserve late authoritative corrections and do not retry after client-visible output.
   - _Requirements: 4.2, 4.4, 5.2, 5.4, 8.4, 8.5, 8.6, 8.7, 15.5_
 
-- [ ] 7. Adapt the existing usage-authority kernel
-- [ ] 7.1 Add perspective, lifecycle scope, basis, namespace, and version to rules
+- [x] 7. Adapt the existing usage-authority kernel
+- [x] 7.1 Add perspective, lifecycle scope, basis, namespace, and version to rules
   - Validate customer logical-request and operator backend-attempt combinations.
   - Reject ambiguous new rules and require an explicit compatibility basis for legacy rules.
   - _Requirements: 1.3, 1.5, 9.2, 9.6, 9.7, 17.2_
-- [ ] 7.2 Replace undifferentiated request/spend inputs with selected facts
+- [x] 7.2 Replace undifferentiated request/spend inputs with selected facts
   - Resolve rule amounts from explicit metering facts and rating results before issuing store mutations.
   - Preserve independent token, money, and perspective authority.
   - _Requirements: 9.2, 9.4, 9.5_
-- [ ] 7.3 Preserve and extend transactional store guarantees
+- [x] 7.3 Preserve and extend transactional store guarantees
   - Retain atomic descriptor sets, replay, correction, denial evidence, rollover safety, and PostgreSQL contract tests.
   - Namespace legacy persisted state rather than reinterpreting it.
   - _Requirements: 9.1, 9.7, 9.9, 13.6, 17.2_
 
-- [ ] 8. Implement concurrent logical-request leases
-- [ ] 8.1 Build the lease domain and application service
+- [x] 8. Implement concurrent logical-request leases
+- [x] 8.1 Build the lease domain and application service
   - Model strict/advisory limits, safe scope matching, TTL, renewal, generation, replay, expiry, release, readiness, and denial evidence.
   - Ensure one logical request consumes one lease across retries and parallel legs.
   - _Requirements: 10.1, 10.3, 10.6, 10.7, 10.8, 10.10, 10.11_
-- [ ] 8.2 Build memory, SQLite, and PostgreSQL lease stores
+- [x] 8.2 Build memory, SQLite, and PostgreSQL lease stores
   - Prove at most five active leases for a five-slot principal across multiple proxy instances.
   - Reclaim expired leases transactionally using bounded indexed work.
   - _Requirements: 10.2, 10.6, 10.7, 10.9, 12.1, 13.5, 16.2, 16.3, 16.7_
-- [ ] 8.3 Integrate lease ownership, renewal, and terminal release
+- [x] 8.3 Integrate lease ownership, renewal, and terminal release
   - Acquire after trusted identity and before expensive transforms.
   - Release on completion, denial, routing exhaustion, backend failure, cancellation, stream close, frontend encoding error, preparation failure, and panic paths.
   - Use one request-owned heartbeat and fresh cleanup contexts.
   - _Requirements: 10.4, 10.5, 10.8, 10.10, 15.3, 15.6_
-- [ ] 8.4 Add active-lease queries and client-safe error mapping
+- [x] 8.4 Add active-lease queries and client-safe error mapping
   - Expose active, expiring, expired, released, remaining-slot, rule-version, and readiness information through bounded protected queries.
   - _Requirements: 10.11, 10.12, 14.3, 14.4, 14.5_
 
@@ -179,3 +179,11 @@
 - Phase 4 checkpoints: public `metering.Checkpoint`; `internal/core/metering/checkpoint` Snapshot+sanitize+widening+egress Fact drafts; FE ingress captured before `RunSubmit` (distinct from post-submit `baseline`); backend ingress frozen via independent `CloneCall` before `be.Open` (Open uses freeze; `AssertNotWidened` rejects post-freeze live-call mutation); backend egress for winner/loser/failed/canceled/swallowed when freeze exists; frontend egress on winner finalize and committed cancel/partial-error terminals; optional `Executor.MeteringRecorder` (nil = no durable append). No durable journalstore (Phase 5).
 - Phase 5.1: `internal/infra/metering/journalstore` memory+SQLite+Postgres append-only facts (`UNIQUE(source_event_key)`=IdempotencyKey); money preserved in payload_json; bounded List requires stream_id|request_id; `metering.enabled` default off wires `runtimebundle/metering.go` → `MeteringRecorder`.
 - Phase 5.2–5.3: `internal/core/metering/aggregate` replays delta/cumulative/correction/replacement/unavailable without double-count; `ProjectLedgerRecord` for legacy token views (money stays on journal); `internal/core/metering/reconcile.Stream` bounded hydrate + orphan/unavailable unresolved report (no lease/reservation stores).
+- Phase 6.1–6.3: `internal/core/authoritycoord` request/attempt coordinators (nil concurrency skips leases); thin `usageAuthorityProviderAdapter` over today's `usageauthority.Service` (no Phase 7 kernel rewrite); prepare admits request authority once after FE ingress; open path uses attempt coordinator when wired; attempt `RequestCount=0` when request already admitted; settle request once on FE egress/committed cancel, attempt settle/release remains per B-leg via `authorityLifecycle`; `runtimebundle/authority_coord.go` attaches both when `UsageAuthority` non-nil.
+- Phase 7.1–7.3: rules require `perspective`/`lifecycle_scope`/`basis`/`namespace` (or explicit `basis: legacy_provider_preferred_attempt`); amounts selected from exposure/facts (legacy inputs only for compatibility basis); stage filter (legacy request-count → logical_request, other legacy → backend_attempt); store `limitRowKey` + optional `ReservationKey.Namespace` isolate dual-plane identity; empty namespace rows stay under `legacy` without reinterpretation; no DurableStore.mu removal.
+- Phase 7.2 settle remediation (req 9.5): `SettleInput.Facts`/`Exposure`; `storeSettle` calls `Rule.SelectAmount(..., ForSettlement: true)` before `store.Settle`; dual-plane missing selection fails closed without mutating; compatibility basis keeps `FinalUsage`/`FinalCost`; covered by `settlement_select_test.go`.
+- Phase 8.1: `internal/core/concurrencyauthority/{domain,app}` + public `LeaseRenew`/`RenewLease`; `LeaseStore` port for 8.2; aux inherit via AdmitInput (public LeaseAdmission aux fields deferred to 8.3).
+- Phase 8.2: `internal/infra/concurrencyauthority/leasestore` memory+Bun SQLite/PG; five-slot across shared handles; inline reclaim; PG integration skips without `LIP_TEST_POSTGRES_DSN`.
+- Phase 8.3: `accounting.concurrency` config + configsource + runtimebundle wire; request-owned renew heartbeat; settle/release stop heartbeat and ReleaseLease with fresh cleanup ctx; aux depth inherits without extra slot.
+- Phase 8.4: CP lease DTOs + `/authority/leases*` protected queries; request-authority concurrency denials map to client-safe `concurrency_limit` without lease IDs.
+- Phase 8 remediation (validate-impl NO-GO): (10.5) prepare cleanup + uncommitted cancel call `releaseRequestAuthority`; (10.8) renew honors rule `failure_behavior` (`fail_closed` stop renew/keep occupancy, `fail_open` degrade+retry); (10.10) `accounting.concurrency.auxiliary_lease_policy` `inherit|acquire_own` wired to Admit; (8.4) capacity counts per `rule_id`, lease rows expose `rule_version`+`dimension_key`, Query projects `expiring`, unsupported CP filters fail closed.

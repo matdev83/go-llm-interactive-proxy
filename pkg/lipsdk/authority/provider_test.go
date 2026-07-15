@@ -38,6 +38,9 @@ type fakeConcurrencyProvider struct{}
 func (fakeConcurrencyProvider) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "lease-1"}, nil
 }
+func (fakeConcurrencyProvider) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
+	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "lease-1", Generation: 2}, nil
+}
 func (fakeConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseRelease) error {
 	return nil
 }
@@ -60,6 +63,9 @@ func TestProvidersCompileWithFakes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := conc.AdmitLease(ctx, authority.LeaseAdmission{RequestID: "r1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conc.RenewLease(ctx, authority.LeaseRenew{LeaseID: "lease-1", ExpectedGeneration: 1}); err != nil {
 		t.Fatal(err)
 	}
 }

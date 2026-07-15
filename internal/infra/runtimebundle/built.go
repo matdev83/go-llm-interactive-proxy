@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
@@ -70,4 +71,7 @@ type Built struct {
 	// UsageAuthority is non-nil when accounting.authority.enabled wires the
 	// config-backed rule source, store, and query/status service.
 	UsageAuthority *authorityapp.Service
+	// ConcurrencyAuthority is non-nil when accounting.concurrency.enabled wires
+	// the lease service used by protected lease queries (Phase 8.4).
+	ConcurrencyAuthority *concurrencyapp.Service
 }

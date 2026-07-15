@@ -51,6 +51,7 @@ type executorBuildInput struct {
 	Observability  *observabilityRuntime
 	ControlPlane   *controlPlaneRuntime
 	UsageAuthority *authorityapp.Service
+	Concurrency    *concurrencyAuthorityRuntime
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -123,6 +124,10 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 			return nil, closers, err
 		}
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
+	}
+	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
+	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil {
+		attachAuthorityCoordinators(&accountingRT)
 	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))

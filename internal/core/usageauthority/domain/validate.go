@@ -103,6 +103,10 @@ func (r Rule) Validate() error {
 		return fmt.Errorf("%w: invalid kind %q", ErrInvalidRule, r.Kind)
 	}
 
+	if err := r.validatePerspectiveLifecycleBasis(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

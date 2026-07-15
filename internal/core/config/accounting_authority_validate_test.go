@@ -100,6 +100,7 @@ func TestValidateAccountingAuthorityRejectsStrictRuleInAdvisoryMode(t *testing.T
 						Mode:  "strict",
 						Unit:  "requests",
 						Limit: 10,
+						Basis: "legacy_provider_preferred_attempt",
 						Match: config.AccountingAuthorityDimensionsConfig{Backend: config.AccountingAuthorityDimensionMatcherConfig{Value: scope.Known("backend-1")}},
 					},
 				},
@@ -254,6 +255,7 @@ func TestValidateAccountingAuthorityRejectsStrictModeWithFailOpen(t *testing.T) 
 						Mode:  "strict",
 						Unit:  "requests",
 						Limit: 10,
+						Basis: "legacy_provider_preferred_attempt",
 						Match: config.AccountingAuthorityDimensionsConfig{
 							Backend: config.AccountingAuthorityDimensionMatcherConfig{Value: scope.Known("backend-1")},
 						},
@@ -290,6 +292,7 @@ func TestValidateAccountingAuthorityAcceptsStrictModeWithAtomicBacking(t *testin
 						Mode:  "strict",
 						Unit:  "requests",
 						Limit: 10,
+						Basis: "legacy_provider_preferred_attempt",
 						Match: config.AccountingAuthorityDimensionsConfig{
 							Backend: config.AccountingAuthorityDimensionMatcherConfig{Value: scope.Known("backend-1")},
 						},
@@ -379,6 +382,7 @@ func TestValidateAccountingAuthorityAcceptsCredentialMatcher(t *testing.T) {
 						Mode:  "strict",
 						Unit:  "requests",
 						Limit: 10,
+						Basis: "legacy_provider_preferred_attempt",
 						Match: config.AccountingAuthorityDimensionsConfig{
 							Credential: config.AccountingAuthorityDimensionMatcherConfig{Value: scope.Known("cred-1")},
 						},

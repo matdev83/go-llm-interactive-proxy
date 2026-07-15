@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type ReservationKey struct {
 	LogicalRequestID string
@@ -9,10 +12,17 @@ type ReservationKey struct {
 	AttemptID        string
 	RuleID           string
 	Sequence         int
+	// Namespace isolates dual-plane reservations. Empty keeps the pre-Phase-7
+	// key string format for legacy compatibility.
+	Namespace string
 }
 
 func (k ReservationKey) String() string {
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%d", k.LogicalRequestID, k.ALegID, k.BLegID, k.AttemptID, k.RuleID, k.Sequence)
+	base := fmt.Sprintf("%s|%s|%s|%s|%s|%d", k.LogicalRequestID, k.ALegID, k.BLegID, k.AttemptID, k.RuleID, k.Sequence)
+	if ns := strings.TrimSpace(k.Namespace); ns != "" {
+		return ns + "|" + base
+	}
+	return base
 }
 
 type SettlementKey struct {

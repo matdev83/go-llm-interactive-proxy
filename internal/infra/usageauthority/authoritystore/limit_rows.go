@@ -2,6 +2,7 @@ package authoritystore
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -35,19 +36,24 @@ func limitRowFromRule(rule domain.Rule, at time.Time) (controlplane.AccountingLi
 	}
 	limit := rule.Limit.Value
 	row := controlplane.AccountingLimitStatusRow{
-		Scope:          scopeSnap,
-		Correlation:    correlationFromMatchers(rule.Match),
-		RuleID:         rule.ID,
-		RuleType:       string(rule.Kind),
-		Unit:           string(unit),
-		Currency:       rule.Currency,
-		Limit:          limit,
-		Consumed:       0,
-		Reserved:       0,
-		Remaining:      limit,
-		Authority:      authoritySourceForRule(rule),
-		EvidenceState:  controlplane.EvidenceRecorded,
-		RedactionState: controlplane.RedactionSummarized,
+		Scope:              scopeSnap,
+		Correlation:        correlationFromMatchers(rule.Match),
+		RuleID:             rule.ID,
+		RuleType:           string(rule.Kind),
+		Unit:               string(unit),
+		Currency:           rule.Currency,
+		Limit:              limit,
+		Consumed:           0,
+		Reserved:           0,
+		Remaining:          limit,
+		Authority:          authoritySourceForRule(rule),
+		EvidenceState:      controlplane.EvidenceRecorded,
+		RedactionState:     controlplane.RedactionSummarized,
+		AuthorityNamespace: ruleAuthorityNamespace(rule),
+		Perspective:        string(rule.Perspective),
+		LifecycleScope:     string(rule.LifecycleScope),
+		Basis:              string(rule.Basis),
+		RuleVersion:        rule.Version,
 	}
 	if rule.Window.Algorithm != "" || rule.Window.Size != 0 || !rule.Window.Anchor.IsZero() {
 		bounds, err := rule.Window.Bounds(at)
@@ -113,4 +119,14 @@ func authoritySourceForRule(rule domain.Rule) controlplane.AccountingAuthoritySo
 		return controlplane.AccountingAuthoritySourceAdvisory
 	}
 	return controlplane.AccountingAuthoritySourceAuthoritative
+}
+
+func ruleAuthorityNamespace(rule domain.Rule) string {
+	if ns := strings.TrimSpace(rule.Namespace); ns != "" {
+		return ns
+	}
+	if rule.Basis.IsLegacyCompatibility() || !rule.IsDualPlaneConfigured() {
+		return domain.NamespaceLegacy
+	}
+	return domain.NamespaceDefault
 }

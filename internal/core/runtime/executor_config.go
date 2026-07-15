@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
@@ -28,6 +29,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -84,9 +86,21 @@ type AccountingRuntime struct {
 	AdminCountService            *accountingapp.Service
 	UsageAuthority               UsageAuthorityService
 	UsageAuthorityCleanupTimeout time.Duration
+	// ConcurrencyProvider is the optional Phase 8 logical-request lease authority.
+	ConcurrencyProvider authority.ConcurrencyProvider
+	// ConcurrencyLeaseTTL / ConcurrencyRenewBefore are defaults used by heartbeat
+	// when the admit decision omits rule-level values.
+	ConcurrencyLeaseTTL    time.Duration
+	ConcurrencyRenewBefore time.Duration
+	// ConcurrencyAuxiliaryLeasePolicy is inherit (default) or acquire_own (10.10).
+	ConcurrencyAuxiliaryLeasePolicy string
 	// MeteringRecorder is the optional Phase 3 metering journal port. Nil means
 	// checkpoints are retained in-request only (no durable append until Phase 5).
 	MeteringRecorder metering.Recorder
+	// RequestCoordinator admits customer/logical-request authority once per request (Phase 6).
+	RequestCoordinator *authoritycoord.RequestCoordinator
+	// AttemptCoordinator admits operator/attempt authority per B-leg (Phase 6).
+	AttemptCoordinator *authoritycoord.AttemptCoordinator
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority

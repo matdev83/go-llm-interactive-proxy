@@ -47,15 +47,7 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (AdmissionResult
 		if errors.Is(evaluationCtx.Err(), context.DeadlineExceeded) {
 			if cached := s.cachedSnapshot(); len(cached.Rules) > 0 {
 				now := s.now()
-				evaluation := domain.EvaluateRules(cached.Rules, domain.EvaluationContext{
-					Dimensions:     in.Dimensions,
-					Amount:         in.Request,
-					Spend:          in.Spend,
-					RequestCount:   in.RequestCount,
-					PreflightUsage: in.PreflightUsage,
-					Authority:      in.Authority,
-					At:             now,
-				})
+				evaluation := domain.EvaluateRules(cached.Rules, evaluationContextFromAdmission(in, now))
 				behavior := effectiveFailureBehavior(evaluation.Matches, cached.Rules, cached.Status)
 				return s.resolveAdmissionFailure(evaluationCtx, in, evaluation, cached.Status, cached.Rules, now, behavior, policydecision.AccountingReasonUnavailable)
 			}
@@ -71,15 +63,7 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (AdmissionResult
 			return AdmissionResult{}, ctx.Err()
 		}
 		if errors.Is(evaluationCtx.Err(), context.DeadlineExceeded) {
-			evaluation := domain.EvaluateRules(snap.Rules, domain.EvaluationContext{
-				Dimensions:     in.Dimensions,
-				Amount:         in.Request,
-				Spend:          in.Spend,
-				RequestCount:   in.RequestCount,
-				PreflightUsage: in.PreflightUsage,
-				Authority:      in.Authority,
-				At:             s.now(),
-			})
+			evaluation := domain.EvaluateRules(snap.Rules, evaluationContextFromAdmission(in, s.now()))
 			behavior := effectiveFailureBehavior(evaluation.Matches, snap.Rules, snap.Status)
 			return s.resolveAdmissionFailure(evaluationCtx, in, evaluation, snap.Status, snap.Rules, s.now(), behavior, policydecision.AccountingReasonUnavailable)
 		}
@@ -95,15 +79,7 @@ func (s *Service) Admit(ctx context.Context, in AdmissionInput) (AdmissionResult
 	}
 
 	now := s.now()
-	evaluation := domain.EvaluateRules(snap.Rules, domain.EvaluationContext{
-		Dimensions:     in.Dimensions,
-		Amount:         in.Request,
-		Spend:          in.Spend,
-		RequestCount:   in.RequestCount,
-		PreflightUsage: in.PreflightUsage,
-		Authority:      in.Authority,
-		At:             now,
-	})
+	evaluation := domain.EvaluateRules(snap.Rules, evaluationContextFromAdmission(in, now))
 
 	failBehavior := effectiveFailureBehavior(evaluation.Matches, snap.Rules, status)
 	strictUnavailableIDs := domain.StrictUnavailableRuleIDs(evaluation.Matches)
@@ -750,13 +726,25 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 	if unit == "" {
 		unit = selectedRule.Limit.Unit
 	}
-	requestAmount := in.Request
-	if unit == domain.AmountUnitMoneyNano {
-		requestAmount = in.Spend
-	} else if unit == domain.AmountUnitRequests && in.RequestCount.Unit != "" {
-		requestAmount = in.RequestCount
-	} else if amount, ok := in.PreflightUsage.AmountForUnit(unit); ok {
-		requestAmount = amount
+	requestAmount, ok := selectedRule.SelectAmount(domain.AmountSelectionSource{
+		Amount:         in.Request,
+		Spend:          in.Spend,
+		RequestCount:   in.RequestCount,
+		PreflightUsage: in.PreflightUsage,
+		Exposure:       in.Exposure,
+		Facts:          in.Facts,
+	})
+	if !ok {
+		requestAmount = in.Request
+		if unit == domain.AmountUnitMoneyNano {
+			requestAmount = in.Spend
+		} else if unit == domain.AmountUnitRequests && in.RequestCount.Unit != "" {
+			requestAmount = in.RequestCount
+		} else if amount, ok := in.PreflightUsage.AmountForUnit(unit); ok {
+			requestAmount = amount
+		}
+	} else if unit != "" && requestAmount.Unit == "" {
+		requestAmount.Unit = unit
 	}
 	if clamp != nil && clamp.EffectiveMax.Unit == domain.AmountUnitMoneyNano &&
 		(selectedRule.Kind == domain.RuleKindSpendCap || selectedRule.Kind == domain.RuleKindBudget) {
@@ -764,6 +752,14 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 	}
 	reservationKey := in.ReservationKey
 	reservationKey.RuleID = ruleID
+	if ns := strings.TrimSpace(selectedRule.Namespace); ns != "" {
+		reservationKey.Namespace = ns
+	} else if selectedRule.Basis.IsLegacyCompatibility() {
+		// Keep legacy key format (empty namespace) for compatibility-basis rules.
+		reservationKey.Namespace = ""
+	} else if selectedRule.IsDualPlaneConfigured() {
+		reservationKey.Namespace = domain.NamespaceDefault
+	}
 	reservationID := reservationKey.String()
 	return ReservationDescriptor{
 		RuleID:         ruleID,
@@ -785,4 +781,19 @@ func (s *Service) reservationDescriptorForRule(in AdmissionInput, now time.Time,
 			ReservationID: reservationID,
 		}),
 	}, nil
+}
+
+func evaluationContextFromAdmission(in AdmissionInput, at time.Time) domain.EvaluationContext {
+	return domain.EvaluationContext{
+		Dimensions:     in.Dimensions,
+		Amount:         in.Request,
+		Spend:          in.Spend,
+		RequestCount:   in.RequestCount,
+		PreflightUsage: in.PreflightUsage,
+		Authority:      in.Authority,
+		At:             at,
+		LifecycleScope: in.LifecycleScope,
+		Exposure:       in.Exposure,
+		Facts:          in.Facts,
+	}
 }

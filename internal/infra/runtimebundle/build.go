@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -82,6 +83,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if usageAuthority != nil {
 		usageAuthorityHandle = usageAuthority.Service
 	}
+	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, cfg, log, opts.Testing)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
+	}
+	if concurrencyClosers != nil {
+		closers = append(closers, concurrencyClosers...)
+	}
 	reg := opts.PluginRegistry
 	sec, err := buildSecurityRuntime(bctx, controlPlane)
 	if err != nil {
@@ -115,6 +123,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Observability:  &obs,
 		ControlPlane:   controlPlane,
 		UsageAuthority: usageAuthorityHandle,
+		Concurrency:    concurrencyRT,
 	}, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
@@ -141,7 +150,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneStatus:    controlPlane.statusHandle(),
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 		UsageAuthority:        usageAuthorityHandle,
+		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
 	}, nil
+}
+
+func concurrencyServiceHandle(rt *concurrencyAuthorityRuntime) *concurrencyapp.Service {
+	if rt == nil {
+		return nil
+	}
+	return rt.Service
 }
 
 // validateRequiredAuthorityEvidenceWiring protects callers that assemble a
