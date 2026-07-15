@@ -165,10 +165,7 @@ func (s *MemoryStore) List(ctx context.Context, q metering.Query) (metering.Page
 	if offset > len(matched) {
 		offset = len(matched)
 	}
-	end := offset + limit
-	if end > len(matched) {
-		end = len(matched)
-	}
+	end := min(offset+limit, len(matched))
 	page := metering.Page{
 		Facts:       matched[offset:end],
 		Unsupported: append([]metering.UnsupportedFilter(nil), unsupported...),

@@ -57,6 +57,7 @@ func (denyConcurrency) AdmitLease(context.Context, authority.LeaseAdmission) (au
 		},
 	}, nil
 }
+
 func (denyConcurrency) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{}, nil
 }

@@ -52,7 +52,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			ParentLeaseID:  in.ParentLeaseID,
 			AuxPolicy:      in.AuxPolicy,
 		}
-		ld, err := invokeAdmitLease(c.Concurrency, ctx, leaseIn)
+		ld, err := invokeAdmitLease(ctx, c.Concurrency, leaseIn)
 		if err != nil {
 			var claimed CompensationStack
 			pushLeaseDecisionHolds(&claimed, c.Concurrency, in.RequestID, ld)
@@ -110,7 +110,7 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			}
 		}
 
-		d, err := invokeAdmitRequest(slot.Provider, ctx, in)
+		d, err := invokeAdmitRequest(ctx, slot.Provider, in)
 		if err != nil {
 			var claimed CompensationStack
 			pushRequestDecisionHolds(&claimed, id, slot.Provider, in.RequestID, d)
@@ -143,9 +143,6 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			return out, &ErrDenied{ProviderID: id, Decision: d}
 		case authority.DecisionAllow, authority.DecisionAdvisory, "":
 			pushRequestDecisionHolds(&out.Stack, id, slot.Provider, in.RequestID, d)
-			if d.Kind == authority.DecisionAdvisory && out.Kind == authority.DecisionAllow {
-				// advisory does not downgrade an allow
-			}
 		}
 	}
 	return out, nil
@@ -192,7 +189,7 @@ func (c *RequestCoordinator) Settle(parent context.Context, stack CompensationSt
 		settlement := in
 		settlement.Handles = append([]string(nil), handles...)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-		_, err := invokeSettleRequest(slot.Provider, ctx, settlement)
+		_, err := invokeSettleRequest(ctx, slot.Provider, settlement)
 		cancel()
 		if err == nil {
 			continue

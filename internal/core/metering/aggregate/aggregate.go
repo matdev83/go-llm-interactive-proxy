@@ -5,6 +5,7 @@ package aggregate
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -223,10 +224,8 @@ func mulInt64Checked(a, b int64) (int64, error) {
 }
 
 func appendUnique(in []string, v string) []string {
-	for _, x := range in {
-		if x == v {
-			return in
-		}
+	if slices.Contains(in, v) {
+		return in
 	}
 	return append(in, v)
 }

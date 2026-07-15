@@ -192,14 +192,15 @@ func capacityRows(ctx context.Context, svc *concurrencyapp.Service) ([]cp.Concur
 				continue
 			}
 			state := lease.EffectiveState(now)
-			if state == concurrencydomain.LeaseStateActive {
+			switch state {
+			case concurrencydomain.LeaseStateActive:
 				if !lease.ExpiresAt.IsZero() && !now.Before(lease.ExpiresAt.Add(-rule.EffectiveRenewBefore())) {
 					expiring++
 					active++
 				} else {
 					active++
 				}
-			} else if state == concurrencydomain.LeaseStateExpiring {
+			case concurrencydomain.LeaseStateExpiring:
 				expiring++
 				active++
 			}
@@ -207,10 +208,7 @@ func capacityRows(ctx context.Context, svc *concurrencyapp.Service) ([]cp.Concur
 				dimKey = string(lease.Dimensions.Key())
 			}
 		}
-		remaining := rule.Limit - active
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(rule.Limit-active, 0)
 		out = append(out, cp.ConcurrencyCapacityRow{
 			RuleID:         rule.ID,
 			RuleVersion:    rule.Version,

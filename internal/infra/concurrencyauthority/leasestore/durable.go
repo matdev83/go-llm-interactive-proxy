@@ -338,10 +338,7 @@ func (s *DurableStore) Acquire(ctx context.Context, cmd app.AcquireCommand) (app
 		if err := tx.Commit(); err != nil {
 			return app.AcquireResult{}, fmt.Errorf("leasestore: commit: %w", err)
 		}
-		left := cmd.Limit - live
-		if left < 0 {
-			left = 0
-		}
+		left := max(cmd.Limit-live, 0)
 		return app.AcquireResult{Lease: existing, Replayed: true, RemainingSlots: left}, nil
 	}
 
@@ -750,7 +747,7 @@ LIMIT ?
 	if err != nil {
 		return app.QueryResult{}, fmt.Errorf("leasestore: query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]domain.Lease, 0, limit)
 	for rows.Next() {
@@ -802,7 +799,7 @@ WHERE store_id=? AND rule_id=? AND dimension_key=?
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var b strings.Builder
 	for rows.Next() {
 		var selectid, order, from int

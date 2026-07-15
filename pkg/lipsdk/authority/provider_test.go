@@ -14,9 +14,11 @@ type fakeRequestProvider struct{}
 func (fakeRequestProvider) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (fakeRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (fakeRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return nil
 }
@@ -26,9 +28,11 @@ type fakeAttemptProvider struct{}
 func (fakeAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (fakeAttemptProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (fakeAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	return nil
 }
@@ -38,12 +42,15 @@ type fakeConcurrencyProvider struct{}
 func (fakeConcurrencyProvider) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "lease-1"}, nil
 }
+
 func (fakeConcurrencyProvider) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "lease-1", Generation: 2}, nil
 }
+
 func (fakeConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseRelease) error {
 	return nil
 }
+
 func (fakeConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }

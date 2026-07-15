@@ -194,14 +194,12 @@ func TestPostgresPoolRegistryConcurrentOpenSharesOnePool(t *testing.T) {
 	errs := make(chan error, 3)
 	var wg sync.WaitGroup
 	for range 3 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			pool, err := registry.Open(t.Context(), "postgres://host/db", PoolSettings{})
 			results <- pool
 			errs <- err
-		}()
+		})
 	}
 	close(start)
 	select {

@@ -32,7 +32,6 @@ func TestSharedCheckpointAcrossFrontendOperations(t *testing.T) {
 		{name: "anthropic_or_gemini_empty_op", op: ""},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b2, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})

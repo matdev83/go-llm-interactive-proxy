@@ -26,7 +26,7 @@ type RatingRequest struct {
 	Model       string                       `json:"model,omitempty"`
 	FrontendID  string                       `json:"frontend_id,omitempty"`
 	Quantities  []metering.Quantity          `json:"quantities,omitempty"`
-	At          time.Time                    `json:"at,omitempty"`
+	At          time.Time                    `json:"at,omitzero"`
 }
 
 // RatingResult is one perspective-specific rated amount with provenance.
@@ -35,7 +35,7 @@ type RatingResult struct {
 	Source         string                       `json:"source,omitempty"`
 	Authority      string                       `json:"authority,omitempty"`
 	Version        VersionRef                   `json:"version"`
-	EffectiveAt    time.Time                    `json:"effective_at,omitempty"`
+	EffectiveAt    time.Time                    `json:"effective_at,omitzero"`
 	LineID         string                       `json:"line_id,omitempty"`
 	RoundingPolicy RoundingPolicy               `json:"rounding_policy,omitempty"`
 	Perspective    metering.EconomicPerspective `json:"perspective"`

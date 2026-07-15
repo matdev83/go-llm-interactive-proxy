@@ -19,7 +19,6 @@ import (
 // with 2/4/8 legs (design Performance.Benchmarks / req 16.6).
 func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 	for _, legs := range []int{2, 4, 8} {
-		legs := legs
 		b.Run(fmt.Sprintf("legs_%d", legs), func(b *testing.B) {
 			auth := &recordingAuthorityService{
 				admitResult: authorityapp.AdmissionResult{
@@ -40,7 +39,7 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 			ex.Rand = routing.NewSeededRng(42)
 			ex.Backends = make(map[string]execbackend.Backend, legs)
 			candidates := make([]routing.AttemptCandidate, 0, legs)
-			for i := 0; i < legs; i++ {
+			for i := range legs {
 				id := fmt.Sprintf("backend-%d", i+1)
 				delta := " "
 				if i == 0 {

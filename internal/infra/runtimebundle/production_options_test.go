@@ -35,6 +35,7 @@ type prodAllowRequest struct{}
 func (prodAllowRequest) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (prodAllowRequest) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }

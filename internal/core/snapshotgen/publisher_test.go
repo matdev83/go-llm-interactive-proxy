@@ -64,11 +64,9 @@ func TestPublisher_ConcurrentReadersStable(t *testing.T) {
 	})
 	var wg sync.WaitGroup
 	errCh := make(chan string, 8)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
 				cur := p.Current()
 				if cur == nil || cur.Usage.Version == "" {
 					errCh <- "nil/empty"
@@ -76,9 +74,9 @@ func TestPublisher_ConcurrentReadersStable(t *testing.T) {
 				}
 				_ = cur.PublishedAt
 			}
-		}()
+		})
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		p.Publish(snapshotgen.RuntimeGeneration{
 			PublishedAt: time.Now().UTC(),
 			Usage: economics.Snapshot[economics.PolicyRulesView]{

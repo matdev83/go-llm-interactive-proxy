@@ -58,8 +58,8 @@ type ExposureBasis struct {
 	Boundary    metering.Boundary            `json:"boundary"`
 	Lifecycle   metering.LifecycleScope      `json:"lifecycle"`
 	Quantities  []metering.Quantity          `json:"quantities,omitempty"`
-	Money       Money                        `json:"money,omitempty"`
-	Output      ConservativeOutputAssumption `json:"output,omitempty"`
+	Money       Money                        `json:"money,omitzero"`
+	Output      ConservativeOutputAssumption `json:"output,omitzero"`
 }
 
 // Validate checks perspective/boundary/lifecycle and optional output assumption.

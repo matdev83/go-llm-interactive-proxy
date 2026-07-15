@@ -118,7 +118,7 @@ func stripSQLCommentsAndStringLiterals(q string) string {
 		}
 		if c == '/' && i+1 < len(q) && q[i+1] == '*' {
 			i += 2
-			for i+1 < len(q) && !(q[i] == '*' && q[i+1] == '/') {
+			for i+1 < len(q) && (q[i] != '*' || q[i+1] != '/') {
 				i++
 			}
 			i++ // consume '/'

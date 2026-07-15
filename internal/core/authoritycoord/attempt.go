@@ -82,7 +82,7 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 			}
 		}
 
-		d, err := invokeAdmitAttempt(slot.Provider, ctx, in)
+		d, err := invokeAdmitAttempt(ctx, slot.Provider, in)
 		if err != nil {
 			var claimed CompensationStack
 			pushAttemptDecisionHolds(&claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
@@ -173,7 +173,7 @@ func (c *AttemptCoordinator) Settle(parent context.Context, stack CompensationSt
 		settlement := in
 		settlement.Handles = append([]string(nil), handles...)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-		_, err := invokeSettleAttempt(slot.Provider, ctx, settlement)
+		_, err := invokeSettleAttempt(ctx, slot.Provider, settlement)
 		cancel()
 		if err == nil {
 			continue

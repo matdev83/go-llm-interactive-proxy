@@ -28,7 +28,7 @@ func BenchmarkDurableIndependentPrincipals(b *testing.B) {
 	}
 	const principals = 1000
 	rows := make([]controlplane.AccountingLimitStatusRow, 0, principals)
-	for i := 0; i < principals; i++ {
+	for i := range principals {
 		rows = append(rows, controlplane.AccountingLimitStatusRow{
 			RuleID:         fmt.Sprintf("rule-%d", i),
 			RuleType:       string(domain.RuleKindQuota),

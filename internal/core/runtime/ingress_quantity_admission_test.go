@@ -81,9 +81,11 @@ type localCountCallOnly struct {
 func (c localCountCallOnly) CountText(context.Context, accountingapp.CountTextInput) (accountingapp.CountResult, error) {
 	return accountingapp.CountResult{}, nil
 }
+
 func (c localCountCallOnly) CountCall(ctx context.Context, in accountingapp.CountCallInput) (accountingapp.CountResult, error) {
 	return c.fn(ctx, in)
 }
+
 func (c localCountCallOnly) CountOutput(context.Context, accountingapp.CountOutputInput) (accountingapp.CountResult, error) {
 	return accountingapp.CountResult{}, nil
 }
