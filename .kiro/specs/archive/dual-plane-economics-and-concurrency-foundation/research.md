@@ -7,7 +7,7 @@ Generated: 2026-07-13T19:36:44+02:00
 - Repository: `matdev83/go-llm-interactive-proxy`
 - Reviewed ref: `main` at `8ed0bd79ca5dcdc7463a1adfc0ba051434ad93d0`
 - Primary recent implementation: PR #128, `usage-quota-rate-budget-authority`
-- Requirements source: `.kiro/specs/dual-plane-economics-and-concurrency-foundation/requirements.md`
+- Requirements source: `.kiro/specs/archive/dual-plane-economics-and-concurrency-foundation/requirements.md`
 - Review mode: static source and contract review through GitHub; no independent local test execution was available during the review.
 - Scope: backend/core only. GUI, payments, invoice rendering, SSO provisioning, and proprietary enterprise business logic are excluded.
 

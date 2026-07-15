@@ -166,12 +166,12 @@ func TestSQLiteStore_ConcurrentDoubleReleaseIsIdempotent(t *testing.T) {
 
 func retrySQLiteBusy(fn func() error) error {
 	var err error
-	for attempt := range 8 {
+	for attempt := range 16 {
 		err = fn()
 		if err == nil || !isSQLiteBusy(err) {
 			return err
 		}
-		time.Sleep(time.Duration(attempt+1) * 5 * time.Millisecond)
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
 	}
 	return err
 }

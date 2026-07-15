@@ -76,14 +76,16 @@ func TestSQLiteStore_ReclaimUsesIndexedPredicate(t *testing.T) {
 
 func newSQLiteStore(t *testing.T, path, storeID string) *leasestore.DurableStore {
 	t.Helper()
-	sqlDB, err := sql.Open("sqlite", path)
+	// Apply busy_timeout via DSN so every pooled connection inherits it (a one-shot
+	// PRAGMA only affects the connection that executed it). Cap the pool at 1 to
+	// avoid SQLITE_BUSY under concurrent writers in race tests.
+	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	if _, err := sqlDB.ExecContext(context.Background(), `PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL`); err != nil {
-		t.Fatal(err)
-	}
+	sqlDB.SetMaxOpenConns(1)
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
 	if err != nil {
 		t.Fatal(err)
