@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -8,13 +9,24 @@ import (
 
 // Environment variable names for optional PostgreSQL integration tests.
 const (
-	// LIPTestPostgresDSN is the preferred DSN for integration tests (spec bun-database-abstraction).
+	// LIPTestPostgresDSN is the preferred runtime DSN for integration tests.
+	// Dual-plane pooled gates treat this as the transaction-pooled runtime endpoint.
 	LIPTestPostgresDSN = "LIP_TEST_POSTGRES_DSN"
-	// LIPManagedPostgresDSN is a legacy alias still accepted by [PostgresTestDSN].
+	// LIPTestPostgresAdminDSN is the direct admin/bootstrap/cleanup/migration endpoint.
+	// When unset, tests may reuse the runtime DSN if that endpoint has admin rights.
+	LIPTestPostgresAdminDSN = "LIP_TEST_POSTGRES_ADMIN_DSN"
+	// LIPManagedPostgresDSN is a legacy alias still accepted by [PostgresTestDSN] /
+	// [PostgresRuntimeDSN] only. It is not an admin endpoint.
 	LIPManagedPostgresDSN = "LIP_MANAGED_POSTGRES_DSN"
 	// LIPRequirePostgres turns an otherwise skippable integration test into a
 	// hard failure. CI and the explicit make target use it as the proof gate.
 	LIPRequirePostgres = "LIP_REQUIRE_POSTGRES"
+	// LIPRequirePostgresPooler turns pooled dual-endpoint integration tests into
+	// hard failures when either admin or runtime DSN is missing.
+	LIPRequirePostgresPooler = "LIP_REQUIRE_POSTGRES_POOLER"
+	// LIPTestPostgresRuntimeIsPooler attests that LIP_TEST_POSTGRES_DSN reaches a
+	// transaction pooler. Required by the pooled release gate; never inferred.
+	LIPTestPostgresRuntimeIsPooler = "LIP_TEST_POSTGRES_RUNTIME_IS_POOLER"
 )
 
 // PostgresTestDSN returns a non-empty managed PostgreSQL DSN when LIPTestPostgresDSN or
@@ -31,16 +43,106 @@ func PostgresTestDSN() (dsn string, ok bool) {
 	return "", false
 }
 
+// PostgresRuntimeDSN is the dual-plane name for the transaction-pooled runtime DSN.
+// It shares precedence with [PostgresTestDSN] (preferred test name, then legacy alias).
+func PostgresRuntimeDSN() (dsn string, ok bool) {
+	return PostgresTestDSN()
+}
+
+// PostgresAdminDSN returns the direct admin/bootstrap/cleanup DSN. Tests may
+// reuse the runtime DSN when it has admin rights; an explicit admin DSN wins.
+// No hostname inference or DSN rewriting is performed.
+func PostgresAdminDSN() (dsn string, ok bool) {
+	a := strings.TrimSpace(os.Getenv(LIPTestPostgresAdminDSN))
+	if a != "" {
+		return a, true
+	}
+	return PostgresRuntimeDSN()
+}
+
+// PostgresRequired reports whether LIP_REQUIRE_POSTGRES requests fail-closed behavior.
+func PostgresRequired() bool {
+	return envTruthy(LIPRequirePostgres)
+}
+
+// PostgresPoolerRequired reports whether LIP_REQUIRE_POSTGRES_POOLER requests
+// fail-closed dual-endpoint pooled-gate behavior.
+func PostgresPoolerRequired() bool {
+	return envTruthy(LIPRequirePostgresPooler)
+}
+
+func envTruthy(name string) bool {
+	v := strings.TrimSpace(os.Getenv(name))
+	return strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
+}
+
+// LookupDualPlanePostgresDSNs returns admin and runtime DSNs without logging them.
+// Missing endpoints yield an actionable error that names env vars only.
+func LookupDualPlanePostgresDSNs() (adminDSN, runtimeDSN string, err error) {
+	admin, adminOK := PostgresAdminDSN()
+	runtime, runtimeOK := PostgresRuntimeDSN()
+	var missing []string
+	if !adminOK {
+		missing = append(missing, LIPTestPostgresAdminDSN)
+	}
+	if !runtimeOK {
+		missing = append(missing, LIPTestPostgresDSN+" (or legacy "+LIPManagedPostgresDSN+")")
+	}
+	if len(missing) > 0 {
+		return "", "", fmt.Errorf("pooled PostgreSQL gate requires admin and runtime endpoints; missing: %s", strings.Join(missing, ", "))
+	}
+	return admin, runtime, nil
+}
+
 // SkipUnlessPostgres skips the test when no integration DSN is configured.
 func SkipUnlessPostgres(t *testing.T) string {
 	t.Helper()
 	dsn, ok := PostgresTestDSN()
 	if !ok {
-		if strings.EqualFold(strings.TrimSpace(os.Getenv(LIPRequirePostgres)), "1") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv(LIPRequirePostgres)), "true") {
+		if PostgresRequired() {
 			t.Fatalf("PostgreSQL DSN is required: set %s or %s", LIPTestPostgresDSN, LIPManagedPostgresDSN)
 		}
 		t.Skipf("set %s (or legacy %s) to run PostgreSQL integration test", LIPTestPostgresDSN, LIPManagedPostgresDSN)
 	}
 	return dsn
+}
+
+// DualPlanePostgresGate is the non-fatal decision for pooled dual-endpoint tests.
+type DualPlanePostgresGate struct {
+	AdminDSN   string
+	RuntimeDSN string
+	// Err is non-nil when either endpoint is missing (env names only; never DSNs).
+	Err error
+	// FailClosed is true when LIP_REQUIRE_POSTGRES_POOLER requests hard failure.
+	FailClosed bool
+}
+
+// EvaluateDualPlanePostgresGate looks up admin/runtime DSNs without logging them.
+func EvaluateDualPlanePostgresGate() DualPlanePostgresGate {
+	admin, runtime, err := LookupDualPlanePostgresDSNs()
+	if err == nil && PostgresPoolerRequired() && !envTruthy(LIPTestPostgresRuntimeIsPooler) {
+		err = fmt.Errorf("pooled PostgreSQL gate requires explicit runtime topology attestation: set %s=1", LIPTestPostgresRuntimeIsPooler)
+	}
+	return DualPlanePostgresGate{
+		AdminDSN:   admin,
+		RuntimeDSN: runtime,
+		Err:        err,
+		FailClosed: PostgresPoolerRequired(),
+	}
+}
+
+// SkipUnlessPostgresPooled skips (or fails closed) unless both admin and runtime
+// DSNs are configured. When LIP_REQUIRE_POSTGRES_POOLER is set, missing endpoints
+// fail with an actionable message and never infer/rewrite hostnames.
+func SkipUnlessPostgresPooled(t *testing.T) (adminDSN, runtimeDSN string) {
+	t.Helper()
+	gate := EvaluateDualPlanePostgresGate()
+	if gate.Err == nil {
+		return gate.AdminDSN, gate.RuntimeDSN
+	}
+	if gate.FailClosed {
+		t.Fatalf("%v", gate.Err)
+	}
+	t.Skipf("%v", gate.Err)
+	return "", ""
 }

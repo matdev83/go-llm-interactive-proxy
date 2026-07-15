@@ -35,7 +35,7 @@ func TestSecureSessionMetricsSink_denialAndStorage(t *testing.T) {
 func TestNewBundle_includesSecureSession(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{Observability: config.ObservabilityConfig{Metrics: config.MetricsConfig{Enabled: true}}}
-	b := NewBundle(cfg)
+	b := NewBundle(cfg, nil)
 	if b.SecureSession == nil {
 		t.Fatal("expected SecureSession prom")
 	}

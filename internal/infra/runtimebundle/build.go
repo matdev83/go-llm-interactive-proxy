@@ -2,10 +2,8 @@ package runtimebundle
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auxreq"
@@ -14,18 +12,17 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
 // Build assembles continuity store, executor, and closers for the standard distribution.
-//
 // cfg must be non-nil. bus may be nil (replaced with an empty hooks.Bus). log must be non-nil.
 // opts must be non-nil and opts.PluginRegistry must be non-nil; other BuildOptions fields are optional.
-//
 // The returned [Built.RuntimeSnapshot] (and executor snapshot) is shared by concurrent requests:
 // do not mutate bus or snapshot contents after Build. Reload or reconfiguration must call Build
 // again and swap to new [*Built] / executor instances so each generation gets its own snapshot.
-func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOptions) (*Built, error) {
+func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOptions) (built *Built, err error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("runtimebundle: nil config")
 	}
@@ -48,7 +45,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts != nil && opts.Startup.StartupContext != nil {
 		parent = opts.Startup.StartupContext
 	}
-	bctx := buildContext{Cfg: cfg, Bus: bus, Log: log, Opts: opts, Parent: parent}
+	postgresPools := db.NewPoolRegistry(opts.Testing.PostgresPoolOpener)
+	dualPlaneMigrator := newDualPlaneMigrator(cfg)
+	buildSucceeded := false
+	defer func() {
+		if !buildSucceeded {
+			err = joinCloseErr(err, postgresPools.Close(parent))
+		}
+	}()
+	bctx := buildContext{Cfg: cfg, Bus: bus, Log: log, Opts: opts, Parent: parent, PostgresPools: postgresPools, DualPlaneMigrator: dualPlaneMigrator}
 	// closers is the ordered disposal list for every resource Build opens. The
 	// control-plane store is opened first (in buildControlPlaneRuntime), so its
 	// closer is registered immediately and every later error path disposes it;
@@ -72,7 +77,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	// observer chain (operator observers + control-plane adapter) without
 	// duplicating control-plane events.
 	policyObs := assemblePolicyObserverChain(opts, controlPlane)
-	usageAuthority, usageClosers, err := buildUsageAuthorityRuntime(parent, cfg, log, opts, controlPlane, policyObs)
+	usageAuthority, usageClosers, err := buildUsageAuthorityRuntime(parent, cfg, log, opts, controlPlane, policyObs, postgresPools, dualPlaneMigrator)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
@@ -83,7 +88,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if usageAuthority != nil {
 		usageAuthorityHandle = usageAuthority.Service
 	}
-	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, cfg, log, opts.Testing)
+	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, cfg, log, opts.Testing, postgresPools, dualPlaneMigrator)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
@@ -95,7 +100,6 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
-
 	obs := buildObservabilityRuntime(bctx)
 	if usageAuthorityHandle != nil && obs.Bundle != nil {
 		usageAuthorityHandle.SetStageMetrics(obs.Bundle.AuthorityStageSink())
@@ -133,7 +137,16 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
+	if err := postgresPools.PruneUnclaimed(); err != nil {
+		return nil, withDisposedClosers(fmt.Errorf("runtimebundle: prune unclaimed postgres pools: %w", err), closers)
+	}
+	if postgresPools.Len() > 0 {
+		closers = append(closers, func() error {
+			return postgresPools.Close(context.Background())
+		})
+	}
 	exec = execRun.Exec
+	buildSucceeded = true
 	return &Built{
 		Executor:              execRun.Exec,
 		Store:                 persist.Store,
@@ -168,51 +181,4 @@ func concurrencyServiceHandle(rt *concurrencyAuthorityRuntime) *concurrencyapp.S
 		return nil
 	}
 	return rt.Service
-}
-
-// validateRequiredAuthorityEvidenceWiring protects callers that assemble a
-// runtime bundle without first running config.Validate. A required pre-work
-// accounting-authority category is meaningless without both the authority
-// capability and a live control-plane recorder.
-func validateRequiredAuthorityEvidenceWiring(cfg *config.Config) error {
-	if cfg == nil || !strings.EqualFold(strings.TrimSpace(cfg.ControlPlane.RecordingPolicy), "required_pre_work") {
-		return nil
-	}
-	required := false
-	for _, category := range cfg.ControlPlane.RequiredCategories {
-		if strings.EqualFold(strings.TrimSpace(category), "accounting_authority") {
-			required = true
-			break
-		}
-	}
-	if !required {
-		return nil
-	}
-	if !cfg.ControlPlane.Enabled {
-		return fmt.Errorf("runtimebundle: control_plane.enabled: must be true when accounting_authority is required under required_pre_work")
-	}
-	if !cfg.Accounting.Authority.Enabled {
-		return fmt.Errorf("runtimebundle: accounting.authority.enabled: must be true when accounting_authority is required under required_pre_work")
-	}
-	return nil
-}
-
-func disposeClosers(closers []func() error) error {
-	var out error
-	for i := len(closers) - 1; i >= 0; i-- {
-		if err := closers[i](); err != nil {
-			out = errors.Join(out, fmt.Errorf("runtimebundle: dispose closer: %w", err))
-		}
-	}
-	return out
-}
-
-// withDisposedClosers disposes closers and returns err unchanged on successful
-// disposal, or errors.Join(err, derr) when disposal fails. It treats a nil err
-// defensively so callers can pass build errors without a separate nil check.
-func withDisposedClosers(err error, closers []func() error) error {
-	if derr := disposeClosers(closers); derr != nil {
-		return errors.Join(err, derr)
-	}
-	return err
 }

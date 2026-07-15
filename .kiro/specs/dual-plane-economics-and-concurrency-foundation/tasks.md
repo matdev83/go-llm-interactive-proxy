@@ -169,6 +169,149 @@
   - Include crash recovery, cancellation, late correction, malformed external provider, privacy, and compatibility cases.
   - _Requirements: 15.9, 17.1, 17.2, 17.3, 17.5, 17.6, 17.8, 17.9_
 
+## Amendment Tasks — Transaction-Pooled PostgreSQL Compatibility (2026-07-15)
+
+Additive tasks mapping approved Phases 1–6 **one-to-one**. Tasks 1–12 remain the complete historical record; do not reopen them for this amendment. **Production implementation of tasks 13–18 is blocked until requirements, design, and tasks are reapproved in `spec.json`.**
+
+- [ ] 13. Phase 1 — Build correct two-endpoint PostgreSQL test harness (TDD)
+  - [x] 13.1 Add the two-endpoint env contract and harness helpers
+    - Define `LIP_TEST_POSTGRES_ADMIN_DSN` (direct admin/bootstrap/cleanup) and `LIP_TEST_POSTGRES_DSN` (transaction-pooled runtime). Document `LIP_MANAGED_POSTGRES_DSN` as legacy alias only.
+    - Provide package-owned/shared test pool helpers; open multiple handles only when cross-instance tests require them.
+    - _Boundary:_ dual-plane postgres test helpers / harness only; no production pool registry yet
+    - _Depends:_ none (amendment baseline)
+    - _TDD:_ RED harness fails closed when pooled gate is claimed without both roles; GREEN env contract + helpers
+    - _Validation:_ focused harness tests; docs mention both env vars
+    - _Requirements: 18.15, 18.14_
+    - _Evidence:_ `internal/testkit` dual-endpoint env + SQL guard/classifier + cleanup helpers; unit tests green.
+  - [x] 13.2 Replace session `search_path` isolation with pooler-safe identity isolation
+    - Use globally unique store/fact/lease/source IDs plus targeted admin cleanup by `store_id`, and/or fully qualified/admin-prepared objects.
+    - Prove isolation works without session GUCs under the pooled runtime DSN.
+    - _Boundary:_ authority/lease/journal postgres integration tests + helpers
+    - _Depends:_ 13.1
+    - _TDD:_ RED suite still depending on `search_path`; GREEN isolation without session state
+    - _Validation:_ pooled harness with admin prep + runtime DSN
+    - _Requirements: 18.16, 18.7_
+    - _Evidence:_ Direct lease/journal/authority postgres tests use unique `store_id` + cleanup; static allowlist guard rejects `search_path` in those sources.
+  - [ ] 13.3 Author RED pooled-runtime contract suite and wire `make test-authority-postgres-pooled`
+    - Cover usage atomicity/replay, five-slot exactness, release-renew no resurrection, metering replay/correction, DML works after admin closes, runtime pool executes no DDL, no `search_path`, and normal `-parallel=8`.
+    - `-parallel=1` is not an acceptable pooled runtime correctness proof.
+    - _Boundary:_ integration tests + Makefile target; production SQL fixes deferred to later phases if RED
+    - _Depends:_ 13.1, 13.2
+    - _TDD:_ RED contracts under pooled DSN first; keep failures visible until Phases 2–4 turn them green
+    - _Validation:_ `make test-authority-postgres-pooled` (expected RED until later phases); assert parallel flag is not forced to 1
+    - _Requirements: 18.1, 18.14, 18.16, 9.9, 10.2, 18.18_
+    - _Evidence:_ `TestPostgresPooled_*` + `make test-authority-postgres-pooled` (`LIP_REQUIRE_POSTGRES_POOLER=1`, `$(GO_TEST_FLAGS)`). Remains open: RED is constructor runtime DDL / missing open-without-migrate (Phase 3), or fail-closed missing admin/runtime DSNs in local env.
+
+- [ ] 14. Phase 2 — Centralize runtime pool ownership and connection budgets (TDD)
+  - [ ] 14.1 Add typed `connection_mode` / `schema_mode` validation and compatibility defaults
+    - Values: `direct|transaction_pool`, `auto_migrate|verify_only`. Defaults remain `direct` + `auto_migrate` initially.
+    - Reject `transaction_pool` + `auto_migrate`. Reject session-affine DSN parameters under `transaction_pool`.
+    - No hostname/`-pooler` inference or silent DSN rewrite.
+    - _Boundary:_ config + `internal/infra/db` (or adjacent typed config)
+    - _Depends:_ 13.1
+    - _TDD:_ RED enum/default/combination/session-affine matrix; GREEN validators
+    - _Validation:_ `go test` on config/db packages
+    - _Requirements: 18.3, 18.4, 18.5, 18.13_
+  - [ ] 14.2 Implement build-local pool registry and inject shared handles into stores
+    - Key by sanitized runtime DSN + pool config; one pool when three stores share the same DB; distinct DSNs get distinct pools.
+    - Owners: `internal/infra/db` and `internal/infra/runtimebundle`. No globals/DI container/service locator.
+    - Prove shutdown closes each shared pool exactly once; partial build failure cleans up exactly once.
+    - _Boundary:_ composition root + store constructors accepting injected handles
+    - _Depends:_ 14.1
+    - _TDD:_ RED duplicate-pool/leak/ownership tests; GREEN shared injection + lifecycle
+    - _Validation:_ `go test ./internal/infra/db/... ./internal/infra/runtimebundle/...`; archtest if ownership rules change
+    - _Requirements: 18.6, 16.5_
+
+- [ ] 15. Phase 3 — Separate migration and runtime schema lifecycles (TDD)
+  - [ ] 15.1 Split store responsibilities into Migrate, VerifySchema, and open-with-injected-handle
+    - Names follow repo conventions. Runtime open paths consume injected handles and never own migration DDL under pooled mode.
+    - _Boundary:_ dual-plane store packages + `internal/infra/db` helpers
+    - _Depends:_ 14.2
+    - _TDD:_ RED mixed migrate-on-runtime-open; GREEN split APIs
+    - _Validation:_ store unit tests
+    - _Requirements: 18.2, 18.9_
+  - [ ] 15.2 Add `lipstd migrate --components usage-authority,concurrency,metering`
+    - Migration secret from `LIP_MIGRATION_POSTGRES_DSN` (not a CLI argument). Bounded context, reviewed versioned migrations, nonzero partial failure, no serving runtime.
+    - _Boundary:_ `cmd/lipstd` + migration helpers; direct admin DSN only
+    - _Depends:_ 15.1
+    - _TDD:_ RED missing secret / partial failure / runtime-start prohibition; GREEN migrate path
+    - _Validation:_ migrate command tests; `make test-postgres-migrations` (or package equivalent)
+    - _Requirements: 18.10, 18.2_
+  - [ ] 15.3 Implement `verify_only` runtime probes and keep `auto_migrate` direct-only
+    - Empty/outdated schema fails closed; runtime executes no DDL. Pooled path never invokes auto-migrate.
+    - _Boundary:_ schema verify helpers + composition gates
+    - _Depends:_ 15.1, 14.1
+    - _TDD:_ RED missing-table/outdated version + DDL-on-runtime assertions; GREEN verify matrix; RED pooled auto-migrate rejected
+    - _Validation:_ unit/integration with admin prep + pooled/direct verify
+    - _Requirements: 18.9, 18.4, 18.5_
+
+- [ ] 16. Phase 4 — Harden transaction-pooled runtime semantics (TDD)
+  - [ ] 16.1 Audit and remove session-dependent runtime SQL
+    - Guard against `search_path`, session GUCs, temp tables, PREPARE/DEALLOCATE, session advisory locks, and out-of-transaction multi-statement affinity.
+    - _Boundary:_ authority/lease/journal SQL + shared helpers
+    - _Depends:_ 15.3, 13.2
+    - _TDD:_ RED static/runtime audit failures under non-sticky connections; GREEN pooler-safe SQL
+    - _Validation:_ store tests + pooled gate progress
+    - _Requirements: 18.7, 18.1_
+  - [ ] 16.2 Enforce explicit transaction ownership with row locks/CAS and independent-key concurrency
+    - Multi-statement mutations stay on one transaction handle; no process-wide mutex across DB I/O.
+    - _Boundary:_ same stores; coordinator changes only if required for handle injection
+    - _Depends:_ 16.1
+    - _TDD:_ reuse/extend five-slot and unrelated-principal proofs on pooler-safe SQL
+    - _Validation:_ `go test` store packages; race where practical
+    - _Requirements: 18.8, 9.8, 9.9, 10.2, 16.1, 16.2_
+  - [ ] 16.3 Add evidence-driven bounded whole-transaction retry for SQLSTATE 40001/40P01 only
+    - Context-aware; no deterministic denial retry; preserve idempotency keys; bounded metrics by stable SQLSTATE class.
+    - Direct and pooled runtime gates both pass standard parallelism.
+    - _Boundary:_ store transaction helpers
+    - _Depends:_ 16.2
+    - _TDD:_ RED conflict-retry / denial-no-retry matrix; GREEN bounded retry
+    - _Validation:_ `make test-authority-postgres-direct` and `make test-authority-postgres-pooled` at `-parallel=8`
+    - _Requirements: 18.12, 18.14, 18.16, 18.18_
+
+- [ ] 17. Phase 5 — Concurrency, capacity, and observability proof (TDD)
+  - [ ] 17.1 Prove bounded load and pool-sharing invariants
+    - Cover 1000 independent principals, one hot principal, five slots/100 contenders, 2/4 instances, metering correction, three stores sharing one pool, and pool smaller than goroutine count.
+    - Assert no overcommit/lost update/resurrection/leaks; pool waits bounded; independent keys not process-serialized.
+    - _Boundary:_ store/runtime benchmarks and contract tests
+    - _Depends:_ 16.3, 14.2
+    - _TDD:_ RED capacity/leak/serialization assertions; GREEN under direct and pooled where env available
+    - _Validation:_ focused benches/tests; document commands in release-gate notes
+    - _Requirements: 18.8, 18.11, 16.1, 16.5, 16.6_
+  - [ ] 17.2 Classify pool exhaustion/cancellation as infrastructure posture with readiness and metrics
+    - Metrics: pool open/idle/in-use/waits/wait duration; transaction latency by bounded store/operation; retry counts by stable SQLSTATE class; timeout/cancel; schema version/readiness; connection mode. No high-cardinality labels.
+    - _Boundary:_ db pool wrappers, readiness reporters, metrics hooks
+    - _Depends:_ 17.1, 15.3
+    - _TDD:_ RED infra-vs-capacity misclassification and missing readiness component; GREEN mapping + bounded labels
+    - _Validation:_ readiness/metrics unit tests; `make quality-checks`
+    - _Requirements: 18.11, 18.17, 15.4, 15.7, 15.8, 16.5_
+  - [ ] 17.3 Add Linux race focus for pool registry/lifecycle, stores, and lease heartbeat
+    - No unmanaged goroutines; Windows may skip race per existing policy.
+    - _Boundary:_ race-sensitive packages only
+    - _Depends:_ 17.2, 14.2
+    - _TDD:_ RED leak/race tripwires where practical; GREEN under Linux race
+    - _Validation:_ `make test-race` on Linux CI; local race where practical
+    - _Requirements: 18.6, 18.17, 17.9_
+
+- [ ] 18. Phase 6 — CI gates, docs, and rollout
+  - [ ] 18.1 Wire local PostgreSQL + PgBouncer transaction-mode CI and Make targets
+    - Env: admin direct, pooled runtime, require flags. Targets: `test-postgres-migrations`, `test-authority-postgres-direct`, `test-authority-postgres-pooled`, aggregate `test-authority-postgres`.
+    - Aggregate must not force `-parallel=1`; serial only for migration bootstrap. Runtime pool compatibility and migration compatibility remain separate gates.
+    - CI uses local PostgreSQL + PgBouncer transaction mode, not an external managed service.
+    - _Boundary:_ Makefile, GitHub Actions, `internal/qa` evidence pins
+    - _Depends:_ 13.3, 16.3, 17.2
+    - _TDD:_ RED qa pin fails if pooled/migration gates missing when claimed; GREEN wiring
+    - _Validation:_ CI job dry-config review + `go test -tags=precommit ./internal/qa/...`
+    - _Requirements: 18.14, 18.15, 18.16, 18.17, 17.9_
+  - [ ] 18.2 Publish docs/config/deployment/readiness guidance and compatibility rollout notes
+    - Document admin vs runtime DSNs, mode pairs, migrate command, verify-only posture, and that `direct`+`auto_migrate` remains the compatibility default initially.
+    - Final local gates: default suite, quality, parity, direct+pooled PG, precommit, Linux race, `make qa`.
+    - _Boundary:_ docs + config examples only; no economic semantic changes
+    - _Depends:_ 18.1, 15.2
+    - _TDD:_ doc/contract checklist against Requirement 18; fix gaps before marking done
+    - _Validation:_ link-check touched docs if available; human review of rollout wording
+    - _Requirements: 18.5, 18.10, 18.13, 18.14, 17.2, 17.9_
+
 ## Implementation Notes
 
 - Phase 1.2 locks current defects as green characterization tests; `TestPhase12_desired*CurrentlyAbsent` tripwires fail once Phase 2 desired semantics land and must be inverted/deleted with the characterization assertions.
@@ -206,3 +349,9 @@
   - Phase 12 remediation (validate NO-GO): wire settle/release/query `observeStage`; add parallel 2/4/8-leg race bench; scale independent-principals bench to 1000.
 - Phase 12.3: enterprise provider panic/malformed decision+lease isolation in `authoritycoord` (15.9); shared FE operation checkpoint contract test; `make test-authority-postgres` covers authoritystore+leasestore+journalstore; dual-plane section in `docs/release-gates.md` + `internal/qa` evidence pin; gates = `make parity-checks`, `make release-gates`/`test-fuzz`, `make test-race` (Windows no-op), PG when `LIP_TEST_POSTGRES_DSN` set.
   - RED_PHASE_OUTPUT: `TestRequestCoordinator_IsolatesProviderPanicFailClosed` / `IsolatesMalformedDecisionKind` / `IsolatesConcurrencyPanic` / `IsolatesMalformedLeaseDecisionKind` / `TestAttemptCoordinator_IsolatesProviderPanic` / `TestCompensationStack_IsolatesReleasePanic` — panic under missing recover; GREEN after `invoke*` wiring + `LeaseDecision.Validate`.
+
+### Amendment note — Transaction-pooled PostgreSQL (2026-07-15)
+
+- Tasks 13–18 map **exactly** to Phases 1–6: harness → pool registry → migrate/verify split → pooled SQL harden → load/observability → CI/docs.
+- Do not start production code for 13–18 until `spec.json` shows reapproved requirements, design, and tasks and `ready_for_implementation: true`.
+- Historical Phase 12.3 PostgreSQL gate remains the direct-path proof; pooled runtime is an additive gate under `-parallel=8`, not a silent replacement and not satisfiable by `-parallel=1`.

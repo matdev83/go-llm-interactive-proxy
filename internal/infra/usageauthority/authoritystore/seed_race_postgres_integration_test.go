@@ -5,17 +5,13 @@ package authoritystore
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/uptrace/bun"
@@ -40,38 +36,31 @@ func (b *pgSeedLimitInsertBarrier) BeforeQuery(ctx context.Context, event *bun.Q
 
 func (*pgSeedLimitInsertBarrier) AfterQuery(context.Context, *bun.QueryEvent) {}
 
-var pgSeedRaceSeq atomic.Int64
-var pgSeedRaceRunID = time.Now().UnixNano()
-
 func openPGSeedRaceDB(t *testing.T, dsn string) *bun.DB {
 	t.Helper()
-	pool, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{MaxOpenConns: 4})
-	if err != nil {
-		t.Fatal(err)
+	return testkit.OpenPostgresBunForTest(t, dsn, 4)
+}
+
+func seedRaceAdminDSN(runtimeDSN string) string {
+	if admin, ok := testkit.PostgresAdminDSN(); ok {
+		return admin
 	}
-	child, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
-	defer cancel()
-	opened, err := db.OpenPostgresBun(child, dsn, db.PoolSettings{
-		MaxOpenConns:    pool.MaxOpenConns,
-		MaxIdleConns:    pool.MaxIdleConns,
-		ConnMaxLifetime: pool.ConnMaxLifetime,
-		ConnMaxIdleTime: pool.ConnMaxIdleTime,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return opened
+	return runtimeDSN
 }
 
 func TestPostgresSeedCannotEraseConcurrentReservation(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
-	ctx := context.Background()
-	ruleID := fmt.Sprintf("seed-race-%d-%d", pgSeedRaceRunID, pgSeedRaceSeq.Add(1))
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	storeID := testkit.UniquePostgresStoreID("seed-race")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, seedRaceAdminDSN(dsn), storeID, testkit.PostgresComponentAuthority)
+	})
 	row := controlplane.AccountingLimitStatusRow{
-		RuleID: ruleID, RuleType: string(domain.RuleKindQuota), Unit: string(domain.AmountUnitRequests),
+		RuleID: storeID, RuleType: string(domain.RuleKindQuota), Unit: string(domain.AmountUnitRequests),
 		Limit: 100, Remaining: 100, Authority: controlplane.AccountingAuthoritySourceAuthoritative,
 	}
-	cfg := Config{StoreID: ruleID, Backing: domain.BackingCapabilityAtomic, LimitRows: []controlplane.AccountingLimitStatusRow{row}, Readiness: domain.StatusFromBacking(domain.BackingCapabilityAtomic)}
+	cfg := Config{StoreID: storeID, Backing: domain.BackingCapabilityAtomic, LimitRows: []controlplane.AccountingLimitStatusRow{row}, Readiness: domain.StatusFromBacking(domain.BackingCapabilityAtomic)}
 
 	dbA := openPGSeedRaceDB(t, dsn)
 	dbB := openPGSeedRaceDB(t, dsn)
@@ -103,7 +92,7 @@ func TestPostgresSeedCannotEraseConcurrentReservation(t *testing.T) {
 		t.Fatal("seed did not reach limit-row insert barrier")
 	}
 
-	reserve := reconcileReserveCommandInternal(ruleID, 30)
+	reserve := reconcileReserveCommandInternal(storeID, 30)
 	reserveDone := make(chan struct {
 		out app.ReserveResult
 		err error
@@ -129,7 +118,7 @@ func TestPostgresSeedCannotEraseConcurrentReservation(t *testing.T) {
 	if result.err != nil || !result.out.Applied {
 		t.Fatalf("reservation after concurrent seed = %#v, err=%v", result.out, result.err)
 	}
-	page, err := storeB.LimitStatus(ctx, controlplane.AccountingLimitStatusQuery{RuleID: ruleID, Limit: 10, Visibility: controlplane.VisibilityDefault})
+	page, err := storeB.LimitStatus(ctx, controlplane.AccountingLimitStatusQuery{RuleID: storeID, Limit: 10, Visibility: controlplane.VisibilityDefault})
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("LimitStatus = %#v, err=%v", page.Items, err)
 	}

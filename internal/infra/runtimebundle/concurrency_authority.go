@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/concurrencyauthority/leasestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/uptrace/bun"
 	_ "modernc.org/sqlite" // register sqlite driver for configured lease stores
 )
 
@@ -27,7 +28,7 @@ type concurrencyAuthorityRuntime struct {
 	AuxiliaryLeasePolicy string
 }
 
-func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions) (*concurrencyAuthorityRuntime, []func() error, error) {
+func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (*concurrencyAuthorityRuntime, []func() error, error) {
 	if cfg == nil || !cfg.Accounting.Concurrency.Enabled {
 		return nil, nil, nil
 	}
@@ -46,7 +47,7 @@ func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config
 	if err != nil {
 		return nil, nil, err
 	}
-	store, closers, err := buildConcurrencyLeaseStore(parent, cfg, log, testing)
+	store, closers, err := buildConcurrencyLeaseStore(parent, cfg, log, testing, registry, migrator)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,7 +62,7 @@ func buildConcurrencyAuthorityRuntime(parent context.Context, cfg *config.Config
 	}, closers, nil
 }
 
-func buildConcurrencyLeaseStore(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions) (concurrencyapp.LeaseStore, []func() error, error) {
+func buildConcurrencyLeaseStore(parent context.Context, cfg *config.Config, log *slog.Logger, testing TestingOptions, registry *db.PoolRegistry, migrator *dualPlaneMigrator) (concurrencyapp.LeaseStore, []func() error, error) {
 	if override := testing.ConcurrencyLeaseStoreOverride; override != nil {
 		return override, nil, nil
 	}
@@ -104,21 +105,26 @@ func buildConcurrencyLeaseStore(parent context.Context, cfg *config.Config, log 
 		}
 		child, cancel := context.WithTimeout(parent, db.DefaultPostgresOpenMigrateTimeout)
 		defer cancel()
-		bunDB, err := db.OpenPostgresBun(child, cCfg.PostgresDSN, db.PoolSettings{
+		pool := db.PoolSettings{
 			MaxOpenConns:    poolCfg.MaxOpenConns,
 			MaxIdleConns:    poolCfg.MaxIdleConns,
 			ConnMaxLifetime: poolCfg.ConnMaxLifetime,
 			ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+		}
+		store, closeFn, err := openPostgresStore(child, cCfg.PostgresDSN, pool, cfg.Database, registry, migrator, postgresStoreLifecycle[*leasestore.DurableStore]{
+			Migrate: leasestore.Migrate, Verify: leasestore.VerifySchema,
+			Open: func(ctx context.Context, handle *bun.DB) (*leasestore.DurableStore, error) {
+				return leasestore.OpenStore(ctx, handle, leasestore.DurableConfig{StoreID: storeID})
+			},
+			Close: (*leasestore.DurableStore).Close,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease postgres open: %w", err)
-		}
-		store, err := leasestore.NewDurable(parent, bunDB, leasestore.DurableConfig{StoreID: storeID})
-		if err != nil {
-			_ = bunDB.Close()
 			return nil, nil, fmt.Errorf("runtimebundle: concurrency lease durable postgres: %w", err)
 		}
-		return store, []func() error{store.Close}, nil
+		if registry != nil {
+			return store, nil, nil
+		}
+		return store, []func() error{closeFn}, nil
 	default:
 		return nil, nil, fmt.Errorf("runtimebundle: concurrency lease store %q is invalid", cCfg.Store)
 	}

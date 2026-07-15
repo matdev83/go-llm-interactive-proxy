@@ -24,7 +24,7 @@ func buildObservabilityRuntime(bctx buildContext) observabilityRuntime {
 	opts := bctx.Opts
 	var bundle *metrics.Bundle
 	if cfg.Observability.Metrics.Enabled {
-		bundle = metrics.NewBundle(cfg)
+		bundle = metrics.NewBundle(cfg, bctx.PostgresPools.Stats)
 	}
 	tune := httpclient.TransportTuneFromConfig(cfg)
 	upstream := httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)

@@ -43,6 +43,7 @@ The design retains the strong transactional parts of PR #128. It does not extend
 | External enterprise code uses public production seams only. | Separate-module compile fixture and composition integration test. |
 | Unrelated accounts are not serialized in-process. | Independent-key concurrency benchmarks and race tests. |
 | Existing authority data is never silently reinterpreted. | Migration namespace, compatibility, and restart tests. |
+| Dual-plane PostgreSQL runtime works through a transaction pooler without session affinity. | Pooled-runtime contract suite under `-parallel=8`, invalid mode-combination tests, admin/runtime DSN harness, composition pool-registry ownership tests, and CI PgBouncer transaction-mode gate. |
 
 ## Non-Goals
 
@@ -85,7 +86,9 @@ The design retains the strong transactional parts of PR #128. It does not extend
 - control-plane event storage must not become the live reservation or lease authority;
 - fail-open observer chains must not be used as strict admission controls;
 - provider SDK/wire types must not enter public economic or authority contracts;
-- raw content must not be required for durable metering or authority state.
+- raw content must not be required for durable metering or authority state;
+- dual-plane runtime SQL must not depend on session affinity, sticky connections, or session-scoped state (`SET search_path`, session GUCs, temp tables, or out-of-transaction multi-statement session scripts);
+- store packages must not open unbounded private PostgreSQL pools that bypass composition-root pool ownership and bounds.
 
 ## Current-State Alignment Decisions
 
@@ -916,6 +919,158 @@ Required benchmark scenarios:
 - fact append and correction replay;
 - no-feature baseline.
 
+## Amendment: Transaction-Pooled PostgreSQL Compatibility
+
+Additive amendment dated 2026-07-15. Prior design sections remain authoritative; this section extends PostgreSQL durability for transaction pooling (PgBouncer transaction mode / managed pooled endpoints) without session affinity. Exact approved names below are normative for tasks 13–18.
+
+### Problem
+
+Current dual-plane PostgreSQL stores use correct transaction/row-lock/CAS concepts, but the release harness still relies on session `search_path`, and composition can couple migration DDL with runtime DML through one DSN while opening independent pools per store. Transaction poolers do not preserve session state, so direct-only migration proofs are insufficient: pooled runtime DML must be a required release gate under normal `-parallel=8`.
+
+### Admin / Runtime Role Flow
+
+```text
+┌─────────────────────────────┐     direct DSN / admin role
+│ lipstd migrate --components │──────────────────────────────► PostgreSQL
+│ usage-authority,concurrency,│     DDL + versioned migrations
+│ metering                    │     secret: LIP_MIGRATION_POSTGRES_DSN
+└─────────────────────────────┘
+
+┌─────────────────────────────┐     runtime DSN
+│ composition root            │──► pool registry (sanitized DSN + pool cfg)
+│ runtimebundle / lipstd      │         │
+└─────────────────────────────┘         ├──► authority store (injected handle)
+                                        ├──► lease store (injected handle)
+                                        └──► metering journal (injected handle)
+
+Runtime path: connection_mode=direct|transaction_pool
+              schema_mode=verify_only when pooled (DML only; no DDL)
+```
+
+| Role | Endpoint | Allowed work |
+| --- | --- | --- |
+| Migration/admin | Direct PostgreSQL | Schema create/alter, reviewed migrations, bootstrap/cleanup fixtures |
+| Runtime | Direct or transaction-pooler | Authority/lease/journal DML and queries; `verify_only` when pooled |
+
+No production code may infer Neon by `-pooler` hostname or rewrite providers; behavior is explicit configuration only.
+
+### Connection and Schema Modes
+
+| Mode | Values | Meaning |
+| --- | --- | --- |
+| `connection_mode` | `direct`, `transaction_pool` | Whether the handle may assume session affinity / sticky connections. |
+| `schema_mode` | `auto_migrate`, `verify_only` | Whether the role may mutate schema or only verify required objects. |
+
+Invalid (fail closed): `transaction_pool` + `auto_migrate`.
+
+Allowed:
+
+- `direct` + `auto_migrate` — **compatibility default** initially (no silent breaking change);
+- `direct` + `verify_only` — direct runtime that refuses schema mutation;
+- `transaction_pool` + `verify_only` — production pooled runtime (required pairing).
+
+Reject session-affine DSN parameters under `transaction_pool` when they would imply sticky/session pooling assumptions the runtime cannot honor.
+
+### Pool Registry Key, Ownership, and Lifecycle
+
+Owners: `internal/infra/db` and `internal/infra/runtimebundle`.
+
+- Build-local registry keyed by **sanitized runtime DSN + pool config**.
+- One bounded pool when authority, lease, and journal share the same key; distinct DSNs get distinct pools.
+- Adapters receive injected handles; no globals, DI container, service locator, or default per-store duplicate pools.
+- Close each shared pool exactly once on shutdown; partial build failure cleans up exactly once.
+- Pool bounds (`max_open_conns`, `max_idle_conns`, lifetimes) apply to the shared handles.
+- `max_open_conns` is required (`> 0`) whenever any managed store is postgres; size it for peak concurrent dual-plane transactions on the shared key (lease + authority + metering).
+- Under `auto_migrate`, the first registry-owned open per dual-plane DSN migrates all enabled components sharing that DSN on a capped admin handle (`MaxOpenConns=1`); later opens verify/open/claim only.
+- Registry pool saturation is exported as scrape-driven Prometheus series (`lip_postgres_pool_*`, including `max_open` and counter-typed wait totals).
+
+### Schema Migration Command and Verify-Only Responsibilities
+
+Store responsibilities split into:
+
+1. **Migrate** — admin/direct path only; reviewed versioned migrations.
+2. **VerifySchema** — runtime `verify_only` probes for required objects/version; never mutates.
+3. **Open with injected handle** — runtime DML against an already-verified schema (names follow repo conventions).
+
+CLI: `lipstd migrate --components usage-authority,concurrency,metering`
+
+- Migration secret from `LIP_MIGRATION_POSTGRES_DSN` (not a CLI argument).
+- Bounded context; nonzero exit on partial failure; does not start the serving runtime.
+- `auto_migrate` remains direct-only compatibility for existing deployments.
+- `verify_only` runtime fails on empty/outdated schema and executes no DDL.
+
+### Session-Independent Runtime SQL and Transaction Ownership
+
+Runtime dual-plane SQL must be correct when each transaction may land on a different physical connection:
+
+- no `SET search_path`, session GUCs, temporary tables, SQL PREPARE/DEALLOCATE, session advisory locks, or connection-local state;
+- no multi-statement affinity outside a single explicit transaction;
+- multi-statement mutations stay on one transaction handle;
+- targeted row locks/CAS only; no process-wide mutex across DB I/O;
+- prefer fully-qualified identifiers or admin-established schema qualification.
+
+### Transaction Retry Policy
+
+Add only evidence-driven bounded whole-transaction retry for SQLSTATE `40001` / `40P01`:
+
+- context-aware (honor cancellation/deadlines);
+- never retry deterministic capacity denial;
+- preserve idempotency keys across retries;
+- emit bounded-cardinality retry metrics by stable SQLSTATE class;
+- do not invent broad optimistic-retry frameworks without evidence.
+
+### Test Harness Topology
+
+| Env var | Role |
+| --- | --- |
+| `LIP_TEST_POSTGRES_ADMIN_DSN` | Direct admin/bootstrap/cleanup/migration |
+| `LIP_TEST_POSTGRES_DSN` | Transaction-pooled runtime DML |
+| `LIP_MANAGED_POSTGRES_DSN` | Documented legacy alias only |
+
+Isolation: globally unique store/fact/lease/source IDs + targeted admin cleanup by `store_id`, and/or fully qualified/admin-prepared objects. **No session `search_path`.** Package-owned/shared test pool where suitable; open multiple handles only when cross-instance tests require them.
+
+Pooled RED contracts (non-exhaustive): usage atomicity/replay, five-slot exactness, release-renew no resurrection, metering replay/correction, DML works after admin closes, runtime pool executes no DDL, no `search_path`, standard parallelism.
+
+Gate targets:
+
+- `make test-postgres-migrations`
+- `make test-authority-postgres-direct`
+- `make test-authority-postgres-pooled` (Phase 1 gate; `-parallel=8`)
+- `make test-authority-postgres` (aggregate; must not force `-parallel=1` for pooled DML; serial only for migration bootstrap)
+
+### Metrics and Load Gates
+
+Bounded tests/benchmarks (amendment Phase 5): 1000 independent principals; one hot principal; five slots / 100 contenders; 2/4 instances; metering correction; three stores sharing one pool; pool smaller than goroutine count. Assert no overcommit/lost update/resurrection/leaks; pool waits bounded; independent keys not process-serialized.
+
+Metrics (bounded cardinality only): pool open/idle/in-use/waits/wait duration; transaction latency by bounded store/operation; retry counts by stable SQLSTATE class; timeout/cancel; schema version/readiness; connection mode.
+
+Linux race focus: pool registry/lifecycle, stores, runtime lease heartbeat; no unmanaged goroutines.
+
+Pool exhaustion/cancellation is classified infrastructure failure: bounded, readiness-visible, observable — not capacity denial.
+
+### CI, Docs, and Rollout
+
+- GitHub Actions: local PostgreSQL + PgBouncer **transaction mode** (not an external managed service as the required gate).
+- Docs/config/deployment/readiness guidance for admin vs runtime DSNs, mode pairs, migrate command, and compatibility defaults.
+- Rollout: keep `direct` + `auto_migrate` as compatibility defaults initially; new generated config may switch later per explicit rollout — no silent breaking change now.
+- Final gates include default suite, quality, parity, direct+pooled PG, precommit, Linux race, and `make qa`.
+
+### Package Touchpoints
+
+- `internal/infra/db` — modes, pool registry helpers, verify-only probes, session-SQL guards;
+- `internal/infra/runtimebundle` — shared pool ownership, injection, shutdown/cleanup;
+- dual-plane stores under `internal/infra/usageauthority`, `internal/infra/concurrencyauthority`, `internal/infra/metering`;
+- `cmd/lipstd` migrate command wiring;
+- config types, docs, Makefile targets, GitHub Actions PgBouncer job, QA evidence pins.
+
+### Out of Boundary for This Amendment
+
+- proprietary pooler control planes;
+- replacing Bun/`database/sql`;
+- changing dual-plane economic semantics already delivered in tasks 1–12;
+- requiring session poolers when transaction pooling is the supported production target;
+- hostname-based provider inference or silent DSN rewriting.
+
 ## Migration Strategy
 
 ### Phase A: Correctness Locks
@@ -1062,11 +1217,16 @@ External closed-style fixture implements rater and authority provider through pu
 
 - ordinary unit/integration suite;
 - required PostgreSQL metering/authority/concurrency suite;
-- race detector on lifecycle owners and stores;
+- distinct migration, direct-runtime, and transaction-pooled runtime PostgreSQL gates (`test-postgres-migrations`, `test-authority-postgres-direct`, `test-authority-postgres-pooled`; aggregate `test-authority-postgres`);
+- pooled runtime proofs under normal `-parallel=8` (not `-parallel=1`);
+- race detector on lifecycle owners, pool registry, and stores;
 - fuzz facts, queries, config, and correction state machines;
 - architecture/import guardrails;
 - benchmarks with regression thresholds;
-- migration tests from existing config/store state.
+- migration tests from existing config/store state;
+- invalid `transaction_pool` + `auto_migrate` combination tests;
+- pooler-safe isolation tests that do not depend on session `search_path`;
+- CI local PostgreSQL + PgBouncer transaction mode for required pooled gates.
 
 ## Success Scenario
 

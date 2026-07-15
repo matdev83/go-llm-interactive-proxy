@@ -81,7 +81,7 @@ func newSQLiteStore(t *testing.T, path, storeID string) *leasestore.DurableStore
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	if _, err := sqlDB.Exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := sqlDB.ExecContext(context.Background(), `PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL`); err != nil {
 		t.Fatal(err)
 	}
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)

@@ -96,7 +96,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	closers = append(closers, accountingClosers...)
 
-	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, cfg, in.NowFn)
+	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, cfg, in.NowFn, bctx.PostgresPools, bctx.DualPlaneMigrator)
 	if err != nil {
 		return nil, closers, err
 	}

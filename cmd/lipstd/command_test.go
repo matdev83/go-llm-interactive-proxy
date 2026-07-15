@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
@@ -33,7 +34,7 @@ func TestParseCommandName_defaultServe(t *testing.T) {
 
 func TestParseCommandName_explicitSubcommands(t *testing.T) {
 	t.Parallel()
-	for _, s := range []string{"serve", "check-config", "routes", "inventory"} {
+	for _, s := range []string{"serve", "check-config", "routes", "inventory", "migrate"} {
 		t.Run(s, func(t *testing.T) {
 			t.Parallel()
 			n, err := parseCommandName([]string{s})
@@ -45,6 +46,73 @@ func TestParseCommandName_explicitSubcommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunMigrateCommandRequiresEnvironmentDSN(t *testing.T) {
+	t.Setenv(migrationPostgresDSNEnv, "")
+	var stderr bytes.Buffer
+	code := RunCommand(t.Context(), CommandOptions{Name: CommandMigrate, ErrorOut: &stderr})
+	if code != 1 || !strings.Contains(stderr.String(), migrationPostgresDSNEnv) {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunMigrateCommandUnknownComponents(t *testing.T) {
+	t.Setenv(migrationPostgresDSNEnv, "postgres://unused")
+	var stderr bytes.Buffer
+	code := RunCommand(t.Context(), CommandOptions{
+		Name:       CommandMigrate,
+		Components: "billing",
+		ErrorOut:   &stderr,
+	})
+	if code != 2 || !strings.Contains(stderr.String(), "billing") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunMigrateCommandSuccessAndMigrateError(t *testing.T) {
+	t.Setenv(migrationPostgresDSNEnv, "postgres://admin/db")
+	orig := runPostgresMigrate
+	t.Cleanup(func() { runPostgresMigrate = orig })
+
+	t.Run("success", func(t *testing.T) {
+		var gotDSN string
+		var gotComponents []string
+		runPostgresMigrate = func(_ context.Context, dsn string, components []string) error {
+			gotDSN = dsn
+			gotComponents = append([]string(nil), components...)
+			return nil
+		}
+		var stderr bytes.Buffer
+		code := RunCommand(t.Context(), CommandOptions{
+			Name:       CommandMigrate,
+			Components: "metering,concurrency",
+			ErrorOut:   &stderr,
+		})
+		if code != 0 {
+			t.Fatalf("code=%d stderr=%q", code, stderr.String())
+		}
+		if gotDSN != "postgres://admin/db" {
+			t.Fatalf("dsn=%q", gotDSN)
+		}
+		if len(gotComponents) != 2 || gotComponents[0] != "metering" || gotComponents[1] != "concurrency" {
+			t.Fatalf("components=%v", gotComponents)
+		}
+	})
+
+	t.Run("migrate error", func(t *testing.T) {
+		runPostgresMigrate = func(context.Context, string, []string) error {
+			return errors.New("migrate boom")
+		}
+		var stderr bytes.Buffer
+		code := RunCommand(t.Context(), CommandOptions{
+			Name:     CommandMigrate,
+			ErrorOut: &stderr,
+		})
+		if code != 1 || !strings.Contains(stderr.String(), "migrate boom") {
+			t.Fatalf("code=%d stderr=%q", code, stderr.String())
+		}
+	})
 }
 
 func TestParseCommandName_unknown(t *testing.T) {

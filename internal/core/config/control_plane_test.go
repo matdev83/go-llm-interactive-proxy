@@ -92,6 +92,7 @@ func TestControlPlanePostgresRequiresDSNAndForbidsDSNElsewhere(t *testing.T) {
 		t.Fatalf("expected postgres_dsn required error, got %v", err)
 	}
 	cfg.ControlPlane.PostgresDSN = "postgres://u:p@h:5432/db"
+	cfg.Database.MaxOpenConns = 8
 	if err := config.Validate(&cfg); err != nil {
 		t.Fatalf("postgres with dsn must validate: %v", err)
 	}

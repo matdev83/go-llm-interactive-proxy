@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"database/sql"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
@@ -21,12 +23,15 @@ type Bundle struct {
 	AuthorityStages     *AuthorityStageProm
 	Upstream            *UpstreamProm
 	TokenAccounting     *TokenAccountingProm
+	PostgresPool        *PostgresPoolProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
 }
 
 // NewBundle builds a registry with Go/process, inbound HTTP, executor, and upstream series.
-func NewBundle(cfg *config.Config) *Bundle {
+// poolStats snapshots database/sql pool statistics for the postgres pool collector; it
+// may be nil when no registry-owned pool exists (the collector then emits zeroed series).
+func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	r := NewRegistry()
 	exemplars := cfg != nil && cfg.Observability.Metrics.ExemplarsEnabled
 	httpm := RegisterHTTPMetrics(r, exemplars)
@@ -36,6 +41,7 @@ func NewBundle(cfg *config.Config) *Bundle {
 	auth := RegisterAuthorityStageProm(r)
 	up := RegisterUpstreamProm(r, exemplars)
 	tok := RegisterTokenAccountingProm(r)
+	pg := RegisterPostgresPoolProm(r, poolStats)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -45,6 +51,7 @@ func NewBundle(cfg *config.Config) *Bundle {
 		AuthorityStages:     auth,
 		Upstream:            up,
 		TokenAccounting:     tok,
+		PostgresPool:        pg,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 	}

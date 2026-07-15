@@ -84,12 +84,19 @@ var lineBudgets = []struct {
 	// plus dual-plane remediations on this branch (no silent catalog fallback).
 	// Raised from 49400 to 49600 for FE/BE deferred ingress counting + BE freeze
 	// before attempt authorization (reqs 2.1, 2.2, 4.1, 5.1).
-	{"internal/core", 49600},
+	// Raised from 49600 to 49750 for explicit PostgreSQL connection/schema modes
+	// and validation; this is typed configuration, not runtime control-flow growth.
+	{"internal/core", 49750},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
-	{"internal/infra/runtimebundle", 4800},
+	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
+	// centralized schema lifecycle, and the associated runtime readiness and
+	// integration seams. The current 4929-line package remains below this cap
+	// with meaningful headroom for follow-up changes; keep new growth in focused
+	// files and do not use this budget to excuse Build orchestrator re-bloat.
+	{"internal/infra/runtimebundle", 5200},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {
