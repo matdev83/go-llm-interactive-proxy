@@ -92,7 +92,7 @@ func (r *PoolRegistry) Open(ctx context.Context, dsn string, pool PoolSettings) 
 		r.mu.Unlock()
 		return existing.db, nil
 	}
-	gate, opener := r.gate, r.opener
+	gate := r.gate
 	r.mu.Unlock()
 
 	if err := acquirePoolOpen(ctx, gate); err != nil {
@@ -110,7 +110,7 @@ func (r *PoolRegistry) Open(ctx context.Context, dsn string, pool PoolSettings) 
 		r.mu.Unlock()
 		return existing.db, nil
 	}
-	opener = r.opener
+	opener := r.opener
 	r.mu.Unlock()
 
 	opened, err := opener(ctx, sanitized, pool)

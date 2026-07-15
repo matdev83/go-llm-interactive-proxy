@@ -157,7 +157,7 @@ func mountAccountingAuthorityQuery(in accountingAuthorityQueryMount) {
 		DefaultPageSize: cfg.Accounting.Authority.Query.DefaultPageSize,
 		MaxPageSize:     cfg.Accounting.Authority.Query.MaxPageSize,
 	})
-	var handler http.Handler = accHandler
+	handler := accHandler
 	if built.Executor != nil && built.Executor.ConcurrencyProvider != nil {
 		leaseHandler := cpadmin.NewConcurrencyAuthorityHandler(cpadmin.ConcurrencyOptions{
 			Provider:        built.Executor.ConcurrencyProvider,

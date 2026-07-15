@@ -80,7 +80,6 @@ func TestParseComponents(t *testing.T) {
 func TestPostgresComponentCatalogResolves(t *testing.T) {
 	t.Parallel()
 	for _, component := range postgresComponentCatalog {
-		component := component
 		t.Run(component.name, func(t *testing.T) {
 			t.Parallel()
 			migrate, verify, err := postgresComponent(component.name)

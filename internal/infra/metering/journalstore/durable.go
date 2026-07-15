@@ -367,7 +367,7 @@ func (s *DurableStore) List(ctx context.Context, q metering.Query) (metering.Pag
 	if err != nil {
 		return metering.Page{}, fmt.Errorf("metering/journalstore: list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	facts := make([]metering.Fact, 0, limit)
 	for rows.Next() {

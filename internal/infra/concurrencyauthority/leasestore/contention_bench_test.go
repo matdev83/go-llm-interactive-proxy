@@ -21,8 +21,7 @@ func BenchmarkMemoryFiveSlotHundredContenders(b *testing.B) {
 		var acquired atomic.Int64
 		var exceeded atomic.Int64
 		done := make(chan struct{}, 100)
-		for c := 0; c < 100; c++ {
-			c := c
+		for c := range 100 {
 			go func() {
 				res, err := store.Acquire(ctx, acquireCmd(fmt.Sprintf("lease-%d", c), fmt.Sprintf("req-%d", c), now, ttl))
 				if err != nil {
@@ -35,7 +34,7 @@ func BenchmarkMemoryFiveSlotHundredContenders(b *testing.B) {
 				done <- struct{}{}
 			}()
 		}
-		for c := 0; c < 100; c++ {
+		for range 100 {
 			<-done
 		}
 		if got := acquired.Load(); got != testLimit {

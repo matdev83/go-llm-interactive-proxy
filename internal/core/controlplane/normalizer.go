@@ -291,7 +291,7 @@ func (n *Normalizer) FromUsageRecord(rec UsageSourceRecord) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Usage = ptrUsage(ProjectObservedStreamUsage(ObservedStreamUsageInput{
+	out.Usage = new(ProjectObservedStreamUsage(ObservedStreamUsageInput{
 		InputTokens:      rec.InputTokens,
 		OutputTokens:     rec.OutputTokens,
 		CacheReadTokens:  rec.CacheReadTokens,
@@ -389,7 +389,7 @@ func (n *Normalizer) FromUsage(ev usage.Event) (cp.Event, error) {
 	if err != nil {
 		return cp.Event{}, err
 	}
-	out.Usage = ptrUsage(ProjectObservedStreamUsage(ObservedStreamInputFromUsageEvent(ev)))
+	out.Usage = new(ProjectObservedStreamUsage(ObservedStreamInputFromUsageEvent(ev)))
 	if err := ValidateEvent(out); err != nil {
 		return cp.Event{}, fmt.Errorf("%w: usage: %v", ErrUnsafeEvidence, err)
 	}
@@ -578,6 +578,7 @@ func joinKey(parts ...string) string {
 	return strings.Join(parts, ":")
 }
 
+//go:fix inline
 func ptrUsage(d cp.UsageDetail) *cp.UsageDetail {
-	return &d
+	return new(d)
 }

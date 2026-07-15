@@ -90,7 +90,7 @@ func NewLease(p NewLeaseParams) Lease {
 
 // StableLeaseID returns lease_id = stable(namespace, rule_id, rule_version, logical_request_id, principal/scope).
 func StableLeaseID(namespace, ruleID, ruleVersion, logicalRequestID string, dims Dimensions) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s", namespace, ruleID, ruleVersion, logicalRequestID, dims.Key())))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s|%s", namespace, ruleID, ruleVersion, logicalRequestID, dims.Key()))
 	return "cls_" + hex.EncodeToString(sum[:16])
 }
 

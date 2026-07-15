@@ -25,7 +25,7 @@ func runConcurrentReleaseRenewNoResurrection(t *testing.T, store app.LeaseStore)
 	t.Helper()
 	ctx := context.Background()
 	const rounds = 40
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Minute)
 		leaseID := "lease-race"
 		acq, err := store.Acquire(ctx, acquireCmd(leaseID, "req-race", now, time.Minute))
@@ -104,7 +104,7 @@ func TestSQLiteStore_ConcurrentDoubleReleaseIsIdempotent(t *testing.T) {
 	store := newSQLiteStore(t, filepath.Join(t.TempDir(), "double-rel.db"), "sqlite-double-rel")
 	ctx := context.Background()
 	const rounds = 40
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		now := time.Date(2026, 7, 15, 13, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Minute)
 		leaseID := "lease-double"
 		if _, err := store.Acquire(ctx, acquireCmd(leaseID, "req-double", now, time.Minute)); err != nil {
@@ -166,7 +166,7 @@ func TestSQLiteStore_ConcurrentDoubleReleaseIsIdempotent(t *testing.T) {
 
 func retrySQLiteBusy(fn func() error) error {
 	var err error
-	for attempt := 0; attempt < 8; attempt++ {
+	for attempt := range 8 {
 		err = fn()
 		if err == nil || !isSQLiteBusy(err) {
 			return err

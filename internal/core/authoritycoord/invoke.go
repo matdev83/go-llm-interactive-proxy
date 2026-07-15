@@ -9,7 +9,7 @@ import (
 
 // Provider invoke helpers isolate panics and validate decision shape (req 15.9).
 
-func invokeAdmitRequest(p authority.RequestProvider, ctx context.Context, in authority.RequestAdmission) (d authority.Decision, err error) {
+func invokeAdmitRequest(ctx context.Context, p authority.RequestProvider, in authority.RequestAdmission) (d authority.Decision, err error) {
 	if p == nil {
 		return authority.Decision{Kind: authority.DecisionAllow}, nil
 	}
@@ -25,7 +25,7 @@ func invokeAdmitRequest(p authority.RequestProvider, ctx context.Context, in aut
 	return d, nil
 }
 
-func invokeAdmitAttempt(p authority.AttemptProvider, ctx context.Context, in authority.AttemptAdmission) (d authority.Decision, err error) {
+func invokeAdmitAttempt(ctx context.Context, p authority.AttemptProvider, in authority.AttemptAdmission) (d authority.Decision, err error) {
 	if p == nil {
 		return authority.Decision{Kind: authority.DecisionAllow}, nil
 	}
@@ -41,7 +41,7 @@ func invokeAdmitAttempt(p authority.AttemptProvider, ctx context.Context, in aut
 	return d, nil
 }
 
-func invokeSettleRequest(p authority.RequestProvider, ctx context.Context, in authority.RequestSettlement) (s authority.Settlement, err error) {
+func invokeSettleRequest(ctx context.Context, p authority.RequestProvider, in authority.RequestSettlement) (s authority.Settlement, err error) {
 	if p == nil {
 		return authority.Settlement{Kind: authority.SettlementFinal}, nil
 	}
@@ -54,7 +54,7 @@ func invokeSettleRequest(p authority.RequestProvider, ctx context.Context, in au
 	return p.SettleRequest(ctx, in)
 }
 
-func invokeSettleAttempt(p authority.AttemptProvider, ctx context.Context, in authority.AttemptSettlement) (s authority.Settlement, err error) {
+func invokeSettleAttempt(ctx context.Context, p authority.AttemptProvider, in authority.AttemptSettlement) (s authority.Settlement, err error) {
 	if p == nil {
 		return authority.Settlement{Kind: authority.SettlementFinal}, nil
 	}
@@ -67,7 +67,7 @@ func invokeSettleAttempt(p authority.AttemptProvider, ctx context.Context, in au
 	return p.SettleAttempt(ctx, in)
 }
 
-func invokeAdmitLease(p authority.ConcurrencyProvider, ctx context.Context, in authority.LeaseAdmission) (d authority.LeaseDecision, err error) {
+func invokeAdmitLease(ctx context.Context, p authority.ConcurrencyProvider, in authority.LeaseAdmission) (d authority.LeaseDecision, err error) {
 	if p == nil {
 		return authority.LeaseDecision{Kind: authority.LeaseAllow}, nil
 	}
@@ -87,7 +87,7 @@ func invokeAdmitLease(p authority.ConcurrencyProvider, ctx context.Context, in a
 	return d, nil
 }
 
-func invokeCompensate(fn Compensator, ctx context.Context) (err error) {
+func invokeCompensate(ctx context.Context, fn Compensator) (err error) {
 	if fn == nil {
 		return nil
 	}

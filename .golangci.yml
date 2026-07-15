@@ -31,6 +31,16 @@ linters:
           disabled: true
         - name: package-comments
           disabled: true
+  exclusions:
+    rules:
+      # Stateful database and lifecycle tests deliberately run serially.
+      - path: ^(cmd/lipstd|internal/(core/(config|runtime)|infra/(db|dbmigrate|metering/journalstore|metrics|runtimebundle)|testkit)|pkg/lipsdk/metering)/.*_test\.go$
+        linters:
+          - paralleltest
+      # JSON wire-shape changes need contract review, not bulk lint autofixes.
+      - text: "Omitempty has no effect on nested struct fields"
+        linters:
+          - modernize
 
 formatters:
   enable:

@@ -23,17 +23,17 @@ type MoneyAmountInput struct {
 
 // CustomerChargeInput holds independently queryable customer charge facts (5.7).
 type CustomerChargeInput struct {
-	Money                 MoneyAmountInput   `json:"money,omitempty"`
-	FrontendIngressTokens TokenQuantityInput `json:"frontend_ingress_tokens,omitempty"`
-	FrontendEgressTokens  TokenQuantityInput `json:"frontend_egress_tokens,omitempty"`
+	Money                 MoneyAmountInput   `json:"money,omitzero"`
+	FrontendIngressTokens TokenQuantityInput `json:"frontend_ingress_tokens,omitzero"`
+	FrontendEgressTokens  TokenQuantityInput `json:"frontend_egress_tokens,omitzero"`
 	RatingVersion         VersionRef         `json:"rating_version,omitzero"`
 }
 
 // OperatorCostInput holds independently queryable operator cost facts (5.7).
 type OperatorCostInput struct {
-	Money                MoneyAmountInput   `json:"money,omitempty"`
-	BackendIngressTokens TokenQuantityInput `json:"backend_ingress_tokens,omitempty"`
-	BackendEgressTokens  TokenQuantityInput `json:"backend_egress_tokens,omitempty"`
+	Money                MoneyAmountInput   `json:"money,omitzero"`
+	BackendIngressTokens TokenQuantityInput `json:"backend_ingress_tokens,omitzero"`
+	BackendEgressTokens  TokenQuantityInput `json:"backend_egress_tokens,omitzero"`
 	ProviderReportedCost MoneyAmountInput   `json:"provider_reported_cost,omitempty"`
 	RatingVersion        VersionRef         `json:"rating_version,omitzero"`
 }

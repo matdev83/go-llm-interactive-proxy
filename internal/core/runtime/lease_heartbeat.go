@@ -235,10 +235,7 @@ func findTarget(targets []leaseRenewTarget, leaseID string) *leaseRenewTarget {
 func minFailOpenRetry(targets []leaseRenewTarget, renewBefore time.Duration) time.Duration {
 	retryWait := renewBefore
 	for _, t := range targets {
-		w := time.Until(t.ExpiresAt) / 2
-		if w < 100*time.Millisecond {
-			w = 100 * time.Millisecond
-		}
+		w := max(time.Until(t.ExpiresAt)/2, 100*time.Millisecond)
 		rb := t.RenewBefore
 		if rb <= 0 {
 			rb = renewBefore
@@ -263,10 +260,7 @@ func nextRenewWait(targets []leaseRenewTarget) time.Duration {
 		if rb <= 0 {
 			rb = 15 * time.Second
 		}
-		wait := time.Until(t.ExpiresAt.Add(-rb))
-		if wait < 0 {
-			wait = 0
-		}
+		wait := max(time.Until(t.ExpiresAt.Add(-rb)), 0)
 		if best < 0 || wait < best {
 			best = wait
 		}

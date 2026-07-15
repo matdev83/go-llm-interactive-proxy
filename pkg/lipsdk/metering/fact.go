@@ -48,7 +48,7 @@ type Fact struct {
 	Authority      Authority                `json:"authority"`
 	Presence       Presence                 `json:"presence"`
 	Supersedes     []string                 `json:"supersedes,omitempty"`
-	PolicyVersion  VersionRef               `json:"policy_version,omitempty"`
+	PolicyVersion  VersionRef               `json:"policy_version,omitzero"`
 	RecordedAt     time.Time                `json:"recorded_at"`
 }
 

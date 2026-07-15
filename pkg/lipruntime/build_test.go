@@ -55,9 +55,11 @@ type allowRequestProvider struct{}
 func (allowRequestProvider) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: "enterprise-req"}, nil
 }
+
 func (allowRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (allowRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return nil
 }
@@ -119,6 +121,7 @@ type recordingEvidence struct{}
 func (recordingEvidence) RecordPolicyDecision(context.Context, policydecision.Record) error {
 	return nil
 }
+
 func (recordingEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
 	return nil
 }

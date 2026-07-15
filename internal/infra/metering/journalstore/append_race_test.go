@@ -24,13 +24,13 @@ func TestSQLiteStore_ConcurrentSameKeyAppendIsIdempotent(t *testing.T) {
 
 	const workers = 8
 	const rounds = 20
-	for round := 0; round < rounds; round++ {
+	for round := range rounds {
 		fact := validFact("fact-race-"+strconv.Itoa(round), "stream-race-shared", int64(round+1))
 
 		var wg sync.WaitGroup
 		errs := make([]error, workers)
 		start := make(chan struct{})
-		for i := 0; i < workers; i++ {
+		for i := range workers {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -84,7 +84,7 @@ func newSQLiteJournalMultiConn(t *testing.T) *journalstore.DurableStore {
 
 func retrySQLiteBusy(fn func() error) error {
 	var err error
-	for attempt := 0; attempt < 16; attempt++ {
+	for attempt := range 16 {
 		err = fn()
 		if err == nil || !isSQLiteBusy(err) {
 			return err

@@ -100,7 +100,7 @@ func ParseComponents(raw string) ([]string, error) {
 	}
 	seen := make(map[string]struct{})
 	components := make([]string, 0, 3)
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		component := strings.TrimSpace(part)
 		if _, _, err := lookupPostgresComponent(component); err != nil {
 			return nil, err

@@ -31,8 +31,8 @@ func (s SnapshotState) IsKnown() bool {
 type Snapshot[T any] struct {
 	ID          string        `json:"id"`
 	Version     string        `json:"version"`
-	EffectiveAt time.Time     `json:"effective_at,omitempty"`
-	FetchedAt   time.Time     `json:"fetched_at,omitempty"`
+	EffectiveAt time.Time     `json:"effective_at,omitzero"`
+	FetchedAt   time.Time     `json:"fetched_at,omitzero"`
 	State       SnapshotState `json:"state"`
 	Value       T             `json:"value"`
 }

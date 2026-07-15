@@ -85,14 +85,12 @@ func transactionPoolOptionsContainSessionAffineSetting(raw, target string) bool 
 	if target == "" {
 		return false
 	}
-	for _, token := range strings.Fields(strings.ToLower(raw)) {
+	for token := range strings.FieldsSeq(strings.ToLower(raw)) {
 		token = strings.Trim(token, `"'`)
 		if token == "-c" {
 			continue
 		}
-		if strings.HasPrefix(token, "-c") {
-			token = strings.TrimPrefix(token, "-c")
-		}
+		token = strings.TrimPrefix(token, "-c")
 		token = strings.TrimSpace(token)
 		if token == target || strings.HasPrefix(token, target+"=") {
 			return true

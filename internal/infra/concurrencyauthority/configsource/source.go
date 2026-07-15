@@ -2,6 +2,7 @@ package configsource
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"time"
 
@@ -70,9 +71,7 @@ func cloneRules(in []domain.Rule) []domain.Rule {
 			continue
 		}
 		out[i].Match.Labels = make(map[string]domain.DimensionMatcher, len(in[i].Match.Labels))
-		for k, v := range in[i].Match.Labels {
-			out[i].Match.Labels[k] = v
-		}
+		maps.Copy(out[i].Match.Labels, in[i].Match.Labels)
 	}
 	return out
 }

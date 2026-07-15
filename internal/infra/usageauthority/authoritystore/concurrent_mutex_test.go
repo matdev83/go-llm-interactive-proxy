@@ -35,7 +35,7 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 
 	const n = 4
 	rows := make([]controlplane.AccountingLimitStatusRow, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rows = append(rows, controlplane.AccountingLimitStatusRow{
 			RuleID:         fmtRuleID(i),
 			RuleType:       string(domain.RuleKindQuota),
@@ -66,8 +66,7 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 	}
 
 	errs := make(chan error, n)
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			cmd := reconcileReserveCommandInternal(fmtRuleID(i), 1)
 			cmd.ReservationKey.LogicalRequestID = fmtLogical(i)
@@ -91,7 +90,7 @@ func TestDurableStore_UnrelatedReservesDoNotHoldProcessMutexAcrossDB(t *testing.
 	}
 	release.Done()
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errs; err != nil {
 			t.Fatalf("reserve %d: %v", i, err)
 		}

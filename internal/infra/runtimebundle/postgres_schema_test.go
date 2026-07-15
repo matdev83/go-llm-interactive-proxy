@@ -146,7 +146,7 @@ func TestOpenPostgresStoreRegistryAutoMigrateUsesMigratorOnce(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = registry.Close(context.Background()) })
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, _, err := openPostgresStore(t.Context(), "postgres://runtime/db", db.PoolSettings{MaxOpenConns: 8}, cfg.Database, registry, migrator, postgresStoreLifecycle[*struct{}]{
 			Verify: func(context.Context, *bun.DB) error { return nil },
 			Open: func(context.Context, *bun.DB) (*struct{}, error) {

@@ -36,7 +36,7 @@ type OutputLimitRequest struct {
 	FrontendID      string                       `json:"frontend_id,omitempty"`
 	FixedQuantities []metering.Quantity          `json:"fixed_quantities,omitempty"`
 	MaxMoney        Money                        `json:"max_money"`
-	At              time.Time                    `json:"at,omitempty"`
+	At              time.Time                    `json:"at,omitzero"`
 }
 
 // OutputLimitResult is one perspective-specific money→token bound with provenance.
@@ -46,7 +46,7 @@ type OutputLimitResult struct {
 	Source          string                       `json:"source,omitempty"`
 	Authority       string                       `json:"authority,omitempty"`
 	Version         VersionRef                   `json:"version"`
-	EffectiveAt     time.Time                    `json:"effective_at,omitempty"`
+	EffectiveAt     time.Time                    `json:"effective_at,omitzero"`
 	RoundingPolicy  RoundingPolicy               `json:"rounding_policy,omitempty"`
 	Perspective     metering.EconomicPerspective `json:"perspective"`
 	RaterID         string                       `json:"rater_id,omitempty"`
