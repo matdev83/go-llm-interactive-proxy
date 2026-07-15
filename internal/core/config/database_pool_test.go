@@ -54,3 +54,84 @@ func TestParseDatabasePoolSettings_negativeMaxOpen(t *testing.T) {
 		t.Fatalf("want database pool error, got %v", err)
 	}
 }
+
+func TestParseDatabasePoolSettings_rejectsTransactionPoolAutoMigrate(t *testing.T) {
+	t.Parallel()
+	_, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{
+		ConnectionMode: config.DatabaseConnectionModeTransactionPool,
+		SchemaMode:     config.DatabaseSchemaModeAutoMigrate,
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires schema_mode verify_only") {
+		t.Fatalf("want transaction_pool+auto_migrate rejection, got %v", err)
+	}
+}
+
+func TestValidate_requiresMaxOpenConnsWhenPostgresStore(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
+		Continuity: config.ContinuityConfig{Store: "postgres", PostgresDSN: "postgres://u:p@127.0.0.1:1/db?sslmode=disable"},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "stub", Enabled: true}},
+		},
+	}
+	err := config.Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "database.max_open_conns: required when any store is postgres") {
+		t.Fatalf("want max_open_conns required error, got %v", err)
+	}
+	cfg.Database.MaxOpenConns = 8
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("validate with max_open_conns: %v", err)
+	}
+}
+
+func TestValidate_zeroMaxOpenOKWithoutPostgres(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Server: config.ServerConfig{Address: "127.0.0.1:0"},
+		Continuity: config.ContinuityConfig{
+			InMemory:   false,
+			Store:      "sqlite",
+			SQLitePath: ":memory:",
+		},
+		Database: config.DatabaseConfig{MaxOpenConns: 0},
+		Plugins: config.PluginsConfig{
+			Backends: []config.PluginConfig{{ID: "stub", Enabled: true}},
+		},
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDatabaseConfigModes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		cfg            config.DatabaseConfig
+		wantConnection config.DatabaseConnectionMode
+		wantSchema     config.DatabaseSchemaMode
+		wantErr        string
+	}{
+		{name: "compatibility defaults", cfg: config.DatabaseConfig{}, wantConnection: config.DatabaseConnectionModeDirect, wantSchema: config.DatabaseSchemaModeAutoMigrate},
+		{name: "direct verify", cfg: config.DatabaseConfig{ConnectionMode: config.DatabaseConnectionModeDirect, SchemaMode: config.DatabaseSchemaModeVerifyOnly}, wantConnection: config.DatabaseConnectionModeDirect, wantSchema: config.DatabaseSchemaModeVerifyOnly},
+		{name: "pooled verify", cfg: config.DatabaseConfig{ConnectionMode: config.DatabaseConnectionModeTransactionPool, SchemaMode: config.DatabaseSchemaModeVerifyOnly}, wantConnection: config.DatabaseConnectionModeTransactionPool, wantSchema: config.DatabaseSchemaModeVerifyOnly},
+		{name: "unknown connection", cfg: config.DatabaseConfig{ConnectionMode: "sticky"}, wantErr: "database.connection_mode"},
+		{name: "unknown schema", cfg: config.DatabaseConfig{SchemaMode: "maybe"}, wantErr: "database.schema_mode"},
+		{name: "pooled auto migrate", cfg: config.DatabaseConfig{ConnectionMode: config.DatabaseConnectionModeTransactionPool, SchemaMode: config.DatabaseSchemaModeAutoMigrate}, wantErr: "requires schema_mode verify_only"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connection, schema, err := config.EffectiveDatabaseModes(tt.cfg)
+			if tt.wantErr == "" && err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("error=%v want containing %q", err, tt.wantErr)
+			}
+			if err == nil && (connection != tt.wantConnection || schema != tt.wantSchema) {
+				t.Fatalf("modes=(%q,%q) want (%q,%q)", connection, schema, tt.wantConnection, tt.wantSchema)
+			}
+		})
+	}
+}

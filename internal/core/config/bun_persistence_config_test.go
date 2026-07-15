@@ -114,6 +114,7 @@ func TestValidate_durableAuditAllowedWithPostgresStore(t *testing.T) {
 			AuditDurability:     "durable",
 		},
 		Continuity: config.ContinuityConfig{InMemory: true},
+		Database:   config.DatabaseConfig{MaxOpenConns: 8},
 	}
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)

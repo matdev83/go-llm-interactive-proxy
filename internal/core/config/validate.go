@@ -84,7 +84,11 @@ func Validate(cfg *Config) error {
 	if err := validateInterleaved(cfg); err != nil {
 		return err
 	}
-	return validateRoutingAffinity(cfg)
+	if err := validateRoutingAffinity(cfg); err != nil {
+		return err
+	}
+	// After store-specific errors so operators see DSN/path issues before pool bounds.
+	return validatePostgresPoolBound(cfg)
 }
 
 func validateSecureSession(cfg *Config) error {
@@ -721,6 +725,16 @@ func validateDatabaseConfig(cfg *Config) error {
 	}
 	_, err := ParseDatabasePoolSettings(cfg.Database)
 	return err
+}
+
+func validatePostgresPoolBound(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config: nil")
+	}
+	if usesManagedPostgres(cfg) && cfg.Database.MaxOpenConns <= 0 {
+		return fmt.Errorf("database.max_open_conns: required when any store is postgres")
+	}
+	return nil
 }
 
 func validateModelCatalog(cfg *Config) error {
