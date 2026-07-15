@@ -44,8 +44,8 @@ func BenchmarkRecorder_PostHookStream_fullPolicy(b *testing.B) {
 		Policy: pol, EventKind: "text_delta", EventPayloadJSON: `{"k":"v","n":1}`,
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := 0; b.Loop(); i++ {
 		in.Now = base.Add(time.Duration(i) * time.Millisecond)
 		if err := rec.RecordPostHookStreamEvent(ctx, in); err != nil {
 			b.Fatal(err)
@@ -82,8 +82,8 @@ func BenchmarkRecorder_PostHookStream_minimalPolicy(b *testing.B) {
 		InputTokens: 2, OutputTokens: 3,
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := 0; b.Loop(); i++ {
 		in.Now = base.Add(time.Duration(i) * time.Millisecond)
 		if err := rec.RecordPostHookStreamEvent(ctx, in); err != nil {
 			b.Fatal(err)

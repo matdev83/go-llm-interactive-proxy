@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -23,16 +21,6 @@ const ID = "cursorcliacp"
 
 // vendorPrefix is the model prefix for Cursor CLI models.
 const vendorPrefix = "cursor"
-
-// defaultModels is the fallback model list when `agent models` cannot be parsed.
-var defaultModels = []string{
-	"composer-2",
-	"composer-2-fast",
-	"auto",
-	"gpt-5.2",
-	"gpt-5.3-codex",
-	"claude-4.6-opus-high-thinking",
-}
 
 // ansiEscapeRe matches ANSI escape sequences for stripping from CLI output.
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
@@ -50,11 +38,18 @@ type Config struct {
 	CursorAPIEndpoint string
 	// MCPServers is the JSON array for session/new mcpServers.
 	MCPServers json.RawMessage
+	// Inventory overrides ModelInventory when non-nil (tests / NewWithStarter).
+	// Production New wires a live `agent --list-models` provider (or ErrorProvider
+	// on resolve failure).
+	Inventory modelinventory.Provider
 }
 
 // cursorSpec implements acp.SubprocessConnectorSpec for the Cursor CLI.
 type cursorSpec struct {
-	cfg Config
+	cfg         Config
+	index       *acp.ModelIndex
+	exe         string // resolved once at construction; BuildCommand never re-resolves
+	prefixSlash string // vendorPrefix + "/"
 }
 
 // VendorID returns the backend identifier.
@@ -65,17 +60,21 @@ func (s *cursorSpec) VendorPrefix() string { return vendorPrefix }
 
 // BuildCommand returns the subprocess command for the Cursor CLI agent.
 func (s *cursorSpec) BuildCommand(model string, workspace string) ([]string, string, []string, error) {
-	exe, err := resolveExecutable(s.cfg.Executable)
-	if err != nil {
-		return nil, "", nil, err
+	model = strings.TrimSpace(model)
+	if s == nil {
+		return nil, "", nil, ErrUnknownModel
 	}
-	cmd := []string{exe}
+	if model == "" || !s.index.IsKnownNative(model) {
+		return nil, "", nil, ErrUnknownModel
+	}
+	if s.exe == "" {
+		return nil, "", nil, fmt.Errorf("cursorcliacp: executable not resolved")
+	}
+	cmd := []string{s.exe}
 	if s.cfg.CursorAPIEndpoint != "" {
 		cmd = append(cmd, "-e", s.cfg.CursorAPIEndpoint)
 	}
-	if model != "" {
-		cmd = append(cmd, "--model", model)
-	}
+	cmd = append(cmd, "--model", model)
 	if s.cfg.TrustWorkspace {
 		cmd = append(cmd, "--trust")
 	}
@@ -120,9 +119,17 @@ func (s *cursorSpec) ServerRequestHandler() acp.ServerRequestHandler {
 // RequiresExplicitWorkspace returns true — Cursor CLI requires an explicit workspace.
 func (s *cursorSpec) RequiresExplicitWorkspace() bool { return true }
 
-// ResolveModel strips the vendor prefix and applies the default model if empty/auto.
+// ResolveModel strips the route-level "cursor:" / "cursor/" prefix, applies
+// configured or package defaults for empty/auto, and maps known canonical IDs
+// to the exact Cursor CLI NativeID required by `--model`. Unknown identities
+// resolve to "" so Open/BuildCommand can reject them explicitly without
+// substituting a default.
 func (s *cursorSpec) ResolveModel(effectiveModel string) string {
-	return acp.ResolveVendorModel(vendorPrefix, s.cfg.Model, "composer-2", effectiveModel)
+	native, err := s.resolveNativeModel(effectiveModel)
+	if err != nil {
+		return ""
+	}
+	return native
 }
 
 // cursorServerRequestHandler handles inbound JSON-RPC requests from the Cursor CLI.
@@ -197,7 +204,7 @@ func resolveExecutable(configured string) (string, error) {
 	return "", fmt.Errorf("cursor CLI (agent) executable not found; install Cursor CLI and ensure `agent` is on PATH or set CURSOR_AGENT_BIN")
 }
 
-// parseAgentModelsListing parses `agent models` human-readable output into model IDs.
+// parseAgentModelsListing parses `agent --list-models` human-readable output into model IDs.
 func parseAgentModelsListing(stdout string) []string {
 	var models []string
 	seen := make(map[string]struct{})
@@ -226,33 +233,6 @@ func parseAgentModelsListing(stdout string) []string {
 	return models
 }
 
-// discoverModels runs `agent models` to discover available models.
-// Returns the default model list prefixed with the vendor prefix on error.
-func discoverModels(ctx context.Context, executable string) []modelinventory.Model {
-	cmd := exec.CommandContext(ctx, executable, "models")
-	output, err := cmd.Output()
-	if err != nil || len(output) == 0 {
-		return defaultInventoryModels()
-	}
-	raw := parseAgentModelsListing(string(output))
-	if len(raw) == 0 {
-		return defaultInventoryModels()
-	}
-	var models []modelinventory.Model
-	for _, m := range raw {
-		models = append(models, modelinventory.Model{
-			CanonicalID: vendorPrefix + "/" + m,
-			NativeID:    m,
-			DisplayName: m,
-		})
-	}
-	return models
-}
-
-func defaultInventoryModels() []modelinventory.Model {
-	return acp.DefaultInventoryModels(vendorPrefix, defaultModels)
-}
-
 // isWindows returns true on Windows.
 func isWindows() bool {
 	return runtime.GOOS == "windows"
@@ -261,44 +241,57 @@ func isWindows() bool {
 // New returns a runtime backend that invokes the Cursor CLI via ACP stdio.
 func New(cfg Config) (execbackend.Backend, error) {
 	if cfg.Model == "" {
-		cfg.Model = "composer-2"
+		cfg.Model = defaultConfiguredModel
 	}
-	spec := &cursorSpec{cfg: cfg}
+	spec := &cursorSpec{cfg: cfg, prefixSlash: vendorPrefix + "/"}
 	workspace := acp.WorkspacePolicy{
 		DefaultDir:      cfg.DefaultWorkspace,
 		RequireExplicit: spec.RequiresExplicitWorkspace(),
 	}
 	exe, exeErr := resolveExecutable(cfg.Executable)
-	models := defaultInventoryModels()
-	if exeErr == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		models = discoverModels(ctx, exe)
+	spec.exe = exe
+	inv := cfg.Inventory
+	if inv == nil {
+		if exeErr != nil {
+			inv = modelinventory.ErrorProvider{Err: exeErr}
+		} else {
+			inv = newModelsProvider(exe, cfg.CursorAPIEndpoint)
+		}
 	}
-	return newCursorBackend(spec, workspace, cfg, nil, exeErr, models), nil
+	return newCursorBackend(spec, workspace, cfg, nil, exeErr, inv), nil
 }
 
 // NewWithStarter is like New but injects a custom ProcessStarter for testing.
 // Production code should use New; tests use this to inject a fakeProcess that
 // simulates the Cursor CLI agent without spawning a real binary. It skips
-// executable resolution and model discovery, using the default inventory.
+// executable resolution and live `agent --list-models` discovery unless
+// Config.Inventory is set.
 func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend {
 	if cfg.Model == "" {
-		cfg.Model = "composer-2"
+		cfg.Model = defaultConfiguredModel
 	}
-	spec := &cursorSpec{cfg: cfg}
+	spec := &cursorSpec{cfg: cfg, exe: "agent", prefixSlash: vendorPrefix + "/"}
 	workspace := acp.WorkspacePolicy{
 		DefaultDir:      cfg.DefaultWorkspace,
 		RequireExplicit: spec.RequiresExplicitWorkspace(),
 	}
-	return newCursorBackend(spec, workspace, cfg, starter, nil, defaultInventoryModels())
+	inv := cfg.Inventory
+	if inv == nil {
+		inv = modelinventory.ErrorProvider{}
+	}
+	return newCursorBackend(spec, workspace, cfg, starter, nil, inv)
 }
 
 // newCursorBackend assembles the execbackend.Backend from a normalized spec,
 // workspace, and config. starter, if non-nil, overrides the default OS process
 // starter (used by tests). exeErr is surfaced from the Open closure so callers
-// see startup errors early. models is the static model inventory.
-func newCursorBackend(spec *cursorSpec, workspace acp.WorkspacePolicy, cfg Config, starter acp.ProcessStarter, exeErr error, models []modelinventory.Model) execbackend.Backend {
+// see startup errors early. inventory is wrapped in a tracking provider whose
+// ModelIndex is updated by AcceptInventory after registry publish (not by
+// LoadModels).
+func newCursorBackend(spec *cursorSpec, workspace acp.WorkspacePolicy, cfg Config, starter acp.ProcessStarter, exeErr error, inventory modelinventory.Provider) execbackend.Backend {
+	index := acp.NewModelIndex(cursorCanonicalFallback)
+	spec.index = index
+	tracking := acp.NewTrackingInventory(inventory, index, ID)
 	backendCfg := acp.SubprocessBackendConfig{
 		Protocol:  acp.NewACPProtocol(spec, nil),
 		Workspace: workspace,
@@ -314,10 +307,7 @@ func newCursorBackend(spec *cursorSpec, workspace acp.WorkspacePolicy, cfg Confi
 	return execbackend.Backend{
 		Caps:            defaultBackendCaps(),
 		BackendPrefixes: []string{ID},
-		ModelInventory: modelinventory.StaticProvider{
-			Source: modelinventory.SourceStaticBuiltin,
-			Models: models,
-		},
+		ModelInventory:  tracking,
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return defaultBackendCaps()
 		},
@@ -325,6 +315,9 @@ func newCursorBackend(spec *cursorSpec, workspace acp.WorkspacePolicy, cfg Confi
 			_ = cand
 			if exeErr != nil {
 				return nil, exeErr
+			}
+			if _, err := spec.resolveNativeModel(acp.CallRouteModel(&call, "acp.model")); err != nil {
+				return nil, err
 			}
 			return backend.Open(ctx, &call)
 		},

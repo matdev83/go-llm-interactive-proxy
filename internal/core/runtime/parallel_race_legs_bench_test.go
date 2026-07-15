@@ -68,7 +68,7 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for i := 0; b.Loop(); i++ {
 				leg, err := store.CreateALeg(context.Background(), fmt.Sprintf("bench-parallel-%d", i))
 				if err != nil {
 					b.Fatal(err)

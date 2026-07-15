@@ -181,7 +181,7 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 			return backendBedrock(n, upstream)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}},
 		{ID: codexappserver.ID, Factory: func(n yaml.Node, _ *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendCodexAppServer(n, deps.CodexModelCatalog)
+			return backendCodexAppServer(n, deps.CodexModelCatalog, deps.CodexModelCatalogSource)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
 		{ID: acp.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendACP(n, upstream)

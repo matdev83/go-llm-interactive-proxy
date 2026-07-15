@@ -72,11 +72,13 @@ make parity-checks         # conformance package with -tags=precommit,integratio
 make test-fuzz             # short fuzz smoke over release-gate fuzz targets
 make test-race             # skipped on Windows; strict race runs in CI on Linux
 make bench                 # benchmark smoke for hot packages
+make pgo-profile           # collect default.pgo from core benches (optional; move under cmd/lipstd)
+make pgo-build             # build cmd/lipstd (auto-applies cmd/lipstd/default.pgo when present)
 make qa                    # quality-checks + one full tagged test pass + lint + govulncheck
 make hooks-install         # install optional pre-commit hooks
 ```
 
-CI (`.github/workflows/qa.yml`) runs `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...`, fuzz smoke, strict Linux race, golangci-lint v2, and `go tool govulncheck ./...`. Linter config lives in [`.golangci.yml`](.golangci.yml).
+CI (`.github/workflows/qa.yml`) runs `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...`, fuzz smoke, strict Linux race, golangci-lint v2, and `go tool govulncheck ./...`. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
 
 Recoverability is defined by the specification bundle: tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` contracts, steering, and parity/scenario docs. Start at [`docs/spec-bundle-index.md`](docs/spec-bundle-index.md), [`docs/conformance-golden-coverage.md`](docs/conformance-golden-coverage.md), and [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md).
 

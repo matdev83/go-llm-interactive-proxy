@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -218,7 +219,80 @@ func TestBuild_modelRegistryColdStartSavesCache(t *testing.T) {
 	}
 }
 
-func TestBuild_modelRegistryColdStartFailsWhenCacheAndRemoteUnavailable(t *testing.T) {
+func TestBuild_modelRegistryColdStartInvalidInventoryOmitsBackend(t *testing.T) {
+	t.Parallel()
+
+	reg := pluginreg.NewRegistry()
+	if err := reg.RegisterBackend("test-inventory-good", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+		return execbackend.Backend{
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory-good"},
+			ModelInventory: modelinventory.StaticProvider{Models: []modelinventory.Model{
+				{CanonicalID: "vendor/good", NativeID: "good"},
+			}},
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, errors.New("not used")
+			},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterBackend("test-inventory-bad", func(yaml.Node, *http.Client, pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+		return execbackend.Backend{
+			Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			BackendPrefixes: []string{"test-inventory-bad"},
+			ModelInventory: modelinventory.StaticProvider{Models: []modelinventory.Model{
+				{CanonicalID: "vendor/first-ok", NativeID: "first-ok"},
+				{CanonicalID: "", NativeID: "secret-native"},
+			}},
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return nil, errors.New("not used")
+			},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := modelRegistryTestConfig("test-inventory-good")
+	cfg.ModelInventory.CachePath = filepath.Join(t.TempDir(), "missing.json")
+	cfg.Plugins.Backends = append(cfg.Plugins.Backends, config.PluginConfig{
+		Kind:    "test-inventory-bad",
+		ID:      "test-backend-bad",
+		Enabled: true,
+	})
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+		PluginRegistry: reg,
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v, want fail-soft success", err)
+	}
+	t.Cleanup(closeModelRegistryBuilt(t, b))
+	if got := b.ModelRegistry.All(); len(got) != 1 || got[0].BackendID != "test-backend" {
+		t.Fatalf("All() = %+v, want only good backend", got)
+	}
+	diag := b.ModelRegistryRuntime.Diagnostics()
+	byID := map[string]modelregistry.BackendDiscovery{}
+	for _, d := range diag.BackendDiscoveries {
+		byID[d.BackendID] = d
+	}
+	if byID["test-backend"].Status != modelinventory.DiscoveryStatusOK {
+		t.Fatalf("good discovery = %+v", byID["test-backend"])
+	}
+	if byID["test-backend-bad"].Status != modelinventory.DiscoveryStatusUnavailable {
+		t.Fatalf("bad status = %q", byID["test-backend-bad"].Status)
+	}
+	if byID["test-backend-bad"].ErrorCode != modelinventory.ErrorCodeInvalidInventory {
+		t.Fatalf("bad ErrorCode = %q", byID["test-backend-bad"].ErrorCode)
+	}
+	if byID["test-backend-bad"].ModelCount != 0 {
+		t.Fatalf("bad ModelCount = %d", byID["test-backend-bad"].ModelCount)
+	}
+	if strings.Contains(byID["test-backend-bad"].ErrorCode, "secret") {
+		t.Fatalf("ErrorCode leaked raw text: %q", byID["test-backend-bad"].ErrorCode)
+	}
+}
+
+func TestBuild_modelRegistryColdStartAllUnavailablePublishesEmptyRegistry(t *testing.T) {
 	t.Parallel()
 
 	reg := pluginreg.NewRegistry()
@@ -237,11 +311,25 @@ func TestBuild_modelRegistryColdStartFailsWhenCacheAndRemoteUnavailable(t *testi
 
 	cfg := modelRegistryTestConfig("test-inventory")
 	cfg.ModelInventory.CachePath = filepath.Join(t.TempDir(), "missing.json")
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err == nil || !strings.Contains(err.Error(), "model registry") {
-		t.Fatalf("Build() error = %v, want model registry failure", err)
+	if err != nil {
+		t.Fatalf("Build() error = %v, want empty registry success", err)
+	}
+	t.Cleanup(closeModelRegistryBuilt(t, b))
+	if got := b.ModelRegistry.All(); len(got) != 0 {
+		t.Fatalf("All() len = %d, want 0", len(got))
+	}
+	diag := b.ModelRegistryRuntime.Diagnostics()
+	if len(diag.BackendDiscoveries) != 1 {
+		t.Fatalf("BackendDiscoveries len = %d", len(diag.BackendDiscoveries))
+	}
+	if diag.BackendDiscoveries[0].Status != modelinventory.DiscoveryStatusUnavailable {
+		t.Fatalf("Status = %q, want unavailable", diag.BackendDiscoveries[0].Status)
+	}
+	if diag.BackendDiscoveries[0].ErrorCode != modelinventory.ErrorCodeUnavailable {
+		t.Fatalf("ErrorCode = %q", diag.BackendDiscoveries[0].ErrorCode)
 	}
 }
 
@@ -412,8 +500,8 @@ func readModelRegistryCache(t *testing.T, path string) modelregistry.Snapshot {
 func closeModelRegistryBuilt(t *testing.T, b *runtimebundle.Built) func() {
 	t.Helper()
 	return func() {
-		for i := len(b.Closers) - 1; i >= 0; i-- {
-			if err := b.Closers[i](); err != nil {
+		for _, v := range slices.Backward(b.Closers) {
+			if err := v(); err != nil {
 				t.Fatalf("closer: %v", err)
 			}
 		}

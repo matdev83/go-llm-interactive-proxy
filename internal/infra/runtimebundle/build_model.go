@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -44,10 +45,15 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client, closers []func(
 	if startedCatalog != nil {
 		vendorCatalogRuntime = startedCatalog.Runtime
 	}
-	codexCatalog, _ := loadCodexModelCatalog(parent, cfg, bctx.Log)
+	var codexLoadFn CodexCatalogLoadFunc
+	if bctx.Opts != nil {
+		codexLoadFn = bctx.Opts.Testing.CodexCatalogLoad
+	}
+	codexCatalog, codexCatalogSource := loadCodexModelCatalog(parent, cfg, reg, bctx.Log, codexLoadFn)
 	backendDeps := pluginreg.BackendFactoryDeps{
-		ModelVendorResolver: openCodeVendorResolver(vendorCatalogRuntime),
-		CodexModelCatalog:   codexCatalog,
+		ModelVendorResolver:     openCodeVendorResolver(vendorCatalogRuntime),
+		CodexModelCatalog:       codexCatalog,
+		CodexModelCatalogSource: codexCatalogSource,
 	}
 
 	if startedCatalog != nil {
@@ -57,7 +63,7 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client, closers []func(
 	if err != nil {
 		return nil, closers, fmt.Errorf("runtimebundle: %w", err)
 	}
-	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories)
+	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories, bctx.Log)
 	if err != nil {
 		return nil, closers, fmt.Errorf("runtimebundle: model registry: %w", err)
 	}
@@ -116,6 +122,7 @@ func startModelRegistryRuntime(
 	parent context.Context,
 	cfg *config.Config,
 	inventories []modelregistry.BackendInventory,
+	log *slog.Logger,
 ) (*modelregistry.Runtime, *modelregistry.Registry, []func() error, error) {
 	var cache modelregistry.Cache
 	if path := strings.TrimSpace(cfg.ModelInventory.CachePath); path != "" {
@@ -124,6 +131,7 @@ func startModelRegistryRuntime(
 	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
 		Inventories: inventories,
 		Cache:       cache,
+		Log:         log,
 	})
 	if err := rt.Start(parent); err != nil {
 		return nil, nil, nil, err

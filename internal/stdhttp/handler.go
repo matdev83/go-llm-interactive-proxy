@@ -83,8 +83,11 @@ func prepareStandardHandler(
 		return out, err
 	}
 
-	mountModelCatalogDiagnostics(modelCatalogDiagnosticsMount{
-		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
+	mountModelCatalogDiagnostics(ctx, diagnosticsMount{
+		Mux: mux, Cfg: cfg, Log: log, Built: built,
+	})
+	mountModelInventoryDiagnostics(ctx, diagnosticsMount{
+		Mux: mux, Cfg: cfg, Log: log, Built: built,
 	})
 	mountAccountingAuthorityQuery(accountingAuthorityQueryMount{
 		LogCtx: ctx, Mux: mux, Cfg: cfg, Log: log, Built: built,
@@ -120,6 +123,9 @@ func prepareStandardHandler(
 		releaseClosers()
 		return out, fmt.Errorf("stdhttp: mount frontends: %w", err)
 	}
+
+	mux.Handle(openAIModelsPath, NewModelRegistryHandler(built.ModelRegistryRuntime))
+
 	if err := app.Start(ctx); err != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

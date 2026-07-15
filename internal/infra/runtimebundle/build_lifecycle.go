@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -37,8 +38,8 @@ func validateRequiredAuthorityEvidenceWiring(cfg *config.Config) error {
 
 func disposeClosers(closers []func() error) error {
 	var out error
-	for i := len(closers) - 1; i >= 0; i-- {
-		if err := closers[i](); err != nil {
+	for _, closer := range slices.Backward(closers) {
+		if err := closer(); err != nil {
 			out = errors.Join(out, fmt.Errorf("runtimebundle: dispose closer: %w", err))
 		}
 	}

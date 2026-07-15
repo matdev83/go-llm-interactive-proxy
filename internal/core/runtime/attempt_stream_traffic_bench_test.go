@@ -62,8 +62,8 @@ func BenchmarkEmitTrafficBTP_jsonMarshal(b *testing.B) {
 	s, ev, pm := benchRetryRecvForTrafficEmit()
 	ctx := context.Background()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+
+	for b.Loop() {
 		s.emitTrafficBTP(ctx, ev, pm)
 	}
 }
@@ -72,8 +72,8 @@ func BenchmarkEmitTrafficPTC_jsonMarshal(b *testing.B) {
 	s, ev, pm := benchRetryRecvForTrafficEmit()
 	ctx := context.Background()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+
+	for b.Loop() {
 		s.emitTrafficPTC(ctx, ev, pm)
 	}
 }
@@ -81,8 +81,8 @@ func BenchmarkEmitTrafficPTC_jsonMarshal(b *testing.B) {
 func BenchmarkMarshalTrafficEvent_jsonOnly(b *testing.B) {
 	_, ev, _ := benchRetryRecvForTrafficEmit()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+
+	for b.Loop() {
 		_, _ = json.Marshal(ev)
 	}
 }

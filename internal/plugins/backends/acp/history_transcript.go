@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -122,8 +123,8 @@ func serializeTranscript(messages []lipapi.Message) string {
 	}
 	// Find the last user message index.
 	lastUserIdx := -1
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == lipapi.RoleUser {
+	for i, message := range slices.Backward(messages) {
+		if message.Role == lipapi.RoleUser {
 			lastUserIdx = i
 			break
 		}
@@ -141,7 +142,7 @@ func serializeTranscript(messages []lipapi.Message) string {
 	var b strings.Builder
 	if lastUserIdx > 0 {
 		b.WriteString("Previous Context:\n\n")
-		for i := 0; i < lastUserIdx; i++ {
+		for i := range lastUserIdx {
 			appendSerializedMessage(&b, messages[i])
 		}
 		b.WriteString("\n---\n\n")
@@ -213,10 +214,10 @@ func roleLabel(role lipapi.Role) string {
 
 // extractLastUserMessage extracts the text of the last user message.
 func extractLastUserMessage(messages []lipapi.Message) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == lipapi.RoleUser {
+	for _, message := range slices.Backward(messages) {
+		if message.Role == lipapi.RoleUser {
 			var texts []string
-			for _, p := range messages[i].Parts {
+			for _, p := range message.Parts {
 				if p.Kind == lipapi.PartText && strings.TrimSpace(p.Text) != "" {
 					texts = append(texts, p.Text)
 				}
@@ -235,7 +236,7 @@ func hashMessagesPrefix(messages []lipapi.Message, endExclusive int) string {
 		endExclusive = len(messages)
 	}
 	h := sha256.New()
-	for i := 0; i < endExclusive; i++ {
+	for i := range endExclusive {
 		m := messages[i]
 		_, _ = fmt.Fprintf(h, "%s|", m.Role)
 		for _, p := range m.Parts {

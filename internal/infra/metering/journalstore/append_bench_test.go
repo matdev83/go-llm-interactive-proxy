@@ -20,8 +20,8 @@ func BenchmarkMemoryAppendAndCorrectionReplay(b *testing.B) {
 	ctx := context.Background()
 	now := time.Unix(1_700_000_000, 0).UTC()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := 0; b.Loop(); i++ {
 		base := metering.Fact{
 			FactID:      fmt.Sprintf("fact-%d", i),
 			StreamID:    "stream-bench",

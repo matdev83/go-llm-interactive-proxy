@@ -28,10 +28,15 @@ type BackendFactoryDeps struct {
 	ModelVendorResolver ModelVendorResolver
 	// CodexModelCatalog is the auto-discovered Codex model catalog shared by
 	// the openai-codex and codex app-server connectors. It is resolved once at
-	// startup (codex debug models, else the shipped fallback snapshot) and may
-	// be nil when resolution failed; connectors fall back to the shipped
-	// snapshot in that case.
+	// startup in single_user mode when at least one of those backends is enabled
+	// and registered on the composition-root registry (codex debug models, else
+	// the shipped fallback snapshot) and may be nil when skipped or resolution
+	// failed; connectors fall back to the shipped snapshot in that case.
 	CodexModelCatalog *codexcatalog.Catalog
+	// CodexModelCatalogSource reports how CodexModelCatalog was obtained
+	// (discovered vs shipped/override fallback). App Server inventory uses this
+	// to avoid advertising unproven fallback slugs.
+	CodexModelCatalogSource codexcatalog.Source
 }
 
 // BackendFactory builds a backend from opaque per-plugin YAML, the composition-root HTTP client,
@@ -215,6 +220,21 @@ func (r *Registry) BackendSecurityProfile(factoryID string) (BackendSecurityProf
 	defer r.mu.RUnlock()
 	profile, ok := r.backendProfiles[factoryID]
 	return profile, ok
+}
+
+// HasBackend reports whether factoryID is registered on r without exposing the factory.
+func (r *Registry) HasBackend(factoryID string) bool {
+	if r == nil {
+		return false
+	}
+	factoryID = strings.TrimSpace(factoryID)
+	if factoryID == "" {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.backends[factoryID]
+	return ok
 }
 
 // BuildBackend constructs a backend from r using the factory id (plugin kind).

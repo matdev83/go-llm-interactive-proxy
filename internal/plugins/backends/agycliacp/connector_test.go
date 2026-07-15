@@ -7,41 +7,69 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
 func TestAgySpec_ResolveModel(t *testing.T) {
 	t.Parallel()
-	spec := &agySpec{cfg: Config{ConnectorConfig: acp.ConnectorConfig{Model: "anthropic/claude-sonnet-4.6-thinking"}}}
+	idx := acp.NewModelIndex(nil)
+	idx.Replace([]modelinventory.Model{
+		{CanonicalID: "google/gemini-3.5-flash-high", NativeID: "Gemini 3.5 Flash (High)"},
+		{CanonicalID: "google/gemini-3.5-flash-low", NativeID: "Gemini 3.5 Flash (Low)"},
+		{CanonicalID: "google/gemini-3.5-flash-medium", NativeID: "Gemini 3.5 Flash (Medium)"},
+		{CanonicalID: "google/gemini-3.1-pro-low", NativeID: "Gemini 3.1 Pro (Low)"},
+		{CanonicalID: "anthropic/claude-sonnet-4.6-thinking", NativeID: "Claude Sonnet 4.6 (Thinking)"},
+		{CanonicalID: "anthropic/claude-opus-4.6-thinking", NativeID: "Claude Opus 4.6 (Thinking)"},
+	})
+	spec := &agySpec{
+		cfg:   Config{ConnectorConfig: acp.ConnectorConfig{Model: "anthropic/claude-sonnet-4.6-thinking"}},
+		index: idx,
+	}
 	cases := []struct {
+		name     string
 		in, want string
 	}{
-		// Strip route-level "agy:" prefix, preserve internal vendor namespace.
-		{"agy:google/gemini-3.5-flash-high", "google/gemini-3.5-flash-high"},
-		{"agy/anthropic/claude-opus-4.6-thinking", "anthropic/claude-opus-4.6-thinking"},
-		// No prefix — pass through.
-		{"google/gemini-3.1-pro", "google/gemini-3.1-pro"},
-		// Empty / auto → default.
-		{"", "anthropic/claude-sonnet-4.6-thinking"},
-		{"agy", "anthropic/claude-sonnet-4.6-thinking"},
-		{"agy:auto", "anthropic/claude-sonnet-4.6-thinking"},
-		{"auto", "anthropic/claude-sonnet-4.6-thinking"},
-		// Trimmed.
-		{"  agy:google/gemini-3.5-flash-low  ", "google/gemini-3.5-flash-low"},
+		{name: "agy-colon-canonical", in: "agy:google/gemini-3.5-flash-high", want: "Gemini 3.5 Flash (High)"},
+		{name: "agy-slash-canonical", in: "agy/anthropic/claude-opus-4.6-thinking", want: "Claude Opus 4.6 (Thinking)"},
+		{name: "bare-canonical", in: "google/gemini-3.1-pro-low", want: "Gemini 3.1 Pro (Low)"},
+		{name: "empty-uses-config", in: "", want: "Claude Sonnet 4.6 (Thinking)"},
+		{name: "agy-bare-uses-config", in: "agy", want: "Claude Sonnet 4.6 (Thinking)"},
+		{name: "agy-colon-auto", in: "agy:auto", want: "Claude Sonnet 4.6 (Thinking)"},
+		{name: "auto", in: "auto", want: "Claude Sonnet 4.6 (Thinking)"},
+		{name: "trimmed-agy-colon", in: "  agy:google/gemini-3.5-flash-low  ", want: "Gemini 3.5 Flash (Low)"},
+		{name: "pretty-native", in: "Gemini 3.5 Flash (Medium)", want: "Gemini 3.5 Flash (Medium)"},
 	}
 	for _, tc := range cases {
-		got := spec.ResolveModel(tc.in)
-		if got != tc.want {
-			t.Fatalf("ResolveModel(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := spec.ResolveModel(tc.in)
+			if got != tc.want {
+				t.Fatalf("ResolveModel(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestAgySpec_ResolveModel_emptyConfigDefault(t *testing.T) {
 	t.Parallel()
-	spec := &agySpec{cfg: Config{}}
+	idx := acp.NewModelIndex(nil)
+	idx.Replace([]modelinventory.Model{{
+		CanonicalID: "google/gemini-3.5-flash-high",
+		NativeID:    "Gemini 3.5 Flash (High)",
+	}})
+	spec := &agySpec{cfg: Config{}, index: idx}
 	got := spec.ResolveModel("")
-	if got != "google/gemini-3.5-flash-high" {
-		t.Fatalf("empty config default = %q, want google/gemini-3.5-flash-high", got)
+	if got != "Gemini 3.5 Flash (High)" {
+		t.Fatalf("empty config default = %q, want Gemini 3.5 Flash (High)", got)
+	}
+}
+
+func TestAgySpec_ResolveModel_unadvertisedEmpty(t *testing.T) {
+	t.Parallel()
+	spec := &agySpec{cfg: Config{}, index: acp.NewModelIndex(nil)}
+	got := spec.ResolveModel("google/gemini-3.5-flash-high")
+	if got != "" {
+		t.Fatalf("unadvertised ResolveModel = %q, want empty", got)
 	}
 }
 
@@ -179,31 +207,6 @@ func TestAgyServerRequestHandler_unknownMethodError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "method not handled") {
 		t.Fatalf("error = %v, want 'method not handled'", err)
-	}
-}
-
-func TestAgyDefaultInventoryModels(t *testing.T) {
-	t.Parallel()
-	models := defaultInventoryModels()
-	if len(models) != len(defaultModelIDs) {
-		t.Fatalf("models count = %d, want %d", len(models), len(defaultModelIDs))
-	}
-	// Verify all are prefixed with "agy/".
-	for _, m := range models {
-		if !strings.HasPrefix(m.CanonicalID, "agy/") {
-			t.Fatalf("CanonicalID %q should have prefix agy/", m.CanonicalID)
-		}
-	}
-	// Verify some known model IDs.
-	found := map[string]bool{}
-	for _, m := range models {
-		found[m.NativeID] = true
-	}
-	if !found["google/gemini-3.5-flash-high"] {
-		t.Fatal("missing google/gemini-3.5-flash-high in inventory")
-	}
-	if !found["anthropic/claude-sonnet-4.6-thinking"] {
-		t.Fatal("missing anthropic/claude-sonnet-4.6-thinking in inventory")
 	}
 }
 

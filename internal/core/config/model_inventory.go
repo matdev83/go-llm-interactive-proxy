@@ -15,6 +15,9 @@ type ModelInventoryConfig struct {
 	RefreshEnabled  *bool  `yaml:"refresh_enabled"`
 	RefreshInterval string `yaml:"refresh_interval"`
 	FetchTimeout    string `yaml:"fetch_timeout"`
+	// DiagnosticsPath registers protected backend model-registry discovery JSON when non-empty
+	// (e.g. "/debug/model-registry"). Distinct from model_catalog.diagnostics_path (models.dev).
+	DiagnosticsPath string `yaml:"diagnostics_path"`
 }
 
 func (mc ModelInventoryConfig) EffectiveRefreshEnabled() bool {

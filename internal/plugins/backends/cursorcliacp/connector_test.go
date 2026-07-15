@@ -7,34 +7,65 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
-func TestCursorSpec_ResolveModel(t *testing.T) {
+func TestCursorSpec_ResolveModel_seededIndex(t *testing.T) {
 	t.Parallel()
-	spec := &cursorSpec{cfg: Config{ConnectorConfig: acp.ConnectorConfig{Model: "claude-3.5-sonnet"}}}
+	idx := acp.NewModelIndex(nil)
+	idx.Replace([]modelinventory.Model{
+		{CanonicalID: "cursor/composer-2", NativeID: "composer-2"},
+		{CanonicalID: "cursor/composer-2-fast", NativeID: "composer-2-fast"},
+		{CanonicalID: "cursor/gpt-5.2", NativeID: "gpt-5.2"},
+		{CanonicalID: "cursor/claude-3.5-sonnet", NativeID: "claude-3.5-sonnet"},
+		{CanonicalID: "cursor/grok-4.5-high", NativeID: "cursor-grok-4.5-high"},
+	})
+	spec := &cursorSpec{
+		cfg:   Config{ConnectorConfig: acp.ConnectorConfig{Model: "claude-3.5-sonnet"}},
+		index: idx,
+	}
 	cases := []struct {
+		name     string
 		in, want string
 	}{
-		{"cursor:composer-2", "composer-2"},
-		{"cursor/composer-2-fast", "composer-2-fast"},
-		{"composer-2", "composer-2"},
-		{"", "claude-3.5-sonnet"},
-		{"cursor", "claude-3.5-sonnet"},
-		{"cursor:auto", "claude-3.5-sonnet"},
-		{"auto", "claude-3.5-sonnet"},
-		{"  cursor:gpt-5.2  ", "gpt-5.2"},
+		{name: "cursor-colon-native", in: "cursor:composer-2", want: "composer-2"},
+		{name: "cursor-slash-canonical", in: "cursor/composer-2-fast", want: "composer-2-fast"},
+		{name: "bare-native", in: "composer-2", want: "composer-2"},
+		{name: "empty-uses-config", in: "", want: "claude-3.5-sonnet"},
+		{name: "cursor-bare-uses-config", in: "cursor", want: "claude-3.5-sonnet"},
+		{name: "cursor-colon-auto", in: "cursor:auto", want: "claude-3.5-sonnet"},
+		{name: "auto", in: "auto", want: "claude-3.5-sonnet"},
+		{name: "trimmed-cursor-colon", in: "  cursor:gpt-5.2  ", want: "gpt-5.2"},
+		{name: "cursor-slash-grok", in: "cursor/grok-4.5-high", want: "cursor-grok-4.5-high"},
+		{name: "cursor-colon-prefixed-native", in: "cursor:cursor-grok-4.5-high", want: "cursor-grok-4.5-high"},
 	}
 	for _, tc := range cases {
-		got := spec.ResolveModel(tc.in)
-		if got != tc.want {
-			t.Fatalf("ResolveModel(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := spec.ResolveModel(tc.in)
+			if got != tc.want {
+				t.Fatalf("ResolveModel(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestCursorSpec_ResolveModel_emptyConfigDefault(t *testing.T) {
+func TestCursorSpec_ResolveModel_unknownWithoutIndex(t *testing.T) {
 	t.Parallel()
-	spec := &cursorSpec{cfg: Config{}}
+	spec := &cursorSpec{cfg: Config{}, index: acp.NewModelIndex(nil)}
+	got := spec.ResolveModel("composer-2")
+	if got != "" {
+		t.Fatalf("unknown without seed = %q, want empty", got)
+	}
+}
+
+func TestCursorSpec_ResolveModel_emptyConfigDefaultWhenSeeded(t *testing.T) {
+	t.Parallel()
+	idx := acp.NewModelIndex(nil)
+	idx.Replace([]modelinventory.Model{
+		{CanonicalID: "cursor/composer-2", NativeID: "composer-2"},
+	})
+	spec := &cursorSpec{cfg: Config{}, index: idx}
 	got := spec.ResolveModel("")
 	if got != "composer-2" {
 		t.Fatalf("empty config default = %q, want composer-2", got)
@@ -250,31 +281,18 @@ func TestParseAgentModelsListing(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		got := parseAgentModelsListing(tc.input)
-		if len(got) != len(tc.want) {
-			t.Fatalf("%s: got %d models, want %d: got=%v want=%v", tc.name, len(got), len(tc.want), got, tc.want)
-		}
-		for i, m := range got {
-			if m != tc.want[i] {
-				t.Fatalf("%s: got[%d] = %q, want %q", tc.name, i, m, tc.want[i])
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := parseAgentModelsListing(tc.input)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d models, want %d: got=%v want=%v", len(got), len(tc.want), got, tc.want)
 			}
-		}
-	}
-}
-
-func TestDefaultInventoryModels(t *testing.T) {
-	t.Parallel()
-	models := defaultInventoryModels()
-	if len(models) == 0 {
-		t.Fatal("expected non-empty default models")
-	}
-	for _, m := range models {
-		if !strings.HasPrefix(m.CanonicalID, vendorPrefix+"/") {
-			t.Fatalf("CanonicalID %q should have prefix %q", m.CanonicalID, vendorPrefix+"/")
-		}
-		if m.NativeID == "" {
-			t.Fatal("NativeID should not be empty")
-		}
+			for i, m := range got {
+				if m != tc.want[i] {
+					t.Fatalf("got[%d] = %q, want %q", i, m, tc.want[i])
+				}
+			}
+		})
 	}
 }
 

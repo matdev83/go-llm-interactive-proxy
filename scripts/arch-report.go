@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,11 +114,11 @@ func writePackageLineReport(b *strings.Builder, pkgs []pkgMeta) {
 		}
 		rows = append(rows, row{path: p.ImportPath, lines: n})
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].lines != rows[j].lines {
-			return rows[i].lines > rows[j].lines
+	slices.SortFunc(rows, func(a, b row) int {
+		if a.lines != b.lines {
+			return cmp.Compare(b.lines, a.lines)
 		}
-		return rows[i].path < rows[j].path
+		return cmp.Compare(a.path, b.path)
 	})
 	writeLimitRows(b, rows, 25, func(r row) string {
 		return fmt.Sprintf("| `%s` | %d |", r.path, r.lines)
@@ -164,11 +165,11 @@ func writeFanOutReport(b *strings.Builder, pkgs []pkgMeta, modPath string) {
 		}
 		rows = append(rows, row{path: p.ImportPath, n: n})
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].n != rows[j].n {
-			return rows[i].n > rows[j].n
+	slices.SortFunc(rows, func(a, b row) int {
+		if a.n != b.n {
+			return cmp.Compare(b.n, a.n)
 		}
-		return rows[i].path < rows[j].path
+		return cmp.Compare(a.path, b.path)
 	})
 	writeLimitRows(b, rows, 20, func(r row) string {
 		return fmt.Sprintf("| `%s` | %d |", r.path, r.n)
@@ -198,11 +199,11 @@ func writeFanInReport(b *strings.Builder, pkgs []pkgMeta, modPath string) {
 	for p, n := range importers {
 		rows = append(rows, row{path: p, n: n})
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].n != rows[j].n {
-			return rows[i].n > rows[j].n
+	slices.SortFunc(rows, func(a, b row) int {
+		if a.n != b.n {
+			return cmp.Compare(b.n, a.n)
 		}
-		return rows[i].path < rows[j].path
+		return cmp.Compare(a.path, b.path)
 	})
 	writeLimitRows(b, rows, 20, func(r row) string {
 		return fmt.Sprintf("| `%s` | %d |", r.path, r.n)

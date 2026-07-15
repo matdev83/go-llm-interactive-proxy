@@ -20,9 +20,8 @@ func BenchmarkBuildContents(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = buildContents(call)
 	}
 }
@@ -33,9 +32,8 @@ func BenchmarkUserPartsToGenaiParts(b *testing.B) {
 		parts[i] = lipapi.TextPart("hello world")
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = userPartsToGenaiParts(parts)
 	}
 }
@@ -46,9 +44,8 @@ func BenchmarkAssistantPartsToGenaiParts(b *testing.B) {
 		parts[i] = lipapi.TextPart("hello world")
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = assistantPartsToGenaiParts(parts)
 	}
 }
@@ -63,9 +60,8 @@ func BenchmarkBuildTools(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = buildTools(tools)
 	}
 }

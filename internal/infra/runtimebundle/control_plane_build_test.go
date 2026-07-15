@@ -1,6 +1,7 @@
 package runtimebundle_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -33,8 +34,8 @@ func buildControlPlaneBundle(t *testing.T, cfg *config.Config) *runtimebundle.Bu
 	// that would block t.TempDir cleanup on Windows). Matches disposeClosers
 	// in build.go.
 	t.Cleanup(func() {
-		for i := len(built.Closers) - 1; i >= 0; i-- {
-			_ = built.Closers[i]()
+		for _, v := range slices.Backward(built.Closers) {
+			_ = v()
 		}
 	})
 	return built

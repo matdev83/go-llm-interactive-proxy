@@ -19,8 +19,7 @@ func BenchmarkBuildSystemBlocks(b *testing.B) {
 		},
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = buildSystemBlocks(call)
 	}
 }
@@ -37,8 +36,7 @@ func BenchmarkBuildAnthropicMessages(b *testing.B) {
 		},
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = buildAnthropicMessages(call)
 	}
 }
@@ -52,8 +50,7 @@ func BenchmarkUserPartsToBlocks(b *testing.B) {
 		}
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = userPartsToBlocks(parts)
 	}
 }

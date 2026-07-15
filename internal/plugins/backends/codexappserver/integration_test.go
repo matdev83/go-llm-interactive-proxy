@@ -15,7 +15,26 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
+
+// acceptLoadedInventory loads from inv then commits via AcceptInventory, matching
+// core's publish path (LoadModels alone does not update the Open allowlist).
+func acceptLoadedInventory(t *testing.T, inv modelinventory.Provider) {
+	t.Helper()
+	if inv == nil {
+		t.Fatal("nil inventory")
+	}
+	snap, err := inv.LoadModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := inv.(modelinventory.AcceptedInventory)
+	if !ok {
+		t.Fatalf("inventory type %T missing AcceptedInventory", inv)
+	}
+	a.AcceptInventory(snap.Models)
+}
 
 // --- fakeProcess: in-memory pipe implementation of acp.Process ---
 
@@ -718,7 +737,15 @@ func TestIntegration_codexAppServerModelOverride(t *testing.T) {
 			Model:            "gpt-5.4",
 			DefaultWorkspace: ws,
 		},
+		Inventory: modelinventory.StaticProvider{
+			Source: modelinventory.SourceStaticInline,
+			Models: []modelinventory.Model{{
+				CanonicalID: "openai/gpt-5.4",
+				NativeID:    "gpt-5.4",
+			}},
+		},
 	}, starter)
+	acceptLoadedInventory(t, backend.ModelInventory)
 
 	call := lipapi.Call{
 		ID: "int-codex-model",
@@ -750,6 +777,92 @@ func TestIntegration_codexAppServerModelOverride(t *testing.T) {
 	captureMu.Unlock()
 	if got != "gpt-5.4" {
 		t.Fatalf("turn/start model = %q, want gpt-5.4", got)
+	}
+}
+
+func TestIntegration_codexAppServerCanonicalMapsToNativeOnWire(t *testing.T) {
+	t.Parallel()
+	ws := t.TempDir()
+	proc := newFakeProcess(t)
+	t.Cleanup(func() { _ = proc.Kill() })
+	starter := &fakeStarter{proc: proc}
+
+	var threadModel, turnModel string
+	var captureMu sync.Mutex
+
+	go runAgentSimulator(t, proc, simulatorOptions{
+		threadID: "thread-fake-native-map",
+		onThreadStartParams: func(params json.RawMessage) {
+			var tsParams struct {
+				Model string `json:"model"`
+			}
+			_ = json.Unmarshal(params, &tsParams)
+			captureMu.Lock()
+			threadModel = tsParams.Model
+			captureMu.Unlock()
+		},
+		onTurnStartParams: func(params json.RawMessage) {
+			var tsParams struct {
+				Model string `json:"model"`
+			}
+			_ = json.Unmarshal(params, &tsParams)
+			captureMu.Lock()
+			turnModel = tsParams.Model
+			captureMu.Unlock()
+		},
+		notifications: []simulatorNotification{
+			{"item/agentMessage/delta", map[string]any{"delta": "ok"}},
+		},
+	})
+
+	backend := codexappserver.NewWithStarter(codexappserver.Config{
+		ConnectorConfig: acp.ConnectorConfig{
+			Model:            "auto",
+			DefaultWorkspace: ws,
+		},
+		Inventory: modelinventory.StaticProvider{
+			Source: modelinventory.SourceStaticInline,
+			Models: []modelinventory.Model{
+				{CanonicalID: "openai/auto", NativeID: "auto"},
+				{CanonicalID: "openai/friendly", NativeID: "actual-native"},
+			},
+		},
+	}, starter)
+	acceptLoadedInventory(t, backend.ModelInventory)
+
+	call := lipapi.Call{
+		ID:    "int-codex-native-map",
+		Route: lipapi.RouteIntent{Selector: codexappserver.ID + ":openai/friendly"},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("test")},
+		}},
+	}
+	cand := routing.AttemptCandidate{
+		Primary: routing.Primary{Backend: codexappserver.ID, Model: "openai/friendly"},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	es, err := backend.Open(ctx, call, cand)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = es.Close() })
+
+	if _, err := lipapi.Collect(ctx, es); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	captureMu.Lock()
+	gotThread, gotTurn := threadModel, turnModel
+	captureMu.Unlock()
+	if gotThread != "actual-native" {
+		t.Fatalf("thread/start model = %q, want actual-native (not friendly)", gotThread)
+	}
+	if gotTurn != "actual-native" {
+		t.Fatalf("turn/start model = %q, want actual-native (not friendly)", gotTurn)
 	}
 }
 

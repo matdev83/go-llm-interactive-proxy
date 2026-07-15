@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	coreconfig "github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -133,7 +134,7 @@ func (a *App) Start(ctx context.Context) error {
 }
 
 func (a *App) stopLifecyclesAfterStartFailure(logCtx, stopCtx context.Context, started []lipplugin.Lifecycle) {
-	for i := len(started) - 1; i >= 0; i-- {
+	for i := range slices.Backward(started) {
 		idx := i
 		err := safety.Call(safety.BoundaryWorker, lifecycleStopOp, func() error {
 			return started[idx].Stop(stopCtx)
@@ -164,8 +165,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	if a == nil {
 		return
 	}
-	for i := len(a.lifecycles) - 1; i >= 0; i-- {
-		lc := a.lifecycles[i]
+	for i, lc := range slices.Backward(a.lifecycles) {
 		if lc == nil {
 			continue
 		}

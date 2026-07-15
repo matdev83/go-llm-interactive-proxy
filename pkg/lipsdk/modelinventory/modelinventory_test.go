@@ -3,6 +3,7 @@ package modelinventory_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,4 +79,163 @@ func TestErrorProvider_ImplementsStaticInventoryMarker(t *testing.T) {
 	if !(modelinventory.ErrorProvider{}).StaticInventory() {
 		t.Fatal("ErrorProvider.StaticInventory() = false, want true")
 	}
+}
+
+func TestErrorProvider_LoadModelsReturnsOperationalError(t *testing.T) {
+	t.Parallel()
+
+	underlying := errors.New("secret construction failure: token=abc")
+	_, err := modelinventory.ErrorProvider{Err: underlying}.LoadModels(context.Background())
+	if !modelinventory.IsOperational(err) {
+		t.Fatalf("IsOperational = false for %v", err)
+	}
+	var op *modelinventory.OperationalError
+	if !errors.As(err, &op) {
+		t.Fatalf("error type = %T, want *OperationalError", err)
+	}
+	if op.Code != modelinventory.ErrorCodeUnavailable {
+		t.Fatalf("Code = %q", op.Code)
+	}
+	if !errors.Is(err, underlying) {
+		t.Fatalf("Unwrap missing underlying: %v", err)
+	}
+}
+
+func TestErrorProvider_LoadModelsNilErrIsOperationalUnavailable(t *testing.T) {
+	t.Parallel()
+
+	_, err := (modelinventory.ErrorProvider{}).LoadModels(context.Background())
+	if !modelinventory.IsOperational(err) {
+		t.Fatalf("IsOperational = false for %v", err)
+	}
+	disc := modelinventory.DiscoveryFromLoadError(err)
+	if disc.Status != modelinventory.DiscoveryStatusUnavailable {
+		t.Fatalf("Status = %q", disc.Status)
+	}
+	if disc.ErrorCode != modelinventory.ErrorCodeUnavailable {
+		t.Fatalf("ErrorCode = %q", disc.ErrorCode)
+	}
+	if disc.ModelCount != 0 {
+		t.Fatalf("ModelCount = %d", disc.ModelCount)
+	}
+}
+
+func TestErrorProvider_LoadModelsHonorsCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := modelinventory.ErrorProvider{Err: errors.New("hidden")}.LoadModels(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("LoadModels() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestDiscoveryFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		snap modelinventory.Snapshot
+		want modelinventory.Discovery
+	}{
+		{
+			name: "ok",
+			snap: modelinventory.Snapshot{
+				Source: modelinventory.SourceRemote,
+				Models: []modelinventory.Model{{CanonicalID: "vendor/m", NativeID: "m"}},
+			},
+			want: modelinventory.Discovery{
+				Status:     modelinventory.DiscoveryStatusOK,
+				Source:     modelinventory.SourceRemote,
+				ModelCount: 1,
+			},
+		},
+		{
+			name: "empty",
+			snap: modelinventory.Snapshot{Source: modelinventory.SourceStaticInline},
+			want: modelinventory.Discovery{
+				Status:     modelinventory.DiscoveryStatusEmpty,
+				Source:     modelinventory.SourceStaticInline,
+				ModelCount: 0,
+				ErrorCode:  modelinventory.ErrorCodeEmpty,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := modelinventory.DiscoveryFromSnapshot(tt.snap)
+			if got != tt.want {
+				t.Fatalf("DiscoveryFromSnapshot() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDiscoveryFromLoadError_stableCodesWithoutRawText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "operational unavailable",
+			err:  &modelinventory.OperationalError{Code: modelinventory.ErrorCodeUnavailable, Err: errors.New("api key leaked")},
+			want: modelinventory.ErrorCodeUnavailable,
+		},
+		{
+			name: "timeout",
+			err:  context.DeadlineExceeded,
+			want: modelinventory.ErrorCodeTimeout,
+		},
+		{
+			name: "canceled",
+			err:  context.Canceled,
+			want: modelinventory.ErrorCodeCanceled,
+		},
+		{
+			name: "plain error defaults unavailable",
+			err:  errors.New("disk secret path /home/user/.keys"),
+			want: modelinventory.ErrorCodeUnavailable,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := modelinventory.DiscoveryFromLoadError(tt.err)
+			if got.Status != modelinventory.DiscoveryStatusUnavailable {
+				t.Fatalf("Status = %q", got.Status)
+			}
+			if got.ErrorCode != tt.want {
+				t.Fatalf("ErrorCode = %q, want %q", got.ErrorCode, tt.want)
+			}
+			if got.ErrorCode != "" && containsSensitive(got.ErrorCode) {
+				t.Fatalf("ErrorCode leaked sensitive text: %q", got.ErrorCode)
+			}
+		})
+	}
+}
+
+func TestIsOperational(t *testing.T) {
+	t.Parallel()
+
+	if modelinventory.IsOperational(nil) {
+		t.Fatal("nil should not be operational")
+	}
+	if !modelinventory.IsOperational(&modelinventory.OperationalError{Code: modelinventory.ErrorCodeUnavailable}) {
+		t.Fatal("OperationalError should be operational")
+	}
+	if !modelinventory.IsOperational(context.DeadlineExceeded) {
+		t.Fatal("deadline exceeded should be operational")
+	}
+	if modelinventory.IsOperational(errors.New("plain")) {
+		t.Fatal("plain error should not match IsOperational without Operational marker")
+	}
+}
+
+func containsSensitive(s string) bool {
+	return strings.Contains(s, "secret") || strings.Contains(s, "api key") || strings.Contains(s, "/home/")
 }

@@ -16,8 +16,10 @@ type lookPathResult struct {
 	err  error
 }
 
-// LookPathCached wraps exec.LookPath with a thread-safe cache to avoid repeated
-// expensive filesystem scans during test suite execution.
+// LookPathCached wraps exec.LookPath with a thread-safe, process-lifetime cache
+// to avoid repeated expensive filesystem scans. Entries are never invalidated
+// in production; Restart the process after PATH changes. Tests that mutate PATH
+// must call ResetLookPathCache.
 func LookPathCached(file string) (string, error) {
 	v, _ := lookPathCache.LoadOrStore(file, sync.OnceValue(func() lookPathResult {
 		p, e := exec.LookPath(file)
@@ -29,6 +31,12 @@ func LookPathCached(file string) (string, error) {
 	}
 	got := r()
 	return got.path, got.err
+}
+
+// ResetLookPathCache clears cached LookPath results. Tests that mutate PATH
+// must call this so subsequent LookPathCached calls observe the new PATH.
+func ResetLookPathCache() {
+	lookPathCache = sync.Map{}
 }
 
 // CheckExecutable verifies if the candidate is a valid executable. If it's an

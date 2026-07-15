@@ -1,8 +1,9 @@
 package authoritystore
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,14 +24,17 @@ func (c *storeCore) limitStatus(q controlplane.AccountingLimitStatusQuery) (cont
 		cp := *row
 		rows = append(rows, cp)
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if !rows[i].WindowStart.Equal(rows[j].WindowStart) {
-			return rows[i].WindowStart.Before(rows[j].WindowStart)
+	slices.SortFunc(rows, func(a, b controlplane.AccountingLimitStatusRow) int {
+		if !a.WindowStart.Equal(b.WindowStart) {
+			if a.WindowStart.Before(b.WindowStart) {
+				return -1
+			}
+			return 1
 		}
-		if rows[i].RuleID != rows[j].RuleID {
-			return rows[i].RuleID < rows[j].RuleID
+		if a.RuleID != b.RuleID {
+			return cmp.Compare(a.RuleID, b.RuleID)
 		}
-		return rows[i].Correlation.RequestID < rows[j].Correlation.RequestID
+		return cmp.Compare(a.Correlation.RequestID, b.Correlation.RequestID)
 	})
 	return pageRows(rows, q.Limit, q.Cursor, q.Visibility, unsupported), nil
 }

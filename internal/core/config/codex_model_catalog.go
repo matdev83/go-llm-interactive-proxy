@@ -10,13 +10,15 @@ const DefaultCodexModelCatalogTimeout = 10 * time.Second
 
 // CodexModelCatalogConfig controls auto-discovery of the Codex model catalog
 // (`codex debug models`) at startup and the shipped/override fallback snapshot
-// shared by the openai-codex and codex app-server connectors. No model slugs
-// are hardcoded in the connectors; the routable slug list comes from this
-// catalog.
+// shared by the openai-codex and codex app-server connectors. Composition-root
+// discovery is additionally gated to single_user mode with an enabled, registered consumer.
+// No model slugs are hardcoded in the connectors; the routable slug list comes
+// from this catalog.
 type CodexModelCatalogConfig struct {
-	// Enabled controls whether `codex debug models` is run at startup. Defaults
-	// to true (nil = enabled). When false (or discovery fails) the fallback
-	// snapshot is used.
+	// Enabled controls whether `codex debug models` is attempted when the
+	// composition-root single_user + enabled-consumer gate allows discovery.
+	// Defaults to true (nil = enabled). When false (or discovery fails) the
+	// fallback snapshot is used.
 	Enabled *bool `yaml:"enabled"`
 	// FallbackPath overrides the shipped embedded snapshot path. Empty = the
 	// shipped snapshot embedded in the codexcatalog package.

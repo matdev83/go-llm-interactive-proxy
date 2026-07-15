@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -76,9 +77,9 @@ func TestExecutor_transportRejectSpan_recordsDecisionAttributes(t *testing.T) {
 
 func findEndedSpan(t *testing.T, spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
 	t.Helper()
-	for i := len(spans) - 1; i >= 0; i-- {
-		if spans[i].Name() == name {
-			return spans[i]
+	for _, span := range slices.Backward(spans) {
+		if span.Name() == name {
+			return span
 		}
 	}
 	t.Fatalf("missing span %q; ended=%d", name, len(spans))

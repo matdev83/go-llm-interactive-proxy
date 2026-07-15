@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
@@ -54,8 +55,8 @@ func TestExecutor_executeSpan_recordsErrorWhenOpenPanicExhaustsCandidates(t *tes
 
 	var execSpan sdktrace.ReadOnlySpan
 	ended := rec.Ended()
-	for i := len(ended) - 1; i >= 0; i-- {
-		s := ended[i]
+	for _, s := range slices.Backward(ended) {
+
 		if s.Name() == "lip.executor.execute" && s.Status().Code == codes.Error {
 			execSpan = s
 			break
