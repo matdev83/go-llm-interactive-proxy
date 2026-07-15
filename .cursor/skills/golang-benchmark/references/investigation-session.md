@@ -41,15 +41,16 @@ When using `prometheus/client_golang`, refer to the library's official documenta
 
 → See [prometheus-go-metrics.md](./prometheus-go-metrics.md) for the **exhaustive reference** of all Go runtime metrics (verified from official sources). **Note:** runtime/metrics list varies by Go version — use `metrics.All()` at runtime for your specific Go version.
 
-**Performance note:** `go_memstats_*` metrics internally call `runtime.ReadMemStats()`, which triggers a short stop-the-world pause. In Go 1.17+, the runtime/metrics collector (`collectors.NewGoCollector()`) uses `runtime/metrics` instead, which is cheaper. Prefer the modern collector in high-throughput services:
+**Performance note:** Since Go 1.17, `prometheus/client_golang` populates the `go_memstats_*` metrics from `runtime/metrics` rather than `runtime.ReadMemStats()`, so scraping them avoids the `ReadMemStats()` stop-the-world pause. The default `collectors.NewGoCollector()` already uses `runtime/metrics`; opt in only if you want the additional runtime/metrics series (GC, memory classes, scheduler, CPU):
 
 ```go
 import "github.com/prometheus/client_golang/prometheus/collectors"
 
-// Use runtime/metrics-based collector (lower overhead)
+// The default collector already uses runtime/metrics for go_memstats_*.
+// Opt in to the full set of additional runtime/metrics series.
 reg := prometheus.NewRegistry()
 reg.MustRegister(collectors.NewGoCollector(
-    collectors.WithGoCollections(collectors.GoRuntimeMetricsCollection),
+    collectors.WithGoCollectorRuntimeMetrics(collectors.MetricsAll),
 ))
 reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 ```

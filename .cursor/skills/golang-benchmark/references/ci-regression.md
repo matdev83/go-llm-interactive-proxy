@@ -1,6 +1,6 @@
 # CI Benchmark Regression Detection
 
-> **Run these tools in CI only, not on local machines.** Local benchmark results are noisy due to background processes, thermal throttling, and inconsistent CPU frequency — regressions detected locally are unreliable and waste developer time. Even shared CI runners can produce significant variance (5-10%); use statistical methods like `benchstat` with multiple iterations and relative comparisons to filter noise, or invest in dedicated benchmark runners for critical paths.
+> **Use CI for authoritative regression decisions; local benchmark runs are indicative only.** Local results are noisy due to background processes, thermal throttling, and inconsistent CPU frequency, so don't gate on a single local run. Tools like `benchdiff` work for both local PR-to-base sanity checks and CI gating — but treat local numbers as indicative, and rely on CI with statistical methods (`benchstat`, multiple iterations, relative comparisons) for go/no-go decisions. Even shared CI runners can produce significant variance (5-10%); invest in dedicated benchmark runners for critical paths.
 
 ## benchdiff
 
