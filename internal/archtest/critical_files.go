@@ -25,11 +25,12 @@ type CriticalFileBudget struct {
 // build.go is a special case: the 591-line figure is the pre-decomposition
 // historical size. After arch review Phase 2 (Tasks 2.2-2.7) extracted the
 // observability/security/model/persistence/extension/executor build units out of
-// internal/infra/runtimebundle/build.go, the remaining file is the ~158-line
-// Build orchestrator plus dispose helpers. The 220-line budget is
-// calibrated against the reduced post-decomposition scope (raised from 200 for
-// Phase 8 concurrency authority wiring) to lock the reduction
-// and prevent the orchestrator from re-absorbing build-unit logic.
+// internal/infra/runtimebundle/build.go, the remaining file is the ~180-line
+// Build orchestrator; lifecycle validation and disposer helpers live in
+// build_lifecycle.go. The 220-line budget is calibrated against this reduced
+// post-decomposition scope (raised from 200 for Phase 8 concurrency authority
+// wiring) to lock the reduction and prevent the orchestrator from re-absorbing
+// build-unit logic.
 //
 // options.go is a special case: the 106-line figure is the pre-grouping size.
 // After arch review Task 2.8 grouped the flat ~30-field BuildOptions bag into
