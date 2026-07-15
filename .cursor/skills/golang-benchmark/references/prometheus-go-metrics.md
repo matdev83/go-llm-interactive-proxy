@@ -131,29 +131,31 @@ prometheus.NewRegistry().MustRegister(
 | `go_gc_heap_frees_objects_total` | counter | Cumulative heap frees (count) |
 | `go_gc_heap_goal_bytes` | gauge | Heap size target for next GC |
 | `go_gc_heap_live_bytes` | gauge | Live heap bytes |
-| `go_gc_heap_live_objects` | gauge | Live heap objects count |
-| `go_gc_heap_objects_total` | gauge | Total heap objects |
-| `go_gc_heap_trimmed_bytes` | gauge | Bytes trimmed and released |
+| `go_gc_heap_objects_objects` | gauge | Number of objects on the heap |
 
 ### GC Pauses Distribution
 
-| Metric                       | Type         | Description        |
-| ---------------------------- | ------------ | ------------------ |
-| `go_gc_pauses_seconds_total` | distribution | GC pause durations |
+| Metric                 | Type         | Description        |
+| ---------------------- | ------------ | ------------------ |
+| `go_gc_pauses_seconds` | distribution | GC pause durations |
 
 ### CPU Classes
 
+Names match `prometheus/client_golang` GoCollector export (suffix `_cpu_seconds_total`).
+
 | Metric | Type | Description |
 | --- | --- | --- |
-| `go_cpu_classes_gc_mark_assist_seconds` | counter | GC mark assist CPU time |
-| `go_cpu_classes_gc_mark_dedicated_seconds` | counter | GC dedicated workers CPU time |
-| `go_cpu_classes_gc_mark_fractional_seconds` | counter | GC fractional workers CPU time |
-| `go_cpu_classes_gc_mark_idle_seconds` | counter | GC idle workers CPU time |
-| `go_cpu_classes_gc_pause_seconds` | counter | GC pause CPU time |
-| `go_cpu_classes_gc_total_seconds` | counter | Total GC CPU time |
-| `go_cpu_classes_idle_seconds` | counter | Idle CPU time |
-| `go_cpu_classes_other_seconds` | counter | Other CPU time |
-| `go_cpu_classes_user_seconds` | counter | User-mode CPU time |
+| `go_cpu_classes_gc_mark_assist_cpu_seconds_total` | counter | GC mark assist CPU time |
+| `go_cpu_classes_gc_mark_dedicated_cpu_seconds_total` | counter | GC dedicated workers CPU time |
+| `go_cpu_classes_gc_mark_idle_cpu_seconds_total` | counter | GC idle workers CPU time |
+| `go_cpu_classes_gc_pause_cpu_seconds_total` | counter | GC pause CPU time |
+| `go_cpu_classes_gc_total_cpu_seconds_total` | counter | Total GC CPU time |
+| `go_cpu_classes_idle_cpu_seconds_total` | counter | Idle CPU time |
+| `go_cpu_classes_scavenge_assist_cpu_seconds_total` | counter | Scavenge assist CPU time |
+| `go_cpu_classes_scavenge_background_cpu_seconds_total` | counter | Scavenge background CPU time |
+| `go_cpu_classes_scavenge_total_cpu_seconds_total` | counter | Total scavenge CPU time |
+| `go_cpu_classes_total_cpu_seconds_total` | counter | Total CPU time across classes |
+| `go_cpu_classes_user_cpu_seconds_total` | counter | User-mode CPU time |
 
 ### Memory Classes
 
@@ -168,34 +170,29 @@ prometheus.NewRegistry().MustRegister(
 | `go_memory_classes_metadata_mcache_inuse_bytes` | gauge | In-use mcache memory |
 | `go_memory_classes_metadata_mspan_free_bytes` | gauge | Free mspan memory |
 | `go_memory_classes_metadata_mspan_inuse_bytes` | gauge | In-use mspan memory |
+| `go_memory_classes_metadata_other_bytes` | gauge | Other metadata memory |
+| `go_memory_classes_os_stacks_bytes` | gauge | OS stack memory |
 | `go_memory_classes_other_bytes` | gauge | Other memory |
+| `go_memory_classes_profiling_buckets_bytes` | gauge | Profiling bucket memory |
 | `go_memory_classes_total_bytes` | gauge | Total memory |
 
 ### Scheduler Metrics
 
-| Metric                         | Type         | Description                  |
-| ------------------------------ | ------------ | ---------------------------- |
-| `go_sched_goroutines_running`  | gauge        | Running goroutines           |
-| `go_sched_goroutines_runnable` | gauge        | Runnable goroutines waiting  |
-| `go_sched_latencies_seconds`   | distribution | Goroutine scheduling latency |
-
-### Runtime Heap Metrics
-
-| Metric                             | Type  | Description          |
-| ---------------------------------- | ----- | -------------------- |
-| `go_runtime_max_stack_inuse_bytes` | gauge | Maximum stack in-use |
-| `go_runtime_mheap_alloc_bytes`     | gauge | Heap alloc bytes     |
-| `go_runtime_mheap_idle_bytes`      | gauge | Heap idle bytes      |
-| `go_runtime_mheap_inuse_bytes`     | gauge | Heap in-use bytes    |
-| `go_runtime_mheap_released_bytes`  | gauge | Heap released bytes  |
-| `go_runtime_mheap_sys_bytes`       | gauge | Heap system bytes    |
-| `go_runtime_stack_inuse_bytes`     | gauge | Stack in-use bytes   |
+| Metric | Type | Description |
+| --- | --- | --- |
+| `go_sched_gomaxprocs_threads` | gauge | Current GOMAXPROCS |
+| `go_sched_goroutines_goroutines` | gauge | Live goroutines |
+| `go_sched_latencies_seconds` | distribution | Goroutine scheduling latency |
+| `go_sched_pauses_stopping_gc_seconds` | distribution | Time to stop the world for GC |
+| `go_sched_pauses_stopping_other_seconds` | distribution | Time to stop the world for non-GC |
+| `go_sched_pauses_total_gc_seconds` | distribution | Total STW pause for GC |
+| `go_sched_pauses_total_other_seconds` | distribution | Total STW pause for non-GC |
 
 ### CGO Metrics
 
-| Metric                       | Type    | Description              |
-| ---------------------------- | ------- | ------------------------ |
-| `go_cgo_go_to_c_calls_total` | counter | Total calls from Go to C |
+| Metric | Type | Description |
+| --- | --- | --- |
+| `go_cgo_go_to_c_calls_calls_total` | counter | Total calls from Go to C |
 
 ---
 
