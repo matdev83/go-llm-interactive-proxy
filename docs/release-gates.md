@@ -90,7 +90,10 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Parallel race benches (16.6) | Parallel routing under authority with 2/4/8 legs | `go test ./internal/core/runtime/ -run '^$' -bench BenchmarkParallelRaceLegsAuthority` |
 | Critical fuzz | Existing Tier-1 protocol/decode fuzz smoke (not dual-plane fact/correction fuzz) | `make test-fuzz` or `make release-gates` |
 | Race (17.9) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); Windows `make test-race` is a documented no-op |
-| PostgreSQL (9.9, 17.9) | Cross-instance durable **authority store**, **lease store**, and **metering journal** proofs | `make test-authority-postgres` with `LIP_TEST_POSTGRES_DSN` (`LIP_REQUIRE_POSTGRES=1` fails closed without DSN) |
+| PostgreSQL direct runtime (9.9, 17.9) | Cross-instance durable authority, lease, and journal proofs through a direct/admin-capable endpoint | `make test-authority-postgres-direct` with `LIP_TEST_POSTGRES_DSN` |
+| PostgreSQL migrations (18.9-18.10) | Explicit admin migration followed by read-only schema verification | `make test-postgres-migrations`; prefers `LIP_MIGRATION_POSTGRES_DSN`, then test admin/runtime DSNs |
+| PostgreSQL aggregate | Migration, direct runtime, and pooled runtime gates all pass | `make test-authority-postgres` |
+| PostgreSQL pooled runtime (18.14–18.16) | Dual-endpoint pooled contracts (`LIP_TEST_POSTGRES_ADMIN_DSN` + transaction-pooled `LIP_TEST_POSTGRES_DSN` with `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`). Proves migrate/open split and pooler-safe DML. | `make test-authority-postgres-pooled` (`LIP_REQUIRE_POSTGRES_POOLER=1` fails closed). |
 | Migration fixtures (15.13 / 17.2) | Golden inventory under `testdata/migration/` | conformance `TestMigrationGoldenFixtureInventory` via `make parity-checks` |
 | Enterprise panic / malformed isolation (15.9) | Injected request/attempt/concurrency providers map panic and unknown decision/lease kinds through fail-closed `ErrUnavailable` (advisory may degrade); release compensate panics are isolated | `go test ./internal/core/authoritycoord/ -run Isolates` |
 | Privacy (17.5–17.6) | No raw bearer/API-key/header leakage in default authority evidence | `go test ./internal/core/usageauthority/app/ -run ProjectAuthorityEvidence` |

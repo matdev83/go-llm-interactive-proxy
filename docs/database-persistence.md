@@ -55,6 +55,8 @@ The top-level `database` block applies pool tuning to managed PostgreSQL handles
 
 Relevant fields:
 
+- `database.connection_mode` (dual-plane PostgreSQL stores only: `direct` or `transaction_pool`)
+- `database.schema_mode` (dual-plane PostgreSQL stores only: `auto_migrate` or `verify_only`)
 - `database.max_open_conns`
 - `database.max_idle_conns`
 - `database.conn_max_lifetime`
@@ -62,7 +64,11 @@ Relevant fields:
 
 Notes:
 
-- Omit fields to use the driver defaults.
+- When any managed path selects `store: postgres`, `database.max_open_conns` must be greater than zero (fail-closed; unlimited driver defaults are rejected).
+- `connection_mode` and `schema_mode` configure only the dual-plane usage-authority, concurrency, and metering runtime stores. Continuity, secure-session, control-plane, and accounting-ledger PostgreSQL paths retain their existing owning lifecycle.
+- `transaction_pool` requires `verify_only`; `transaction_pool` plus `auto_migrate` is rejected during validation.
+- For dual-plane authority/concurrency/metering sharing one registry pool, size `max_open_conns` for peak concurrent dual-plane transactions; watch `lip_postgres_pool_in_use_connections` vs `lip_postgres_pool_max_open_connections` and wait rates.
+- Other omitted or zero pool fields still use driver defaults.
 - Duration values use Go duration strings such as `30m` or `90s`.
 - Invalid or negative values fail validation before startup.
 

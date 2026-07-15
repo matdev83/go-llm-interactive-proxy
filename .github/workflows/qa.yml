@@ -21,6 +21,23 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      pgbouncer:
+        image: edoburu/pgbouncer:1.24.1-p1
+        env:
+          DB_HOST: postgres
+          DB_PORT: 5432
+          DB_USER: lip
+          DB_PASSWORD: lip
+          DB_NAME: lip_test
+          POOL_MODE: transaction
+          AUTH_TYPE: scram-sha-256
+        ports:
+          - 6432:5432
+        options: >-
+          --health-cmd "pg_isready -h localhost -p 5432 -U lip -d lip_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -38,7 +55,10 @@ jobs:
 
       - name: PostgreSQL authority integration proof
         env:
-          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:6432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_MIGRATION_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_RUNTIME_IS_POOLER: "1"
         run: make test-authority-postgres
 
       - name: Architecture report (advisory artifact)
@@ -56,9 +76,11 @@ jobs:
         if: always()
 
       # Conformance/parity suites live under ./internal/testkit/conformance/... and run here (no duplicate step).
+      # Direct Postgres DSNs only: pooled proofs run in the dedicated authority step above.
       - name: Unit tests
         env:
           LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
+          LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
         run: go test -parallel=8 -tags=precommit,integration ./...
 
       - name: Release gates (fuzz smoke)

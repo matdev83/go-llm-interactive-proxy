@@ -19,3 +19,4 @@ This index tracks all structured pages in the vault.
 - [[agent-skills]]: Skill-to-task mapping for golang-specific agent skill loading, hexagonal architecture enforcement, and registered skill inventory.
 - [[okf-knowledge-process]]: OKF-compatible operating rules for EchoesVault concept files, discovery, linking, and agent access.
 - [[codex-app-server-backend]]: OpenAI Codex CLI app-server backend — protocol mapping, handshake, lifecycle, and event translation for the local-agent stdio backend.
+- [[postgres-transaction-pooling]]: PostgreSQL admin/runtime separation, shared pool ownership, schema lifecycle, and pooled release gates.
