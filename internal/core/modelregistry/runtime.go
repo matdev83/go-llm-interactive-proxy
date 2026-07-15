@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -491,9 +492,7 @@ func cloneIntMap(in map[string]int) map[string]int {
 		return map[string]int{}
 	}
 	out := make(map[string]int, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

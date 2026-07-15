@@ -154,6 +154,7 @@ func TestTrackingInventory_nilContext(t *testing.T) {
 
 	// Inner that would panic/ignore nil — TrackingInventory must reject first.
 	ti := NewTrackingInventory(nilAcceptingNilContextProvider{}, NewModelIndex(nil), "test")
+	//nolint:staticcheck // SA1012: nil Context is the API contract under test.
 	_, err := ti.LoadModels(nil)
 	if !errors.Is(err, modelinventory.ErrNilContext) {
 		t.Fatalf("LoadModels(nil) = %v, want ErrNilContext", err)

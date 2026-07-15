@@ -56,7 +56,6 @@ func TestExecutor_executeSpan_recordsErrorWhenOpenPanicExhaustsCandidates(t *tes
 	var execSpan sdktrace.ReadOnlySpan
 	ended := rec.Ended()
 	for _, s := range slices.Backward(ended) {
-
 		if s.Name() == "lip.executor.execute" && s.Status().Code == codes.Error {
 			execSpan = s
 			break

@@ -134,7 +134,6 @@ func Build(ctx context.Context, inventories []BackendInventory, log *slog.Logger
 
 	var mu sync.Mutex
 	for i, inv := range inventories {
-		i, inv := i, inv
 		g.Go(func() error {
 			if err := gctx.Err(); err != nil {
 				return err

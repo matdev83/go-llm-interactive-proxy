@@ -60,10 +60,10 @@ func etagMatches(ifNoneMatch, etag string) bool {
 	if ifNoneMatch == "*" {
 		return true
 	}
-	for _, part := range strings.Split(ifNoneMatch, ",") {
+	for part := range strings.SplitSeq(ifNoneMatch, ",") {
 		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "W/") {
-			part = strings.TrimSpace(strings.TrimPrefix(part, "W/"))
+		if after, ok := strings.CutPrefix(part, "W/"); ok {
+			part = strings.TrimSpace(after)
 		}
 		if part == etag {
 			return true
