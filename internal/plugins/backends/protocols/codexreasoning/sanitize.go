@@ -19,6 +19,12 @@ type SummarySanitizer struct {
 	separatorPending         bool
 }
 
+// StartSummaryPart records a native Codex reasoning-summary part boundary.
+// Repeated boundary signals remain idempotent until visible text arrives.
+func (s *SummarySanitizer) StartSummaryPart() {
+	s.markBoundary()
+}
+
 // SanitizeDelta sanitizes one streaming reasoning-summary delta. A hidden
 // boundary is held pending until the next visible delta so newlines supplied
 // by either neighboring delta are respected regardless of chunk boundaries.
@@ -29,7 +35,7 @@ func (s *SummarySanitizer) SanitizeDelta(text string) string {
 	var output strings.Builder
 	for i, part := range parts {
 		if i > 0 {
-			s.separatorPending = s.separatorPending || s.hasVisibleText
+			s.markBoundary()
 		}
 		if part == "" {
 			continue
@@ -45,6 +51,10 @@ func (s *SummarySanitizer) SanitizeDelta(text string) string {
 		s.previousEndedWithNewline = endsWithNewline(part)
 	}
 	return output.String()
+}
+
+func (s *SummarySanitizer) markBoundary() {
+	s.separatorPending = s.separatorPending || s.hasVisibleText
 }
 
 // Reset clears all cross-delta state for a new response or turn.

@@ -121,6 +121,10 @@ func (s *codexStream) mapNotification(probe map[string]any) ([]lipapi.Event, err
 		}
 		return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: delta}}, nil
 
+	case "item/reasoning/summaryPartAdded":
+		s.reasoningSummarySanitizer.StartSummaryPart()
+		return nil, nil
+
 	case "item/reasoning/textDelta":
 		delta, _ := params["delta"].(string)
 		if delta == "" {
@@ -146,7 +150,7 @@ func (s *codexStream) mapNotification(probe map[string]any) ([]lipapi.Event, err
 	case "item/started", "thread/started",
 		"item/commandExecution/outputDelta", "item/fileChange/outputDelta",
 		"item/plan/delta", "turn/diff/updated", "thread/tokenUsage/updated",
-		"serverRequest/resolved", "item/reasoning/summaryPartAdded":
+		"serverRequest/resolved":
 		return nil, nil
 
 	default:

@@ -405,3 +405,30 @@ func TestMapNotification_reasoningSummaryTextDelta_preservesSeparatorAcrossDelta
 		t.Fatalf("reasoning = %q, want %q", got.String(), "thought\nnext")
 	}
 }
+
+func TestMapNotification_reasoningSummaryParts_preservesSeparator(t *testing.T) {
+	t.Parallel()
+	s := &codexStream{}
+
+	notifications := []map[string]any{
+		{"method": "item/reasoning/summaryPartAdded", "params": map[string]any{"summaryIndex": 0}},
+		{"method": "item/reasoning/summaryTextDelta", "params": map[string]any{"summaryIndex": 0, "delta": "**first**"}},
+		{"method": "item/reasoning/summaryPartAdded", "params": map[string]any{"summaryIndex": 1}},
+		{"method": "item/reasoning/summaryTextDelta", "params": map[string]any{"summaryIndex": 1, "delta": "**second**"}},
+	}
+	var got strings.Builder
+	for _, notification := range notifications {
+		evs, err := s.mapNotification(notification)
+		if err != nil {
+			t.Fatalf("mapNotification: %v", err)
+		}
+		for _, ev := range evs {
+			if ev.Kind == lipapi.EventReasoningDelta {
+				got.WriteString(ev.Delta)
+			}
+		}
+	}
+	if got.String() != "**first**\n**second**" {
+		t.Fatalf("reasoning = %q, want %q", got.String(), "**first**\n**second**")
+	}
+}

@@ -53,6 +53,9 @@ func (m *codexEventMapper) handleData(data string) error {
 		return m.handleResponseCreated(data)
 	case "response.output_text.delta":
 		return m.handleOutputTextDelta(data)
+	case "response.reasoning_summary_part.added":
+		m.reasoningSummarySanitizer.StartSummaryPart()
+		return nil
 	case "response.reasoning_summary_text.delta":
 		return m.handleReasoningDelta(data, true)
 	case "response.reasoning_text.delta":

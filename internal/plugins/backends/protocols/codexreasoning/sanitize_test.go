@@ -87,3 +87,48 @@ func TestSummarySanitizer_resetClearsPendingSeparator(t *testing.T) {
 		t.Fatalf("delta after reset = %q, want %q", got, "new")
 	}
 }
+
+func TestSummarySanitizer_preservesSummaryPartSeparators(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		first string
+		next  string
+		want  string
+	}{
+		{name: "boundary supplies missing separator", first: "first", next: "second", want: "first\nsecond"},
+		{name: "previous part supplies newline", first: "first\n", next: "second", want: "first\nsecond"},
+		{name: "next part supplies newline", first: "first", next: "\nsecond", want: "first\nsecond"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var sanitizer SummarySanitizer
+			sanitizer.StartSummaryPart()
+			got := sanitizer.SanitizeDelta(tc.first)
+			sanitizer.StartSummaryPart()
+			got += sanitizer.SanitizeDelta(tc.next)
+			if got != tc.want {
+				t.Fatalf("sanitized parts = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSummarySanitizer_summaryPartBoundaryIsIdempotentWithMarker(t *testing.T) {
+	t.Parallel()
+
+	var sanitizer SummarySanitizer
+	sanitizer.StartSummaryPart()
+	got := sanitizer.SanitizeDelta("first")
+	sanitizer.StartSummaryPart()
+	sanitizer.StartSummaryPart()
+	got += sanitizer.SanitizeDelta("<!--")
+	got += sanitizer.SanitizeDelta(" -->")
+	got += sanitizer.SanitizeDelta("second")
+	if got != "first\nsecond" {
+		t.Fatalf("sanitized parts = %q, want %q", got, "first\nsecond")
+	}
+}
