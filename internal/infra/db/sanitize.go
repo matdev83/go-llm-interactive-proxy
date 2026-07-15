@@ -16,6 +16,8 @@ import (
 // providers emit them; keep the list minimal so legitimate DSN params survive.
 var pgUnsupportedDSNParams = []string{"channel_binding"}
 
+var pgSessionAffineDSNParams = []string{"search_path"}
+
 // SanitizePostgresDSN returns dsn with libpq-only query parameters that Bun
 // pgdriver cannot apply removed. Non-URL DSNs are returned unchanged (pgdriver
 // only accepts URL-style DSNs, so a non-URL DSN will fail later with a clear
@@ -47,4 +49,54 @@ func SanitizePostgresDSN(dsn string) (string, error) {
 		return base, nil
 	}
 	return base + "?" + encoded, nil
+}
+
+// ValidateTransactionPoolDSN rejects connection parameters whose behavior
+// depends on preserving PostgreSQL session state across transactions.
+func ValidateTransactionPoolDSN(dsn string) error {
+	_, rawQuery, ok := strings.Cut(dsn, "?")
+	if !ok {
+		return nil
+	}
+	vals, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return fmt.Errorf("db: parse postgres dsn query: %w", err)
+	}
+	for _, target := range pgSessionAffineDSNParams {
+		for key := range vals {
+			if strings.EqualFold(key, target) {
+				return fmt.Errorf("db: transaction-pool postgres dsn must not set %s", target)
+			}
+			if !strings.EqualFold(key, "options") {
+				continue
+			}
+			for _, value := range vals[key] {
+				if transactionPoolOptionsContainSessionAffineSetting(value, target) {
+					return fmt.Errorf("db: transaction-pool postgres dsn must not set %s via options", target)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func transactionPoolOptionsContainSessionAffineSetting(raw, target string) bool {
+	target = strings.ToLower(strings.TrimSpace(target))
+	if target == "" {
+		return false
+	}
+	for _, token := range strings.Fields(strings.ToLower(raw)) {
+		token = strings.Trim(token, `"'`)
+		if token == "-c" {
+			continue
+		}
+		if strings.HasPrefix(token, "-c") {
+			token = strings.TrimPrefix(token, "-c")
+		}
+		token = strings.TrimSpace(token)
+		if token == target || strings.HasPrefix(token, target+"=") {
+			return true
+		}
+	}
+	return false
 }

@@ -17,7 +17,7 @@ func TestNewBundle_executorSink(t *testing.T) {
 			Metrics: config.MetricsConfig{ExemplarsEnabled: true},
 		},
 	}
-	b := NewBundle(cfg)
+	b := NewBundle(cfg, nil)
 	allPresent := b != nil &&
 		b.Registry != nil &&
 		b.HTTP != nil &&
@@ -25,7 +25,8 @@ func TestNewBundle_executorSink(t *testing.T) {
 		b.SecureSession != nil &&
 		b.ExtensionStages != nil &&
 		b.AuthorityStages != nil &&
-		b.Upstream != nil
+		b.Upstream != nil &&
+		b.PostgresPool != nil
 	if !allPresent {
 		t.Fatal("expected non-nil bundle components")
 	}
@@ -64,7 +65,7 @@ func TestNewBundle_executorSink(t *testing.T) {
 
 func TestTokenAccountingPromRecordsBoundedObservations(t *testing.T) {
 	t.Parallel()
-	b := NewBundle(&config.Config{})
+	b := NewBundle(&config.Config{}, nil)
 	sink := b.TokenAccountingObservabilitySink()
 	if sink == nil {
 		t.Fatal("TokenAccountingObservabilitySink returned nil")
