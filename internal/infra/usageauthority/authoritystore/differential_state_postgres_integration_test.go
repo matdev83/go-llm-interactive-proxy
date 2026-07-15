@@ -17,9 +17,11 @@ func TestAuthorityStorePostgresDifferentialSequence(t *testing.T) {
 	memory := authoritystore.NewMemory(authoritystore.Config{Backing: domain.BackingCapabilityAtomic, LimitRows: contract.SeededLimitRows(), Readiness: contract.SeededReadiness()})
 	t.Cleanup(func() { _ = memory.Close() })
 
+	storeID := nextPGStoreID("differential-pg")
+	cleanupAuthorityStore(t, dsn, storeID)
 	bunDB := openPostgresAuthorityBun(t, dsn)
 	store, err := authoritystore.NewDurable(context.Background(), bunDB, authoritystore.Config{
-		StoreID: nextPGStoreID("differential-pg"),
+		StoreID: storeID,
 		Backing: domain.BackingCapabilityAtomic, LimitRows: contract.SeededLimitRows(), Readiness: contract.SeededReadiness(),
 	})
 	if err != nil {

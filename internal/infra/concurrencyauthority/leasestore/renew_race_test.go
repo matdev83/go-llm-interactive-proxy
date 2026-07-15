@@ -97,6 +97,73 @@ func runConcurrentReleaseRenewNoResurrection(t *testing.T, store app.LeaseStore)
 	}
 }
 
+// TestSQLiteStore_ConcurrentDoubleReleaseIsIdempotent races two Release calls;
+// both must succeed and the lease must end released.
+func TestSQLiteStore_ConcurrentDoubleReleaseIsIdempotent(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteStore(t, filepath.Join(t.TempDir(), "double-rel.db"), "sqlite-double-rel")
+	ctx := context.Background()
+	const rounds = 40
+	for i := 0; i < rounds; i++ {
+		now := time.Date(2026, 7, 15, 13, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Minute)
+		leaseID := "lease-double"
+		if _, err := store.Acquire(ctx, acquireCmd(leaseID, "req-double", now, time.Minute)); err != nil {
+			t.Fatalf("round %d acquire: %v", i, err)
+		}
+		var (
+			wg       sync.WaitGroup
+			errA     error
+			errB     error
+			appliedA bool
+			appliedB bool
+		)
+		start := make(chan struct{})
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			errA = retrySQLiteBusy(func() error {
+				rel, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now.Add(time.Second)})
+				if err != nil {
+					return err
+				}
+				appliedA = rel.Applied
+				return nil
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			errB = retrySQLiteBusy(func() error {
+				rel, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now.Add(time.Second)})
+				if err != nil {
+					return err
+				}
+				appliedB = rel.Applied
+				return nil
+			})
+		}()
+		close(start)
+		wg.Wait()
+		if errA != nil {
+			t.Fatalf("round %d release A: %v", i, errA)
+		}
+		if errB != nil {
+			t.Fatalf("round %d release B: %v", i, errB)
+		}
+		if !appliedA || !appliedB {
+			t.Fatalf("round %d applied A=%v B=%v want both true", i, appliedA, appliedB)
+		}
+		q, err := store.Query(ctx, app.QueryCommand{LeaseID: leaseID, Now: now.Add(2 * time.Second), Limit: 1})
+		if err != nil {
+			t.Fatalf("round %d query: %v", i, err)
+		}
+		if len(q.Leases) != 1 || q.Leases[0].State != domain.LeaseStateReleased {
+			t.Fatalf("round %d want released, got %+v", i, q.Leases)
+		}
+	}
+}
+
 func retrySQLiteBusy(fn func() error) error {
 	var err error
 	for attempt := 0; attempt < 8; attempt++ {

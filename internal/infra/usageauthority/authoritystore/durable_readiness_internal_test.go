@@ -3,10 +3,41 @@ package authoritystore
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 )
+
+func TestDurableStore_CheckReadiness_NilReceiver(t *testing.T) {
+	t.Parallel()
+	var store *DurableStore
+	status, err := store.CheckReadiness(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "nil store") {
+		t.Fatalf("error=%v want nil store", err)
+	}
+	if status.State != domain.AuthorityStateUnavailable {
+		t.Fatalf("state=%v want unavailable", status.State)
+	}
+	store = &DurableStore{}
+	status, err = store.CheckReadiness(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "nil store") {
+		t.Fatalf("nil db error=%v want nil store", err)
+	}
+	if status.State != domain.AuthorityStateUnavailable {
+		t.Fatalf("nil db state=%v want unavailable", status.State)
+	}
+}
+
+func TestDurableStore_Reserve_NilReceiver(t *testing.T) {
+	t.Parallel()
+	var store *DurableStore
+	_, err := store.Reserve(context.Background(), app.ReserveCommand{})
+	if err == nil || !strings.Contains(err.Error(), "nil store") {
+		t.Fatalf("error=%v want nil store", err)
+	}
+}
 
 func TestDurableStore_ReadinessRecoversAfterTransientPingFailure(t *testing.T) {
 	t.Parallel()

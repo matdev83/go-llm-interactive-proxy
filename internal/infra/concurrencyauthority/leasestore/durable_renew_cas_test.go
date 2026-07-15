@@ -32,7 +32,7 @@ func TestRenewCAS_GenerationOnlyWouldResurrectReleased(t *testing.T) {
 	if _, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now}); err != nil {
 		t.Fatal(err)
 	}
-	assertLeaseState(t, store, leaseID, domain.LeaseStateReleased)
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
 
 	// Stale Renew write values (domain.Renew on a pre-Release active copy).
 	renewedAt := now.Add(5 * time.Second).UnixNano()
@@ -55,7 +55,7 @@ WHERE store_id=? AND lease_id=? AND generation=?
 	if affected != 1 {
 		t.Fatalf("generation-only UPDATE should resurrect released lease; affected=%d", affected)
 	}
-	assertLeaseState(t, store, leaseID, domain.LeaseStateActive)
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateActive)
 }
 
 // TestRenewCAS_ActiveStatePredicateBlocksResurrection proves the production Renew
@@ -74,7 +74,7 @@ func TestRenewCAS_ActiveStatePredicateBlocksResurrection(t *testing.T) {
 	if _, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now}); err != nil {
 		t.Fatal(err)
 	}
-	assertLeaseState(t, store, leaseID, domain.LeaseStateReleased)
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
 
 	// Simulate T1 domain.Renew on a stale active snapshot after T2 Release committed.
 	if err := stale.Renew(now.Add(5*time.Second), acq.Lease.Generation, time.Minute); err != nil {
@@ -101,7 +101,7 @@ func TestRenewCAS_ActiveStatePredicateBlocksResurrection(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	assertLeaseState(t, store, leaseID, domain.LeaseStateReleased)
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
 }
 
 // TestDurableStore_RenewAfterReleaseReturnsReleased ensures the public Renew path
@@ -128,7 +128,7 @@ func TestDurableStore_RenewAfterReleaseReturnsReleased(t *testing.T) {
 	if !errors.Is(err, domain.ErrLeaseReleased) {
 		t.Fatalf("renew after release err=%v want ErrLeaseReleased", err)
 	}
-	assertLeaseState(t, store, leaseID, domain.LeaseStateReleased)
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
 }
 
 // TestRenewCASMissError_AfterReleaseReturnsReleased covers the RowsAffected=0
@@ -162,10 +162,73 @@ func TestRenewCASMissError_AfterReleaseReturnsReleased(t *testing.T) {
 	}
 }
 
-func assertLeaseState(t *testing.T, store *DurableStore, leaseID string, want domain.LeaseState) {
+// TestDurableStore_ReleaseAlreadyReleasedIsIdempotent covers the early-return path.
+func TestDurableStore_ReleaseAlreadyReleasedIsIdempotent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newInternalSQLiteStore(t, "release-idem")
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	leaseID := "lease-rel-idem"
+	if _, err := store.Acquire(ctx, internalAcquireCmd(leaseID, "req-1", now, time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Applied {
+		t.Fatal("first release not applied")
+	}
+	second, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Applied {
+		t.Fatal("second release not applied")
+	}
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
+}
+
+// TestReleaseCAS_StatePredicateRejectsReleasedRow ensures Release UPDATE cannot
+// rewrite an already-released row when only keyed on store_id/lease_id would.
+func TestReleaseCAS_StatePredicateRejectsReleasedRow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newInternalSQLiteStore(t, "release-cas")
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	leaseID := "lease-rel-cas"
+	if _, err := store.Acquire(ctx, internalAcquireCmd(leaseID, "req-1", now, time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Release(ctx, app.ReleaseCommand{LeaseID: leaseID, Now: now}); err != nil {
+		t.Fatal(err)
+	}
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	stale := domain.Lease{
+		LeaseID:    leaseID,
+		State:      domain.LeaseStateReleased,
+		ReleasedAt: now.Add(time.Minute),
+	}
+	affected, err := store.releaseCASUpdate(ctx, tx, leaseID, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected != 0 {
+		t.Fatalf("affected=%d want 0 against released row", affected)
+	}
+	assertLeaseState(t, store, leaseID, now, domain.LeaseStateReleased)
+}
+
+func assertLeaseState(t *testing.T, store *DurableStore, leaseID string, at time.Time, want domain.LeaseState) {
 	t.Helper()
 	ctx := context.Background()
-	q, err := store.Query(ctx, app.QueryCommand{LeaseID: leaseID, Now: time.Now().UTC(), Limit: 1})
+	q, err := store.Query(ctx, app.QueryCommand{LeaseID: leaseID, Now: at, Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +248,7 @@ func newInternalSQLiteStore(t *testing.T, storeID string) *DurableStore {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	if _, err := sqlDB.Exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL`); err != nil {
+	if _, err := sqlDB.ExecContext(context.Background(), `PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL`); err != nil {
 		t.Fatal(err)
 	}
 	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)

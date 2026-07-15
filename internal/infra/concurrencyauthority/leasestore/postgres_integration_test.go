@@ -4,37 +4,42 @@ package leasestore_test
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/domain"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/concurrencyauthority/leasestore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 var (
-	pgBuildMu   sync.Mutex
-	pgSchemaSeq uint64
+	directLeaseSchemaOnce sync.Once
+	directLeaseSchemaErr  error
 )
 
 func TestPostgresStore_FiveSlotAcrossTwoInstances(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
-	schemaDSN := openLeaseSchemaDSN(t, dsn)
-	a := newPostgresStore(t, schemaDSN, "pg-lease")
-	b := newPostgresStore(t, schemaDSN, "pg-lease")
+	storeID := testkit.UniquePostgresStoreID("pg-lease")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(dsn), storeID, testkit.PostgresComponentLease)
+	})
+	a := newPostgresStore(t, dsn, storeID)
+	b := newPostgresStore(t, dsn, storeID)
 	runFiveSlotContract(t, a, b)
 }
 
 func TestPostgresStore_ReadinessDistributedStrict(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
-	store := newPostgresStore(t, openLeaseSchemaDSN(t, dsn), "pg-ready")
-	ready, err := store.CheckReadiness(context.Background())
+	storeID := testkit.UniquePostgresStoreID("pg-ready")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(dsn), storeID, testkit.PostgresComponentLease)
+	})
+	store := newPostgresStore(t, dsn, storeID)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	ready, err := store.CheckReadiness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,65 +54,52 @@ func TestPostgresStore_ReadinessDistributedStrict(t *testing.T) {
 
 func TestPostgresStore_ConcurrentReleaseRenew_NoResurrection(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
-	store := newPostgresStore(t, openLeaseSchemaDSN(t, dsn), "pg-cas-race")
+	storeID := testkit.UniquePostgresStoreID("pg-cas-race")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(dsn), storeID, testkit.PostgresComponentLease)
+	})
+	store := newPostgresStore(t, dsn, storeID)
 	runConcurrentReleaseRenewNoResurrection(t, store)
 }
 
-func openLeaseSchemaDSN(t *testing.T, dsn string) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
-	defer cancel()
-	poolCfg, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{MaxOpenConns: 2})
-	if err != nil {
-		t.Fatal(err)
+func adminDSNForCleanup(runtimeDSN string) string {
+	if admin, ok := testkit.PostgresAdminDSN(); ok {
+		return admin
 	}
-	pool := db.PoolSettings{
-		MaxOpenConns:    2,
-		MaxIdleConns:    1,
-		ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-		ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
-	}
-	pgBuildMu.Lock()
-	defer pgBuildMu.Unlock()
-	seq := atomic.AddUint64(&pgSchemaSeq, 1)
-	schema := fmt.Sprintf("lease_test_%d_%d", time.Now().UnixNano(), seq)
-	bootstrap, err := db.OpenPostgresBun(ctx, dsn, pool)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bootstrap.ExecContext(ctx, "CREATE SCHEMA "+schema); err != nil {
-		_ = bootstrap.Close()
-		t.Fatal(err)
-	}
-	_ = bootstrap.Close()
-	schemaDSN := dsn
-	if !strings.Contains(dsn, "search_path=") {
-		sep := "?"
-		if strings.Contains(dsn, "?") {
-			sep = "&"
-		}
-		schemaDSN = dsn + sep + "search_path=" + schema
-	}
-	return schemaDSN
+	return runtimeDSN
 }
 
-func newPostgresStore(t *testing.T, schemaDSN, storeID string) *leasestore.DurableStore {
+func ensureDirectLeaseSchema(t *testing.T, dsn string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
-	defer cancel()
-	poolCfg, err := config.ParseDatabasePoolSettings(config.DatabaseConfig{MaxOpenConns: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bunDB, err := db.OpenPostgresBun(ctx, schemaDSN, db.PoolSettings{
-		MaxOpenConns:    poolCfg.MaxOpenConns,
-		MaxIdleConns:    poolCfg.MaxIdleConns,
-		ConnMaxLifetime: poolCfg.ConnMaxLifetime,
-		ConnMaxIdleTime: poolCfg.ConnMaxIdleTime,
+	directLeaseSchemaOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		bunDB, err := testkit.OpenPostgresBun(dsn, 2)
+		if err != nil {
+			directLeaseSchemaErr = err
+			return
+		}
+		store, err := leasestore.NewDurable(ctx, bunDB, leasestore.DurableConfig{
+			StoreID: testkit.UniquePostgresStoreID("pg-lease-direct-schema"),
+		})
+		if err != nil {
+			_ = bunDB.Close()
+			directLeaseSchemaErr = err
+			return
+		}
+		directLeaseSchemaErr = store.Close()
 	})
-	if err != nil {
-		t.Fatal(err)
+	if directLeaseSchemaErr != nil {
+		t.Fatalf("direct schema bootstrap: %v", directLeaseSchemaErr)
 	}
+}
+
+func newPostgresStore(t *testing.T, dsn, storeID string) *leasestore.DurableStore {
+	t.Helper()
+	ensureDirectLeaseSchema(t, dsn)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	bunDB := testkit.OpenPostgresBunForTest(t, dsn, 4)
 	store, err := leasestore.NewDurable(ctx, bunDB, leasestore.DurableConfig{StoreID: storeID})
 	if err != nil {
 		_ = bunDB.Close()

@@ -11,6 +11,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/domain"
+	dbinfra "github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 	_ "modernc.org/sqlite" // register sqlite driver for durable lease stores
@@ -31,6 +32,97 @@ type DurableStore struct {
 	dialect         dialect.Name
 	defaultPageSize int
 	maxPageSize     int
+	nonOwning       bool
+}
+
+// Migrate applies the lease-store schema on an admin connection.
+func Migrate(ctx context.Context, db *bun.DB) error {
+	if ctx == nil {
+		return fmt.Errorf("leasestore: nil context")
+	}
+	if db == nil {
+		return fmt.Errorf("leasestore: nil bun db")
+	}
+	return runSchemaMigrate(ctx, db)
+}
+
+// VerifySchema checks required runtime relations without applying migrations.
+func VerifySchema(ctx context.Context, db *bun.DB) error {
+	if ctx == nil {
+		return fmt.Errorf("leasestore: nil context")
+	}
+	if db == nil {
+		return fmt.Errorf("leasestore: nil bun db")
+	}
+	if db.Dialect().Name() != dialect.PG {
+		for _, probe := range []string{
+			`SELECT 1 FROM concurrency_leases WHERE 1 = 0`,
+			`SELECT 1 FROM concurrency_lease_capacity WHERE 1 = 0`,
+		} {
+			if _, err := db.ExecContext(ctx, probe); err != nil {
+				return fmt.Errorf("leasestore: schema verification failed: %w", err)
+			}
+		}
+		return nil
+	}
+	for _, probe := range []string{
+		`SELECT * FROM concurrency_leases WHERE 1 = 0`,
+		`SELECT * FROM concurrency_lease_capacity WHERE 1 = 0`,
+	} {
+		if _, err := db.ExecContext(ctx, probe); err != nil {
+			return fmt.Errorf("leasestore: schema verification failed: %w", err)
+		}
+	}
+	checks := []struct {
+		description string
+		query       string
+		args        []any
+		fragments   []string
+	}{
+		{
+			description: "migration history",
+			query:       `SELECT name FROM bun_concurrency_lease_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{BaselineMigrationName},
+			fragments:   []string{BaselineMigrationName},
+		},
+		{
+			description: "concurrency_leases primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'concurrency_leases'
+  AND c.contype = 'p'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, lease_id)"},
+		},
+		{
+			description: "concurrency_lease_capacity primary key",
+			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema()
+  AND t.relname = 'concurrency_lease_capacity'
+  AND c.contype = 'p'
+LIMIT 1`,
+			fragments: []string{"primary key (store_id, rule_id, dimension_key)"},
+		},
+		{
+			description: "idx_concurrency_leases_capacity",
+			query: `SELECT lower(indexdef) FROM pg_indexes
+WHERE schemaname = current_schema()
+  AND tablename = 'concurrency_leases'
+  AND indexname = 'idx_concurrency_leases_capacity'
+LIMIT 1`,
+			fragments: []string{"(store_id, rule_id, dimension_key, state, expires_at_unix)"},
+		},
+	}
+	for _, check := range checks {
+		if err := dbinfra.VerifyPostgresQueryRowContains(ctx, db, check.description, check.query, check.args, check.fragments...); err != nil {
+			return fmt.Errorf("leasestore: schema verification failed: %w", err)
+		}
+	}
+	return nil
 }
 
 // NewDurable migrates schema and returns a durable lease store. Caller owns
@@ -47,6 +139,25 @@ func NewDurable(ctx context.Context, db *bun.DB, cfg DurableConfig) (*DurableSto
 	}
 	if err := runSchemaMigrate(ctx, db); err != nil {
 		return nil, fmt.Errorf("leasestore: migrate: %w", err)
+	}
+	return openStore(ctx, db, cfg, false)
+}
+
+// OpenStore opens a lease store without migrations and without taking
+// ownership of db. The composition root owns the shared runtime pool.
+func OpenStore(ctx context.Context, db *bun.DB, cfg DurableConfig) (*DurableStore, error) {
+	return openStore(ctx, db, cfg, true)
+}
+
+func openStore(ctx context.Context, db *bun.DB, cfg DurableConfig, nonOwning bool) (*DurableStore, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("leasestore: nil context")
+	}
+	if db == nil {
+		return nil, fmt.Errorf("leasestore: nil bun db")
+	}
+	if strings.TrimSpace(cfg.StoreID) == "" {
+		return nil, fmt.Errorf("leasestore: durable store id is required")
 	}
 	def := cfg.DefaultPageSize
 	if def <= 0 {
@@ -65,12 +176,13 @@ func NewDurable(ctx context.Context, db *bun.DB, cfg DurableConfig) (*DurableSto
 		dialect:         db.Dialect().Name(),
 		defaultPageSize: def,
 		maxPageSize:     max,
+		nonOwning:       nonOwning,
 	}, nil
 }
 
 // Close closes the underlying bun DB handle.
 func (s *DurableStore) Close() error {
-	if s == nil || s.db == nil {
+	if s == nil || s.db == nil || s.nonOwning {
 		return nil
 	}
 	return s.db.Close()
@@ -78,6 +190,12 @@ func (s *DurableStore) Close() error {
 
 // CheckReadiness pings the database and reports dialect-specific posture.
 func (s *DurableStore) CheckReadiness(ctx context.Context) (domain.Readiness, error) {
+	if s == nil || s.db == nil {
+		return domain.Readiness{
+			State:  domain.ReadinessStateUnavailable,
+			Reason: "durable lease store is nil",
+		}, nil
+	}
 	if err := ctx.Err(); err != nil {
 		return domain.Readiness{}, err
 	}
@@ -180,6 +298,9 @@ func rowToLease(row leaseRow) (domain.Lease, error) {
 
 // Acquire inserts or replays under capacity with transactional inline reclaim.
 func (s *DurableStore) Acquire(ctx context.Context, cmd app.AcquireCommand) (app.AcquireResult, error) {
+	if s == nil || s.db == nil {
+		return app.AcquireResult{}, fmt.Errorf("leasestore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.AcquireResult{}, err
 	}
@@ -365,6 +486,9 @@ FROM concurrency_leases WHERE store_id=? AND lease_id=?
 
 // Renew extends a lease with generation CAS.
 func (s *DurableStore) Renew(ctx context.Context, cmd app.RenewCommand) (app.RenewResult, error) {
+	if s == nil || s.db == nil {
+		return app.RenewResult{}, fmt.Errorf("leasestore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.RenewResult{}, err
 	}
@@ -443,6 +567,9 @@ func (s *DurableStore) renewCASMissError(ctx context.Context, tx bun.Tx, cmd app
 
 // Release marks a lease released idempotently.
 func (s *DurableStore) Release(ctx context.Context, cmd app.ReleaseCommand) (app.ReleaseResult, error) {
+	if s == nil || s.db == nil {
+		return app.ReleaseResult{}, fmt.Errorf("leasestore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.ReleaseResult{}, err
 	}
@@ -459,12 +586,19 @@ func (s *DurableStore) Release(ctx context.Context, cmd app.ReleaseCommand) (app
 	if !found {
 		return app.ReleaseResult{Applied: false}, nil
 	}
+	if lease.State == domain.LeaseStateReleased {
+		if err := tx.Commit(); err != nil {
+			return app.ReleaseResult{}, fmt.Errorf("leasestore: commit: %w", err)
+		}
+		return app.ReleaseResult{Applied: true, Lease: lease}, nil
+	}
 	lease.Release(cmd.Now)
-	if _, err := tx.NewRaw(`
-UPDATE concurrency_leases SET state=?, released_at_unix=?
-WHERE store_id=? AND lease_id=?
-`, string(lease.State), lease.ReleasedAt.UnixNano(), s.cfg.StoreID, cmd.LeaseID).Exec(ctx); err != nil {
-		return app.ReleaseResult{}, fmt.Errorf("leasestore: release: %w", err)
+	affected, err := s.releaseCASUpdate(ctx, tx, cmd.LeaseID, lease)
+	if err != nil {
+		return app.ReleaseResult{}, err
+	}
+	if affected == 0 {
+		return s.releaseCASMissResult(ctx, tx, cmd)
 	}
 	if err := tx.Commit(); err != nil {
 		return app.ReleaseResult{}, fmt.Errorf("leasestore: commit: %w", err)
@@ -472,8 +606,104 @@ WHERE store_id=? AND lease_id=?
 	return app.ReleaseResult{Applied: true, Lease: lease}, nil
 }
 
+// releaseCASUpdate applies Release under a live-state preimage so concurrent
+// writers cannot clobber released rows without a state check. Generation is
+// intentionally not part of the predicate: Renew bumps generation, and cleanup
+// Release must still win.
+func (s *DurableStore) releaseCASUpdate(ctx context.Context, tx bun.Tx, leaseID string, lease domain.Lease) (int64, error) {
+	res, err := tx.NewRaw(`
+UPDATE concurrency_leases SET state=?, released_at_unix=?
+WHERE store_id=? AND lease_id=? AND state IN (?, ?)
+`,
+		string(lease.State), lease.ReleasedAt.UnixNano(),
+		s.cfg.StoreID, leaseID,
+		string(domain.LeaseStateActive), string(domain.LeaseStateExpiring),
+	).Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("leasestore: release: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("leasestore: release rows affected: %w", err)
+	}
+	return affected, nil
+}
+
+// releaseCASMissResult reloads after a lost Release CAS. Concurrent Release is
+// idempotent; expired rows get a dedicated state-predicate write.
+func (s *DurableStore) releaseCASMissResult(ctx context.Context, tx bun.Tx, cmd app.ReleaseCommand) (app.ReleaseResult, error) {
+	current, found, err := s.loadLeaseTx(ctx, tx, cmd.LeaseID)
+	if err != nil {
+		return app.ReleaseResult{}, err
+	}
+	if !found {
+		return app.ReleaseResult{Applied: false}, nil
+	}
+	if current.State == domain.LeaseStateReleased {
+		if err := tx.Commit(); err != nil {
+			return app.ReleaseResult{}, fmt.Errorf("leasestore: commit: %w", err)
+		}
+		return app.ReleaseResult{Applied: true, Lease: current}, nil
+	}
+	if current.State == domain.LeaseStateActive || current.State == domain.LeaseStateExpiring {
+		current.Release(cmd.Now)
+		affected, err := s.releaseCASUpdate(ctx, tx, cmd.LeaseID, current)
+		if err != nil {
+			return app.ReleaseResult{}, err
+		}
+		if affected == 0 {
+			current, found, err = s.loadLeaseTx(ctx, tx, cmd.LeaseID)
+			if err != nil {
+				return app.ReleaseResult{}, err
+			}
+			if !found {
+				return app.ReleaseResult{Applied: false}, nil
+			}
+			if current.State != domain.LeaseStateReleased {
+				return app.ReleaseResult{}, fmt.Errorf("leasestore: release cas lost")
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return app.ReleaseResult{}, fmt.Errorf("leasestore: commit: %w", err)
+		}
+		return app.ReleaseResult{Applied: true, Lease: current}, nil
+	}
+	// Expired (or other terminal non-released): apply Release with expired preimage.
+	current.Release(cmd.Now)
+	res, err := tx.NewRaw(`
+UPDATE concurrency_leases SET state=?, released_at_unix=?
+WHERE store_id=? AND lease_id=? AND state=?
+`, string(current.State), current.ReleasedAt.UnixNano(), s.cfg.StoreID, cmd.LeaseID, string(domain.LeaseStateExpired)).Exec(ctx)
+	if err != nil {
+		return app.ReleaseResult{}, fmt.Errorf("leasestore: release expired: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return app.ReleaseResult{}, fmt.Errorf("leasestore: release expired rows affected: %w", err)
+	}
+	if affected == 0 {
+		current, found, err = s.loadLeaseTx(ctx, tx, cmd.LeaseID)
+		if err != nil {
+			return app.ReleaseResult{}, err
+		}
+		if !found {
+			return app.ReleaseResult{Applied: false}, nil
+		}
+		if current.State != domain.LeaseStateReleased {
+			return app.ReleaseResult{}, fmt.Errorf("leasestore: release expired cas lost")
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return app.ReleaseResult{}, fmt.Errorf("leasestore: commit: %w", err)
+	}
+	return app.ReleaseResult{Applied: true, Lease: current}, nil
+}
+
 // Query returns a bounded page of leases.
 func (s *DurableStore) Query(ctx context.Context, q app.QueryCommand) (app.QueryResult, error) {
+	if s == nil || s.db == nil {
+		return app.QueryResult{}, fmt.Errorf("leasestore: nil store")
+	}
 	if err := ctx.Err(); err != nil {
 		return app.QueryResult{}, err
 	}
