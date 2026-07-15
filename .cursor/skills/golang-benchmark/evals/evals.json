@@ -601,15 +601,15 @@
   },
   {
     "id": 45,
-    "name": "go-memstats-stw-overhead",
-    "description": "Tests awareness of ReadMemStats causing stop-the-world pauses",
-    "prompt": "I'm using prometheus/client_golang to expose Go runtime metrics. My high-throughput service occasionally shows brief latency spikes correlated with Prometheus scrape intervals. Could the metrics collection itself be causing this?",
-    "trap": "Without the skill, the model may not connect metrics collection to STW pauses",
+    "name": "go-collector-runtime-metrics-default",
+    "description": "Tests that default NewGoCollector already uses runtime/metrics for go_memstats_* (no ReadMemStats STW)",
+    "prompt": "I'm using prometheus/client_golang to expose Go runtime metrics. My high-throughput service occasionally shows brief latency spikes correlated with Prometheus scrape intervals. Could the go_memstats_* collection itself be causing ReadMemStats stop-the-world pauses?",
+    "trap": "Without the skill, the model may incorrectly blame go_memstats_* scrapes on runtime.ReadMemStats() STW and recommend a collector migration as the fix",
     "assertions": [
-      {"id": "45.1", "text": "Identifies that go_memstats_* metrics internally call runtime.ReadMemStats() which triggers a short stop-the-world pause"},
-      {"id": "45.2", "text": "Recommends the Go 1.17+ runtime/metrics-based collector as lower overhead alternative"},
-      {"id": "45.3", "text": "Shows the code to register the modern collector: collectors.NewGoCollector with GoRuntimeMetricsCollection"},
-      {"id": "45.4", "text": "Recommends using a custom prometheus.NewRegistry() rather than the default one"}
+      {"id": "45.1", "text": "States that since Go 1.17, prometheus/client_golang populates go_memstats_* from runtime/metrics rather than runtime.ReadMemStats()"},
+      {"id": "45.2", "text": "Explains that default collectors.NewGoCollector() already uses runtime/metrics, so scraping go_memstats_* avoids the ReadMemStats() stop-the-world pause"},
+      {"id": "45.3", "text": "Clarifies that WithGoCollectorRuntimeMetrics / MetricsAll opts in only to additional runtime/metrics series (GC, memory classes, scheduler, CPU)"},
+      {"id": "45.4", "text": "Shows registering via prometheus.NewRegistry with collectors.NewGoCollector (and optionally WithGoCollectorRuntimeMetrics)"}
     ]
   },
   {
