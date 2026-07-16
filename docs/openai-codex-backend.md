@@ -57,6 +57,10 @@ Symlinked account files inside the managed-OAuth storage directory are skipped d
 | `gpt55_downgrade_source_model` | Source model for downgrade detection (default `gpt-5.5`) |
 | `gpt55_downgrade_target_model` | Target model for free-plan downgrade (default `gpt-5.4`) |
 | `plan_type_hint` | Optional plan hint for proactive downgrade tests/local overrides |
+| `early_session_verbosity_bump_disabled` | Disable the early-session verbosity bump (default `false`; set `true` to opt out) |
+| `early_session_verbosity_bump_turns` | Number of leading per-conversation turns bumped to `high` verbosity (default `5`) |
+| `mid_session_verbosity_bump_disabled` | Disable the periodic mid-session verbosity bump (default `false`; set `true` to opt out) |
+| `mid_session_verbosity_bump_frequency` | Force `high` on every Nth turn after the early window (default `10`; must be greater than `early_session_verbosity_bump_turns` when the mid-session bump is enabled) |
 
 Without `models`, the connector advertises the auto-discovered Codex model
 catalog. At startup in `access.mode: single_user` (the default), when an enabled
@@ -126,6 +130,47 @@ set elsewhere: `?reasoning_effort=xhigh&verbosity=high` wins over matching reque
 values and over `default_reasoning_effort`/`default_verbosity`. A parameter absent from the
 selector leaves the other value in effect. The Codex HTTP payload emits verbosity as
 `text.verbosity`.
+
+## Early-session verbosity bump
+
+The connector bumps `text.verbosity` to `high` for the first few turns of each
+conversation so early responses carry more detail. The bump is enabled by default;
+set `early_session_verbosity_bump_disabled: true` to opt out, and tune the window
+with `early_session_verbosity_bump_turns` (default `5`).
+
+A "turn" is one prompt plus one response round-trip with the Codex backend, counted
+per conversation using the stable conversation identity order: continuity key,
+then correlation id, then input-derived conversation id.
+Tool-call continuations count as separate turns. Early- and mid-session bumps share
+one in-memory, per-process turn counter (TTL-bounded and LRU-capped; not shared
+across replicas). Turn numbers are reserved atomically when an open is prepared and
+released if that open ultimately fails, so concurrent opens for the same conversation
+cannot observe the same turn number and failed attempts do not consume slots.
+
+The bump only applies when the request has no explicit per-request verbosity: an
+explicit `?verbosity=` URI parameter or request-body `verbosity` option always wins,
+even during the early window. After the configured number of turns, normal
+resolution resumes (explicit per-request value, else `default_verbosity`).
+
+## Mid-session verbosity bump
+
+The connector also bumps `text.verbosity` to `high` on every configured
+frequency turn after the early window, so mid-session responses periodically
+carry more detail. The bump is enabled by default; set
+`mid_session_verbosity_bump_disabled: true` to opt out, and tune the cadence
+with `mid_session_verbosity_bump_frequency` (default `10`).
+
+Mid-session bumps use the same shared per-conversation turn counter as the early-
+session bump (atomic reserve on prepare, release on failed open). Tool-call
+continuations count as separate turns.
+
+The bump only applies when the request has no explicit per-request verbosity:
+an explicit `?verbosity=` URI parameter or request-body `verbosity` option
+always wins, even on a frequency turn. When the mid-session bump is enabled,
+the cadence must be greater than the early-session window length, so the
+default `10` pairs with the default early window of `5` to produce hits at
+turns `10`, `20`, `30`, and so on. When the mid-session bump is disabled, the
+cadence value is ignored.
 
 ## Unsupported generation parameters
 

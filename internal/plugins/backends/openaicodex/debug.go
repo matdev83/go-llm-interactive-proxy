@@ -37,6 +37,7 @@ func logPayloadShape(ctx context.Context, call *lipapi.Call, payload Payload) {
 		"tools", len(payload.Tools),
 		"tool_names", strings.Join(summary.toolNames, ","),
 		"reasoning_effort", reasoningEffort(payload),
+		"verbosity", payloadVerbosity(payload),
 		"parallel_tool_calls", boolPtrString(payload.ParallelToolCalls),
 	)
 }
@@ -142,6 +143,15 @@ func reasoningEffort(payload Payload) string {
 		return ""
 	}
 	return payload.Reasoning.Effort
+}
+
+// payloadVerbosity reports the final resolved verbosity that will be sent
+// upstream after any early-session or mid-session bump has been applied.
+func payloadVerbosity(payload Payload) string {
+	if payload.Text == nil {
+		return ""
+	}
+	return string(payload.Text.Verbosity)
 }
 
 func boolPtrString(v *bool) string {

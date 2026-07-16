@@ -68,12 +68,15 @@ func newWSDialer(client *http.Client) *websocket.Dialer {
 // returns a managed event stream after the first canonical event is received.
 // A failure before the first canonical event is returned as an error so the
 // auto transport can fall back to HTTPS.
-func openWS(ctx context.Context, cfg *Config, policy downgradePolicy, usageEst *usageEstimator, sessions *wsSessionStore, continuation *wsContinuationStore, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy)
+func openWS(ctx context.Context, cfg *Config, policy downgradePolicy, usageEst *usageEstimator, sessions *wsSessionStore, continuation *wsContinuationStore, call lipapi.Call, cand routing.AttemptCandidate, turns *sessionTurnCounter) (lipapi.ManagedEventStream, error) {
+	env, err := prepareCodexOpenEnv(ctx, cfg, call, cand, policy, turns)
 	if err != nil {
 		return nil, err
 	}
 	es, _, err := openWSPrepared(ctx, env, cfg, policy.modelForPlan(env.originalModel, cfg.PlanTypeHint), call, usageEst, sessions, continuation)
+	if err != nil {
+		env.releaseVerbosityTurn()
+	}
 	return es, err
 }
 

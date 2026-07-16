@@ -30,6 +30,15 @@ const (
 // repeated dial/handshake latency on known-broken environments.
 const DefaultWebSocketFallbackCooldown = 300 * time.Second
 
+// DefaultEarlySessionVerbosityBumpTurns is the default number of leading
+// per-conversation turns for which the early-session verbosity bump forces
+// text.verbosity=high when no explicit per-request verbosity is set.
+const DefaultEarlySessionVerbosityBumpTurns = 5
+
+// DefaultMidSessionVerbosityBumpFrequency is the default periodic turn number
+// for the mid-session verbosity bump.
+const DefaultMidSessionVerbosityBumpFrequency = 10
+
 type Config struct {
 	BaseURL       string
 	AccessToken   string
@@ -62,6 +71,22 @@ type Config struct {
 	Transport                             string
 	ExperimentalWebSocket                 bool
 	WebSocketFallbackCooldown             time.Duration
+	// EarlySessionVerbosityBumpDisabled opts out of the early-session verbosity
+	// bump. The bump is enabled by default; set this true to disable it.
+	EarlySessionVerbosityBumpDisabled bool
+	// EarlySessionVerbosityBumpTurns is the number of leading per-conversation
+	// turns bumped to high verbosity. Zero/negative falls back to
+	// DefaultEarlySessionVerbosityBumpTurns.
+	EarlySessionVerbosityBumpTurns int
+	// MidSessionVerbosityBumpDisabled opts out of the periodic mid-session
+	// verbosity bump. The bump is enabled by default; set this true to disable it.
+	MidSessionVerbosityBumpDisabled bool
+	// MidSessionVerbosityBumpFrequency is the periodic turn number for the
+	// mid-session bump. Zero/negative falls back to
+	// DefaultMidSessionVerbosityBumpFrequency. When the mid-session bump is
+	// enabled, it must be greater than the early session turn count once defaults
+	// are applied. When the mid-session bump is disabled, the value is ignored.
+	MidSessionVerbosityBumpFrequency int
 }
 
 // NormalizeTransport returns the effective transport mode for cfg. An empty
@@ -83,4 +108,22 @@ func NormalizeTransport(raw string, experimentalWebSocket bool) (string, error) 
 	default:
 		return "", fmt.Errorf("%s: unknown transport %q (want %s, %s, or %s)", ID, raw, TransportAuto, TransportHTTPS, TransportWebSocket)
 	}
+}
+
+func validateVerbosityBumpConfig(cfg Config) error {
+	earlyTurns := cfg.EarlySessionVerbosityBumpTurns
+	if earlyTurns <= 0 {
+		earlyTurns = DefaultEarlySessionVerbosityBumpTurns
+	}
+	if cfg.MidSessionVerbosityBumpDisabled {
+		return nil
+	}
+	frequency := cfg.MidSessionVerbosityBumpFrequency
+	if frequency <= 0 {
+		frequency = DefaultMidSessionVerbosityBumpFrequency
+	}
+	if frequency <= earlyTurns {
+		return fmt.Errorf("%s: mid_session_verbosity_bump_frequency (%d) must be greater than early_session_verbosity_bump_turns (%d)", ID, frequency, earlyTurns)
+	}
+	return nil
 }
