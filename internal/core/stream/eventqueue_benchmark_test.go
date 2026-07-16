@@ -8,7 +8,7 @@ import (
 
 func BenchmarkPendingEventQueue_pushPop(b *testing.B) {
 	b.ReportAllocs()
-	for range b.N {
+	for b.Loop() {
 		q := NewPendingEventQueue(0)
 		for range 256 {
 			if err := q.Push(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "d"}); err != nil {

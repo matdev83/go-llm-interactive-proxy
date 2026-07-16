@@ -443,6 +443,19 @@ func validateDiagnosticsPaths(cfg *Config) error {
 			return err
 		}
 	}
+	mid := strings.TrimSpace(cfg.ModelInventory.DiagnosticsPath)
+	if mid != "" {
+		if !strings.HasPrefix(mid, "/") {
+			return fmt.Errorf("model_inventory.diagnostics_path: must start with /")
+		}
+		if err := rejectHTTPPathDotDot("model_inventory.diagnostics_path", mid); err != nil {
+			return err
+		}
+		mid = norm(mid)
+		if err := add(mid); err != nil {
+			return err
+		}
+	}
 	// accounting.admin.path is a protected operator mount on the same mux and
 	// must satisfy the same dot-segment and overlap rules as the other
 	// diagnostics surfaces so the admin handler cannot register a conflicting

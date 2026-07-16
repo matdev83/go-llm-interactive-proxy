@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -18,6 +19,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
 )
 
 func TestMountBundledFrontends_geminiDoesNotRegisterRoot(t *testing.T) {
@@ -237,5 +239,97 @@ func TestNewStandardHandler_diagnosticsHealthzMounted(t *testing.T) {
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("healthz status %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted(t *testing.T) {
+	t.Parallel()
+	const secret = "secretsecret"
+	provider := &mutableInventoryProvider{models: []modelinventory.Model{{
+		CanonicalID: "openai/gpt-4o",
+		NativeID:    "native-hidden",
+	}}}
+	rt := modelregistry.NewRuntime(modelregistry.RuntimeConfig{
+		Inventories: []modelregistry.BackendInventory{{
+			BackendID:       "openai-a",
+			Kind:            "openai-responses",
+			BackendPrefixes: []string{"openai-responses"},
+			Provider:        provider,
+		}},
+	})
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    config.RoutingConfig{DefaultRoute: "openai-responses:gpt-4o"},
+		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{
+			Enabled:      true,
+			HealthPath:   "/healthz",
+			SharedSecret: secret,
+		},
+		ModelInventory: config.ModelInventoryConfig{
+			DiagnosticsPath: "/debug/model-registry",
+		},
+		Plugins: config.PluginsConfig{
+			Frontends: []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+		},
+	}
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	ex := runtime.TestExecutor()
+	built := &runtimebundle.Built{
+		Executor:             ex,
+		PluginRegistry:       reg,
+		ModelRegistryRuntime: rt,
+		ModelRegistry:        rt.ActiveRegistry(),
+	}
+	app := mustRuntimeApp(t, cfg)
+	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cleanup(context.Background()) })
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/v1/models status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "native-hidden") {
+		t.Fatalf("native leak: %s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "openai-a:openai/gpt-4o") {
+		t.Fatalf("missing pinned id: %s", rr.Body.String())
+	}
+	etag := rr.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("/v1/models missing ETag")
+	}
+	req304 := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req304.Header.Set("If-None-Match", etag)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req304)
+	if rr.Code != http.StatusNotModified {
+		t.Fatalf("/v1/models If-None-Match status %d want 304", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/debug/model-registry", nil))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("unauthed model-registry status %d", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/debug/model-registry", nil)
+	req.Header.Set(diag.HeaderDiagnosticsSecret, secret)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("authed model-registry status %d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "native-hidden") {
+		t.Fatalf("native leak in diag: %s", rr.Body.String())
 	}
 }

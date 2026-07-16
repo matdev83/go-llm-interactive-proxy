@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -136,8 +137,8 @@ func releaseBuiltResources(log *slog.Logger, built *runtimebundle.Built, once *s
 func runClosers(log *slog.Logger, closers []func() error) {
 	var errs []error
 	logCtx := context.Background()
-	for i := len(closers) - 1; i >= 0; i-- {
-		if closers[i] == nil {
+	for i, closer := range slices.Backward(closers) {
+		if closer == nil {
 			continue
 		}
 		func(idx int) {

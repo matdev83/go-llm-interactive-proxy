@@ -26,18 +26,18 @@ func (p *codexProtocol) Label() string { return "codex app-server" }
 
 func (p *codexProtocol) ValidateCall(call *lipapi.Call) error { return validateCall(call) }
 
-// ResolveModel applies the Codex model resolution: start from the configured
-// default, override with the route model (stripping the openai/ vendor prefix)
-// when present, and collapse empty/auto to "auto".
+// ResolveModel resolves the route/config model through the active allowlist and
+// returns the exact NativeID for thread/start and turn/start. Unknown models
+// return "" (Open rejects before spawn).
 func (p *codexProtocol) ResolveModel(call *lipapi.Call) string {
-	model := p.spec.cfg.Model
-	if m := acp.CallRouteModel(call, "codex.model"); m != "" {
-		model = stripOpenAIModelPrefix(m)
+	if p == nil || p.spec == nil {
+		return ""
 	}
-	if isAutoModel(model) {
-		model = autoModelSentinel
+	native, err := p.spec.resolveAllowedModel(call)
+	if err != nil {
+		return ""
 	}
-	return model
+	return native
 }
 
 func (p *codexProtocol) ResolveProcessConfig(call *lipapi.Call) string {

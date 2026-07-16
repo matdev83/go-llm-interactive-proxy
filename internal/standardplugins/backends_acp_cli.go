@@ -160,6 +160,24 @@ func yamlNodeToJSON(n yaml.Node) (json.RawMessage, error) {
 	return json.Marshal(v)
 }
 
+// applyConfiguredTrackingModelInventory applies a YAML models override via
+// TrackingInventory.SetInner so the concurrent ModelIndex object is preserved.
+func applyConfiguredTrackingModelInventory(be execbackend.Backend, y modelInventoryYAML) (execbackend.Backend, error) {
+	provider, ok, err := configuredModelInventory(y)
+	if err != nil {
+		return execbackend.Backend{}, err
+	}
+	if !ok {
+		return be, nil
+	}
+	t, ok := be.ModelInventory.(*acp.TrackingInventory)
+	if !ok {
+		return execbackend.Backend{}, fmt.Errorf("standardplugins: model inventory is not tracking")
+	}
+	t.SetInner(provider)
+	return be, nil
+}
+
 // resolveWorkspace picks the workspace directory from the YAML hints in the
 // same priority order as acp.workspaceHintKeys (project_dir > workspace_path;
 // cwd/project are not exposed by acpCLIYAML), then falls back to
@@ -230,7 +248,7 @@ func backendCursorCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, erro
 	if err != nil {
 		return execbackend.Backend{}, fmt.Errorf("cursorcliacp: %w", err)
 	}
-	return applyConfiguredModelInventory(be, y.Models)
+	return applyConfiguredTrackingModelInventory(be, y.Models)
 }
 
 func backendGeminiCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
@@ -256,7 +274,7 @@ func backendGeminiCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, erro
 	return applyConfiguredModelInventory(be, y.Models)
 }
 
-func backendCodexAppServer(n yaml.Node, catalog *codexcatalog.Catalog) (execbackend.Backend, error) {
+func backendCodexAppServer(n yaml.Node, catalog *codexcatalog.Catalog, catalogSource codexcatalog.Source) (execbackend.Backend, error) {
 	var y acpCLIYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: %w", err)
@@ -273,16 +291,17 @@ func backendCodexAppServer(n yaml.Node, catalog *codexcatalog.Catalog) (execback
 		return execbackend.Backend{}, fmt.Errorf("codexappserver backend config: default_verbosity: %w", err)
 	}
 	cfg := codexappserver.Config{
-		ConnectorConfig:  y.connectorConfig(),
-		ConfigOverrides:  xs.ConfigOverrides,
-		ModelCatalog:     catalog,
-		DefaultVerbosity: verbosity,
+		ConnectorConfig:    y.connectorConfig(),
+		ConfigOverrides:    xs.ConfigOverrides,
+		ModelCatalog:       catalog,
+		ModelCatalogSource: catalogSource,
+		DefaultVerbosity:   verbosity,
 	}
 	be, err := codexappserver.New(cfg)
 	if err != nil {
 		return execbackend.Backend{}, fmt.Errorf("codexappserver: %w", err)
 	}
-	return applyConfiguredModelInventory(be, y.Models)
+	return applyConfiguredTrackingModelInventory(be, y.Models)
 }
 
 func backendAGYCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, error) {
@@ -317,5 +336,5 @@ func backendAGYCLIACP(n yaml.Node, _ *http.Client) (execbackend.Backend, error) 
 	if err != nil {
 		return execbackend.Backend{}, fmt.Errorf("agycliacp: %w", err)
 	}
-	return applyConfiguredModelInventory(be, y.Models)
+	return applyConfiguredTrackingModelInventory(be, y.Models)
 }

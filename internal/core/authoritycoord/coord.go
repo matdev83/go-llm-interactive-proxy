@@ -3,6 +3,7 @@ package authoritycoord
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -90,8 +91,7 @@ func (s *CompensationStack) ReverseCompensate(parent context.Context, timeout ti
 		timeout = defaultCleanupTimeout
 	}
 	var failed []CompensateFailed
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		e := s.entries[i]
+	for _, e := range slices.Backward(s.entries) {
 		if e.Compensate == nil {
 			continue
 		}

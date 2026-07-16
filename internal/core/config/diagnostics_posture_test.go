@@ -78,6 +78,13 @@ func TestValidateProtectedDiagnosticsPosture_inventoryRouteTracePprofEachNamed(t
 			substr: "inventory",
 		},
 		{
+			name: "model_inventory",
+			mutate: func(c *config.Config) {
+				c.ModelInventory.DiagnosticsPath = "/debug/model-registry"
+			},
+			substr: "model_inventory",
+		},
+		{
 			name: "route_trace",
 			mutate: func(c *config.Config) {
 				c.Diagnostics.Enabled = true

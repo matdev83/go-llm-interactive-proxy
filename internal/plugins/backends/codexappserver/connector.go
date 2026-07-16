@@ -48,11 +48,15 @@ type Config struct {
 	// ConfigOverrides are -c key=value overrides passed between "app-server" and "--stdio".
 	ConfigOverrides []string
 	// ModelCatalog is the auto-discovered Codex model catalog used for the
-	// built-in model inventory. May be nil (e.g. tests without DI); the
-	// connector then loads the shipped fallback snapshot. No model slugs are
-	// hardcoded — the inventory is the "auto" sentinel plus the catalog's
-	// routable slugs.
+	// built-in model inventory. May be nil (e.g. tests without DI).
 	ModelCatalog *codexcatalog.Catalog
+	// ModelCatalogSource reports how ModelCatalog was obtained. Slugs from the
+	// catalog are advertised only when SourceDiscovered; otherwise inventory is
+	// the openai/auto sentinel alone so shipped/override snapshots are not
+	// presented as proven App Server models.
+	ModelCatalogSource codexcatalog.Source
+	// Inventory overrides ModelInventory when non-nil (tests / NewWithStarter).
+	Inventory modelinventory.Provider
 	// DefaultVerbosity is the process-scoped Codex model_verbosity default
 	// (low, medium, or high) when the request does not set verbosity.
 	DefaultVerbosity lipapi.VerbosityLevel
@@ -180,13 +184,15 @@ func isAutoModel(model string) bool {
 	return m == "" || m == autoModelSentinel
 }
 
-// defaultInventoryModels builds the built-in inventory from the auto-discovered
-// catalog: the "auto" routing sentinel plus the catalog's routable slugs. When
-// the catalog is nil (e.g. tests without DI), the shipped fallback snapshot is
-// loaded so no model slugs are hardcoded here.
-func defaultInventoryModels(cat *codexcatalog.Catalog) []modelinventory.Model {
+// defaultInventoryModels builds the built-in inventory. openai/auto is always
+// advertised. Catalog routable slugs are included only when source is
+// SourceDiscovered so shipped/override fallback snapshots are not treated as
+// proven App Server models.
+func defaultInventoryModels(cat *codexcatalog.Catalog, src codexcatalog.Source) []modelinventory.Model {
 	ids := []string{autoModelSentinel}
-	ids = append(ids, codexcatalog.RoutableSlugsOrFallback(cat)...)
+	if src == codexcatalog.SourceDiscovered && cat != nil {
+		ids = append(ids, cat.RoutableSlugs()...)
+	}
 	return acp.DefaultInventoryModels(vendorPrefix, ids)
 }
 
@@ -251,6 +257,16 @@ func newBackend(cfg Config, requireExplicitWorkspace bool, starter acp.ProcessSt
 		// errors early instead of on first prompt.
 		spec.exe, exeErr = resolveExecutable(cfg.Executable)
 	}
+	index := acp.NewModelIndex(codexCanonicalFallback)
+	spec.index = index
+	inv := cfg.Inventory
+	if inv == nil {
+		inv = modelinventory.StaticProvider{
+			Source: modelinventory.SourceStaticBuiltin,
+			Models: defaultInventoryModels(cfg.ModelCatalog, cfg.ModelCatalogSource),
+		}
+	}
+	tracking := acp.NewTrackingInventory(inv, index, ID)
 	workspace := acp.WorkspacePolicy{
 		DefaultDir:      cfg.DefaultWorkspace,
 		RequireExplicit: requireExplicitWorkspace,
@@ -270,14 +286,14 @@ func newBackend(cfg Config, requireExplicitWorkspace bool, starter acp.ProcessSt
 	return execbackend.Backend{
 		Caps:            defaultBackendCaps(),
 		BackendPrefixes: []string{ID},
-		ModelInventory: modelinventory.StaticProvider{
-			Source: modelinventory.SourceStaticBuiltin,
-			Models: defaultInventoryModels(cfg.ModelCatalog),
-		},
+		ModelInventory:  tracking,
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			_ = cand
 			if exeErr != nil {
 				return nil, exeErr
+			}
+			if _, err := spec.resolveAllowedModel(&call); err != nil {
+				return nil, err
 			}
 			return backend.Open(ctx, &call)
 		},

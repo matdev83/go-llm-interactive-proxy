@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz parity-checks release-gates bench quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -20,6 +20,8 @@ help:
 	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag, frontend encoders)"
+	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
+	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln (local)"
 	@echo "  make lint            - golangci-lint if installed, else staticcheck"
 	@echo "  make hooks-install   - git config core.hooksPath .githooks (pre-commit: secrets + quality gate)"
@@ -154,6 +156,15 @@ bench:
 		./internal/plugins/frontends/gemini/... \
 		./internal/plugins/frontends/openairesponses/... \
 		./internal/plugins/frontends/anthropic/...
+
+# Collect a CPU profile suitable for placing as cmd/lipstd/default.pgo, then rebuild with PGO.
+# Requires a representative bench/workload; do not commit synthetic profiles by default.
+pgo-profile:
+	$(GO) test -cpuprofile=default.pgo -bench=. -benchtime=3s -run=^$$ ./internal/core/runtime/... ./internal/core/stream/...
+	@echo "Move default.pgo next to the main package (e.g. cmd/lipstd/default.pgo) before building."
+
+pgo-build:
+	$(GO) build -o bin/lipstd ./cmd/lipstd
 
 # Single test invocation matches CI (go test -tags=precommit,integration ./...) and avoids compiling twice.
 qa: quality-checks qa-tests lint vuln

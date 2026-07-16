@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
@@ -78,18 +79,17 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 	return nil
 }
 
-// modelCatalogDiagnosticsMount carries inputs for [mountModelCatalogDiagnostics].
-type modelCatalogDiagnosticsMount struct {
-	LogCtx context.Context
-	Mux    *http.ServeMux
-	Cfg    *config.Config
-	Log    *slog.Logger
-	Built  *runtimebundle.Built
+// diagnosticsMount carries non-context inputs for diagnostics mount functions.
+// Callers pass context.Context as an explicit parameter (never stored).
+type diagnosticsMount struct {
+	Mux   *http.ServeMux
+	Cfg   *config.Config
+	Log   *slog.Logger
+	Built *runtimebundle.Built
 }
 
-func mountModelCatalogDiagnostics(in modelCatalogDiagnosticsMount) {
+func mountModelCatalogDiagnostics(ctx context.Context, in diagnosticsMount) {
 	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
-	logCtx := in.LogCtx
 	if mux == nil || cfg == nil {
 		return
 	}
@@ -114,6 +114,25 @@ func mountModelCatalogDiagnostics(in modelCatalogDiagnosticsMount) {
 	})
 	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, h))
 	if log != nil {
-		log.InfoContext(logCtx, "model catalog diagnostics mounted", "path", path)
+		log.InfoContext(ctx, "model catalog diagnostics mounted", "path", path)
+	}
+}
+
+func mountModelInventoryDiagnostics(ctx context.Context, in diagnosticsMount) {
+	mux, cfg, log, built := in.Mux, in.Cfg, in.Log, in.Built
+	if mux == nil || cfg == nil {
+		return
+	}
+	path := strings.TrimSpace(cfg.ModelInventory.DiagnosticsPath)
+	if path == "" {
+		return
+	}
+	var rt *modelregistry.Runtime
+	if built != nil {
+		rt = built.ModelRegistryRuntime
+	}
+	mux.Handle(path, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, NewModelRegistryStatusHandler(rt)))
+	if log != nil {
+		log.InfoContext(ctx, "model inventory diagnostics mounted", "path", path)
 	}
 }

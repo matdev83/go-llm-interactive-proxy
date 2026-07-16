@@ -16,7 +16,7 @@ func BenchmarkMemoryFiveSlotHundredContenders(b *testing.B) {
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	ttl := time.Minute
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		store := leasestore.NewMemory(leasestore.MemoryConfig{StoreID: fmt.Sprintf("bench-five-%d", i)})
 		var acquired atomic.Int64
 		var exceeded atomic.Int64

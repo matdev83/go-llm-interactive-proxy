@@ -5,11 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/modelinventory"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -19,7 +23,11 @@ var (
 	ErrDuplicateBackendPrefix = errors.New("modelregistry: duplicate backend prefix")
 	ErrInvalidModel           = errors.New("modelregistry: invalid model")
 	ErrInvalidCanonicalID     = errors.New("modelregistry: invalid canonical model id")
+	ErrNoUsableInventory      = errors.New("modelregistry: no usable inventory")
 )
+
+// inventoryFetchConcurrency caps parallel LoadModels during Build.
+const inventoryFetchConcurrency = 4
 
 type BackendInventory struct {
 	BackendID       string
@@ -45,80 +53,196 @@ type Snapshot struct {
 	Models      []BackendModel
 }
 
-type Registry struct {
-	byCanonical map[string][]BackendModel
-	all         []BackendModel
+// BackendDiscovery is per-backend inventory discovery state for diagnostics.
+type BackendDiscovery struct {
+	BackendID  string
+	Kind       string
+	Status     modelinventory.DiscoveryStatus
+	Source     modelinventory.Source
+	ModelCount int
+	ErrorCode  string
 }
 
-func Build(ctx context.Context, inventories []BackendInventory) (*Registry, error) {
+func newBackendDiscovery(backendID, kind string, disc modelinventory.Discovery) BackendDiscovery {
+	return BackendDiscovery{
+		BackendID:  backendID,
+		Kind:       kind,
+		Status:     disc.Status,
+		Source:     disc.Source,
+		ModelCount: disc.ModelCount,
+		ErrorCode:  disc.ErrorCode,
+	}
+}
+
+// BuildResult is the fail-soft aggregation outcome for configured backend inventories.
+type BuildResult struct {
+	Registry    *Registry
+	Discoveries []BackendDiscovery
+}
+
+type Registry struct {
+	byCanonical map[string][]BackendModel
+	all         []BackendModel // immutable after Build / newRegistry*
+}
+
+func warnInventory(ctx context.Context, log *slog.Logger, msg string, args ...any) {
+	if log == nil {
+		return
+	}
+	log.WarnContext(ctx, msg, args...)
+}
+
+type inventoryLoadResult struct {
+	disc BackendDiscovery
+	rows []BackendModel
+}
+
+func Build(ctx context.Context, inventories []BackendInventory, log *slog.Logger) (BuildResult, error) {
 	if ctx == nil {
-		return nil, ErrNilContext
+		return BuildResult{}, ErrNilContext
 	}
 	registeredPrefixes, err := validateInventoryPrefixes(inventories)
 	if err != nil {
-		return nil, err
+		return BuildResult{}, err
 	}
-	byCanonical := make(map[string][]BackendModel)
-	all := []BackendModel{}
+
+	// Validate inventory metadata serially before parallel fetch.
 	for i, inv := range inventories {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		backendID := strings.TrimSpace(inv.BackendID)
 		kind := strings.TrimSpace(inv.Kind)
 		if backendID == "" || kind == "" {
-			return nil, fmt.Errorf("%w at inventory[%d]", ErrInvalidModel, i)
+			return BuildResult{}, fmt.Errorf("%w at inventory[%d]", ErrInvalidModel, i)
 		}
 		if inv.Provider == nil {
-			return nil, fmt.Errorf("%w for backend %q", ErrMissingProvider, backendID)
+			return BuildResult{}, fmt.Errorf("%w for backend %q", ErrMissingProvider, backendID)
 		}
-		loadCtx := ctx
-		var cancel context.CancelFunc
-		if inv.FetchTimeout > 0 {
-			loadCtx, cancel = context.WithTimeout(ctx, inv.FetchTimeout)
-		}
-		snap, err := inv.Provider.LoadModels(loadCtx)
-		if cancel != nil {
-			cancel()
-		}
-		if err != nil {
-			return nil, fmt.Errorf("backend %q model inventory: %w", backendID, err)
-		}
-		for j, m := range snap.Models {
-			canonical := strings.TrimSpace(m.CanonicalID)
-			native := strings.TrimSpace(m.NativeID)
-			if canonical == "" || native == "" {
-				return nil, fmt.Errorf("%w for backend %q model[%d]", ErrInvalidModel, backendID, j)
+	}
+
+	results := make([]inventoryLoadResult, len(inventories))
+	g, gctx := errgroup.WithContext(ctx)
+	limit := inventoryFetchConcurrency
+	if n := runtime.GOMAXPROCS(0); n > 0 && n < limit {
+		limit = n
+	}
+	if len(inventories) < limit {
+		limit = len(inventories)
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	g.SetLimit(limit)
+
+	var mu sync.Mutex
+	for i, inv := range inventories {
+		g.Go(func() error {
+			if err := gctx.Err(); err != nil {
+				return err
 			}
-			if !validCanonicalID(canonical) {
-				return nil, fmt.Errorf("%w %q for backend %q model[%d]", ErrInvalidCanonicalID, canonical, backendID, j)
+			backendID := strings.TrimSpace(inv.BackendID)
+			kind := strings.TrimSpace(inv.Kind)
+			loadCtx := gctx
+			var cancel context.CancelFunc
+			if inv.FetchTimeout > 0 {
+				loadCtx, cancel = context.WithTimeout(gctx, inv.FetchTimeout)
 			}
-			if canonicalUsesRegisteredPrefixQualifier(canonical, registeredPrefixes) {
-				return nil, fmt.Errorf("%w %q for backend %q model[%d]", ErrInvalidCanonicalID, canonical, backendID, j)
+			snap, err := inv.Provider.LoadModels(loadCtx)
+			if cancel != nil {
+				cancel()
 			}
-			row := BackendModel{
-				CanonicalID: canonical,
-				NativeID:    native,
-				DisplayName: strings.TrimSpace(m.DisplayName),
-				BackendID:   backendID,
-				Kind:        kind,
-				Source:      snap.Source,
-				LoadedAt:    snap.LoadedAt,
+			if err != nil {
+				// Parent cancel/deadline aborts aggregation; per-backend timeouts stay fail-soft.
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if gctx.Err() != nil && !errors.Is(err, context.DeadlineExceeded) {
+					// Another worker hit parent cancel; surface it.
+					if errors.Is(gctx.Err(), context.Canceled) || errors.Is(gctx.Err(), context.DeadlineExceeded) {
+						return gctx.Err()
+					}
+				}
+				disc := modelinventory.DiscoveryFromLoadError(err)
+				mu.Lock()
+				warnInventory(ctx, log, "modelregistry: inventory load failed",
+					"backend_id", backendID,
+					"kind", kind,
+					"error_code", disc.ErrorCode,
+					"error", err,
+				)
+				mu.Unlock()
+				results[i] = inventoryLoadResult{disc: newBackendDiscovery(backendID, kind, disc)}
+				return nil
 			}
-			byCanonical[canonical] = append(byCanonical[canonical], row)
-			all = append(all, row)
-		}
-		if len(snap.Models) == 0 {
-			return nil, fmt.Errorf("%w: backend %q returned no models at inventory[%d]", ErrInvalidModel, backendID, i)
-		}
+			disc := modelinventory.DiscoveryFromSnapshot(snap)
+			if disc.Status == modelinventory.DiscoveryStatusEmpty {
+				results[i] = inventoryLoadResult{disc: newBackendDiscovery(backendID, kind, disc)}
+				return nil
+			}
+			backendRows := make([]BackendModel, 0, len(snap.Models))
+			invalid := false
+			for _, m := range snap.Models {
+				canonical := strings.TrimSpace(m.CanonicalID)
+				native := strings.TrimSpace(m.NativeID)
+				if canonical == "" || native == "" || !validCanonicalID(canonical) || canonicalUsesRegisteredPrefixQualifier(canonical, registeredPrefixes) {
+					invalid = true
+					break
+				}
+				backendRows = append(backendRows, BackendModel{
+					CanonicalID: canonical,
+					NativeID:    native,
+					DisplayName: strings.TrimSpace(m.DisplayName),
+					BackendID:   backendID,
+					Kind:        kind,
+					Source:      snap.Source,
+					LoadedAt:    snap.LoadedAt,
+				})
+			}
+			if invalid {
+				mu.Lock()
+				warnInventory(ctx, log, "modelregistry: invalid inventory omitted",
+					"backend_id", backendID,
+					"kind", kind,
+					"error_code", modelinventory.ErrorCodeInvalidInventory,
+				)
+				mu.Unlock()
+				results[i] = inventoryLoadResult{disc: newBackendDiscovery(backendID, kind, modelinventory.Discovery{
+					Status:    modelinventory.DiscoveryStatusUnavailable,
+					Source:    snap.Source,
+					ErrorCode: modelinventory.ErrorCodeInvalidInventory,
+				})}
+				return nil
+			}
+			results[i] = inventoryLoadResult{
+				disc: newBackendDiscovery(backendID, kind, disc),
+				rows: backendRows,
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return BuildResult{}, err
+	}
+
+	// Aggregate in config order.
+	all := []BackendModel{}
+	discoveries := make([]BackendDiscovery, 0, len(inventories))
+	for _, res := range results {
+		discoveries = append(discoveries, res.disc)
+		all = append(all, res.rows...)
 	}
 	if len(all) == 0 {
-		return &Registry{
-			byCanonical: map[string][]BackendModel{},
-			all:         []BackendModel{},
+		return BuildResult{
+			Registry: &Registry{
+				byCanonical: map[string][]BackendModel{},
+				all:         []BackendModel{},
+			},
+			Discoveries: discoveries,
 		}, nil
 	}
-	return newRegistryFromBackendModels(all, registeredPrefixes)
+	reg, err := newRegistryFromValidatedBackendModels(all)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	return BuildResult{Registry: reg, Discoveries: discoveries}, nil
 }
 
 func (r *Registry) Lookup(canonicalID string) ([]BackendModel, bool) {
@@ -137,6 +261,14 @@ func (r *Registry) All() []BackendModel {
 		return []BackendModel{}
 	}
 	return slices.Clone(r.all)
+}
+
+// Len returns the number of published backend model rows without cloning.
+func (r *Registry) Len() int {
+	if r == nil {
+		return 0
+	}
+	return len(r.all)
 }
 
 func validCanonicalID(id string) bool {
@@ -208,6 +340,21 @@ func canonicalUsesRegisteredPrefixQualifier(canonical string, registeredPrefixes
 	}
 	_, registered := registeredPrefixes[prefix]
 	return registered
+}
+
+// newRegistryFromValidatedBackendModels builds a registry from rows already
+// trimmed and validated by Build (fail-soft path). Does not re-validate.
+func newRegistryFromValidatedBackendModels(models []BackendModel) (*Registry, error) {
+	if len(models) == 0 {
+		return nil, fmt.Errorf("%w: no models", ErrInvalidModel)
+	}
+	byCanonical := make(map[string][]BackendModel, len(models))
+	all := make([]BackendModel, len(models))
+	copy(all, models)
+	for _, row := range all {
+		byCanonical[row.CanonicalID] = append(byCanonical[row.CanonicalID], row)
+	}
+	return &Registry{byCanonical: byCanonical, all: all}, nil
 }
 
 func newRegistryFromBackendModels(models []BackendModel, registeredPrefixes map[string]struct{}) (*Registry, error) {

@@ -14,7 +14,7 @@ import (
 func TestBuild_allowsDuplicateBackendPrefixForSameKind(t *testing.T) {
 	t.Parallel()
 
-	reg, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
+	built, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
 		{
 			BackendID:       "openai-primary",
 			Kind:            "openai-responses",
@@ -31,11 +31,11 @@ func TestBuild_allowsDuplicateBackendPrefixForSameKind(t *testing.T) {
 				{CanonicalID: "openai/gpt-4.1", NativeID: "gpt-4.1"},
 			}},
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if got := reg.All(); len(got) != 2 {
+	if got := built.Registry.All(); len(got) != 2 {
 		t.Fatalf("models len = %d, want 2", len(got))
 	}
 }
@@ -58,7 +58,7 @@ func TestBuild_rejectsDuplicateBackendPrefixBeforeLoadModels(t *testing.T) {
 			BackendPrefixes: []string{"shared"},
 			Provider:        second,
 		},
-	})
+	}, nil)
 	if !errors.Is(err, modelregistry.ErrDuplicateBackendPrefix) {
 		t.Fatalf("Build() error = %v, want ErrDuplicateBackendPrefix", err)
 	}
@@ -84,7 +84,7 @@ func TestBuild_rejectsMissingBackendPrefix(t *testing.T) {
 		BackendID: "openai",
 		Kind:      "openai-responses",
 		Provider:  provider,
-	}})
+	}}, nil)
 	if !errors.Is(err, modelregistry.ErrMissingBackendPrefix) {
 		t.Fatalf("Build() error = %v, want ErrMissingBackendPrefix", err)
 	}
@@ -93,37 +93,63 @@ func TestBuild_rejectsMissingBackendPrefix(t *testing.T) {
 	}
 }
 
-func TestBuild_rejectsQualifiedCanonicalIDWithRegisteredPrefix(t *testing.T) {
+func TestBuild_failSoftQualifiedCanonicalIDWithRegisteredPrefix(t *testing.T) {
 	t.Parallel()
 
-	_, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{{
-		BackendID:       "ollama-local",
-		Kind:            "ollama",
-		BackendPrefixes: []string{"ollama"},
-		Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
-			{CanonicalID: "ollama:google/gemma4", NativeID: "google/gemma4"},
-		}},
-	}})
-	if !errors.Is(err, modelregistry.ErrInvalidCanonicalID) {
-		t.Fatalf("Build() error = %v, want ErrInvalidCanonicalID", err)
+	built, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{
+		{
+			BackendID:       "good",
+			Kind:            "test",
+			BackendPrefixes: []string{"test-good"},
+			Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
+				{CanonicalID: "vendor/a", NativeID: "a"},
+			}},
+		},
+		{
+			BackendID:       "ollama-local",
+			Kind:            "ollama",
+			BackendPrefixes: []string{"ollama"},
+			Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
+				{CanonicalID: "ollama:google/gemma4", NativeID: "google/gemma4"},
+			}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if got := built.Registry.All(); len(got) != 1 || got[0].BackendID != "good" {
+		t.Fatalf("models = %+v, want only good", got)
+	}
+	byID := map[string]modelregistry.BackendDiscovery{}
+	for _, d := range built.Discoveries {
+		byID[d.BackendID] = d
+	}
+	if byID["ollama-local"].Status != modelinventory.DiscoveryStatusUnavailable {
+		t.Fatalf("ollama status = %q", byID["ollama-local"].Status)
+	}
+	if byID["ollama-local"].ErrorCode != modelinventory.ErrorCodeInvalidInventory {
+		t.Fatalf("ollama ErrorCode = %q", byID["ollama-local"].ErrorCode)
+	}
+	if strings.Contains(byID["ollama-local"].ErrorCode, "gemma") || strings.Contains(byID["ollama-local"].ErrorCode, "ollama:") {
+		t.Fatalf("ErrorCode leaked model id: %q", byID["ollama-local"].ErrorCode)
 	}
 }
 
 func TestBuild_allowsSlashCanonicalWhenVendorMatchesRegisteredPrefix(t *testing.T) {
 	t.Parallel()
 
-	reg, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{{
+	built, err := modelregistry.Build(context.Background(), []modelregistry.BackendInventory{{
 		BackendID:       "ollama-local",
 		Kind:            "ollama",
 		BackendPrefixes: []string{"ollama"},
 		Provider: modelinventory.StaticProvider{Models: []modelinventory.Model{
 			{CanonicalID: "ollama/llama3", NativeID: "llama3:latest"},
 		}},
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	got, ok := reg.Lookup("ollama/llama3")
+	got, ok := built.Registry.Lookup("ollama/llama3")
 	if !ok || len(got) != 1 || got[0].NativeID != "llama3:latest" {
 		t.Fatalf("Lookup(ollama/llama3) = %+v, %v", got, ok)
 	}

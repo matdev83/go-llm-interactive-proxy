@@ -1,12 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -205,11 +206,11 @@ func backendReportFromSnapshot(id string, snapshot modelinventory.Snapshot) back
 			DisplayName: model.DisplayName,
 		})
 	}
-	sort.Slice(models, func(i, j int) bool {
-		if models[i].CanonicalID == models[j].CanonicalID {
-			return models[i].NativeID < models[j].NativeID
+	slices.SortFunc(models, func(a, b modelReport) int {
+		if a.CanonicalID == b.CanonicalID {
+			return cmp.Compare(a.NativeID, b.NativeID)
 		}
-		return models[i].CanonicalID < models[j].CanonicalID
+		return cmp.Compare(a.CanonicalID, b.CanonicalID)
 	})
 
 	loadedAt := ""

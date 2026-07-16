@@ -59,14 +59,18 @@ Symlinked account files inside the managed-OAuth storage directory are skipped d
 | `plan_type_hint` | Optional plan hint for proactive downgrade tests/local overrides |
 
 Without `models`, the connector advertises the auto-discovered Codex model
-catalog. At startup the proxy runs `codex debug models` and parses the routable
-model slugs (and per-model reasoning-effort settings); on any failure (or when
+catalog. At startup in `access.mode: single_user` (the default), when an enabled
+and registered `openai-codex` or `openai-codex-app-server` backend is loaded,
+the proxy runs `codex debug models` and parses the routable model slugs (and
+per-model reasoning-effort settings); on any failure (or when
 `codex_model_catalog.enabled: false`) it falls back to a shipped embedded
-snapshot (`internal/core/codexcatalog/codex_model_catalog.json`). No model slugs
-are hardcoded in the connector. See the top-level `codex_model_catalog` config
-section to disable discovery, override the fallback path, or pin the codex
-binary. The Codex app-server backend additionally advertises the `auto` routing
-sentinel (the app-server resolves the actual model server-side).
+snapshot (`internal/core/codexcatalog/codex_model_catalog.json`). `multi_user`
+mode skips composition-root discovery, and local-only Codex connectors are
+rejected by backend security policy. No model slugs are hardcoded in the
+connector. See the top-level `codex_model_catalog` config section to disable
+discovery, override the fallback path, or pin the codex binary. The Codex
+app-server backend additionally advertises the `auto` routing sentinel (the
+app-server resolves the actual model server-side).
 
 > Backward-incompatible: legacy Codex slugs the CLI no longer advertises (e.g.
 > `gpt-5.3-codex`, `gpt-5.1-codex`, `gpt-oss-120b`) are no longer in the

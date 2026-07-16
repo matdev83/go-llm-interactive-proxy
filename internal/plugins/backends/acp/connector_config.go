@@ -67,7 +67,10 @@ func ResolveVendorModel(prefix, configuredModel, fallbackDefault, effective stri
 // pass a deduplicated id list. Returns nil when ids is empty (matching the
 // var-slice + append idiom of the originals).
 func DefaultInventoryModels(prefix string, ids []string) []modelinventory.Model {
-	var models []modelinventory.Model
+	if len(ids) == 0 {
+		return nil
+	}
+	models := make([]modelinventory.Model, 0, len(ids))
 	for _, m := range ids {
 		models = append(models, modelinventory.Model{
 			CanonicalID: prefix + "/" + m,

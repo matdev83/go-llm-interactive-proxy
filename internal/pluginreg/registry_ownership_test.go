@@ -25,6 +25,32 @@ func TestRegistriesDoNotShareFactories(t *testing.T) {
 	}
 }
 
+func TestHasBackend(t *testing.T) {
+	t.Parallel()
+	r := NewRegistry()
+	id := "has-backend-" + strings.ReplaceAll(t.Name(), "/", "-")
+	if r.HasBackend(id) {
+		t.Fatal("empty registry should not report HasBackend")
+	}
+	if (*Registry)(nil).HasBackend(id) {
+		t.Fatal("nil registry HasBackend should be false")
+	}
+	if err := r.RegisterBackend(id, func(yaml.Node, *http.Client, BackendFactoryDeps) (execbackend.Backend, error) {
+		return execbackend.Backend{}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !r.HasBackend(id) {
+		t.Fatal("registered factory should report HasBackend")
+	}
+	if !r.HasBackend("  " + id + "  ") {
+		t.Fatal("HasBackend should trim factoryID")
+	}
+	if r.HasBackend("") || r.HasBackend("missing-"+id) {
+		t.Fatal("HasBackend should be false for empty/missing ids")
+	}
+}
+
 func TestDuplicateRegistrationScopedPerRegistry(t *testing.T) {
 	t.Parallel()
 	r1 := NewRegistry()

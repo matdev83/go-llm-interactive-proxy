@@ -9,8 +9,8 @@ func BenchmarkEventStreamForConfig(b *testing.B) {
 		Text:                      "hello world",
 		StreamErrorAfterTextDelta: true,
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_ = eventStreamForConfig(cfg)
 	}
 }

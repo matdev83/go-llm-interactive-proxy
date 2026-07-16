@@ -27,6 +27,9 @@ type codexSpec struct {
 	// BuildSpawnCommand never re-resolves and never fails on a CI runner that
 	// lacks the real codex binary.
 	exe string
+	// index is the concurrent request-time allowlist populated by core
+	// AcceptInventory after registry publish. Open rejects unknown models before spawn.
+	index *acp.ModelIndex
 }
 
 // codexManagedStream wraps a codexStream to release the runtime pool on Close.

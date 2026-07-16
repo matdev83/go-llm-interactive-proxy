@@ -86,7 +86,16 @@ var lineBudgets = []struct {
 	// before attempt authorization (reqs 2.1, 2.2, 4.1, 5.1).
 	// Raised from 49600 to 49750 for explicit PostgreSQL connection/schema modes
 	// and validation; this is typed configuration, not runtime control-flow growth.
-	{"internal/core", 49750},
+	// Raised from 49750 to 49950 for live model-registry inventory/runtime growth
+	// (issue #146): BackendModel discovery diagnostics and refresh seams in
+	// internal/core/modelregistry. The OpenAI-compatible GET /v1/models HTTP DTO
+	// stays in internal/stdhttp (not core).
+	// Raised from 49950 to 50050 for issue #146 access-mode gate comments on
+	// CodexModelCatalogConfig (single_user + enabled-consumer discovery).
+	// Raised from 50050 to 50300 for issue #146/#149 model-registry perf and
+	// inventory completion: publish-time OpenAI list JSON, content fingerprint,
+	// parallel inventory fetch, and refresh overlap guard in modelregistry.
+	{"internal/core", 50300},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

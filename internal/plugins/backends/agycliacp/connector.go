@@ -20,17 +20,6 @@ const ID = "agycliacp"
 // vendorPrefix is the model prefix for AGY models.
 const vendorPrefix = "agy"
 
-// defaultModelIDs are the fallback model IDs matching Python's _DEFAULT_AGY_MODEL_IDS.
-// These are already fully qualified with vendor namespaces (e.g. "google/gemini-3.5-flash-high").
-var defaultModelIDs = []string{
-	"google/gemini-3.5-flash-high",
-	"google/gemini-3.5-flash-medium",
-	"google/gemini-3.5-flash-low",
-	"google/gemini-3.1-pro",
-	"anthropic/claude-sonnet-4.6-thinking",
-	"anthropic/claude-opus-4.6-thinking",
-}
-
 // Config configures the AGY CLI ACP backend. The shared acp.ConnectorConfig
 // embeds the local-agent fields common to every ACP CLI connector; AGY-specific
 // fields (wrapper, binary, permissions, timeout, mcp) stay directly on Config.
@@ -47,11 +36,16 @@ type Config struct {
 	TimeoutSeconds int
 	// MCPServers is the JSON array for session/new mcpServers.
 	MCPServers json.RawMessage
+	// Inventory overrides ModelInventory when non-nil (tests / NewWithStarter).
+	// Production New wires a live `agy models` provider (or ErrorProvider on resolve failure).
+	Inventory modelinventory.Provider
 }
 
 // agySpec implements acp.SubprocessConnectorSpec for the AGY CLI.
 type agySpec struct {
-	cfg Config
+	cfg   Config
+	index *acp.ModelIndex
+	exe   string // resolved wrapper path; BuildCommand never re-resolves
 }
 
 func (s *agySpec) VendorID() string                { return ID }
@@ -60,17 +54,21 @@ func (s *agySpec) RequiresExplicitWorkspace() bool { return true }
 
 // BuildCommand returns the subprocess command for the go-agy-acp-wrapper.
 func (s *agySpec) BuildCommand(model string, workspace string) ([]string, string, []string, error) {
-	exe, err := resolveWrapper(s.cfg.WrapperExecutable)
-	if err != nil {
-		return nil, "", nil, err
+	model = strings.TrimSpace(model)
+	if s == nil {
+		return nil, "", nil, ErrUnknownModel
 	}
-	cmd := []string{exe}
+	if model == "" || model == "auto" || !s.index.IsKnownNative(model) {
+		return nil, "", nil, ErrUnknownModel
+	}
+	if s.exe == "" {
+		return nil, "", nil, fmt.Errorf("agycliacp: wrapper executable not resolved")
+	}
+	cmd := []string{s.exe}
 	if s.cfg.AGYBinary != "" {
 		cmd = append(cmd, "--agy-binary", s.cfg.AGYBinary)
 	}
-	if model != "" && model != "auto" {
-		cmd = append(cmd, "--model", model)
-	}
+	cmd = append(cmd, "--model", model)
 	if s.cfg.TimeoutSeconds > 0 {
 		cmd = append(cmd, "--timeout-seconds", fmt.Sprintf("%d", s.cfg.TimeoutSeconds))
 	}
@@ -117,11 +115,17 @@ func (s *agySpec) ServerRequestHandler() acp.ServerRequestHandler {
 	return &agyServerRequestHandler{}
 }
 
-// ResolveModel strips the "agy:" vendor prefix and applies the default model if empty/auto.
-// Note: AGY model IDs are already fully qualified (e.g. "google/gemini-3.5-flash-high"),
-// so we only strip the route-level "agy:" prefix, not internal vendor namespaces.
+// ResolveModel strips the route-level "agy:" / "agy/" prefix, applies configured
+// or package defaults for empty/auto, and maps known canonical IDs to the exact
+// AGY pretty name required by `--model` when present in the active allowlist.
+// Unknown or unadvertised identities resolve to "" so Open/BuildCommand can
+// reject them explicitly without substituting a default.
 func (s *agySpec) ResolveModel(effectiveModel string) string {
-	return acp.ResolveVendorModel(vendorPrefix, s.cfg.Model, "google/gemini-3.5-flash-high", effectiveModel)
+	native, err := s.resolveNativeModel(effectiveModel)
+	if err != nil {
+		return ""
+	}
+	return native
 }
 
 // agyServerRequestHandler handles inbound JSON-RPC requests from the AGY wrapper.
@@ -159,14 +163,10 @@ func resolveWrapper(configured string) (string, error) {
 	return "", fmt.Errorf("go-agy-acp-wrapper executable not found; build go-agy-acp-wrapper and put it on PATH, or set AGY_ACP_WRAPPER_BIN / wrapper_executable")
 }
 
-func defaultInventoryModels() []modelinventory.Model {
-	return acp.DefaultInventoryModels(vendorPrefix, defaultModelIDs)
-}
-
 // New returns a runtime backend that invokes the AGY CLI via ACP stdio.
 func New(cfg Config) (execbackend.Backend, error) {
 	if cfg.Model == "" {
-		cfg.Model = "google/gemini-3.5-flash-high"
+		cfg.Model = defaultCanonicalModel
 	}
 	// Fall back to AGY_BINARY env var, matching Python's kwargs.get("agy_binary") or os.environ.get("AGY_BINARY").
 	if cfg.AGYBinary == "" {
@@ -177,34 +177,54 @@ func New(cfg Config) (execbackend.Backend, error) {
 		DefaultDir:      cfg.DefaultWorkspace,
 		RequireExplicit: spec.RequiresExplicitWorkspace(),
 	}
-	_, exeErr := resolveWrapper(cfg.WrapperExecutable)
-	return newAGYBackend(spec, workspace, cfg, nil, exeErr, defaultInventoryModels()), nil
+	exe, exeErr := resolveWrapper(cfg.WrapperExecutable)
+	spec.exe = exe
+	inv := cfg.Inventory
+	if inv == nil {
+		bin, err := resolveAGYBinary(cfg.AGYBinary)
+		if err != nil {
+			inv = modelinventory.ErrorProvider{Err: err}
+		} else {
+			inv = newModelsProvider(bin)
+		}
+	}
+	return newAGYBackend(spec, workspace, cfg, nil, exeErr, inv), nil
 }
 
 // NewWithStarter is like New but injects a custom ProcessStarter for testing.
 // Production code should use New; tests use this to inject a fakeProcess that
 // simulates the go-agy-acp-wrapper without spawning a real binary. It skips
-// wrapper executable resolution, using the default inventory.
+// wrapper executable resolution and live `agy models` discovery unless
+// Config.Inventory is set.
 func NewWithStarter(cfg Config, starter acp.ProcessStarter) execbackend.Backend {
 	if cfg.Model == "" {
-		cfg.Model = "google/gemini-3.5-flash-high"
+		cfg.Model = defaultCanonicalModel
 	}
 	if cfg.AGYBinary == "" {
 		cfg.AGYBinary = strings.TrimSpace(os.Getenv("AGY_BINARY"))
 	}
-	spec := &agySpec{cfg: cfg}
+	spec := &agySpec{cfg: cfg, exe: "go-agy-acp-wrapper"}
 	workspace := acp.WorkspacePolicy{
 		DefaultDir:      cfg.DefaultWorkspace,
 		RequireExplicit: spec.RequiresExplicitWorkspace(),
 	}
-	return newAGYBackend(spec, workspace, cfg, starter, nil, defaultInventoryModels())
+	inv := cfg.Inventory
+	if inv == nil {
+		inv = modelinventory.ErrorProvider{}
+	}
+	return newAGYBackend(spec, workspace, cfg, starter, nil, inv)
 }
 
 // newAGYBackend assembles the execbackend.Backend from a normalized spec,
 // workspace, and config. starter, if non-nil, overrides the default OS process
 // starter (used by tests). exeErr is surfaced from the Open closure so callers
-// see startup errors early. models is the static model inventory.
-func newAGYBackend(spec *agySpec, workspace acp.WorkspacePolicy, cfg Config, starter acp.ProcessStarter, exeErr error, models []modelinventory.Model) execbackend.Backend {
+// see startup errors early. inventory is wrapped in a tracking provider whose
+// ModelIndex is updated by AcceptInventory after registry publish (not by
+// LoadModels).
+func newAGYBackend(spec *agySpec, workspace acp.WorkspacePolicy, cfg Config, starter acp.ProcessStarter, exeErr error, inventory modelinventory.Provider) execbackend.Backend {
+	index := acp.NewModelIndex(agyCanonicalFallback)
+	spec.index = index
+	tracking := acp.NewTrackingInventory(inventory, index, ID)
 	backendCfg := acp.SubprocessBackendConfig{
 		Protocol:  acp.NewACPProtocol(spec, nil),
 		Workspace: workspace,
@@ -220,10 +240,7 @@ func newAGYBackend(spec *agySpec, workspace acp.WorkspacePolicy, cfg Config, sta
 	return execbackend.Backend{
 		Caps:            defaultBackendCaps(),
 		BackendPrefixes: []string{ID},
-		ModelInventory: modelinventory.StaticProvider{
-			Source: modelinventory.SourceStaticBuiltin,
-			Models: models,
-		},
+		ModelInventory:  tracking,
 		ResolveCaps: func(context.Context, lipapi.Call, routing.AttemptCandidate) lipapi.BackendCaps {
 			return defaultBackendCaps()
 		},
@@ -231,6 +248,9 @@ func newAGYBackend(spec *agySpec, workspace acp.WorkspacePolicy, cfg Config, sta
 			_ = cand
 			if exeErr != nil {
 				return nil, exeErr
+			}
+			if _, err := spec.resolveNativeModel(acp.CallRouteModel(&call, "acp.model")); err != nil {
+				return nil, err
 			}
 			return backend.Open(ctx, &call)
 		},

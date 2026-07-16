@@ -30,6 +30,7 @@ Operator rules:
 - Background refresh defaults to `1h` and has a minimum of `1h`. A failed refresh keeps the latest successful registry active.
 - Static backend YAML inventories (`models.source: inline` or `models.source: file`) participate in the same registry and do not require remote enumeration.
 - `model_inventory.fetch_timeout` defaults to `30s` and is applied per backend inventory fetch during startup and background refresh.
+- Clients can list instance-pinned models via OpenAI-compatible `GET /v1/models` (`<backend-instance>:<canonicalID>`). Optional protected discovery status is mounted when `model_inventory.diagnostics_path` is set (not `model_catalog.diagnostics_path`).
 
 ## Models.dev snapshot catalog (`model_catalog`)
 

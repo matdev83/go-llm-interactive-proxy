@@ -1,0 +1,30 @@
+# Monthly Go modernization / vulnerability hygiene.
+# Runs the modernize linter suite and govulncheck on a schedule.
+name: Modernize monthly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 1 * *" # 04:41 UTC on the 1st of each month
+
+jobs:
+  modernize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: golangci-lint (modernize only)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.4
+          args: --timeout=10m --enable-only=modernize
+
+      - name: govulncheck
+        run: go tool govulncheck ./...

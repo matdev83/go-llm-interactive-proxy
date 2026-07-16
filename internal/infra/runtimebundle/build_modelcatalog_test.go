@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -183,8 +184,8 @@ func closeRuntimeBuilt(t *testing.T, b *runtimebundle.Built) {
 	if b == nil {
 		return
 	}
-	for i := len(b.Closers) - 1; i >= 0; i-- {
-		if err := b.Closers[i](); err != nil {
+	for i, v := range slices.Backward(b.Closers) {
+		if err := v(); err != nil {
 			t.Fatalf("closer %d: %v", i, err)
 		}
 	}

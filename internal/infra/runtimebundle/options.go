@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
@@ -181,4 +182,11 @@ type TestingOptions struct {
 	// SnapshotPublisherOverride, when non-nil, replaces the Build-constructed
 	// policy/rating generation publisher (Phase 9.3). Tests only.
 	SnapshotPublisherOverride *snapshotgen.Publisher
+	// CodexCatalogLoad, when non-nil, replaces [codexcatalog.Load] for the shared
+	// Codex model catalog resolved at startup. Tests only; production leaves this
+	// nil so discovery uses the real loader.
+	CodexCatalogLoad CodexCatalogLoadFunc
 }
+
+// CodexCatalogLoadFunc is the test seam for shared Codex catalog resolution.
+type CodexCatalogLoadFunc func(ctx context.Context, opts codexcatalog.LoadOptions) (*codexcatalog.Catalog, codexcatalog.Source, error)

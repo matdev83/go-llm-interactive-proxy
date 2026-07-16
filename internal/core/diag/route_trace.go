@@ -81,7 +81,7 @@ func (b *RouteTraceBuffer) Snapshot() []RouteTraceEntry {
 		return []RouteTraceEntry{}
 	}
 	out := make([]RouteTraceEntry, b.count)
-	for i := 0; i < b.count; i++ {
+	for i := range b.count {
 		out[i] = b.buf[(b.head+i)%b.cap]
 	}
 	return out

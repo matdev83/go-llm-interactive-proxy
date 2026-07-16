@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -203,11 +204,11 @@ func (r *Runtime) Close(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	var first error
-	for i := len(r.closers) - 1; i >= 0; i-- {
-		if r.closers[i] == nil {
+	for _, v := range slices.Backward(r.closers) {
+		if v == nil {
 			continue
 		}
-		if err := r.closers[i](); err != nil && first == nil {
+		if err := v(); err != nil && first == nil {
 			first = err
 		}
 	}

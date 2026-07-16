@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -133,8 +132,8 @@ func quantitiesEqual(a, b []Quantity) bool {
 	}
 	ac := append([]Quantity(nil), a...)
 	bc := append([]Quantity(nil), b...)
-	sort.Slice(ac, func(i, j int) bool { return quantityLess(ac[i], ac[j]) })
-	sort.Slice(bc, func(i, j int) bool { return quantityLess(bc[i], bc[j]) })
+	slices.SortFunc(ac, quantityCmp)
+	slices.SortFunc(bc, quantityCmp)
 	for i := range ac {
 		if ac[i] != bc[i] {
 			return false
@@ -143,20 +142,38 @@ func quantitiesEqual(a, b []Quantity) bool {
 	return true
 }
 
-func quantityLess(a, b Quantity) bool {
+func quantityCmp(a, b Quantity) int {
 	if a.Component != b.Component {
-		return a.Component < b.Component
+		if a.Component < b.Component {
+			return -1
+		}
+		return 1
 	}
 	if a.Unit != b.Unit {
-		return a.Unit < b.Unit
+		if a.Unit < b.Unit {
+			return -1
+		}
+		return 1
 	}
 	if a.Value != b.Value {
-		return a.Value < b.Value
+		if a.Value < b.Value {
+			return -1
+		}
+		return 1
 	}
 	if a.Present != b.Present {
-		return !a.Present && b.Present
+		if !a.Present && b.Present {
+			return -1
+		}
+		return 1
 	}
-	return a.Schema < b.Schema
+	if a.Schema < b.Schema {
+		return -1
+	}
+	if a.Schema > b.Schema {
+		return 1
+	}
+	return 0
 }
 
 func moneyEqual(a, b *MoneyObservation) bool {
@@ -175,8 +192,8 @@ func stringSetEqual(a, b []string) bool {
 	}
 	ac := append([]string(nil), a...)
 	bc := append([]string(nil), b...)
-	sort.Strings(ac)
-	sort.Strings(bc)
+	slices.Sort(ac)
+	slices.Sort(bc)
 	for i := range ac {
 		if ac[i] != bc[i] {
 			return false

@@ -26,8 +26,8 @@ func BenchmarkRunToolPolicyStage_preSortedPolicies(b *testing.B) {
 	ev := lipapi.ToolEvent{Kind: lipapi.ToolEventStarted, ToolCallID: "tc1", ToolName: "fn"}
 	policies := toolpolicy.MaterializeSorted([]toolpolicy.Policy{benchPol{}})
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		if err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
 			Ctx:      ctx,
 			Policies: policies,

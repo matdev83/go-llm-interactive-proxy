@@ -31,6 +31,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/http",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/safety",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag",

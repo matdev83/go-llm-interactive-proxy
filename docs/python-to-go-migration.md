@@ -77,5 +77,7 @@ Scenario IDs above map to executable evidence in [spec-bundle-routing-scenarios.
 ## Diagnostics
 
 - Optional JSON plugin inventory is available at the configured `diagnostics.inventory_path` (for example `/debug/inventory`) when diagnostics are enabled.
+- OpenAI-compatible `GET /v1/models` lists instance-pinned canonical models from the live backend model registry (`<backend-instance>:<canonicalID>`). It is separate from models.dev `model_catalog`.
+- Optional backend discovery diagnostics are available at `model_inventory.diagnostics_path` (for example `/debug/model-registry`); status/source/model_count/error_code only (no native IDs or raw errors).
 
 For protocol-level differences, prefer conformance tests under `internal/testkit/conformance` and golden fixtures under `testdata/`.

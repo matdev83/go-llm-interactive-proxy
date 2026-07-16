@@ -61,6 +61,9 @@ func protectedDiagnosticsSurfaces(cfg *Config) []string {
 	if strings.TrimSpace(cfg.ModelCatalog.DiagnosticsPath) != "" {
 		out = append(out, "model_catalog")
 	}
+	if strings.TrimSpace(cfg.ModelInventory.DiagnosticsPath) != "" {
+		out = append(out, "model_inventory")
+	}
 	if cfg.SecureSessionEffectivelyEnabled() && cfg.SecureSession.DiagnosticsExposeSummaries &&
 		strings.TrimSpace(cfg.SecureSession.DiagnosticsPathPrefix) != "" {
 		out = append(out, "secure_session_summaries")

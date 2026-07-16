@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -13,39 +14,47 @@ import (
 func TestStripOpenAIModelPrefix(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
+		name     string
 		in, want string
 	}{
-		{"openai/gpt-5.4", "gpt-5.4"},
-		{"gpt-5.3-codex", "gpt-5.3-codex"},
-		{"", ""},
-		{"auto", "auto"},
+		{name: "openai-slash", in: "openai/gpt-5.4", want: "gpt-5.4"},
+		{name: "bare-slug", in: "gpt-5.3-codex", want: "gpt-5.3-codex"},
+		{name: "empty", in: "", want: ""},
+		{name: "auto", in: "auto", want: "auto"},
 	}
 	for _, tc := range cases {
-		got := stripOpenAIModelPrefix(tc.in)
-		if got != tc.want {
-			t.Fatalf("stripOpenAIModelPrefix(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := stripOpenAIModelPrefix(tc.in)
+			if got != tc.want {
+				t.Fatalf("stripOpenAIModelPrefix(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestIsAutoModel(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
+		name string
 		in   string
 		want bool
 	}{
-		{"auto", true},
-		{"AUTO", true},
-		{"  auto  ", true},
-		{"", true},
-		{"gpt-5.4", false},
-		{"openai/auto", false},
+		{name: "auto", in: "auto", want: true},
+		{name: "AUTO", in: "AUTO", want: true},
+		{name: "padded-auto", in: "  auto  ", want: true},
+		{name: "empty", in: "", want: true},
+		{name: "gpt-5.4", in: "gpt-5.4", want: false},
+		{name: "openai-auto", in: "openai/auto", want: false},
 	}
 	for _, tc := range cases {
-		got := isAutoModel(tc.in)
-		if got != tc.want {
-			t.Fatalf("isAutoModel(%q) = %v, want %v", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isAutoModel(tc.in)
+			if got != tc.want {
+				t.Fatalf("isAutoModel(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -101,20 +110,24 @@ func TestBuildCodexCommandWithVerbosityPreservesOverridesWhenUnset(t *testing.T)
 func TestClearInvalidDefaultVerbosity(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
+		name     string
 		in, want string
 	}{
-		{"high", "high"},
-		{"HIGH", "high"},
-		{"", ""},
-		{"bogus", ""},
-		{"  medium  ", "medium"},
+		{name: "high", in: "high", want: "high"},
+		{name: "HIGH", in: "HIGH", want: "high"},
+		{name: "empty", in: "", want: ""},
+		{name: "bogus", in: "bogus", want: ""},
+		{name: "padded-medium", in: "  medium  ", want: "medium"},
 	}
 	for _, tc := range cases {
-		cfg := Config{DefaultVerbosity: lipapi.VerbosityLevel(tc.in)}
-		clearInvalidDefaultVerbosity(&cfg)
-		if got := string(cfg.DefaultVerbosity); got != tc.want {
-			t.Fatalf("clearInvalidDefaultVerbosity(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Config{DefaultVerbosity: lipapi.VerbosityLevel(tc.in)}
+			clearInvalidDefaultVerbosity(&cfg)
+			if got := string(cfg.DefaultVerbosity); got != tc.want {
+				t.Fatalf("clearInvalidDefaultVerbosity(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -195,24 +208,49 @@ func TestCheckExecutable_emptyString(t *testing.T) {
 	}
 }
 
-func TestDefaultInventoryModels(t *testing.T) {
+func TestDefaultInventoryModels_sourceMatrix(t *testing.T) {
 	t.Parallel()
-	models := defaultInventoryModels(nil)
-	if len(models) == 0 {
-		t.Fatal("default inventory is empty; expected auto + shipped fallback slugs")
+
+	cat, err := codexcatalog.LoadFallback("")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, m := range models {
-		if !strings.HasPrefix(m.CanonicalID, "openai/") {
-			t.Fatalf("CanonicalID %q should have prefix openai/", m.CanonicalID)
-		}
+	if len(cat.RoutableSlugs()) == 0 {
+		t.Fatal("expected shipped catalog slugs for discovered matrix case")
 	}
-	// The "auto" routing sentinel is always first; the rest come from the
-	// auto-discovered catalog's shipped fallback snapshot.
-	if models[0].NativeID != autoModelSentinel {
-		t.Fatalf("first model = %q, want %q", models[0].NativeID, autoModelSentinel)
+
+	tests := []struct {
+		name         string
+		cat          *codexcatalog.Catalog
+		src          codexcatalog.Source
+		wantOnlyAuto bool
+	}{
+		{name: "discovered advertises catalog slugs", cat: cat, src: codexcatalog.SourceDiscovered, wantOnlyAuto: false},
+		{name: "shipped fallback auto-only", cat: cat, src: codexcatalog.SourceShippedFallback, wantOnlyAuto: true},
+		{name: "override fallback auto-only", cat: cat, src: codexcatalog.SourceOverrideFallback, wantOnlyAuto: true},
+		{name: "nil catalog unknown auto-only", cat: nil, src: codexcatalog.SourceUnknown, wantOnlyAuto: true},
+		{name: "nil catalog discovered auto-only", cat: nil, src: codexcatalog.SourceDiscovered, wantOnlyAuto: true},
 	}
-	if len(models) < 2 {
-		t.Fatalf("default inventory has only %d models, want auto + catalog slugs", len(models))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			models := defaultInventoryModels(tt.cat, tt.src)
+			if len(models) == 0 {
+				t.Fatal("inventory empty")
+			}
+			if models[0].NativeID != autoModelSentinel || models[0].CanonicalID != "openai/"+autoModelSentinel {
+				t.Fatalf("first model = %+v, want openai/auto", models[0])
+			}
+			if tt.wantOnlyAuto {
+				if len(models) != 1 {
+					t.Fatalf("models len = %d, want auto-only", len(models))
+				}
+				return
+			}
+			if len(models) < 2 {
+				t.Fatalf("models len = %d, want auto + discovered slugs", len(models))
+			}
+		})
 	}
 }
 
@@ -244,18 +282,22 @@ func TestNew_customModelDoesNotPanic(t *testing.T) {
 func TestCommandBasename(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
+		name     string
 		in, want string
 	}{
-		{"/usr/bin/ls", "ls"},
-		{"C:\\codex.cmd", "codex.cmd"},
-		{"echo hello", "echo"},
-		{"", ""},
-		{"  ", ""},
+		{name: "unix-path", in: "/usr/bin/ls", want: "ls"},
+		{name: "windows-path", in: "C:\\codex.cmd", want: "codex.cmd"},
+		{name: "with-args", in: "echo hello", want: "echo"},
+		{name: "empty", in: "", want: ""},
+		{name: "whitespace", in: "  ", want: ""},
 	}
 	for _, tc := range cases {
-		got := commandBasename(tc.in)
-		if got != tc.want {
-			t.Fatalf("commandBasename(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := commandBasename(tc.in)
+			if got != tc.want {
+				t.Fatalf("commandBasename(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
