@@ -1,6 +1,9 @@
 package codexreasoning
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestStripEmptyHTMLCommentMarkers(t *testing.T) {
 	t.Parallel()
@@ -64,12 +67,12 @@ func TestSummarySanitizer_preservesThoughtSeparatorAcrossDeltas(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var sanitizer SummarySanitizer
-			var got string
+			var got strings.Builder
 			for _, delta := range tc.deltas {
-				got += sanitizer.SanitizeDelta(delta)
+				got.WriteString(sanitizer.SanitizeDelta(delta))
 			}
-			if got != tc.want {
-				t.Fatalf("sanitized stream = %q, want %q", got, tc.want)
+			if got.String() != tc.want {
+				t.Fatalf("sanitized stream = %q, want %q", got.String(), tc.want)
 			}
 		})
 	}
