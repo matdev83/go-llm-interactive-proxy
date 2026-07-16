@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 )
 
 // Extension keys stored in lipapi.Call.Extensions by frontend decoders.
@@ -79,7 +81,7 @@ func CaptureBodyFields(body map[string]json.RawMessage, ext map[string]json.RawM
 }
 
 // CaptureHeaders reads OpenRouter-specific HTTP headers and stores them as quoted JSON strings
-// in extensions.
+// in extensions. Invalid or over-bound HTTP-Referer / title values are omitted (not rejected).
 func CaptureHeaders(h http.Header, ext map[string]json.RawMessage) {
 	marshalString := func(v string) (json.RawMessage, bool) {
 		b, err := json.Marshal(v)
@@ -99,16 +101,28 @@ func CaptureHeaders(h http.Header, ext map[string]json.RawMessage) {
 		}
 		ext[extKey] = b
 	}
-	set("HTTP-Referer", ExtHTTPReferer)
-	if v := strings.TrimSpace(h.Get("X-OpenRouter-Title")); v != "" {
+	if v, ok := identity.AcceptClientAppURL(h.Get("HTTP-Referer")); ok {
 		if b, ok := marshalString(v); ok {
+			ext[ExtHTTPReferer] = b
+		}
+	}
+	if title, ok := acceptOpenRouterTitle(h); ok {
+		if b, ok := marshalString(title); ok {
 			ext[ExtTitle] = b
 		}
-	} else {
-		set("X-Title", ExtTitle)
 	}
 	set("X-OpenRouter-Categories", ExtCategories)
 	set("X-OpenRouter-Metadata", ExtMetadataHeader)
+}
+
+// acceptOpenRouterTitle prefers a valid modern X-OpenRouter-Title; when that
+// header is missing/blank/invalid, falls back to a valid legacy X-Title.
+func acceptOpenRouterTitle(h http.Header) (string, bool) {
+	modern := h.Get("X-OpenRouter-Title")
+	if v, ok := identity.AcceptClientAppTitle(modern); ok {
+		return v, true
+	}
+	return identity.AcceptClientAppTitle(h.Get("X-Title"))
 }
 
 // ExtraBodyExtPrefix is the extension key prefix used by OpenAI-compatible frontend adapters

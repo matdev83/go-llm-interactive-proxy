@@ -3,6 +3,7 @@ package openrouterwire_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
@@ -122,6 +123,139 @@ func TestCaptureHeaders_xTitlePrefersFull(t *testing.T) {
 
 	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "Preferred" {
 		t.Errorf("title: %s (expected Preferred over Fallback)", ext[openrouterwire.ExtTitle])
+	}
+}
+
+func TestCaptureHeaders_blankModernTitleFallsBackToXTitle(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("X-OpenRouter-Title", "   ")
+	h.Set("X-Title", "LegacyTitle")
+
+	ext := make(map[string]json.RawMessage)
+	openrouterwire.CaptureHeaders(h, ext)
+
+	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "LegacyTitle" {
+		t.Errorf("title: %s (expected LegacyTitle when modern title blank)", ext[openrouterwire.ExtTitle])
+	}
+}
+
+func TestCaptureHeaders_blankBothTitles(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("X-OpenRouter-Title", " ")
+	h.Set("X-Title", "")
+
+	ext := make(map[string]json.RawMessage)
+	openrouterwire.CaptureHeaders(h, ext)
+
+	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "" {
+		t.Errorf("expected no title, got %s", ext[openrouterwire.ExtTitle])
+	}
+}
+
+func TestCaptureHeaders_rejectsInvalidRefererAndTitle(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("HTTP-Referer", "not-a-url")
+	h.Set("X-OpenRouter-Title", "Bad\nTitle")
+	h.Set("X-OpenRouter-Categories", "ai,chat")
+	h.Set("X-OpenRouter-Metadata", `{"ok":true}`)
+
+	ext := make(map[string]json.RawMessage)
+	openrouterwire.CaptureHeaders(h, ext)
+
+	if openrouterwire.GetString(ext, openrouterwire.ExtHTTPReferer) != "" {
+		t.Fatalf("invalid referer must be omitted, got %q", openrouterwire.GetString(ext, openrouterwire.ExtHTTPReferer))
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "" {
+		t.Fatalf("invalid title must be omitted, got %q", openrouterwire.GetString(ext, openrouterwire.ExtTitle))
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtCategories) != "ai,chat" {
+		t.Fatalf("categories unchanged: %q", openrouterwire.GetString(ext, openrouterwire.ExtCategories))
+	}
+	if openrouterwire.GetString(ext, openrouterwire.ExtMetadataHeader) != `{"ok":true}` {
+		t.Fatalf("metadata unchanged: %q", openrouterwire.GetString(ext, openrouterwire.ExtMetadataHeader))
+	}
+}
+
+func TestCaptureHeaders_invalidModernTitleFallsBackToValidXTitle(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		modern string
+		legacy string
+		want   string
+	}{
+		{
+			name:   "invalid_modern_valid_legacy",
+			modern: "Bad\nTitle",
+			legacy: "LegacyOK",
+			want:   "LegacyOK",
+		},
+		{
+			name:   "valid_modern_ignores_legacy",
+			modern: "ModernOK",
+			legacy: "LegacyIgnored",
+			want:   "ModernOK",
+		},
+		{
+			name:   "invalid_both_omit",
+			modern: "Bad\nModern",
+			legacy: "Bad\nLegacy",
+			want:   "",
+		},
+		{
+			name:   "overlong_modern_valid_legacy",
+			modern: strings.Repeat("m", 257),
+			legacy: "FromLegacy",
+			want:   "FromLegacy",
+		},
+		{
+			name:   "blank_modern_valid_legacy",
+			modern: "   ",
+			legacy: "BlankModernFallback",
+			want:   "BlankModernFallback",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := http.Header{}
+			if tc.modern != "" {
+				h.Set("X-OpenRouter-Title", tc.modern)
+			}
+			if tc.legacy != "" {
+				h.Set("X-Title", tc.legacy)
+			}
+			ext := make(map[string]json.RawMessage)
+			openrouterwire.CaptureHeaders(h, ext)
+			if got := openrouterwire.GetString(ext, openrouterwire.ExtTitle); got != tc.want {
+				t.Fatalf("title=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCaptureHeaders_rejectsOverlongAndControlReferer(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("HTTP-Referer", "https://example.com/\x00")
+	ext := make(map[string]json.RawMessage)
+	openrouterwire.CaptureHeaders(h, ext)
+	if openrouterwire.GetString(ext, openrouterwire.ExtHTTPReferer) != "" {
+		t.Fatal("control-char referer must be omitted")
+	}
+}
+
+func TestCaptureHeaders_rejectsOverlongTitleFallback(t *testing.T) {
+	t.Parallel()
+	h := http.Header{}
+	h.Set("X-Title", strings.Repeat("t", 257))
+	ext := make(map[string]json.RawMessage)
+	openrouterwire.CaptureHeaders(h, ext)
+	if openrouterwire.GetString(ext, openrouterwire.ExtTitle) != "" {
+		t.Fatal("overlong X-Title fallback must be omitted")
 	}
 }
 

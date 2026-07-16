@@ -15,6 +15,7 @@ This index tracks all structured pages in the vault.
 - [[testing-strategy]]: Testing philosophy, suite topology, build tags, and high-value test targets.
 - [[controlplane-evidence-four-layer-pattern]]: Audit property requiring every control-plane evidence guard to be regression-locked at SDK, core, normalizer, and recorder layers — see docs/controlplane-evidence.md for the full coverage map.
 - [[security-auth]]: Startup posture, transport auth, secure sessions, and credential management.
+- [[proxy-identity]]: A-leg Server and B-leg User-Agent / OpenRouter attribution carriers, modes, allowlist, and exclusions.
 - [[tech-stack]]: Go runtime, dependencies, tooling, and structural patterns.
 - [[agent-skills]]: Skill-to-task mapping for golang-specific agent skill loading, hexagonal architecture enforcement, and registered skill inventory.
 - [[okf-knowledge-process]]: OKF-compatible operating rules for EchoesVault concept files, discovery, linking, and agent access.

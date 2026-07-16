@@ -1,0 +1,528 @@
+package stdhttp
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
+)
+
+func assertServerHeader(t *testing.T, h http.Header, wantPresent bool, wantValue string) {
+	t.Helper()
+	_, present := h["Server"]
+	if present != wantPresent {
+		t.Fatalf("Server present=%v want %v (Get=%q)", present, wantPresent, h.Get("Server"))
+	}
+	if wantPresent && h.Get("Server") != wantValue {
+		t.Fatalf("Server=%q want %q", h.Get("Server"), wantValue)
+	}
+}
+
+func TestStackHTTPHandler_serverIdentity_modes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		server      identity.FieldPolicy
+		wantPresent bool
+		wantValue   string
+	}{
+		{
+			name:        "ID-050_proxy_default_literal",
+			server:      identity.FieldPolicy{},
+			wantPresent: true,
+			wantValue:   "go-llm-interactive-proxy",
+		},
+		{
+			name:        "custom",
+			server:      identity.FieldPolicy{Mode: identity.ModeCustom, Value: "StackGW"},
+			wantPresent: true,
+			wantValue:   "StackGW",
+		},
+		{
+			name:        "drop",
+			server:      identity.FieldPolicy{Mode: identity.ModeDrop},
+			wantPresent: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mux := http.NewServeMux()
+			mux.HandleFunc("/ok", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Server", "inner-conflict")
+				w.WriteHeader(http.StatusNoContent)
+			})
+			cfg := &config.Config{
+				Logging:       config.LoggingConfig{AccessLog: false},
+				Observability: config.ObservabilityConfig{Tracing: config.TracingConfig{Enabled: false}},
+				Identity: identity.Config{
+					Downstream: identity.DownstreamPolicy{Server: tc.server},
+					Upstream: identity.UpstreamPolicy{
+						UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "UpstreamUA/9"},
+					},
+				},
+			}
+			h := stackHTTPHandler(stackHTTPInput{
+				Cfg: cfg, Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+				TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+			})
+			req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+			req.Header.Set("Server", "client-spoofed-server")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status=%d", rec.Code)
+			}
+			assertServerHeader(t, rec.Result().Header, tc.wantPresent, tc.wantValue)
+		})
+	}
+}
+
+func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
+	t.Parallel()
+	cfgBase := func() *config.Config {
+		return &config.Config{
+			Logging:       config.LoggingConfig{AccessLog: false},
+			Observability: config.ObservabilityConfig{Tracing: config.TracingConfig{Enabled: false}},
+			Identity: identity.Config{
+				Downstream: identity.DownstreamPolicy{
+					Server: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "ErrGW"},
+				},
+			},
+		}
+	}
+
+	t.Run("not_found", func(t *testing.T) {
+		t.Parallel()
+		mux := http.NewServeMux()
+		h := stackHTTPHandler(stackHTTPInput{
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+		})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/missing", nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status=%d", rec.Code)
+		}
+		assertServerHeader(t, rec.Result().Header, true, "ErrGW")
+	})
+
+	t.Run("method_not_allowed_via_mux", func(t *testing.T) {
+		t.Parallel()
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /only-get", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+		h := stackHTTPHandler(stackHTTPInput{
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+		})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/only-get", nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status=%d want 405", rec.Code)
+		}
+		assertServerHeader(t, rec.Result().Header, true, "ErrGW")
+	})
+
+	t.Run("recovery_500", func(t *testing.T) {
+		t.Parallel()
+		mux := http.NewServeMux()
+		mux.HandleFunc("/panic", func(http.ResponseWriter, *http.Request) { panic("boom") })
+		h := stackHTTPHandler(stackHTTPInput{
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+		})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status=%d", rec.Code)
+		}
+		assertServerHeader(t, rec.Result().Header, true, "ErrGW")
+	})
+
+	t.Run("outer_recovery_500_via_testOuterWrap", func(t *testing.T) {
+		t.Parallel()
+		mux := http.NewServeMux()
+		mux.HandleFunc("/ok", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})
+		h := stackHTTPHandler(stackHTTPInput{
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: &runtimebundle.Built{},
+			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+			testOuterWrap: func(http.Handler) http.Handler {
+				return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+					panic("outer-layer-boom")
+				})
+			},
+		})
+		srv := httptest.NewServer(h)
+		t.Cleanup(srv.Close)
+		res, err := http.Get(srv.URL + "/ok")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		if res.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("status=%d", res.StatusCode)
+		}
+		assertServerHeader(t, res.Header, true, "ErrGW")
+	})
+
+	t.Run("auth_reject_403", func(t *testing.T) {
+		t.Parallel()
+		mux := http.NewServeMux()
+		mux.HandleFunc("/ok", func(w http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner must not run")
+		})
+		built := &runtimebundle.Built{
+			HTTPAuthProviders: []httpauth.Provider{
+				rejectAuthProvider{status: http.StatusForbidden, body: []byte("denied")},
+			},
+		}
+		h := stackHTTPHandler(stackHTTPInput{
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: built,
+			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+		})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ok", nil))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		assertServerHeader(t, rec.Result().Header, true, "ErrGW")
+	})
+
+	t.Run("auth_reject_401", func(t *testing.T) {
+		t.Parallel()
+		mux := http.NewServeMux()
+		built := &runtimebundle.Built{
+			HTTPAuthProviders: []httpauth.Provider{
+				rejectAuthProvider{status: http.StatusUnauthorized, body: []byte("auth")},
+			},
+		}
+		h := stackHTTPHandler(stackHTTPInput{
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Built: built,
+			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
+		})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status=%d", rec.Code)
+		}
+		assertServerHeader(t, rec.Result().Header, true, "ErrGW")
+	})
+}
+
+type rejectAuthProvider struct {
+	status int
+	body   []byte
+}
+
+func (p rejectAuthProvider) Authenticate(_ context.Context, _ http.ResponseWriter, _ *http.Request) (httpauth.AuthenticationResult, error) {
+	return httpauth.AuthenticationResult{
+		Type:       httpauth.TypeReject,
+		HTTPStatus: p.status,
+		Body:       p.body,
+	}, nil
+}
+
+func TestNewStandardHandler_serverIdentity_frontends(t *testing.T) {
+	t.Parallel()
+	h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+		Downstream: identity.DownstreamPolicy{
+			Server: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "FrontGW"},
+		},
+		Upstream: identity.UpstreamPolicy{
+			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "BLegUA/1"},
+		},
+	}, nil)
+	t.Cleanup(cleanup)
+
+	cases := []struct {
+		name            string
+		method          string
+		path            string
+		body            string
+		stream          bool
+		wantContentType string
+		wantBodySubstr  []string
+	}{
+		{
+			name:           "openai_responses_nonstream",
+			method:         http.MethodPost,
+			path:           "/v1/responses",
+			body:           `{"model":"model","stream":false,"input":[{"role":"user","content":"ping"}]}`,
+			wantBodySubstr: []string{"server-id-ok"},
+		},
+		{
+			name:            "openai_responses_stream",
+			method:          http.MethodPost,
+			path:            "/v1/responses",
+			body:            `{"model":"model","stream":true,"input":[{"role":"user","content":"ping"}]}`,
+			stream:          true,
+			wantContentType: "text/event-stream",
+			wantBodySubstr:  []string{"data:", "server-id-ok"},
+		},
+		{
+			name:            "openai_legacy_stream",
+			method:          http.MethodPost,
+			path:            "/v1/chat/completions",
+			body:            `{"model":"model","stream":true,"messages":[{"role":"user","content":"ping"}]}`,
+			stream:          true,
+			wantContentType: "text/event-stream",
+			wantBodySubstr:  []string{"data:", "server-id-ok"},
+		},
+		{
+			name:            "anthropic_stream",
+			method:          http.MethodPost,
+			path:            "/v1/messages",
+			body:            `{"model":"model","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"ping"}]}`,
+			stream:          true,
+			wantContentType: "text/event-stream",
+			wantBodySubstr:  []string{"data:", "server-id-ok"},
+		},
+		{
+			name:            "gemini_stream",
+			method:          http.MethodPost,
+			path:            "/v1beta/models/model:streamGenerateContent",
+			body:            `{"contents":[{"role":"user","parts":[{"text":"ping"}]}]}`,
+			stream:          true,
+			wantContentType: "text/event-stream",
+			wantBodySubstr:  []string{"data:", "server-id-ok"},
+		},
+		{
+			name:   "openai_responses_decode_400",
+			method: http.MethodPost,
+			path:   "/v1/responses",
+			body:   `{`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer sk-test")
+			req.Header.Set("Server", "client-spoof")
+			if strings.Contains(tc.path, "messages") {
+				req.Header.Set("x-api-key", "sk-ant-test")
+				req.Header.Set("anthropic-version", "2023-06-01")
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			assertServerHeader(t, rec.Result().Header, true, "FrontGW")
+			if tc.name == "openai_responses_decode_400" {
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+				}
+				return
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if tc.stream {
+				ct := rec.Header().Get("Content-Type")
+				if !strings.Contains(ct, tc.wantContentType) {
+					t.Fatalf("Content-Type=%q want family %q body=%s", ct, tc.wantContentType, rec.Body.String())
+				}
+			}
+			for _, sub := range tc.wantBodySubstr {
+				if !bytes.Contains(rec.Body.Bytes(), []byte(sub)) {
+					t.Fatalf("body missing %q; body=%s", sub, rec.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestNewStandardHandler_serverIdentity_realHTTPServer_modes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		server      identity.FieldPolicy
+		wantPresent bool
+		wantValue   string
+	}{
+		{
+			name:        "proxy",
+			server:      identity.FieldPolicy{Mode: identity.ModeProxy},
+			wantPresent: true,
+			wantValue:   "go-llm-interactive-proxy",
+		},
+		{
+			name:        "custom",
+			server:      identity.FieldPolicy{Mode: identity.ModeCustom, Value: "WireGW"},
+			wantPresent: true,
+			wantValue:   "WireGW",
+		},
+		{
+			name:        "drop",
+			server:      identity.FieldPolicy{Mode: identity.ModeDrop},
+			wantPresent: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+				Downstream: identity.DownstreamPolicy{Server: tc.server},
+				Upstream: identity.UpstreamPolicy{
+					UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "ShouldNotAffect"},
+				},
+			}, nil)
+			t.Cleanup(cleanup)
+			srv := httptest.NewServer(h)
+			t.Cleanup(srv.Close)
+
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/responses", strings.NewReader(
+				`{"model":"model","stream":false,"input":[{"role":"user","content":"ping"}]}`,
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer sk-test")
+			req.Header.Set("Server", "client-spoof")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			body, _ := io.ReadAll(res.Body)
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d body=%s", res.StatusCode, body)
+			}
+			if !bytes.Contains(body, []byte("server-id-ok")) {
+				t.Fatalf("body missing server-id-ok: %s", body)
+			}
+			assertServerHeader(t, res.Header, tc.wantPresent, tc.wantValue)
+		})
+	}
+}
+
+func TestNewStandardHandler_serverIdentity_independentOfUpstreamAndDrop(t *testing.T) {
+	t.Parallel()
+	h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+		Downstream: identity.DownstreamPolicy{
+			Server: identity.FieldPolicy{Mode: identity.ModeDrop},
+		},
+		Upstream: identity.UpstreamPolicy{
+			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "ShouldNotAffectALeg"},
+		},
+	}, nil)
+	t.Cleanup(cleanup)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
+		`{"model":"model","stream":false,"input":[{"role":"user","content":"ping"}]}`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer sk-test")
+	req.Header.Set("Server", "client-spoof")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertServerHeader(t, rec.Result().Header, false, "")
+}
+
+func TestNewStandardHandler_serverIdentity_independentOfBackendWinner(t *testing.T) {
+	t.Parallel()
+	caps := lipapi.NewBackendCaps(lipapi.CapabilityStreaming)
+	open := func(text string) func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+		return func(_ context.Context, _ lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+			return lipapi.NewFixedEventStream([]lipapi.Event{
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventTextDelta, Delta: text},
+				{Kind: lipapi.EventResponseFinished},
+			}), nil
+		}
+	}
+	ex := testkit.NewStubExecutor(t, caps, "unused", nil)
+	ex.Backends = map[string]execbackend.Backend{
+		"stub-a": {Caps: caps, Open: open("from-a")},
+		"stub-b": {Caps: caps, Open: open("from-b")},
+	}
+	h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+		Downstream: identity.DownstreamPolicy{
+			Server: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "SameALeg"},
+		},
+	}, ex)
+	t.Cleanup(cleanup)
+
+	for _, route := range []string{"stub-a:model", "stub-b:model"} {
+		t.Run(route, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
+				`{"model":"model","stream":false,"input":[{"role":"user","content":"ping"}]}`,
+			))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer sk-test")
+			req.Header.Set("X-LIP-Route", route)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			assertServerHeader(t, rec.Result().Header, true, "SameALeg")
+			wantText := "from-a"
+			if strings.HasPrefix(route, "stub-b") {
+				wantText = "from-b"
+			}
+			if !strings.Contains(rec.Body.String(), wantText) {
+				t.Fatalf("body=%s want %q from selected backend", rec.Body.String(), wantText)
+			}
+		})
+	}
+}
+
+func newServerIdentityFrontendHandler(t *testing.T, idCfg identity.Config, ex *runtime.Executor) (http.Handler, func()) {
+	t.Helper()
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+	if ex == nil {
+		ex = testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "server-id-ok", nil)
+	}
+	cfg := &config.Config{
+		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing:    config.RoutingConfig{DefaultRoute: "stub:model", MaxAttempts: 3},
+		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Identity:   idCfg,
+		Logging:    config.LoggingConfig{AccessLog: false},
+		Plugins: config.PluginsConfig{
+			Frontends: []config.PluginConfig{
+				{ID: "openai-responses", Enabled: true},
+				{ID: "openai-legacy", Enabled: true},
+				{ID: "anthropic", Enabled: true},
+				{ID: "gemini", Enabled: true},
+			},
+		},
+	}
+	built := &runtimebundle.Built{Executor: ex, PluginRegistry: reg}
+	app := mustRuntimeApp(t, cfg)
+	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
+	if err != nil {
+		t.Fatalf("NewStandardHandler: %v", err)
+	}
+	return h, func() { cleanup(context.Background()) }
+}

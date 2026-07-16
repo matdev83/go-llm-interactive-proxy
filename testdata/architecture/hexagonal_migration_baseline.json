@@ -30,6 +30,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/diag",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/http",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime",
@@ -44,6 +45,7 @@
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
       ]
     },
@@ -53,7 +55,8 @@
       "allowed_internal_core_imports": [
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/config",
-        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
       ]
     },
     {
@@ -134,6 +137,7 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/identity",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle",

@@ -95,7 +95,11 @@ var lineBudgets = []struct {
 	// Raised from 50050 to 50300 for issue #146/#149 model-registry perf and
 	// inventory completion: publish-time OpenAI list JSON, content fingerprint,
 	// parallel inventory fetch, and refresh overlap guard in modelregistry.
-	{"internal/core", 50300},
+	// Raised from 50300 to 50700 for issue #147 identity foundation: pure
+	// identity policy model, defaults/validation/merge, and AcceptClientUserAgent.
+	// Raised for issue #147 OpenRouter attribution: AcceptClientAppURL/AppTitle.
+	// Raised from 50700 to 50900 for issue #147 gap closure: SpecBundleIdentityScenarios.
+	{"internal/core", 50900},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

@@ -750,3 +750,61 @@ func TestDecodeCreate_extraBodyFieldsCaptured(t *testing.T) {
 		t.Error("known field 'model' should not be captured as extra_body")
 	}
 }
+
+func TestDecodeCreate_capturesClientUserAgent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","input":"hi"}`)
+	h := http.Header{}
+	h.Set("User-Agent", "ResponsesClient/1.0")
+	h.Set("Authorization", "Bearer sk-secret")
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "ResponsesClient/1.0" {
+		t.Fatalf("ClientUserAgent: %q", d.Call.Invocation.ClientUserAgent)
+	}
+	if h.Get("Authorization") != "Bearer sk-secret" {
+		t.Fatal("headers mutated")
+	}
+}
+
+func TestDecodeCreate_credentialsOnlyLeavesUserAgentEmpty(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","input":"hi"}`)
+	h := http.Header{}
+	h.Set("Authorization", "Bearer sk-secret")
+	h.Set("Cookie", "session=abc")
+	h.Set("HTTP-Referer", "https://example.com/")
+	h.Set("X-Title", "Example")
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "" {
+		t.Fatalf("ClientUserAgent: %q", d.Call.Invocation.ClientUserAgent)
+	}
+}
+
+func TestDecodeCreate_invalidUserAgentDropped(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","input":"hi"}`)
+	h := http.Header{}
+	h.Set("User-Agent", "bad\ragent")
+	d, err := openairesponses.DecodeCreateRequest(body, openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "" {
+		t.Fatalf("invalid UA should be dropped, got %q", d.Call.Invocation.ClientUserAgent)
+	}
+}

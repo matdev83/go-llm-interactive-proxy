@@ -27,14 +27,17 @@ type stackHTTPInput struct {
 	testOuterWrap func(http.Handler) http.Handler
 }
 
-// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner: final
-// outer recovery, optional OpenTelemetry HTTP, optional Prometheus, trace + request ID, access log,
-// inner recovery, transport auth, route mux). Innermost is the shared [http.ServeMux] from mounting.
+// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner:
+// DownstreamServerMiddleware, final outer recovery, optional OpenTelemetry HTTP, optional
+// Prometheus, trace + request ID, access log, inner recovery, transport auth, route mux).
+// Innermost is the shared [http.ServeMux] from mounting.
 //
 // Panic containment: [RecoveryMiddleware] remains between access logging and transport auth so
 // access logs and HTTP metrics still observe inner handler panics as 5xx. [outerRecoveryMiddleware]
 // wraps the full composed stack as a last resort for panics in outer layers (access log, metrics,
-// tracing, or future outer wrappers).
+// tracing, or future outer wrappers). [DownstreamServerMiddleware] is outermost and uses a thin
+// commit-time ResponseWriter wrapper so Server policy wins on WriteHeader/Write/Flush (including
+// HTTP 102 hold-alive) while preserving Flusher and ResponseController Unwrap.
 func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	cfg, log, built, traceGen, inner, httpProm := in.Cfg, in.Log, in.Built, in.TraceGen, in.Inner, in.HTTPProm
 	if built == nil {
@@ -53,5 +56,6 @@ func stackHTTPHandler(in stackHTTPInput) http.Handler {
 	if in.testOuterWrap != nil {
 		h = in.testOuterWrap(h)
 	}
-	return outerRecoveryMiddleware(log, h)
+	h = outerRecoveryMiddleware(log, h)
+	return DownstreamServerMiddleware(cfg, h)
 }

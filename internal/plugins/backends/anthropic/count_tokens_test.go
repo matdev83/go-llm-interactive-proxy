@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/httpidentity"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -262,6 +264,32 @@ func textCall(text string) lipapi.Call {
 }
 
 var _ app.ProviderCounter = (*TokenCounter)(nil)
+
+func TestTokenCounterCountCall_forcesProxyUAUnderPassthroughDespiteCallContext(t *testing.T) {
+	t.Parallel()
+	var sawUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"input_tokens":3}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	wrapped := httpidentity.WrapClient(srv.Client(), identity.FieldPolicy{Mode: identity.ModePassthrough})
+	counter := NewTokenCounter(Config{BaseURL: srv.URL, APIKey: "secret", HTTPClient: wrapped})
+	ctx := identity.WithClientUserAgent(context.Background(), "ClientMustNotAppear/9")
+	_, err := counter.CountCall(ctx, app.CountCallInput{
+		Backend: ID,
+		Model:   "claude-3-5-sonnet-latest",
+		Call:    textCall("hello"),
+	})
+	if err != nil {
+		t.Fatalf("CountCall() error = %v", err)
+	}
+	if sawUA != "go-llm-interactive-proxy" {
+		t.Fatalf("count User-Agent=%q want go-llm-interactive-proxy", sawUA)
+	}
+}
 
 func TestTokenCounterDoesNotExposeSecretsInErrors(t *testing.T) {
 	t.Parallel()

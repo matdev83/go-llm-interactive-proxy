@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,6 +46,10 @@ type Config struct {
 	// Metering is the optional durable metering journal (Phase 5). Disabled by
 	// default so Executor.MeteringRecorder stays nil until explicitly enabled.
 	Metering MeteringConfig `yaml:"metering"`
+	// Identity controls proxy-wide upstream and downstream identity presentation.
+	// Defaults identify as LIP (not client passthrough). Backend connector wiring
+	// and A-leg Server middleware are applied in later integration waves.
+	Identity identity.Config `yaml:"identity"`
 	// ConfigDir is the directory containing the loaded config file. Set by [LoadFile];
 	// empty when Config is constructed without loading from disk.
 	ConfigDir string `yaml:"-"`

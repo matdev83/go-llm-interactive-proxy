@@ -83,6 +83,10 @@ Session authority is proxy-owned once traffic enters the runtime:
 - resume tokens and authoritative session IDs are treated as security-sensitive wire values,
 - frontends map session denials into protocol-legal, client-safe errors while preserving operator diagnostics.
 
+Proxy **product identity** (issue #147) is separate from session authority: A-leg `Server` and B-leg
+`User-Agent` / OpenRouter attribution are selected carriers only (not an arbitrary header tunnel).
+Defaults identify as LIP product proxy identity. See `docs/proxy-identity.md`.
+
 Any spec that changes session wire fields, principal propagation, or resume behavior must revalidate secure-session policy,
 frontend parity, diagnostics redaction, and B2BUA lineage.
 

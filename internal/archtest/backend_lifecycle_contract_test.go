@@ -37,6 +37,8 @@ func TestOfficialBackendsHaveLifecycleContractTests(t *testing.T) {
 		"openaiusage":   {},
 		"opencodetest":  {},
 		"protocols":     {},
+		// Shared final-wire User-Agent decorator for approved connectors (not a B-leg itself).
+		"httpidentity": {},
 	}
 	entries, err := os.ReadDir(backendsDir)
 	if err != nil {

@@ -140,6 +140,11 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
 	$(FUZZ_WRAPPER) -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
 	$(FUZZ_WRAPPER) -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
+	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientAppURL$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientAppTitle$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
+	$(FUZZ_WRAPPER) -fuzz=FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
 
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...

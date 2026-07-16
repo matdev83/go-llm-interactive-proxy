@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
@@ -119,6 +120,10 @@ func BackendFor(tb testing.TB, backendID, upstreamBaseURL string, httpClient *ht
 			APIKey:        "sk-or-test",
 			HTTPClient:    httpClient,
 			SDKMaxRetries: &zero,
+			// Explicit ModeProxy: Config AppURL/AppTitle are already-resolved
+			// effective policies (empty Mode also means ModeProxy).
+			AppURL:   identity.FieldPolicy{Mode: identity.ModeProxy},
+			AppTitle: identity.FieldPolicy{Mode: identity.ModeProxy},
 		})
 	case nvidia.ID:
 		zero := 0

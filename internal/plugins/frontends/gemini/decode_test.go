@@ -2,6 +2,7 @@ package gemini_test
 
 import (
 	"encoding/base64"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -529,5 +530,45 @@ func TestDecodeGenerateContent_functionResponse_missingName(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestDecodeGenerateContent_capturesClientUserAgent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"ping"}]}]}`)
+	h := http.Header{}
+	h.Set("User-Agent", "GeminiClient/4.0")
+	h.Set("Authorization", "Bearer sk-secret")
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "GeminiClient/4.0" {
+		t.Fatalf("ClientUserAgent: %q", d.Call.Invocation.ClientUserAgent)
+	}
+	if h.Get("Authorization") != "Bearer sk-secret" {
+		t.Fatal("headers mutated")
+	}
+}
+
+func TestDecodeGenerateContent_invalidUserAgentDropped(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"ping"}]}]}`)
+	h := http.Header{}
+	h.Set("User-Agent", "bad\nagent")
+	d, err := gemini.DecodeGenerateContentRequest(body, gemini.DecodeOptions{
+		RouteSelector: "stub:gemini-2.0-flash",
+		Model:         "gemini-2.0-flash",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "" {
+		t.Fatalf("invalid UA should be dropped, got %q", d.Call.Invocation.ClientUserAgent)
 	}
 }

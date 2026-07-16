@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
@@ -536,6 +537,8 @@ func (e *Executor) openPlannedCandidate(
 	defer openSpan.End()
 	openStart := time.Now()
 	cleanupAuthority.backendAttempted.Store(true)
+	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
+	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
 		return be.Open(openCtx, wireCall, c)
 	})

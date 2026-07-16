@@ -61,6 +61,11 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzMapSessionUpdateToEvents` | `internal/plugins/backends/acp` | ACP session/update map |
 | `FuzzMergeHandshakeProfileExtensions` | `internal/plugins/backends/acp` | Handshake extensions + session id |
 | `FuzzHookMutationValidators` | `internal/core/hooks` | Post-hook call + event validation |
+| `FuzzAcceptClientUserAgent` | `internal/core/identity` | User-Agent accept bounds / controls |
+| `FuzzAcceptClientAppURL` | `internal/core/identity` | OpenRouter app URL accept shape |
+| `FuzzAcceptClientAppTitle` | `internal/core/identity` | OpenRouter app title accept bounds |
+| `FuzzValidateIdentityYAML` | `internal/core/identity` | Identity YAML decode + Validate |
+| `FuzzCaptureClientUserAgent` | `internal/plugins/frontends/identitywire` | Frontend UA capture into invocation |
 
 ## Time budget
 

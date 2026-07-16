@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openailegacy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -19,7 +20,7 @@ type openAIHostedYAML struct {
 	DefaultVerbosity string `yaml:"default_verbosity"`
 }
 
-func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, idCfg identity.Config) (execbackend.Backend, error) {
 	var y openAIHostedYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: %w", err)
@@ -30,18 +31,22 @@ func backendOpenAIResponses(n yaml.Node, upstream *http.Client, keys UpstreamAPI
 	if err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openairesponses backend config: default_verbosity: %w", err)
 	}
+	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "openairesponses backend config")
+	if err != nil {
+		return execbackend.Backend{}, err
+	}
 	cfg := openairesponses.Config{
 		BaseURL:          base,
 		APIKey:           primaryKey,
 		APIKeys:          ek,
 		Credentials:      hostedCredentials(y.Credentials),
-		HTTPClient:       resolveUpstreamHTTP(upstream),
+		HTTPClient:       httpClient,
 		DefaultVerbosity: verbosity,
 	}
 	return applyConfiguredModelInventory(openairesponses.New(cfg), y.Models)
 }
 
-func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, idCfg identity.Config) (execbackend.Backend, error) {
 	var y openAIHostedYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: %w", err)
@@ -52,12 +57,16 @@ func backendOpenAILegacy(n yaml.Node, upstream *http.Client, keys UpstreamAPIKey
 	if err != nil {
 		return execbackend.Backend{}, fmt.Errorf("openailegacy backend config: default_verbosity: %w", err)
 	}
+	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "openailegacy backend config")
+	if err != nil {
+		return execbackend.Backend{}, err
+	}
 	cfg := openailegacy.Config{
 		BaseURL:          base,
 		APIKey:           primaryKey,
 		APIKeys:          ek,
 		Credentials:      hostedCredentials(y.Credentials),
-		HTTPClient:       resolveUpstreamHTTP(upstream),
+		HTTPClient:       httpClient,
 		DefaultVerbosity: verbosity,
 	}
 	return applyConfiguredModelInventory(openailegacy.New(cfg), y.Models)

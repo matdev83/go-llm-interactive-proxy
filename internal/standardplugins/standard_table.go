@@ -165,20 +165,20 @@ func StandardBundle() Bundle {
 // StandardBackendBundle returns the standard backend table with environment/default keys already bound.
 func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 	return Bundle{Backends: []BackendRegistration{
-		{ID: openairesponses.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenAIResponses(n, upstream, keys)
+		{ID: openairesponses.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenAIResponses(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: openailegacy.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenAILegacy(n, upstream, keys)
+		{ID: openailegacy.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenAILegacy(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendAnthropic(n, upstream, keys)
+		{ID: anthropic.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendAnthropic(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendGemini(n, upstream, keys)
+		{ID: gemini.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendGemini(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendBedrock(n, upstream)
+		{ID: bedrock.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendBedrock(n, upstream, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialWorkload}},
 		{ID: codexappserver.ID, Factory: func(n yaml.Node, _ *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendCodexAppServer(n, deps.CodexModelCatalog, deps.CodexModelCatalogSource)
@@ -195,14 +195,14 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: agycliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendAGYCLIACP(n, nil)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
-		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendOpenRouter(n, upstream, keys)
+		{ID: openrouter.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendOpenRouter(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendNvidia(n, upstream, keys)
+		{ID: nvidia.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendNvidia(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
-		{ID: huggingface.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
-			return backendHuggingface(n, upstream, keys)
+		{ID: huggingface.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendHuggingface(n, upstream, keys, deps.Identity)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic}},
 		{ID: opencodego.ID, Factory: func(n yaml.Node, upstream *http.Client, deps pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendOpenCodeGo(n, upstream, keys, deps.ModelVendorResolver)
