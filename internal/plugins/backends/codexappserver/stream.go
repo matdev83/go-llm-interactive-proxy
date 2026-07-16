@@ -27,9 +27,10 @@ import (
 type codexStream struct {
 	*acp.NDJSONStreamBase
 
-	cli       *codexClient
-	turnRPCID int64
-	srv       *codexServerRequestHandler
+	cli                       *codexClient
+	turnRPCID                 int64
+	srv                       *codexServerRequestHandler
+	reasoningSummarySanitizer codexreasoning.SummarySanitizer
 }
 
 func newCodexStream(
@@ -114,11 +115,15 @@ func (s *codexStream) mapNotification(probe map[string]any) ([]lipapi.Event, err
 
 	case "item/reasoning/summaryTextDelta":
 		delta, _ := params["delta"].(string)
-		delta = codexreasoning.StripEmptyHTMLCommentMarkers(delta)
+		delta = s.reasoningSummarySanitizer.SanitizeDelta(delta)
 		if delta == "" {
 			return nil, nil
 		}
 		return []lipapi.Event{{Kind: lipapi.EventReasoningDelta, Delta: delta}}, nil
+
+	case "item/reasoning/summaryPartAdded":
+		s.reasoningSummarySanitizer.StartSummaryPart()
+		return nil, nil
 
 	case "item/reasoning/textDelta":
 		delta, _ := params["delta"].(string)
@@ -134,13 +139,18 @@ func (s *codexStream) mapNotification(probe map[string]any) ([]lipapi.Event, err
 		}
 		return []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: text}}, nil
 
+	case "turn/started":
+		s.reasoningSummarySanitizer.Reset()
+		return nil, nil
+
 	case "turn/completed":
+		s.reasoningSummarySanitizer.Reset()
 		return []lipapi.Event{{Kind: lipapi.EventResponseFinished}}, nil
 
-	case "item/started", "turn/started", "thread/started",
+	case "item/started", "thread/started",
 		"item/commandExecution/outputDelta", "item/fileChange/outputDelta",
 		"item/plan/delta", "turn/diff/updated", "thread/tokenUsage/updated",
-		"serverRequest/resolved", "item/reasoning/summaryPartAdded":
+		"serverRequest/resolved":
 		return nil, nil
 
 	default:
