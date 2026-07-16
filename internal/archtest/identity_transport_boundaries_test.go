@@ -255,7 +255,9 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 	dir := filepath.Join(root, "internal", "standardplugins")
 	src := readStandardpluginsProductionGo(t, dir)
 
-	// Each approved connector factory must resolve identity HTTP (literal allowlist).
+	// Each approved connector factory must wrap identity HTTP (literal allowlist).
+	// OpenRouter inlines MergeUpstream+WrapClient so it can also bind AppURL/AppTitle;
+	// other approved factories use resolveIdentityHTTP.
 	wantResolve := []struct {
 		id  string
 		fn  string
@@ -266,7 +268,7 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		{id: "anthropic", fn: "backendAnthropic", lit: `resolveIdentityHTTP(upstream, idCfg, n, "anthropic backend config")`},
 		{id: "gemini", fn: "backendGemini", lit: `resolveIdentityHTTP(upstream, idCfg, n, "gemini backend config")`},
 		{id: "bedrock", fn: "backendBedrock", lit: `resolveIdentityHTTP(upstream, idCfg, n, "bedrock backend config")`},
-		{id: "openrouter", fn: "backendOpenRouter", lit: `resolveIdentityHTTP(upstream, idCfg, n, "openrouter backend config")`},
+		{id: "openrouter", fn: "backendOpenRouter", lit: `httpidentity.WrapClient(resolveUpstreamHTTP(upstream), eff.UserAgent)`},
 		{id: "nvidia", fn: "backendNvidia", lit: `resolveIdentityHTTP(upstream, idCfg, n, "nvidia backend config")`},
 		{id: "huggingface", fn: "backendHuggingface", lit: `resolveIdentityHTTP(upstream, idCfg, n, "huggingface backend config")`},
 	}
@@ -281,7 +283,7 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		if body == "" {
 			t.Fatalf("%s (%s): factory not found in standardplugins production sources", row.id, row.fn)
 		}
-		if !strings.Contains(src, row.lit) {
+		if !strings.Contains(body, row.lit) {
 			t.Fatalf("%s (%s): missing identity resolve literal %q", row.id, row.fn, row.lit)
 		}
 	}
@@ -313,6 +315,9 @@ func TestIdentityTransport_approvedFactoriesCallResolveIdentityHTTP(t *testing.T
 		}
 		if strings.Contains(body, "resolveIdentityHTTP") {
 			t.Fatalf("excluded factory %s must not call resolveIdentityHTTP", fn)
+		}
+		if strings.Contains(body, "httpidentity.WrapClient") {
+			t.Fatalf("excluded factory %s must not call httpidentity.WrapClient", fn)
 		}
 		if strings.Contains(body, "deps.Identity") {
 			t.Fatalf("excluded factory %s must not reference deps.Identity", fn)
