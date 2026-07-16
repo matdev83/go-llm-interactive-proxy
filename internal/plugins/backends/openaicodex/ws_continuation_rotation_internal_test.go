@@ -76,7 +76,7 @@ func TestWSContinuationRotation_preservesFullPayloadAcrossAccounts(t *testing.T)
 	// Reconstruct the exact payload openManagedAccountLoop will build, so the seeded
 	// continuation entry for account A has matching Instructions/Tools/PromptCacheKey
 	// fingerprints and is actually applied on the first attempt.
-	seedEnv, err := prepareCodexOpenEnv(context.Background(), &cfg, call, cand, policy)
+	seedEnv, err := prepareCodexOpenEnv(context.Background(), &cfg, call, cand, policy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestWSContinuationRotation_preservesFullPayloadAcrossAccounts(t *testing.T)
 	continuation := newWSContinuationStore(time.Minute, 8)
 	continuation.record(&cfgA, call, basePayload, "resp_a")
 
-	es, err := openManagedWS(context.Background(), &cfg, store, call, cand, policy, nil, newWSSessionStore(), continuation)
+	es, err := openManagedWS(context.Background(), &cfg, store, call, cand, policy, nil, newWSSessionStore(), continuation, nil)
 	if err != nil {
 		t.Fatalf("openManagedWS: %v", err)
 	}

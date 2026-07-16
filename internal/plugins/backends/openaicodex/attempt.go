@@ -18,13 +18,17 @@ type codexOpenEnv struct {
 	payload           Payload
 	originalModel     string
 	convID            string
+	turnKey           string
+	turnNo            int
 	inputFingerprints []string
 	client            *http.Client
 	endpoint          string
 	downgrade         downgradePolicy
+	turns             *sessionTurnCounter
+	turnReserved      bool
 }
 
-func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy) (*codexOpenEnv, error) {
+func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, cand routing.AttemptCandidate, policy downgradePolicy, turns *sessionTurnCounter) (*codexOpenEnv, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("%s: %w", ID, lipapi.ErrNilContext)
 	}
@@ -32,11 +36,20 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 	if err != nil {
 		return nil, err
 	}
-	logPayloadShape(ctx, &call, payload)
 	originalModel := normalizeCodexModel(cand.Primary.Model)
 	inputFingerprints := fingerprintInputItems(payload.Input)
 	convID := conversationIDForPayloadWithFingerprints(call, originalModel, payload, inputFingerprints)
+	turnKey := sessionTurnKey(call, convID)
 	payload.PromptCacheKey = convID
+	turnNo := 0
+	reserved := false
+	if turns != nil && verbosityTurnsEnabled(*cfg) {
+		turnNo = turns.reserveTurn(turnKey)
+		reserved = turnNo > 0
+	}
+	applyEarlySessionVerbosityBump(&payload, call, *cfg, turnNo)
+	applyMidSessionVerbosityBump(&payload, call, *cfg, turnNo)
+	logPayloadShape(ctx, &call, payload)
 	client := cfg.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
@@ -45,11 +58,35 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 		payload:           payload,
 		originalModel:     originalModel,
 		convID:            convID,
+		turnKey:           turnKey,
+		turnNo:            turnNo,
 		inputFingerprints: inputFingerprints,
 		client:            client,
 		endpoint:          responsesEndpoint(cfg.BaseURL),
 		downgrade:         policy,
+		turns:             turns,
+		turnReserved:      reserved,
 	}, nil
+}
+
+// releaseVerbosityTurn undoes a turn reserved during prepare when the open
+// ultimately fails. Successful opens must call commitVerbosityTurn instead.
+func (env *codexOpenEnv) releaseVerbosityTurn() {
+	if env == nil || !env.turnReserved || env.turns == nil {
+		return
+	}
+	env.turns.releaseTurn(env.turnKey, env.turnNo)
+	env.turnReserved = false
+}
+
+// commitVerbosityTurn marks a reserved turn as successfully completed so
+// in-flight TTL/eviction protection can clear while keeping the turn consumed.
+func (env *codexOpenEnv) commitVerbosityTurn() {
+	if env == nil || !env.turnReserved || env.turns == nil {
+		return
+	}
+	env.turns.commitTurn(env.turnKey, env.turnNo)
+	env.turnReserved = false
 }
 
 func (env *codexOpenEnv) marshalWithModel(model string) ([]byte, error) {

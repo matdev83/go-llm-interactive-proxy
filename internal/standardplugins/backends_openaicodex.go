@@ -40,6 +40,10 @@ type openAICodexBackendYAML struct {
 	Transport                             string   `yaml:"transport"`
 	ExperimentalWebSocket                 bool     `yaml:"experimental_websocket"`
 	WebSocketFallbackCooldownSeconds      int      `yaml:"websocket_fallback_cooldown_seconds"`
+	EarlySessionVerbosityBumpDisabled     bool     `yaml:"early_session_verbosity_bump_disabled"`
+	EarlySessionVerbosityBumpTurns        int      `yaml:"early_session_verbosity_bump_turns"`
+	MidSessionVerbosityBumpDisabled       bool     `yaml:"mid_session_verbosity_bump_disabled"`
+	MidSessionVerbosityBumpFrequency      int      `yaml:"mid_session_verbosity_bump_frequency"`
 }
 
 func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, catalog *codexcatalog.Catalog) (execbackend.Backend, error) {
@@ -93,6 +97,16 @@ func backendOpenAICodex(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys
 	cfg.ExperimentalWebSocket = y.ExperimentalWebSocket
 	if y.WebSocketFallbackCooldownSeconds > 0 {
 		cfg.WebSocketFallbackCooldown = time.Duration(y.WebSocketFallbackCooldownSeconds) * time.Second
+	}
+	cfg.EarlySessionVerbosityBumpDisabled = y.EarlySessionVerbosityBumpDisabled
+	cfg.EarlySessionVerbosityBumpTurns = y.EarlySessionVerbosityBumpTurns
+	if cfg.EarlySessionVerbosityBumpTurns <= 0 {
+		cfg.EarlySessionVerbosityBumpTurns = openaicodex.DefaultEarlySessionVerbosityBumpTurns
+	}
+	cfg.MidSessionVerbosityBumpDisabled = y.MidSessionVerbosityBumpDisabled
+	cfg.MidSessionVerbosityBumpFrequency = y.MidSessionVerbosityBumpFrequency
+	if cfg.MidSessionVerbosityBumpFrequency <= 0 {
+		cfg.MidSessionVerbosityBumpFrequency = openaicodex.DefaultMidSessionVerbosityBumpFrequency
 	}
 	cfg.ModelCatalog = catalog
 	return applyConfiguredModelInventory(openaicodex.New(cfg), y.Models)

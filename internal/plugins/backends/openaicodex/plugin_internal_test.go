@@ -63,7 +63,7 @@ func TestOpenManagedAccountLoop_httpExhaustionClassifiesManagedAccountsExhausted
 		Primary: routing.Primary{Model: "gpt-5.3-codex-spark"},
 	}, newDowngradePolicy(cfg), nil, func(_ context.Context, _ *codexOpenEnv, _ *Config, _ string, _ *usageEstimator) (lipapi.ManagedEventStream, *http.Response, error) {
 		return nil, &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)}, fmt.Errorf("account rate limited")
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("expected exhaustion error")
 	}
