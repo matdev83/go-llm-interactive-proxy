@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonpresence"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/identitywire"
 	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
@@ -154,6 +155,7 @@ func DecodeChatRequest(body []byte, opts DecodeOptions) (*DecodedChat, error) {
 	}
 	if opts.Headers != nil {
 		sessionwire.ApplyAuthoritativeHeaders(&call.Session, opts.Headers)
+		identitywire.CaptureClientUserAgent(&call.Invocation, opts.Headers)
 	}
 	return &DecodedChat{Call: call, Stream: w.Stream, Model: model}, nil
 }

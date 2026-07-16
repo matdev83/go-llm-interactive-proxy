@@ -8,6 +8,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/llamacpp"
@@ -78,36 +79,44 @@ func backendVllm(n yaml.Node, upstream *http.Client, _ UpstreamAPIKeys) (execbac
 	return applyConfiguredModelInventory(vllm.New(cfg), y.Models)
 }
 
-func backendNvidia(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+func backendNvidia(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, idCfg identity.Config) (execbackend.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("nvidia backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), "https://integrate.api.nvidia.com/v1")
 	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.Nvidia)
+	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "nvidia backend config")
+	if err != nil {
+		return execbackend.Backend{}, err
+	}
 	cfg := nvidia.Config{
 		BaseURL:     base,
 		APIKey:      primaryKey,
 		APIKeys:     ek,
 		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
+		HTTPClient:  httpClient,
 	}
 	return applyConfiguredModelInventory(nvidia.New(cfg), y.Models)
 }
 
-func backendHuggingface(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys) (execbackend.Backend, error) {
+func backendHuggingface(n yaml.Node, upstream *http.Client, keys UpstreamAPIKeys, idCfg identity.Config) (execbackend.Backend, error) {
 	var y openAIStyleYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("huggingface backend config: %w", err)
 	}
 	base := cmp.Or(strings.TrimSpace(y.BaseURL), huggingface.DefaultBaseURL)
 	ek, primaryKey := firstAPIKey(y.APIKey, y.APIKeys, y.Credentials, keys.HuggingFace)
+	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "huggingface backend config")
+	if err != nil {
+		return execbackend.Backend{}, err
+	}
 	cfg := huggingface.Config{
 		BaseURL:     base,
 		APIKey:      primaryKey,
 		APIKeys:     ek,
 		Credentials: hostedCredentials(y.Credentials),
-		HTTPClient:  resolveUpstreamHTTP(upstream),
+		HTTPClient:  httpClient,
 	}
 	return applyConfiguredModelInventory(huggingface.New(cfg), y.Models)
 }

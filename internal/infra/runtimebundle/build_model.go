@@ -54,6 +54,7 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client, closers []func(
 		ModelVendorResolver:     openCodeVendorResolver(vendorCatalogRuntime),
 		CodexModelCatalog:       codexCatalog,
 		CodexModelCatalogSource: codexCatalogSource,
+		Identity:                cfg.Identity,
 	}
 
 	if startedCatalog != nil {

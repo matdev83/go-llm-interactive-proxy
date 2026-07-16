@@ -48,7 +48,10 @@ Durable expectations:
 - parallel routing races candidates without committing losers,
 - TTFT budgets are satisfied only by client-visible canonical output, not keepalive/warning/usage events,
 - health/exclusion state affects candidate eligibility,
-- the chosen route plan is observable.
+- the chosen route plan is observable,
+- each B-leg attempt uses that backend's effective upstream identity policy (User-Agent /
+  OpenRouter attribution); A-leg Server identity stays independent of the winning upstream
+  (see `docs/proxy-identity.md`).
 
 ## Selector features
 

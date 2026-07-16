@@ -2,6 +2,7 @@ package anthropic_test
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -556,5 +557,74 @@ func TestDecodeMessage_documentNonBase64SourceRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestDecodeMessage_capturesClientUserAgent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"ping"}]
+}`)
+	h := http.Header{}
+	h.Set("User-Agent", "AnthropicClient/3.0")
+	h.Set("x-api-key", "sk-secret")
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "AnthropicClient/3.0" {
+		t.Fatalf("ClientUserAgent: %q", d.Call.Invocation.ClientUserAgent)
+	}
+	if h.Get("x-api-key") != "sk-secret" {
+		t.Fatal("headers mutated")
+	}
+}
+
+func TestDecodeMessage_credentialsOnlyLeavesUserAgentEmpty(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"ping"}]
+}`)
+	h := http.Header{}
+	h.Set("x-api-key", "sk-secret")
+	h.Set("Authorization", "Bearer sk-secret")
+	h.Set("Cookie", "session=abc")
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "" {
+		t.Fatalf("ClientUserAgent: %q", d.Call.Invocation.ClientUserAgent)
+	}
+}
+
+func TestDecodeMessage_invalidUserAgentDropped(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+  "model": "claude-3-5-haiku-20241022",
+  "max_tokens": 64,
+  "messages": [{"role":"user","content":"ping"}]
+}`)
+	h := http.Header{}
+	h.Set("User-Agent", "bad\nagent")
+	d, err := anthropic.DecodeMessageRequest(body, anthropic.DecodeOptions{
+		RouteSelector: "stub:claude-3-5-haiku-20241022",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "" {
+		t.Fatalf("invalid UA should be dropped, got %q", d.Call.Invocation.ClientUserAgent)
 	}
 }

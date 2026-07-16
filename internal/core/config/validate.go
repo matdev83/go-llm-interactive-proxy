@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 )
 
 // Validate checks plugin identity rules and continuity/store consistency after decoding.
@@ -85,6 +87,9 @@ func Validate(cfg *Config) error {
 		return err
 	}
 	if err := validateRoutingAffinity(cfg); err != nil {
+		return err
+	}
+	if err := identity.Validate(&cfg.Identity); err != nil {
 		return err
 	}
 	// After store-specific errors so operators see DSN/path issues before pool bounds.

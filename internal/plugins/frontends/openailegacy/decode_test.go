@@ -633,3 +633,41 @@ func TestDecodeChat_extraBodyFieldsCaptured(t *testing.T) {
 		t.Error("known field 'model' should not be captured as extra_body")
 	}
 }
+
+func TestDecodeChat_capturesClientUserAgent(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
+	h := http.Header{}
+	h.Set("user-agent", "LegacyClient/2.0")
+	h.Set("Authorization", "Bearer sk-secret")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "LegacyClient/2.0" {
+		t.Fatalf("ClientUserAgent: %q", d.Call.Invocation.ClientUserAgent)
+	}
+	if h.Get("Authorization") != "Bearer sk-secret" {
+		t.Fatal("headers mutated")
+	}
+}
+
+func TestDecodeChat_invalidUserAgentDropped(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
+	h := http.Header{}
+	h.Set("User-Agent", "bad\nagent")
+	d, err := openailegacy.DecodeChatRequest(body, openailegacy.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+		Headers:       h,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Call.Invocation.ClientUserAgent != "" {
+		t.Fatalf("invalid UA should be dropped, got %q", d.Call.Invocation.ClientUserAgent)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/protocols/anthropicmessages"
@@ -97,7 +98,7 @@ func (c *TokenCounter) CountCall(ctx context.Context, input app.CountCallInput) 
 		return app.CountResult{}, fmt.Errorf("%w: anthropic count_tokens: encode request: %w", app.ErrProviderUnsupported, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages/count_tokens", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(identity.WithBackgroundIdentity(ctx), http.MethodPost, c.baseURL+"/v1/messages/count_tokens", bytes.NewReader(body))
 	if err != nil {
 		return app.CountResult{}, fmt.Errorf("%w: anthropic count_tokens: build request: %w", app.ErrProviderUnavailable, err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"gopkg.in/yaml.v3"
 )
@@ -22,10 +23,14 @@ type bedrockBackendYAML struct {
 	Models                   modelInventoryYAML `yaml:"models"`
 }
 
-func backendBedrock(n yaml.Node, upstream *http.Client) (execbackend.Backend, error) {
+func backendBedrock(n yaml.Node, upstream *http.Client, idCfg identity.Config) (execbackend.Backend, error) {
 	var y bedrockBackendYAML
 	if err := config.DecodeYAMLNode(n, &y); err != nil {
 		return execbackend.Backend{}, fmt.Errorf("bedrock backend config: %w", err)
+	}
+	httpClient, err := resolveIdentityHTTP(upstream, idCfg, n, "bedrock backend config")
+	if err != nil {
+		return execbackend.Backend{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), bedrock.DefaultLoadConfigTimeout)
 	defer cancel()
@@ -37,6 +42,6 @@ func backendBedrock(n yaml.Node, upstream *http.Client) (execbackend.Backend, er
 		BaseEndpoint:             y.BaseEndpoint,
 		DisableHTTPS:             y.DisableHTTPS,
 		AllowInsecureNonLoopback: y.AllowInsecureNonLoopback,
-		HTTPClient:               resolveUpstreamHTTP(upstream),
+		HTTPClient:               httpClient,
 	}), y.Models)
 }

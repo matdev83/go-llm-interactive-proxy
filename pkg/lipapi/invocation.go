@@ -24,6 +24,9 @@ type Invocation struct {
 	Operation     Operation
 	DeliveryMode  DeliveryMode
 	TransportMode TransportMode
+	// ClientUserAgent is the trimmed inbound HTTP User-Agent captured by frontends.
+	// It is protocol-neutral invocation metadata and must not be serialized as provider JSON.
+	ClientUserAgent string `json:"-"`
 }
 
 // DeliveryModeFromClientStream converts protocol stream flags into canonical delivery mode metadata.

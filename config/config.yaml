@@ -96,6 +96,73 @@ logging:
   # access_log_skip_paths:
   #   - "/healthz"
 
+# --- Identity (proxy-wide A-leg/B-leg presentation; issue #147) ---
+# Operator guide: docs/proxy-identity.md
+#
+# Compatibility: omitting identity: now defaults to LIP product proxy identity
+# (go-llm-interactive-proxy / project GitHub URL). This is an intentional break
+# from older OpenRouter client-first / empty-header defaults.
+#
+# "Transparent" means only the selected identity carriers below (User-Agent,
+# OpenRouter app URL/title, A-leg Server). It is not an arbitrary header tunnel.
+#
+# Modes (FieldPolicy):
+#   proxy       - emit LIP product default for that carrier
+#   passthrough - call path: forward accepted client/call value, else omit;
+#                 background/inventory (no call-path client context): product identity
+#   custom      - emit FieldPolicy.value (bounded, control-char safe)
+#   drop        - omit the carrier entirely
+#
+# Upstream (B-leg, proxy -> backend):
+#   user_agent: proxy|passthrough|custom|drop (default proxy)
+#   openrouter.app_url / app_title: same modes (default proxy); OpenRouter only
+# Downstream (A-leg, proxy -> client):
+#   server: proxy|custom|drop only (passthrough rejected); default proxy
+#   Applied stack-wide via stdhttp Server response header (RFC 9110).
+#
+# identity:
+#   upstream:
+#     user_agent: { mode: proxy }   # emits "go-llm-interactive-proxy"
+#     openrouter:
+#       app_url: { mode: proxy }    # HTTP-Referer product URL
+#       app_title: { mode: proxy }  # X-OpenRouter-Title (not legacy X-Title)
+#   downstream:
+#     server: { mode: proxy }       # A-leg Server: go-llm-interactive-proxy
+#
+# Backend nested override (plugins.backends[].config.identity; nested only —
+# flat identity.app_url / app_title are rejected). Pointer merge: omit field to
+# inherit global; explicit mode drop is not the same as omit.
+#   identity:
+#     user_agent: { mode: custom, value: "MyBackend/1" }
+#     openrouter:
+#       app_url: { mode: passthrough }
+#       app_title: { mode: drop }
+#
+# Eligible B-leg User-Agent / OpenRouter attribution connectors:
+#   openai-responses, openai-legacy, anthropic, gemini, bedrock,
+#   openrouter, nvidia, huggingface
+#
+# Excluded (vendor/local/OAuth/agent/custom; no identity HTTP wrap):
+#   openai-codex, openai-codex-app-server,
+#   acp, cursorcliacp, geminicliacp, agycliacp,
+#   opencode-go, opencode-zen,
+#   ollama, ollama-cloud, llamacpp, lmstudio, vllm, local-stub,
+#   custom-openai-legacy-compatible, custom-openai-responses-compatible,
+#   custom-anthropic-compatible
+#
+# Legacy OpenRouter static_referer / static_title (per-backend only):
+#   Apply when nested backend identity.openrouter.app_* is absent; they override
+#   global identity.upstream.openrouter for that carrier (no startup conflict).
+#   Fail closed only when static_* is paired with nested backend
+#   identity.openrouter.app_* for the same carrier. Prefer nested or global
+#   identity.openrouter.*; remove static_* when migrating to global policy.
+#   Output always uses modern X-OpenRouter-Title (never X-Title).
+#   OpenAI frontends capture A-leg OpenRouter attribution headers; Anthropic/
+#   Gemini do not (User-Agent only) — see docs/proxy-identity.md.
+#
+# Failover/parallel: each B-leg attempt uses that backend's effective policy;
+# A-leg Server stays independent of the selected upstream.
+
 diagnostics:
   enabled: true
   health_path: "/healthz"
@@ -293,8 +360,14 @@ plugins:
       config: {}
       # base_url: https://openrouter.ai/api/v1  # default
       # api_key: ""          # or use OPENROUTER_API_KEY / OPENROUTER_API_KEY_N env vars
-      # static_referer: ""   # optional static HTTP-Referer for attribution
-      # static_title: ""     # optional static X-Title for app name
+      # Legacy (validated at startup; conflicts with matching identity.openrouter.app_*):
+      # static_referer: ""   # legacy static HTTP-Referer when identity.openrouter.app_url omitted
+      # static_title: ""     # legacy static title → emitted as X-OpenRouter-Title
+      # identity:            # nested schema only (flat app_url/app_title rejected)
+      #   user_agent: { mode: proxy }
+      #   openrouter:
+      #     app_url: { mode: proxy }    # proxy|passthrough|custom|drop
+      #     app_title: { mode: proxy }  # emits X-OpenRouter-Title (not legacy X-Title)
     - id: nvidia
       enabled: false
       config: {}

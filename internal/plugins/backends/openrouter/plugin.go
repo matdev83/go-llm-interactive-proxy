@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/credpool"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaifamily"
@@ -23,7 +24,19 @@ type Config struct {
 	HTTPClient  *http.Client
 	// SDKMaxRetries optionally sets the official SDK MaxRetries (nil = SDK default).
 	SDKMaxRetries *int
-	// StaticHeaders are always sent. Per-request headers from Call.Extensions take precedence.
+	// AppURL and AppTitle are effective attribution policies (after global+backend
+	// merge in the standard factory). Empty Mode means ModeProxy, matching
+	// [identity.ApplyDefaults] / httpidentity. Set LegacyAppURL / LegacyAppTitle
+	// for pre-identity client-first + Static* fallback instead of reading Mode=="".
+	AppURL   identity.FieldPolicy
+	AppTitle identity.FieldPolicy
+	// LegacyAppURL / LegacyAppTitle select pre-identity resolution for that carrier:
+	// captured extension value first, then StaticReferer / StaticTitle. When set,
+	// AppURL / AppTitle Mode is ignored for that carrier.
+	LegacyAppURL   bool
+	LegacyAppTitle bool
+	// StaticReferer / StaticTitle are legacy backend-only fallbacks used only when
+	// the corresponding LegacyApp* flag is true.
 	StaticReferer string
 	StaticTitle   string
 }

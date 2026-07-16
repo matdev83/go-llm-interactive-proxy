@@ -383,9 +383,11 @@ func TestIntegration_chatCompletionsStream(t *testing.T) {
 	}
 	call := testCall(ext)
 	be := openrouter.New(openrouter.Config{
-		BaseURL:       srv.URL,
-		APIKey:        "sk-test",
-		SDKMaxRetries: new(int),
+		BaseURL:        srv.URL,
+		APIKey:         "sk-test",
+		SDKMaxRetries:  new(int),
+		LegacyAppURL:   true,
+		LegacyAppTitle: true,
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -515,11 +517,13 @@ func TestIntegration_headerPrecedence(t *testing.T) {
 	}
 	call := testCall(ext)
 	be := openrouter.New(openrouter.Config{
-		BaseURL:       srv.URL,
-		APIKey:        "sk-test",
-		SDKMaxRetries: new(int),
-		StaticReferer: "https://default.com",
-		StaticTitle:   "DefaultTitle",
+		BaseURL:        srv.URL,
+		APIKey:         "sk-test",
+		SDKMaxRetries:  new(int),
+		LegacyAppURL:   true,
+		LegacyAppTitle: true,
+		StaticReferer:  "https://default.com",
+		StaticTitle:    "DefaultTitle",
 	})
 
 	es, err := be.Open(context.Background(), call, testCandidate("openai/gpt-4o-mini"))
@@ -533,8 +537,11 @@ func TestIntegration_headerPrecedence(t *testing.T) {
 	if capturedHeaders.Get("Http-Referer") != "https://override.com" {
 		t.Errorf("HTTP-Referer should be per-request override, got %q", capturedHeaders.Get("Http-Referer"))
 	}
-	if capturedHeaders.Get("X-Title") != "DefaultTitle" {
-		t.Errorf("X-Title should be static default, got %q", capturedHeaders.Get("X-Title"))
+	if capturedHeaders.Get("X-OpenRouter-Title") != "DefaultTitle" {
+		t.Errorf("X-OpenRouter-Title should be static default, got %q", capturedHeaders.Get("X-OpenRouter-Title"))
+	}
+	if _, ok := capturedHeaders["X-Title"]; ok {
+		t.Error("must not emit legacy X-Title")
 	}
 }
 
@@ -650,9 +657,11 @@ func TestIntegration_forwardsOpenRouterExtensionsBroadly(t *testing.T) {
 	}
 
 	be := openrouter.New(openrouter.Config{
-		BaseURL:       srv.URL,
-		APIKey:        "sk-test",
-		SDKMaxRetries: new(int),
+		BaseURL:        srv.URL,
+		APIKey:         "sk-test",
+		SDKMaxRetries:  new(int),
+		LegacyAppURL:   true,
+		LegacyAppTitle: true,
 	})
 	es, err := be.Open(context.Background(), testCall(ext), testCandidate("openai/gpt-4o-mini"))
 	if err != nil {
@@ -666,8 +675,11 @@ func TestIntegration_forwardsOpenRouterExtensionsBroadly(t *testing.T) {
 	if capturedHeaders.Get("Http-Referer") != "https://extensions.example/app" {
 		t.Errorf("HTTP-Referer: %q", capturedHeaders.Get("Http-Referer"))
 	}
-	if capturedHeaders.Get("X-Title") != "ExtensionsApp" {
-		t.Errorf("X-Title: %q", capturedHeaders.Get("X-Title"))
+	if capturedHeaders.Get("X-OpenRouter-Title") != "ExtensionsApp" {
+		t.Errorf("X-OpenRouter-Title: %q", capturedHeaders.Get("X-OpenRouter-Title"))
+	}
+	if _, ok := capturedHeaders["X-Title"]; ok {
+		t.Error("must not emit legacy X-Title")
 	}
 	if capturedHeaders.Get("X-OpenRouter-Categories") != "ai,chat" {
 		t.Errorf("X-OpenRouter-Categories: %q", capturedHeaders.Get("X-OpenRouter-Categories"))

@@ -9,6 +9,7 @@ The durable source of truth is split by purpose:
 - `.kiro/specs/` - active and archived spec artifacts for feature work.
 - `README.md` - current runnable distribution, configuration, security, and QA overview.
 - `docs/dogfood-local.md` - canonical **no-key** stub workflow (`lipstd check-config`, `routes`, `inventory`, `serve`) aligned with `config/examples/*.yaml`.
+- `docs/proxy-identity.md` - A-leg/B-leg identity carriers, modes, allowlist/exclusions, OpenRouter attribution.
 - `docs/architecture.md` - this current-state runtime map.
 
 ## Product shape

@@ -11,6 +11,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
@@ -37,6 +38,10 @@ type BackendFactoryDeps struct {
 	// (discovered vs shipped/override fallback). App Server inventory uses this
 	// to avoid advertising unproven fallback slugs.
 	CodexModelCatalogSource codexcatalog.Source
+	// Identity is the proxy-wide identity policy from root config. Approved
+	// hosted connectors merge optional per-backend overrides and wrap their
+	// outbound HTTP clients; excluded connectors ignore this field.
+	Identity identity.Config
 }
 
 // BackendFactory builds a backend from opaque per-plugin YAML, the composition-root HTTP client,

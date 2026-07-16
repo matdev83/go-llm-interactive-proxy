@@ -21,10 +21,12 @@ func TestSpecBundleIndex_listsScenarioDocs(t *testing.T) {
 		"spec-bundle-continuity-scenarios.md",
 		"spec-bundle-routing-scenarios.md",
 		"spec-bundle-hook-scenarios.md",
+		"spec-bundle-identity-scenarios.md",
 		"SpecBundleOrchestrationScenarios",
 		"SpecBundleContinuityScenarios",
 		"SpecBundleRoutingScenarios",
 		"SpecBundleHookScenarios",
+		"SpecBundleIdentityScenarios",
 		"go test -tags=precommit",
 	} {
 		if !strings.Contains(text, needle) {
