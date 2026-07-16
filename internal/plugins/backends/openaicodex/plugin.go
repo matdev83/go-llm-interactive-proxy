@@ -236,6 +236,7 @@ func openManagedAccountLoop(ctx context.Context, cfg *Config, store *accountStor
 					_ = store.persistQuotaHeaders(acct, qh)
 				}
 			}
+			env.commitVerbosityTurn()
 			return es, nil
 		}
 		if resp != nil {
@@ -332,6 +333,8 @@ func openHTTP(ctx context.Context, cfg *Config, rt *backendRuntime, policy downg
 	es, _, err := completeCodexOpenAttempt(attempt, resp, cfg)
 	if err != nil {
 		env.releaseVerbosityTurn()
+	} else {
+		env.commitVerbosityTurn()
 	}
 	return es, err
 }

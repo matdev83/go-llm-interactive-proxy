@@ -76,6 +76,8 @@ func openWS(ctx context.Context, cfg *Config, policy downgradePolicy, usageEst *
 	es, _, err := openWSPrepared(ctx, env, cfg, policy.modelForPlan(env.originalModel, cfg.PlanTypeHint), call, usageEst, sessions, continuation)
 	if err != nil {
 		env.releaseVerbosityTurn()
+	} else {
+		env.commitVerbosityTurn()
 	}
 	return es, err
 }

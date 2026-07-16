@@ -19,13 +19,15 @@ const (
 // prefers the proxy-owned session identity when available, so concurrent
 // sessions handled by the same backend instance do not share turn counters. It
 // is in-memory, per-process, TTL-bounded, and LRU-capped, mirroring
-// wsContinuationStore. A nil receiver is safe: reserve returns 0 and release is
-// a no-op.
+// wsContinuationStore. A nil receiver is safe: reserve returns 0 and
+// release/commit are no-ops.
 //
 // Turn allocation is atomic under the mutex: reserveTurn assigns a unique turn
 // number immediately so concurrent opens for the same session key cannot both
 // observe the same turn. Callers must releaseTurn when the open ultimately
-// fails so failed attempts do not permanently consume slots.
+// fails, or commitTurn when it succeeds, so in-flight tickets are tracked
+// separately from the committed high-water mark. TTL expiry and capacity
+// eviction skip entries that still have in-flight reservations.
 type sessionTurnCounter struct {
 	mu         sync.Mutex
 	ttl        time.Duration
@@ -37,7 +39,8 @@ type sessionTurnCounter struct {
 
 type sessionTurnEntry struct {
 	nextTurn  int
-	active    map[int]struct{}
+	committed int
+	inflight  map[int]struct{}
 	expiresAt time.Time
 }
 
@@ -78,8 +81,8 @@ func (s *sessionTurnCounter) currentTurnNumber(convID string) int {
 }
 
 // reserveTurn allocates the next turn number for the given key under the lock
-// and returns it. Empty ids and nil receivers return 0. Callers must releaseTurn on
-// failure paths so failed opens do not permanently consume slots.
+// and returns it. Empty ids and nil receivers return 0. Callers must releaseTurn
+// on failure paths or commitTurn on success so in-flight tickets are cleared.
 func (s *sessionTurnCounter) reserveTurn(convID string) int {
 	if s == nil || strings.TrimSpace(convID) == "" {
 		return 0
@@ -93,23 +96,21 @@ func (s *sessionTurnCounter) reserveTurn(convID string) int {
 	}
 	turnNo := entry.nextTurn
 	entry.nextTurn++
-	if entry.active == nil {
-		entry.active = make(map[int]struct{})
+	if entry.inflight == nil {
+		entry.inflight = make(map[int]struct{})
 	}
-	entry.active[turnNo] = struct{}{}
+	entry.inflight[turnNo] = struct{}{}
 	entry.expiresAt = s.now().Add(s.ttl)
 	s.entries[convID] = entry
 	s.touchLocked(convID)
-	for len(s.entries) > s.maxEntries && len(s.order) > 0 {
-		oldest := s.order[0]
-		s.order = s.order[1:]
-		delete(s.entries, oldest)
-	}
+	s.evictIdleOverflowLocked()
 	return turnNo
 }
 
-// releaseTurn undoes a prior reserveTurn for the given key and turn number. It
-// is a no-op when the key is unknown, empty, or the turn was already released.
+// releaseTurn undoes a prior reserveTurn for the given key and turn number after
+// a failed open. It is a no-op when the key is unknown, empty, or the turn was
+// already released or committed. It never rewinds past the committed high-water
+// mark from successful opens.
 func (s *sessionTurnCounter) releaseTurn(convID string, turnNo int) {
 	if s == nil || strings.TrimSpace(convID) == "" || turnNo <= 0 {
 		return
@@ -118,14 +119,52 @@ func (s *sessionTurnCounter) releaseTurn(convID string, turnNo int) {
 	defer s.mu.Unlock()
 	s.purgeExpiredLocked()
 	entry, ok := s.entries[convID]
-	if !ok || entry.nextTurn <= 0 || entry.active == nil {
+	if !ok || entry.nextTurn <= 0 || entry.inflight == nil {
 		return
 	}
-	if _, ok := entry.active[turnNo]; !ok {
+	if _, ok := entry.inflight[turnNo]; !ok {
 		return
 	}
-	delete(entry.active, turnNo)
-	if len(entry.active) == 0 {
+	delete(entry.inflight, turnNo)
+	if turnNo == entry.nextTurn-1 {
+		for entry.nextTurn > entry.committed+1 {
+			if _, ok := entry.inflight[entry.nextTurn-1]; ok {
+				break
+			}
+			entry.nextTurn--
+		}
+	}
+	s.storeOrDeleteLocked(convID, entry)
+}
+
+// commitTurn marks a reserved turn as successfully completed. The turn number
+// remains consumed (nextTurn is not rewound), but the in-flight ticket is
+// cleared so idle TTL/eviction can reclaim the entry later.
+func (s *sessionTurnCounter) commitTurn(convID string, turnNo int) {
+	if s == nil || strings.TrimSpace(convID) == "" || turnNo <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.purgeExpiredLocked()
+	entry, ok := s.entries[convID]
+	if !ok || entry.inflight == nil {
+		return
+	}
+	if _, ok := entry.inflight[turnNo]; !ok {
+		return
+	}
+	delete(entry.inflight, turnNo)
+	if turnNo > entry.committed {
+		entry.committed = turnNo
+	}
+	entry.expiresAt = s.now().Add(s.ttl)
+	s.entries[convID] = entry
+	s.touchLocked(convID)
+}
+
+func (s *sessionTurnCounter) storeOrDeleteLocked(convID string, entry sessionTurnEntry) {
+	if len(entry.inflight) == 0 && entry.committed == 0 && entry.nextTurn <= 1 {
 		delete(s.entries, convID)
 		out := s.order[:0]
 		for _, existing := range s.order {
@@ -135,14 +174,6 @@ func (s *sessionTurnCounter) releaseTurn(convID string, turnNo int) {
 		}
 		s.order = out
 		return
-	}
-	if turnNo == entry.nextTurn-1 {
-		for entry.nextTurn > 1 {
-			if _, ok := entry.active[entry.nextTurn-1]; ok {
-				break
-			}
-			entry.nextTurn--
-		}
 	}
 	entry.expiresAt = s.now().Add(s.ttl)
 	s.entries[convID] = entry
@@ -157,13 +188,39 @@ func (s *sessionTurnCounter) purgeExpiredLocked() {
 		if !ok {
 			continue
 		}
-		if !entry.expiresAt.After(now) {
+		if len(entry.inflight) == 0 && !entry.expiresAt.After(now) {
 			delete(s.entries, key)
 			continue
 		}
 		out = append(out, key)
 	}
 	s.order = out
+}
+
+// evictIdleOverflowLocked drops the oldest idle entries until the store is
+// within maxEntries. Entries with in-flight reservations are never evicted.
+func (s *sessionTurnCounter) evictIdleOverflowLocked() {
+	for len(s.entries) > s.maxEntries && len(s.order) > 0 {
+		evicted := false
+		for i, key := range s.order {
+			entry, ok := s.entries[key]
+			if !ok {
+				s.order = append(s.order[:i], s.order[i+1:]...)
+				evicted = true
+				break
+			}
+			if len(entry.inflight) > 0 {
+				continue
+			}
+			delete(s.entries, key)
+			s.order = append(s.order[:i], s.order[i+1:]...)
+			evicted = true
+			break
+		}
+		if !evicted {
+			return
+		}
+	}
 }
 
 func (s *sessionTurnCounter) touchLocked(key string) {

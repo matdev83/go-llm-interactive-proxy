@@ -134,27 +134,56 @@ func TestSessionTurnCounter_ttlExpiryResetsWindow(t *testing.T) {
 		t.Fatalf("turn 2 reserveTurn=%d, want 2", got)
 	}
 	now = now.Add(2 * time.Hour)
+	if got := s.currentTurnNumber("conv-1"); got != 3 {
+		t.Fatalf("in-flight reservations must survive TTL, currentTurnNumber=%d, want 3", got)
+	}
+	s.commitTurn("conv-1", 1)
+	s.commitTurn("conv-1", 2)
+	now = now.Add(2 * time.Hour)
 	if got := s.currentTurnNumber("conv-1"); got != 1 {
-		t.Fatalf("after TTL expiry, currentTurnNumber=%d, want 1", got)
+		t.Fatalf("after idle TTL expiry, currentTurnNumber=%d, want 1", got)
 	}
 	if got := s.reserveTurn("conv-1"); got != 1 {
-		t.Fatalf("after TTL expiry reserveTurn=%d, want 1", got)
+		t.Fatalf("after idle TTL expiry reserveTurn=%d, want 1", got)
 	}
 }
 
 func TestSessionTurnCounter_maxEntriesEviction(t *testing.T) {
 	t.Parallel()
-	s := newSessionTurnCounter(time.Hour, 3)
-	for _, conv := range []string{"conv-a", "conv-b", "conv-c"} {
+	s := newSessionTurnCounter(time.Hour, 2)
+	if got := s.reserveTurn("conv-a"); got != 1 {
+		t.Fatalf("conv-a reserveTurn=%d, want 1", got)
+	}
+	for _, conv := range []string{"conv-b", "conv-c"} {
 		if got := s.reserveTurn(conv); got != 1 {
 			t.Fatalf("conv %s reserveTurn=%d, want 1", conv, got)
 		}
+		s.commitTurn(conv, 1)
 	}
-	if got := s.reserveTurn("conv-d"); got != 1 {
-		t.Fatalf("conv-d reserveTurn=%d, want 1", got)
+	if got := s.currentTurnNumber("conv-a"); got != 2 {
+		t.Fatalf("in-flight conv-a must not be evicted, next=%d, want 2", got)
 	}
-	if got := s.currentTurnNumber("conv-a"); got != 1 {
-		t.Fatalf("evicted conv-a should re-enter at turn 1, got %d", got)
+	if got := s.currentTurnNumber("conv-b"); got != 1 {
+		t.Fatalf("idle conv-b should be evicted and re-enter at turn 1, got %d", got)
+	}
+	if got := s.reserveTurn("conv-a"); got != 2 {
+		t.Fatalf("protected conv-a next reserve=%d, want 2", got)
+	}
+}
+
+func TestSessionTurnCounter_commitKeepsHighWaterMark(t *testing.T) {
+	t.Parallel()
+	s := newSessionTurnCounter(time.Hour, 64)
+	if got := s.reserveTurn("conv-1"); got != 1 {
+		t.Fatalf("reserve 1=%d, want 1", got)
+	}
+	s.commitTurn("conv-1", 1)
+	if got := s.reserveTurn("conv-1"); got != 2 {
+		t.Fatalf("reserve 2=%d, want 2", got)
+	}
+	s.releaseTurn("conv-1", 2)
+	if got := s.currentTurnNumber("conv-1"); got != 2 {
+		t.Fatalf("release after commit must not rewind past committed turn, next=%d, want 2", got)
 	}
 }
 

@@ -28,5 +28,8 @@ func applyEarlySessionVerbosityBump(p *Payload, call lipapi.Call, cfg Config, tu
 	if strings.TrimSpace(string(call.Options.Verbosity)) != "" {
 		return
 	}
-	p.Text = &textSpec{Verbosity: lipapi.VerbosityHigh}
+	if p.Text == nil {
+		p.Text = &textSpec{}
+	}
+	p.Text.Verbosity = lipapi.VerbosityHigh
 }

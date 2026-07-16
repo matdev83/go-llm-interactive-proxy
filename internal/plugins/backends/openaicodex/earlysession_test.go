@@ -27,6 +27,21 @@ func TestApplyEarlySessionVerbosityBump_inWindowNoExplicitForcesHigh(t *testing.
 	}
 }
 
+func TestApplyEarlySessionVerbosityBump_preservesExistingTextSpec(t *testing.T) {
+	t.Parallel()
+	cfg := Config{EarlySessionVerbosityBumpTurns: 1}
+	existing := &textSpec{Verbosity: lipapi.VerbosityMedium}
+	payload := Payload{Text: existing}
+	call := lipapi.Call{Options: lipapi.GenerationOptions{}}
+	applyEarlySessionVerbosityBump(&payload, call, cfg, 1)
+	if payload.Text != existing {
+		t.Fatal("bump must mutate existing textSpec in place")
+	}
+	if payload.Text.Verbosity != lipapi.VerbosityHigh {
+		t.Fatalf("verbosity = %q, want high", payload.Text.Verbosity)
+	}
+}
+
 func TestApplyEarlySessionVerbosityBump_explicitPerRequestWins(t *testing.T) {
 	t.Parallel()
 	cfg := Config{EarlySessionVerbosityBumpTurns: 1}

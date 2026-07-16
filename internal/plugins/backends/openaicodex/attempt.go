@@ -70,12 +70,22 @@ func prepareCodexOpenEnv(ctx context.Context, cfg *Config, call lipapi.Call, can
 }
 
 // releaseVerbosityTurn undoes a turn reserved during prepare when the open
-// ultimately fails. Successful opens leave the reservation in place.
+// ultimately fails. Successful opens must call commitVerbosityTurn instead.
 func (env *codexOpenEnv) releaseVerbosityTurn() {
 	if env == nil || !env.turnReserved || env.turns == nil {
 		return
 	}
 	env.turns.releaseTurn(env.turnKey, env.turnNo)
+	env.turnReserved = false
+}
+
+// commitVerbosityTurn marks a reserved turn as successfully completed so
+// in-flight TTL/eviction protection can clear while keeping the turn consumed.
+func (env *codexOpenEnv) commitVerbosityTurn() {
+	if env == nil || !env.turnReserved || env.turns == nil {
+		return
+	}
+	env.turns.commitTurn(env.turnKey, env.turnNo)
 	env.turnReserved = false
 }
 

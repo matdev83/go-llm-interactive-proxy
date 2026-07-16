@@ -143,9 +143,11 @@ per conversation using the stable conversation identity order: continuity key,
 then correlation id, then input-derived conversation id.
 Tool-call continuations count as separate turns. Early- and mid-session bumps share
 one in-memory, per-process turn counter (TTL-bounded and LRU-capped; not shared
-across replicas). Turn numbers are reserved atomically when an open is prepared and
-released if that open ultimately fails, so concurrent opens for the same conversation
-cannot observe the same turn number and failed attempts do not consume slots.
+across replicas). Turn numbers are reserved atomically when an open is prepared,
+committed when that open succeeds, and released if that open ultimately fails, so
+concurrent opens for the same conversation cannot observe the same turn number,
+failed attempts do not consume slots, and idle TTL/eviction cannot reuse an
+in-flight reservation.
 
 The bump only applies when the request has no explicit per-request verbosity: an
 explicit `?verbosity=` URI parameter or request-body `verbosity` option always wins,
@@ -161,8 +163,8 @@ carry more detail. The bump is enabled by default; set
 with `mid_session_verbosity_bump_frequency` (default `10`).
 
 Mid-session bumps use the same shared per-conversation turn counter as the early-
-session bump (atomic reserve on prepare, release on failed open). Tool-call
-continuations count as separate turns.
+session bump (atomic reserve on prepare, commit on success, release on failed open).
+Tool-call continuations count as separate turns.
 
 The bump only applies when the request has no explicit per-request verbosity:
 an explicit `?verbosity=` URI parameter or request-body `verbosity` option
