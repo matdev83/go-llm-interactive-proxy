@@ -239,6 +239,7 @@ func validateServer(cfg *Config) error {
 		return nil
 	}
 	applyDefaultServerListenAddress(cfg)
+	applyDefaultServerLimits(cfg)
 	s := cfg.Server
 	// Listener posture for no_auth vs broad binds is enforced in validateAccessAuth via
 	// accessmode.ValidatePosture (combines server.auth_mode, access.mode, and listeners).
@@ -247,8 +248,17 @@ func validateServer(cfg *Config) error {
 	default:
 		return fmt.Errorf("server.auth_mode: want no_auth or external, got %q", s.AuthMode)
 	}
+	if s.MaxConcurrentDecodes < 0 {
+		return fmt.Errorf("server.max_concurrent_decodes: must be >= 0")
+	}
+	if s.MaxInflightDecodeBytes < 0 {
+		return fmt.Errorf("server.max_inflight_decode_bytes: must be >= 0")
+	}
 	if s.MaxPendingWireEvents < 0 {
 		return fmt.Errorf("server.max_pending_wire_events: must be >= 0")
+	}
+	if s.MaxInflightDecodeBytes < s.EffectiveMaxRequestBodyBytesForBudget() {
+		return fmt.Errorf("server.max_inflight_decode_bytes: must be >= max single request body (%d bytes)", s.EffectiveMaxRequestBodyBytesForBudget())
 	}
 	parse := func(name, val string) error {
 		val = strings.TrimSpace(val)

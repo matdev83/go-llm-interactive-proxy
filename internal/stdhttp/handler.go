@@ -97,6 +97,7 @@ func prepareStandardHandler(
 	})
 
 	maxBody := cfg.Server.EffectiveMaxRequestBodyBytes()
+	decodeAdmission := built.DecodeAdmission
 	preReqKA := cfg.Server.EffectivePreRequestKeepalive()
 	var trafficPorts traffic.PortBundle
 	if built.RuntimeSnapshot != nil {
@@ -113,6 +114,7 @@ func prepareStandardHandler(
 		RoutePrefixes:        built.RoutePrefixes,
 		Plugins:              cfg.Plugins.Frontends,
 		MaxRequestBodyBytes:  maxBody,
+		DecodeAdmission:      decodeAdmission,
 		Reg:                  reg,
 		TrafficPorts:         trafficPorts,
 		PreRequestKeepalive: lipsdk.FrontendKeepaliveConfig{
