@@ -3,10 +3,10 @@
   "created_at": "2026-07-17T10:16:22+02:00",
   "updated_at": "2026-07-17T10:16:22+02:00",
   "language": "en",
-  "phase": "initialized",
+  "phase": "requirements-generated",
   "approvals": {
     "requirements": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "design": {
