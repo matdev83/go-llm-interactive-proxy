@@ -5,19 +5,52 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 
 **CI / PR policy:** treat a Phase 1 PR as a **draft / stack base**. It is **not mergeable** while these intentional RED tests fail. Do not add build tags or skips to silence them. Later phase PRs turn the applicable suites green.
 
+## Fulfilled by Phase 2.1 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `pkg/lipapi` | `TestReasoningPart_*`, `TestReasoningFixtures_validate`, `TestCloneCall_deepCopiesReasoning*`, `TestRequiredCapabilities_hardReasoningReplay` | Phase 2.1 canonical validation/clone/`reasoning_replay` |
+| `internal/core/metering/checkpoint` | reasoning opaque/fingerprint tests | Phase 2.1 CloneCall + billable fingerprint participation |
+| `internal/core/modelcatalog` | `TestDefaultSizeEstimator_countsReasoningParts` | Phase 2.1 sizing |
+| `internal/infra/tokenizers/tiktoken` | `TestCountCall_countsReasoningParts` | Phase 2.1 token counting |
+
+## Fulfilled by Phase 2.2 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/featurebundle` | `TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers`, `TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers`, `TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers` | Phase 2.2 merge/snapshot port wiring (typed; former `*_RED` reflection contracts) |
+
+## Fulfilled by Phase 2.3 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/archtest` | `TestOpenPlannedCandidate_attemptTransformBetweenShapeAndCapabilities`, `TestOpenPlannedCandidate_excludeCandidateDecisionHandledBeforeOpen` | Phase 2.3 `RunCandidateAttemptTransformStage` wired in `openPlannedCandidate` |
+| `internal/core/runtime` | `TestCandidateAttemptTransform_*`, `TestCandidateAttemptTransform_allExcluded_*`, `TestPostHookRederive_*`, `TestAttemptMeta_*`, `TestWeightedFirst_postHookExcludeDoesNotConsumeStoreFlag` | Phase 2.3 candidate attempt-transform runner + exclude/failover + post-hook rederive + stable all-excluded aggregates |
+| `internal/core/extensions` | `TestRunCandidateAttemptTransformStage_*` | Phase 2.3 stage runner |
+
+## Fulfilled by Phase 2.4 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/archtest` | `*final_stream_observation_order*` | Phase 2.4 `RunFinalStreamObservationStage` wired in recv handlers |
+| `internal/core/runtime` | `TestFinalStreamObserver_*` | Phase 2.4 final-stream observer session + runtime lifecycle |
+| `internal/core/extensions` | `TestRunFinalStreamObservation*` | Phase 2.4 observer stage runner |
+
+## Fulfilled by Phase 2.5 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/core/extensions` | `TestCanonicalStageMetricLabels_*`, `TestRecordStageObservation_*`, `TestSafeEventObserveBytes_*`, `TestSafeCallReasoningObserveBytes_*`, `TestRunCandidateAttemptTransformStage_absentParticipantsNoStageObservation` | Phase 2.5 bounded stage label collapse + count/byte recording + absent-port no-op |
+| `internal/infra/metrics` | `TestExtensionStageSink_*` | Phase 2.5 Prometheus sink allowlist + runs/bytes counters |
+| `internal/core/diag` | `TestBuildInventoryExtensions_genericPort*`, `TestBuildInventoryExtensions_absentPortsZeroPosture` | Phase 2.5 generic-port aggregate posture + privacy projection |
+| `cmd/lipstd` | `TestRunCommand_inventory_dogfoodLocalStub_matchesGoldenJSON` | Phase 2.5 inventory golden includes `generic_ports` |
+
 ## Intentional RED (must fail for the semantic gap named below)
 
 | Package | Tests / pattern | Why RED |
 |---|---|---|
-| `pkg/lipapi` | `TestReasoningPart_*`, `TestReasoningFixtures_validate`, `TestCloneCall_deepCopiesReasoning*`, `TestRequiredCapabilities_hardReasoningReplay` | Validate/clone/`reasoning_replay` derivation not implemented (Phase 2.1) |
-| `internal/core/metering/checkpoint` | reasoning opaque/fingerprint tests | Checkpoint participation incomplete until 2.1 |
-| `internal/core/modelcatalog` | `TestDefaultSizeEstimator_countsReasoningParts` | Sizing incomplete until 2.1 |
-| `internal/infra/tokenizers/tiktoken` | `TestCountCall_countsReasoningParts` | Token counting incomplete until 2.1 |
-| `internal/archtest` | `*attempt_transform_open_order*`, `*final_stream_observation_order*` | Runtime stage runners absent (Phase 2.3/2.4) |
-| `internal/core/runtime` | `TestCandidateAttemptTransform_*`, `TestFinalStreamObserver_*` | Merge/snapshot/runner wiring absent (Phase 2.2–2.4) |
-| `internal/featurebundle` | `TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers_RED`, `TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers_RED`, `TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers_RED` | Merge/snapshot ports not wired (Phase 2.2) |
 | `internal/plugins/features/reasoningpreservation` | Decode/catalog/anchor/classify/restore/store/privacy projection tests (not `*_contractLock`) | Feature behavior stubs return `ErrNotImplemented` (Phase 3) |
-| `internal/core/runtime` | `TestReasoningPreservationComposition_*` except `*_characterization` / harness anti-soft-green | Contribution dropped now (opens/calls=0). Client-preserved/conflicting also wait on Phase 2.1 `Call.Validate` accepting `PartReasoning` before Phase 3 restore semantics. After 2.2, `RestoreMissingReasoning` still `ErrNotImplemented` until Phase 3; `TestReasoningPreservationComposition_unrepresentableReplayAllExcluded_RED` must not green on generic/`ErrNotImplemented` fail-closed — requires stable `unrepresentable_replay` |
+| `internal/core/runtime` | `TestReasoningPreservationComposition_*` except `*_characterization` / harness anti-soft-green | Composition stubs returning `ErrNotImplemented` fail-closed until Phase 3 restore. `TestReasoningPreservationComposition_unrepresentableReplayAllExcluded_RED` must not green on generic/`ErrNotImplemented` — requires stable `unrepresentable_replay` from the feature |
 | `internal/plugins/frontends/openailegacy` | `TestDecodeChat_assistantReasoning*_RED`, `TestEncode_reasoningNonStreamOutput_RED` | Chat history/nonstream mapping (Phase 4.1) |
 | `internal/plugins/backends/openailegacy` | `TestParamsForCall_assistantReasoningChatDialect_RED` | Chat backend encode (Phase 4.1) |
 | `internal/plugins/frontends/openairesponses` | `TestDecodeCreate_reasoningInputItem_RED` | Responses input item decode (Phase 4.2) |
@@ -31,7 +64,7 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 
 | Package | Tests | Role |
 |---|---|---|
-| `pkg/lipapi` | `TestNegotiate_reasoningReplayNotSoftDowngradable_characterization`, `TestApplyNegotiatedDowngrades_doesNotStripHistoricalReasoning_characterization` | Existing negotiate/downgrade invariants; RED for historical replay is `TestRequiredCapabilities_hardReasoningReplay` |
+| `pkg/lipapi` | `TestNegotiate_reasoningReplayNotSoftDowngradable_characterization`, `TestApplyNegotiatedDowngrades_doesNotStripHistoricalReasoning_characterization` | Existing negotiate/downgrade invariants; hard replay derivation is `TestRequiredCapabilities_hardReasoningReplay` (green since Phase 2.1) |
 | `pkg/lipapi` | `TestReasoningPart_byteAndCountLimits/per_message_part_count_via_reasoning_alias` | `MaxReasoningPartsPerMessage` aliases `MaxPartsPerMessage`; generic envelope bound is the approved acceptance |
 | `internal/plugins/frontends/openailegacy` | `TestEncode_reasoningStream_characterization` | Stream already emits `reasoning_content` |
 | `internal/core/runtime` | `TestReasoningPreservationComposition_disabledFeatureNonInterference_characterization`, `…_noRetryAfterFirstOutput_characterization`, `TestReasoningPreservationTransform_errNotImplementedDoesNotBecomeUnrepresentableExclude` | Baseline non-interference / no-retry-after-output; harness must propagate `ErrNotImplemented` (not soft-map to exclude) |

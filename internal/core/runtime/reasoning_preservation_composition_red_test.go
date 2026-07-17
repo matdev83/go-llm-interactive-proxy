@@ -151,7 +151,19 @@ func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensi
 	t.Helper()
 	m := featurebundle.MergeBundles(bundle)
 	bus := hooks.New(hooks.Config{ResponsePartHooks: m.ResponsePartHooks})
-	return bus, extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{RequestTransforms: m.RequestTransforms, CompletionGates: m.CompletionGates})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		RequestTransforms:       m.RequestTransforms,
+		CompletionGates:         m.CompletionGates,
+		AttemptTransforms:       m.AttemptTransforms,
+		StreamObserverFactories: m.StreamObserverFactories,
+	})
+	if want, got := len(m.AttemptTransforms), len(snap.AttemptTransforms()); want != got {
+		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
+	}
+	if want, got := len(m.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
+		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
+	}
+	return bus, snap
 }
 
 func rpExecutor(t *testing.T, xform *reasoningPreservationTransform, mutate func(*runtime.Executor)) (*runtime.Executor, *reasoningPreservationTransform) {
@@ -253,7 +265,7 @@ func TestReasoningPreservationComposition_exactRestoreBeforeOpen(t *testing.T) {
 	})
 	rpCollect(t, ex, "be:m")
 	if xform.calls.Load() == 0 {
-		t.Fatal("RED: reasoning preservation AttemptTransform must run before backend Open (merge/snapshot/runner wiring absent)")
+		t.Fatal("RED: reasoning preservation AttemptTransform must run before backend Open (runner absent)")
 	}
 	if !rpHasReasoningText(gotCall, rpStoredThought) {
 		t.Fatal("RED: restored PartReasoning must reach backend Open after exact restoration path")
@@ -616,7 +628,7 @@ func TestReasoningPreservationComposition_streamObserverContributionDropped(t *t
 	ex.Backends = map[string]execbackend.Backend{"be": fixedSuccessBackend("ok")}
 	rpCollect(t, ex, "be:m")
 	if factory.opens.Load() == 0 {
-		t.Fatal("RED: reasoning FeatureBundle StreamObserverFactories must Open on winning B-leg (merge/snapshot/runner wiring absent; see Phase 1.3)")
+		t.Fatal("RED: reasoning FeatureBundle StreamObserverFactories must Open on winning B-leg (runner absent; see Phase 1.3)")
 	}
 }
 

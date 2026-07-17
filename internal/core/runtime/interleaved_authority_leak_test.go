@@ -51,6 +51,7 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:   &attemptBudget{max: 3, used: 0},
 		aLegID:   aLegID,

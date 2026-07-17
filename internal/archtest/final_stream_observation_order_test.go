@@ -10,7 +10,20 @@ import (
 	"testing"
 )
 
-const runFinalStreamObservationStage = "RunFinalStreamObservationStage"
+const (
+	runFinalStreamObservationStage = "RunFinalStreamObservationStage"
+	emitClientFacingObserved       = "emitClientFacingObserved"
+)
+
+func firstObservationEmitPos(body *ast.BlockStmt) (obsPos, emitPos token.Pos) {
+	obsPos = firstCallPos(body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == runFinalStreamObservationStage || name == emitClientFacingObserved
+	})
+	emitPos = firstCallPos(body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == "beforeEmitClientFacing" || name == emitClientFacingObserved
+	})
+	return obsPos, emitPos
+}
 
 func TestDispatchClientFacingEvent_finalStreamObservationAfterHooksBeforeEmit(t *testing.T) {
 	t.Parallel()
@@ -29,7 +42,6 @@ func TestDispatchClientFacingEvent_finalStreamObservationAfterHooksBeforeEmit(t 
 	hooksPos := firstCallPos(fn.Body, func(pkg, name string, _ *ast.CallExpr) bool {
 		return name == "RunResponsePartHooks" || (pkg == "bus" && name == "RunResponsePartHooks")
 	})
-	// Also match selector s.bus.RunResponsePartHooks
 	if hooksPos == 0 {
 		hooksPos = firstCallPos(fn.Body, func(_, name string, call *ast.CallExpr) bool {
 			if name != "RunResponsePartHooks" {
@@ -39,26 +51,21 @@ func TestDispatchClientFacingEvent_finalStreamObservationAfterHooksBeforeEmit(t 
 			return ok && sel.Sel != nil && sel.Sel.Name == "RunResponsePartHooks"
 		})
 	}
-	obsPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == runFinalStreamObservationStage
-	})
-	emitPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == "beforeEmitClientFacing"
-	})
+	obsPos, emitPos := firstObservationEmitPos(fn.Body)
 
 	if hooksPos == 0 {
 		t.Fatal("dispatchClientFacingEvent must call RunResponsePartHooks")
 	}
 	if emitPos == 0 {
-		t.Fatal("dispatchClientFacingEvent must call beforeEmitClientFacing")
+		t.Fatal("dispatchClientFacingEvent must call beforeEmitClientFacing or emitClientFacingObserved")
 	}
 	if obsPos == 0 {
-		t.Fatalf("RED: dispatchClientFacingEvent must call %s after RunResponsePartHooks and before beforeEmitClientFacing (stage final_stream_observation)",
-			runFinalStreamObservationStage)
+		t.Fatalf("RED: dispatchClientFacingEvent must call %s or %s after RunResponsePartHooks and before client emit",
+			runFinalStreamObservationStage, emitClientFacingObserved)
 	}
-	if !(hooksPos < obsPos && obsPos < emitPos) {
-		t.Fatalf("want RunResponsePartHooks < %s < beforeEmitClientFacing; positions hooks=%d obs=%d emit=%d",
-			runFinalStreamObservationStage, hooksPos, obsPos, emitPos)
+	if !(hooksPos < obsPos && obsPos <= emitPos) {
+		t.Fatalf("want RunResponsePartHooks < observation/emit <= client emit; positions hooks=%d obs=%d emit=%d",
+			hooksPos, obsPos, emitPos)
 	}
 }
 
@@ -79,26 +86,21 @@ func TestHandleGatedPath_finalStreamObservationBeforeEmit(t *testing.T) {
 	gatePos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
 		return name == "completionGatedEmit" || name == "emitGateDrained"
 	})
-	obsPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == runFinalStreamObservationStage
-	})
-	emitPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == "beforeEmitClientFacing"
-	})
+	obsPos, emitPos := firstObservationEmitPos(fn.Body)
 
 	if gatePos == 0 {
 		t.Fatal("handleGatedPath must call completionGatedEmit or emitGateDrained")
 	}
 	if emitPos == 0 {
-		t.Fatal("handleGatedPath must call beforeEmitClientFacing")
+		t.Fatal("handleGatedPath must call beforeEmitClientFacing or emitClientFacingObserved")
 	}
 	if obsPos == 0 {
-		t.Fatalf("RED: handleGatedPath must call %s after gate resolution and before beforeEmitClientFacing",
-			runFinalStreamObservationStage)
+		t.Fatalf("RED: handleGatedPath must call %s or %s after gate resolution and before client emit",
+			runFinalStreamObservationStage, emitClientFacingObserved)
 	}
-	if !(gatePos < obsPos && obsPos < emitPos) {
-		t.Fatalf("want gate-resolution < %s < beforeEmitClientFacing; positions gate=%d obs=%d emit=%d",
-			runFinalStreamObservationStage, gatePos, obsPos, emitPos)
+	if !(gatePos < obsPos && obsPos <= emitPos) {
+		t.Fatalf("want gate-resolution < observation/emit <= client emit; positions gate=%d obs=%d emit=%d",
+			gatePos, obsPos, emitPos)
 	}
 }
 
@@ -116,21 +118,16 @@ func TestHandleResponseFinishedPath_finalStreamObservationBeforeEmit(t *testing.
 		t.Fatal("handleResponseFinishedPath not found")
 	}
 
-	obsPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == runFinalStreamObservationStage
-	})
-	emitPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
-		return name == "beforeEmitClientFacing"
-	})
+	obsPos, emitPos := firstObservationEmitPos(fn.Body)
 	if emitPos == 0 {
-		t.Fatal("handleResponseFinishedPath must call beforeEmitClientFacing")
+		t.Fatal("handleResponseFinishedPath must call beforeEmitClientFacing or emitClientFacingObserved")
 	}
 	if obsPos == 0 {
-		t.Fatalf("RED: handleResponseFinishedPath must call %s before beforeEmitClientFacing so success_released observes released response_finished",
-			runFinalStreamObservationStage)
+		t.Fatalf("RED: handleResponseFinishedPath must call %s or %s before client emit so success_released observes released response_finished",
+			runFinalStreamObservationStage, emitClientFacingObserved)
 	}
-	if !(obsPos < emitPos) {
-		t.Fatalf("want %s < beforeEmitClientFacing; obs=%d emit=%d", runFinalStreamObservationStage, obsPos, emitPos)
+	if !(obsPos <= emitPos) {
+		t.Fatalf("want observation/emit before client release; obs=%d emit=%d", obsPos, emitPos)
 	}
 }
 

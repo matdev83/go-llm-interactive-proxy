@@ -165,6 +165,7 @@ func authorityOpenParams(t *testing.T, aLegID string, budget *attemptBudget) att
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		session:  &routing.SessionRoutingState{},
 		excluded: map[string]struct{}{},
@@ -223,6 +224,7 @@ func openAuthorityCandidate(t *testing.T, ex *Executor, aLegID string) (attemptO
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 	}
 	return ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)

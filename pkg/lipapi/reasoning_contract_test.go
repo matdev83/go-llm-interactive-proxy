@@ -544,3 +544,143 @@ func TestReasoningFixtures_validate(t *testing.T) {
 		})
 	}
 }
+
+func TestReasoningPart_rejectsUnrelatedFields(t *testing.T) {
+	t.Parallel()
+	base := lipapi.ReasoningPart{Dialect: lipapi.ReasoningDialectOpenAIChatTextV1, Text: "t"}
+	cases := []struct {
+		name string
+		part lipapi.Part
+	}{
+		{name: "text", part: lipapi.Part{Kind: lipapi.PartReasoning, Text: "leak", Reasoning: &base}},
+		{name: "image_ref", part: lipapi.Part{Kind: lipapi.PartReasoning, ImageRef: "r", Reasoning: &base}},
+		{name: "image_mime", part: lipapi.Part{Kind: lipapi.PartReasoning, ImageMIME: "image/png", Reasoning: &base}},
+		{name: "file_ref", part: lipapi.Part{Kind: lipapi.PartReasoning, FileRef: "r", Reasoning: &base}},
+		{name: "file_mime", part: lipapi.Part{Kind: lipapi.PartReasoning, FileMIME: "application/pdf", Reasoning: &base}},
+		{name: "file_name", part: lipapi.Part{Kind: lipapi.PartReasoning, FileName: "a.pdf", Reasoning: &base}},
+		{name: "tool_call_id", part: lipapi.Part{Kind: lipapi.PartReasoning, ToolCallID: "id", Reasoning: &base}},
+		{name: "tool_name", part: lipapi.Part{Kind: lipapi.PartReasoning, ToolName: "tool", Reasoning: &base}},
+		{name: "content", part: lipapi.Part{Kind: lipapi.PartReasoning, Content: json.RawMessage(`{}`), Reasoning: &base}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ve := requireValidationError(t, lipapi.Call{
+				Messages: []lipapi.Message{{Role: lipapi.RoleAssistant, Parts: []lipapi.Part{tc.part}}},
+			}.Validate())
+			if !strings.Contains(strings.ToLower(ve.Message), "unrelated") {
+				t.Fatalf("expected unrelated-field rejection, got %q", ve.Message)
+			}
+		})
+	}
+}
+
+func TestReasoningPart_dialectNormalizeAndUnknown(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts_unknown_normalized_dialect", func(t *testing.T) {
+		t.Parallel()
+		d := lipapi.ReasoningDialect("vendor.custom.reasoning.v9")
+		if lipapi.NormalizeReasoningDialect(d) != d {
+			t.Fatalf("precondition: dialect must already be normalized")
+		}
+		if err := assistantReasoningCall(reasoningPart(d, "x", "", nil)).Validate(); err != nil {
+			t.Fatalf("unknown normalized dialect must Validate: %v", err)
+		}
+	})
+
+	t.Run("rejects_uppercase_dialect", func(t *testing.T) {
+		t.Parallel()
+		raw := lipapi.ReasoningDialect("OpenAI.Chat.Reasoning_Text.V1")
+		normalized := lipapi.NormalizeReasoningDialect(raw)
+		if normalized == raw {
+			t.Fatal("precondition: uppercase dialect must normalize")
+		}
+		ve := requireValidationError(t, assistantReasoningCall(reasoningPart(raw, "x", "", nil)).Validate())
+		if !strings.Contains(strings.ToLower(ve.Message), "normalized") {
+			t.Fatalf("expected normalized rejection, got %q (NormalizeReasoningDialect=%q)", ve.Message, normalized)
+		}
+	})
+
+	t.Run("rejects_whitespace_padded_dialect", func(t *testing.T) {
+		t.Parallel()
+		raw := lipapi.ReasoningDialect("  " + string(lipapi.ReasoningDialectOpenAIChatTextV1) + "  ")
+		normalized := lipapi.NormalizeReasoningDialect(raw)
+		if normalized == raw {
+			t.Fatal("precondition: padded dialect must normalize")
+		}
+		ve := requireValidationError(t, assistantReasoningCall(reasoningPart(raw, "x", "", nil)).Validate())
+		if !strings.Contains(strings.ToLower(ve.Message), "normalized") {
+			t.Fatalf("expected normalized rejection, got %q (NormalizeReasoningDialect=%q)", ve.Message, normalized)
+		}
+	})
+}
+
+func TestReasoningPart_instructionsAssistantOnlyAndOverflowField(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts_assistant_instructions_reasoning", func(t *testing.T) {
+		t.Parallel()
+		call := lipapi.Call{
+			Instructions: []lipapi.Message{{
+				Role:  lipapi.RoleAssistant,
+				Parts: []lipapi.Part{reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, "instr", "", nil)},
+			}},
+			Messages: []lipapi.Message{{
+				Role:  lipapi.RoleUser,
+				Parts: []lipapi.Part{lipapi.TextPart("q")},
+			}},
+		}
+		if err := call.Validate(); err != nil {
+			t.Fatalf("assistant instructions reasoning must Validate: %v", err)
+		}
+	})
+
+	t.Run("rejects_user_instructions_reasoning", func(t *testing.T) {
+		t.Parallel()
+		call := lipapi.Call{
+			Instructions: []lipapi.Message{{
+				Role:  lipapi.RoleUser,
+				Parts: []lipapi.Part{reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, "nope", "", nil)},
+			}},
+			Messages: []lipapi.Message{{
+				Role:  lipapi.RoleUser,
+				Parts: []lipapi.Part{lipapi.TextPart("q")},
+			}},
+		}
+		ve := requireValidationError(t, call.Validate())
+		if !strings.HasPrefix(ve.Field, "Instructions[") {
+			t.Fatalf("expected Instructions field path, got %q", ve.Field)
+		}
+		if !strings.Contains(strings.ToLower(ve.Message), "assistant") {
+			t.Fatalf("expected assistant-role rejection, got %q", ve.Message)
+		}
+	})
+
+	t.Run("instructions_only_overflow_reports_instructions_field", func(t *testing.T) {
+		t.Parallel()
+		half := lipapi.MaxReasoningBytesPerCall/2 + 1
+		call := lipapi.Call{
+			Messages: []lipapi.Message{{
+				Role:  lipapi.RoleUser,
+				Parts: []lipapi.Part{lipapi.TextPart("q")},
+			}},
+			Instructions: []lipapi.Message{{
+				Role: lipapi.RoleAssistant,
+				Parts: []lipapi.Part{
+					reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, strings.Repeat("a", half), "", nil),
+					reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, strings.Repeat("b", half), "", nil),
+				},
+			}},
+		}
+		ve := requireValidationError(t, call.Validate())
+		if !strings.HasPrefix(ve.Field, "Instructions[") {
+			t.Fatalf("expected Instructions overflow field path, got %q message=%q", ve.Field, ve.Message)
+		}
+		msg := strings.ToLower(ve.Message)
+		if !strings.Contains(msg, "reasoning") || !strings.Contains(msg, "exceed") {
+			t.Fatalf("expected reasoning overflow message, got %q", ve.Message)
+		}
+	})
+}

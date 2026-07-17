@@ -62,13 +62,13 @@ func TestApplyCompletionGateChain_PreOutputPassPreservesOutputCommittedFalse(t *
 	obs := &runnerEvidenceObserver{}
 	ctx := withRunnerEvidence(context.Background(), obs)
 	orig := []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}, {Kind: lipapi.EventResponseFinished}}
-	out, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{runnerPassGate{}},
+	result, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{runnerPassGate{}},
 		completion.Meta{}, orig, false, completionGateServices(), nil)
 	if err != nil {
 		t.Fatalf("runner: %v", err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("pre-output pass must preserve buffer: got %d events", len(out))
+	if len(result.Events) != 2 {
+		t.Fatalf("pre-output pass must preserve buffer: got %d events", len(result.Events))
 	}
 	rec, ok := obs.findByProvider("pd-pass-gate")
 	if !ok {
@@ -95,13 +95,13 @@ func TestApplyCompletionGateChain_ValidationFailureEmitsMalformed(t *testing.T) 
 	ctx := withRunnerEvidence(context.Background(), obs)
 	orig := []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}, {Kind: lipapi.EventResponseFinished}}
 	// FailOpen: validation failure is logged and skipped; chain continues.
-	out, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{malformedPassGate{}},
+	result, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{malformedPassGate{}},
 		completion.Meta{}, orig, false, completionGateServices(), nil)
 	if err != nil {
 		t.Fatalf("fail-open validation failure must not surface error, got %v", err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("fail-open malformed gate must preserve buffer: got %d events", len(out))
+	if len(result.Events) != 2 {
+		t.Fatalf("fail-open validation failure must preserve buffer: got %d events", len(result.Events))
 	}
 	rec, ok := obs.findByProvider("pd-malformed-pass")
 	if !ok {
@@ -134,13 +134,13 @@ func TestApplyCompletionGateChain_HandlerErrorEmitsFailure(t *testing.T) {
 	obs := &runnerEvidenceObserver{}
 	ctx := withRunnerEvidence(context.Background(), obs)
 	orig := []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}, {Kind: lipapi.EventResponseFinished}}
-	out, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{handlerFailGate{}},
+	result, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{handlerFailGate{}},
 		completion.Meta{}, orig, false, completionGateServices(), nil)
 	if err != nil {
 		t.Fatalf("fail-open handler error must not surface error, got %v", err)
 	}
-	if len(out) != 2 {
-		t.Fatalf("fail-open handler error must preserve buffer: got %d events", len(out))
+	if len(result.Events) != 2 {
+		t.Fatalf("fail-open handler error must preserve buffer: got %d events", len(result.Events))
 	}
 	rec, ok := obs.findByProvider("pd-handler-fail")
 	if !ok {
@@ -189,14 +189,14 @@ func TestApplyCompletionGateChain_PostOutputReplaceProjectsSkipNone(t *testing.T
 	obs := &runnerEvidenceObserver{}
 	ctx := withRunnerEvidence(context.Background(), obs)
 	orig := []lipapi.Event{{Kind: lipapi.EventTextDelta, Delta: "a"}, {Kind: lipapi.EventResponseFinished}}
-	out, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{postOutputReplaceGate{}},
+	result, err := extensions.ApplyCompletionGateChain(ctx, []completion.Gate{postOutputReplaceGate{}},
 		completion.Meta{}, orig, true, completionGateServices(), nil)
 	if err != nil {
 		t.Fatalf("runner: %v", err)
 	}
 	// outputCommitted=true: replacement ignored, original buffer preserved.
-	if len(out) != 2 {
-		t.Fatalf("post-output replace must preserve buffer: got %d events", len(out))
+	if len(result.Events) != 2 {
+		t.Fatalf("post-output replace must preserve buffer: got %d events", len(result.Events))
 	}
 	rec, ok := obs.findByProvider("pd-post-output-replace")
 	if !ok {

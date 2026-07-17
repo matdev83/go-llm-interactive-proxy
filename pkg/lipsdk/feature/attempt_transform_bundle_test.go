@@ -39,6 +39,17 @@ func TestFeatureBundle_AttemptTransforms_requiresSchemaV1(t *testing.T) {
 	}
 }
 
+func TestFeatureBundle_AttemptTransforms_rejectsNilEntry(t *testing.T) {
+	t.Parallel()
+	b := feature.FeatureBundle{
+		SchemaVersion:     feature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{nil},
+	}
+	if err := b.Validate(); err == nil {
+		t.Fatal("nil AttemptTransforms entry must fail Validate")
+	}
+}
+
 func TestFeatureBundle_AttemptTransforms_omittedRemainsNoOp(t *testing.T) {
 	t.Parallel()
 	var b feature.FeatureBundle

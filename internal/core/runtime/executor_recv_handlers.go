@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	completion "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
@@ -82,9 +83,6 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 		return s.handleGatedPath(ctx, gates, ev, pm)
 	}
 
-	if lipapi.OutputCommitted(ev) {
-		s.markOutputCommitted(ev)
-	}
 	s.accounting.observeClientEvent(s.now(), ev)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
@@ -93,20 +91,8 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	if ev.Kind == lipapi.EventResponseFinished {
 		return s.handleResponseFinishedPath(ctx, ev, pm)
 	}
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
-			}
-			return lipapi.Event{}, false, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
-	s.commitAffinityIfOutput(ctx, ev)
-	s.emitTrafficPTC(ctx, ev, pm)
-	return ev, false, nil
+	out, err := s.emitClientFacingObserved(ctx, ev, pm)
+	return out, false, err
 }
 
 // handleToolEventPath runs tool policies, tool reactors, and merges a
@@ -169,25 +155,12 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		}
 	}
 	out = s.emitGateDrained(ctx, out)
-	s.markOutputCommitted(out)
 	s.accounting.observeClientEvent(s.now(), out)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
-	if err := s.beforeEmitClientFacing(ctx, out); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
-			}
-			return lipapi.Event{}, false, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
-	s.commitAffinityIfOutput(ctx, out)
-	s.emitTrafficPTC(ctx, out, pm)
-	return out, false, nil
+	out, err := s.emitClientFacingObserved(ctx, out, pm)
+	return out, false, err
 }
 
 // handleResponseFinishedPath finalizes the response_finished branch: token
@@ -213,20 +186,8 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 	s.markFinished()
 	s.finishALegScope()
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
-			}
-			return lipapi.Event{}, false, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
-	s.commitAffinityIfOutput(ctx, ev)
-	s.emitTrafficPTC(ctx, ev, pm)
-	return ev, false, nil
+	out, err := s.emitClientFacingObserved(ctx, ev, pm)
+	return out, false, err
 }
 
 func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, error) {
@@ -266,10 +227,12 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
 				return lipapi.Event{}, nil
 			}
-			return ev, nil
+			pm, _ := s.recvHookMeta()
+			return s.emitClientFacingObserved(ctx, ev, pm)
 		}
 	}
 	s.recordPartialTokenAccounting(ctx, "stream ended without response_finished", io.EOF)
+	s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 	if !s.isFinished() {
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    s.aLegID,

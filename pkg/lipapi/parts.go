@@ -51,6 +51,9 @@ type Part struct {
 }
 
 func (p Part) validate() error {
+	if p.Reasoning != nil && p.Kind != PartReasoning {
+		return errors.New("Reasoning is only allowed when Kind is reasoning")
+	}
 	switch p.Kind {
 	case PartText:
 		if p.Text == "" {
@@ -75,10 +78,49 @@ func (p Part) validate() error {
 		if !json.Valid(p.Content) {
 			return errors.New("json part Content must be valid JSON")
 		}
+	case PartReasoning:
+		if p.Text != "" || p.ImageRef != "" || p.ImageMIME != "" ||
+			p.FileRef != "" || p.FileMIME != "" || p.FileName != "" ||
+			p.ToolCallID != "" || p.ToolName != "" || len(p.Content) > 0 {
+			return errors.New("reasoning part must not set unrelated part fields")
+		}
+		return validateReasoningPart(p.Reasoning)
 	case "":
 		return errors.New("part kind is required")
 	default:
 		return fmt.Errorf("unknown part kind %q", p.Kind)
+	}
+	return nil
+}
+
+func validateReasoningPart(rp *ReasoningPart) error {
+	if rp == nil {
+		return errors.New("reasoning part requires Reasoning")
+	}
+	normalized := NormalizeReasoningDialect(rp.Dialect)
+	if normalized == "" {
+		return errors.New("reasoning dialect is required")
+	}
+	if len(normalized) > MaxReasoningDialectBytes {
+		return fmt.Errorf("reasoning dialect exceeds %d bytes", MaxReasoningDialectBytes)
+	}
+	if rp.Dialect != normalized {
+		return errors.New("reasoning dialect must be normalized")
+	}
+	if rp.Text == "" && rp.Signature == "" && len(rp.Opaque) == 0 {
+		return errors.New("reasoning payload requires at least one of text, signature, or opaque")
+	}
+	if len(rp.Text) > MaxReasoningTextBytes {
+		return fmt.Errorf("reasoning text exceeds %d bytes", MaxReasoningTextBytes)
+	}
+	if len(rp.Signature) > MaxReasoningSignatureBytes {
+		return fmt.Errorf("reasoning signature exceeds %d bytes", MaxReasoningSignatureBytes)
+	}
+	if len(rp.Opaque) > MaxReasoningOpaqueBytes {
+		return fmt.Errorf("reasoning opaque exceeds %d bytes", MaxReasoningOpaqueBytes)
+	}
+	if len(rp.Opaque) > 0 && !json.Valid(rp.Opaque) {
+		return errors.New("reasoning opaque must be valid JSON")
 	}
 	return nil
 }

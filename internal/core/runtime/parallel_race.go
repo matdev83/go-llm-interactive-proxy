@@ -429,6 +429,9 @@ func (e *Executor) tryOpenParallelGroup(
 		if p.lastParallelFailure != nil {
 			*p.lastParallelFailure = parallelFailure
 		}
+		if p.excluded == nil {
+			p.excluded = map[string]struct{}{}
+		}
 		for _, c := range candidates {
 			p.excluded[c.Key] = struct{}{}
 		}

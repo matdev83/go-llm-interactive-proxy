@@ -203,6 +203,8 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 				PreRequestHandlers:               merged.PreRequestHandlers,
 				RouteHintProviders:               merged.RouteHintProviders,
 				CompletionGates:                  merged.CompletionGates,
+				AttemptTransforms:                merged.AttemptTransforms,
+				StreamObserverFactories:          merged.StreamObserverFactories,
 				TrafficObservers:                 append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
 				UsageObservers:                   append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
 				RawCaptureSinks:                  merged.RawCaptureSinks,

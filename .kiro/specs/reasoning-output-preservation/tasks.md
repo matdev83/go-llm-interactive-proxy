@@ -58,7 +58,7 @@
 
 ## Phase 2 — GREEN: Canonical Contracts and Generic Extension Seams
 
-- [ ] 2.1 Implement canonical reasoning and hard replay negotiation
+- [x] 2.1 Implement canonical reasoning and hard replay negotiation
   - Implement `PartReasoning`, bounded provider-neutral payloads, assistant-role validation, deep clone/equality/size/token/checkpoint support, and fuzz-safe helpers.
   - Add `CapabilityReasoningReplay` and normalized candidate replay support; keep replay outside soft downgrades.
   - **Deliverable:** canonical calls safely carry historical reasoning without SDK types or mutable aliasing.
@@ -68,7 +68,7 @@
   - _Depends: 1.1_
   - _Validation: `go test ./pkg/lipapi/`_
 
-- [ ] 2.2 Wire both new ports through feature bundles and snapshots
+- [x] 2.2 Wire both new ports through feature bundles and snapshots
   - Add optional attempt-transform and stream-observer fields to `FeatureBundle`, merge surface, plugin-instance wrappers, immutable snapshots, sorting, validation, and inventory occupancy.
   - Preserve schema V1 additively; omitted fields remain no-op.
   - **Deliverable:** configured plugins can contribute the two generic ports without core importing feature code.
@@ -78,7 +78,7 @@
   - _Depends: 1.2, 1.3, 2.1_
   - _Validation: focused feature-bundle/registry/snapshot/inventory tests_
 
-- [ ] 2.3 Implement candidate attempt-transform execution
+- [x] 2.3 Implement candidate attempt-transform execution
   - Resolve backend instance, prefixes, model, and replay profile after interleaved shaping, then run transforms before final capability/context/token/checkpoint/authorization work.
   - Implement candidate exclusion, safe route evidence, transformed-call validation, exact size recomputation, and immutable-baseline assertions across first open, retries, replacements, weighted routes, and parallel arms.
   - **Deliverable:** candidate restoration can change final eligibility/accounting without leaking between attempts.
@@ -88,7 +88,7 @@
   - _Depends: 2.2_
   - _Validation: focused executor open/failover/parallel/context/metering tests_
 
-- [ ] 2.4 Implement final-canonical-stream observer execution
+- [x] 2.4 Implement final-canonical-stream observer execution
   - Dispatch defensive final events after response hooks and gate resolution; finalize exactly once on every terminal/close/error path using a fresh bounded context.
   - Open observers only for the active surfaced B-leg and isolate observer failures without changing committed output or causing retry.
   - **Deliverable:** reusable incremental observation exists without full-response buffering.
@@ -98,7 +98,7 @@
   - _Depends: 2.2_
   - _Validation: focused recv/gate/parallel/cancellation/close tests_
 
-- [ ] 2.5 Add safe generic telemetry and inventory
+- [x] 2.5 Add safe generic telemetry and inventory
   - Record fixed stage outcomes, counts, and bytes; reject sensitive fields and unbounded labels.
   - Expose attempt-transform/observer stage occupancy and aggregate posture in diagnostics without payloads or session partitions.
   - **Deliverable:** generic ports are diagnosable under repository privacy/cardinality rules.

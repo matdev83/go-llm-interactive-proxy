@@ -116,12 +116,15 @@ func TestOpenPlannedCandidate_excludeCandidateDecisionHandledBeforeOpen(t *testi
 		t.Fatal("openPlannedCandidate not found")
 	}
 
-	var excludePos, openPos token.Pos
+	transformPos := firstCallPos(openFn.Body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == runCandidateAttemptTransformStage
+	})
+	var excludedPos, openPos token.Pos
 	ast.Inspect(openFn.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.SelectorExpr:
-			if excludePos == 0 && x.Sel != nil && x.Sel.Name == "AttemptExcludeCandidate" {
-				excludePos = x.Pos()
+			if excludedPos == 0 && x.Sel != nil && x.Sel.Name == "Excluded" {
+				excludedPos = x.Pos()
 			}
 		case *ast.CallExpr:
 			if openPos != 0 {
@@ -144,13 +147,16 @@ func TestOpenPlannedCandidate_excludeCandidateDecisionHandledBeforeOpen(t *testi
 		return true
 	})
 
-	if excludePos == 0 {
-		t.Fatal("RED: openPlannedCandidate must handle request.AttemptExcludeCandidate before backend Open so excluded candidates never open")
+	if transformPos == 0 {
+		t.Fatalf("openPlannedCandidate must call %s before backend Open", runCandidateAttemptTransformStage)
+	}
+	if excludedPos == 0 {
+		t.Fatal("openPlannedCandidate must branch on transform Excluded before backend Open so excluded candidates never open")
 	}
 	if openPos == 0 {
 		t.Fatal("openPlannedCandidate must call backend Open")
 	}
-	if !(excludePos < openPos) {
-		t.Fatalf("want AttemptExcludeCandidate handling before backend Open; exclude=%d open=%d", excludePos, openPos)
+	if !(transformPos < openPos && excludedPos < openPos) {
+		t.Fatalf("want transform+Excluded before backend Open; transform=%d excluded=%d open=%d", transformPos, excludedPos, openPos)
 	}
 }

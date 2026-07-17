@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
@@ -28,6 +29,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -60,6 +62,8 @@ type attemptOpenParams struct {
 	// isContextLimitExhaustion, when non-nil, is set true when excluding a candidate for context-limit
 	// eligibility so a subsequent ErrNoEligibleCandidate maps to [lipapi.ErrAllCandidatesContextLimitExceeded].
 	isContextLimitExhaustion *bool
+	// transformExcludes aggregates attempt-transform exclusions for stable all-excluded errors.
+	transformExcludes *transformExcludeTracker
 	// interleaved is the loaded interleaved-thinking state (cycle cursor + memo reference) for the
 	// A-leg. It is the zero-value when interleaved thinking is disabled or no state has been stored.
 	interleaved interleavedstate.State
@@ -123,9 +127,6 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 	}
 	if err != nil {
 		noEligible := errors.Is(err, routing.ErrNoEligibleCandidate)
-		if noEligible && p.lastParallelFailure != nil && *p.lastParallelFailure != nil {
-			return zero, *p.lastParallelFailure
-		}
 		lastNegotiationReject := p.lastReject != nil && p.lastReject.Kind == lipapi.NegotiationReject
 		lastTransportReject := p.lastTransportReject != nil && p.lastTransportReject.Kind == lipapi.NegotiationReject
 		if noEligible && lastTransportReject {
@@ -136,6 +137,14 @@ func (e *Executor) tryPlanOpenOnce(p attemptOpenParams) (attemptOpenResult, erro
 		}
 		if noEligible && p.isContextLimitExhaustion != nil && *p.isContextLimitExhaustion {
 			return zero, lipapi.ErrAllCandidatesContextLimitExceeded
+		}
+		if noEligible {
+			if aggErr := p.transformExcludes.allExcludedError(); aggErr != nil {
+				return zero, aggErr
+			}
+		}
+		if noEligible && p.lastParallelFailure != nil && *p.lastParallelFailure != nil {
+			return zero, *p.lastParallelFailure
 		}
 		return zero, fmt.Errorf("executor: expand failover: %w", err)
 	}
@@ -199,11 +208,30 @@ func (e *Executor) openPlannedCandidate(
 	attempt = shapeRes.Call
 	e.logInterleavedMemoShape(p.ctx, p.traceID, "", c, shapeRes)
 	noOpen := attemptOpenResult{interleaved: interleaved}
-	req := lipapi.RequiredCapabilities(attempt)
 	be, ok := e.Backends[c.Primary.Backend]
 	if !ok {
 		return zero, fmt.Errorf("executor: unknown backend %q", c.Primary.Backend)
 	}
+	var transforms []request.AttemptTransform
+	var atSvc request.Services
+	if e.RuntimeSnapshot != nil {
+		transforms = e.RuntimeSnapshot.AttemptTransforms()
+		atSvc = request.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
+	}
+	atMeta := e.candidateAttemptMeta(p, attempt, c, be)
+	xformRes, xformErr := extensions.RunCandidateAttemptTransformStage(
+		p.ctx, e.Log, e.ExtensionMetrics, transforms, &attempt, atMeta, atSvc,
+	)
+	if xformErr != nil {
+		return zero, fmt.Errorf("executor: candidate attempt transform: %w", xformErr)
+	}
+	if xformRes.Excluded {
+		e.noteAttemptTransformExclude(p, c, xformRes)
+		p.excluded[c.Key] = struct{}{}
+		return noOpen, nil
+	}
+	pinCandidateRouteIdentity(&attempt, p.baseline)
+	req := lipapi.RequiredCapabilities(attempt)
 	var facts modelcatalog.EffectiveFacts
 	res, negotiatePanicErr := safety.CallValue(
 		safety.BoundaryBackend,
@@ -226,6 +254,9 @@ func (e *Executor) openPlannedCandidate(
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
+			if p.transformExcludes != nil {
+				p.transformExcludes.noteOther()
+			}
 			p.excluded[c.Key] = struct{}{}
 			return noOpen, nil
 		}
@@ -247,6 +278,9 @@ func (e *Executor) openPlannedCandidate(
 		// Req 9.3 / task 6.2: same route-trace surface as context exclusions (negotiation outcome + catalog metadata).
 		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
 		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+		if p.transformExcludes != nil {
+			p.transformExcludes.noteOther()
+		}
 		p.excluded[c.Key] = struct{}{}
 		return noOpen, nil
 	}
@@ -291,6 +325,9 @@ func (e *Executor) openPlannedCandidate(
 		)
 		cat := catalogRouteTraceIfEnabled(e, facts, res, nil, false)
 		e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+		if p.transformExcludes != nil {
+			p.transformExcludes.noteOther()
+		}
 		p.excluded[c.Key] = struct{}{}
 		return noOpen, nil
 	}
@@ -327,6 +364,9 @@ func (e *Executor) openPlannedCandidate(
 			)
 			cat := catalogRouteTraceIfEnabled(e, facts, res, elig, true)
 			e.notePlanCandidate(p.ctx, p.traceID, c.Key, cat)
+			if p.transformExcludes != nil {
+				p.transformExcludes.noteOther()
+			}
 			p.excluded[c.Key] = struct{}{}
 			return noOpen, nil
 		}
@@ -354,12 +394,6 @@ func (e *Executor) openPlannedCandidate(
 	_ = precheckState // precheck is estimate-only; state is not carried forward
 	if !p.budget.tryAcquire() {
 		return zero, fmt.Errorf("executor: %w", lipapi.ErrMaxRouteAttempts)
-	}
-	if c.MarkedFirst {
-		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
-			return zero, fmt.Errorf("executor: set weighted first consumed: %w", err)
-		}
-		p.session.FirstRequestConsumed = true
 	}
 	// NextBLeg allocates a B-leg seq before the authoritative admit; on a subsequent admit
 	// failure that seq is intentionally NOT restored. Orphaned seqToBLeg entries are
@@ -391,6 +425,20 @@ func (e *Executor) openPlannedCandidate(
 		p.budget.release()
 		return zero, fmt.Errorf("executor: request hooks: %w", err)
 	}
+	postHook, postErr := e.rederiveAfterRequestHooks(p, &attempt, c, be, stickyBackendID, stickyBinding)
+	if postErr != nil {
+		p.budget.release()
+		return zero, postErr
+	}
+	if postHook.excluded {
+		p.budget.release()
+		p.excluded[c.Key] = struct{}{}
+		return noOpen, nil
+	}
+	if postHook.preflightOK {
+		preflightDecision = postHook.preflight
+	}
+	facts = postHook.facts
 	openCall, err := backendCallWithRouteParams(attempt, c)
 	if err != nil {
 		p.budget.release()
@@ -683,6 +731,17 @@ func (e *Executor) openPlannedCandidate(
 		slog.Int64("open_duration_ms", time.Since(openStart).Milliseconds()),
 	)
 	e.logInterleavedRouteSelected(p.ctx, p.traceID, bleg.BLegID, c)
+	if c.MarkedFirst {
+		if err := e.Store.SetWeightedFirstConsumed(p.ctx, p.aLegID, true); err != nil {
+			if stream != nil {
+				_ = stream.Close()
+			}
+			return zero, fmt.Errorf("executor: set weighted first consumed: %w", err)
+		}
+		if p.session != nil {
+			p.session.FirstRequestConsumed = true
+		}
+	}
 	opened = true
 	return attemptOpenResult{opened: true, registered: false, stream: stream, bleg: bleg, cand: c, authority: authState, interleaved: interleaved, memoUpdate: memoUpdate}, nil
 }

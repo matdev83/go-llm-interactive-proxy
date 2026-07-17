@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -107,15 +108,18 @@ func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransfo
 	return b
 }
 
-// wireMergedAttemptSurface mirrors bootstrap: only MergedFeatureSurface fields exist today.
-// AttemptTransforms are dropped until Phase 2.2 Append/snapshot wiring.
+// wireMergedAttemptSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
 func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
 	merged := featurebundle.MergeBundles(bundle)
 	bus := hooks.New(hooks.Config{})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		RequestTransforms: merged.RequestTransforms,
+		AttemptTransforms: merged.AttemptTransforms,
 	})
+	if want, got := len(merged.AttemptTransforms), len(snap.AttemptTransforms()); want != got {
+		t.Fatalf("precondition: snapshot AttemptTransforms len=%d want %d", got, want)
+	}
 	return bus, snap
 }
 
@@ -182,7 +186,7 @@ func TestCandidateAttemptTransform_invokedWithMetaMutationObservedByOpen(t *test
 		}
 	}
 	if !hasMarker {
-		t.Fatal("RED: AttemptTransform contributed via FeatureBundle must mutate the candidate clone observed by backend Open (merge/snapshot/runner wiring absent)")
+		t.Fatal("RED: AttemptTransform contributed via FeatureBundle must mutate the candidate clone observed by backend Open (runner absent)")
 	}
 	xform.metaMu.Lock()
 	metas := append([]request.AttemptMeta(nil), xform.metas...)
@@ -443,6 +447,9 @@ func TestCandidateAttemptTransform_parallelArmsIndependentClones(t *testing.T) {
 
 	var mu sync.Mutex
 	var openIDs []string
+	var openArrived atomic.Int32
+	gate := make(chan struct{})
+	const openBarrierTimeout = 3 * time.Second
 	tracking := func(name string) execbackend.Backend {
 		return execbackend.Backend{
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
@@ -450,6 +457,14 @@ func TestCandidateAttemptTransform_parallelArmsIndependentClones(t *testing.T) {
 				mu.Lock()
 				openIDs = append(openIDs, call.ID)
 				mu.Unlock()
+				if openArrived.Add(1) == 2 {
+					close(gate)
+				}
+				select {
+				case <-gate:
+				case <-time.After(openBarrierTimeout):
+					return nil, errors.New("parallel open barrier timed out waiting for peer arm")
+				}
 				return lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventMessageStarted},
