@@ -221,3 +221,49 @@ The initial requirements draft was committed before this analysis. The final req
 - Use durable intent plus idempotency instead of claiming distributed transactions across external providers.
 - Bind executable generations at request admission and retain compatibility for pending handles.
 - Keep proprietary enterprise pricebooks, wallets, credit, payments, invoices, tax, and commercial reporting in a separate specification.
+
+## Design Validation Stage
+
+The first `design.md` revision was reviewed against all remediated acceptance criteria, the current runtime and persistence seams, steering, transaction-pool constraints, multi-instance failure scenarios, and the chronological dependency plan. The validation identified these defects.
+
+| ID | Validation finding | Correction applied to final design |
+| --- | --- | --- |
+| **V-01** | Customer output was projected by filtering a provider-oriented terminal usage event, which still coupled customer settlement to backend evidence. | Added a dedicated post-hook/post-gate final-canonical customer accumulator and prohibited provider cost in customer facts. |
+| **V-02** | Provider instances and descriptors remained independent lists matched by stage/order. | Added descriptor-bound request, attempt, concurrency, and rater registrations with stable IDs and priorities. |
+| **V-03** | Initial validation covered only top-level kinds/basic money and did not resolve current-provider holds on non-allow results. | Added context-aware validation for all result fields and rejection/compensation before posture processing. |
+| **V-04** | One terminal retry row represented a whole request/attempt and embedded multiple completion flags. | Split terminal work into one independently idempotent action per fact, provider operation, correction, or lease set. |
+| **V-05** | Work was persisted only after an inline failure and suggested optional local transactions without handling ambiguous external success. | Required durable intent before required external/separately durable effects and explicit idempotency; no distributed transaction is claimed. |
+| **V-06** | Fact identity included lifecycle/boundary/source but not an identity version or source revision. | Added identity version, event kind, revision, stable sequence, store-scoped uniqueness, and conflicting replay rejection. |
+| **V-07** | Frontend ingress could be persisted before trusted scope and deferred counts were available. | Split immutable early capture from trusted-scope/count binding and require persistence before request authority. |
+| **V-08** | Runtime generations held only policy/rating metadata while built-in services retained static evaluators. | Added executable generation contributions containing actual authority/concurrency/rater registrations. |
+| **V-09** | Old-generation/provider lifetime was not defined for live requests or durable retries. | Retain live generation references and require stable provider IDs to remain resolvable until pending work drains. |
+| **V-10** | Terminal coverage omitted frontend encoder failure and denial/error after request lease acquisition but before backend work. | Added one terminal command vocabulary covering all logical-request and attempt exits. |
+| **V-11** | Multi-rule acquisition was coordinated by sequential acquire/rollback rather than an atomic set mutation. | Added set-level acquire, renew, release, replay, generation, and store contracts. |
+| **V-12** | Fail-closed renewal stopped heartbeat but allowed the active request to continue after lease expiry. | Require early cancellation/terminalization or conservative uncertain occupancy that remains counted. |
+| **V-13** | `BillingReady` could be misread as payments/invoicing readiness. | Renamed the aggregate posture `EconomicControlReady` and restated commercial non-goals. |
+| **V-14** | Release evidence omitted dedicated state-machine fuzz/model testing and disabled-path performance. | Added fact/provider/work/lease models, fault injection, and no-feature/contention benchmarks. |
+| **V-15** | The initial open sequence froze/rated/reserved before applying authority-returned exposure clamps. | Added side-effect-free bounded clamp preview and one final reservation against the converged call. |
+
+### Design Validation Checklist
+
+- **Requirement coverage:** all 119 final acceptance criteria map to a design component and at least one task.
+- **Chronology:** seven phases match semantic correctness → public contracts → durable journal → terminal recovery → executable generations → distributed concurrency → certification; no phase has more than five tasks.
+- **Dependency direction:** public/core packages remain free of provider SDK, HTTP, SQL/ORM, queue SDK, and proprietary types.
+- **Economic isolation:** customer facts and rating never consume provider cost; every incurred backend attempt retains independent operator evidence.
+- **Mutation ordering:** final backend quantities are captured and rated after all widening mutation and before attempt authority and `Open`.
+- **Streaming correctness:** final customer accumulation is incremental and does not create a second non-streaming path.
+- **Terminal correctness:** one owner covers completion, close, cancellation, encoder error, failover, race loss, timeout, and panic without post-output retry.
+- **Durability:** required terminal effects have durable per-action intent, stable idempotency, bounded retry, restart recovery, and quarantine.
+- **Generation truth:** versions identify actual executable registrations; failed refresh does not relabel old evaluators.
+- **Concurrency truth:** strict capacity uses atomic lease sets and cannot become unproven while a request silently continues.
+- **Pooling:** runtime persistence remains transaction-pool safe and migrations remain direct/admin only.
+- **Migration:** changes are additive, identity-versioned, compatibility-aware, and roll back without abandoning pending work.
+- **Privacy:** no raw content, credentials, balances, reversible content keys, or unbounded labels enter default durable or operational surfaces.
+- **Open-core boundary:** proprietary pricebooks, wallets, credit, payments, invoices, tax, and commercial analytics remain outside this specification.
+- **Verification:** tasks include focused, protocol, race, fuzz/model, fault, PostgreSQL direct/pooled, enterprise-module, benchmark, and clean-environment evidence.
+
+## Final Validation Verdict
+
+**PASS after corrections.**
+
+The final `requirements.md`, `design.md`, and `tasks.md` form a coherent brownfield implementation contract for phases 1–7. The design preserves the valuable merged foundation, adds new components only for distinct lifecycle or durability responsibilities, and does not claim commercial capabilities outside the OSS core boundary.
