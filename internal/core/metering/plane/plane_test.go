@@ -60,6 +60,7 @@ func TestCustomerPlaneUsageEvent_StripsProviderScopesAndMoney(t *testing.T) {
 	t.Parallel()
 	ev := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, CostNanoUnits: 999, Currency: "USD", CostPresent: true,
+		MessageIndex: 3, RawUsageJSON: `{"provider":"x"}`,
 		UsageScopes: []lipapi.ScopedUsageDelta{
 			{
 				InputTokens: 40, OutputTokens: 12, TotalTokens: 52,
@@ -81,5 +82,10 @@ func TestCustomerPlaneUsageEvent_StripsProviderScopesAndMoney(t *testing.T) {
 	}
 	if got.CostPresent || got.CostNanoUnits != 0 || got.Currency != "" {
 		t.Fatalf("customer plane must strip money; got %+v", got)
+	}
+	// Projection is a fresh UsageDelta: lipapi.Event has no trace/model identity fields,
+	// and provider RawUsageJSON must not leak onto the customer plane.
+	if got.MessageIndex != 0 || got.RawUsageJSON != "" {
+		t.Fatalf("customer projection must not carry provider envelope fields: %+v", got)
 	}
 }

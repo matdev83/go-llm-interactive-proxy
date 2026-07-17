@@ -44,7 +44,7 @@ func (e *Executor) previewAndApplyAttemptClamps(
 
 	var converged []authority.Clamp
 	working := lipapi.CloneCall(*call)
-	for i := 0; i < maxClampPreviewIterations; i++ {
+	for range maxClampPreviewIterations {
 		qs := e.previewExposureQuantities(ctx, working)
 		in := authority.AttemptAdmission{
 			RequestID:   strings.TrimSpace(working.ID),

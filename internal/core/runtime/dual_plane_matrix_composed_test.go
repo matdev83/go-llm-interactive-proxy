@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -166,7 +167,7 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 	p.baseline.ID = "req-seq"
 
 	var out attemptOpenResult
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		var openErr error
 		out, openErr = ex.tryPlanOpenOnce(p)
 		if openErr != nil {
@@ -342,9 +343,14 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 	t.Parallel()
 
 	ex, backend, aLegID := newAuthorityRuntimeTestExecutor(t, nil)
-	var opens atomic.Int32
-	backend.openFn = func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-		opens.Add(1)
+	var opens1, opens2 atomic.Int32
+	backend.openFn = func(_ context.Context, _ lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+		switch cand.Primary.Backend {
+		case "backend-2":
+			opens2.Add(1)
+		default:
+			opens1.Add(1)
+		}
 		return &textThenRecoverableErrStream{}, nil
 	}
 
@@ -362,7 +368,7 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		bleg:       out.bleg,
 		cand:       out.cand,
 		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		sel:        mustParseSelector(t, "backend-1:model-1"),
+		sel:        mustParseSelector(t, "backend-1:model-1|backend-2:model-2"),
 		session:    &routing.SessionRoutingState{},
 		excluded:   map[string]struct{}{},
 		rng:        routing.NewSeededRng(1),
@@ -371,7 +377,7 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 	rs.storeInner(out.stream)
 
 	var lastErr error
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		_, lastErr = rs.Recv(context.Background())
 		if lastErr != nil {
 			break
@@ -380,8 +386,11 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 	if lastErr == nil {
 		t.Fatal("expected recoverable-after-output error from Recv")
 	}
-	if opens.Load() != 1 {
-		t.Fatalf("backend opens=%d want 1 (no retry after client-visible output)", opens.Load())
+	if opens1.Load() != 1 {
+		t.Fatalf("backend-1 opens=%d want 1 (no retry after client-visible output)", opens1.Load())
+	}
+	if opens2.Load() != 0 {
+		t.Fatalf("backend-2 opens=%d want 0 (fallback must not run after client-visible output)", opens2.Load())
 	}
 }
 
@@ -503,7 +512,7 @@ func TestDualPlaneMatrix_FilteringProviderVsDeliveredViaExecute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var text string
+	var text strings.Builder
 	for {
 		ev, rerr := stream.Recv(context.Background())
 		if rerr != nil {
@@ -513,12 +522,12 @@ func TestDualPlaneMatrix_FilteringProviderVsDeliveredViaExecute(t *testing.T) {
 			break
 		}
 		if ev.Kind == lipapi.EventTextDelta {
-			text += ev.Delta
+			text.WriteString(ev.Delta)
 		}
 	}
 	_ = stream.Close()
-	if text != "filtered" {
-		t.Fatalf("delivered text=%q want filtered", text)
+	if text.String() != "filtered" {
+		t.Fatalf("delivered text=%q want filtered", text.String())
 	}
 
 	var beMoney *metering.MoneyObservation

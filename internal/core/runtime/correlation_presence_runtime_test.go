@@ -134,6 +134,7 @@ func TestRuntimeCorrelation_FEAndBEIngressEgressShareIdentities(t *testing.T) {
 
 	_ = ctx
 }
+
 func TestMoneyFromUsageEvent_ExplicitPresenceOnly(t *testing.T) {
 	t.Parallel()
 	// Presence contracts live in internal/core/metering/plane; keep a thin

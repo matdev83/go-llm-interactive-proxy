@@ -40,12 +40,15 @@ type panicPreviewProvider struct{}
 func (panicPreviewProvider) PreviewAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	panic("preview boom")
 }
+
 func (panicPreviewProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (panicPreviewProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (panicPreviewProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	return nil
 }
@@ -58,12 +61,15 @@ func (unknownClampPreviewProvider) PreviewAttempt(context.Context, authority.Att
 		Clamps: []authority.Clamp{{Kind: authority.ClampOther, Value: 1}},
 	}, nil
 }
+
 func (unknownClampPreviewProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (unknownClampPreviewProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (unknownClampPreviewProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	return nil
 }
@@ -145,12 +151,15 @@ func (p mixedCurrencySpendProvider) PreviewAttempt(context.Context, authority.At
 		}},
 	}, nil
 }
+
 func (mixedCurrencySpendProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (mixedCurrencySpendProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (mixedCurrencySpendProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	return nil
 }

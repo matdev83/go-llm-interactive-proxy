@@ -256,8 +256,14 @@ func (e *Executor) tryOpenParallelGroup(
 					}
 					// legs[idx].authority is not assigned until after RegisterBLeg succeeds, so
 					// finalize the just-opened local reservation (out.authority) before returning.
+					// Backend ingress already occurred in openPlannedCandidate; emit BE egress so
+					// the incurred terminal stays correlated (req 2.3 / 5.3).
 					l := e.newAttemptAuthorityLifecycle(out.authority, entry.cand)
-					l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, emptyOperatorUsageShell())
+					usage := emptyOperatorUsageShell()
+					l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, usage)
+					if l.backendAttempted != nil && l.backendAttempted.Load() {
+						e.emitBackendEgressMeteringFact(ctx, out.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
+					}
 					return
 				}
 			}
