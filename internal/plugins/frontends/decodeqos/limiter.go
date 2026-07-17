@@ -65,6 +65,10 @@ func (l *Limiter) TryAcquire(ctx context.Context, weight int64) (func(), bool, e
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	// Recheck under the mutex: ctx may have canceled while waiting for l.mu.
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	if !l.canAdmitLocked(weight) {
 		return nil, false, nil
 	}
@@ -86,6 +90,10 @@ func (l *Limiter) Acquire(ctx context.Context, weight int64) (func(), error) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	stop := context.AfterFunc(ctx, func() {
 		l.mu.Lock()

@@ -151,9 +151,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		))
 		return
 	}
-	if sel == "" {
-		sel = h.RoutePrefixes.FromModelOrDefault(body, h.DefaultRouteSelector)
-	}
 	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, h.DecodeAdmission, int64(len(body)))
 	if d := decodeqos.Decide(ok, err); d.Status != 0 {
 		if d.RetryAfter {
@@ -164,6 +161,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var decoded *DecodedCreate
 	err = decodeqos.Guard(releaseDecode, func() error {
+		if sel == "" {
+			sel = h.RoutePrefixes.FromModelOrDefault(body, h.DefaultRouteSelector)
+		}
 		var derr error
 		decoded, derr = DecodeCreateRequest(body, DecodeOptions{RouteSelector: sel, Headers: r.Header})
 		return derr

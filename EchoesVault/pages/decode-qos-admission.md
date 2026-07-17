@@ -24,7 +24,7 @@ Decode admission zeros (`max_concurrent_decodes`, `max_inflight_decode_bytes`) n
 1. `reqbody.ReadAll` — decompressed absolute size cap → **413** when over. Body bytes are already fully resident in memory after this step.
 2. JSON preflight (`jsonguard` / `jsonshape` request profile)
 3. `DecodeAdmission.TryAcquire(len(body))` — weighted bytes + concurrency for **protocol Decode only** (does not cover body read or preflight)
-4. Protocol adapter Decode (admission released before Execute / stream)
+4. Body-touching route extraction (`FromModelOrDefault`) and protocol adapter Decode under admission (released before Execute / stream)
 
 ## 413 vs 429
 

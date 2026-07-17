@@ -10,6 +10,14 @@ import (
 )
 
 // DecodeAdmission bounds concurrent frontend decode work and weighted in-flight decode bytes.
+//
+// TryAcquire contract:
+//   - ok=true, err=nil: capacity reserved; release is non-nil and must be called exactly once.
+//   - ok=false, err=nil: saturated / rejected without waiting; release is nil and must not be called.
+//   - ok=false, err!=nil: canceled, invalid weight, or overweight; release is nil and must not be called.
+//   - ok=true with err!=nil is not a valid outcome.
+//
+// Nil receivers / nil DecodeAdmission values mean unlimited (custom/minimal mounts).
 type DecodeAdmission interface {
 	TryAcquire(ctx context.Context, weight int64) (release func(), ok bool, err error)
 }

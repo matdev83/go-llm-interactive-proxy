@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -172,6 +173,19 @@ func TestLimiter_TryAcquire_canceledContextReturnsPromptly(t *testing.T) {
 	release, ok, err := l.TryAcquire(ctx, 1)
 	if release != nil || ok || !errors.Is(err, context.Canceled) {
 		t.Fatalf("TryAcquire canceled context = release:%v ok:%v err:%v, want context canceled", release != nil, ok, err)
+	}
+}
+
+func TestLimiter_Acquire_preCanceledContextRejectsWhenCapacityAvailable(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	l := New(1, 8)
+	release, err := l.Acquire(ctx, 1)
+	if release != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("Acquire canceled context = release:%v err:%v, want context canceled", release != nil, err)
 	}
 }
 
@@ -346,15 +360,30 @@ func TestLimiter_concurrentTryAcquireWithinBudget(t *testing.T) {
 	t.Parallel()
 
 	l := New(8, 64)
-	var wg sync.WaitGroup
+	var (
+		wg       sync.WaitGroup
+		admitted atomic.Int64
+		failures atomic.Int64
+	)
 	for range 32 {
 		wg.Go(func() {
 			release, ok, err := l.TryAcquire(context.Background(), 4)
-			if err != nil || !ok {
+			if err != nil {
+				failures.Add(1)
 				return
 			}
+			if !ok {
+				return
+			}
+			admitted.Add(1)
 			release()
 		})
 	}
 	wg.Wait()
+	if failures.Load() != 0 {
+		t.Fatalf("unexpected TryAcquire errors: %d", failures.Load())
+	}
+	if admitted.Load() == 0 {
+		t.Fatal("expected at least one successful admission")
+	}
 }

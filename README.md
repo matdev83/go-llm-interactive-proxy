@@ -88,6 +88,7 @@ Recoverability is defined by the specification bundle: tests, `testdata/` golden
 - `cmd/lipstd/` - standard distribution command and wiring tests.
 - `pkg/lipapi/` - canonical request, event, capability, validation, and error contracts.
 - `pkg/lipsdk/` - stable plugin SDK contracts and standard distribution requirements.
+  - Compatibility note: `FrontendMountOptions` gained an optional `DecodeAdmission` field. Use **named** composite literals; unkeyed literals that previously listed every field in order will not compile.
 - `internal/core/` - runtime orchestration, routing, continuity, secure sessions, hooks/extensions, stream handling, policy, accounting, config, admin, diagnostics, and safety.
 - `internal/plugins/` - bundled frontend, backend, feature, compatibility, and protocol-helper packages.
 - `internal/standardplugins/` - standard bundle registration tables, per-backend factory helpers, and `InstallStandardBundleOn`.

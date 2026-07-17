@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -203,6 +204,8 @@ func TestHandler_decodeAdmissionReleasedBeforeBlockingExecute(t *testing.T) {
 	limiter := decodeqos.New(1, math.MaxInt64)
 	entered := make(chan struct{})
 	unblock := make(chan struct{})
+	var closeUnblock sync.Once
+	defer closeUnblock.Do(func() { close(unblock) })
 	exec := &blockingExecutor{entered: entered, unblock: unblock}
 	h := &openailegacy.Handler{
 		Exec:                 exec,
@@ -232,7 +235,7 @@ func TestHandler_decodeAdmissionReleasedBeforeBlockingExecute(t *testing.T) {
 		t.Fatalf("admission still held during Execute: ok=%v err=%v", ok, err)
 	}
 	release()
-	close(unblock)
+	closeUnblock.Do(func() { close(unblock) })
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
