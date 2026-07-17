@@ -79,7 +79,7 @@ func TestLegalPipeline_finalStreamObservationBetweenCompletionGatingAndTraffic(t
 	if gateIdx < 0 || obsIdx < 0 || trafficIdx < 0 || egressIdx < 0 {
 		t.Fatalf("missing stages gate=%d obs=%d traffic=%d egress=%d", gateIdx, obsIdx, trafficIdx, egressIdx)
 	}
-	if !(gateIdx < obsIdx && obsIdx < trafficIdx && trafficIdx < egressIdx) {
+	if gateIdx >= obsIdx || obsIdx >= trafficIdx || trafficIdx >= egressIdx {
 		t.Fatalf("want completion_gating(%d) < final_stream_observation(%d) < traffic_observation(%d) < egress(%d)",
 			gateIdx, obsIdx, trafficIdx, egressIdx)
 	}

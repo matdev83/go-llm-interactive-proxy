@@ -27,8 +27,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 )
 
-const p5Visible = "visible answer"
-const p5Thought = "phase5-thought"
+const (
+	p5Visible = "visible answer"
+	p5Thought = "phase5-thought"
+)
 
 func p5Config(t *testing.T) reasoningpreservation.Config {
 	t.Helper()
@@ -230,7 +232,6 @@ func TestPhase5_failoverIsolationBaselineAndObserverOnce(t *testing.T) {
 			})
 		}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var mu sync.Mutex
@@ -732,9 +733,11 @@ type failingP5Store struct{}
 func (failingP5Store) Append(context.Context, reasoningpreservation.SessionPartition, reasoningpreservation.TurnArtifact) (reasoningpreservation.EvictionSummary, error) {
 	return reasoningpreservation.EvictionSummary{}, errors.New("store append failed")
 }
+
 func (failingP5Store) Snapshot(context.Context, reasoningpreservation.SessionPartition) ([]reasoningpreservation.TurnArtifact, error) {
 	return nil, nil
 }
+
 func (failingP5Store) Delete(context.Context, reasoningpreservation.SessionPartition, ...string) error {
 	return nil
 }
@@ -749,6 +752,7 @@ func (f *countingFinishObserverFactory) Order() int { return 100 }
 func (f *countingFinishObserverFactory) FailureMode() sdkhooks.FailureMode {
 	return sdkhooks.FailOpen
 }
+
 func (f *countingFinishObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
 	f.opens.Add(1)
 	return &countingFinishObserver{finishes: f.finishes}, nil

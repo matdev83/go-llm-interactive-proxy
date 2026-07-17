@@ -93,11 +93,11 @@ func TestOpenPlannedCandidate_attemptTransformBetweenShapeAndCapabilities(t *tes
 		t.Fatalf("RED: openPlannedCandidate must call %s after shapeAttemptCall and before RequiredCapabilities (stage %s)",
 			runCandidateAttemptTransformStage, "candidate_attempt_transform")
 	}
-	if !(shapePos < transformPos && transformPos < capsPos) {
+	if shapePos >= transformPos || transformPos >= capsPos {
 		t.Fatalf("want shapeAttemptCall < %s < RequiredCapabilities; positions shape=%d transform=%d caps=%d",
 			runCandidateAttemptTransformStage, shapePos, transformPos, capsPos)
 	}
-	if openPos != 0 && !(capsPos < openPos) {
+	if openPos != 0 && capsPos >= openPos {
 		t.Fatalf("RequiredCapabilities must precede backend Open; caps=%d open=%d", capsPos, openPos)
 	}
 }
@@ -156,7 +156,7 @@ func TestOpenPlannedCandidate_excludeCandidateDecisionHandledBeforeOpen(t *testi
 	if openPos == 0 {
 		t.Fatal("openPlannedCandidate must call backend Open")
 	}
-	if !(transformPos < openPos && excludedPos < openPos) {
+	if transformPos >= openPos || excludedPos >= openPos {
 		t.Fatalf("want transform+Excluded before backend Open; transform=%d excluded=%d open=%d", transformPos, excludedPos, openPos)
 	}
 }

@@ -38,6 +38,18 @@ Fixed inventory (exactly three files for Req. 15.13):
 
 See [testdata/migration/README.md](../testdata/migration/README.md) for provenance.
 
+## Reasoning output preservation (issue #157)
+
+Not a new migration-golden inventory row. Evidence lives in:
+
+| Kind | Location |
+|------|----------|
+| Runtime/lifecycle/isolation | `TestPhase5_*` in `internal/core/runtime` + `internal/plugins/features/reasoningpreservation` |
+| Frontend wire legality | `TestVisibleThinkerReasoning_*` in `internal/plugins/frontends/parity` |
+| Adapter dialect encode | Phase 4 backend/frontend tests fulfilled in [phase-1-red-manifest.md](../.kiro/specs/reasoning-output-preservation/phase-1-red-manifest.md) |
+| Fuzz | `FuzzComputeAnchor`, `FuzzDecodeConfig` (Tier-1 via `make test-fuzz`) |
+| Operator examples | `config/examples/reasoning-preservation-*.yaml` |
+
 ## When extending coverage
 
 1. Add or adjust parity tests in the appropriate `parity_*_test.go` and update `ParityProtocolEvidence` / this table.

@@ -199,7 +199,7 @@ func TestPhase5_opaqueAliasingRace(t *testing.T) {
 	base.CreatedAt = time.Time{}
 	base.Reasoning[0].Part.Reasoning.Opaque = mustOpaqueJSON(t, `{"k":"v0"}`)
 	var wg sync.WaitGroup
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -241,9 +241,11 @@ type failingSnapshotStore struct{}
 func (failingSnapshotStore) Append(context.Context, reasoningpreservation.SessionPartition, reasoningpreservation.TurnArtifact) (reasoningpreservation.EvictionSummary, error) {
 	return reasoningpreservation.EvictionSummary{}, nil
 }
+
 func (failingSnapshotStore) Snapshot(context.Context, reasoningpreservation.SessionPartition) ([]reasoningpreservation.TurnArtifact, error) {
 	return nil, errors.New("snapshot boom")
 }
+
 func (failingSnapshotStore) Delete(context.Context, reasoningpreservation.SessionPartition, ...string) error {
 	return nil
 }

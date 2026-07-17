@@ -204,10 +204,16 @@ func TestPhase5_safeInventoryNoSensitiveFields(t *testing.T) {
 	if inv.AggregateCounters["observed"] != 1 || inv.AggregateCounters["restored"] != 1 {
 		t.Fatalf("aggregates=%v", inv.AggregateCounters)
 	}
-	blob := inv.Action + inv.CatalogVersion + strings.Join(inv.RuleIDs, ",") + inv.TTL
+	var b strings.Builder
+	b.WriteString(inv.Action)
+	b.WriteString(inv.CatalogVersion)
+	b.WriteString(strings.Join(inv.RuleIDs, ","))
+	b.WriteString(inv.TTL)
 	for k, v := range inv.AggregateCounters {
-		blob += k + string(rune(v))
+		b.WriteString(k)
+		b.WriteRune(rune(v))
 	}
+	blob := b.String()
 	for _, needle := range []string{"auth-real", "chain-of-thought", "signature", "anchor", "opaque"} {
 		if strings.Contains(blob, needle) {
 			t.Fatalf("inventory leaked %q", needle)
@@ -250,7 +256,6 @@ func TestPhase5_cancelCloseGateReplaceNeverCommit(t *testing.T) {
 		response.OutcomeReplaced,
 		response.OutcomeGateReplaced,
 	} {
-		outcome := outcome
 		t.Run(string(outcome), func(t *testing.T) {
 			t.Parallel()
 			obs, err := factory.Open(context.Background(), response.StreamMeta{
@@ -322,7 +327,7 @@ func TestPhase5_concurrentStoreRace(t *testing.T) {
 	})
 	_, arts := missingRestoreFixture(t)
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -341,9 +346,11 @@ type failingAppendStore struct{}
 func (failingAppendStore) Append(context.Context, reasoningpreservation.SessionPartition, reasoningpreservation.TurnArtifact) (reasoningpreservation.EvictionSummary, error) {
 	return reasoningpreservation.EvictionSummary{}, errors.New("append boom")
 }
+
 func (failingAppendStore) Snapshot(context.Context, reasoningpreservation.SessionPartition) ([]reasoningpreservation.TurnArtifact, error) {
 	return nil, nil
 }
+
 func (failingAppendStore) Delete(context.Context, reasoningpreservation.SessionPartition, ...string) error {
 	return nil
 }

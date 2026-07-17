@@ -61,7 +61,7 @@ func TestNewMemoryTurnStore_maxTurnsPerSession(t *testing.T) {
 	partition := reasoningpreservation.NewSessionPartition("session-a")
 	ctx := context.Background()
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		sum, err := st.Append(ctx, partition, sampleArtifact(fmt.Sprintf("t%d", i), "payload", 32))
 		if err != nil {
 			t.Fatalf("Append %d: %v", i, err)
@@ -110,7 +110,7 @@ func TestNewMemoryTurnStore_sessionBytesLimit(t *testing.T) {
 	ctx := context.Background()
 
 	var lastSummary reasoningpreservation.EvictionSummary
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		sum, err := st.Append(ctx, partition, sampleArtifact(fmt.Sprintf("s%d", i), "chunk", 200))
 		if err != nil {
 			t.Fatalf("Append: %v", err)
@@ -231,8 +231,7 @@ func TestNewMemoryTurnStore_concurrentAppendSnapshot(t *testing.T) {
 	errCh := make(chan error, workers*2)
 	var wg sync.WaitGroup
 	wg.Add(workers * 2)
-	for i := 0; i < workers; i++ {
-		i := i
+	for i := range workers {
 		go func() {
 			defer wg.Done()
 			defer func() {
