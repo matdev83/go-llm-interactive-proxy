@@ -18,7 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_canceledContextBeforeTryAdmitReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())

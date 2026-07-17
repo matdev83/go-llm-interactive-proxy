@@ -20,7 +20,7 @@ var minimalMessageRequest = []byte(`{
   "messages": [{"role":"user","content":"ping"}]
 }`)
 
-func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_canceledContextBeforeTryAdmitReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())

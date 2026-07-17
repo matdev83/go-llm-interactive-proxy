@@ -19,7 +19,7 @@ var minimalGenerateContentRequest = []byte(`{
   "generationConfig": {"maxOutputTokens": 128, "temperature": 0.5, "topP": 0.9}
 }`)
 
-func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_canceledContextBeforeTryAdmitReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
