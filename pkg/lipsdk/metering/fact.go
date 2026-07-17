@@ -1,6 +1,7 @@
 package metering
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -9,6 +10,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
+
+// ErrInvalidFact classifies public fact validation failures (D5/D14-safe messages).
+var ErrInvalidFact = errors.New("metering: invalid fact")
 
 // MoneyObservation is an optional monetary observation attached to a fact.
 // It is intentionally independent of pkg/lipsdk/economics.Money so metering
@@ -27,8 +31,11 @@ type MoneyObservation struct {
 // different Sequence, Kind, or double-count-sensitive payload for the same
 // FactID is a contract violation for store implementations to reject.
 type Fact struct {
-	FactID          string                   `json:"fact_id"`
-	StreamID        string                   `json:"stream_id"`
+	FactID   string `json:"fact_id"`
+	StreamID string `json:"stream_id"`
+	// Sequence is the producer-stable ordinal within StreamID. It is not part of
+	// SourceEventKey; producers must keep it stable across retry/restart for the
+	// same stream membership (design Deterministic Identity).
 	Sequence        int64                    `json:"sequence"`
 	IdentityVersion int                      `json:"identity_version,omitempty"`
 	SourceRevision  int64                    `json:"source_revision,omitempty"`
@@ -64,28 +71,12 @@ func (f Fact) IdempotencyKey() string {
 	return strings.TrimSpace(f.StreamID) + "\x00" + strings.TrimSpace(f.FactID)
 }
 
-// SourceEventKey returns the versioned deterministic source-event encoding
-// (design Deterministic Identity): identity version, lifecycle, boundary,
-// event kind, source id, and revision. Store uniqueness scopes this key by
-// logical store_id.
+// SourceEventKey returns the canonical SourceEventRef encoding (design
+// Deterministic Identity / D6). Store uniqueness scopes this key by logical
+// store_id. RecordedAt, Sequence, FactID (when SourceID is set), quantities,
+// and money are excluded so retries stay stable.
 func (f Fact) SourceEventKey() string {
-	kind := strings.TrimSpace(f.SourceEventKind)
-	if kind == "" {
-		kind = string(f.Kind)
-	}
-	sourceID := strings.TrimSpace(f.SourceID)
-	if sourceID == "" {
-		sourceID = strings.TrimSpace(f.FactID)
-	}
-	lifecycleID := strings.TrimSpace(f.StreamID)
-	return fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s\x00%d",
-		f.IdentityVersion,
-		lifecycleID,
-		string(f.Boundary),
-		kind,
-		sourceID,
-		f.SourceRevision,
-	)
+	return f.SourceEventRef().CanonicalKey()
 }
 
 // SameFactIdentity reports whether a and b share FactID, StreamID, and Sequence
@@ -106,11 +97,12 @@ func SameFactReplay(a, b Fact) bool {
 	if !SameFactIdentity(a, b) {
 		return false
 	}
+	aRef, bRef := a.SourceEventRef(), b.SourceEventRef()
 	if a.Kind != b.Kind ||
-		a.IdentityVersion != b.IdentityVersion ||
+		aRef.EffectiveIdentityVersion() != bRef.EffectiveIdentityVersion() ||
 		a.SourceRevision != b.SourceRevision ||
-		a.SourceEventKind != b.SourceEventKind ||
-		a.SourceID != b.SourceID ||
+		aRef.EventKind != bRef.EventKind ||
+		aRef.SourceID != bRef.SourceID ||
 		a.Perspective != b.Perspective ||
 		a.Boundary != b.Boundary ||
 		a.Lifecycle != b.Lifecycle ||
@@ -234,87 +226,127 @@ func stringSetEqual(a, b []string) bool {
 	return true
 }
 
-// Validate checks required identity and enum fields, quantity rows, and
-// supersession rules for correction/replacement kinds (requirements 3.2, 3.3,
-// 5.5, 6.4; design D2, D6, D7).
+// Validate checks required identity and enum fields, quantity/money presence,
+// and supersession rules for correction/replacement kinds (requirements 5.5–5.7,
+// 6.1–6.4; design D2, D5, D6, D14). Failures wrap ErrInvalidFact.
 func (f Fact) Validate() error {
 	if strings.TrimSpace(f.FactID) == "" {
-		return fmt.Errorf("metering: fact_id required")
+		return fmt.Errorf("%w: fact_id required", ErrInvalidFact)
 	}
 	if strings.TrimSpace(f.StreamID) == "" {
-		return fmt.Errorf("metering: stream_id required")
+		return fmt.Errorf("%w: stream_id required", ErrInvalidFact)
 	}
 	if f.Sequence < 0 {
-		return fmt.Errorf("metering: sequence must be non-negative")
+		return fmt.Errorf("%w: sequence must be non-negative", ErrInvalidFact)
 	}
 	if f.IdentityVersion < 0 {
-		return fmt.Errorf("metering: identity_version must be non-negative")
+		return fmt.Errorf("%w: identity_version must be non-negative", ErrInvalidFact)
 	}
 	if f.SourceRevision < 0 {
-		return fmt.Errorf("metering: source_revision must be non-negative")
+		return fmt.Errorf("%w: source_revision must be non-negative", ErrInvalidFact)
+	}
+	ref := f.SourceEventRef()
+	if err := validateSourceEventField("lifecycle_id", ref.LifecycleID); err != nil {
+		return err
+	}
+	if err := validateSourceEventField("source_event_kind", ref.EventKind); err != nil {
+		return err
+	}
+	if err := validateSourceEventField("source_id", ref.SourceID); err != nil {
+		return err
 	}
 	if err := f.Kind.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if err := f.Perspective.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if err := f.Boundary.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if err := f.Lifecycle.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if err := f.validatePerspectiveBoundaryLifecycle(); err != nil {
 		return err
 	}
 	if err := f.Source.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if err := f.Authority.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if err := f.Presence.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 	}
 	if f.Surfaced != "" {
 		if err := f.Surfaced.Validate(); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 		}
 	}
 	if f.AttemptOutcome != "" {
 		if err := f.AttemptOutcome.Validate(); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", ErrInvalidFact, err)
 		}
 	}
 	allowNegative := f.Kind == FactKindCorrection
 	for i, q := range f.Quantities {
 		if err := q.Validate(); err != nil {
-			return fmt.Errorf("metering: quantities[%d]: %w", i, err)
+			return fmt.Errorf("%w: quantities[%d]: %v", ErrInvalidFact, i, err)
 		}
-		if q.Present && q.Value < 0 && !allowNegative {
-			return fmt.Errorf("metering: quantities[%d]: negative value only allowed for corrections", i)
+		if !q.Present {
+			if q.Value != 0 {
+				return fmt.Errorf("%w: quantities[%d]: absent quantity must have zero value", ErrInvalidFact, i)
+			}
+			continue
+		}
+		if q.Value < 0 && !allowNegative {
+			return fmt.Errorf("%w: quantities[%d]: negative value only allowed for corrections", ErrInvalidFact, i)
 		}
 	}
-	if f.Money != nil && f.Money.Present && f.Money.NanoUnits < 0 && !allowNegative {
-		return fmt.Errorf("metering: negative money only allowed for corrections")
+	if err := validateMoneyObservation(f.Money, allowNegative); err != nil {
+		return err
 	}
 	if f.Kind.RequiresSupersedes() {
 		if len(f.Supersedes) == 0 {
-			return fmt.Errorf("metering: kind %q requires non-empty supersedes", f.Kind)
+			return fmt.Errorf("%w: kind %q requires non-empty supersedes", ErrInvalidFact, f.Kind)
 		}
 		self := strings.TrimSpace(f.FactID)
 		for i, id := range f.Supersedes {
 			id = strings.TrimSpace(id)
 			if id == "" {
-				return fmt.Errorf("metering: supersedes[%d] empty", i)
+				return fmt.Errorf("%w: supersedes[%d] empty", ErrInvalidFact, i)
 			}
 			if id == self {
-				return fmt.Errorf("metering: supersedes must not include self")
+				return fmt.Errorf("%w: supersedes must not include self", ErrInvalidFact)
 			}
 		}
 	} else if len(f.Supersedes) > 0 {
-		return fmt.Errorf("metering: kind %q must not set supersedes", f.Kind)
+		return fmt.Errorf("%w: kind %q must not set supersedes", ErrInvalidFact, f.Kind)
+	}
+	return nil
+}
+
+func validateMoneyObservation(m *MoneyObservation, allowNegative bool) error {
+	if m == nil {
+		return nil
+	}
+	if !m.Present {
+		if m.NanoUnits != 0 {
+			return fmt.Errorf("%w: absent money must have zero nano_units", ErrInvalidFact)
+		}
+		return nil
+	}
+	if strings.TrimSpace(m.Currency) == "" {
+		return fmt.Errorf("%w: present money requires currency", ErrInvalidFact)
+	}
+	if m.NanoUnits < 0 && !allowNegative {
+		return fmt.Errorf("%w: negative money only allowed for corrections", ErrInvalidFact)
+	}
+	if m.Source != "" {
+		if err := m.Source.Validate(); err != nil {
+			return fmt.Errorf("%w: money source: %v", ErrInvalidFact, err)
+		}
 	}
 	return nil
 }
@@ -325,21 +357,21 @@ func (f Fact) validatePerspectiveBoundaryLifecycle() error {
 		switch f.Boundary {
 		case BoundaryFrontendIngress, BoundaryFrontendEgress:
 		default:
-			return fmt.Errorf("metering: customer perspective requires frontend boundary, got %q", f.Boundary)
+			return fmt.Errorf("%w: customer perspective requires frontend boundary, got %q", ErrInvalidFact, f.Boundary)
 		}
 		if f.Lifecycle != LifecycleLogicalRequest {
-			return fmt.Errorf("metering: customer perspective requires logical_request lifecycle, got %q", f.Lifecycle)
+			return fmt.Errorf("%w: customer perspective requires logical_request lifecycle, got %q", ErrInvalidFact, f.Lifecycle)
 		}
 	case PerspectiveOperator:
 		switch f.Boundary {
 		case BoundaryBackendIngress, BoundaryBackendEgress:
 		default:
-			return fmt.Errorf("metering: operator perspective requires backend boundary, got %q", f.Boundary)
+			return fmt.Errorf("%w: operator perspective requires backend boundary, got %q", ErrInvalidFact, f.Boundary)
 		}
 		switch f.Lifecycle {
 		case LifecycleBackendAttempt, LifecycleAuxiliaryRequest:
 		default:
-			return fmt.Errorf("metering: operator perspective requires backend_attempt or auxiliary_request lifecycle, got %q", f.Lifecycle)
+			return fmt.Errorf("%w: operator perspective requires backend_attempt or auxiliary_request lifecycle, got %q", ErrInvalidFact, f.Lifecycle)
 		}
 	case PerspectiveNone:
 		// Technical metrics are not bound to customer/operator boundary rules.

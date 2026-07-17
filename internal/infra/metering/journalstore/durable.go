@@ -240,7 +240,7 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 		cloned.RecordedAt = s.now().UTC()
 	}
 	key := cloned.SourceEventKey()
-	legacyKey := cloned.IdempotencyKey()
+	lookupKeys := cloned.SourceEventLookupKeys()
 	payload, err := json.Marshal(cloned)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: marshal payload: %w", err)
@@ -256,7 +256,7 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 		return err
 	}
 
-	existingPayload, found, lerr := lookupDurableSourcePayload(ctx, tx, s.cfg.StoreID, key, legacyKey)
+	existingPayload, found, lerr := lookupDurableSourcePayload(ctx, tx, s.cfg.StoreID, lookupKeys)
 	if lerr != nil {
 		return lerr
 	}
@@ -308,7 +308,7 @@ INSERT INTO metering_facts(
 			// Postgres aborts the transaction on unique violation; release the
 			// connection before resolving on a fresh read (also safe under MaxOpenConns=1).
 			_ = tx.Rollback()
-			return s.resolveAppendConflict(ctx, key, legacyKey, cloned)
+			return s.resolveAppendConflict(ctx, cloned)
 		}
 		return fmt.Errorf("metering/journalstore: insert fact: %w", err)
 	}
@@ -328,8 +328,9 @@ VALUES (?,?,?,?,?)
 
 // resolveAppendConflict reads the winning row after a unique-constraint race.
 // It must not reuse the aborted insert transaction (Postgres 25P02).
-func (s *DurableStore) resolveAppendConflict(ctx context.Context, key, legacyKey string, cloned metering.Fact) error {
-	existingPayload, found, err := lookupDurableSourcePayload(ctx, s.db, s.cfg.StoreID, key, legacyKey)
+func (s *DurableStore) resolveAppendConflict(ctx context.Context, cloned metering.Fact) error {
+	key := cloned.SourceEventKey()
+	existingPayload, found, err := lookupDurableSourcePayload(ctx, s.db, s.cfg.StoreID, cloned.SourceEventLookupKeys())
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: insert fact unique race lookup: %w", err)
 	}
@@ -347,34 +348,30 @@ func (s *DurableStore) resolveAppendConflict(ctx context.Context, key, legacyKey
 		ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
 }
 
-// lookupDurableSourcePayload finds a row by SourceEventKey, falling back to the
-// legacy IdempotencyKey encoding for rows written before SourceEventKey persistence.
-func lookupDurableSourcePayload(ctx context.Context, q bun.IDB, storeID, key, legacyKey string) (string, bool, error) {
-	var payload string
-	err := q.NewRaw(
-		`SELECT payload_json FROM metering_facts WHERE store_id = ? AND source_event_key = ?`,
-		storeID, key,
-	).Scan(ctx, &payload)
-	if err == nil {
-		return payload, true, nil
+// lookupDurableSourcePayload finds a row via SourceEventLookupKeys order:
+// canonical, phase-3.1 NUL (literal version), V0/V1 NUL aliases when effective
+// V1, then IdempotencyKey.
+func lookupDurableSourcePayload(ctx context.Context, q bun.IDB, storeID string, keys []string) (string, bool, error) {
+	for i, key := range keys {
+		if key == "" {
+			continue
+		}
+		var payload string
+		err := q.NewRaw(
+			`SELECT payload_json FROM metering_facts WHERE store_id = ? AND source_event_key = ?`,
+			storeID, key,
+		).Scan(ctx, &payload)
+		if err == nil {
+			return payload, true, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			if i == 0 {
+				return "", false, fmt.Errorf("metering/journalstore: lookup: %w", err)
+			}
+			return "", false, fmt.Errorf("metering/journalstore: legacy lookup: %w", err)
+		}
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", false, fmt.Errorf("metering/journalstore: lookup: %w", err)
-	}
-	if legacyKey == "" || legacyKey == key {
-		return "", false, nil
-	}
-	err = q.NewRaw(
-		`SELECT payload_json FROM metering_facts WHERE store_id = ? AND source_event_key = ?`,
-		storeID, legacyKey,
-	).Scan(ctx, &payload)
-	if err == nil {
-		return payload, true, nil
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	return "", false, fmt.Errorf("metering/journalstore: legacy lookup: %w", err)
+	return "", false, nil
 }
 
 func (s *DurableStore) validateDurableSupersession(ctx context.Context, tx bun.Tx, fact metering.Fact) error {

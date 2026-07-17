@@ -98,7 +98,7 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 		cloned.RecordedAt = s.now().UTC()
 	}
 	key := cloned.SourceEventKey()
-	legacyKey := cloned.IdempotencyKey()
+	lookupKeys := cloned.SourceEventLookupKeys()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -119,7 +119,11 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 		return err
 	}
 
-	if idx, ok := s.bySource[key]; ok {
+	for _, candidate := range lookupKeys {
+		idx, ok := s.bySource[candidate]
+		if !ok {
+			continue
+		}
 		existing := s.facts[idx].fact
 		if metering.SameFactReplay(existing, cloned) {
 			return nil
@@ -127,18 +131,31 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
 			ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
 	}
-	// Legacy compatibility: rows indexed by IdempotencyKey before SourceEventKey.
-	if legacyKey != key {
-		if idx, ok := s.bySource[legacyKey]; ok {
-			existing := s.facts[idx].fact
-			if metering.SameFactReplay(existing, cloned) {
-				return nil
-			}
-			return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
-				ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
-		}
-	}
 
+	s.seq++
+	s.bySource[key] = len(s.facts)
+	s.facts = append(s.facts, storedFact{seq: s.seq, source: key, fact: cloned})
+	return nil
+}
+
+// SeedSourceKeyForTest indexes fact under an explicit source_event_key for
+// process-local legacy/preload replay tests. It does not rewrite durable rows.
+func (s *MemoryStore) SeedSourceKeyForTest(key string, fact metering.Fact) error {
+	if s == nil {
+		return fmt.Errorf("metering/journalstore: nil store")
+	}
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("metering/journalstore: seed source key is required")
+	}
+	cloned, err := cloneFact(fact)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.bySource[key]; ok {
+		return fmt.Errorf("metering/journalstore: seed source key already present")
+	}
 	s.seq++
 	s.bySource[key] = len(s.facts)
 	s.facts = append(s.facts, storedFact{seq: s.seq, source: key, fact: cloned})

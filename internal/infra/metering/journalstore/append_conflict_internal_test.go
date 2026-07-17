@@ -29,7 +29,7 @@ func TestResolveAppendConflictMissingWinner(t *testing.T) {
 		Authority:   metering.AuthorityAuthoritative,
 		Presence:    metering.PresencePresent,
 	}
-	err := store.resolveAppendConflict(context.Background(), fact.SourceEventKey(), fact.IdempotencyKey(), fact)
+	err := store.resolveAppendConflict(context.Background(), fact)
 	if !errors.Is(err, ErrUniqueRaceMissingRow) {
 		t.Fatalf("error=%v want ErrUniqueRaceMissingRow", err)
 	}
@@ -43,7 +43,7 @@ func TestResolveAppendConflictIdenticalWinnerIsIdempotent(t *testing.T) {
 	if err := store.Append(ctx, fact); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.resolveAppendConflict(ctx, fact.SourceEventKey(), fact.IdempotencyKey(), fact); err != nil {
+	if err := store.resolveAppendConflict(ctx, fact); err != nil {
 		t.Fatalf("identical winner must be idempotent: %v", err)
 	}
 }
@@ -57,8 +57,13 @@ func TestResolveAppendConflictDifferentPayloadIsCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	diff := fact
-	diff.Kind = metering.FactKindDelta
-	err := store.resolveAppendConflict(ctx, fact.SourceEventKey(), fact.IdempotencyKey(), diff)
+	diff.Quantities = []metering.Quantity{{
+		Component: metering.ComponentInputToken,
+		Unit:      metering.UnitToken,
+		Value:     99,
+		Present:   true,
+	}}
+	err := store.resolveAppendConflict(ctx, diff)
 	if !errors.Is(err, ErrIdentityCollision) {
 		t.Fatalf("error=%v want ErrIdentityCollision", err)
 	}

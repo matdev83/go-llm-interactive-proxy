@@ -127,7 +127,7 @@
   - _Depends: Phase 2_
   - _Validation: focused aggregate, reconcile, memory/SQLite/PostgreSQL journal tests_
 
-- [ ] 3.2 Implement deterministic event identity and strict fact validation
+- [x] 3.2 Implement deterministic event identity and strict fact validation
   - Add identity version, lifecycle ID, boundary, source event kind, source ID, revision, and stable sequence semantics.
   - Validate perspective/boundary/lifecycle combinations, quantity/money presence, nonnegative ordinary facts, signed corrections, currency, versions, and duplicate semantics.
   - **Deliverable:** the same economic event produces the same key after retry/restart, and conflicting facts fail integrity checks.
