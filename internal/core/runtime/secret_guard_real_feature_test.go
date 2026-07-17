@@ -106,8 +106,8 @@ func TestExecutor_realSecretGuardScanLimitBlockAndRedactQuarantine(t *testing.T)
 			if !reflect.DeepEqual(h.call.Messages, h.before.Messages) {
 				t.Fatal("scan-limit block path must leave the message payload unchanged")
 			}
-			sessionID := latestStoredSessionID(t, h.memSS, h.ownerID, ctx)
-			assertStoredSessionQuarantined(t, h.memSS, h.mgr, sessionID, ctx)
+			sessionID := latestStoredSessionID(ctx, t, h.memSS, h.ownerID)
+			assertStoredSessionQuarantined(ctx, t, h.memSS, h.mgr, sessionID)
 			assertRealSecretGuardMetrics(t, h.built, action)
 		})
 	}
@@ -140,8 +140,8 @@ func TestExecutor_realSecretGuardLogScanLimitContinues(t *testing.T) {
 	if !reflect.DeepEqual(h.call.Messages, h.before.Messages) {
 		t.Fatal("log scan-limit must not mutate the message payload")
 	}
-	sessionID := latestStoredSessionID(t, h.memSS, h.ownerID, ctx)
-	assertStoredSessionActive(t, h.memSS, h.mgr, sessionID, ctx)
+	sessionID := latestStoredSessionID(ctx, t, h.memSS, h.ownerID)
+	assertStoredSessionActive(ctx, t, h.memSS, h.mgr, sessionID)
 	assertRealSecretGuardMetrics(t, h.built, "log")
 }
 
@@ -343,7 +343,7 @@ func assertAuditEvent(t *testing.T, ev secretguard.DecisionEvent, action string,
 	}
 }
 
-func latestStoredSessionID(t *testing.T, store *memory.Store, ownerID string, ctx context.Context) string {
+func latestStoredSessionID(ctx context.Context, t *testing.T, store *memory.Store, ownerID string) string {
 	t.Helper()
 	sums, err := store.Summary(ctx, domain.SummaryQuery{OwnerID: ownerID, Limit: 10})
 	if err != nil {
@@ -361,7 +361,7 @@ func latestStoredSessionID(t *testing.T, store *memory.Store, ownerID string, ct
 	return string(sums[0].SessionID)
 }
 
-func assertStoredSessionQuarantined(t *testing.T, store *memory.Store, mgr *app.Manager, sessionID string, ctx context.Context) {
+func assertStoredSessionQuarantined(ctx context.Context, t *testing.T, store *memory.Store, mgr *app.Manager, sessionID string) {
 	t.Helper()
 	if strings.TrimSpace(sessionID) == "" {
 		t.Fatal("missing authoritative session id")
@@ -381,7 +381,7 @@ func assertStoredSessionQuarantined(t *testing.T, store *memory.Store, mgr *app.
 	}
 }
 
-func assertStoredSessionActive(t *testing.T, store *memory.Store, mgr *app.Manager, sessionID string, ctx context.Context) {
+func assertStoredSessionActive(ctx context.Context, t *testing.T, store *memory.Store, mgr *app.Manager, sessionID string) {
 	t.Helper()
 	if strings.TrimSpace(sessionID) == "" {
 		t.Fatal("missing authoritative session id")

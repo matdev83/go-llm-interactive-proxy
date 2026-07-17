@@ -83,7 +83,8 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 			}
 			key = base64.RawURLEncoding.EncodeToString(buf)
 			if log != nil {
-				log.InfoContext(startupCtx, "secure_session: memory store token_fingerprint_key omitted; using ephemeral process-local key (resume proofs reset on restart)",
+				log.InfoContext(
+					startupCtx, "secure_session: memory store token_fingerprint_key omitted; using ephemeral process-local key (resume proofs reset on restart)",
 					slog.String("component", "secure_session"),
 					slog.String("store", "memory"),
 					slog.String("notice", "ephemeral_token_fingerprint_key"),
@@ -133,7 +134,8 @@ func buildSecureSessionRuntime(in secureSessionBuildInput) (*secureSessionRuntim
 				nd = "log"
 			}
 			if nd == "log" {
-				log.InfoContext(startupCtx, "secure_session: using non-durable memory store; session evidence is lost on process restart",
+				log.InfoContext(
+					startupCtx, "secure_session: using non-durable memory store; session evidence is lost on process restart",
 					slog.String("component", "secure_session"),
 					slog.String("store", "memory"),
 					slog.String("notice", "non_durable_store"),

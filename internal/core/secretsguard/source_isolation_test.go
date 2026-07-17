@@ -67,5 +67,5 @@ func TestSource_hasNoRawCatalogAccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var _ secretsguard.Source = src
+	_ = src
 }

@@ -280,6 +280,7 @@ func (alwaysBlockSecretGuard) Order() int { return 0 }
 func (alwaysBlockSecretGuard) FailureMode() secretguard.FailureMode {
 	return secretguard.FailClosed
 }
+
 func (alwaysBlockSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
 	return secretguard.Decision{
 		Outcome: secretguard.OutcomeBlock,

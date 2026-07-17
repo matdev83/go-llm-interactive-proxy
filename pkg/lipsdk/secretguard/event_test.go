@@ -61,7 +61,8 @@ func TestChainObservers_failClosedStops(t *testing.T) {
 	t.Parallel()
 	var n int
 	boom := errors.New("sink down")
-	obs := secretguard.ChainObservers(secretguard.AuditFailClosed,
+	obs := secretguard.ChainObservers(
+		secretguard.AuditFailClosed,
 		secretguard.ObserverFunc(func(context.Context, secretguard.DecisionEvent) error {
 			n++
 			return boom
@@ -83,7 +84,8 @@ func TestChainObservers_failClosedStops(t *testing.T) {
 func TestChainObservers_bestEffortContinues(t *testing.T) {
 	t.Parallel()
 	var n int
-	obs := secretguard.ChainObservers(secretguard.AuditBestEffort,
+	obs := secretguard.ChainObservers(
+		secretguard.AuditBestEffort,
 		secretguard.ObserverFunc(func(context.Context, secretguard.DecisionEvent) error {
 			n++
 			return errors.New("ignored")
@@ -116,7 +118,8 @@ func TestChainObservers_skipsTypedNil(t *testing.T) {
 	t.Parallel()
 	var n int
 	var typedNil *ptrObserver
-	obs := secretguard.ChainObservers(secretguard.AuditFailClosed,
+	obs := secretguard.ChainObservers(
+		secretguard.AuditFailClosed,
 		typedNil,
 		secretguard.ObserverFunc(func(context.Context, secretguard.DecisionEvent) error {
 			n++

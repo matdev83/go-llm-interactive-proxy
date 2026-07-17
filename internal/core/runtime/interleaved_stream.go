@@ -150,7 +150,8 @@ func (s *interleavedContinuationStream) recvThinker(ctx context.Context) (lipapi
 
 func (s *interleavedContinuationStream) enqueueVisibleReasoning(ev lipapi.Event) {
 	if !s.responseStarted {
-		s.pending = append(s.pending,
+		s.pending = append(
+			s.pending,
 			lipapi.Event{Kind: lipapi.EventResponseStarted},
 			lipapi.Event{Kind: lipapi.EventMessageStarted},
 		)

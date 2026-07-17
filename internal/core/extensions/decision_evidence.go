@@ -63,7 +63,8 @@ func (e *EvidenceEmitter) Emit(ctx context.Context, record policydecision.Record
 	validateRecord.Stage = strings.TrimSpace(record.Stage)
 	if err := policydecision.ValidateRecord(validateRecord); err != nil {
 		if e.logger != nil {
-			e.logger.LogAttrs(ctx, slog.LevelWarn, "policy decision evidence dropped",
+			e.logger.LogAttrs(
+				ctx, slog.LevelWarn, "policy decision evidence dropped",
 				slog.String("stage", validateRecord.Stage),
 				slog.String("outcome", string(record.Outcome)),
 				slog.String("effect", string(record.Effect)),
@@ -77,7 +78,8 @@ func (e *EvidenceEmitter) Emit(ctx context.Context, record policydecision.Record
 		_ = e.observer.OnPolicyDecision(ctx, normalized.Clone())
 	}
 	if e.logger != nil {
-		e.logger.LogAttrs(ctx, slog.LevelInfo, "policy decision",
+		e.logger.LogAttrs(
+			ctx, slog.LevelInfo, "policy decision",
 			slog.String("stage", normalized.Stage),
 			slog.String("provider_id", normalized.Provider.ID),
 			slog.String("outcome", string(normalized.Outcome)),

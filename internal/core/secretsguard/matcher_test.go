@@ -262,7 +262,8 @@ func TestMatcher_ACLongestOverlapStillWins(t *testing.T) {
 	const shared = "secretguard-ac-prefix-shared"
 	longer := shared + "-tail-aaaa"
 	inputs := make([]secretsguard.CatalogInput, 0, 12)
-	inputs = append(inputs,
+	inputs = append(
+		inputs,
 		secretsguard.CatalogInput{
 			Name:           "AC_LONGER",
 			Value:          longer,
@@ -465,7 +466,7 @@ func TestSDKAdapter_MatcherAndStaticResolver(t *testing.T) {
 		},
 	})
 	m := secretsguard.NewMatcher(cat)
-	var iface secretguard.Matcher = secretsguard.AsMatcher(m)
+	iface := secretsguard.AsMatcher(m)
 	findings, err := iface.ScanString(t.Context(), "x"+testkit.SyntheticOpenAIAPIKey+"y")
 	if err != nil {
 		t.Fatal(err)

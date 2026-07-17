@@ -191,12 +191,15 @@ type stubSDKMatcher struct{}
 func (stubSDKMatcher) ScanBytes(context.Context, []byte) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (stubSDKMatcher) ScanString(context.Context, string) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (stubSDKMatcher) RedactBytes(context.Context, []byte) ([]byte, []secretguard.Finding, error) {
 	return nil, nil, nil
 }
+
 func (stubSDKMatcher) RedactString(context.Context, string) (string, []secretguard.Finding, error) {
 	return "", nil, nil
 }

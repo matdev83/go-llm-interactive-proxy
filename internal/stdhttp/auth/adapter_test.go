@@ -157,7 +157,8 @@ func TestPolicyProvider_eventFailClosed_returns503(t *testing.T) {
 	var sawInner bool
 	rec := httptest.NewRecorder()
 	Middleware(nil, []httpauth.Provider{p}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sawInner = true })).ServeHTTP(
-		rec, httptest.NewRequest(http.MethodGet, "/v1/", nil))
+		rec, httptest.NewRequest(http.MethodGet, "/v1/", nil),
+	)
 	if sawInner {
 		t.Fatal("inner ran")
 	}
@@ -182,7 +183,8 @@ func TestPolicyProvider_rendererByFrontend(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler()).ServeHTTP(
-		rec, httptest.NewRequest(http.MethodGet, "/v1beta/models", nil))
+		rec, httptest.NewRequest(http.MethodGet, "/v1beta/models", nil),
+	)
 	if !bytesContains(rec.Body.Bytes(), []byte("custom-gemini")) {
 		t.Fatalf("body %q", rec.Body.String())
 	}
@@ -190,7 +192,8 @@ func TestPolicyProvider_rendererByFrontend(t *testing.T) {
 	p.RendererByFrontend = nil
 	rec2 := httptest.NewRecorder()
 	Middleware(nil, []httpauth.Provider{p}, http.NotFoundHandler()).ServeHTTP(
-		rec2, httptest.NewRequest(http.MethodGet, "/v1beta/models", nil))
+		rec2, httptest.NewRequest(http.MethodGet, "/v1beta/models", nil),
+	)
 	if bytesContains(rec2.Body.Bytes(), []byte("custom-gemini")) {
 		t.Fatalf("expected default body, got %q", rec2.Body.String())
 	}

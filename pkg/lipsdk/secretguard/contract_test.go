@@ -14,12 +14,15 @@ type stubMatcher struct{}
 func (stubMatcher) ScanBytes(context.Context, []byte) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (stubMatcher) ScanString(context.Context, string) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (stubMatcher) RedactBytes(context.Context, []byte) ([]byte, []secretguard.Finding, error) {
 	return nil, nil, nil
 }
+
 func (stubMatcher) RedactString(context.Context, string) (string, []secretguard.Finding, error) {
 	return "", nil, nil
 }

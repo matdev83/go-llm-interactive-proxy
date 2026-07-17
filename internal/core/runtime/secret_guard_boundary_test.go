@@ -36,7 +36,7 @@ func TestLegalPipeline_secretGuardAfterSessionOpenBeforeSubmit(t *testing.T) {
 	if openIdx < 0 || guardIdx < 0 || submitIdx < 0 {
 		t.Fatalf("missing stages open=%d guard=%d submit=%d in %#v", openIdx, guardIdx, submitIdx, ids)
 	}
-	if !(openIdx < guardIdx && guardIdx < submitIdx) {
+	if openIdx >= guardIdx || guardIdx >= submitIdx {
 		t.Fatalf("want session_open < secret_guard < submit_request; got %d < %d < %d", openIdx, guardIdx, submitIdx)
 	}
 }
@@ -108,6 +108,7 @@ type redactingSecretGuard struct {
 func (g *redactingSecretGuard) ID() string                           { return "redact-openai" }
 func (g *redactingSecretGuard) Order() int                           { return 0 }
 func (g *redactingSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+
 func (g *redactingSecretGuard) Evaluate(_ context.Context, call *lipapi.Call, _ secretguard.Meta, _ secretguard.Services) (secretguard.Decision, error) {
 	if g.evals != nil {
 		g.evals.Add(1)
@@ -147,6 +148,7 @@ func (g *scanLimitLoggingSecretGuard) Order() int { return 0 }
 func (g *scanLimitLoggingSecretGuard) FailureMode() secretguard.FailureMode {
 	return secretguard.FailClosed
 }
+
 func (g *scanLimitLoggingSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
 	if g.evals != nil {
 		g.evals.Add(1)

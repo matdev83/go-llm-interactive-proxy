@@ -41,7 +41,8 @@ func loadCodexModelCatalog(parent context.Context, cfg *config.Config, reg *plug
 	cat, src, err := loadFn(parent, opts)
 	if err == nil && cat != nil {
 		if log != nil {
-			log.Info("codex model catalog loaded",
+			log.Info(
+				"codex model catalog loaded",
 				slog.String("source", string(src)),
 				slog.Int("routable_models", len(cat.RoutableSlugs())),
 			)
@@ -50,7 +51,8 @@ func loadCodexModelCatalog(parent context.Context, cfg *config.Config, reg *plug
 	}
 	if err != nil {
 		if log != nil {
-			log.Warn("codex model catalog load failed; using shipped fallback",
+			log.Warn(
+				"codex model catalog load failed; using shipped fallback",
 				slog.String("error", err.Error()),
 			)
 		}
@@ -58,13 +60,15 @@ func loadCodexModelCatalog(parent context.Context, cfg *config.Config, reg *plug
 	// Last resort: the shipped embedded snapshot.
 	if cat, ferr := codexcatalog.LoadFallback(""); ferr == nil {
 		if log != nil {
-			log.Info("codex model catalog loaded from shipped fallback",
+			log.Info(
+				"codex model catalog loaded from shipped fallback",
 				slog.Int("routable_models", len(cat.RoutableSlugs())),
 			)
 		}
 		return cat, codexcatalog.SourceShippedFallback
 	} else if log != nil {
-		log.Warn("codex model catalog unavailable; connectors will lazy-load the shipped snapshot",
+		log.Warn(
+			"codex model catalog unavailable; connectors will lazy-load the shipped snapshot",
 			slog.String("error", ferr.Error()),
 		)
 	}
@@ -78,7 +82,8 @@ func shouldLoadCodexModelCatalog(cfg *config.Config, reg *pluginreg.Registry, lo
 	mode, err := cfg.EffectiveAccessMode()
 	if err != nil {
 		if log != nil {
-			log.Warn("codex model catalog skipped",
+			log.Warn(
+				"codex model catalog skipped",
 				slog.String("reason", "access_mode_unavailable"),
 				slog.String("error", err.Error()),
 			)
@@ -87,7 +92,8 @@ func shouldLoadCodexModelCatalog(cfg *config.Config, reg *pluginreg.Registry, lo
 	}
 	if mode != accessmode.ModeSingleUser {
 		if log != nil {
-			log.Info("codex model catalog skipped",
+			log.Info(
+				"codex model catalog skipped",
 				slog.String("reason", "access_mode_not_single_user"),
 				slog.String("access_mode", string(mode)),
 			)
@@ -96,7 +102,8 @@ func shouldLoadCodexModelCatalog(cfg *config.Config, reg *pluginreg.Registry, lo
 	}
 	if !hasEnabledRegisteredCodexCatalogConsumer(cfg, reg) {
 		if log != nil {
-			log.Info("codex model catalog skipped",
+			log.Info(
+				"codex model catalog skipped",
 				slog.String("reason", "no_enabled_registered_codex_catalog_consumer"),
 			)
 		}

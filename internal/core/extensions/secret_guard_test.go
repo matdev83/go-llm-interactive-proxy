@@ -431,6 +431,7 @@ func TestRunSecretGuardStage_rejectsMalformedDecisionBeforeAuditAndContinuation(
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			obs := &runnerEvidenceObserver{}
 			ctx := withRunnerEvidence(t.Context(), obs)
 			var auditCalls atomic.Int32
@@ -524,6 +525,7 @@ func (g sgGuard) Order() int { return g.order }
 func (g sgGuard) FailureMode() secretguard.FailureMode {
 	return g.mode
 }
+
 func (g sgGuard) Evaluate(_ context.Context, call *lipapi.Call, _ secretguard.Meta, _ secretguard.Services) (secretguard.Decision, error) {
 	if g.seen != nil {
 		*g.seen = append(*g.seen, g.id)
@@ -558,6 +560,7 @@ func (m *malformedSecretGuardMetrics) IncFailure(_, _, _ string) { m.failure.Add
 func (m *malformedSecretGuardMetrics) IncScanLimit(_, _, _ string) {
 	m.scan.Add(1)
 }
+
 func (m *malformedSecretGuardMetrics) reset() {
 	m.decision.Store(0)
 	m.match.Store(0)
@@ -565,6 +568,7 @@ func (m *malformedSecretGuardMetrics) reset() {
 	m.failure.Store(0)
 	m.scan.Store(0)
 }
+
 func (m *malformedSecretGuardMetrics) total() int32 {
 	return m.decision.Load() + m.match.Load() + m.quar.Load() + m.failure.Load() + m.scan.Load()
 }

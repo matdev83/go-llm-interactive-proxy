@@ -34,6 +34,7 @@ type blockingSecretGuard struct {
 func (g *blockingSecretGuard) ID() string                           { return "block-all" }
 func (g *blockingSecretGuard) Order() int                           { return 0 }
 func (g *blockingSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+
 func (g *blockingSecretGuard) Evaluate(_ context.Context, call *lipapi.Call, _ secretguard.Meta, _ secretguard.Services) (secretguard.Decision, error) {
 	if g.evals != nil {
 		g.evals.Add(1)
@@ -66,6 +67,7 @@ func (g *unsupportedJSONTokenBlockGuard) Order() int { return 0 }
 func (g *unsupportedJSONTokenBlockGuard) FailureMode() secretguard.FailureMode {
 	return secretguard.FailClosed
 }
+
 func (g *unsupportedJSONTokenBlockGuard) Evaluate(_ context.Context, call *lipapi.Call, _ secretguard.Meta, _ secretguard.Services) (secretguard.Decision, error) {
 	if g.evals != nil {
 		g.evals.Add(1)

@@ -49,7 +49,7 @@ func TestLegalPipelineStageIDs_secretGuardBetweenSessionOpenAndSubmit(t *testing
 	openIdx := feature.LegalStageDescriptorIndex(feature.StageIDSessionOpen)
 	guardIdx := feature.LegalStageDescriptorIndex(feature.StageIDSecretGuard)
 	submitIdx := feature.LegalStageDescriptorIndex(feature.StageIDSubmit)
-	if !(openIdx < guardIdx && guardIdx < submitIdx) {
+	if openIdx >= guardIdx || guardIdx >= submitIdx {
 		t.Fatalf("want session_open(%d) < secret_guard(%d) < submit_request(%d)", openIdx, guardIdx, submitIdx)
 	}
 	desc, ok := feature.StageDescriptorByID(feature.StageIDSecretGuard)

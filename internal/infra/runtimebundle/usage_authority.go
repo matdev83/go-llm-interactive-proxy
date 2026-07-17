@@ -257,7 +257,8 @@ func logAuthorityStoreFallback(ctx context.Context, log *slog.Logger, store, pha
 	if log == nil {
 		return
 	}
-	log.WarnContext(ctx, "runtimebundle: usage authority store unavailable, falling back to in-memory store",
+	log.WarnContext(
+		ctx, "runtimebundle: usage authority store unavailable, falling back to in-memory store",
 		slog.String("component", "usage_authority"),
 		slog.String("notice", "store_fallback_memory"),
 		slog.String("store", store),
@@ -270,7 +271,8 @@ func logAuthorityStoreFailure(ctx context.Context, log *slog.Logger, store, phas
 	if log == nil {
 		return
 	}
-	log.ErrorContext(ctx, "runtimebundle: usage authority store unavailable",
+	log.ErrorContext(
+		ctx, "runtimebundle: usage authority store unavailable",
 		slog.String("component", "usage_authority"),
 		slog.String("notice", "store_unavailable"),
 		slog.String("store", store),

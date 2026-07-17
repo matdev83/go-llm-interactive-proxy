@@ -194,7 +194,8 @@ func (s *retryRecvStream) cancelAndCloseInner(
 	}
 	_ = c.Cancel(ctx, cause)
 	if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-		s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+		s.executor.Log.DebugContext(
+			ctx, "retry_recv inner stream close",
 			"reason", string(cause.Kind),
 			"error", cerr,
 		)

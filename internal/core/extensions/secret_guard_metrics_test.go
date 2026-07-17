@@ -25,16 +25,20 @@ func (m *recordingSecretGuardMetrics) IncDecision(action, outcome, sourceCategor
 	m.decisions++
 	m.lastAction, m.lastOutcome, m.lastCat = action, outcome, sourceCategory
 }
+
 func (m *recordingSecretGuardMetrics) IncMatch(action, outcome, sourceCategory string) {
 	m.matches++
 	m.matchCats = append(m.matchCats, sourceCategory)
 }
+
 func (m *recordingSecretGuardMetrics) IncQuarantine(action, outcome, sourceCategory string) {
 	m.quarantines++
 }
+
 func (m *recordingSecretGuardMetrics) IncFailure(action, outcome, sourceCategory string) {
 	m.failures++
 }
+
 func (m *recordingSecretGuardMetrics) IncScanLimit(action, outcome, sourceCategory string) {
 	m.scanLimits++
 }

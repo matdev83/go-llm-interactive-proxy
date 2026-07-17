@@ -20,7 +20,8 @@ type slogRouteObserver struct {
 var _ lipsdk.RouteObserver = (*slogRouteObserver)(nil)
 
 func (o slogRouteObserver) ObserveRouteDecision(ctx context.Context, traceID, decision, detail string) {
-	o.log.LogAttrs(ctx, slog.LevelInfo, "lip.route",
+	o.log.LogAttrs(
+		ctx, slog.LevelInfo, "lip.route",
 		slog.String("trace_id", traceID),
 		slog.String("decision", decision),
 		slog.String("detail", detail),

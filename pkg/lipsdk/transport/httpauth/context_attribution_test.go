@@ -14,12 +14,15 @@ type stubCredMatcher struct{}
 func (stubCredMatcher) ScanBytes(context.Context, []byte) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (stubCredMatcher) ScanString(context.Context, string) ([]secretguard.Finding, error) {
 	return nil, nil
 }
+
 func (stubCredMatcher) RedactBytes(context.Context, []byte) ([]byte, []secretguard.Finding, error) {
 	return nil, nil, nil
 }
+
 func (stubCredMatcher) RedactString(context.Context, string) (string, []secretguard.Finding, error) {
 	return "", nil, nil
 }
@@ -103,7 +106,7 @@ func TestCredentialMatcherFromContext_missing(t *testing.T) {
 
 func TestAuthenticationResult_doesNotExposeCredentialMatcherField(t *testing.T) {
 	t.Parallel()
-	rt := reflect.TypeOf(httpauth.AuthenticationResult{})
+	rt := reflect.TypeFor[httpauth.AuthenticationResult]()
 	if _, ok := rt.FieldByName("CredentialMatcher"); ok {
 		t.Fatal("AuthenticationResult must not expose CredentialMatcher")
 	}

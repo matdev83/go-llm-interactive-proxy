@@ -37,13 +37,17 @@ type recordingSecretGuardMetrics struct {
 func (m *recordingSecretGuardMetrics) IncDecision(action, outcome, sourceCategory string) {
 	m.decisions++
 }
+
 func (m *recordingSecretGuardMetrics) IncMatch(action, outcome, sourceCategory string) { m.matches++ }
+
 func (m *recordingSecretGuardMetrics) IncQuarantine(action, outcome, sourceCategory string) {
 	m.quarantines++
 }
+
 func (m *recordingSecretGuardMetrics) IncFailure(action, outcome, sourceCategory string) {
 	m.failures++
 }
+
 func (m *recordingSecretGuardMetrics) IncScanLimit(action, outcome, sourceCategory string) {
 	m.scanLimits++
 }
@@ -148,6 +152,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "no_secure_session_manager",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				return nil, nil, nil
 			},
 			sessionID:        "",
@@ -158,6 +163,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "missing_session_id",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				memSS := memory.New(memory.Options{SimulateDurable: true})
 				mgr := newBlockApplyManager(t, memSS)
 				return mgr, memSS, nil
@@ -171,6 +177,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "quarantine_store_error",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				memSS := memory.New(memory.Options{SimulateDurable: true})
 				fake := &testkit.FakeSecureSessionStore{Delegate: memSS, QuarantineErr: errors.New("disk full")}
 				mgr := newBlockApplyManager(t, fake)
@@ -185,6 +192,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "successful_quarantine",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				memSS := memory.New(memory.Options{SimulateDurable: true})
 				mgr := newBlockApplyManager(t, memSS)
 				seedBlockSession(t, memSS, sessionID, aLegID)
@@ -200,6 +208,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "fail_closed_audit_wins_over_store_error",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				memSS := memory.New(memory.Options{SimulateDurable: true})
 				fake := &testkit.FakeSecureSessionStore{Delegate: memSS, QuarantineErr: errors.New("disk full")}
 				mgr := newBlockApplyManager(t, fake)
@@ -216,6 +225,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "best_effort_audit_falls_back_to_storage",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				memSS := memory.New(memory.Options{SimulateDurable: true})
 				fake := &testkit.FakeSecureSessionStore{Delegate: memSS, QuarantineErr: errors.New("disk full")}
 				mgr := newBlockApplyManager(t, fake)
@@ -232,6 +242,7 @@ func TestExecutor_applySecretGuardBlock_precedenceAndCounts(t *testing.T) {
 		{
 			name: "fail_closed_audit_after_committed_quarantine",
 			secureSession: func(t *testing.T) (*app.Manager, *memory.Store, *testkit.FakeSecureSessionStore) {
+				t.Helper()
 				memSS := memory.New(memory.Options{SimulateDurable: true})
 				mgr := newBlockApplyManager(t, memSS)
 				seedBlockSession(t, memSS, sessionID, aLegID)

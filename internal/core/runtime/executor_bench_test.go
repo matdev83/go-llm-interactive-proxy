@@ -16,7 +16,8 @@ import (
 // benchEvents returns a realistic-sized stream for hot-path Recv benchmarking.
 func benchEvents(nDeltas int) []lipapi.Event {
 	ev := make([]lipapi.Event, 0, 3+nDeltas+1)
-	ev = append(ev,
+	ev = append(
+		ev,
 		lipapi.Event{Kind: lipapi.EventResponseStarted},
 		lipapi.Event{Kind: lipapi.EventMessageStarted},
 	)

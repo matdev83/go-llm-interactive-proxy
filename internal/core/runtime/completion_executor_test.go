@@ -327,7 +327,8 @@ func TestExecute_completionGatePanic_preOutput_recoverableWithoutCommittedOutput
 	ex2.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(
 		hooks.New(hooks.Config{}), extensions.SnapshotOptions{
 			CompletionGates: []completion.Gate{testPassGate{}},
-		})
+		},
+	)
 	ex2.Backends = map[string]execbackend.Backend{
 		"ok": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),

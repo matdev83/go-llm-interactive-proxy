@@ -63,7 +63,8 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 					if r != nil {
 						ctx = r.Context()
 					}
-					log.ErrorContext(ctx, "stdhttp: auth middleware has non-empty provider list but every entry is nil",
+					log.ErrorContext(
+						ctx, "stdhttp: auth middleware has non-empty provider list but every entry is nil",
 						slog.String("component", "stdhttp.auth"),
 						slog.String("reason", "all_httpauth_providers_nil"),
 					)
@@ -76,7 +77,8 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r == nil {
 			if log != nil {
-				log.WarnContext(context.Background(), "stdhttp: nil request in auth middleware",
+				log.WarnContext(
+					context.Background(), "stdhttp: nil request in auth middleware",
 					slog.String("component", "stdhttp.auth"),
 				)
 			}
@@ -90,7 +92,8 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 				if log != nil {
 					// Provider errors are logged without the raw error string so request material
 					// wrapped by providers cannot leak into logs.
-					log.ErrorContext(ctx, "stdhttp: auth provider authenticate failed",
+					log.ErrorContext(
+						ctx, "stdhttp: auth provider authenticate failed",
 						slog.String("component", "stdhttp.auth"),
 						slog.String("error_kind", authProviderErrorKind(err)),
 					)
@@ -203,7 +206,8 @@ func writeTermination(ctx context.Context, log *slog.Logger, w http.ResponseWrit
 	w.WriteHeader(res.EffectiveStatus())
 	if len(res.Body) > 0 {
 		if _, err := w.Write(res.Body); err != nil && log != nil {
-			log.WarnContext(ctx, "stdhttp: auth termination response write failed",
+			log.WarnContext(
+				ctx, "stdhttp: auth termination response write failed",
 				slog.String("component", "stdhttp.auth"),
 				"error", err,
 			)

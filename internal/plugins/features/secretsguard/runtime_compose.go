@@ -46,8 +46,7 @@ func ComposeRuntimeConfig(accessMode string, regs []lipsdk.Registration) (Runtim
 	out.Action = decoded.Action
 	out.AuditConfigVersion = runtimeConfigVersion(matches[0].Config.Node)
 	out.AuditFailurePolicy = decoded.AuditFailurePolicy
-	out.IncludePopularEnv, out.IncludeEnv, out.ExcludeEnv, out.MinSecretBytes, _, out.MaskByte, out.PreserveKnownPrefixes =
-		CompositionOptions(decoded)
+	out.IncludePopularEnv, out.IncludeEnv, out.ExcludeEnv, out.MinSecretBytes, _, out.MaskByte, out.PreserveKnownPrefixes = CompositionOptions(decoded)
 	return out, nil
 }
 

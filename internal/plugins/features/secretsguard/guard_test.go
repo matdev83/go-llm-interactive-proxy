@@ -793,14 +793,20 @@ func TestJSONRedact_preservesNumbers(t *testing.T) {
 	if err := dec.Decode(&v); err != nil {
 		t.Fatal(err)
 	}
-	root := v.(map[string]any)
+	root, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("root type: %T", v)
+	}
 	if root["b"] != json.Number("7") {
 		t.Fatalf("number: %#v", root["b"])
 	}
 	if root["big"] != json.Number("9007199254740993") {
 		t.Fatalf("large integer mutated: %#v", root["big"])
 	}
-	arr := root["c"].([]any)
+	arr, ok := root["c"].([]any)
+	if !ok {
+		t.Fatalf("array type: %T", root["c"])
+	}
 	if arr[0] != json.Number("1") || arr[2] != true {
 		t.Fatalf("array: %#v", arr)
 	}
@@ -854,7 +860,7 @@ func TestJSONRedact_escapedStringDecodedMatch(t *testing.T) {
 	escaped := strings.Builder{}
 	escaped.WriteString(`{"k":"`)
 	for _, r := range secret {
-		escaped.WriteString(fmt.Sprintf("\\u%04x", r))
+		fmt.Fprintf(&escaped, "\\u%04x", r)
 	}
 	escaped.WriteString(`"}`)
 	in := json.RawMessage(escaped.String())

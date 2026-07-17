@@ -140,7 +140,8 @@ func (e *Executor) attemptSecretGuardBlockQuarantine(ctx context.Context, in sec
 	if in.SessionID == "" {
 		e.markQuarantinePersistenceFault()
 		if e.Log != nil {
-			e.Log.ErrorContext(ctx, "secure_session: secret_guard block missing session_id; quarantine invariant failed",
+			e.Log.ErrorContext(
+				ctx, "secure_session: secret_guard block missing session_id; quarantine invariant failed",
 				slog.String("trace_id", in.TraceID),
 			)
 		}
@@ -157,7 +158,8 @@ func (e *Executor) attemptSecretGuardBlockQuarantine(ctx context.Context, in sec
 	}); err != nil {
 		e.markQuarantinePersistenceFault()
 		if e.Log != nil {
-			e.Log.ErrorContext(ctx, "secure_session: quarantine persistence failed after secret_guard block",
+			e.Log.ErrorContext(
+				ctx, "secure_session: quarantine persistence failed after secret_guard block",
 				slog.String("session_id", string(in.SessionID)),
 			)
 		}

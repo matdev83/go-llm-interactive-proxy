@@ -128,7 +128,8 @@ func (e *Executor) prepareSubmitAndALegSecure(
 					e.SecureSessionMetrics.ObserveBeginTurnDenied(code)
 				}
 				if e.Log != nil {
-					e.Log.InfoContext(outCtx, "secure_session: workspace resolve denied",
+					e.Log.InfoContext(
+						outCtx, "secure_session: workspace resolve denied",
 						"code", lipapi.SessionDenialPublicCode(mapped),
 						"trace_id", strings.TrimSpace(traceID),
 						"error", werr,
@@ -184,7 +185,8 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			if logCode == "" {
 				logCode = "unknown"
 			}
-			e.Log.InfoContext(outCtx, "secure_session: begin turn denied",
+			e.Log.InfoContext(
+				outCtx, "secure_session: begin turn denied",
 				"code", logCode,
 				"trace_id", strings.TrimSpace(traceID),
 				"client_session_id", HashOpaqueIDForLog(work.Session.ClientSessionID),
