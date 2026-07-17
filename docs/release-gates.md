@@ -66,6 +66,9 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzAcceptClientAppTitle` | `internal/core/identity` | OpenRouter app title accept bounds |
 | `FuzzValidateIdentityYAML` | `internal/core/identity` | Identity YAML decode + Validate |
 | `FuzzCaptureClientUserAgent` | `internal/plugins/frontends/identitywire` | Frontend UA capture into invocation |
+| `FuzzCompleteJSONSuffix` | `internal/core/toolcallrepair` | Append-only JSON suffix completion (ADR 0007) |
+| `FuzzSchemaPreScanCompile` | `internal/core/toolcallrepair` | Offline schema pre-scan/compile bounds |
+| `FuzzEngineRepair` | `internal/core/toolcallrepair` | Deterministic tool-call repair engine |
 
 ## Time budget
 

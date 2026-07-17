@@ -26,7 +26,7 @@ Exact registration is code-owned by [`internal/standardplugins/standard_table.go
 | Frontends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini` |
 | Hosted/provider backends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openai-codex`, `opencode-go`, `opencode-zen` |
 | Local / compatible backends | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, custom OpenAI/Anthropic-compatible backend kinds |
-| Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility |
+| Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility; standard distro also default-enables canonical `tool-call-repair` (ADR 0007; opt out with `enabled: false`) |
 
 ## Quick start
 
@@ -45,7 +45,7 @@ For hosted providers, use [`config/config.yaml`](config/config.yaml) as the samp
 go run ./cmd/lipstd --config ./config/config.yaml
 ```
 
-`lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow.
+`lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow. Truncated tool-call repair can be exercised with [`config/examples/dogfood-tool-call-repair.yaml`](config/examples/dogfood-tool-call-repair.yaml) (see ADR [`docs/adr/0007-canonical-tool-call-repair.md`](docs/adr/0007-canonical-tool-call-repair.md)).
 
 ## Configuration and operations
 

@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -105,6 +106,10 @@ func buildRuntimeSnapshot(
 	if len(opts.Extensions.ToolCallPolicies) > 0 {
 		toolPolicies = slices.Clone(opts.Extensions.ToolCallPolicies)
 	}
+	var toolFinalizers []toolcall.Finalizer
+	if len(opts.Extensions.ToolCallFinalizers) > 0 {
+		toolFinalizers = slices.Clone(opts.Extensions.ToolCallFinalizers)
+	}
 	var reqTransforms []request.Transform
 	if len(opts.Extensions.RequestTransforms) > 0 {
 		reqTransforms = slices.Clone(opts.Extensions.RequestTransforms)
@@ -156,6 +161,7 @@ func buildRuntimeSnapshot(
 		SessionOpeners:      openers,
 		ToolCatalogFilters:  catalogFilters,
 		ToolCallPolicies:    toolPolicies,
+		ToolCallFinalizers:  toolFinalizers,
 		RequestTransforms:   reqTransforms,
 		PreRequestHandlers:  preReqs,
 		RouteHintProviders:  routeHints,

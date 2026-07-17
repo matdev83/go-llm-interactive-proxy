@@ -39,7 +39,7 @@ Orchestration policy (routing, recovery, extension stages) lives in `internal/co
 - routing and planning: `routing/`, `affinity/`, `policy/`
 - continuity and sessions: `b2bua/`, `continuity/`, `securesession/`
 - auth/access/trust: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`
-- canonical support: `capabilities/`, `jsonpresence/`, `jsonshape/`, `diag/`, `config/`
+- canonical support: `capabilities/`, `jsonpresence/`, `jsonshape/`, `toolcallrepair/`, `diag/`, `config/`
 - streaming: `stream/`, `streamrecovery/`
 - hooks and extension pipeline: `hooks/`, `extensions/`
 - feature-facing core state: `auxreq/`, `state/`, `traffic/`, `workspace/`
@@ -102,6 +102,7 @@ Provider SDKs and provider wire models stay here or in backend-private protocol 
 
 `internal/plugins/features/`
 - bundled no-op compatibility hooks: `submitnoop/`, `partsnoop/`, `toolreactornoop/`
+- standard feature: `toolcallrepair/` (YAML-only; engine in `internal/core/toolcallrepair`)
 - reference/proof features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `codexclientcompat/`, and related proof directories
 - feature plugins are expected to consume `pkg/lipsdk` facades rather than `internal/core`
 

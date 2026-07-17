@@ -103,7 +103,10 @@ var lineBudgets = []struct {
 	// (encoding/json.Decoder.Token size/shape preflight shared by frontend
 	// jsonguard). Measured post-change non-test total is 51185; cap keeps ~115
 	// lines of headroom.
-	{"internal/core", 51300},
+	// Raised from 51300 to 53900 for issue #152 tool-call repair (toolcallrepair +
+	// assembler/finalization). Measured post-change non-test total is 53816; cap
+	// keeps ~80 lines of headroom.
+	{"internal/core", 53900},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

@@ -54,6 +54,7 @@ func cancellationAttemptReason(ctx context.Context, recvErr error) string {
 // The cont return value tells Recv whether to continue the inner-loop iteration (true)
 // or return the (event, err) pair to the client (false).
 func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err error, idleDeadline idleContextDeadline, ttftDeadline ttftContextDeadline) (lipapi.Event, bool, error) {
+	s.resetToolFinal()
 	if idleDeadline.expired(recvCtx, err) {
 		dec := s.recoverPolicy.DecideIdle(s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {

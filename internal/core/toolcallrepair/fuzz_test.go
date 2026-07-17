@@ -1,0 +1,107 @@
+package toolcallrepair_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+)
+
+func FuzzCompleteJSONSuffix(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte(`{"a":1}`),
+		[]byte(`{"a":"x"`),
+		[]byte(`{"a":[1,2`),
+		[]byte(`{"a":"\u12`),
+		[]byte(`{"a":1]`),
+		{0xff},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input []byte) {
+		if len(input) > 4096 {
+			t.Skip()
+		}
+		out, ok := toolcallrepair.CompleteJSONSuffix(input)
+		if !ok {
+			return
+		}
+		if !bytes.HasPrefix(out, input) {
+			t.Fatal("completion is not append-only")
+		}
+		if !json.Valid(out) {
+			t.Fatal("successful completion is invalid JSON")
+		}
+		if len(out) > len(input)+4096 {
+			t.Fatal("completion exceeded bounded suffix")
+		}
+	})
+}
+
+func FuzzSchemaPreScanCompile(f *testing.F) {
+	for _, seed := range []string{
+		`{"type":"object"}`,
+		`{"$ref":"https://example.invalid/schema"}`,
+		`{"$defs":{"node":{"$ref":"#/$defs/node"}},"$ref":"#/$defs/node"}`,
+		`{"type":`,
+		`{"a":1,"a":2}`,
+		`{"a":{"b":{"c":{"d":1}}}}`,
+		"{\"x\":\xff}",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		if len(raw) > 4096 {
+			t.Skip()
+		}
+		limits := toolcallrepair.DefaultSchemaLimits()
+		limits.MaxSchemaBytes = 4096
+		limits.MaxNodes = 256
+		limits.MaxProperties = 128
+		_, _ = toolcallrepair.NewSchemaCache(limits).GetOrCompile(json.RawMessage(raw))
+	})
+}
+
+func FuzzEngineRepair(f *testing.F) {
+	schema := `{"type":"object","properties":{"value":{"type":"integer","default":1}},"additionalProperties":false}`
+	for _, seed := range []string{
+		`{"value":1}`, `{"Value":1}`, `{"value":1`, `{"value":"1"}`, `{}`,
+		`{"value":1,"value":2}`, `[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]`,
+		"{\"value\":\xff}",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, args string) {
+		if len(args) > 4096 {
+			t.Skip()
+		}
+		cache := toolcallrepair.NewSchemaCache(toolcallrepair.DefaultSchemaLimits())
+		eng := toolcallrepair.NewEngineWithCache(cache)
+		out, err := eng.Repair(toolcallrepair.Input{
+			ToolName:     "run",
+			ArgsJSON:     []byte(args),
+			Catalog:      []lipapi.ToolDef{{Name: "run", Parameters: json.RawMessage(schema)}},
+			MaxArgsBytes: 4096,
+		})
+		if err != nil {
+			t.Fatalf("Repair returned error: %v", err)
+		}
+		if len(out.ArgsJSON) > 4096 {
+			t.Fatal("repair exceeded output bound")
+		}
+		if out.Kind == toolcallrepair.OutcomeRewrite {
+			if !json.Valid(out.ArgsJSON) {
+				t.Fatal("rewrite is invalid JSON")
+			}
+			cs, err := cache.GetOrCompile(json.RawMessage(schema))
+			if err != nil {
+				t.Fatalf("schema compile: %v", err)
+			}
+			if err := cs.Validate(out.ArgsJSON); err != nil {
+				t.Fatalf("rewrite failed post-validation: %v", err)
+			}
+		}
+	})
+}

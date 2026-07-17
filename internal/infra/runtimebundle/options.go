@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -118,18 +119,20 @@ type ExtensionsOptions struct {
 	// bundles.
 	SessionOpeners     []session.Opener
 	WorkspaceResolvers []workspace.Resolver
-	// ToolCatalogFilters, ToolCallPolicies, and RequestTransforms are merged from
-	// enabled feature bundles.
-	ToolCatalogFilters []toolcatalog.Filter
-	ToolCallPolicies   []toolpolicy.Policy
-	RequestTransforms  []request.Transform
-	PreRequestHandlers []prerequest.Handler
-	RouteHintProviders []routehint.Provider
-	CompletionGates    []completion.Gate
-	TrafficObservers   []traffic.Observer
-	UsageObservers     []usage.Observer
-	RawCaptureSinks    []traffic.RawCaptureSink
-	TrafficRedactors   []traffic.Redactor
+	// ToolCatalogFilters, ToolCallPolicies, ToolCallFinalizers, and RequestTransforms
+	// are merged from enabled feature bundles.
+	ToolCatalogFilters               []toolcatalog.Filter
+	ToolCallPolicies                 []toolpolicy.Policy
+	ToolCallFinalizers               []toolcall.Finalizer
+	ToolCallFinalizationMaxArgsBytes int
+	RequestTransforms                []request.Transform
+	PreRequestHandlers               []prerequest.Handler
+	RouteHintProviders               []routehint.Provider
+	CompletionGates                  []completion.Gate
+	TrafficObservers                 []traffic.Observer
+	UsageObservers                   []usage.Observer
+	RawCaptureSinks                  []traffic.RawCaptureSink
+	TrafficRedactors                 []traffic.Redactor
 }
 
 // PolicyOptions carries policy-decision observer and budget configuration.

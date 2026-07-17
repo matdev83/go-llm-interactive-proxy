@@ -8,6 +8,7 @@ import (
 // assembleExecutorStream builds the retry-capable recv stream and applies
 // interleaved-thinking wrappers when the opened candidate requires them.
 func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlanState, out attemptOpenResult) (lipapi.EventStream, error) {
+	fs, maxArgs := e.resolveToolCallFinalizers()
 	rs := &retryRecvStream{
 		executor:      e,
 		bus:           prep.bus,
@@ -35,6 +36,7 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 		aScope:        prep.aScope,
 		interleaved:   out.interleaved,
+		toolFinal:     newToolCallAssembler(fs, maxArgs, prep.baseline.Tools),
 	}
 	rs.storeInner(out.stream)
 	if e.shouldWrapHiddenInterleavedThinker(out.cand) {

@@ -129,6 +129,9 @@ type retryRecvStream struct {
 	// lastParallelFailure preserves aggregated parallel-arm failure context across recv-phase
 	// replacement iterations so eventual ErrNoEligibleCandidate surfaces root causes.
 	lastParallelFailure error
+
+	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
+	toolFinal *toolCallAssembler
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -160,6 +163,10 @@ func (s *retryRecvStream) isFinished() bool {
 
 func (s *retryRecvStream) markFinished() {
 	if s != nil {
+		// Terminal ownership: every finish path clears attempt-local assembler
+		// state here (normal response_finished, recover-drain finish, gate finish,
+		// error/EOF/Close finishes). Nonterminal clears stay at their call sites.
+		s.resetToolFinal()
 		s.finished.Store(true)
 	}
 }
@@ -405,10 +412,30 @@ func (s *retryRecvStream) emitTraffic(ctx context.Context, leg sdktraffic.Leg, e
 	)
 }
 
+// resetToolFinal clears assembler state at attempt-lifecycle transitions that
+// are not (or may not be) paired with markFinished: B-leg replacement,
+// finalizer reject/error before finish, Close (may already be finished), and
+// EOF/error entry (some branches defer finish to recoverDrain).
+// Terminal finishes clear via markFinished.
+func (s *retryRecvStream) resetToolFinal() {
+	if s == nil || s.toolFinal == nil {
+		return
+	}
+	s.toolFinal.clear()
+}
+
+func (s *retryRecvStream) popToolFinalDrain() (lipapi.Event, bool) {
+	if s == nil || s.toolFinal == nil {
+		return lipapi.Event{}, false
+	}
+	return s.toolFinal.popDrain()
+}
+
 func (s *retryRecvStream) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.resetToolFinal()
 	c := s.takeAndNilInner()
 	if c == nil {
 		if !s.isFinished() {
