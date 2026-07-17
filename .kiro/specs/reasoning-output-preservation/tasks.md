@@ -212,7 +212,7 @@
 
 ## Phase 5 — GREEN: Routing, Lifecycle, Isolation, and Privacy Proofs
 
-- [ ] 5.1 Prove sequential and recv-phase failover isolation
+- [x] 5.1 Prove sequential and recv-phase failover isolation
   - Cover incompatible first candidate, restored later candidate, state error, restored context-limit exclusion, pre-output replacement, and final all-candidates-incompatible error.
   - Assert every attempt starts from the baseline and each observer finishes exactly once.
   - **Deliverable:** no restored part or pending artifact leaks across sequential attempts.
@@ -222,7 +222,7 @@
   - _Depends: 3.4, 3.5, 4.4_
   - _Validation: focused precommit failover/replacement matrix_
 
-- [ ] 5.2 Prove weighted and parallel-race behavior
+- [x] 5.2 Prove weighted and parallel-race behavior
   - Cover independent transformed arm calls, dialect-specific eligibility, losing-arm non-persistence, selected-arm prepended events, cancellation, and winner observer lifecycle.
   - Run aliasing/race assertions over opaque data and store access.
   - **Deliverable:** parallel routing cannot share mutations or persist loser reasoning.
@@ -232,7 +232,7 @@
   - _Depends: 3.3–3.5, 4.4_
   - _Validation: focused parallel tests and race detector_
 
-- [ ] 5.3 Prove response-hook, gate, and terminal lifecycle behavior
+- [x] 5.3 Prove response-hook, gate, and terminal lifecycle behavior
   - Verify anchors reflect response-hook mutations, gate-replaced originals are discarded, pass/overflow remains incremental, and cancellation/EOF/close never commits partial artifacts.
   - Assert observer/store failures preserve committed output and never cause retry.
   - **Deliverable:** every stream path has one explicit commit/discard result.
@@ -242,7 +242,7 @@
   - _Depends: 2.4, 3.4_
   - _Validation: focused recv/gate/close/cancellation/output-commit tests_
 
-- [ ] 5.4 Prove authoritative session isolation and process-local posture
+- [x] 5.4 Prove authoritative session isolation and process-local posture
   - Cover client-hint spoofing, authoritative partition projection, new/resumed sessions, cross-session/plugin isolation, TTL/eviction, restart/state miss, and sticky-session behavior.
   - **Deliverable:** no non-authoritative partition can access or restore an artifact.
   - _Requirements: 6.1–6.9_
@@ -251,7 +251,7 @@
   - _Depends: 3.3–3.5_
   - _Validation: focused secure-session/store/restart/race tests_
 
-- [ ] 5.5 Prove observability privacy and disabled non-interference
+- [x] 5.5 Prove observability privacy and disabled non-interference
   - Assert fixed outcomes, bounded labels, safe errors, static diagnostics/inventory, aggregate counters, and absence of payloads/anchors/session partitions.
   - Benchmark/allocation-test disabled configuration to prove no store, participant, hashing, mutation, or feature telemetry.
   - **Deliverable:** the feature is operable without hidden-reasoning disclosure and absent configuration is behaviorally unchanged.

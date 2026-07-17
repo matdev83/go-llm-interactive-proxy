@@ -13,7 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
-func mustYAML(t *testing.T, s string) yaml.Node {
+func mustYAML(t testing.TB, s string) yaml.Node {
 	t.Helper()
 	var n yaml.Node
 	if err := yaml.Unmarshal([]byte(s), &n); err != nil {
@@ -105,10 +105,9 @@ func placedReasoning(before int, part lipapi.Part) reasoningpreservation.PlacedR
 	}
 }
 
-func decodeValidConfig(t *testing.T, yamlBody string) reasoningpreservation.Config {
+func decodeValidConfig(t testing.TB, yamlBody string) reasoningpreservation.Config {
 	t.Helper()
 	cfg, err := reasoningpreservation.DecodeConfig(mustYAML(t, yamlBody))
-	redNotImplemented(t, err, "DecodeConfig must be implemented")
 	if err != nil {
 		t.Fatalf("DecodeConfig: %v", err)
 	}
