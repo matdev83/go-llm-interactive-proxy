@@ -1,0 +1,32 @@
+# Nightly race detector + Tier-1 fuzz smoke (not merge-blocking on PRs).
+# PR feedback lives in qa.yml; this preserves release-gate depth on a schedule.
+name: Race and fuzz (nightly)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *" # 04:17 UTC daily
+
+jobs:
+  race-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Race detector
+        run: bash scripts/race-check.sh --strict
+
+      - name: Release gates (fuzz smoke)
+        env:
+          # Same depth as the former PR gate (~37 targets × FUZZTIME).
+          FUZZTIME: 6s
+        run: make test-fuzz

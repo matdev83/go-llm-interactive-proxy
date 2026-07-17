@@ -77,20 +77,12 @@ jobs:
 
       # Conformance/parity suites live under ./internal/testkit/conformance/... and run here (no duplicate step).
       # Direct Postgres DSNs only: pooled proofs run in the dedicated authority step above.
+      # Race + Tier-1 fuzz run nightly (see race-fuzz-nightly.yml), not on every PR.
       - name: Unit tests
         env:
           LIP_TEST_POSTGRES_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
           LIP_TEST_POSTGRES_ADMIN_DSN: postgres://lip:lip@localhost:5432/lip_test?sslmode=disable
         run: go test -parallel=8 -tags=precommit,integration ./...
-
-      - name: Release gates (fuzz smoke)
-        env:
-          # ~30 targets × FUZZTIME; keep within job timeout alongside race + lint.
-          FUZZTIME: 6s
-        run: make test-fuzz
-
-      - name: Race detector
-        run: bash scripts/race-check.sh --strict
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
