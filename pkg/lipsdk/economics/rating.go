@@ -23,6 +23,10 @@ const (
 // FactIDs bind journal fact identities for the rated exposure (Phase 1 backend-ingress
 // facts when a MeteringRecorder is configured). Output carries the conservative
 // output assumption when future output is bounded; omit when unknown.
+//
+// Compatibility: callers must construct RatingRequest with keyed field literals.
+// New fields may be added in minor releases; unkeyed composite literals will not
+// compile against newer SDK versions.
 type RatingRequest struct {
 	Perspective metering.EconomicPerspective `json:"perspective"`
 	BackendID   string                       `json:"backend_id,omitempty"`

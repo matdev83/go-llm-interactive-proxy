@@ -183,51 +183,51 @@ func TestProjectMeteringFact_AuthorityAvailabilityTruthTable(t *testing.T) {
 		Presence: metering.PresencePresent,
 	}
 	cases := []struct {
-		name         string
-		authority    metering.Authority
-		source       metering.Source
-		wantPlane    cp.UsagePlane
-		wantAvail    cp.UsageAvailability
-		wantProven   cp.UsageProvenance
+		name       string
+		authority  metering.Authority
+		source     metering.Source
+		wantPlane  cp.UsagePlane
+		wantAvail  cp.UsageAvailability
+		wantProven cp.UsageProvenance
 	}{
 		{
-			name: "unavailable",
+			name:      "unavailable",
 			authority: metering.AuthorityUnavailable, source: metering.SourceProviderReported,
 			wantPlane: cp.UsagePlaneAccounting, wantAvail: cp.UsageAvailabilityUnavailable,
 			wantProven: cp.UsageProvenanceUnavailable,
 		},
 		{
-			name: "unavailable_observed",
+			name:      "unavailable_observed",
 			authority: metering.AuthorityUnavailable, source: metering.SourceObserved,
 			wantPlane: cp.UsagePlaneObserved, wantAvail: cp.UsageAvailabilityUnavailable,
 			wantProven: cp.UsageProvenanceUnavailable,
 		},
 		{
-			name: "estimated",
+			name:      "estimated",
 			authority: metering.AuthorityEstimated, source: metering.SourceEstimated,
 			wantPlane: cp.UsagePlaneObserved, wantAvail: cp.UsageAvailabilityObserved,
 			wantProven: cp.UsageProvenanceEstimated,
 		},
 		{
-			name: "advisory",
+			name:      "advisory",
 			authority: metering.AuthorityAdvisory, source: metering.SourceObserved,
 			wantPlane: cp.UsagePlaneObserved, wantAvail: cp.UsageAvailabilityObserved,
 			wantProven: cp.UsageProvenanceAdvisory,
 		},
 		{
-			name: "delegated",
+			name:      "delegated",
 			authority: metering.AuthorityDelegated, source: metering.SourceObserved,
 			wantPlane: cp.UsagePlaneObserved, wantAvail: cp.UsageAvailabilityObserved,
 			wantProven: cp.UsageProvenanceDelegated,
 		},
 		{
-			name: "authoritative_accounting",
+			name:      "authoritative_accounting",
 			authority: metering.AuthorityAuthoritative, source: metering.SourceProviderReported,
 			wantPlane: cp.UsagePlaneAccounting, wantAvail: cp.UsageAvailabilityAccountingAuth,
 			wantProven: cp.UsageProvenanceAuthoritative,
 		},
 		{
-			name: "authoritative_observed",
+			name:      "authoritative_observed",
 			authority: metering.AuthorityAuthoritative, source: metering.SourceObserved,
 			wantPlane: cp.UsagePlaneObserved, wantAvail: cp.UsageAvailabilityObserved,
 			wantProven: cp.UsageProvenanceAuthoritative,

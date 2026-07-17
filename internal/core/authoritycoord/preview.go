@@ -59,7 +59,11 @@ func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.Att
 				return nil, fmt.Errorf("authoritycoord: preview %s: %w", id, err)
 			}
 		}
-		merged = mergeClampsNonWidening(merged, d.Clamps)
+		var merr error
+		merged, merr = mergeClampsNonWidening(merged, d.Clamps)
+		if merr != nil {
+			return nil, fmt.Errorf("authoritycoord: preview %s: %w", id, merr)
+		}
 	}
 	return merged, nil
 }

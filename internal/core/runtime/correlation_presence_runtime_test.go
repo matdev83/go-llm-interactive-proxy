@@ -42,11 +42,11 @@ func TestRuntimeCorrelation_FEAndBEIngressEgressShareIdentities(t *testing.T) {
 		feIn.Correlation.ALegID != aLeg || feIn.FrontendID != frontendID {
 		t.Fatalf("FE ingress correlation=%+v frontend=%q", feIn.Correlation, feIn.FrontendID)
 	}
-	if feIn.StreamID != feStream || feIn.Correlation.TraceID == feIn.StreamID {
-		// StreamID is "fe-ingress:<id>" while TraceID is bare call.ID — must stay distinct.
-		if feIn.Correlation.TraceID == feIn.StreamID {
-			t.Fatalf("TraceID must not equal StreamID: %q", feIn.StreamID)
-		}
+	if feIn.StreamID != feStream {
+		t.Fatalf("FE StreamID=%q want %q", feIn.StreamID, feStream)
+	}
+	if feIn.Correlation.TraceID == feIn.StreamID {
+		t.Fatalf("TraceID must not equal StreamID: %q", feIn.StreamID)
 	}
 
 	// Hook/route mutation after immutable capture must not rewrite FE ingress evidence.

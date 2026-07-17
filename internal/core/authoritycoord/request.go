@@ -129,7 +129,15 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 		}
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
 		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
-		out.Clamps = mergeClampsNonWidening(out.Clamps, d.Clamps)
+		merged, merr := mergeClampsNonWidening(out.Clamps, d.Clamps)
+		if merr != nil {
+			fails := out.Stack.ReverseCompensate(ctx, timeout)
+			out.CompensateFailures = fails
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = id
+			return out, fmt.Errorf("authoritycoord: request %s: %w", id, merr)
+		}
+		out.Clamps = merged
 		if len(d.BoundVersions) > 0 {
 			out.BoundVersions = append(out.BoundVersions, d.BoundVersions...)
 		}

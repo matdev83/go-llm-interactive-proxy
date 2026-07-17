@@ -126,3 +126,45 @@ func TestPreviewClamps_RejectsUnknownClamp(t *testing.T) {
 		t.Fatal("expected unknown clamp rejection")
 	}
 }
+
+type mixedCurrencySpendProvider struct {
+	currency string
+	nano     int64
+}
+
+func (p mixedCurrencySpendProvider) PreviewAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+	return authority.Decision{
+		Kind: authority.DecisionAllow,
+		Clamps: []authority.Clamp{{
+			Kind: authority.ClampMaxSpend,
+			Money: economics.Money{
+				NanoUnits: p.nano,
+				Currency:  p.currency,
+				Present:   true,
+			},
+		}},
+	}, nil
+}
+func (mixedCurrencySpendProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+	return authority.Decision{Kind: authority.DecisionAllow}, nil
+}
+func (mixedCurrencySpendProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+}
+func (mixedCurrencySpendProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
+	return nil
+}
+
+func TestPreviewClamps_RejectsMixedCurrencySpend(t *testing.T) {
+	t.Parallel()
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "usd", Class: authoritycoord.AttemptPriorityHardSpend, Provider: mixedCurrencySpendProvider{currency: "USD", nano: 100}, Strength: authority.StrengthRequired},
+			{ID: "eur", Class: authoritycoord.AttemptPriorityHardSpend, Provider: mixedCurrencySpendProvider{currency: "EUR", nano: 50}, Strength: authority.StrengthRequired},
+		},
+	}
+	_, err := coord.PreviewClamps(context.Background(), previewAdmission())
+	if err == nil {
+		t.Fatal("expected mixed-currency max_spend rejection")
+	}
+}

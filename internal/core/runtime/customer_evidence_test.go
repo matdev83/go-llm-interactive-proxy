@@ -16,11 +16,11 @@ import (
 )
 
 type capturingStreamCounter struct {
-	call         accountingapp.CountResult
-	output       accountingapp.CountResult
-	lastText     string
-	lastEventN   int
-	outputCalls  int
+	call        accountingapp.CountResult
+	output      accountingapp.CountResult
+	lastText    string
+	lastEventN  int
+	outputCalls int
 }
 
 func (c *capturingStreamCounter) CountCall(context.Context, accountingapp.CountCallInput) (accountingapp.CountResult, error) {

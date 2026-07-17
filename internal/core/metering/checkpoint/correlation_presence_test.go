@@ -33,8 +33,11 @@ func TestCaptureFrontendIngress_SetsTraceFromCallID(t *testing.T) {
 	if snap.Public.FrontendID != "openai-responses" {
 		t.Fatalf("FrontendID=%q", snap.Public.FrontendID)
 	}
-	if snap.Public.StreamID == c.TraceID && snap.Public.StreamID != "fe-ingress:trace-fe-1" {
-		t.Fatal("stream id must stay distinct from bare trace")
+	if snap.Public.StreamID != "fe-ingress:trace-fe-1" {
+		t.Fatalf("StreamID=%q want fe-ingress:trace-fe-1", snap.Public.StreamID)
+	}
+	if snap.Public.StreamID == c.TraceID {
+		t.Fatalf("StreamID must stay distinct from TraceID (%q)", c.TraceID)
 	}
 }
 
@@ -48,8 +51,8 @@ func TestCaptureBackendIngress_UsesTraceIDNotFEStream(t *testing.T) {
 		AttemptID: "att-1", BLegID: "b-1", ALegID: "a-1",
 		BackendID: "backend-1", Model: "model-1",
 		CheckpointID: "be-in", StreamID: "be-ingress:att-1",
-		TraceID:      "trace-runtime",
-		Now:          time.Unix(1, 0).UTC(),
+		TraceID: "trace-runtime",
+		Now:     time.Unix(1, 0).UTC(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +81,7 @@ func TestCaptureBackendIngress_DefaultsTraceToCallID(t *testing.T) {
 		},
 		AttemptID: "att-1", BLegID: "b-1", ALegID: "a-1",
 		CheckpointID: "be", StreamID: "be-ingress:att-1",
-		Now:          time.Unix(1, 0).UTC(),
+		Now: time.Unix(1, 0).UTC(),
 	})
 	if err != nil {
 		t.Fatal(err)

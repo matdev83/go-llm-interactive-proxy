@@ -230,22 +230,28 @@ func (e *Executor) rateOperatorAttemptSpend(
 }
 
 func attemptAuthoritySpendAmountFromQuantities(catalog accounting.PriceCatalog, c routing.AttemptCandidate, quantities []metering.Quantity) domain.Amount {
-	var input, output int64
+	var usage accounting.TokenUsage
 	for _, q := range quantities {
 		if !q.Present {
 			continue
 		}
 		switch q.Component {
 		case metering.ComponentInputToken:
-			input = q.Value
+			usage.InputTokens = q.Value
 		case metering.ComponentOutputToken:
-			output = q.Value
+			usage.OutputTokens = q.Value
+		case metering.ComponentCacheReadInputToken:
+			usage.CacheReadTokens = q.Value
+		case metering.ComponentCacheWriteInputToken:
+			usage.CacheWriteTokens = q.Value
+		case metering.ComponentReasoningOutputToken:
+			usage.ReasoningTokens = q.Value
 		}
 	}
 	cost := accounting.EstimateCost(accounting.CostInput{
 		Backend: strings.TrimSpace(c.Primary.Backend),
 		Model:   strings.TrimSpace(c.Primary.Model),
-		Usage:   accounting.TokenUsage{InputTokens: input, OutputTokens: output},
+		Usage:   usage,
 	}, catalog)
 	if cost.Unavailable {
 		return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "unknown"}
