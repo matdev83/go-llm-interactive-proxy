@@ -238,7 +238,17 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	ex.Backends["backend-2"] = execbackend.Backend{
 		Caps: caps, TransportCaps: tcaps,
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-			return &signalOnceBlockStream{openedCh: leg2OpenedCh}, nil
+			return &emitThenBlockStream{
+				openedCh: leg2OpenedCh,
+				events: []lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventUsageDelta, InputTokens: 8, OutputTokens: 1, TotalTokens: 9,
+						CostNanoUnits: 44, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
+						Accounting: lipapi.UsageAccountingMetadata{
+							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+						}},
+				},
+			}, nil
 		},
 	}
 
@@ -305,6 +315,24 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if loserBE != 1 {
 		t.Fatalf("loser BE egress facts=%d want 1", loserBE)
 	}
+	var loserFact *metering.Fact
+	for i := range rec.facts {
+		f := &rec.facts[i]
+		if f.Boundary == metering.BoundaryBackendEgress && f.AttemptOutcome == metering.AttemptOutcomeLoser {
+			loserFact = f
+			break
+		}
+	}
+	if loserFact == nil {
+		t.Fatal("loser BE fact missing")
+	}
+	in, ok := checkpoint.QuantityComponentValue(loserFact.Quantities, metering.ComponentInputToken)
+	if !ok || in != 8 {
+		t.Fatalf("loser BE input_token=%d ok=%v want observed 8", in, ok)
+	}
+	if loserFact.Money == nil || loserFact.Money.NanoUnits != 44 {
+		t.Fatalf("loser BE money=%+v want observed 44", loserFact.Money)
+	}
 	if feMoney != nil {
 		t.Fatalf("customer FE must not inherit provider money; got %+v", feMoney)
 	}
@@ -326,18 +354,18 @@ func TestDualPlaneMatrix_NoRetryAfterClientVisibleOutput(t *testing.T) {
 		t.Fatalf("open: err=%v opened=%v", err, out.opened)
 	}
 	rs := &retryRecvStream{
-		executor:  ex,
-		baseline:  p.baseline,
-		budget:    p.budget,
-		aLegID:    aLegID,
-		traceID:   "trace-no-retry",
-		bleg:      out.bleg,
-		cand:      out.cand,
-		authority: ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
-		sel:       mustParseSelector(t, "backend-1:model-1"),
-		session:   &routing.SessionRoutingState{},
-		excluded:  map[string]struct{}{},
-		rng:       routing.NewSeededRng(1),
+		executor:   ex,
+		baseline:   p.baseline,
+		budget:     p.budget,
+		aLegID:     aLegID,
+		traceID:    "trace-no-retry",
+		bleg:       out.bleg,
+		cand:       out.cand,
+		authority:  ex.newAttemptAuthorityLifecycle(out.authority, out.cand),
+		sel:        mustParseSelector(t, "backend-1:model-1"),
+		session:    &routing.SessionRoutingState{},
+		excluded:   map[string]struct{}{},
+		rng:        routing.NewSeededRng(1),
 		accounting: newAttemptAccountingTracker(time.Unix(1, 0)),
 	}
 	rs.storeInner(out.stream)

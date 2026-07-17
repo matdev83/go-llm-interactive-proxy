@@ -552,9 +552,19 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	usage := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 7, OutputTokens: 3, TotalTokens: 10,
 		CostNanoUnits: 55, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported)}
+	loserObserved := lipapi.Event{
+		Kind: lipapi.EventUsageDelta, InputTokens: 11, OutputTokens: 2, TotalTokens: 13,
+		CostNanoUnits: 77, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
+		Accounting: lipapi.UsageAccountingMetadata{
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+		},
+	}
 
-	// Mirrors releaseLosers: incurred losers SettleAttempt(Losing); winner settles.
-	legs := []*parallelLeg{{authority: loserLife, bleg: b2bua.BLegRecord{BLegID: "b-loser"}}}
+	legs := []*parallelLeg{{
+		authority:     loserLife,
+		bleg:          b2bua.BLegRecord{BLegID: "b-loser"},
+		observedUsage: loserObserved,
+	}}
 	_ = ex.releaseLosers(ctx, nil, legs)
 	if !winnerLife.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
@@ -571,21 +581,131 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	if attProv.settleCalls.Load() != 2 {
 		t.Fatalf("operator SettleAttempt=%d want 2 (winner + incurred loser)", attProv.settleCalls.Load())
 	}
-	var loserBE int
+	var loserBE *metering.Fact
 	var feMoney *metering.MoneyObservation
-	for _, f := range rec.facts {
+	for i := range rec.facts {
+		f := &rec.facts[i]
 		if f.Boundary == metering.BoundaryBackendEgress && f.AttemptOutcome == metering.AttemptOutcomeLoser {
-			loserBE++
+			loserBE = f
 		}
 		if f.Boundary == metering.BoundaryFrontendEgress {
 			feMoney = f.Money
 		}
 	}
-	if loserBE != 1 {
-		t.Fatalf("loser BE egress facts=%d want 1", loserBE)
+	if loserBE == nil {
+		t.Fatal("loser BE egress fact missing")
+	}
+	in, ok := checkpoint.QuantityComponentValue(loserBE.Quantities, metering.ComponentInputToken)
+	if !ok || in != 11 {
+		t.Fatalf("loser BE input_token=%d ok=%v want observed 11", in, ok)
+	}
+	out, ok := checkpoint.QuantityComponentValue(loserBE.Quantities, metering.ComponentOutputToken)
+	if !ok || out != 2 {
+		t.Fatalf("loser BE output_token=%d ok=%v want observed 2", out, ok)
+	}
+	if loserBE.Money == nil || !loserBE.Money.Present || loserBE.Money.NanoUnits != 77 {
+		t.Fatalf("loser BE money=%+v want observed 77 USD", loserBE.Money)
 	}
 	if feMoney != nil {
 		t.Fatalf("customer FE must not inherit provider money; got %+v", feMoney)
+	}
+}
+
+func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testing.T) {
+	t.Parallel()
+
+	attProv := &recordingAttemptProvider{id: "swallow-att"}
+	rec := &recordingMeter{}
+	ex := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: rec}}
+	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
+	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{{
+			ID: "swallow-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired}}}
+
+	holder := &checkpoint.RequestHolder{}
+	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
+		Call: lipapi.Call{ID: "req-swallow"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
+		Call:      lipapi.Call{ID: "req-swallow", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
+		AttemptID: "b-sw", BLegID: "b-sw", CheckpointID: "be-sw", StreamID: "be-sw", Now: time.Unix(2, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := withMeteringHolder(context.Background(), holder)
+	decision := accountingpreflight.Decision{
+		Count: accountingapp.CountResult{InputTokens: 3, OutputTokens: 1, TotalTokens: 4, TotalTokensPresent: true}}
+	state, err := ex.admitAttemptAuthority(ctx, "trace-sw", "a-1", b2bua.BLegRecord{BLegID: "b-sw", Seq: 1},
+		lipapi.Call{ID: "req-swallow"},
+		routing.AttemptCandidate{Key: "b-sw", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}},
+		decision, false)
+	if err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+	life := ex.newAttemptAuthorityLifecycle(state, routing.AttemptCandidate{Key: "b-sw"})
+	life.backendAttempted.Store(true)
+
+	stream := &retryRecvStream{
+		executor:  ex,
+		traceID:   "trace-sw",
+		bleg:      b2bua.BLegRecord{BLegID: "b-sw"},
+		authority: life,
+		seenEvents: []lipapi.Event{{
+			Kind: lipapi.EventUsageDelta, InputTokens: 9, OutputTokens: 4, TotalTokens: 13,
+			CostNanoUnits: 33, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
+			Accounting: lipapi.UsageAccountingMetadata{
+				Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+			},
+		}},
+	}
+	usage := stream.operatorUsageForFinalize()
+	stream.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, usage)
+	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usage)
+
+	if attProv.settleCalls.Load() != 1 {
+		t.Fatalf("swallowed incurred SettleAttempt=%d want 1", attProv.settleCalls.Load())
+	}
+	var be *metering.Fact
+	for i := range rec.facts {
+		if rec.facts[i].Boundary == metering.BoundaryBackendEgress {
+			be = &rec.facts[i]
+			break
+		}
+	}
+	if be == nil {
+		t.Fatal("BE egress fact missing")
+	}
+	in, ok := checkpoint.QuantityComponentValue(be.Quantities, metering.ComponentInputToken)
+	if !ok || in != 9 {
+		t.Fatalf("BE input_token=%d ok=%v want seen 9", in, ok)
+	}
+	if be.Money == nil || be.Money.NanoUnits != 33 {
+		t.Fatalf("BE money=%+v want seen 33", be.Money)
+	}
+}
+
+func TestDualPlaneTerminalInvariants_UnobservedIncurredKeepsEmptyShell(t *testing.T) {
+	t.Parallel()
+
+	rec := &recordingMeter{}
+	ex := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: rec}}
+	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
+	holder := &checkpoint.RequestHolder{}
+	_, err := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
+		Call:      lipapi.Call{ID: "req-empty", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
+		AttemptID: "b-empty", BLegID: "b-empty", CheckpointID: "be-empty", StreamID: "be-empty", Now: time.Unix(2, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := withMeteringHolder(context.Background(), holder)
+	ex.emitBackendEgressMeteringFact(ctx, "b-empty", metering.AttemptOutcomeLoser, metering.SurfacedNo, emptyOperatorUsageShell())
+	if len(rec.facts) != 1 {
+		t.Fatalf("facts=%d want 1", len(rec.facts))
+	}
+	if len(rec.facts[0].Quantities) != 0 || rec.facts[0].Money != nil {
+		t.Fatalf("unobserved shell must omit quantities/money; got q=%v money=%+v", rec.facts[0].Quantities, rec.facts[0].Money)
 	}
 }
 

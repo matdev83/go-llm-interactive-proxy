@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -110,16 +111,5 @@ func (a *customerEvidenceAccumulator) unmarkSettled() {
 // customerPlaneUsageEvent projects usage evidence safe for customer FE egress /
 // settlement: provider_billable scopes and all provider money are removed.
 func customerPlaneUsageEvent(ev lipapi.Event) lipapi.Event {
-	if ev.Kind == "" {
-		return lipapi.Event{}
-	}
-	out := mergeUsageEventsForClient([]lipapi.Event{ev}, true)
-	if out.Kind == "" {
-		return lipapi.Event{}
-	}
-	out.CostNanoUnits = 0
-	out.Currency = ""
-	out.CostSource = ""
-	out.CostPresent = false
-	return out
+	return plane.CustomerPlaneUsageEvent(ev)
 }

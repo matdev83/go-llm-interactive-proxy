@@ -112,7 +112,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				// that release, so release it here when it has not already been
 				// settled, then tear down the stream like the other terminal recv exits.
 				if !s.authority.Settled() {
-					s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, lipapi.Event{Kind: lipapi.EventUsageDelta})
+					s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
 				}
 				s.markFinished()
 				s.finishALegScope()
@@ -204,7 +204,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	// (e.g. after a failed partial settle's losing-release) is a no-op. Reset
 	// below swaps in the freshly opened reservation and clears the settled guard.
 	if !s.authority.Settled() {
-		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, lipapi.Event{Kind: lipapi.EventUsageDelta})
+		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
 	}
 	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
 		ctx:                      ctx,
@@ -252,7 +252,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			// path below), so release it here to avoid leaking the reservation. The
 			// prior swallowed s.authority was already released before tryPlanOpenOnce.
 			l := s.executor.newAttemptAuthorityLifecycle(out.authority, out.cand)
-			l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, lipapi.Event{Kind: lipapi.EventUsageDelta})
+			l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 			return false, err
 		}
 	}

@@ -82,6 +82,38 @@ func (s *signalOnceBlockStream) Cancel(context.Context, lipapi.CancelCause) lipa
 
 func (s *signalOnceBlockStream) Close() error { return nil }
 
+// emitThenBlockStream yields observed events (including usage), signals opened,
+// then blocks until canceled — used so parallel losers retain operator evidence.
+type emitThenBlockStream struct {
+	openedCh chan<- struct{}
+	events   []lipapi.Event
+	idx      int
+	signaled bool
+}
+
+func (s *emitThenBlockStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.idx < len(s.events) {
+		ev := s.events[s.idx]
+		s.idx++
+		return ev, nil
+	}
+	if !s.signaled {
+		s.signaled = true
+		select {
+		case s.openedCh <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return lipapi.Event{}, ctx.Err()
+}
+
+func (s *emitThenBlockStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{}
+}
+
+func (s *emitThenBlockStream) Close() error { return nil }
+
 // waitThenWinStream blocks its first Recv until waitCh is closed, then yields the supplied
 // events. Used by L5 so the winner cannot win until the loser has already opened.
 type waitThenWinStream struct {

@@ -469,7 +469,7 @@ func (e *Executor) openPlannedCandidate(
 	cleanupAuthority.backendAttempted.Store(false)
 	defer func() {
 		if !opened {
-			cleanupAuthority.finalizeIncurredOrRelease(p.ctx, releaseKind, lipapi.Event{Kind: lipapi.EventUsageDelta})
+			cleanupAuthority.finalizeIncurredOrRelease(p.ctx, releaseKind, emptyOperatorUsageShell())
 		}
 	}()
 	if err := e.enforcePostAdmitClamps(p.ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {

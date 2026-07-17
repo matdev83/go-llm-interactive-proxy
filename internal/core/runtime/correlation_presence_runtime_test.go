@@ -136,71 +136,14 @@ func TestRuntimeCorrelation_FEAndBEIngressEgressShareIdentities(t *testing.T) {
 }
 func TestMoneyFromUsageEvent_ExplicitPresenceOnly(t *testing.T) {
 	t.Parallel()
+	// Presence contracts live in internal/core/metering/plane; keep a thin
+	// runtime wrapper smoke check so settlement call sites stay wired.
 	if moneyFromUsageEvent(lipapi.Event{CostNanoUnits: 99, Currency: "USD", CostSource: "provider_reported"}) != nil {
 		t.Fatal("nonzero cost without CostPresent must stay absent")
 	}
 	got := moneyFromUsageEvent(lipapi.Event{CostPresent: true, CostNanoUnits: 0, Currency: "EUR"})
 	if got == nil || !got.Present || got.NanoUnits != 0 || got.Currency != "EUR" {
 		t.Fatalf("authoritative zero lost: %+v", got)
-	}
-}
-
-func TestQuantitiesFromUsageEvent_EmptyUnmarkedUsageDeltaOmits(t *testing.T) {
-	t.Parallel()
-	qs := quantitiesFromUsageEvent(lipapi.Event{Kind: lipapi.EventUsageDelta})
-	if len(qs) != 0 {
-		t.Fatalf("all-zero unmarked UsageDelta must omit quantities; got %+v", qs)
-	}
-}
-
-func TestQuantitiesFromUsageEvent_LegacyUnmarkedNonzeroOnly(t *testing.T) {
-	t.Parallel()
-	qs := quantitiesFromUsageEvent(lipapi.Event{
-		Kind:            lipapi.EventUsageDelta,
-		InputTokens:     3,
-		OutputTokens:    0,
-		CacheReadTokens: 0,
-		ReasoningTokens: 0,
-		TotalTokens:     0,
-	})
-	if len(qs) != 2 {
-		t.Fatalf("want input + derived total only; got %+v", qs)
-	}
-	in, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentInputToken)
-	if !ok || in != 3 {
-		t.Fatalf("input=%d ok=%v", in, ok)
-	}
-	if _, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentCacheReadInputToken); ok {
-		t.Fatal("must not invent present cache_read zero")
-	}
-	if _, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentReasoningOutputToken); ok {
-		t.Fatal("must not invent present reasoning zero")
-	}
-	total, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentTotalToken)
-	if !ok || total != 3 {
-		t.Fatalf("derived total=%d ok=%v", total, ok)
-	}
-}
-
-func TestQuantitiesFromUsageEvent_ExplicitZeroPresenceRetained(t *testing.T) {
-	t.Parallel()
-	qs := quantitiesFromUsageEvent(lipapi.Event{
-		Kind: lipapi.EventUsageDelta,
-		UsagePresence: lipapi.UsagePresence{
-			InputTokens: true, OutputTokens: true, TotalTokens: true,
-		},
-		InputTokens: 0, OutputTokens: 0, TotalTokens: 0,
-	})
-	in, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentInputToken)
-	if !ok || in != 0 {
-		t.Fatalf("authoritative zero input lost: ok=%v v=%d", ok, in)
-	}
-	out, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentOutputToken)
-	if !ok || out != 0 {
-		t.Fatalf("authoritative zero output lost: ok=%v v=%d", ok, out)
-	}
-	if _, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentCacheReadInputToken); ok {
-		t.Fatal("absent cache_read must stay omitted")
 	}
 }
 

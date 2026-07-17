@@ -147,7 +147,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				)
 			}
 		}
-		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, lipapi.Event{Kind: lipapi.EventUsageDelta})
+		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
 		s.markFinished()
 		s.finishALegScope()
 		return lipapi.Event{}, false, lipapi.ErrTTFTTimeout
@@ -226,7 +226,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// fact. Apply only the unreserved projection here; do not settle the
 	// reservation before the replacement decision.
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, s.operatorUsageForFinalize())
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 			s.executor.Log.DebugContext(

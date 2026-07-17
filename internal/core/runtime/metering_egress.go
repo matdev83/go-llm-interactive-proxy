@@ -6,60 +6,17 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
-func appendPresentQuantity(out []metering.Quantity, include bool, component, unit string, value int64) []metering.Quantity {
-	if !include {
-		return out
-	}
-	return append(out, metering.Quantity{
-		Component: component, Unit: unit, Value: value, Present: true,
-	})
-}
-
 func quantitiesFromUsageEvent(ev lipapi.Event) []metering.Quantity {
-	p := ev.UsagePresence
-	if p.Any() {
-		var out []metering.Quantity
-		out = appendPresentQuantity(out, p.InputTokens, metering.ComponentInputToken, metering.UnitToken, int64(ev.InputTokens))
-		out = appendPresentQuantity(out, p.OutputTokens, metering.ComponentOutputToken, metering.UnitToken, int64(ev.OutputTokens))
-		out = appendPresentQuantity(out, p.CacheReadTokens, metering.ComponentCacheReadInputToken, metering.UnitToken, int64(ev.CacheReadTokens))
-		out = appendPresentQuantity(out, p.CacheWriteTokens, metering.ComponentCacheWriteInputToken, metering.UnitToken, int64(ev.CacheWriteTokens))
-		out = appendPresentQuantity(out, p.ReasoningTokens, metering.ComponentReasoningOutputToken, metering.UnitToken, int64(ev.ReasoningTokens))
-		out = appendPresentQuantity(out, p.TotalTokens, metering.ComponentTotalToken, metering.UnitToken, int64(ev.TotalTokens))
-		return out
-	}
-	if ev.Kind != lipapi.EventUsageDelta {
-		return nil
-	}
-	// Legacy unmarked UsageDelta: only nonzero counters are present. All-zero
-	// events stay omitted (unknown/absent), never Present:true zeros.
-	var out []metering.Quantity
-	out = appendPresentQuantity(out, ev.InputTokens != 0, metering.ComponentInputToken, metering.UnitToken, int64(ev.InputTokens))
-	out = appendPresentQuantity(out, ev.OutputTokens != 0, metering.ComponentOutputToken, metering.UnitToken, int64(ev.OutputTokens))
-	out = appendPresentQuantity(out, ev.CacheReadTokens != 0, metering.ComponentCacheReadInputToken, metering.UnitToken, int64(ev.CacheReadTokens))
-	out = appendPresentQuantity(out, ev.CacheWriteTokens != 0, metering.ComponentCacheWriteInputToken, metering.UnitToken, int64(ev.CacheWriteTokens))
-	out = appendPresentQuantity(out, ev.ReasoningTokens != 0, metering.ComponentReasoningOutputToken, metering.UnitToken, int64(ev.ReasoningTokens))
-	out = appendPresentQuantity(out, ev.TotalTokens != 0, metering.ComponentTotalToken, metering.UnitToken, int64(ev.TotalTokens))
-	if ev.TotalTokens == 0 && len(out) > 0 {
-		derived := int64(ev.InputTokens + ev.OutputTokens)
-		out = appendPresentQuantity(out, derived != 0, metering.ComponentTotalToken, metering.UnitToken, derived)
-	}
-	return out
+	return plane.QuantitiesFromUsageEvent(ev)
 }
 
 func moneyFromUsageEvent(ev lipapi.Event) *metering.MoneyObservation {
-	if !ev.CostPresent {
-		return nil
-	}
-	return &metering.MoneyObservation{
-		NanoUnits: ev.CostNanoUnits,
-		Currency:  strings.TrimSpace(ev.Currency),
-		Present:   true,
-		Source:    metering.SourceProviderReported,
-	}
+	return plane.MoneyFromUsageEvent(ev)
 }
 
 // emitBackendEgressMeteringFact appends a backend-egress fact when a freeze exists

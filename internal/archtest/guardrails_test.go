@@ -115,7 +115,10 @@ var lineBudgets = []struct {
 	// Accidental duplication was removed first (~148 lines); remaining growth is
 	// approved core orchestration. Measured post-simplify non-test total is
 	// 57447; cap keeps ~103 lines of headroom.
-	{"internal/core", 57550},
+	// Raised from 57550 to 57650 for Phase 1 follow-up: operator usage retention on
+	// incurred loser/swallowed paths plus metering/plane extraction of pure
+	// dual-plane helpers.
+	{"internal/core", 57650},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

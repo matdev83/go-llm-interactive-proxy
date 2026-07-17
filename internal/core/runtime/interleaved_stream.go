@@ -338,7 +338,7 @@ func (s *interleavedContinuationStream) abortExecutorHandoff(ctx context.Context
 		// exec.authority would otherwise leak. Incurred work settles; never-opened
 		// admissions release. Mirrors sibling L1/L8 sites with ReleaseKindSwallowed
 		// posture since the aborted attempt produced no client-facing output.
-		exec.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, lipapi.Event{Kind: lipapi.EventUsageDelta})
+		exec.authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindSwallowed, exec.operatorUsageForFinalize())
 		exec.markFinished()
 	}
 	s.closeThinkerInner(ctx)

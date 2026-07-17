@@ -37,14 +37,15 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 }
 
 type parallelLeg struct {
-	cand        routing.AttemptCandidate
-	bleg        b2bua.BLegRecord
-	stream      lipapi.ManagedEventStream
-	authority   authorityLifecycle
-	delay       time.Duration
-	recvErr     error
-	interleaved interleavedstate.State
-	memoUpdate  *interleavedthinking.PendingMemoUpdate
+	cand          routing.AttemptCandidate
+	bleg          b2bua.BLegRecord
+	stream        lipapi.ManagedEventStream
+	authority     authorityLifecycle
+	delay         time.Duration
+	recvErr       error
+	observedUsage lipapi.Event
+	interleaved   interleavedstate.State
+	memoUpdate    *interleavedthinking.PendingMemoUpdate
 }
 
 func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
@@ -67,7 +68,10 @@ func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
 	err := cancelLosers(ctx, legs)
 	for _, leg := range legs {
-		usage := lipapi.Event{Kind: lipapi.EventUsageDelta}
+		usage := leg.observedUsage
+		if usage.Kind == "" {
+			usage = emptyOperatorUsageShell()
+		}
 		leg.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, usage)
 		// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
 		if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
@@ -253,7 +257,7 @@ func (e *Executor) tryOpenParallelGroup(
 					// legs[idx].authority is not assigned until after RegisterBLeg succeeds, so
 					// finalize the just-opened local reservation (out.authority) before returning.
 					l := e.newAttemptAuthorityLifecycle(out.authority, entry.cand)
-					l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, lipapi.Event{Kind: lipapi.EventUsageDelta})
+					l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, emptyOperatorUsageShell())
 					return
 				}
 			}
@@ -282,7 +286,9 @@ func (e *Executor) tryOpenParallelGroup(
 			for {
 				ev, err := out.stream.Recv(legCtx)
 				if err != nil {
+					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
+					legs[idx].observedUsage = observed
 					if winnerIdx < 0 {
 						if ttftDeadline.expired(legCtx, err) {
 							if ttftDeadline.scope == ttftTimeoutGlobal {
@@ -310,7 +316,9 @@ func (e *Executor) tryOpenParallelGroup(
 				}
 				preBuf = append(preBuf, ev)
 				if isWinningEvent(ev) {
+					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
+					legs[idx].observedUsage = observed
 					if winnerIdx >= 0 {
 						mu.Unlock()
 						return
@@ -382,7 +390,11 @@ func (e *Executor) tryOpenParallelGroup(
 		defer cleanupCancel()
 		for i := range legs {
 			if legs[i].stream != nil {
-				legs[i].authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindLosing, lipapi.Event{Kind: lipapi.EventUsageDelta})
+				usage := legs[i].observedUsage
+				if usage.Kind == "" {
+					usage = emptyOperatorUsageShell()
+				}
+				legs[i].authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindLosing, usage)
 			}
 		}
 		return zero, fmt.Errorf("executor: parallel race aborted: %w", fatal)
