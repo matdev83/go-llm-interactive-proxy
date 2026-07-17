@@ -137,7 +137,7 @@
   - _Depends: 3.1_
   - _Validation: public fact/quantity tests, identity property tests, and fuzzing_
 
-- [ ] 3.3 Persist customer-request and operator-attempt ingress facts
+- [x] 3.3 Persist customer-request and operator-attempt ingress facts
   - Persist trusted-scope frontend ingress before request authority and final backend ingress before rating/attempt authority.
   - Use one customer stream per logical request and one operator stream per attempt.
   - Pass durable fact references into rating and reservation inputs; fail closed when strict required ingress evidence cannot persist.

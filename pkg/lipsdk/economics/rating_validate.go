@@ -42,6 +42,11 @@ func (r RatingResult) ValidateFor(req RatingRequest) error {
 			return fmt.Errorf("economics: rating request fact_ids[%d]: %w", i, err)
 		}
 	}
+	for i, ref := range req.FactRefs {
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("economics: rating request fact_refs[%d]: %w", i, err)
+		}
+	}
 	return nil
 }
 

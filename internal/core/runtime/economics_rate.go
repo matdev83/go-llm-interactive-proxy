@@ -193,7 +193,8 @@ func (e *Executor) rateOperatorAttemptSpend(
 	c routing.AttemptCandidate,
 	decision accountingpreflight.Decision,
 	quantities []metering.Quantity,
-	factIDs ...string,
+	factIDs []string,
+	factRefs []metering.FactRef,
 ) (domain.Amount, economics.RatingResult, error) {
 	qs := quantities
 	if len(qs) == 0 {
@@ -213,6 +214,7 @@ func (e *Executor) rateOperatorAttemptSpend(
 		Quantities:  qs,
 		Output:      conservativeOutputAssumption(decision, qs),
 		FactIDs:     append([]string(nil), factIDs...),
+		FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		At:          e.now(),
 	})
 	if err != nil {
@@ -251,7 +253,13 @@ func attemptAuthoritySpendAmountFromQuantities(catalog accounting.PriceCatalog, 
 	return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: cost.NanoUnits, Currency: cost.Currency}
 }
 
-func (e *Executor) rateCustomerRequestExposure(ctx context.Context, quantities []metering.Quantity, at time.Time) (economics.Money, economics.RatingResult, error) {
+func (e *Executor) rateCustomerRequestExposure(
+	ctx context.Context,
+	quantities []metering.Quantity,
+	at time.Time,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (economics.Money, economics.RatingResult, error) {
 	if e == nil || e.EconomicsRater == nil {
 		return economics.Money{}, economics.RatingResult{}, nil
 	}
@@ -259,6 +267,8 @@ func (e *Executor) rateCustomerRequestExposure(ctx context.Context, quantities [
 	res, err := e.rateMonetaryExposure(ctx, economics.RatingRequest{
 		Perspective: metering.PerspectiveCustomer,
 		Quantities:  append([]metering.Quantity(nil), quantities...),
+		FactIDs:     append([]string(nil), factIDs...),
+		FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		At:          at,
 	})
 	if err != nil {

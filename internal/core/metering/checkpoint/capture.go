@@ -49,9 +49,9 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 	}
 	streamID := strings.TrimSpace(in.StreamID)
 	if streamID == "" {
-		streamID = "fe-ingress:" + strings.TrimSpace(in.Call.ID)
+		streamID = "customer-request:" + strings.TrimSpace(in.Call.ID)
 	}
-	if streamID == "fe-ingress:" {
+	if streamID == "customer-request:" {
 		return Snapshot{}, fmt.Errorf("metering/checkpoint: stream_id or call.id required")
 	}
 	perspective := in.Perspective
@@ -102,8 +102,27 @@ type RequestHolder struct {
 	mu                    sync.Mutex
 	FrontendIngress       *Snapshot
 	BackendIngress        map[string]*Snapshot // keyed by AttemptID
-	backendIngressFactIDs map[string]string    // AttemptID -> bound metering FactID
+	frontendIngressFactID string
+	backendIngressFactIDs map[string]string // AttemptID -> bound metering FactID
 	nextSeq               int64
+}
+
+// IngressSequence is the deterministic stream sequence for the single ingress
+// fact on a customer-request or operator-attempt stream (task 3.3 / D6).
+const IngressSequence int64 = 1
+
+// FrontendIngressIdentity returns restart-stable FactID, SourceID, and Sequence
+// for one logical-request FE ingress (independent of retry count).
+func FrontendIngressIdentity(requestID string) (factID, sourceID string, seq int64) {
+	id := "fe-ingress:" + strings.TrimSpace(requestID)
+	return id, id, IngressSequence
+}
+
+// BackendIngressIdentity returns restart-stable FactID, SourceID, and Sequence
+// for one operator-attempt BE ingress (independent of retry count).
+func BackendIngressIdentity(attemptID string) (factID, sourceID string, seq int64) {
+	id := "be-ingress:" + strings.TrimSpace(attemptID)
+	return id, id, IngressSequence
 }
 
 // NextSequence returns a monotonically increasing fact sequence for this request.
@@ -115,6 +134,19 @@ func (h *RequestHolder) NextSequence() int64 {
 	defer h.mu.Unlock()
 	h.nextSeq++
 	return h.nextSeq
+}
+
+// ReserveSequenceFloor ensures later NextSequence values stay above reserved
+// deterministic ingress sequences on this holder.
+func (h *RequestHolder) ReserveSequenceFloor(seq int64) {
+	if h == nil || seq < 1 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.nextSeq < seq {
+		h.nextSeq = seq
+	}
 }
 
 // CaptureOrReuseFrontendIngress returns the existing FE ingress snapshot when set,
@@ -168,7 +200,7 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 	}
 	streamID := strings.TrimSpace(in.StreamID)
 	if streamID == "" {
-		streamID = "be-ingress:" + attemptID
+		streamID = "operator-attempt:" + attemptID
 	}
 	perspective := in.Perspective
 	if perspective == "" {
@@ -279,6 +311,30 @@ func (h *RequestHolder) MergeBackendIngressQuantities(attemptID string, addition
 	}
 	snap.MergeQuantities(additions)
 	return true
+}
+
+// BindFrontendIngressFactID records the journal FactID for the FE ingress fact.
+func (h *RequestHolder) BindFrontendIngressFactID(factID string) {
+	if h == nil {
+		return
+	}
+	factID = strings.TrimSpace(factID)
+	if factID == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.frontendIngressFactID = factID
+}
+
+// FrontendIngressFactID returns the bound FE ingress journal FactID, if any.
+func (h *RequestHolder) FrontendIngressFactID() string {
+	if h == nil {
+		return ""
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.frontendIngressFactID
 }
 
 // BindBackendIngressFactID records the journal FactID for a frozen attempt.

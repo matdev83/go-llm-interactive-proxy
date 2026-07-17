@@ -62,9 +62,20 @@ func requestAuthorityFrom(ctx context.Context) *requestAuthorityState {
 }
 
 // admitRequestAuthorityOnce runs the logical-request coordinator after FE ingress
-// (requirements 4.5, 8.1, 9.3, 10.4). Nil coordinator is a no-op.
+// (requirements 4.5, 8.1, 9.3, 10.4). Nil coordinator still persists FE ingress when
+// a MeteringRecorder is configured (task 3.3), then returns.
 func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLegID, traceID string, sc scope.PrincipalScopeView) (context.Context, error) {
-	if e == nil || e.RequestCoordinator == nil {
+	if e == nil {
+		return ctx, nil
+	}
+	if err := e.enrichFrontendIngressQuantities(ctx); err != nil {
+		return ctx, fmt.Errorf("executor: frontend ingress counting: %w", err)
+	}
+	holder := meteringHolderFrom(ctx)
+	if _, err := e.persistFrontendIngressFact(ctx, holder); err != nil {
+		return ctx, fmt.Errorf("executor: metering frontend ingress fact: %w", err)
+	}
+	if e.RequestCoordinator == nil {
 		return ctx, nil
 	}
 	lifecycle := metering.LifecycleLogicalRequest
@@ -98,16 +109,14 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		admitRequestID = admitRequestID + ":aux:" + suffix
 		idempotencyKey = "req-aux:" + admitRequestID
 	}
-	if err := e.enrichFrontendIngressQuantities(ctx); err != nil {
-		return ctx, fmt.Errorf("executor: frontend ingress counting: %w", err)
-	}
+	admitScope := trustedFrontendIngressScope(ctx, sc)
 	in := authority.RequestAdmission{
 		RequestID:      admitRequestID,
 		ALegID:         strings.TrimSpace(aLegID),
 		TraceID:        strings.TrimSpace(traceID),
 		Perspective:    metering.PerspectiveCustomer,
 		Lifecycle:      lifecycle,
-		Scope:          sc,
+		Scope:          admitScope,
 		IdempotencyKey: idempotencyKey,
 		ParentLeaseID:  parentLeaseID,
 		AuxPolicy:      auxPolicy,
@@ -117,10 +126,20 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 			Lifecycle:   lifecycle,
 		},
 	}
-	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil {
+	var feFactIDs []string
+	var feFactRefs []metering.FactRef
+	if holder != nil && holder.FrontendIngress != nil {
 		in.Exposure.Quantities = append([]metering.Quantity(nil), holder.FrontendIngress.Public.Quantities...)
+		if id := strings.TrimSpace(holder.FrontendIngressFactID()); id != "" {
+			feFactIDs = []string{id}
+			feFactRefs = []metering.FactRef{{
+				StreamID: holder.FrontendIngress.Public.StreamID,
+				FactID:   id,
+			}}
+			in.Exposure.FactRefs = append([]metering.FactRef(nil), feFactRefs...)
+		}
 	}
-	if money, rated, rateErr := e.rateCustomerRequestExposure(ctx, in.Exposure.Quantities, e.now()); rateErr != nil {
+	if money, rated, rateErr := e.rateCustomerRequestExposure(ctx, in.Exposure.Quantities, e.now(), feFactIDs, feFactRefs); rateErr != nil {
 		return ctx, fmt.Errorf("executor: request authority rating: %w", rateErr)
 	} else if money.Present {
 		in.Exposure.Money = money
