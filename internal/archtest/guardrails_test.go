@@ -99,7 +99,11 @@ var lineBudgets = []struct {
 	// identity policy model, defaults/validation/merge, and AcceptClientUserAgent.
 	// Raised for issue #147 OpenRouter attribution: AcceptClientAppURL/AppTitle.
 	// Raised from 50700 to 50900 for issue #147 gap closure: SpecBundleIdentityScenarios.
-	{"internal/core", 50900},
+	// Raised from 50900 to 51300 for protocol-neutral internal/core/jsonshape
+	// (encoding/json.Decoder.Token size/shape preflight shared by frontend
+	// jsonguard). Measured post-change non-test total is 51185; cap keeps ~115
+	// lines of headroom.
+	{"internal/core", 51300},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

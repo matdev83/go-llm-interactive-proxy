@@ -39,7 +39,7 @@ Orchestration policy (routing, recovery, extension stages) lives in `internal/co
 - routing and planning: `routing/`, `affinity/`, `policy/`
 - continuity and sessions: `b2bua/`, `continuity/`, `securesession/`
 - auth/access/trust: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`
-- canonical support: `capabilities/`, `jsonpresence/`, `diag/`, `config/`
+- canonical support: `capabilities/`, `jsonpresence/`, `jsonshape/`, `diag/`, `config/`
 - streaming: `stream/`, `streamrecovery/`
 - hooks and extension pipeline: `hooks/`, `extensions/`
 - feature-facing core state: `auxreq/`, `state/`, `traffic/`, `workspace/`

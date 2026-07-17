@@ -5,7 +5,7 @@
 - Language/runtime: Go 1.26.x toolchain pinned in `go.mod` (patch version is authoritative; currently 1.26.4)
 - HTTP server: standard library `net/http`
 - Logging: standard library `log/slog` composed with small `samber/slog-*` helpers where useful
-- Serialization: standard library `encoding/json` by default; JSON null-vs-empty conventions live in `internal/core/jsonpresence` for encoded shapes that must round-trip cleanly
+- Serialization: standard library `encoding/json` by default; JSON null-vs-empty conventions live in `internal/core/jsonpresence` for encoded shapes that must round-trip cleanly; protocol-neutral size/shape preflight lives in `internal/core/jsonshape` (stdlib `Decoder.Token` only; request 8 MiB/depth 128 duplicate-compatible, schema 256 KiB/depth 32 strict, args 64 KiB/depth 64 strict)
 - YAML config: `gopkg.in/yaml.v3`
 - Observability (optional, config-gated): Prometheus metrics (`prometheus/client_golang`), OpenTelemetry tracing (`go.opentelemetry.io/otel` + OTLP HTTP exporter)
 - Persistence: standard `database/sql`, Bun-backed stores where needed, pure-Go SQLite via `modernc.org/sqlite`
