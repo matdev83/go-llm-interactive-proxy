@@ -53,6 +53,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	outCtx context.Context,
 	err error,
 ) {
+	snap := e.RuntimeSnapshot
 	work := *call
 	traceID = strings.TrimSpace(work.ID)
 	if traceID == "" {
@@ -81,13 +82,13 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		IsNew:                  false,
 		ResumeEligible:         false,
 	}
-	if e.RuntimeSnapshot != nil {
+	if snap != nil {
 		openIn := session.OpenInput{TraceID: traceID, Principal: principal, Session: preSession}
 		openRes := extensions.RunSessionOpenStage(
 			outCtx,
 			e.Log,
 			e.ExtensionMetrics,
-			e.RuntimeSnapshot.SessionOpeners(),
+			snap.SessionOpeners(),
 			openIn,
 		)
 		for k, v := range openRes.SessionLabelUpserts {
@@ -99,11 +100,11 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	}
 
 	var wsView lipworkspace.WorkspaceView
-	if e.RuntimeSnapshot != nil {
+	if snap != nil {
 		wsStart := time.Now()
 		wsCtx, wsSpan := otel.Tracer(otelScopeExecutor).Start(outCtx, "lip.executor.workspace_resolve")
 		var werr error
-		wsView, werr = e.RuntimeSnapshot.Workspace().Resolve(wsCtx)
+		wsView, werr = snap.Workspace().Resolve(wsCtx)
 		outcome := "ok"
 		if werr != nil {
 			if e != nil && e.SecureSessionWorkspaceResolveFailClosed {
@@ -127,7 +128,8 @@ func (e *Executor) prepareSubmitAndALegSecure(
 					e.SecureSessionMetrics.ObserveBeginTurnDenied(code)
 				}
 				if e.Log != nil {
-					e.Log.InfoContext(outCtx, "secure_session: workspace resolve denied",
+					e.Log.InfoContext(
+						outCtx, "secure_session: workspace resolve denied",
 						"code", lipapi.SessionDenialPublicCode(mapped),
 						"trace_id", strings.TrimSpace(traceID),
 						"error", werr,
@@ -183,7 +185,8 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			if logCode == "" {
 				logCode = "unknown"
 			}
-			e.Log.InfoContext(outCtx, "secure_session: begin turn denied",
+			e.Log.InfoContext(
+				outCtx, "secure_session: begin turn denied",
 				"code", logCode,
 				"trace_id", strings.TrimSpace(traceID),
 				"client_session_id", HashOpaqueIDForLog(work.Session.ClientSessionID),
@@ -221,6 +224,42 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	preSession.TurnID = string(br.TurnID)
 	preSession.WorkspaceID = strings.TrimSpace(wsView.ID)
 
+	// One base policy decision evidence seam carries the shared Emitter and
+	// TimeoutBudget for the whole prepare phase (secret_guard through submit and
+	// pre-backend stages). Views are refreshed per phase via WithViews.
+	// Emitter stays nil for the no-op observer default so no evidence/logs are
+	// produced (requirements 7.6, 10.5). ALegID is known post-BeginTurn;
+	// BLegID/AttemptSeq are unknown pre-backend, correct for no-backend-attempt
+	// evidence.
+	var baseEvidence *extensions.DecisionEvidence
+	if snap != nil {
+		guardViews := execctx.Views{
+			Principal: principal,
+			Scope:     reqScope,
+			Session:   preSession,
+			Attempt:   execview.AttemptView{TraceID: traceID},
+			Workspace: wsView,
+		}
+		baseEvidence = &extensions.DecisionEvidence{
+			Emitter:       e.policyEvidenceEmitter(snap),
+			Views:         guardViews,
+			TimeoutBudget: snap.TimeoutBudgetSource(),
+			TimeoutGuard:  snap.ProviderTimeoutGuard(),
+		}
+		outCtx = extensions.WithDecisionEvidence(outCtx, baseEvidence)
+		if err := e.runSecretGuardStage(outCtx, &work, secretGuardStageInput{
+			TraceID:   traceID,
+			Principal: principal,
+			Scope:     reqScope,
+			Session:   preSession,
+			Workspace: wsView,
+			SessionID: br.Record.SessionID,
+			TurnID:    br.TurnID,
+		}); err != nil {
+			return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
+		}
+	}
+
 	var meteringHolder *checkpoint.RequestHolder
 	outCtx, meteringHolder, err = captureFrontendIngressBeforeSubmit(outCtx, work, reqScope, e.now())
 	if err != nil {
@@ -242,16 +281,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	if e.Log != nil {
 		outCtx = hooks.WithDiagnosticsLogger(outCtx, e.Log)
 	}
-	// One base policy decision evidence seam carries the shared Emitter and
-	// TimeoutBudget for the whole prepare phase. Views are refreshed per phase
-	// via WithViews so submit hooks and post-submit pre-backend stages each see
-	// their correct safe attribution snapshot without rebuilding the seam.
-	// Emitter stays nil for the no-op observer default so no evidence/logs are
-	// produced (requirements 7.6, 10.5). ALegID is known post-BeginTurn;
-	// BLegID/AttemptSeq are unknown pre-backend, correct for no-backend-attempt
-	// submit evidence.
-	var baseEvidence *extensions.DecisionEvidence
-	if e.RuntimeSnapshot != nil {
+	if snap != nil {
 		submitViews := execctx.Views{
 			Principal:   principal,
 			Scope:       reqScope,
@@ -260,19 +290,14 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			Workspace:   wsView,
 			Annotations: submitMeta.Annotations,
 		}
-		baseEvidence = &extensions.DecisionEvidence{
-			Emitter:       e.policyEvidenceEmitter(e.RuntimeSnapshot),
-			Views:         submitViews,
-			TimeoutBudget: e.RuntimeSnapshot.TimeoutBudgetSource(),
-			TimeoutGuard:  e.RuntimeSnapshot.ProviderTimeoutGuard(),
-		}
+		baseEvidence = baseEvidence.WithViews(submitViews)
 		outCtx = extensions.WithDecisionEvidence(outCtx, baseEvidence)
 		outCtx = hooks.WithSubmitEvidence(outCtx, extensions.NewSubmitEvidenceFunc(baseEvidence))
 	}
 	if err := bus.RunSubmit(outCtx, &work, submitMeta); err != nil {
 		return failAfterRequestAdmit(err)
 	}
-	if e.RuntimeSnapshot != nil {
+	if snap != nil {
 		ctpCall := work
 		ctpSess := work.Session
 		ctpSess.ResumeToken = ""
@@ -285,7 +310,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 				PrincipalID: strings.TrimSpace(principal.ID),
 				Scope:       reqScope.Clone(),
 			}
-			coretraffic.PortBundleFromSnapshot(e.RuntimeSnapshot).Emit(
+			coretraffic.PortBundleFromSnapshot(snap).Emit(
 				outCtx,
 				sdktraffic.LegCTP,
 				meta,
@@ -336,24 +361,24 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			Session:     preSession,
 			Workspace:   wsView,
 		}
-		catSvc := toolcatalog.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
+		catSvc := toolcatalog.Services{State: snap.State(), Aux: snap.Aux()}
 		if err := extensions.RunToolCatalogFilterStage(
 			outCtx,
 			e.Log,
 			e.ExtensionMetrics,
-			e.RuntimeSnapshot.ToolCatalogFilters(),
+			snap.ToolCatalogFilters(),
 			&work,
 			catalogMeta,
 			catSvc,
 		); err != nil {
 			return failAfterRequestAdmit(err)
 		}
-		reqSvc := request.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
+		reqSvc := request.Services{State: snap.State(), Aux: snap.Aux()}
 		if err := extensions.RunRequestTransformStage(
 			outCtx,
 			e.Log,
 			e.ExtensionMetrics,
-			e.RuntimeSnapshot.RequestTransforms(),
+			snap.RequestTransforms(),
 			&work,
 			reqMeta,
 			reqSvc,
@@ -369,12 +394,12 @@ func (e *Executor) prepareSubmitAndALegSecure(
 			Workspace:      wsView,
 			AuxiliaryDepth: execctx.AuxiliaryDepth(outCtx),
 		}
-		preSvc := prerequest.Services{State: e.RuntimeSnapshot.State(), Aux: e.RuntimeSnapshot.Aux()}
+		preSvc := prerequest.Services{State: snap.State(), Aux: snap.Aux()}
 		if err := extensions.RunPreRequestStage(
 			outCtx,
 			e.Log,
 			e.ExtensionMetrics,
-			e.RuntimeSnapshot.PreRequestHandlers(),
+			snap.PreRequestHandlers(),
 			&work,
 			preMeta,
 			preSvc,
@@ -391,7 +416,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 		prefs, err := extensions.RunRouteHintStage(
 			outCtx,
 			e.Log,
-			e.RuntimeSnapshot.RouteHintProviders(),
+			snap.RouteHintProviders(),
 			&work,
 			hintIn,
 		)

@@ -46,7 +46,8 @@ func RunToolPolicyStage(in ToolPolicyStageInput) (err error) {
 	}
 	start := time.Now()
 	outcome := "ok"
-	ctx, endSpan := startSpan(ctx, "lip.extension.tool_policy",
+	ctx, endSpan := startSpan(
+		ctx, "lip.extension.tool_policy",
 		attribute.String("lip.extension.stage", "tool_policy"),
 		attribute.Int("lip.extension.tool_policy.policy_count", len(policies)),
 	)

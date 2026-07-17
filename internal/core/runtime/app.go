@@ -107,7 +107,8 @@ func (a *App) Registrations() []lipsdk.Registration {
 // Start logs hook chain lengths and starts plugin lifecycles. The bundled HTTP server is started by stdhttp.RunWithRuntime from cmd/lipstd.
 func (a *App) Start(ctx context.Context) error {
 	ns, nrq, nrs, nt := a.HookBus().HookChainLengths()
-	a.logger.Debug("runtime bootstrap",
+	a.logger.Debug(
+		"runtime bootstrap",
 		"server_address", a.config.Server.Address,
 		"hook_submit", ns,
 		"hook_request_parts", nrq,

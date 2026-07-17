@@ -203,7 +203,8 @@ func (r *controlPlaneRuntime) runStartupRetention(ctx context.Context, log *slog
 	}
 	if _, err := r.retention.Apply(ctx, time.Time{}, cp.VisibilityDefault); err != nil {
 		if log != nil {
-			log.WarnContext(ctx, "runtimebundle: control plane startup retention maintenance failed; capability degraded",
+			log.WarnContext(
+				ctx, "runtimebundle: control plane startup retention maintenance failed; capability degraded",
 				slog.String("component", "control_plane"),
 				slog.String("notice", "retention_maintenance_failed"),
 			)
@@ -298,7 +299,8 @@ func logControlPlaneStoreOpenFailure(ctx context.Context, log *slog.Logger, stor
 	if log == nil || err == nil {
 		return
 	}
-	log.WarnContext(ctx, "runtimebundle: control plane store unavailable",
+	log.WarnContext(
+		ctx, "runtimebundle: control plane store unavailable",
 		slog.String("component", "control_plane"),
 		slog.String("notice", "store_unavailable"),
 		slog.String("store", storeName),

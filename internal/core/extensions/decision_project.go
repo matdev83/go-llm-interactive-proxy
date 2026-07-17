@@ -7,6 +7,7 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
 
@@ -19,6 +20,12 @@ const (
 	ReasonPreRequestDenied          = "prerequest_denied"
 	ReasonPreRequestFailure         = "prerequest_failure"
 	ReasonPreRequestMalformed       = "prerequest_malformed"
+	ReasonSecretGuardPass           = "secret_guard_pass"
+	ReasonSecretGuardLog            = "secret_guard_log"
+	ReasonSecretGuardRedacted       = "secret_guard_redacted"
+	ReasonSecretGuardBlocked        = "secret_guard_blocked"
+	ReasonSecretGuardFailure        = "secret_guard_failure"
+	ReasonSecretGuardMalformed      = "secret_guard_malformed"
 	ReasonRequestTransformPass      = "request_transform_passthrough"
 	ReasonRequestTransformMutated   = "request_transform_mutation"
 	ReasonRequestTransformFailure   = "request_transform_failure"
@@ -99,6 +106,42 @@ func mergeAnnotations(base, extra map[string]string) map[string]string {
 	maps.Copy(out, base)
 	maps.Copy(out, extra)
 	return out
+}
+
+// ProjectSecretGuardDecision projects a secret-guard Evaluate decision into a shared
+// policy decision record. Findings, FailureReason, and any secret material must never
+// appear in ClientMessage or ReasonCode (D8/D9). BackendAttempted is always false.
+func ProjectSecretGuardDecision(ctx policydecision.Context, providerID string, decision secretguard.Decision) policydecision.Record {
+	rec := recordFromContext(ctx, providerID, false)
+	switch decision.Outcome {
+	case secretguard.OutcomeBlock:
+		rec.Outcome = policydecision.OutcomeDeny
+		rec.Effect = policydecision.EffectNone
+		rec.ReasonCode = ReasonSecretGuardBlocked
+		rec.ClientCategory = CategoryDenied
+		rec.ClientMessage = secretGuardBlockedClientMessage
+	case secretguard.OutcomeRedacted:
+		rec.Outcome = policydecision.OutcomeAllow
+		rec.Effect = policydecision.EffectMutate
+		rec.ReasonCode = ReasonSecretGuardRedacted
+		rec.ClientCategory = CategoryAllowed
+	case secretguard.OutcomeLog:
+		rec.Outcome = policydecision.OutcomeAllow
+		rec.Effect = policydecision.EffectNone
+		rec.ReasonCode = ReasonSecretGuardLog
+		rec.ClientCategory = CategoryAllowed
+	case secretguard.OutcomePass:
+		rec.Outcome = policydecision.OutcomeAllow
+		rec.Effect = policydecision.EffectNone
+		rec.ReasonCode = ReasonSecretGuardPass
+		rec.ClientCategory = CategoryAllowed
+	default:
+		rec.Outcome = policydecision.OutcomeError
+		rec.Effect = policydecision.EffectNone
+		rec.ReasonCode = ReasonSecretGuardMalformed
+		rec.ClientCategory = CategoryMalformed
+	}
+	return rec
 }
 
 // ProjectPreRequestDecision projects a pre-request admission handler decision into a

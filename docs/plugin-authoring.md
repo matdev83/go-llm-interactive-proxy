@@ -28,7 +28,25 @@ Use SDK packages, not core internals:
 - `pkg/lipsdk/traffic` for observation, capture, and redaction;
 - `pkg/lipsdk/usage` for accounting-style observation over canonical usage deltas (non-mutating);
 - `pkg/lipsdk/state` for plugin-scoped state;
-- `pkg/lipsdk/auxiliary` for controlled sub-calls.
+- `pkg/lipsdk/auxiliary` for controlled sub-calls;
+- `pkg/lipsdk/secretguard` for opaque ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`).
+
+## Standard feature: secrets-guard
+
+`secrets-guard` is a bundled standard feature (factory kind and plugin id `secrets-guard`) registered in `internal/standardplugins/`. It contributes one or more `secretguard.Guard` values on `feature.FeatureBundle.SecretGuards`, executed at stage id **`secret_guard`** immediately after `securesession.BeginTurn` and before frontend ingress checkpoint, traffic capture, submit hooks, and routing. Only one enabled `secrets-guard` feature instance is supported in v1; multiple enabled registrations must fail startup.
+
+Authoring and extension rules:
+
+- Feature code lives in `internal/plugins/features/secretsguard/` and must not import runtime, frontends, or backends.
+- Catalog construction and Aho–Corasick matching live in `internal/core/secretsguard/`; runtime composition and inventory projection live in `internal/infra/runtimebundle/`; audit delivery adapters live in `internal/infra/secretaudit/`.
+- SDK consumers receive an opaque **`Matcher` / `MatcherResolver`** via `secretguard.Services`. No API exposes raw catalog values or accepts an environment reader at request time. The opaque matcher belongs only in middleware request context; `AuthenticationResult` carries safe attribution targets only.
+- In **`single_user`**, composition loads proxy credential env vars (bare + sparse numbered), a curated popular-env registry, and operator `include_env` / `exclude_env` hints at startup only. The loaded catalog is a startup snapshot; credential rotation requires restarting all replicas and verifying the refreshed catalog after restart.
+- In **`multi_user`**, composition selects a request-credential matcher with **zero** process-environment reads, even when `single_user.*` YAML is present (startup rejects that key in multi-user mode). Device/key/fingerprint values are attribution-only and are not scanned as secret catalog entries.
+- Enabled configuration requires explicit `action`: `block`, `redact`, or `log`. Disabled feature creates no catalog, no stage work, and no behavior change.
+- On match, the runtime emits a dedicated **`secretguard.DecisionEvent`** audit record (safe fields only). Do not overload `policydecision.Record`. Optional `proxy_instance_id` / `pod_id` attribution is future work, not v1.
+- The shared declared public-prefix registry is value-based, not env-name based: prefix provenance comes from the loaded secret value, not from the environment-variable name that sourced it.
+
+Operator configuration and examples: [`docs/secrets-guard.md`](secrets-guard.md), [`config/config.yaml`](../config/config.yaml), and [`config/examples/`](../config/examples/).
 
 ## Authoring rules
 
@@ -92,11 +110,13 @@ Every feature plugin should have:
 
 Protocol plugins should also include golden wire fixtures, streaming tests, cancellation tests, and fuzz tests for decoders where practical.
 
+When authoring protocol/frontend adapters for tool use, name assistant tool-call/function-call arguments explicitly in coverage tables and fixture comments; do not bury them under generic "message JSON" language.
+
 ## Reference plugins
 
 `internal/plugins/features/REFERENCE_PLUGINS.md` lists reference feature plugins registered by the standard bundle. They are proof plugins, not a license to put product logic into core. Prefer hardening or promoting a reference plugin when it already proves the seam you need.
 
-Current proof areas include first-session auto append, tool policy, workspace guard, traffic transcript/capture, and verifier completion gates.
+Current proof areas include first-session auto append, tool policy, workspace guard, traffic transcript/capture, verifier completion gates, and ingress secrets guard.
 
 ## Import boundaries
 

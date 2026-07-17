@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -21,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -114,6 +116,16 @@ type AuthOptions struct {
 
 // ExtensionsOptions carries the feature-bundle extension surfaces merged into the
 // runtime snapshot (task 5.1).
+// SecretGuardInputs carries single-user catalog / matcher composition overrides.
+// Feature enablement comes only from enabled secrets-guard YAML registrations
+// (ComposeRuntimeConfig); there is no separate production enable flag.
+type SecretGuardInputs struct {
+	// SingleUser seeds/overrides the composed source catalog when the feature YAML
+	// is enabled. When SingleUser.MatcherConfigured is true, SingleUser.Matcher wins
+	// over YAML redaction options during composition.
+	SingleUser coresg.SingleUserOptions
+}
+
 type ExtensionsOptions struct {
 	// SessionOpeners and WorkspaceResolvers are merged from enabled feature
 	// bundles.
@@ -133,6 +145,12 @@ type ExtensionsOptions struct {
 	UsageObservers                   []usage.Observer
 	RawCaptureSinks                  []traffic.RawCaptureSink
 	TrafficRedactors                 []traffic.Redactor
+	SecretGuards                     []secretguard.Guard
+	// SecretGuardInputs carries supported composition seams for the guard
+	// matcher/source configuration.
+	SecretGuardInputs      SecretGuardInputs
+	SecretGuardEnvironment coresg.Environment
+	SecretDecisionObserver secretguard.Observer
 }
 
 // PolicyOptions carries policy-decision observer and budget configuration.

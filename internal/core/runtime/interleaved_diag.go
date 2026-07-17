@@ -14,7 +14,8 @@ func (e *Executor) logInterleavedRouteSelected(ctx context.Context, traceID, bLe
 	if e == nil || !e.interleavedEnabled() || c.InterleavedRole == interleavedstate.RoleNone {
 		return
 	}
-	diag.LogInterleavedTransition(ctx, e.Log, "interleaved_route_selected", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
+	diag.LogInterleavedTransition(
+		ctx, e.Log, "interleaved_route_selected", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
 		diag.InterleavedTransition{
 			Phase: interleavedPhaseForRole(c.InterleavedRole),
 			Role:  string(c.InterleavedRole),
@@ -28,18 +29,21 @@ func (e *Executor) logInterleavedMemoShape(ctx context.Context, traceID, bLegID 
 	}
 	switch shapeRes.MemoOutcome {
 	case interleavedthinking.MemoOutcomeInjected:
-		diag.LogInterleavedTransition(ctx, e.Log, "interleaved_memo_injected", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
+		diag.LogInterleavedTransition(
+			ctx, e.Log, "interleaved_memo_injected", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
 			diag.InterleavedTransition{Phase: "executor", Role: string(c.InterleavedRole), MemoPresent: true, MemoInjected: true},
 		)
 	case interleavedthinking.MemoOutcomeExpired:
-		diag.LogInterleavedTransition(ctx, e.Log, "interleaved_memo_expired", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
+		diag.LogInterleavedTransition(
+			ctx, e.Log, "interleaved_memo_expired", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
 			diag.InterleavedTransition{Phase: "executor", Role: string(c.InterleavedRole), MemoPresent: true, MemoExpired: true},
 		)
 	case interleavedthinking.MemoOutcomeSkippedVisible,
 		interleavedthinking.MemoOutcomeSkippedDuplicate,
 		interleavedthinking.MemoOutcomeSkippedMissing,
 		interleavedthinking.MemoOutcomeSkippedEmpty:
-		diag.LogInterleavedTransition(ctx, e.Log, "interleaved_memo_skipped", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
+		diag.LogInterleavedTransition(
+			ctx, e.Log, "interleaved_memo_skipped", diag.AttrOpts{CallID: traceID, BLegID: bLegID},
 			diag.InterleavedTransition{
 				Phase:      "executor",
 				Role:       string(c.InterleavedRole),
@@ -53,7 +57,8 @@ func (e *Executor) logInterleavedThinkerSuppressed(ctx context.Context, traceID 
 	if e == nil || !e.interleavedEnabled() {
 		return
 	}
-	diag.LogInterleavedTransition(ctx, e.Log, "interleaved_thinker_suppressed", diag.AttrOpts{CallID: traceID},
+	diag.LogInterleavedTransition(
+		ctx, e.Log, "interleaved_thinker_suppressed", diag.AttrOpts{CallID: traceID},
 		diag.InterleavedTransition{ThinkerSuppressed: true},
 	)
 }
@@ -62,7 +67,8 @@ func (e *Executor) logInterleavedMemoCaptured(ctx context.Context, traceID strin
 	if e == nil || !e.interleavedEnabled() {
 		return
 	}
-	diag.LogInterleavedTransition(ctx, e.Log, "interleaved_memo_captured", diag.AttrOpts{CallID: traceID},
+	diag.LogInterleavedTransition(
+		ctx, e.Log, "interleaved_memo_captured", diag.AttrOpts{CallID: traceID},
 		diag.InterleavedTransition{
 			Phase:             "thinker",
 			Role:              string(interleavedstate.RoleThinker),
@@ -78,7 +84,8 @@ func (e *Executor) logInterleavedPhaseTransition(ctx context.Context, traceID st
 	if e == nil || !e.interleavedEnabled() {
 		return
 	}
-	diag.LogInterleavedTransition(ctx, e.Log, "interleaved_phase_transition", diag.AttrOpts{CallID: traceID},
+	diag.LogInterleavedTransition(
+		ctx, e.Log, "interleaved_phase_transition", diag.AttrOpts{CallID: traceID},
 		diag.InterleavedTransition{Phase: "executor", Role: string(interleavedstate.RoleExecutor)},
 	)
 }

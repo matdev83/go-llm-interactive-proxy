@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
@@ -163,5 +164,53 @@ func TestBuildInventoryExtensions_toolPoliciesWithoutTransformsLeavesAuxiliaryRe
 	}
 	if !sawPol {
 		t.Fatalf("missing tool_policy inventory tag in occupancy %#v", f0.StageOccupancy)
+	}
+}
+
+type invSecretGuard struct {
+	id  string
+	ord int
+}
+
+func (g invSecretGuard) ID() string                         { return g.id }
+func (g invSecretGuard) Order() int                         { return g.ord }
+func (invSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+func (invSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
+func TestStageOccupancyFromBundle_secretGuardsSortedWithPrefix(t *testing.T) {
+	t.Parallel()
+	b := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		SecretGuards: []secretguard.Guard{
+			invSecretGuard{id: "z", ord: 2},
+			invSecretGuard{id: "a", ord: 1},
+			invSecretGuard{id: "b", ord: 1},
+		},
+	}
+	occ := stageOccupancyFromBundle(b)
+	var guardOcc *InventoryStageOccupancy
+	for i := range occ {
+		if occ[i].StageID == extensions.StageSecretGuard {
+			guardOcc = &occ[i]
+			break
+		}
+	}
+	if guardOcc == nil {
+		t.Fatal("missing secret_guard occupancy")
+		return
+	}
+	want := []string{"secret_guard:a", "secret_guard:b", "secret_guard:z"}
+	if len(guardOcc.HandlerIDs) != len(want) {
+		t.Fatalf("got %#v", guardOcc.HandlerIDs)
+	}
+	for i := range want {
+		if guardOcc.HandlerIDs[i] != want[i] {
+			t.Fatalf("idx %d want %q got %#v", i, want[i], guardOcc.HandlerIDs)
+		}
+	}
+	if guardOcc.Count != len(want) {
+		t.Fatalf("count %d want %d", guardOcc.Count, len(want))
 	}
 }

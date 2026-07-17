@@ -1,7 +1,6 @@
 package extensions_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -12,7 +11,7 @@ import (
 // BenchmarkCompletionGatesFromContext_nilFallback_empty measures the hot path where no snapshot is
 // on context and fallback is nil — result is the shared empty slice (zero allocations per call).
 func BenchmarkCompletionGatesFromContext_nilFallback_empty(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = extensions.CompletionGatesFromContext(ctx, nil)
@@ -22,7 +21,7 @@ func BenchmarkCompletionGatesFromContext_nilFallback_empty(b *testing.B) {
 // BenchmarkCompletionGatesFromContext_fallbackNilGates_empty uses a fallback view whose
 // CompletionGates returns nil; should hit the same shared empty slice as nil fallback.
 func BenchmarkCompletionGatesFromContext_fallbackNilGates_empty(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	bus := hooks.New(hooks.Config{})
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{})
 	b.ReportAllocs()
@@ -38,7 +37,7 @@ func BenchmarkCompletionGatesFromContext_withGates(b *testing.B) {
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates: []completion.Gate{g},
 	})
-	ctx := context.Background()
+	ctx := b.Context()
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = extensions.CompletionGatesFromContext(ctx, fallback)

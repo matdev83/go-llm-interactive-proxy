@@ -164,6 +164,52 @@ func TestStore_restartSurvival(t *testing.T) {
 	}
 }
 
+func TestStore_quarantineZeroTimestampRoundTrips(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "zero-quarantine.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	fp := domain.TokenFingerprint{}
+	fp[0] = 0xaa
+	fp[31] = 0xbb
+	rec, err := s.Create(ctx, domain.CreateRecord{
+		SessionID:         "sess-zero-quarantine",
+		ResumeFingerprint: fp,
+		Owner:             domain.PrincipalRef{ID: "owner-z"},
+		Workspace:         domain.WorkspaceRef{ID: "ws-z"},
+		Policy:            domain.PolicyMetadata{PolicyVersion: "v1", AuditMode: "optional"},
+		ALegID:            "a-leg-zero",
+		ResumeEligible:    true,
+		CreatedAt:         time.Unix(1, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Quarantine(ctx, domain.QuarantineInput{
+		SessionID:  rec.SessionID,
+		TurnID:     "turn-zero",
+		ReasonCode: "secret_guard_block",
+		EventID:    "evt-zero",
+		At:         time.Unix(2, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE lip_secure_sessions SET quarantined_at_unix = 0 WHERE session_id = ?`, string(rec.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.LoadByID(ctx, rec.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.QuarantinedAt.Equal(time.Unix(0, 0)) {
+		t.Fatalf("quarantined_at = %v want epoch zero", got.QuarantinedAt)
+	}
+}
+
 func TestStore_concurrentCreateAndTouch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

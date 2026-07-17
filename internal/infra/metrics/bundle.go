@@ -20,6 +20,7 @@ type Bundle struct {
 	SecureSession *SecureSessionProm
 	// ExtensionStages is non-nil when metrics are enabled; used for extension pipeline histograms/counters.
 	ExtensionStages     *ExtensionStageProm
+	SecretGuard         *SecretGuardProm
 	AuthorityStages     *AuthorityStageProm
 	Upstream            *UpstreamProm
 	TokenAccounting     *TokenAccountingProm
@@ -38,6 +39,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	exec := RegisterExecutorProm(r)
 	ss := RegisterSecureSessionProm(r)
 	ext := RegisterExtensionStageProm(r)
+	sg := RegisterSecretGuardProm(r)
 	auth := RegisterAuthorityStageProm(r)
 	up := RegisterUpstreamProm(r, exemplars)
 	tok := RegisterTokenAccountingProm(r)
@@ -48,6 +50,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		Executor:            exec,
 		SecureSession:       ss,
 		ExtensionStages:     ext,
+		SecretGuard:         sg,
 		AuthorityStages:     auth,
 		Upstream:            up,
 		TokenAccounting:     tok,
@@ -71,6 +74,14 @@ func (b *Bundle) ExtensionStageSink() extensions.StageMetrics {
 		return nil
 	}
 	return NewExtensionStageSink(b.ExtensionStages)
+}
+
+// SecretGuardDecisionSink returns [extensions.SecretGuardDecisionMetrics] backed by this bundle.
+func (b *Bundle) SecretGuardDecisionSink() extensions.SecretGuardDecisionMetrics {
+	if b == nil {
+		return nil
+	}
+	return NewSecretGuardDecisionSink(b.SecretGuard)
 }
 
 // AuthorityStageSink returns usage-authority stage metrics (req 16.5).

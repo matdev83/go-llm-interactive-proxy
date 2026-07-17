@@ -143,6 +143,9 @@ func RunDecisionProviderWithDeadlineGuarded[T any](ctx context.Context, deadline
 	if call == nil || deadline.IsZero() {
 		return TimeoutResult[T]{}
 	}
+	if err := ctx.Err(); err != nil {
+		return TimeoutResult[T]{Value: zero, Err: err, ParentCanceled: true}
+	}
 	if !guard.TryEnter(stage, providerID) {
 		return TimeoutResult[T]{TimedOut: true, GuardRejected: true}
 	}

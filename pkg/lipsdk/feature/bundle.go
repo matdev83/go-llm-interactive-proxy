@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -55,6 +56,9 @@ type FeatureBundle struct {
 	RawCaptureSinks  []traffic.RawCaptureSink
 	TrafficRedactors []traffic.Redactor
 
+	// SecretGuards contribute opaque ingress secret-guard evaluators (optional; schema V1).
+	SecretGuards []secretguard.Guard
+
 	Lifecycles []lipplugin.Lifecycle
 }
 
@@ -77,6 +81,7 @@ func (b FeatureBundle) empty() bool {
 		len(b.UsageObservers) == 0 &&
 		len(b.RawCaptureSinks) == 0 &&
 		len(b.TrafficRedactors) == 0 &&
+		len(b.SecretGuards) == 0 &&
 		len(b.Lifecycles) == 0
 }
 

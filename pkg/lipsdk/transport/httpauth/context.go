@@ -5,6 +5,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 )
 
 // WithPrincipal is a transport-named alias for [execview.WithPrincipal] so the auth middleware
@@ -27,4 +28,24 @@ func WithScope(ctx context.Context, v scope.PrincipalScopeView) context.Context 
 // ScopeFromContext is a transport-named alias for [scope.ScopeFromContext].
 func ScopeFromContext(ctx context.Context) (scope.PrincipalScopeView, bool) {
 	return scope.ScopeFromContext(ctx)
+}
+
+// WithIngressAttribution delegates to [secretguard.WithIngressAttribution].
+func WithIngressAttribution(ctx context.Context, a IngressAttribution) context.Context {
+	return secretguard.WithIngressAttribution(ctx, a)
+}
+
+// IngressAttributionFromContext delegates to [secretguard.IngressAttributionFromContext].
+func IngressAttributionFromContext(ctx context.Context) (IngressAttribution, bool) {
+	return secretguard.IngressAttributionFromContext(ctx)
+}
+
+// WithCredentialMatcher delegates to [secretguard.WithRequestMatcher].
+func WithCredentialMatcher(ctx context.Context, m secretguard.Matcher) context.Context {
+	return secretguard.WithRequestMatcher(ctx, m)
+}
+
+// CredentialMatcherFromContext delegates to [secretguard.RequestMatcherFromContext].
+func CredentialMatcherFromContext(ctx context.Context) (secretguard.Matcher, bool) {
+	return secretguard.RequestMatcherFromContext(ctx)
 }

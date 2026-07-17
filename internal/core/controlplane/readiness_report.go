@@ -29,6 +29,7 @@ type ReadinessReportSources struct {
 	AttemptCoordinatorEnabled bool
 	CustomerRaterAttached     bool
 	OperatorRaterAttached     bool
+	SecretGuardQuarantine     func(context.Context) (cp.ReadinessComponentStatus, error)
 	StoreBackings             ReadinessStoreBackings
 }
 
@@ -129,6 +130,16 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 	}
 	components = append(components, raterComponent(cp.ReadinessComponentCustomerRater, src.CustomerRaterAttached, now))
 	components = append(components, raterComponent(cp.ReadinessComponentOperatorRater, src.OperatorRaterAttached, now))
+	if src.SecretGuardQuarantine != nil {
+		if row, err := src.SecretGuardQuarantine(ctx); err == nil {
+			row.LastUpdatedAt = now
+			components = append(components, row)
+		} else {
+			components = append(components, unavailableComponent(cp.ReadinessComponentSecretGuardQuarantine, "", now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentSecretGuardQuarantine, now))
+	}
 	return cp.ReadinessReport{
 		Components: components,
 		Posture:    cp.AggregateProtectedTrafficPosture(components, now),

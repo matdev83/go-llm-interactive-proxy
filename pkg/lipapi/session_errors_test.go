@@ -23,6 +23,7 @@ func TestSessionDenialError_codesAndUnwrap(t *testing.T) {
 		{"invalid_authority", lipapi.NewSessionDenialInvalidAuthority(""), lipapi.SessionDeniedInvalidAuthority},
 		{"owner_mismatch", lipapi.NewSessionDenialOwnerMismatch(""), lipapi.SessionDeniedOwnerMismatch},
 		{"expired_resume", lipapi.NewSessionDenialResumeExpired(""), lipapi.SessionDeniedResumeExpired},
+		{"quarantined", lipapi.NewSessionDenialQuarantined(""), lipapi.SessionDeniedQuarantined},
 		{"workspace", lipapi.NewSessionDenialWorkspace(""), lipapi.SessionDeniedWorkspace},
 		{"policy_unavailable", lipapi.NewSessionDenialPolicyUnavailable(""), lipapi.SessionDeniedPolicyUnavailable},
 		{"storage_unavailable", lipapi.NewSessionDenialStorageUnavailable(""), lipapi.SessionDeniedStorageUnavailable},

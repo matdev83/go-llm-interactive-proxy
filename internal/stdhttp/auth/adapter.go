@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -39,6 +40,10 @@ type PolicyProvider struct {
 	// FrontendID, if set, supplies the frontend id for events and per-frontend renderers. When nil,
 	// [DefaultFrontendIDFromRequest] is used.
 	FrontendID func(*http.Request) string
+}
+
+type authSuccessContextAttacher interface {
+	attachAuthSuccessContext(ctx context.Context, r *http.Request, res httpauth.AuthenticationResult) context.Context
 }
 
 // NewPolicyProvider wires a policy-bound authenticator, event pipeline, and error renderer.
@@ -120,13 +125,23 @@ func (p *PolicyProvider) Authenticate(ctx context.Context, w http.ResponseWriter
 
 	switch d.Outcome {
 	case auth.OutcomeAllow:
+		attr := ingressAttributionFromAllow(r, frontendID, d)
 		if bridged.lifecycle != nil {
 			s := bridged.lifecycle.Scope
-			return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: bridged.lifecycle.Principal, Scope: &s}, nil
+			return httpauth.AuthenticationResult{
+				Type:               httpauth.TypePrincipal,
+				Principal:          bridged.lifecycle.Principal,
+				Scope:              &s,
+				IngressAttribution: attr,
+			}, nil
 		}
 		// Allow without a trusted scope or identity (legacy pass-through): attach the
 		// legacy principal only; the runtime derives synthetic scope under local mode.
-		return httpauth.AuthenticationResult{Type: httpauth.TypePrincipal, Principal: d.Principal}, nil
+		return httpauth.AuthenticationResult{
+			Type:               httpauth.TypePrincipal,
+			Principal:          d.Principal,
+			IngressAttribution: attr,
+		}, nil
 	case auth.OutcomeChallenge, auth.OutcomeDeny:
 		st := defaultTerminalHTTPStatus(&d)
 		rend := p.callRenderer(ctx, frontendID, &meta, d, ev, st)
@@ -188,6 +203,42 @@ func (p *PolicyProvider) frontendID(r *http.Request) string {
 		return p.FrontendID(r)
 	}
 	return DefaultFrontendIDFromRequest(r)
+}
+
+func ingressAttributionFromAllow(r *http.Request, frontendID string, d auth.Decision) httpauth.IngressAttribution {
+	var remote string
+	if r != nil {
+		remote = r.RemoteAddr
+	}
+	return httpauth.IngressAttribution{
+		PeerIP:      peerIPFromRemoteAddr(remote),
+		FrontendID:  frontendID,
+		DeviceID:    strings.TrimSpace(d.Device.ID),
+		KeyID:       strings.TrimSpace(d.Device.KeyID),
+		Fingerprint: strings.TrimSpace(d.Device.Fingerprint),
+	}
+}
+
+// credentialMatcherFromPresented builds an opaque exact matcher from the presented bearer
+// credential after allow. LocalAPIKeyAuthenticator must not store raw keys; the adapter owns
+// this request-scoped matcher. Empty presented credentials yield nil.
+func credentialMatcherFromPresented(presented, keyID string) secretguard.Matcher {
+	m := newExactCredentialMatcher(presented, keyID)
+	if m == nil {
+		return nil
+	}
+	return m
+}
+
+func (p *PolicyProvider) attachAuthSuccessContext(ctx context.Context, r *http.Request, res httpauth.AuthenticationResult) context.Context {
+	if p == nil || r == nil || res.Type != httpauth.TypePrincipal {
+		return ctx
+	}
+	matcher := credentialMatcherFromPresented(authorizationBearerFromHeader(r.Header.Get("Authorization")), res.IngressAttribution.KeyID)
+	if matcher == nil {
+		return ctx
+	}
+	return httpauth.WithCredentialMatcher(ctx, matcher)
 }
 
 func (p *PolicyProvider) callRenderer(

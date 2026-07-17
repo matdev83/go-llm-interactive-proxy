@@ -40,6 +40,24 @@ status: active
 - OpenAI Codex `auth.json` managed-OAuth files must be `0600` (reject group/other-readable)
 - Symlinked managed-OAuth account files skipped
 
+## Secrets Guard (issue #151)
+
+Optional ingress feature (`plugins.features` id `secrets-guard`, disabled by default) that scans model-bound textual/JSON fields for **exact loaded secret values** before metering checkpoint, traffic capture, routing, or backend dispatch. It is ingress-only, not response/egress scanning, and only one enabled instance is supported per deployment.
+
+| Topic | Behavior |
+|---|---|
+| Stage | `secret_guard` after `BeginTurn`; see `docs/secrets-guard.md` |
+| Actions | `log` (audit only), `redact` (sanitize call), `block` (quarantine session) |
+| Single-user sources | Proxy env vars + popular registry + operator include/exclude at startup; this is a snapshot, so credential rotation requires restart + post-restart verification |
+| Multi-user sources | Current request credential only plus safe attribution identifiers; **zero** process env reads |
+| Audit | Dedicated `secretguard.DecisionEvent`; never raw secrets or prompt excerpts |
+| Peer IP | `RemoteAddr` host; forwarded headers ignored |
+| Rollout | One action per deployment: disabled -> `log` -> `redact` -> `block` |
+| Scan limits | `block` / `redact` scan-limit hits return the normal block path and quarantine the session; `log` continues |
+| Future | Optional `proxy_instance_id` / `pod_id` attribution is future work, not v1 |
+
+Registered in `internal/standardplugins/standard_table.go` as feature id `secrets-guard`. Key packages: `pkg/lipsdk/secretguard`, `internal/core/secretsguard`, `internal/plugins/features/secretsguard`, `internal/proxycredentials`, `internal/infra/osenv`, `internal/stdhttp/auth` (opaque matcher in middleware request context), `internal/infra/runtimebundle` (secret-guard composition), `internal/infra/secretaudit` (audit delivery), `internal/core/securesession` (quarantine).
+
 ## Key Packages
 
 | Package | Responsibility |
@@ -53,6 +71,10 @@ status: active
 | `internal/infra/runtimebundle/` | Security policy checks at composition |
 | `pkg/lipsdk/auth/` | Auth SDK facades |
 | `pkg/lipsdk/transport/` | Transport auth SDK facades |
+| `pkg/lipsdk/secretguard/` | Opaque ingress secret-guard contracts (`Guard`, `Matcher`, `DecisionEvent`) |
+| `internal/core/secretsguard/` | Catalog, matcher, source policy |
+| `internal/plugins/features/secretsguard/` | Feature plugin (`block`/`redact`/`log` Guard) |
+| `internal/infra/secretaudit/` | Secret-decision audit delivery (structured log sink) |
 
 ## Config Security
 

@@ -21,9 +21,11 @@ func scanRecord(row sessionScanRow) (domain.Record, error) {
 		policyVer, effTreat, strictPol         string
 		routeHint, redactProf, auditMode       string
 		aLegID, lastActSrc                     string
+		status, qReason, qEventID              string
 		fpBlob                                 []byte
 		te, re                                 int
 		lastActUnix, createdUnix               int64
+		quarantinedAtUnix                      int64
 		usageIn, usageOut                      int64
 		attemptCount                           int
 		traceJ, outcomeJ, acctJ                string
@@ -35,6 +37,7 @@ func scanRecord(row sessionScanRow) (domain.Record, error) {
 		&policyVer, &te, &effTreat, &strictPol,
 		&routeHint, &redactProf, &auditMode,
 		&aLegID, &re,
+		&status, &quarantinedAtUnix, &qReason, &qEventID,
 		&lastActUnix, &lastActSrc, &createdUnix,
 		&usageIn, &usageOut, &attemptCount,
 		&traceJ, &outcomeJ, &acctJ,
@@ -65,11 +68,17 @@ func scanRecord(row sessionScanRow) (domain.Record, error) {
 			RedactionProfile:         redactProf,
 			AuditMode:                auditMode,
 		},
-		ALegID:             aLegID,
-		ResumeEligible:     re != 0,
-		LastActivityAt:     time.Unix(0, lastActUnix),
-		LastActivitySource: domain.ActivitySource(lastActSrc),
-		CreatedAt:          time.Unix(0, createdUnix),
+		ALegID:               aLegID,
+		Status:               domain.SessionStatus(status),
+		QuarantineReasonCode: qReason,
+		QuarantineEventID:    qEventID,
+		ResumeEligible:       re != 0,
+		LastActivityAt:       time.Unix(0, lastActUnix),
+		LastActivitySource:   domain.ActivitySource(lastActSrc),
+		CreatedAt:            time.Unix(0, createdUnix),
+	}
+	if quarantinedAtUnix != 0 || domain.SessionStatus(status).IsQuarantined() {
+		rec.QuarantinedAt = time.Unix(0, quarantinedAtUnix)
 	}
 	if err := json.Unmarshal([]byte(traceJ), &rec.LatestAttemptTrace); err != nil {
 		return domain.Record{}, opErr("decode trace json", err)

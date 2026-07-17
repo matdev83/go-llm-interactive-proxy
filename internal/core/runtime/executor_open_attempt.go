@@ -221,7 +221,8 @@ func (e *Executor) openPlannedCandidate(
 				attrs = diag.AppendIsolatedCrashStack(attrs, pe)
 				e.Log.LogAttrs(p.ctx, slog.LevelError, "isolated_panic_capability_negotiate", attrs...)
 			}
-			diag.LogDecision(p.ctx, e.Log, "capability_negotiate_panic_exclude", diag.AttrOpts{CallID: p.traceID},
+			diag.LogDecision(
+				p.ctx, e.Log, "capability_negotiate_panic_exclude", diag.AttrOpts{CallID: p.traceID},
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
@@ -237,7 +238,8 @@ func (e *Executor) openPlannedCandidate(
 		if p.lastReject != nil {
 			*p.lastReject = res
 		}
-		diag.LogDecision(p.ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: p.traceID},
+		diag.LogDecision(
+			p.ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: p.traceID},
 			slog.String("decision", "exclude_candidate"),
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
@@ -251,7 +253,8 @@ func (e *Executor) openPlannedCandidate(
 	if p.lastReject != nil {
 		*p.lastReject = lipapi.NegotiationResult{}
 	}
-	transportCtx, transportSpan := otel.Tracer(otelScopeExecutor).Start(p.ctx, "lip.executor.transport_negotiate",
+	transportCtx, transportSpan := otel.Tracer(otelScopeExecutor).Start(
+		p.ctx, "lip.executor.transport_negotiate",
 		trace.WithAttributes(
 			attribute.String("lip.backend", c.Primary.Backend),
 			attribute.String("lip.operation", string(attempt.Invocation.Operation)),
@@ -280,7 +283,8 @@ func (e *Executor) openPlannedCandidate(
 		if p.lastTransportReject != nil {
 			*p.lastTransportReject = transportRes
 		}
-		diag.LogDecision(p.ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
+		diag.LogDecision(
+			p.ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
 			slog.String("decision", "exclude_candidate"),
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
@@ -296,7 +300,8 @@ func (e *Executor) openPlannedCandidate(
 	}
 	attempt.Invocation.TransportMode = transportRes.Selected
 	if res.Kind == lipapi.NegotiationDowngrade {
-		diag.LogDecision(p.ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: p.traceID},
+		diag.LogDecision(
+			p.ctx, e.Log, "capability_downgrade", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
@@ -315,7 +320,8 @@ func (e *Executor) openPlannedCandidate(
 			if p.isContextLimitExhaustion != nil && d.Reason == modelcatalog.EligibilityContextLimitExceeded {
 				*p.isContextLimitExhaustion = true
 			}
-			diag.LogDecision(p.ctx, e.Log, "context_limit_exclude", diag.AttrOpts{CallID: p.traceID},
+			diag.LogDecision(
+				p.ctx, e.Log, "context_limit_exclude", diag.AttrOpts{CallID: p.traceID},
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
@@ -469,7 +475,8 @@ func (e *Executor) openPlannedCandidate(
 		// MaxOutputTokens (or that mark it ignorable via compat) are excluded so
 		// failover can try an enforceable candidate.
 		if !backendCanEnforceAuthorityClamp(be, &openCall) {
-			diag.LogDecision(p.ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+			diag.LogDecision(
+				p.ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
 				slog.String("candidate_key", c.Key),
 				slog.String("backend", c.Primary.Backend),
 			)
@@ -481,7 +488,8 @@ func (e *Executor) openPlannedCandidate(
 	}
 	// Preflight-applied max-output clamps must be enforceable on the wire (7.4).
 	if admitDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {
-		diag.LogDecision(p.ctx, e.Log, "unknown_output_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+		diag.LogDecision(
+			p.ctx, e.Log, "unknown_output_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
 			slog.String("candidate_key", c.Key),
 			slog.String("backend", c.Primary.Backend),
 		)
@@ -528,7 +536,8 @@ func (e *Executor) openPlannedCandidate(
 	}
 	defer cancelOpen()
 
-	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(baseOpenCtx, "lip.executor.backend_open",
+	openCtx, openSpan := otel.Tracer(otelScopeExecutor).Start(
+		baseOpenCtx, "lip.executor.backend_open",
 		trace.WithAttributes(
 			attribute.String("lip.backend", c.Primary.Backend),
 			attribute.Int("lip.b_leg_seq", int(bleg.Seq)),
@@ -536,6 +545,9 @@ func (e *Executor) openPlannedCandidate(
 	)
 	defer openSpan.End()
 	openStart := time.Now()
+	if aerr := e.assertSecureSessionActiveBeforeOpen(openCtx); aerr != nil {
+		return zero, aerr
+	}
 	cleanupAuthority.backendAttempted.Store(true)
 	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
 	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)
@@ -595,7 +607,8 @@ func (e *Executor) openPlannedCandidate(
 				Reason:    "recoverable pre-output (open)",
 				DetailErr: err,
 			}, diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID})
-			diag.LogDecision(p.ctx, e.Log, "recoverable_pre_output_swallowed",
+			diag.LogDecision(
+				p.ctx, e.Log, "recoverable_pre_output_swallowed",
 				diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 				slog.String("candidate_key", c.Key),
 				slog.String("phase", "open"),
@@ -657,7 +670,8 @@ func (e *Executor) openPlannedCandidate(
 			}
 		}
 	}
-	diag.LogDecision(p.ctx, e.Log, "backend_attempt_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
+	diag.LogDecision(
+		p.ctx, e.Log, "backend_attempt_opened", diag.AttrOpts{CallID: p.traceID, BLegID: bleg.BLegID},
 		slog.String("candidate_key", c.Key),
 		slog.String("backend", c.Primary.Backend),
 		slog.String("model", c.Primary.Model),

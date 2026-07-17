@@ -14,12 +14,7 @@ import (
 func TestMigrate_freshCreatesTablesAndIndexes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := sql.Open("sqlite", "file::memory:?cache=shared&_pragma=foreign_keys(ON)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	db.SetMaxOpenConns(1)
+	db := openSchemaTestDB(t)
 	if err := migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -74,12 +69,7 @@ func TestMigrate_freshCreatesTablesAndIndexes(t *testing.T) {
 func TestMigrate_idempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := sql.Open("sqlite", "file::memory:?cache=shared&_pragma=foreign_keys(ON)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	db.SetMaxOpenConns(1)
+	db := openSchemaTestDB(t)
 	for range 3 {
 		if err := migrate(ctx, db); err != nil {
 			t.Fatal(err)
@@ -139,4 +129,88 @@ func TestMigrate_coexistsWithContinuity(t *testing.T) {
 	if got.ALegID != leg.ALegID {
 		t.Fatalf("continuity broken: got %q want %q", got.ALegID, leg.ALegID)
 	}
+}
+
+func TestMigrate_upgradeQuarantineColumns_addsToLegacySessionsTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	dsn, err := dsnFromPath(filepath.Join(dir, "legacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+
+	_, err = db.ExecContext(ctx, `CREATE TABLE lip_secure_sessions (
+		session_id TEXT NOT NULL PRIMARY KEY,
+		resume_fingerprint BLOB NOT NULL,
+		owner_id TEXT NOT NULL DEFAULT '',
+		owner_issuer TEXT NOT NULL DEFAULT '',
+		owner_tenant TEXT NOT NULL DEFAULT '',
+		workspace_id TEXT NOT NULL DEFAULT '',
+		client_session_id TEXT NOT NULL DEFAULT '',
+		agent_digest TEXT NOT NULL DEFAULT '',
+		policy_version TEXT NOT NULL DEFAULT '',
+		transcript_enabled INTEGER NOT NULL DEFAULT 0,
+		effective_treatment TEXT NOT NULL DEFAULT '',
+		stricter_policy_resolution TEXT NOT NULL DEFAULT '',
+		route_hint TEXT NOT NULL DEFAULT '',
+		redaction_profile TEXT NOT NULL DEFAULT '',
+		audit_mode TEXT NOT NULL DEFAULT '',
+		a_leg_id TEXT NOT NULL DEFAULT '',
+		resume_eligible INTEGER NOT NULL DEFAULT 0,
+		last_activity_unix INTEGER NOT NULL,
+		last_activity_source TEXT NOT NULL DEFAULT '',
+		created_at_unix INTEGER NOT NULL,
+		usage_in BIGINT NOT NULL DEFAULT 0,
+		usage_out BIGINT NOT NULL DEFAULT 0,
+		attempt_count INTEGER NOT NULL DEFAULT 0,
+		latest_attempt_trace_json TEXT NOT NULL DEFAULT '{}',
+		latest_attempt_outcome_json TEXT NOT NULL DEFAULT '{}',
+		latest_attempt_accounting_json TEXT NOT NULL DEFAULT '{}'
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradeQuarantineColumns(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// Idempotent second upgrade.
+	if err := upgradeQuarantineColumns(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	needed := []string{"status", "quarantined_at_unix", "quarantine_reason_code", "quarantine_event_id"}
+	for _, col := range needed {
+		var n int
+		err := db.QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM pragma_table_info('lip_secure_sessions') WHERE name = ?`, col,
+		).Scan(&n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("expected column %q after upgrade, count=%d", col, n)
+		}
+	}
+}
+
+func openSchemaTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dir := t.TempDir()
+	dsn, err := dsnFromPath(filepath.Join(dir, "schema.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	return db
 }

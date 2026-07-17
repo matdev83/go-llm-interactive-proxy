@@ -15,6 +15,7 @@ const (
 	SessionDeniedInvalidAuthority      SessionDenialCode = "session_denied_invalid_authority"
 	SessionDeniedOwnerMismatch         SessionDenialCode = "session_denied_owner_mismatch"
 	SessionDeniedResumeExpired         SessionDenialCode = "session_denied_resume_expired"
+	SessionDeniedQuarantined           SessionDenialCode = "session_denied_quarantined"
 	SessionDeniedWorkspace             SessionDenialCode = "session_denied_workspace"
 	SessionDeniedPolicyUnavailable     SessionDenialCode = "session_denied_policy_unavailable"
 	SessionDeniedStorageUnavailable    SessionDenialCode = "session_denied_storage_unavailable"
@@ -112,6 +113,12 @@ func NewSessionDenialOwnerMismatch(internalReason string) error {
 func NewSessionDenialResumeExpired(internalReason string) error {
 	return newSessionDenial(SessionDeniedResumeExpired,
 		"session can no longer be resumed", internalReason)
+}
+
+// NewSessionDenialQuarantined returns a denial when the session was quarantined and cannot be reused.
+func NewSessionDenialQuarantined(internalReason string) error {
+	return newSessionDenial(SessionDeniedQuarantined,
+		"session quarantined; start a new session", internalReason)
 }
 
 // NewSessionDenialWorkspace returns a denial when workspace policy rejects the session.

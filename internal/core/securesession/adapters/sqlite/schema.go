@@ -31,6 +31,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			audit_mode TEXT NOT NULL DEFAULT '',
 			a_leg_id TEXT NOT NULL DEFAULT '',
 			resume_eligible INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT '',
+			quarantined_at_unix INTEGER NOT NULL DEFAULT 0,
+			quarantine_reason_code TEXT NOT NULL DEFAULT '',
+			quarantine_event_id TEXT NOT NULL DEFAULT '',
 			last_activity_unix INTEGER NOT NULL,
 			last_activity_source TEXT NOT NULL DEFAULT '',
 			created_at_unix INTEGER NOT NULL,
@@ -167,6 +171,9 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err := upgradeUsageAccountingColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := upgradeQuarantineColumns(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -220,6 +227,25 @@ func upgradeUsageAccountingColumns(ctx context.Context, db *sql.DB) error {
 				continue
 			}
 			return fmt.Errorf("securesession/sqlite migrate upgrade usage: %w", err)
+		}
+	}
+	return nil
+}
+
+func upgradeQuarantineColumns(ctx context.Context, db *sql.DB) error {
+	alters := []string{
+		`ALTER TABLE lip_secure_sessions ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE lip_secure_sessions ADD COLUMN quarantined_at_unix INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE lip_secure_sessions ADD COLUMN quarantine_reason_code TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE lip_secure_sessions ADD COLUMN quarantine_event_id TEXT NOT NULL DEFAULT ''`,
+	}
+	for _, q := range alters {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "duplicate column name") {
+				continue
+			}
+			return fmt.Errorf("securesession/sqlite migrate upgrade quarantine: %w", err)
 		}
 	}
 	return nil

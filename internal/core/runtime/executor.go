@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -41,6 +42,11 @@ type Executor struct {
 	rngOnce         sync.Once
 	lockedRand      routing.Rng
 	secureSessionMu sync.Mutex
+	// quarantinePersistenceFault is intentional process-wide fail-closed state after a
+	// secret-guard quarantine write (or SessionID invariant) failure. While latched,
+	// AssertActive-before-open denies further backend dispatch on this executor until
+	// process restart/reconcile. See docs/secrets-guard.md incident response.
+	quarantinePersistenceFault atomic.Bool
 }
 
 func (e *Executor) capsForAttempt(

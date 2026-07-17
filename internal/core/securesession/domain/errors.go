@@ -21,4 +21,12 @@ var (
 	// ErrWorkspaceUnresolved is returned when workspace resolution failed under fail-closed policy
 	// (Req 11.6: do not fail open into an ambiguous empty workspace for secure-session turns).
 	ErrWorkspaceUnresolved = errors.New("securesession: workspace could not be resolved")
+	// ErrSessionQuarantined is returned when a quarantined session is reused (resume or pre-dispatch).
+	// Clients must start a new session; the mapped denial is protocol-safe and secret-free.
+	ErrSessionQuarantined = errors.New("securesession: session quarantined")
+	// ErrInvalidQuarantineInput is returned when a quarantine transition request is incomplete or invalid.
+	ErrInvalidQuarantineInput = errors.New("securesession: invalid quarantine input")
+	// ErrQuarantineUnimplemented is a Phase-1 compile stub sentinel returned by stores that have
+	// not yet implemented Store.Quarantine (Phase 5). Production paths must not convert this to allow.
+	ErrQuarantineUnimplemented = errors.New("securesession: Quarantine not implemented")
 )

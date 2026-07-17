@@ -35,6 +35,10 @@ type AuthenticationResult struct {
 	// Raw secrets and transport headers must never be placed here (requirements 2.1, 2.6).
 	Scope *scope.PrincipalScopeView
 
+	// IngressAttribution is sanitized peer/frontend/device attribution (zero means absent).
+	// Never place bearer tokens or raw headers here.
+	IngressAttribution IngressAttribution
+
 	// HTTPStatus is used for TypeReject and TypeChallenge (default 401 if zero).
 	HTTPStatus int
 

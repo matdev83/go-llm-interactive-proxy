@@ -60,7 +60,7 @@ func benchRetryRecvForTrafficEmit() (*retryRecvStream, lipapi.Event, sdk.PartMet
 
 func BenchmarkEmitTrafficBTP_jsonMarshal(b *testing.B) {
 	s, ev, pm := benchRetryRecvForTrafficEmit()
-	ctx := context.Background()
+	ctx := b.Context()
 	b.ReportAllocs()
 
 	for b.Loop() {
@@ -70,7 +70,7 @@ func BenchmarkEmitTrafficBTP_jsonMarshal(b *testing.B) {
 
 func BenchmarkEmitTrafficPTC_jsonMarshal(b *testing.B) {
 	s, ev, pm := benchRetryRecvForTrafficEmit()
-	ctx := context.Background()
+	ctx := b.Context()
 	b.ReportAllocs()
 
 	for b.Loop() {

@@ -106,7 +106,10 @@ var lineBudgets = []struct {
 	// Raised from 51300 to 53900 for issue #152 tool-call repair (toolcallrepair +
 	// assembler/finalization). Measured post-change non-test total is 53816; cap
 	// keeps ~80 lines of headroom.
-	{"internal/core", 53900},
+	// Raised for issue #151 secretsguard catalog/matcher/source + quarantine
+	// adapters + runtime barrier (merged with #152/#jsonshape on main).
+	// Measured post-merge non-test total is 56295; cap keeps ~105 lines of headroom.
+	{"internal/core", 56400},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -116,7 +119,11 @@ var lineBudgets = []struct {
 	// integration seams. The current 4929-line package remains below this cap
 	// with meaningful headroom for follow-up changes; keep new growth in focused
 	// files and do not use this budget to excuse Build orchestrator re-bloat.
-	{"internal/infra/runtimebundle", 5200},
+	// Raised from 5200 for issue #151 Phase 3 secret-guard source binding.
+	// Raised from 5300 for issue #151 composition collapse + bootstrap uniqueness.
+	// Raised from 5350 after merging main (tool-call repair + secrets-guard wiring).
+	// Measured post-merge non-test total is 5365; cap keeps ~85 lines of headroom.
+	{"internal/infra/runtimebundle", 5450},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

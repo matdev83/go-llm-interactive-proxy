@@ -75,6 +75,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"ref-traffic-transcript",
 		"ref-verifier-stub",
 		"ref-workspace-guard",
+		"secrets-guard",
 		"submit-noop",
 		"tool-call-repair",
 		"tool-reactor-noop",

@@ -266,6 +266,11 @@ func (d *SecureSessionStoreDecorator) CheckReadiness(ctx context.Context, policy
 	return d.delegate.CheckReadiness(ctx, policy)
 }
 
+// Quarantine is a pass-through to the delegate store.
+func (d *SecureSessionStoreDecorator) Quarantine(ctx context.Context, in domain.QuarantineInput) error {
+	return d.delegate.Quarantine(ctx, in)
+}
+
 // UsageTokenTotals preserves the optional [app.SessionUsageRollup] surface when
 // the delegate implements it, so existing secure-session detail/by-A-leg
 // diagnostics (which type-assert from [app.Store]) keep reporting per-session

@@ -26,6 +26,7 @@ Around the core and plugins sit explicit **standard distribution** packages (`in
 - plugin registration contracts
 - frontend/backend/hook interfaces
 - feature SDK facades for auth, session, workspace, request shaping, route hints, tools, completion gates, auxiliary calls, state, traffic, usage, model inventory, and continuity
+- `secretguard/` — opaque ingress secret-guard contracts (`Guard`, `Matcher`, `MatcherResolver`, `DecisionEvent`)
 - plugin metadata, factory inputs, and standard distribution requirements
 - no core implementation details
 
@@ -39,6 +40,7 @@ Orchestration policy (routing, recovery, extension stages) lives in `internal/co
 - routing and planning: `routing/`, `affinity/`, `policy/`
 - continuity and sessions: `b2bua/`, `continuity/`, `securesession/`
 - auth/access/trust: `accessmode/`, `auth/`, `admin/`, `http/`, `safety/`
+- ingress secret guard: `secretsguard/` (catalog, matcher, source policy; not the feature plugin)
 - canonical support: `capabilities/`, `jsonpresence/`, `jsonshape/`, `toolcallrepair/`, `diag/`, `config/`
 - streaming: `stream/`, `streamrecovery/`
 - hooks and extension pipeline: `hooks/`, `extensions/`
@@ -102,6 +104,7 @@ Provider SDKs and provider wire models stay here or in backend-private protocol 
 
 `internal/plugins/features/`
 - bundled no-op compatibility hooks: `submitnoop/`, `partsnoop/`, `toolreactornoop/`
+- standard security feature: `secretsguard/` (call scanner + `block`/`redact`/`log` Guard)
 - standard feature: `toolcallrepair/` (YAML-only; engine in `internal/core/toolcallrepair`)
 - reference/proof features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `codexclientcompat/`, and related proof directories
 - feature plugins are expected to consume `pkg/lipsdk` facades rather than `internal/core`
@@ -111,7 +114,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 ### 6. Support surfaces
 
 `internal/infra/`
-- cross-cutting infrastructure seams shared by runtime and plugins: HTTP client tuning (`httpclient`), structured logging helpers, Prometheus metrics wiring (`metrics`), OpenTelemetry tracing bootstrap (`tracing`), DB helpers (`db`), auth-event sinks, model catalog/registry loaders, routing health, token accounting/tokenizers, clocks, ids, OS identity checks, and other adapters not specific to one protocol codec
+- cross-cutting infrastructure seams shared by runtime and plugins: HTTP client tuning (`httpclient`), structured logging helpers, Prometheus metrics wiring (`metrics`), OpenTelemetry tracing bootstrap (`tracing`), DB helpers (`db`), auth-event sinks, secret-decision audit sinks (`secretaudit/`), model catalog/registry loaders, routing health, token accounting/tokenizers, clocks, ids, OS identity checks, and other adapters not specific to one protocol codec
 
 `internal/refbackend/`
 - spec-shaped HTTP **emulator** servers for integration tests; import only from `*_test.go` (must not appear on production dependency paths)
@@ -139,6 +142,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 
 `docs/`
 - architecture notes, operator docs, migration guides, plugin authoring docs, release gates, performance checks, and specification-bundle indexes
+- `secrets-guard.md` — ingress secret detection design and operator guide (issue #151)
 
 `.kiro/`
 - steering and spec-driven development artifacts; active specs live under `.kiro/specs/`, completed historical specs under `.kiro/specs/archive/`
@@ -157,6 +161,7 @@ Hooks and extension stages are seams, not an excuse to reintroduce god objects.
 - Stream semantics and collectors: `internal/core/stream/` and `internal/core/streamrecovery/`
 - Config semantics for the runtime: `internal/core/config/`
 - Secure-session authority, resume policy, and session diagnostics: `internal/core/securesession/`, `internal/infra/runtimebundle/`, `internal/stdhttp/`
+- Ingress secrets guard (catalog/matcher/source): `internal/core/secretsguard/`, `pkg/lipsdk/secretguard/`, `internal/plugins/features/secretsguard/`, `internal/proxycredentials/`, `internal/infra/osenv/`, `internal/stdhttp/auth/` (request-credential matcher), `internal/infra/secretaudit/`, `docs/secrets-guard.md`
 - Extension-platform stages and SDK facade assembly: `internal/core/extensions/`, `pkg/lipsdk/*`, `internal/featurebundle/`, `internal/infra/runtimebundle/`
 - Model catalog/registry and capability inventory: `internal/core/modelcatalog/`, `internal/core/modelregistry/`, `internal/infra/modelcatalog/`, `internal/infra/modelregistry/`, `pkg/lipsdk/modelinventory/`
 - Token accounting / usage: `internal/core/tokenaccounting/`, `internal/infra/tokenaccounting/`, `internal/infra/tokenizers/`, `pkg/lipsdk/usage/`

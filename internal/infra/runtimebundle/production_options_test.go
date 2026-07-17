@@ -39,6 +39,7 @@ func (prodAllowRequest) AdmitRequest(context.Context, authority.RequestAdmission
 func (prodAllowRequest) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
+
 func (prodAllowRequest) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
 
 func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
@@ -90,6 +91,7 @@ func (prodRater) Rate(context.Context, economics.RatingRequest) (economics.Ratin
 type prodEvidence struct{}
 
 func (prodEvidence) RecordPolicyDecision(context.Context, policydecision.Record) error { return nil }
+
 func (prodEvidence) RecordAccountingAuthority(context.Context, controlplane.Event) error {
 	return nil
 }

@@ -129,6 +129,7 @@
     "legal_pipeline": [
       "transport_authentication",
       "session_open",
+      "secret_guard",
       "submit_request",
       "tool_catalog_filter",
       "request_wide_shaping",
@@ -149,6 +150,10 @@
       {
         "id": "session_open",
         "default_failure": "fail_open"
+      },
+      {
+        "id": "secret_guard",
+        "default_failure": "fail_closed"
       },
       {
         "id": "submit_request",

@@ -173,11 +173,11 @@ func TestParallelRace_FirstNonWhitespaceTokenWins(t *testing.T) {
 		"fast": parallelBackend(completionEvents("fast-response")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("slow:model!fast:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("slow:model!fast:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,11 +204,11 @@ func TestParallelRace_WhitespaceIgnoredForWinnerElection(t *testing.T) {
 		"real": parallelBackend(realEvents),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("ws:model!real:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("ws:model!real:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +242,11 @@ func TestParallelRace_HandicapSchedulingStartsHighFirst(t *testing.T) {
 		"c": trackingBackend("c", completionEvents("c-resp")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("[handicap=3]a:model![handicap=1]b:model!c:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("[handicap=3]a:model![handicap=1]b:model!c:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = lipapi.Collect(context.Background(), s)
+	_, _ = lipapi.Collect(t.Context(), s)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -284,11 +284,11 @@ func TestParallelRace_HandicapShortCircuitOnEarlyWinner(t *testing.T) {
 		"slow": slowBackend,
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("[handicap=10]fast:model!slow:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("[handicap=10]fast:model!slow:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,11 +326,11 @@ func TestParallelRace_MaxAttemptsBoundsParallelOpensDeterministically(t *testing
 		},
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("a:model!b:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("a:model!b:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,11 +371,11 @@ func TestParallelRace_HandicapFastForwardOnTerminalFailure(t *testing.T) {
 		"ok":   okBackend,
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("[handicap=10]fail:model!ok:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("[handicap=10]fail:model!ok:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,11 +399,11 @@ func TestParallelRace_PerLegTTFTTimeoutElimination(t *testing.T) {
 		"fast": parallelBackend(completionEvents("fast")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("[ttft_timeout=1]slow:model!fast:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("[ttft_timeout=1]slow:model!fast:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func TestParallelRace_KeepaliveEmittedWhileWaiting(t *testing.T) {
 		"slow": delayedTailBackend(2*time.Second, "ok"),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("slow:model!slow:model2"))
+	s, err := ex.Execute(t.Context(), parallelCall("slow:model!slow:model2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestParallelRace_KeepaliveEmittedWhileWaiting(t *testing.T) {
 	defer func() { _ = ka.Close() }()
 	var sawKeepalive bool
 	for {
-		ev, err := ka.Recv(context.Background())
+		ev, err := ka.Recv(t.Context())
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -592,11 +592,11 @@ func TestParallelRace_WinnerPathLoserCleanupExactOnce(t *testing.T) {
 		},
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("winner:model!loser:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("winner:model!loser:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lipapi.Collect(context.Background(), s); err != nil {
+	if _, err := lipapi.Collect(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -749,11 +749,11 @@ func TestParallelRace_FailoverToNextArmWhenNoWinner(t *testing.T) {
 		"ok":    parallelBackend(completionEvents("fallback")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("fail1:model!fail2:model|ok:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("fail1:model!fail2:model|ok:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func TestParallelRace_AllLegFailuresSurfaceJoinedError(t *testing.T) {
 		"fail2": errorBackend(errors.New("fail two")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	_, err := ex.Execute(context.Background(), parallelCall("fail1:model!fail2:model"))
+	_, err := ex.Execute(t.Context(), parallelCall("fail1:model!fail2:model"))
 	if err == nil {
 		t.Fatal("expected execute error for all-failing parallel arm")
 	}
@@ -809,11 +809,11 @@ func TestParallelRace_NoFailoverAfterWinnerOutputCommitted(t *testing.T) {
 		},
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("a:model!b:model|fallback:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("a:model!b:model|fallback:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,13 +848,13 @@ func TestParallelRace_ReasoningDeltaWins(t *testing.T) {
 		"slow":   delayedBackend(500*time.Millisecond, completionEvents("slow")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("reason:model!slow:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("reason:model!slow:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var sawReasoning bool
 	for {
-		ev, err := s.Recv(context.Background())
+		ev, err := s.Recv(t.Context())
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -888,11 +888,11 @@ func TestParallelRace_FailoverArmsAreNotFlattenedIntoSingleRace(t *testing.T) {
 		"d": parallelBackend(completionEvents("second-arm-d")),
 	}
 	ex.Rand = routing.NewSeededRng(1)
-	s, err := ex.Execute(context.Background(), parallelCall("a:model!b:model|c:model!d:model"))
+	s, err := ex.Execute(t.Context(), parallelCall("a:model!b:model|c:model!d:model"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	col, err := lipapi.Collect(context.Background(), s)
+	col, err := lipapi.Collect(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -947,18 +947,18 @@ func TestParallelRace_RecordsLoserAttemptLineage(t *testing.T) {
 			Parts: []lipapi.Part{lipapi.TextPart("hello")},
 		}},
 	}
-	s, err := ex.Execute(context.Background(), call)
+	s, err := ex.Execute(t.Context(), call)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := lipapi.Collect(context.Background(), s); err != nil {
+	if _, err := lipapi.Collect(t.Context(), s); err != nil {
 		t.Fatal(err)
 	}
-	leg, err := st.FetchALeg(context.Background(), call.Session.ALegID)
+	leg, err := st.FetchALeg(t.Context(), call.Session.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	atts, err := st.LoadAttempts(context.Background(), leg.ALegID)
+	atts, err := st.LoadAttempts(t.Context(), leg.ALegID)
 	if err != nil {
 		t.Fatal(err)
 	}

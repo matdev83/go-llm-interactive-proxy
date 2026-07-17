@@ -188,6 +188,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if in.Observability.Bundle != nil {
 		obsRT.Metrics = in.Observability.Bundle.ExecutorSink()
 		obsRT.ExtensionMetrics = in.Observability.Bundle.ExtensionStageSink()
+		obsRT.SecretGuardDecisionMetrics = in.Observability.Bundle.SecretGuardDecisionSink()
 		securityRT.SecureSessionMetrics = in.Observability.Bundle.SecureSessionMetricsSink()
 		if tokenAccounting != nil && tokenAccounting.Observability != nil {
 			tokenAccounting.Observability.SetSink(in.Observability.Bundle.TokenAccountingObservabilitySink())
@@ -239,6 +240,10 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if in.Concurrency != nil {
 		concurrencySvc = in.Concurrency.Service
 	}
+	var tokenAccountingAdminSvc *accountingapp.Service
+	if tokenAccounting != nil {
+		tokenAccountingAdminSvc = tokenAccounting.Admin
+	}
 	readiness := buildReadinessReportService(readinessReportBuildInput{
 		Cfg:                cfg,
 		ControlPlaneStatus: in.ControlPlane.statusHandle(),
@@ -254,16 +259,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		EffectiveRoute:       effectiveRoute,
 		SecureSessionStore:   secureSessionStore,
 		CatalogRuntime:       catalogRuntime,
-		TokenAccountingAdmin: tokenAccountingAdmin(tokenAccounting),
+		TokenAccountingAdmin: tokenAccountingAdminSvc,
 		ReadinessReport:      readiness,
 	}, closers, nil
-}
-
-func tokenAccountingAdmin(r *tokenAccountingRuntime) *accountingapp.Service {
-	if r == nil {
-		return nil
-	}
-	return r.Admin
 }
 
 func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, error) {

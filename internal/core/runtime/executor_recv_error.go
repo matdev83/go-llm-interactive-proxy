@@ -119,7 +119,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 			if c := s.takeAndNilInner(); c != nil {
 				if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-					s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+					s.executor.Log.DebugContext(
+						ctx, "retry_recv inner stream close",
 						"reason", "leaf_ttft_timeout",
 						"error", cerr,
 					)
@@ -139,7 +140,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 		if c := s.takeAndNilInner(); c != nil {
 			if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-				s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+				s.executor.Log.DebugContext(
+					ctx, "retry_recv inner stream close",
 					"reason", "global_ttft_timeout",
 					"error", cerr,
 				)
@@ -153,7 +155,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 		reason := cancellationAttemptReason(ctx, err)
 		if s.executor != nil && s.executor.Log != nil && err != nil {
-			s.executor.Log.DebugContext(ctx, "retry_recv context cancellation",
+			s.executor.Log.DebugContext(
+				ctx, "retry_recv context cancellation",
 				"reason", reason,
 				"recv_error_detail", diag.TruncErrDetail(err, attemptReasonMaxRunes),
 			)
@@ -203,7 +206,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	if s.executor != nil {
 		log = s.executor.Log
 	}
-	diag.LogDecision(ctx, log, "recoverable_pre_output_swallowed",
+	diag.LogDecision(
+		ctx, log, "recoverable_pre_output_swallowed",
 		diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID},
 		slog.String("candidate_key", s.cand.Key),
 		slog.String("phase", "recv"),
@@ -225,7 +229,8 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "retry_recv inner stream close",
+			s.executor.Log.DebugContext(
+				ctx, "retry_recv inner stream close",
 				"reason", "recoverable_pre_output",
 				"error", cerr,
 			)

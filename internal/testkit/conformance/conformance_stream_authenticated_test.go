@@ -173,7 +173,6 @@ func TestConformance_authenticatedText_bundledFrontends_containsParityText(t *te
 		{name: "openai_legacy", fe: "openai-legacy", be: "openai-legacy"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			beSrv := NewSuccessRefBackend(t, tc.be, nil)

@@ -67,7 +67,7 @@ func (denyConcurrency) QueryLeases(context.Context, authority.LeaseQuery) (autho
 }
 
 func containsInsensitive(s, sub string) bool {
-	return len(sub) > 0 && (s == sub || len(s) >= len(sub) && (stringContainsFold(s, sub)))
+	return len(sub) > 0 && (s == sub || len(s) >= len(sub) && stringContainsFold(s, sub))
 }
 
 func stringContainsFold(s, sub string) bool {

@@ -48,6 +48,10 @@ type Store interface {
 	// ListAttemptEvidence returns chronological B-leg attempts for operator diagnostics (bounded by opts.Limit, default 100).
 	ListAttemptEvidence(ctx context.Context, id domain.SessionID, opts domain.ReadOptions) ([]domain.AttemptEvidence, error)
 	CheckReadiness(ctx context.Context, policy domain.PolicyMetadata) error
+	// Quarantine performs an atomic, idempotent transition to SessionStatusQuarantined.
+	// Durable implementations update status and append a minimal session audit row in one transaction.
+	// A second identical quarantine must succeed without duplicating terminal state.
+	Quarantine(ctx context.Context, in domain.QuarantineInput) error
 }
 
 // GateRecording is the secure-session recorder port used by the runtime after gate success and

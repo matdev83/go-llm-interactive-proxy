@@ -9,41 +9,50 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 )
 
-func TestInventorySnapshotForOperator_matchesInventorySnapshotForConfig(t *testing.T) {
+func TestInventorySnapshotForOperator_matchesConfigSnapshotWithExtras(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	reg := pluginreg.NewRegistry()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := &config.Config{
 		Plugins: config.PluginsConfig{
-			Backends: []config.PluginConfig{
-				{ID: "stub1", Kind: "local-stub", Enabled: true},
-			},
+			Frontends: []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
+			Features: []config.PluginConfig{{
+				ID:      refautoappend.ID,
+				Enabled: true,
+			}},
 		},
 	}
-	reg := pluginreg.NewRegistry()
-	regs := []lipsdk.Registration{}
-	op, err := runtimebundle.InventorySnapshotForOperator(ctx, cfg, reg, regs)
+	extras := config.RegistrationsFromConfig(cfg)
+	ctx := context.Background()
+
+	got, err := runtimebundle.InventorySnapshotForOperator(ctx, cfg, reg, extras)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want, err := diag.InventorySnapshotForConfig(ctx, cfg, &diag.InventoryExtras{
 		Reg:           reg,
-		Registrations: regs,
+		Registrations: extras,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ob, err := json.Marshal(op)
+
+	gotJSON, err := json.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wb, err := json.Marshal(want)
+	wantJSON, err := json.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(ob) != string(wb) {
-		t.Fatalf("JSON mismatch\noperator=%s\ndirect   =%s", ob, wb)
+	if string(gotJSON) != string(wantJSON) {
+		t.Fatalf("snapshot mismatch\ngot  %s\nwant %s", gotJSON, wantJSON)
 	}
 }
