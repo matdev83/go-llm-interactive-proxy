@@ -561,10 +561,10 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	}
 
 	legs := []*parallelLeg{{
-		authority:     loserLife,
-		bleg:          b2bua.BLegRecord{BLegID: "b-loser"},
-		observedUsage: loserObserved,
+		authority: loserLife,
+		bleg:      b2bua.BLegRecord{BLegID: "b-loser"},
 	}}
+	legs[0].observedUsage.Store(loserObserved)
 	_ = ex.releaseLosers(ctx, nil, legs)
 	if !winnerLife.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
