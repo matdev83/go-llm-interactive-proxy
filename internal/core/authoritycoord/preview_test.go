@@ -27,8 +27,8 @@ func (p *previewOnlyProvider) AdmitAttempt(context.Context, authority.AttemptAdm
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (p *previewOnlyProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (p *previewOnlyProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *previewOnlyProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
@@ -45,8 +45,8 @@ func (panicPreviewProvider) AdmitAttempt(context.Context, authority.AttemptAdmis
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (panicPreviewProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (panicPreviewProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (panicPreviewProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
@@ -66,8 +66,8 @@ func (unknownClampPreviewProvider) AdmitAttempt(context.Context, authority.Attem
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (unknownClampPreviewProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (unknownClampPreviewProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (unknownClampPreviewProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
@@ -156,8 +156,8 @@ func (mixedCurrencySpendProvider) AdmitAttempt(context.Context, authority.Attemp
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (mixedCurrencySpendProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (mixedCurrencySpendProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (mixedCurrencySpendProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {

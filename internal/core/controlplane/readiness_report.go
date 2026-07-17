@@ -27,8 +27,12 @@ type ReadinessReportSources struct {
 	SnapshotStates            func() (usage, concurrency, rating cp.CapabilityState)
 	RequestCoordinatorEnabled bool
 	AttemptCoordinatorEnabled bool
+	RequestCoordinatorIDs     []string
+	AttemptCoordinatorIDs     []string
 	CustomerRaterAttached     bool
 	OperatorRaterAttached     bool
+	CustomerRaterIDs          []string
+	OperatorRaterIDs          []string
 	SecretGuardQuarantine     func(context.Context) (cp.ReadinessComponentStatus, error)
 	StoreBackings             ReadinessStoreBackings
 }
@@ -116,8 +120,8 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 	} else {
 		components = append(components, disabledComponent(cp.ReadinessComponentConcurrencyAuthority, now))
 	}
-	components = append(components, coordinatorComponent(cp.ReadinessComponentRequestCoordinator, src.RequestCoordinatorEnabled, now))
-	components = append(components, coordinatorComponent(cp.ReadinessComponentAttemptCoordinator, src.AttemptCoordinatorEnabled, now))
+	components = append(components, enabledComponent(cp.ReadinessComponentRequestCoordinator, src.RequestCoordinatorEnabled, src.RequestCoordinatorIDs, now))
+	components = append(components, enabledComponent(cp.ReadinessComponentAttemptCoordinator, src.AttemptCoordinatorEnabled, src.AttemptCoordinatorIDs, now))
 	if src.SnapshotStates != nil {
 		usage, concurrency, rating := src.SnapshotStates()
 		components = append(components, snapshotComponent(cp.ReadinessComponentUsageSnapshot, usage, now))
@@ -128,8 +132,8 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 		components = append(components, disabledComponent(cp.ReadinessComponentConcurrencySnapshot, now))
 		components = append(components, disabledComponent(cp.ReadinessComponentRatingSnapshot, now))
 	}
-	components = append(components, raterComponent(cp.ReadinessComponentCustomerRater, src.CustomerRaterAttached, now))
-	components = append(components, raterComponent(cp.ReadinessComponentOperatorRater, src.OperatorRaterAttached, now))
+	components = append(components, enabledComponent(cp.ReadinessComponentCustomerRater, src.CustomerRaterAttached, src.CustomerRaterIDs, now))
+	components = append(components, enabledComponent(cp.ReadinessComponentOperatorRater, src.OperatorRaterAttached, src.OperatorRaterIDs, now))
 	if src.SecretGuardQuarantine != nil {
 		if row, err := src.SecretGuardQuarantine(ctx); err == nil {
 			row.LastUpdatedAt = now
@@ -167,26 +171,14 @@ func unavailableComponent(id cp.ReadinessComponentID, backing string, at time.Ti
 	}
 }
 
-func coordinatorComponent(id cp.ReadinessComponentID, enabled bool, at time.Time) cp.ReadinessComponentStatus {
+func enabledComponent(id cp.ReadinessComponentID, enabled bool, providerIDs []string, at time.Time) cp.ReadinessComponentStatus {
 	if !enabled {
 		return disabledComponent(id, at)
 	}
 	return cp.ReadinessComponentStatus{
-		Component:        id,
-		State:            cp.CapabilityReady,
+		Component: id, State: cp.CapabilityReady,
 		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess,
-		LastUpdatedAt:    at,
-	}
-}
-
-func raterComponent(id cp.ReadinessComponentID, attached bool, at time.Time) cp.ReadinessComponentStatus {
-	if !attached {
-		return disabledComponent(id, at)
-	}
-	return cp.ReadinessComponentStatus{
-		Component:        id,
-		State:            cp.CapabilityReady,
-		EnforcementScope: cp.EnforcementScopeAdvisorySingleProcess,
+		ProviderIDs:      append([]string(nil), providerIDs...),
 		LastUpdatedAt:    at,
 	}
 }

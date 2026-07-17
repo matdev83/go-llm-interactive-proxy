@@ -87,6 +87,28 @@ func TestAuthorityClampRejectsInputCostOverCapWhenFailOpen(t *testing.T) {
 	}
 }
 
+func TestAuthorityClampTokenInversionOverflowPricingUnavailable(t *testing.T) {
+	t.Parallel()
+	// Extreme remaining money with a tiny output rate must not widen to MaxInt64;
+	// overflow maps to pricing unavailable (OutputLimitOverflow-equivalent).
+	catalog, err := accounting.NewPriceCatalog(accounting.PriceCatalogConfig{
+		Currency: "USD",
+		Models: []accounting.ModelPriceConfig{{
+			Backend: "backend-1", Model: "model-1", InputPer1M: "0", OutputPer1M: "0.000000001",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("NewPriceCatalog: %v", err)
+	}
+	got, outcome := authorityClampMaxOutputTokens(catalog, clampTestCandidate(), 1<<62, 0)
+	if outcome != authorityClampPricingUnavailable {
+		t.Fatalf("outcome=%v max=%d, want pricing unavailable on inversion overflow", outcome, got)
+	}
+	if got != 0 {
+		t.Fatalf("overflow must not widen clamp tokens, got %d", got)
+	}
+}
+
 func TestAuthorityClampRejectsExactInputCostExhaustion(t *testing.T) {
 	t.Parallel()
 	// Input at $2/1M for 1M tokens consumes exactly 2e9 nano; remaining output

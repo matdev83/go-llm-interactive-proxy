@@ -80,12 +80,9 @@ func TestRequestCoordinator_MalformedDecisionReleasesOwnHold(t *testing.T) {
 	bad := &fakeRequestProvider{id: "malformed"}
 	bad.admit = func(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 		return authority.Decision{
-			Kind:       authority.DecisionKind("not-a-kind"),
-			ProviderID: "malformed",
-			Reservations: []authority.Reservation{{
-				Handle: "malformed-hold",
-				Kind:   authority.ReservationQuota,
-			}},
+			Kind:         authority.DecisionKind("not-a-kind"),
+			ProviderID:   "malformed",
+			Reservations: []authority.Reservation{quotaReservation("malformed-hold")},
 		}, nil
 	}
 	coord := &authoritycoord.RequestCoordinator{
@@ -120,12 +117,9 @@ func TestRequestCoordinator_AdvisoryMalformedDecisionReleasesOwnHold(t *testing.
 	adv := &fakeRequestProvider{id: "adv"}
 	adv.admit = func(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 		return authority.Decision{
-			Kind:       authority.DecisionKind("not-a-kind"),
-			ProviderID: "adv",
-			Reservations: []authority.Reservation{{
-				Handle: "adv-hold",
-				Kind:   authority.ReservationOther,
-			}},
+			Kind:         authority.DecisionKind("not-a-kind"),
+			ProviderID:   "adv",
+			Reservations: []authority.Reservation{quotaReservation("adv-hold")},
 		}, nil
 	}
 	coord := &authoritycoord.RequestCoordinator{
@@ -270,12 +264,9 @@ func TestAttemptCoordinator_MalformedDecisionReleasesOwnHold(t *testing.T) {
 	bad := &fakeAttemptProvider{id: "malformed"}
 	bad.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 		return authority.Decision{
-			Kind:       authority.DecisionKind("not-a-kind"),
-			ProviderID: "malformed",
-			Reservations: []authority.Reservation{{
-				Handle: "malformed-attempt-hold",
-				Kind:   authority.ReservationSpend,
-			}},
+			Kind:         authority.DecisionKind("not-a-kind"),
+			ProviderID:   "malformed",
+			Reservations: []authority.Reservation{spendReservation("malformed-attempt-hold")},
 		}, nil
 	}
 	coord := &authoritycoord.AttemptCoordinator{

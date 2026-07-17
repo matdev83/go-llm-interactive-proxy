@@ -34,8 +34,17 @@ func (r *failingMeteringRecorder) Append(context.Context, metering.Fact) error {
 
 func (p *settleRecordingRequestProvider) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{
-		Kind:         authority.DecisionAllow,
-		Reservations: []authority.Reservation{{Handle: p.id + "-h", Kind: authority.ReservationQuota}},
+		Kind: authority.DecisionAllow,
+		Reservations: []authority.Reservation{{
+			Handle: p.id + "-h",
+			Kind:   authority.ReservationQuota,
+			Quantity: &metering.Quantity{
+				Component: metering.ComponentInputToken,
+				Unit:      metering.UnitToken,
+				Value:     1,
+				Present:   true,
+			},
+		}},
 	}, nil
 }
 
@@ -46,7 +55,7 @@ func (p *settleRecordingRequestProvider) SettleRequest(_ context.Context, in aut
 	if p.settleErr != nil {
 		return authority.Settlement{}, p.settleErr
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *settleRecordingRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {

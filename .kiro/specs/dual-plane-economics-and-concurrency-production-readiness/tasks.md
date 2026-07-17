@@ -61,7 +61,7 @@
 
 ## Phase 2 — Harden Public Authority and Rating Contracts
 
-- [ ] 2.1 Add red public-contract and hostile-provider tests
+- [x] 2.1 Add red public-contract and hostile-provider tests
   - Define failing tests for duplicate IDs, descriptor/provider mismatches, advisory denies, required deterministic denies, malformed holds, standalone compensation handles, invalid clamps, foreign settlement handles, malformed leases, rating perspective mismatch, currency errors, overflow, and provider panics.
   - **Deliverable:** public and coordinator contracts describe every accepted and rejected external result before implementation.
   - _Requirements: 3.1–3.9, 4.1–4.10, 13.1, 13.3_
@@ -70,7 +70,7 @@
   - _Depends: Phase 1_
   - _Validation: `go test ./pkg/lipsdk/authority/ ./pkg/lipsdk/economics/ ./internal/core/authoritycoord/`_
 
-- [ ] 2.2 Implement descriptor-bound provider registrations and composition
+- [x] 2.2 Implement descriptor-bound provider registrations and composition
   - Add request, attempt, concurrency, and rater registration types that bind descriptor, priority, and provider instance.
   - Replace production provider/descriptor parallel slices; preserve a bounded deprecation adapter only for deterministic legacy registration.
   - Carry registrations through `pkg/lipruntime`, runtimebundle, enterprise fixture, readiness, and diagnostics.
@@ -81,7 +81,7 @@
   - _Depends: 2.1_
   - _Validation: public facade, runtimebundle, architecture, and separate-module tests_
 
-- [ ] 2.3 Correct coordinator posture and compensation semantics
+- [x] 2.3 Correct coordinator posture and compensation semantics
   - Implement deterministic priority ordering and complete truth tables for required/advisory plus fail-open/fail-closed outcomes.
   - Normalize advisory deny to advisory evidence; never fail open deterministic required exhaustion.
   - Reject v2 non-allow results with holds and compensate compatibility-provider holds before prior-stack compensation.
@@ -93,7 +93,7 @@
   - _Depends: 2.2_
   - _Validation: coordinator posture matrix, panic isolation, provider ownership, and compensation tests_
 
-- [ ] 2.4 Implement complete external-result validation
+- [x] 2.4 Implement complete external-result validation
   - Add context-aware validation for preview decisions, decisions, reservations, settlements, leases, renewals, ratings, versions, evidence, and clamps.
   - Validate handle ownership, exactly-one amount, nonnegative ordinary values, normalized currency, generation/expiry timing, and contradictory states.
   - Quarantine or fail closed malformed required results with client-safe errors and operator-safe evidence.
@@ -104,7 +104,7 @@
   - _Depends: 2.2, 2.3_
   - _Validation: public validation tests, hostile providers, fuzz seeds, and client-safe mapping tests_
 
-- [ ] 2.5 Complete checked money, explicit rate presence, and rounding
+- [x] 2.5 Complete checked money, explicit rate presence, and rounding
   - Require explicit presence for base and optional rates, range-check decimal-to-integer conversion, and implement declared rounding policies with checked rational arithmetic.
   - Reject negative money, empty present currency, mixed-currency aggregation, invalid rate lines, and perspective/version mismatch.
   - Use `UsagePresence` rather than nonzero values when constructing rating quantities.

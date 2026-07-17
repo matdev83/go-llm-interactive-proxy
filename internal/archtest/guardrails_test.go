@@ -118,7 +118,10 @@ var lineBudgets = []struct {
 	// Raised from 57550 to 57650 for Phase 1 follow-up: operator usage retention on
 	// incurred loser/swallowed paths plus metering/plane extraction of pure
 	// dual-plane helpers.
-	{"internal/core", 57650},
+	// Raised from 57650 to 58300 for dual-plane Phase 2.3 authority coordinator
+	// posture/compensation, settlement concurrency state, and req 4.3 hold
+	// validation (measured ~58197 non-test lines).
+	{"internal/core", 58300},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -132,7 +135,11 @@ var lineBudgets = []struct {
 	// Raised from 5300 for issue #151 composition collapse + bootstrap uniqueness.
 	// Raised from 5350 after merging main (tool-call repair + secrets-guard wiring).
 	// Measured post-merge non-test total is 5365; cap keeps ~85 lines of headroom.
-	{"internal/infra/runtimebundle", 5450},
+	// Raised from 5450 for dual-plane Phase 2.2 descriptor-bound registrations:
+	// production authority_coord consumes Request/Attempt/Concurrency/Rater
+	// registrations with stable IDs (no production-request-%d generation).
+	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
+	{"internal/infra/runtimebundle", 5580},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

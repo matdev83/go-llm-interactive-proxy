@@ -12,6 +12,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 type readinessReportBuildInput struct {
@@ -100,11 +101,15 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			return mapState(cur.Usage.State), mapState(cur.Concurrency.State), mapState(cur.Rating.State)
 		}
 	}
+	src.OperatorRaterIDs = raterIDsByPerspective(in.Production, metering.PerspectiveOperator)
+	src.CustomerRaterIDs = raterIDsByPerspective(in.Production, metering.PerspectiveCustomer)
 	if in.Executor != nil {
 		exec := in.Executor
 		src.RequestCoordinatorEnabled = exec.RequestCoordinator != nil && len(exec.RequestCoordinator.Slots) > 0
 		src.AttemptCoordinatorEnabled = exec.AttemptCoordinator != nil && len(exec.AttemptCoordinator.Slots) > 0
-		src.OperatorRaterAttached = exec.EconomicsRater != nil || in.Production.Rater != nil
+		src.RequestCoordinatorIDs = requestRegistrationIDs(in.Production, &exec.AccountingRuntime)
+		src.AttemptCoordinatorIDs = attemptRegistrationIDs(in.Production, &exec.AccountingRuntime)
+		src.OperatorRaterAttached = len(src.OperatorRaterIDs) > 0
 		if exec.SecureSession != nil && exec.RuntimeSnapshot != nil && len(exec.RuntimeSnapshot.SecretGuardPlane().Guards) > 0 {
 			backing := "injected"
 			if in.Cfg != nil {
@@ -135,7 +140,7 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			}
 		}
 	}
-	src.CustomerRaterAttached = in.Production.Rater != nil
+	src.CustomerRaterAttached = len(src.CustomerRaterIDs) > 0
 	return corecp.NewReadinessReportService(src)
 }
 

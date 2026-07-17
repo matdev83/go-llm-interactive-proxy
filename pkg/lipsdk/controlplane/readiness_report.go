@@ -75,7 +75,10 @@ type ReadinessComponentStatus struct {
 	Reason           ReasonCode           `json:"reason,omitempty"`
 	EnforcementScope EnforcementScope     `json:"enforcement_scope,omitempty"`
 	StoreBacking     string               `json:"store_backing,omitempty"`
-	LastUpdatedAt    time.Time            `json:"last_updated_at,omitzero"`
+	// ProviderIDs lists configured descriptor-bound provider or rater identities
+	// for coordinator/rater components (requirement 3.7, 3.9).
+	ProviderIDs   []string  `json:"provider_ids,omitempty"`
+	LastUpdatedAt time.Time `json:"last_updated_at,omitzero"`
 }
 
 // ProtectedTrafficPosture aggregates whether required protected traffic may be

@@ -42,6 +42,7 @@ type leaseRenewTarget struct {
 	ExpiresAt       time.Time
 	RenewBefore     time.Duration
 	TTL             time.Duration
+	RuleID          string
 	FailureBehavior authority.FailureBehavior
 }
 
@@ -195,6 +196,7 @@ func leaseTargetsFromDecision(ld authority.LeaseDecision) []leaseRenewTarget {
 				ExpiresAt:       exp,
 				RenewBefore:     rb,
 				TTL:             ttl,
+				RuleID:          strings.TrimSpace(occ.RuleID),
 				FailureBehavior: fb,
 			})
 		}

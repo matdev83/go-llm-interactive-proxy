@@ -19,6 +19,9 @@ func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.Att
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
+	if err := validateAttemptSlots(c.Slots); err != nil {
+		return nil, err
+	}
 	var merged []authority.Clamp
 	slots := append([]AttemptSlot(nil), c.Slots...)
 	sort.SliceStable(slots, func(i, j int) bool {
@@ -33,19 +36,9 @@ func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.Att
 			continue
 		}
 		id := strings.TrimSpace(slot.ID)
-		if id == "" {
-			id = fmt.Sprintf("attempt-class-%d", slot.Class)
-		}
 		d, err := invokePreviewAttempt(ctx, previewer, in)
 		if err != nil {
-			strength := slot.Strength
-			if strength == "" {
-				if slot.Class == AttemptPriorityAdvisory {
-					strength = authority.StrengthAdvisory
-				} else {
-					strength = authority.StrengthRequired
-				}
-			}
+			strength, _ := resolveAttemptPosture(slot)
 			if strength == authority.StrengthRequired {
 				return nil, fmt.Errorf("authoritycoord: preview %s: %w", id, err)
 			}
@@ -66,27 +59,4 @@ func (c *AttemptCoordinator) PreviewClamps(ctx context.Context, in authority.Att
 		}
 	}
 	return merged, nil
-}
-
-func validatePreviewClamp(c authority.Clamp) error {
-	switch c.Kind {
-	case authority.ClampMaxOutputTokens:
-		if c.Value < 0 {
-			return fmt.Errorf("max_output_tokens clamp value must be non-negative")
-		}
-		return nil
-	case authority.ClampMaxSpend:
-		if !c.Money.Present {
-			return fmt.Errorf("max_spend clamp requires present money")
-		}
-		if c.Money.NanoUnits < 0 {
-			return fmt.Errorf("max_spend clamp money must be non-negative")
-		}
-		if strings.TrimSpace(c.Money.Currency) == "" {
-			return fmt.Errorf("max_spend clamp requires currency")
-		}
-		return nil
-	default:
-		return fmt.Errorf("unknown or unapplicable clamp kind %q", c.Kind)
-	}
 }

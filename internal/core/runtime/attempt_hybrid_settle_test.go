@@ -17,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -38,8 +39,12 @@ func (c hybridAuthorityClock) Now() time.Time { return c.at }
 func (p *controllableAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	p.admitCalls.Add(1)
 	return authority.Decision{
-		Kind:         authority.DecisionAllow,
-		Reservations: []authority.Reservation{{Handle: p.id + "-h", Kind: authority.ReservationSpend}},
+		Kind: authority.DecisionAllow,
+		Reservations: []authority.Reservation{{
+			Handle: p.id + "-h",
+			Kind:   authority.ReservationSpend,
+			Money:  &economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		}},
 	}, nil
 }
 
@@ -56,7 +61,7 @@ func (p *controllableAttemptProvider) SettleAttempt(_ context.Context, in author
 		}
 		return authority.Settlement{}, errors.New(msg)
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *controllableAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {

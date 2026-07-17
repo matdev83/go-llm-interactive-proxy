@@ -135,8 +135,16 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 			}
 		}
 	}
-	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.Rater != nil {
-		accountingRT.EconomicsRater = in.Bctx.Opts.Production.Rater
+	var prod ProductionOptions
+	if in.Bctx.Opts != nil {
+		prod = in.Bctx.Opts.Production
+	}
+	rater, err := selectEconomicsRater(prod)
+	if err != nil {
+		return nil, closers, err
+	}
+	if rater != nil {
+		accountingRT.EconomicsRater = rater
 	}
 	if in.UsageAuthority != nil {
 		accountingRT.UsageAuthority = in.UsageAuthority
@@ -147,12 +155,10 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		accountingRT.UsageAuthorityCleanupTimeout = cleanupTimeout
 	}
 	attachConcurrencyToAccounting(&accountingRT, in.Concurrency)
-	var prod ProductionOptions
-	if in.Bctx.Opts != nil {
-		prod = in.Bctx.Opts.Production
-	}
 	if accountingRT.UsageAuthority != nil || accountingRT.ConcurrencyProvider != nil || prod.HasAuthorityOverrides() {
-		attachAuthorityCoordinators(&accountingRT, prod)
+		if err := attachAuthorityCoordinators(&accountingRT, prod); err != nil {
+			return nil, closers, err
+		}
 	}
 	accountingRT.SnapshotGeneration = in.SnapshotGeneration
 	if len(cfg.Accounting.Pricing.Models) > 0 {

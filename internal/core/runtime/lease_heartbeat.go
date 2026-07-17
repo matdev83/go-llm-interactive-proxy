@@ -130,9 +130,9 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 	hb := newLeaseHeartbeat()
 	st.heartbeat = hb
-	prov := e.RequestCoordinator.Concurrency
+	coord := e.RequestCoordinator
 	reqID := st.RequestID
-	cleanupTimeout := e.RequestCoordinator.CleanupTimeout
+	cleanupTimeout := coord.CleanupTimeout
 	if cleanupTimeout <= 0 {
 		cleanupTimeout = 2 * time.Second
 	}
@@ -160,29 +160,32 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 			failClosed := false
 			anyFailOpenRetry := false
-			for i := range live {
-				t := &live[i]
+			tickOK := true
+			pending := append([]leaseRenewTarget(nil), live...)
+			for i := range pending {
+				src := live[i]
+				t := &pending[i]
 				rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
-				dec, err := prov.RenewLease(rctx, authority.LeaseRenew{
-					LeaseID:            t.LeaseID,
+				dec, err := coord.RenewLease(rctx, authority.LeaseRenew{
+					LeaseID:            src.LeaseID,
 					RequestID:          reqID,
-					ExpectedGeneration: t.Generation,
-					TTL:                t.TTL,
+					ExpectedGeneration: src.Generation,
+					TTL:                src.TTL,
+					RuleID:             src.RuleID,
 				})
 				cancel()
-				if err != nil {
-					// Renewal storage failure must not corrupt active count (10.8):
-					// leave the lease live until expiry/terminal release.
+				behavior := src.FailureBehavior
+				if behavior == "" {
+					behavior = defaultFB
+				}
+				if err != nil || dec.Kind != authority.LeaseAllow {
+					tickOK = false
 					hb.degraded.Store(true)
-					behavior := t.FailureBehavior
-					if behavior == "" {
-						behavior = defaultFB
-					}
 					if behavior == authority.FailureFailClosed {
 						failClosed = true
-						continue
+					} else {
+						anyFailOpenRetry = true
 					}
-					anyFailOpenRetry = true
 					continue
 				}
 				if dec.Generation > 0 {
@@ -192,18 +195,18 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 					t.ExpiresAt = dec.ExpiresAt
 				}
 			}
-			// Mirror primary generation/expiry from the primary lease when present.
-			if primary := findTarget(live, st.LeaseID); primary != nil {
-				st.LeaseGeneration = primary.Generation
-				st.LeaseExpiresAt = primary.ExpiresAt
-			} else if len(live) > 0 {
-				st.LeaseGeneration = live[0].Generation
-				st.LeaseExpiresAt = live[0].ExpiresAt
+			if tickOK {
+				live = pending
+				if primary := findTarget(live, st.LeaseID); primary != nil {
+					st.LeaseGeneration = primary.Generation
+					st.LeaseExpiresAt = primary.ExpiresAt
+				} else if len(live) > 0 {
+					st.LeaseGeneration = live[0].Generation
+					st.LeaseExpiresAt = live[0].ExpiresAt
+				}
+				st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
 			}
-			st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
 			if failClosed {
-				// Fail-closed: stop renewing; occupancy remains until expiry
-				// or terminal release without mutating the active count.
 				return
 			}
 			if anyFailOpenRetry {

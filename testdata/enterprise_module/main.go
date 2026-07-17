@@ -49,12 +49,17 @@ type enterpriseRater struct {
 
 func (r *enterpriseRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
 	r.calls++
-	return economics.RatingResult{
+	res := economics.RatingResult{
 		Money:       economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
 		Source:      "enterprise-fixture",
 		Perspective: req.Perspective,
 		RaterID:     "enterprise-fake",
-	}, nil
+		Version:     economics.VersionRef{ID: "enterprise-fixture", Version: "v1"},
+	}
+	if err := res.ValidateFor(req); err != nil {
+		return economics.RatingResult{}, err
+	}
+	return res, nil
 }
 
 func (r *enterpriseRater) QuoteOutputLimit(_ context.Context, req economics.OutputLimitRequest) (economics.OutputLimitResult, error) {
@@ -89,8 +94,8 @@ func (enterpriseRequestProvider) AdmitRequest(_ context.Context, in authority.Re
 	}, nil
 }
 
-func (enterpriseRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (enterpriseRequestProvider) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (enterpriseRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
@@ -126,12 +131,26 @@ func run(ctx context.Context) error {
 	evidence := &enterpriseEvidence{}
 	querier := enterpriseQuerier{}
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath:          cfgPath,
-		MeteringRecorder:    enterpriseMeter{},
-		MeteringQuerier:     querier,
-		EvidenceSink:        evidence,
-		Rater:               rater,
-		RequestProviders:    []authority.RequestProvider{enterpriseRequestProvider{}},
+		ConfigPath:       cfgPath,
+		MeteringRecorder: enterpriseMeter{},
+		MeteringQuerier:  querier,
+		EvidenceSink:     evidence,
+		RaterRegistrations: []economics.RaterRegistration{{
+			ID: "enterprise-fake", Perspective: metering.PerspectiveOperator, Rater: rater,
+		}},
+		RequestRegistrations: []authority.RequestRegistration{{
+			Descriptor: authority.ProviderDescriptor{
+				ID:   "enterprise-request",
+				Kind: authority.ProviderKindAuthority,
+				Postures: []authority.StagePosture{{
+					Stage:           authority.StageRequestAdmit,
+					Strength:        authority.StrengthRequired,
+					FailureBehavior: authority.FailureFailClosed,
+				}},
+			},
+			Priority: authority.RequestPriorityQuotaBudgetRate,
+			Provider: enterpriseRequestProvider{},
+		}},
 		UsageSnapshotSource: enterpriseRuleSource{},
 	})
 	if err != nil {
@@ -147,6 +166,59 @@ func run(ctx context.Context) error {
 	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
 		return fmt.Errorf("production evidence/rater/query mounts not wired")
 	}
+	desc := authority.ProviderDescriptor{
+		ID: "enterprise-request",
+		Postures: []authority.StagePosture{{
+			Stage:           authority.StageRequestAdmit,
+			Strength:        authority.StrengthRequired,
+			FailureBehavior: authority.FailureFailClosed,
+		}},
+	}
+	if err := (authority.Decision{Kind: authority.DecisionAllow, ProviderID: "enterprise-request"}).ValidateFor(desc, authority.StageRequestAdmit); err != nil {
+		return fmt.Errorf("decision ValidateFor: %w", err)
+	}
+	if err := (authority.Settlement{Kind: authority.SettlementFinal}).ValidateFor(nil, metering.PerspectiveCustomer); err != nil {
+		return fmt.Errorf("settlement ValidateFor: %w", err)
+	}
+	leaseDesc := authority.ProviderDescriptor{
+		ID: "enterprise-concurrency",
+		Postures: []authority.StagePosture{{
+			Stage:           authority.StageLeaseAdmit,
+			Strength:        authority.StrengthRequired,
+			FailureBehavior: authority.FailureFailClosed,
+		}},
+	}
+	if err := (authority.LeaseDecision{
+		Kind: authority.LeaseAllow, LeaseID: "L1", Generation: 1, ExpiresAt: time.Now().UTC().Add(time.Minute),
+	}).ValidateFor(authority.LeaseAdmission{RequestID: "req-1", TTL: time.Minute}, leaseDesc); err != nil {
+		return fmt.Errorf("lease ValidateFor: %w", err)
+	}
+	if err := (authority.LeaseDecision{
+		Kind: authority.LeaseAllow, LeaseID: "L1", Generation: 2, ExpiresAt: time.Now().UTC().Add(time.Minute), TTL: time.Minute,
+	}).ValidateRenewalFor(authority.LeaseRenew{LeaseID: "L1", ExpectedGeneration: 1, TTL: time.Minute}, leaseDesc); err != nil {
+		return fmt.Errorf("lease ValidateRenewalFor: %w", err)
+	}
+	if _, err := economics.ParseRequiredNanoRate("0"); err != nil {
+		return fmt.Errorf("ParseRequiredNanoRate zero: %w", err)
+	}
+	if _, err := economics.ParseOptionalNanoRate(""); err != nil {
+		return fmt.Errorf("ParseOptionalNanoRate absent: %w", err)
+	}
+	nano, err := economics.ParseDecimalToNano("1.25")
+	if err != nil || nano != 1_250_000_000 {
+		return fmt.Errorf("ParseDecimalToNano: %d %v", nano, err)
+	}
+	money := economics.Money{NanoUnits: 0, Currency: "USD", Present: true}
+	if err := money.Validate(); err != nil {
+		return fmt.Errorf("Money.Validate: %w", err)
+	}
+	if _, err := economics.RoundQuotient(5, 2, economics.RoundingHalfEven); err != nil {
+		return fmt.Errorf("RoundQuotient: %w", err)
+	}
+	if _, err := economics.TokensFromMoneyPer1M(4_000_000_000, 4_000_000_000, economics.RoundingTowardZero); err != nil {
+		return fmt.Errorf("TokensFromMoneyPer1M: %w", err)
+	}
+	_ = economics.NanoRate{NanoUnits: 0, Present: true}
 	if _, err := rater.Rate(ctx, economics.RatingRequest{Perspective: metering.PerspectiveOperator}); err != nil {
 		return fmt.Errorf("fake rater: %w", err)
 	}

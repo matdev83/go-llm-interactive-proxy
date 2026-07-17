@@ -1,6 +1,9 @@
 package authority
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ProviderKind distinguishes enforceable authority providers from fail-open
 // usage/traffic observers (requirement 12.7). Observers must not be wired as
@@ -128,10 +131,11 @@ func (d ProviderDescriptor) EffectiveKind() ProviderKind {
 	return d.Kind
 }
 
-// Validate requires a non-empty ID and validates kind and each posture row.
-// Observers cannot declare StrengthRequired (requirement 12.7).
+// Validate requires a non-empty trimmed ID and validates kind and each posture row.
+// Duplicate stage postures are rejected (requirement 3.2). Observers cannot
+// declare StrengthRequired (requirement 12.7).
 func (d ProviderDescriptor) Validate() error {
-	if d.ID == "" {
+	if strings.TrimSpace(d.ID) == "" {
 		return fmt.Errorf("authority: provider id required")
 	}
 	kind := d.EffectiveKind()
@@ -143,10 +147,15 @@ func (d ProviderDescriptor) Validate() error {
 	if len(d.Postures) == 0 {
 		return fmt.Errorf("authority: at least one stage posture required")
 	}
+	seenStages := make(map[Stage]struct{}, len(d.Postures))
 	for i, p := range d.Postures {
 		if err := p.Validate(); err != nil {
 			return fmt.Errorf("authority: postures[%d]: %w", i, err)
 		}
+		if _, dup := seenStages[p.Stage]; dup {
+			return fmt.Errorf("authority: postures[%d]: duplicate stage %q", i, p.Stage)
+		}
+		seenStages[p.Stage] = struct{}{}
 		if kind == ProviderKindObserver && p.Strength == StrengthRequired {
 			return fmt.Errorf("authority: postures[%d]: observer cannot declare required strength (requirement 12.7)", i)
 		}

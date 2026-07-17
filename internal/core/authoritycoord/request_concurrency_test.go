@@ -2,6 +2,7 @@ package authoritycoord_test
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,6 +41,40 @@ func (f *fakeConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseR
 
 func (f *fakeConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
+}
+
+func TestRequestCoordinator_AdmitLease_RejectsExpiredRelativeToInjectedNow(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1000, 0).UTC()
+	conc := &fakeConcurrencyProvider{
+		admit: func(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
+			return authority.LeaseDecision{
+				Kind:       authority.LeaseAllow,
+				LeaseID:    "lease-1",
+				Generation: 1,
+				ExpiresAt:  now.Add(-time.Second),
+			}, nil
+		},
+	}
+	desc := authority.ProviderDescriptor{
+		ID: "concurrency",
+		Postures: []authority.StagePosture{{
+			Stage: authority.StageLeaseAdmit, Strength: authority.StrengthRequired, FailureBehavior: authority.FailureFailClosed,
+		}},
+	}
+	coord := &authoritycoord.RequestCoordinator{
+		Concurrency:           conc,
+		ConcurrencyDescriptor: &desc,
+		Now:                   func() time.Time { return now },
+	}
+	_, err := coord.Admit(context.Background(), validRequestAdmission())
+	if err == nil {
+		t.Fatal("expired lease relative to injected Now must fail (req 10.2)")
+	}
+	var unavail *authoritycoord.ErrUnavailable
+	if !errors.As(err, &unavail) {
+		t.Fatalf("want ErrUnavailable, got %T %v", err, err)
+	}
 }
 
 func TestRequestCoordinator_AdmitCapturesLeaseAndPassesLifecycle(t *testing.T) {
@@ -162,11 +197,13 @@ func TestRequestCoordinator_MultiLeaseStackHandlesAll(t *testing.T) {
 	conc := &fakeConcurrencyProvider{
 		admit: func(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 			return authority.LeaseDecision{
-				Kind:    authority.LeaseAllow,
-				LeaseID: "lease-b",
+				Kind:       authority.LeaseAllow,
+				LeaseID:    "lease-b",
+				Generation: 1,
+				ExpiresAt:  time.Now().UTC().Add(time.Minute),
 				Leases: []authority.LeaseOccupancy{
-					{LeaseID: "lease-a", RuleID: "rule-a"},
-					{LeaseID: "lease-b", RuleID: "rule-b"},
+					{LeaseID: "lease-a", Generation: 1, RuleID: "rule-a", ExpiresAt: time.Now().UTC().Add(time.Minute)},
+					{LeaseID: "lease-b", Generation: 1, RuleID: "rule-b", ExpiresAt: time.Now().UTC().Add(time.Minute)},
 				},
 			}, nil
 		},

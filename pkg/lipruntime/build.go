@@ -36,15 +36,15 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	if path == "" {
 		return nil, fmt.Errorf("lipruntime: empty config path")
 	}
-	for i, d := range opts.ProviderDescriptors {
-		if err := d.Validate(); err != nil {
-			return nil, fmt.Errorf("lipruntime: provider_descriptors[%d]: %w", i, err)
-		}
+	norm, err := normalizeOptions(opts)
+	if err != nil {
+		return nil, err
 	}
 	logOut := opts.LogWriter
 	if logOut == nil {
 		logOut = io.Discard
 	}
+	raterAttached := len(norm.RaterRegistrations) > 0
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: path,
 		Mode:       runtimebundle.BootstrapServe,
@@ -52,13 +52,13 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		LogWriter:  logOut,
 		Production: runtimebundle.ProductionOptions{
 			MeteringRecorder:          opts.MeteringRecorder,
-			RequestProviders:          opts.RequestProviders,
-			AttemptProviders:          opts.AttemptProviders,
-			ConcurrencyProvider:       opts.ConcurrencyProvider,
+			RequestRegistrations:      norm.RequestRegistrations,
+			AttemptRegistrations:      norm.AttemptRegistrations,
+			ConcurrencyRegistration:   norm.ConcurrencyRegistration,
+			RaterRegistrations:        norm.RaterRegistrations,
 			UsageSnapshotSource:       opts.UsageSnapshotSource,
 			ConcurrencySnapshotSource: opts.ConcurrencySnapshotSource,
 			RatingSnapshotSource:      opts.RatingSnapshotSource,
-			Rater:                     opts.Rater,
 			EvidenceSink:              opts.EvidenceSink,
 			MeteringQuerier:           opts.MeteringQuerier,
 			TrafficObservers:          opts.TrafficObservers,
@@ -82,7 +82,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		trafficObserversAttached: len(opts.TrafficObservers) > 0,
 		usageObserversAttached:   len(opts.UsageObservers) > 0,
 		evidenceSinkAttached:     opts.EvidenceSink != nil,
-		raterAttached:            opts.Rater != nil,
+		raterAttached:            raterAttached,
 		meteringQuerierAttached:  opts.MeteringQuerier != nil,
 	}, nil
 }

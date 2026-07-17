@@ -27,7 +27,7 @@ func (f *fakeAttemptProvider) AdmitAttempt(ctx context.Context, in authority.Att
 	}
 	return authority.Decision{
 		Kind:         authority.DecisionAllow,
-		Reservations: []authority.Reservation{{Handle: f.id + "-h", Kind: authority.ReservationSpend}},
+		Reservations: []authority.Reservation{spendReservation(f.id + "-h")},
 	}, nil
 }
 
@@ -38,7 +38,7 @@ func (f *fakeAttemptProvider) SettleAttempt(ctx context.Context, in authority.At
 	if f.settle != nil {
 		return f.settle(ctx, in)
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (f *fakeAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
@@ -90,7 +90,7 @@ func TestAttemptCoordinator_AggregatesBoundVersions(t *testing.T) {
 				VersionRef: economics.VersionRef{ID: "usage_authority", Version: "v1"},
 				PolicyID:   "usage_authority",
 			}},
-			Reservations: []authority.Reservation{{Handle: "h1", Kind: authority.ReservationSpend}},
+			Reservations: []authority.Reservation{spendReservation("h1")},
 		}, nil
 	}
 	coord := &authoritycoord.AttemptCoordinator{
@@ -113,7 +113,7 @@ func TestAttemptCoordinator_MixedCurrencyClampReleasesCurrentHolds(t *testing.T)
 	usd.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 		return authority.Decision{
 			Kind:         authority.DecisionAllow,
-			Reservations: []authority.Reservation{{Handle: "usd-h", Kind: authority.ReservationSpend}},
+			Reservations: []authority.Reservation{spendReservation("usd-h")},
 			Clamps: []authority.Clamp{{
 				Kind:  authority.ClampMaxSpend,
 				Money: economics.Money{NanoUnits: 100, Currency: "USD", Present: true},
@@ -124,7 +124,7 @@ func TestAttemptCoordinator_MixedCurrencyClampReleasesCurrentHolds(t *testing.T)
 	eur.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 		return authority.Decision{
 			Kind:         authority.DecisionAllow,
-			Reservations: []authority.Reservation{{Handle: "eur-h", Kind: authority.ReservationSpend}},
+			Reservations: []authority.Reservation{spendReservation("eur-h")},
 			Clamps: []authority.Clamp{{
 				Kind:  authority.ClampMaxSpend,
 				Money: economics.Money{NanoUnits: 50, Currency: "EUR", Present: true},
