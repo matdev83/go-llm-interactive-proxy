@@ -9,6 +9,16 @@ make bench
 This runs packages under `internal/testkit`, `internal/core/stream`, `internal/core/runtime`, `internal/core/routing`, `internal/core/diag`, and streaming encoders. For a single package, e.g. `go test -bench=. -benchmem -run=Benchmark ./internal/core/runtime/...`.
 Secure-session recorder smoke: `go test -bench=BenchmarkRecorder -benchmem -run=^$ ./internal/core/securesession/app` (also included in `make bench`).
 
+### JSON shape profiles (production)
+
+| Profile | Max bytes | Max depth | Duplicate names | Notes |
+|---|---:|---:|---|---|
+| Request envelope (`jsonguard` / `RequestEnvelopeLimits`) | **8 MiB** default (configurable; keep generous vs tool limits) | **128** | accepted (last-wins compatible) | Overall HTTP body cap; independent of tool schema/args |
+| Tool schema (`ToolSchemaLimits`) | **256 KiB** | **32** | rejected | Offline compile path |
+| Tool args (`ToolArgumentsLimits`) | **64 KiB** default | **64** | rejected | Engine / repair materialize path |
+
+Preflight runs before materialize on frontend ServeHTTP (`reqbody` → `jsonguard.Preflight` → Decode*). Production scanning uses stdlib `encoding/json.Decoder.Token` via `internal/core/jsonshape` only.
+
 ## Comparing before/after (benchstat)
 
 ```bash

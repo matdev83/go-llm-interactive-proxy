@@ -38,6 +38,7 @@ status: active
 | `safety/` | Safety checks and guardrails |
 | `capabilities/` | Capability negotiation and catalogs |
 | `jsonpresence/` | JSON null-vs-empty round-trip preservation |
+| `jsonshape/` | Protocol-neutral JSON size/shape preflight (`encoding/json.Decoder.Token`): request 8 MiB/depth 128 duplicate-compatible; schema 256 KiB/depth 32 strict; args 64 KiB/depth 64 strict |
 | `diag/` | Diagnostics identifiers and helpers |
 | `config/` | Runtime config types and loading |
 | `stream/` | Stream pumps, collectors, event plumbing |

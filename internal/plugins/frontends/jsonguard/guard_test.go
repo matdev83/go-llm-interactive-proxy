@@ -175,6 +175,43 @@ func TestErrorClassification(t *testing.T) {
 	}
 }
 
+func TestPreflightDuplicateNumberAndUTF8(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		data     string
+		limits   jsonguard.Limits
+		wantKind jsonguard.Kind
+	}{
+		{name: "default envelope accepts duplicate member", data: `{"a":1,"a":2}`},
+		{name: "explicit reject duplicates", data: `{"a":1,"a":2}`, limits: jsonguard.Limits{RejectDuplicateNames: true}, wantKind: jsonguard.KindDuplicateName},
+		{name: "accept false counts duplicate keys for MaxObjectKeys", data: `{"a":1,"a":2}`, limits: jsonguard.Limits{MaxObjectKeys: 1}, wantKind: jsonguard.KindTooManyItems},
+		{name: "distinct second key hits MaxObjectKeys", data: `{"a":1,"b":2}`, limits: jsonguard.Limits{MaxObjectKeys: 1}, wantKind: jsonguard.KindTooManyItems},
+		{name: "sibling names across objects ok", data: `[{"a":1},{"a":2}]`},
+		{name: "number over", data: `123456`, limits: jsonguard.Limits{MaxNumberBytes: 5}, wantKind: jsonguard.KindNumberTooLong},
+		{name: "invalid utf8", data: "\"\xff\"", wantKind: jsonguard.KindInvalidUTF8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := jsonguard.Preflight([]byte(tt.data), tt.limits)
+			if tt.wantKind == "" {
+				if err != nil {
+					t.Fatalf("Preflight() error = %v", err)
+				}
+				return
+			}
+			if got := jsonguard.Classify(err); got != tt.wantKind {
+				t.Fatalf("Classify(error) = %q, want %q (err=%v)", got, tt.wantKind, err)
+			}
+			if strings.Contains(err.Error(), "\xff") {
+				t.Fatalf("error leaked invalid bytes: %v", err)
+			}
+		})
+	}
+}
+
 func TestNormalizeLimits(t *testing.T) {
 	t.Parallel()
 

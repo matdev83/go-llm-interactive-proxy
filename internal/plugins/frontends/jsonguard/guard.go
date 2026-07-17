@@ -1,59 +1,47 @@
 // Package jsonguard provides low-cost preflight checks for untrusted frontend JSON bodies.
+// Shape scanning is delegated to internal/core/jsonshape; this package keeps the
+// frontend HTTP read helpers and historical type/error surface.
 package jsonguard
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/jsonshape"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/reqbody"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
-
-const defaultMaxDepth = 128
 
 // Limits bounds JSON body shape before adapter-specific decode.
-type Limits struct {
-	MaxBytes       int64
-	MaxDepth       int
-	MaxTokens      int
-	MaxArrayElems  int
-	MaxObjectKeys  int
-	MaxStringBytes int
-	MaxKeyBytes    int
-}
+type Limits = jsonshape.Limits
 
 // Result reports basic facts gathered during token-level scanning.
-type Result struct {
-	Bytes    int
-	Tokens   int
-	MaxDepth int
-}
+type Result = jsonshape.Result
 
 // Kind classifies guard failures for frontend handler mapping.
-type Kind string
+type Kind = jsonshape.Kind
 
 const (
-	KindTooLarge      Kind = "too_large"
-	KindMalformed     Kind = "malformed"
-	KindTooDeep       Kind = "too_deep"
-	KindTooManyTokens Kind = "too_many_tokens"
-	KindTooManyItems  Kind = "too_many_items"
-	KindStringTooLong Kind = "string_too_long"
-	KindKeyTooLong    Kind = "key_too_long"
+	KindTooLarge      = jsonshape.KindTooLarge
+	KindMalformed     = jsonshape.KindMalformed
+	KindTooDeep       = jsonshape.KindTooDeep
+	KindTooManyTokens = jsonshape.KindTooManyTokens
+	KindTooManyItems  = jsonshape.KindTooManyItems
+	KindStringTooLong = jsonshape.KindStringTooLong
+	KindKeyTooLong    = jsonshape.KindKeyTooLong
+	KindNumberTooLong = jsonshape.KindNumberTooLong
+	KindDuplicateName = jsonshape.KindDuplicateName
+	KindInvalidUTF8   = jsonshape.KindInvalidUTF8
+	KindCanceled      = jsonshape.KindCanceled
 )
 
-// Error is a typed JSON guard failure.
+// Error is a typed JSON guard failure with jsonguard-prefixed Error() text.
 type Error struct {
 	Kind  Kind
 	Limit int
 	Value int
 	Msg   string
+	cause error
 }
 
 func (e *Error) Error() string {
@@ -69,135 +57,27 @@ func (e *Error) Error() string {
 	return "jsonguard: " + string(e.Kind)
 }
 
+func (e *Error) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
 // DefaultLimits returns conservative non-zero defaults for frontend JSON bodies.
 func DefaultLimits() Limits {
-	return Limits{
-		MaxBytes:       reqbody.DefaultMaxBytes,
-		MaxDepth:       defaultMaxDepth,
-		MaxTokens:      1_000_000,
-		MaxArrayElems:  100_000,
-		MaxObjectKeys:  100_000,
-		MaxStringBytes: min(lipapi.MaxPartTextBytes, int(reqbody.DefaultMaxBytes)),
-		MaxKeyBytes:    16 << 10,
-	}
+	return jsonshape.RequestEnvelopeLimits()
 }
 
 // NormalizeLimits fills zero or negative fields with defaults.
 func NormalizeLimits(limits Limits) Limits {
-	defaults := DefaultLimits()
-	if limits.MaxBytes <= 0 {
-		limits.MaxBytes = defaults.MaxBytes
-	}
-	if limits.MaxDepth <= 0 {
-		limits.MaxDepth = defaults.MaxDepth
-	}
-	if limits.MaxTokens <= 0 {
-		limits.MaxTokens = defaults.MaxTokens
-	}
-	if limits.MaxArrayElems <= 0 {
-		limits.MaxArrayElems = defaults.MaxArrayElems
-	}
-	if limits.MaxObjectKeys <= 0 {
-		limits.MaxObjectKeys = defaults.MaxObjectKeys
-	}
-	if limits.MaxStringBytes <= 0 {
-		limits.MaxStringBytes = defaults.MaxStringBytes
-	}
-	if limits.MaxKeyBytes <= 0 {
-		limits.MaxKeyBytes = defaults.MaxKeyBytes
-	}
-	return limits
+	return jsonshape.NormalizeLimits(limits)
 }
 
 // Preflight validates JSON size and shape using streaming decoder tokens.
 func Preflight(data []byte, limits Limits) (Result, error) {
-	limits = NormalizeLimits(limits)
-	result := Result{Bytes: len(data)}
-	if int64(len(data)) > limits.MaxBytes {
-		return result, &Error{Kind: KindTooLarge, Limit: int(limits.MaxBytes), Value: len(data)}
-	}
-	if whitespaceOnly(data) {
-		return result, &Error{Kind: KindMalformed, Msg: "empty JSON body"}
-	}
-
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	frames := make([]frame, 0, 8)
-	rootValues := 0
-
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return result, &Error{Kind: KindMalformed, Msg: err.Error()}
-		}
-		result.Tokens++
-		if result.Tokens > limits.MaxTokens {
-			return result, &Error{Kind: KindTooManyTokens, Limit: limits.MaxTokens, Value: result.Tokens}
-		}
-
-		if d, ok := tok.(json.Delim); ok {
-			switch d {
-			case '{':
-				if len(frames) == 0 {
-					rootValues++
-					if rootValues > 1 {
-						return result, &Error{Kind: KindMalformed, Msg: "multiple JSON values"}
-					}
-				} else if err := countValue(&frames, limits); err != nil {
-					return result, err
-				}
-				frames = append(frames, frame{object: true})
-				if err := checkDepth(len(frames), limits.MaxDepth); err != nil {
-					return result, err
-				}
-				result.MaxDepth = max(result.MaxDepth, len(frames))
-			case '[':
-				if len(frames) == 0 {
-					rootValues++
-					if rootValues > 1 {
-						return result, &Error{Kind: KindMalformed, Msg: "multiple JSON values"}
-					}
-				} else if err := countValue(&frames, limits); err != nil {
-					return result, err
-				}
-				frames = append(frames, frame{})
-				if err := checkDepth(len(frames), limits.MaxDepth); err != nil {
-					return result, err
-				}
-				result.MaxDepth = max(result.MaxDepth, len(frames))
-			case '}', ']':
-				if len(frames) == 0 {
-					return result, &Error{Kind: KindMalformed, Msg: "unexpected closing delimiter"}
-				}
-				frames = frames[:len(frames)-1]
-			}
-			continue
-		}
-
-		if len(frames) == 0 {
-			rootValues++
-			if rootValues > 1 {
-				return result, &Error{Kind: KindMalformed, Msg: "multiple JSON values"}
-			}
-		}
-		if err := inspectScalar(tok, &frames, limits); err != nil {
-			return result, err
-		}
-	}
-
-	if rootValues == 0 {
-		return result, &Error{Kind: KindMalformed, Msg: "empty JSON body"}
-	}
-	if len(frames) != 0 {
-		return result, &Error{Kind: KindMalformed, Msg: "incomplete JSON body"}
-	}
-	if hasTrailingNonWhitespace(data[dec.InputOffset():]) {
-		return result, &Error{Kind: KindMalformed, Msg: "trailing data after JSON value"}
-	}
-	return result, nil
+	result, err := jsonshape.Preflight(data, limits)
+	return result, mapError(err)
 }
 
 // ReadAndPreflight reads a bounded request body and then applies Preflight.
@@ -220,7 +100,7 @@ func Classify(err error) Kind {
 	if errors.As(err, &guardErr) {
 		return guardErr.Kind
 	}
-	return ""
+	return jsonshape.Classify(err)
 }
 
 // TooLarge reports whether err maps to a request-entity-too-large response.
@@ -228,87 +108,19 @@ func TooLarge(err error) bool {
 	return Classify(err) == KindTooLarge || reqbody.TooLarge(err)
 }
 
-type frame struct {
-	object    bool
-	count     int
-	expectKey bool
-}
-
-func checkDepth(depth, limit int) error {
-	if depth > limit {
-		return &Error{Kind: KindTooDeep, Limit: limit, Value: depth}
+func mapError(err error) error {
+	if err == nil {
+		return nil
 	}
-	return nil
-}
-
-func inspectScalar(tok json.Token, frames *[]frame, limits Limits) error {
-	if s, ok := tok.(string); ok && len(*frames) > 0 {
-		current := &(*frames)[len(*frames)-1]
-		if current.object && !current.expectKey {
-			current.count++
-			if current.count > limits.MaxObjectKeys {
-				return &Error{Kind: KindTooManyItems, Limit: limits.MaxObjectKeys, Value: current.count}
-			}
-			if len(s) > limits.MaxKeyBytes {
-				return &Error{Kind: KindKeyTooLong, Limit: limits.MaxKeyBytes, Value: len(s)}
-			}
-			current.expectKey = true
-			return nil
-		}
-	}
-
-	if err := countValue(frames, limits); err != nil {
+	var shapeErr *jsonshape.Error
+	if !errors.As(err, &shapeErr) {
 		return err
 	}
-	if s, ok := tok.(string); ok && len(s) > limits.MaxStringBytes {
-		return &Error{Kind: KindStringTooLong, Limit: limits.MaxStringBytes, Value: len(s)}
+	return &Error{
+		Kind:  shapeErr.Kind,
+		Limit: shapeErr.Limit,
+		Value: shapeErr.Value,
+		Msg:   shapeErr.Msg,
+		cause: shapeErr,
 	}
-	return nil
-}
-
-func countValue(frames *[]frame, limits Limits) error {
-	if len(*frames) == 0 {
-		return nil
-	}
-	current := &(*frames)[len(*frames)-1]
-	if current.object {
-		if !current.expectKey {
-			return &Error{Kind: KindMalformed, Msg: "object value without key"}
-		}
-		current.expectKey = false
-		return nil
-	}
-	current.count++
-	if current.count > limits.MaxArrayElems {
-		return &Error{Kind: KindTooManyItems, Limit: limits.MaxArrayElems, Value: current.count}
-	}
-	return nil
-}
-
-func whitespaceOnly(data []byte) bool {
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
-		if r == utf8.RuneError && size == 1 {
-			return false
-		}
-		if !unicode.IsSpace(r) {
-			return false
-		}
-		data = data[size:]
-	}
-	return true
-}
-
-func hasTrailingNonWhitespace(data []byte) bool {
-	for len(data) > 0 {
-		r, size := utf8.DecodeRune(data)
-		if r == utf8.RuneError && size == 1 {
-			return true
-		}
-		if !unicode.IsSpace(r) {
-			return true
-		}
-		data = data[size:]
-	}
-	return false
 }
