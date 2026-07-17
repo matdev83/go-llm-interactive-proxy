@@ -50,6 +50,24 @@ func TestNew_withToolName_emitsToolFrames(t *testing.T) {
 	}
 }
 
+func TestNew_withToolArgs_emitsConfiguredDelta(t *testing.T) {
+	t.Parallel()
+	want := `{"location":"NYC"`
+	be := New(Config{Text: "a", ToolName: "get_weather", ToolArgs: want})
+	es, err := be.Open(context.Background(), lipapi.Call{}, routing.AttemptCandidate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, err := lipapi.Collect(context.Background(), es)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcs := col.OrderedToolCalls()
+	if len(tcs) != 1 || tcs[0].Name != "get_weather" || tcs[0].Arguments != want {
+		t.Fatalf("tools %+v", tcs)
+	}
+}
+
 func TestNew_withoutToolName_noToolsCapability(t *testing.T) {
 	t.Parallel()
 	be := New(Config{Text: "only", ToolName: ""})

@@ -140,6 +140,12 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 		}
 	}
 
+	if err := standardplugins.EnsureToolCallRepairInConfig(cfg, standardplugins.ToolCallRepairInjectOpts{
+		StandardDistribution: true,
+	}); err != nil {
+		shutdownTracing(ctx, traceRes.Shutdown)
+		return out, fmt.Errorf("runtimebundle: tool-call-repair defaults: %w", err)
+	}
 	regs := config.RegistrationsFromConfig(cfg)
 	merged, err := featurebundle.MergeFeatureSurface(reg, regs)
 	if err != nil {
@@ -174,18 +180,20 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 				OutboundTracing: traceRes.Active,
 			},
 			Extensions: ExtensionsOptions{
-				SessionOpeners:     merged.SessionOpeners,
-				WorkspaceResolvers: merged.WorkspaceResolvers,
-				ToolCatalogFilters: merged.ToolCatalogFilters,
-				ToolCallPolicies:   merged.ToolCallPolicies,
-				RequestTransforms:  merged.RequestTransforms,
-				PreRequestHandlers: merged.PreRequestHandlers,
-				RouteHintProviders: merged.RouteHintProviders,
-				CompletionGates:    merged.CompletionGates,
-				TrafficObservers:   append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
-				UsageObservers:     append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
-				RawCaptureSinks:    merged.RawCaptureSinks,
-				TrafficRedactors:   merged.TrafficRedactors,
+				SessionOpeners:                   merged.SessionOpeners,
+				WorkspaceResolvers:               merged.WorkspaceResolvers,
+				ToolCatalogFilters:               merged.ToolCatalogFilters,
+				ToolCallPolicies:                 merged.ToolCallPolicies,
+				ToolCallFinalizers:               merged.ToolCallFinalizers,
+				ToolCallFinalizationMaxArgsBytes: merged.ToolCallFinalizationMaxArgsBytes,
+				RequestTransforms:                merged.RequestTransforms,
+				PreRequestHandlers:               merged.PreRequestHandlers,
+				RouteHintProviders:               merged.RouteHintProviders,
+				CompletionGates:                  merged.CompletionGates,
+				TrafficObservers:                 append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
+				UsageObservers:                   append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
+				RawCaptureSinks:                  merged.RawCaptureSinks,
+				TrafficRedactors:                 merged.TrafficRedactors,
 			},
 			Production: in.Production,
 		})

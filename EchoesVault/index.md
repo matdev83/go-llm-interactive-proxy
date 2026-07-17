@@ -21,3 +21,4 @@ This index tracks all structured pages in the vault.
 - [[okf-knowledge-process]]: OKF-compatible operating rules for EchoesVault concept files, discovery, linking, and agent access.
 - [[codex-app-server-backend]]: OpenAI Codex CLI app-server backend — protocol mapping, handshake, lifecycle, and event translation for the local-agent stdio backend.
 - [[postgres-transaction-pooling]]: PostgreSQL admin/runtime separation, shared pool ownership, schema lifecycle, and pooled release gates.
+- [[tool-call-repair]]: Canonical native tool-call repair (ADR 0007): finalizer seam, deterministic V1 matrix, buffering, and config defaults.

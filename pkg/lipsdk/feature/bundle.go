@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -37,9 +38,15 @@ type FeatureBundle struct {
 
 	ToolCatalogFilters []toolcatalog.Filter
 	ToolCallPolicies   []toolpolicy.Policy
-	RequestTransforms  []request.Transform
-	PreRequestHandlers []prerequest.Handler
-	RouteHintProviders []routehint.Provider
+	ToolCallFinalizers []toolcall.Finalizer
+	// ToolCallFinalizationMaxArgsBytes is an optional per-bundle assembler buffer
+	// cap (bytes). Zero means no contribution. Positive values are contributions;
+	// Validate rejects negatives. Mergers take the minimum of positive
+	// contributions so the strictest enabled finalizer wins.
+	ToolCallFinalizationMaxArgsBytes int
+	RequestTransforms                []request.Transform
+	PreRequestHandlers               []prerequest.Handler
+	RouteHintProviders               []routehint.Provider
 
 	CompletionGates []completion.Gate
 
@@ -60,6 +67,8 @@ func (b FeatureBundle) empty() bool {
 		len(b.WorkspaceResolvers) == 0 &&
 		len(b.ToolCatalogFilters) == 0 &&
 		len(b.ToolCallPolicies) == 0 &&
+		len(b.ToolCallFinalizers) == 0 &&
+		b.ToolCallFinalizationMaxArgsBytes == 0 &&
 		len(b.RequestTransforms) == 0 &&
 		len(b.PreRequestHandlers) == 0 &&
 		len(b.RouteHintProviders) == 0 &&
@@ -73,7 +82,11 @@ func (b FeatureBundle) empty() bool {
 
 // Validate checks schema metadata against bundle contents. An empty bundle may use
 // SchemaVersion 0 (unset) or SchemaVersionV1; any non-empty bundle must declare SchemaVersionV1.
+// Negative ToolCallFinalizationMaxArgsBytes is always invalid.
 func (b FeatureBundle) Validate() error {
+	if b.ToolCallFinalizationMaxArgsBytes < 0 {
+		return fmt.Errorf("feature: FeatureBundle: ToolCallFinalizationMaxArgsBytes must be >= 0, got %d", b.ToolCallFinalizationMaxArgsBytes)
+	}
 	if b.empty() {
 		if b.SchemaVersion != 0 && b.SchemaVersion != SchemaVersionV1 {
 			return fmt.Errorf("feature: FeatureBundle: invalid schema version %d for empty bundle", b.SchemaVersion)

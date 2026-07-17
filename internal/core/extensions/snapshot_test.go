@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -236,6 +237,57 @@ func TestRequestRuntimeSnapshot_ToolCallPolicies_returnsDefensiveCopy(t *testing
 	again := snap.ToolCallPolicies()
 	if len(again) != 1 {
 		t.Fatalf("after mutate len %d", len(again))
+	}
+}
+
+type snapOrdFin struct {
+	id  string
+	ord int
+}
+
+func (f snapOrdFin) ID() string { return f.id }
+func (f snapOrdFin) Order() int { return f.ord }
+func (snapOrdFin) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass}, nil
+}
+
+func TestRequestRuntimeSnapshot_ToolCallFinalizersExecution_sortedAtSnapshotBuild(t *testing.T) {
+	t.Parallel()
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		ToolCallFinalizers: []toolcall.Finalizer{
+			snapOrdFin{id: "zzz", ord: 10},
+			snapOrdFin{id: "aaa", ord: 0},
+			nil,
+		},
+	})
+	exec := snap.ToolCallFinalizersExecution()
+	if len(exec) != 2 {
+		t.Fatalf("len %d", len(exec))
+	}
+	if exec[0].ID() != "aaa" || exec[1].ID() != "zzz" {
+		t.Fatalf("order got [%s %s]", exec[0].ID(), exec[1].ID())
+	}
+	e2 := snap.ToolCallFinalizersExecution()
+	if len(e2) != 2 || &e2[0] != &exec[0] {
+		t.Fatal("expected ToolCallFinalizersExecution to reuse same backing slice")
+	}
+}
+
+func TestRequestRuntimeSnapshot_ToolCallFinalizers_returnsDefensiveCopy(t *testing.T) {
+	t.Parallel()
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		ToolCallFinalizers: []toolcall.Finalizer{snapOrdFin{id: "f1", ord: 0}},
+	})
+	got := snap.ToolCallFinalizers()
+	if len(got) != 1 {
+		t.Fatalf("len %d", len(got))
+	}
+	got[0] = nil
+	again := snap.ToolCallFinalizers()
+	if len(again) != 1 || again[0] == nil {
+		t.Fatalf("after mutate again=%v", again)
 	}
 }
 

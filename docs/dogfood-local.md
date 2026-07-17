@@ -18,6 +18,7 @@ Protocol-focused stub examples (same inspect coverage):
 | File | Intent |
 | --- | --- |
 | `dogfood-local-stub.yaml` | General local stub; multi-frontend |
+| `dogfood-tool-call-repair.yaml` | Truncated tool-args repair smoke (ADR 0007) |
 | `openai-responses-stub.yaml` | OpenAI Responses-shaped smoke |
 | `openai-legacy-stub.yaml` | Legacy OpenAI chat smoke |
 | `anthropic-stub.yaml` | Anthropic Messages smoke |

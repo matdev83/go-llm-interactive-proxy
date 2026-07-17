@@ -39,6 +39,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
 	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
 	frontgemini "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/gemini"
@@ -148,6 +149,7 @@ func StandardBundle() Bundle {
 			{ID: submitnoop.ID, Factory: featureSubmitNoop},
 			{ID: partsnoop.ID, Factory: featurePartsNoop},
 			{ID: toolreactornoop.ID, Factory: featureToolReactorNoop},
+			{ID: toolcallrepair.ID, Factory: featureToolCallRepair},
 			{ID: refsubmit.ID, Factory: featureRefSubmit},
 			{ID: refparts.ID, Factory: featureRefParts},
 			{ID: reftool.ID, Factory: featureRefTool},

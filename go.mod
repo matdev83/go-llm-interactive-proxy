@@ -18,6 +18,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/samber/slog-formatter v1.3.0
 	github.com/samber/slog-multi v1.8.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/tiktoken-go/tokenizer v0.8.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18

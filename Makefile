@@ -19,7 +19,7 @@ help:
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
 	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
-	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag, frontend encoders)"
+	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln (local)"
@@ -146,6 +146,10 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzValidateIdentityYAML$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
 	$(FUZZ_WRAPPER) -fuzz=FuzzCaptureClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/frontends/identitywire
 
+	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
 
@@ -157,6 +161,7 @@ bench:
 	$(GO) test -bench=. -benchmem -run=Benchmark ./internal/testkit/... ./internal/core/stream/... \
 		./internal/core/securesession/... \
 		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
+		./internal/core/toolcallrepair/... \
 		./internal/plugins/frontends/openailegacy/... \
 		./internal/plugins/frontends/gemini/... \
 		./internal/plugins/frontends/openairesponses/... \

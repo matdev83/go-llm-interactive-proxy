@@ -118,6 +118,23 @@ func TestOfficialFeaturePluginsDoNotDependOnInternalCore(t *testing.T) {
 	assertDepsExcludeForbidden(t, []string{"./internal/plugins/features/..."}, featurePluginsForbiddenDeps)
 }
 
+func TestProtocolAdaptersDoNotDependOnToolCallRepair(t *testing.T) {
+	t.Parallel()
+	assertDepsExcludeForbidden(t, []string{
+		"./internal/plugins/frontends/...",
+		"./internal/plugins/backends/...",
+	}, []forbiddenDep{
+		{
+			Substr: "/internal/core/toolcallrepair",
+			ErrMsg: "protocol adapters must not depend on the canonical tool-call repair engine",
+		},
+		{
+			Substr: "/internal/plugins/features/toolcallrepair",
+			ErrMsg: "protocol adapters must not depend on the tool-call repair feature plugin",
+		},
+	})
+}
+
 // TestInternalCoreDoesNotDependOnStdhttpOrProtocolPlugins keeps orchestration free of the HTTP
 // server layer, official protocol plugins, and transport-labeled SDK paths (introduce-hexagonal
 // task 4.1). Principal context uses [github.com/.../pkg/lipsdk/execview] from core instead.

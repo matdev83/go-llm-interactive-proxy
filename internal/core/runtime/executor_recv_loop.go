@@ -54,6 +54,13 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return ev, nil
 	}
 	for {
+		if ev, ok := s.popToolFinalDrain(); ok {
+			out, cont, err := s.dispatchClientFacingEvent(ctx, ev)
+			if cont {
+				continue
+			}
+			return out, err
+		}
 		if ev, ok := s.popGateDrainHead(); ok {
 			// A gate-drain finish is finalized through the same centralized chokepoint as the other
 			// response_finished completion paths, before emitGateDrained marks the stream finished, so
@@ -256,6 +263,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	s.visibleText.Reset()
 	s.tokenAccountingFinalized = false
 	s.accounting = newAttemptAccountingTracker(s.now())
+	s.resetToolFinal()
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
 	}

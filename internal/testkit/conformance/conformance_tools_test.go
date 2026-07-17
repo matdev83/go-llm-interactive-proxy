@@ -20,9 +20,13 @@ import (
 	refopenaichat "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
 	refopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openairesponses"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
+	featuretoolrepair "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"google.golang.org/genai"
 )
 
@@ -63,6 +67,52 @@ func TestConformance_Tools_roundTripAndUsage(t *testing.T) {
 	}
 }
 
+func TestConformance_ToolCallRepairCanonicalMatrix(t *testing.T) {
+	t.Parallel()
+	for _, cell := range AllCells() {
+		if !cell.Meta.ToolsViable {
+			continue
+		}
+		t.Run(cell.Frontend+"__"+cell.Backend, func(t *testing.T) {
+			t.Parallel()
+			if cell.Frontend == "gemini" || cell.Backend == gemini.ID {
+				t.Skip("gemini wire materializes functionCall.args as a JSON object; syntax truncation is not exercisable")
+			}
+			beSrv := NewToolCallRepairRefBackend(t, cell.Backend)
+			exec := NewTestExecutor(t, cell.Backend, beSrv.URL, beSrv.Client())
+			fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
+				ID:             featuretoolrepair.ID,
+				MaxArgsBytes:   featuretoolrepair.DefaultMaxArgsBytes,
+				OnUnrepairable: corerepair.OnUnrepairablePassThrough,
+				Order:          corerepair.DefaultFinalizerOrder,
+				Schema:         corerepair.DefaultSchemaLimits(),
+			})
+			exec.SetToolCallFinalizers([]toolcall.Finalizer{fin}, featuretoolrepair.DefaultMaxArgsBytes)
+			exec.RuntimeSnapshot = extensions.NewRequestRuntimeSnapshot(exec.Bus, extensions.SnapshotOptions{
+				ToolCallFinalizers: []toolcall.Finalizer{fin},
+			})
+			route := RouteSelector(cell.Backend, DefaultModel(cell.Backend))
+			mux := http.NewServeMux()
+			if err := MountFrontend(mux, cell.Frontend, exec, route); err != nil {
+				t.Fatal(err)
+			}
+			feSrv := httptest.NewServer(mux)
+			t.Cleanup(feSrv.Close)
+
+			raw, gotArgs := toolStreamRawAndArgs(t, cell.Frontend, feSrv.URL, feSrv.Client(), cell.Backend)
+			name := toolNameForBackend(cell.Backend)
+			if !strings.Contains(strings.ToLower(raw), strings.ToLower(name)) {
+				t.Fatalf("repaired canonical lifecycle lost tool name %q: %s", name, trim(raw, 1200))
+			}
+			want := WantRepairedToolArgsJSON(cell.Backend)
+			// Assert on decoded wire args (not json.Marshal of SDK events, which escapes quotes).
+			if gotArgs != want {
+				t.Fatalf("client-visible tool args %q want closed repaired %q; stream=%s", gotArgs, want, trim(raw, 1600))
+			}
+		})
+	}
+}
+
 func stringsContainsAny(s string, needles []string) bool {
 	for _, n := range needles {
 		if strings.Contains(s, n) {
@@ -80,6 +130,13 @@ func trim(s string, max int) string {
 }
 
 func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClient *http.Client, backendID string) string {
+	tb.Helper()
+	raw, _ := toolStreamRawAndArgs(tb, frontendID, proxyOrigin, httpClient, backendID)
+	return raw
+}
+
+// toolStreamRawAndArgs joins marshaled stream events and returns decoded tool-arguments JSON.
+func toolStreamRawAndArgs(tb testing.TB, frontendID, proxyOrigin string, httpClient *http.Client, backendID string) (raw string, argsJSON string) {
 	tb.Helper()
 	ctx := context.Background()
 	name := toolNameForBackend(backendID)
@@ -108,13 +165,17 @@ func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClie
 		stream := cli.CreateResponseStream(ctx, params)
 		var b strings.Builder
 		for stream.Next() {
-			raw, _ := json.Marshal(stream.Current())
-			b.WriteString(string(raw))
+			ev := stream.Current()
+			enc, _ := json.Marshal(ev)
+			b.Write(enc)
+			if ev.Type == "response.function_call_arguments.done" {
+				argsJSON = ev.AsResponseFunctionCallArgumentsDone().Arguments
+			}
 		}
 		if err := stream.Err(); err != nil {
 			tb.Fatalf("responses stream: %v", err)
 		}
-		return b.String()
+		return b.String(), argsJSON
 	case "openai-legacy":
 		cli := refopenaichat.New(refopenaichat.Config{
 			BaseURL:    strings.TrimRight(proxyOrigin, "/") + "/v1",
@@ -142,14 +203,24 @@ func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClie
 		}
 		stream := cli.CreateChatCompletionStream(ctx, params)
 		var b strings.Builder
+		var argsBuilder strings.Builder
 		for stream.Next() {
-			raw, _ := json.Marshal(stream.Current())
-			b.WriteString(string(raw))
+			ev := stream.Current()
+			enc, _ := json.Marshal(ev)
+			b.Write(enc)
+			if len(ev.Choices) == 0 {
+				continue
+			}
+			for _, tc := range ev.Choices[0].Delta.ToolCalls {
+				if tc.Function.Arguments != "" {
+					argsBuilder.WriteString(tc.Function.Arguments)
+				}
+			}
 		}
 		if err := stream.Err(); err != nil {
 			tb.Fatalf("chat stream: %v", err)
 		}
-		return b.String()
+		return b.String(), argsBuilder.String()
 	case "anthropic":
 		cli := refanthropic.New(refanthropic.Config{
 			BaseURL:    proxyOrigin,
@@ -175,14 +246,21 @@ func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClie
 		}
 		stream := cli.CreateMessageStream(ctx, params)
 		var b strings.Builder
+		var argsBuilder strings.Builder
 		for stream.Next() {
-			raw, _ := json.Marshal(stream.Current())
-			b.WriteString(string(raw))
+			ev := stream.Current()
+			enc, _ := json.Marshal(ev)
+			b.Write(enc)
+			if ev.Type == "content_block_delta" {
+				if d := ev.AsContentBlockDelta().Delta; d.Type == "input_json_delta" {
+					argsBuilder.WriteString(d.PartialJSON)
+				}
+			}
 		}
 		if err := stream.Err(); err != nil {
 			tb.Fatalf("anthropic stream: %v", err)
 		}
-		return b.String()
+		return b.String(), argsBuilder.String()
 	case "gemini":
 		cli, err := refgemini.New(ctx, refgemini.Config{
 			BaseURL:    GeminiConformanceBaseURL(proxyOrigin),
@@ -210,14 +288,39 @@ func toolStreamRawJoined(tb testing.TB, frontendID, proxyOrigin string, httpClie
 			if serr != nil {
 				tb.Fatalf("gemini stream: %v", serr)
 			}
-			raw, _ := json.Marshal(res)
-			b.WriteString(string(raw))
+			enc, _ := json.Marshal(res)
+			b.Write(enc)
+			if argsJSON == "" {
+				argsJSON = geminiFunctionCallArgsJSON(res)
+			}
 		}
-		return b.String()
+		return b.String(), argsJSON
 	default:
 		tb.Fatalf("unknown frontend %q", frontendID)
+		return "", ""
+	}
+}
+
+func geminiFunctionCallArgsJSON(res *genai.GenerateContentResponse) string {
+	if res == nil {
 		return ""
 	}
+	for _, c := range res.Candidates {
+		if c == nil || c.Content == nil {
+			continue
+		}
+		for _, p := range c.Content.Parts {
+			if p == nil || p.FunctionCall == nil || p.FunctionCall.Args == nil {
+				continue
+			}
+			enc, err := json.Marshal(p.FunctionCall.Args)
+			if err != nil {
+				return ""
+			}
+			return string(enc)
+		}
+	}
+	return ""
 }
 
 func mustAnthropicToolSchema(tb testing.TB, backendID string) anthropic.ToolInputSchemaParam {

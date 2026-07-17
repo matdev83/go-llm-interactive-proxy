@@ -39,6 +39,7 @@ status: active
 | `capabilities/` | Capability negotiation and catalogs |
 | `jsonpresence/` | JSON null-vs-empty round-trip preservation |
 | `jsonshape/` | Protocol-neutral JSON size/shape preflight (`encoding/json.Decoder.Token`): request 8 MiB/depth 128 duplicate-compatible; schema 256 KiB/depth 32 strict; args 64 KiB/depth 64 strict |
+| `toolcallrepair/` | Canonical tool-call repair engine, schema cache, ordered JSON materialize (ADR 0007); recursive builder retained after bounded preflight |
 | `diag/` | Diagnostics identifiers and helpers |
 | `config/` | Runtime config types and loading |
 | `stream/` | Stream pumps, collectors, event plumbing |
@@ -99,7 +100,7 @@ status: active
 | `internal/plugins/backends/vllm/` | vLLM backend adapter |
 | `internal/plugins/backends/localstub/` | No-key local stub for dogfood/testing |
 | `internal/plugins/backends/openaicompat/` | Custom OpenAI-compatible backend adapter |
-| `internal/plugins/features/` | Feature plugins: submit no-op, parts no-op, tool reactor no-op, reference features |
+| `internal/plugins/features/` | Feature plugins: submit/parts/tool-reactor no-ops, reference features, `toolcallrepair/` (YAML-only; ADR 0007) |
 
 ## Infrastructure (`internal/infra/`)
 

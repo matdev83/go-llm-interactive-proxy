@@ -201,6 +201,11 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
 
+	maxArgsBytes := 0
+	if opts != nil {
+		maxArgsBytes = opts.Extensions.ToolCallFinalizationMaxArgsBytes
+	}
+
 	// Construct executor with all fields set — no post-construction mutation.
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{
 		Core: runtime.CoreRuntime{
@@ -217,8 +222,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		Accounting:    accountingRT,
 		Observability: obsRT,
 		Extension: runtime.ExtensionRuntime{
-			Bus:             bctx.Bus,
-			RuntimeSnapshot: in.Ext.Snap,
+			Bus:                              bctx.Bus,
+			RuntimeSnapshot:                  in.Ext.Snap,
+			ToolCallFinalizationMaxArgsBytes: maxArgsBytes,
 		},
 		Interleaved: interleaved,
 	})

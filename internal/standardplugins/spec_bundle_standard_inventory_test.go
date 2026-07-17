@@ -76,6 +76,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"ref-verifier-stub",
 		"ref-workspace-guard",
 		"submit-noop",
+		"tool-call-repair",
 		"tool-reactor-noop",
 	}
 	var gotFeat []string

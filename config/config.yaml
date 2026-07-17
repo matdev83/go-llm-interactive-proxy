@@ -490,6 +490,18 @@ plugins:
     - id: tool-reactor-noop
       enabled: true
       config: {}
+    # Canonical tool-call repair (ADR 0007): enabled by default when omitted from
+    # standard lipstd configs. Explicit enabled row documents defaults; set
+    # enabled: false to opt out (suppresses injection/enablement).
+    - id: tool-call-repair
+      enabled: true
+      config:
+        mode: conservative
+        max_args_bytes: 65536
+        on_unrepairable: pass_through
+    # Opt out:
+    # - id: tool-call-repair
+    #   enabled: false
     # Reference (non-noop) examples — enable as needed:
     # - id: ref-submit-annotate
     #   enabled: true

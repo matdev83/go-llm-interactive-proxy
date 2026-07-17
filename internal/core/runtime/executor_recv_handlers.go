@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	completion "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
 // handleRecvSuccess is the per-event success path dispatched by Recv. It runs
@@ -31,13 +32,37 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 	recvAt := s.now()
 	s.accounting.observeBackendEvent(recvAt, ev)
 	s.accounting.observeUsage(ev)
-	pm, tm := s.recvHookMeta()
+	pm, _ := s.recvHookMeta()
 	s.emitTrafficBTP(ctx, ev, pm)
 	ev = s.enrichUsageCost(ev)
 	s.emitUsage(ctx, ev)
 
-	// Tool-event path may short-circuit with a swallow or an error before the
-	// rest of the dispatch runs.
+	if s.toolFinal != nil && s.toolFinal.enabled() {
+		meta := toolcall.Meta{
+			TraceID:    s.traceID,
+			ALegID:     s.aLegID,
+			BLegID:     s.bleg.BLegID,
+			AttemptSeq: s.bleg.Seq,
+		}
+		held, ferr := s.toolFinal.ingest(ctx, ev, meta)
+		if ferr != nil {
+			s.resetToolFinal()
+			return lipapi.Event{}, false, ferr
+		}
+		if held {
+			return lipapi.Event{}, true, nil
+		}
+	}
+
+	return s.dispatchClientFacingEvent(ctx, ev)
+}
+
+// dispatchClientFacingEvent runs tool policy/reactors, response-part hooks,
+// completion gates, client accounting, and PTC for one client-facing event.
+// Used for both live backend events (after BTP) and finalized drain replay.
+func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipapi.Event) (lipapi.Event, bool, error) {
+	pm, tm := s.recvHookMeta()
+
 	if te, ok := lipapi.ToolEventFromEvent(ev); ok {
 		nextEv, swallowed, err := s.handleToolEventPath(ctx, te, ev, tm)
 		if err != nil || swallowed {
@@ -57,8 +82,6 @@ func (s *retryRecvStream) handleRecvSuccess(ctx context.Context, ev lipapi.Event
 		return s.handleGatedPath(ctx, gates, ev, pm)
 	}
 
-	// No-gates branch: observe the client event, then dispatch to the
-	// response_finished helper or fall through to the default client-event emit.
 	if lipapi.OutputCommitted(ev) {
 		s.markOutputCommitted(ev)
 	}
@@ -207,6 +230,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 }
 
 func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, error) {
+	s.resetToolFinal()
 	// Truncated upstream: never run completion gates on a partial buffer (replace gates could
 	// synthesize response_finished and mask the failure).
 	gates := s.completionGatesFromContext(ctx)
