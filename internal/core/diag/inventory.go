@@ -16,6 +16,18 @@ type InventorySnapshot struct {
 	Backends   []PluginRow         `json:"backends"`
 	Features   []PluginRow         `json:"features"`
 	Extensions InventoryExtensions `json:"extensions"`
+	// ServerLimits exposes effective decode/admission caps and configured pending-wire
+	// (0 = unlimited) as numbers only; no payloads.
+	ServerLimits InventoryServerLimits `json:"server_limits"`
+}
+
+// InventoryServerLimits is the operator-visible server admission/queue caps.
+// Decode fields are effective (zero→finite defaults). MaxPendingWireEvents is as configured (0 = unlimited).
+type InventoryServerLimits struct {
+	MaxRequestBodyBytes    int64 `json:"max_request_body_bytes"`
+	MaxConcurrentDecodes   int   `json:"max_concurrent_decodes"`
+	MaxInflightDecodeBytes int64 `json:"max_inflight_decode_bytes"`
+	MaxPendingWireEvents   int   `json:"max_pending_wire_events"`
 }
 
 // PluginRow is one config row (instance id + factory kind + enabled; config payloads stay opaque/private).
@@ -42,6 +54,12 @@ func InventorySnapshotForConfig(
 		Backends:   rows(cfg.Plugins.Backends),
 		Features:   rows(cfg.Plugins.Features),
 		Extensions: buildInventoryExtensions(ctx, cfg, extras),
+		ServerLimits: InventoryServerLimits{
+			MaxRequestBodyBytes:    cfg.Server.EffectiveMaxRequestBodyBytesForBudget(),
+			MaxConcurrentDecodes:   cfg.Server.EffectiveMaxConcurrentDecodes(),
+			MaxInflightDecodeBytes: cfg.Server.EffectiveMaxInflightDecodeBytes(),
+			MaxPendingWireEvents:   cfg.Server.EffectiveMaxPendingWireEvents(),
+		},
 	}, nil
 }
 

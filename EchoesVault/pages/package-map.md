@@ -78,6 +78,8 @@ status: active
 | `internal/plugins/frontends/openailegacy/` | Legacy OpenAI chat API frontend |
 | `internal/plugins/frontends/anthropic/` | Anthropic Messages API frontend |
 | `internal/plugins/frontends/gemini/` | Gemini generateContent API frontend |
+| `internal/plugins/frontends/decodeqos/` | Shared weighted decode admission limiter (finite defaults; Decode-only weight after ReadAll) |
+| `internal/plugins/frontends/reqbody/` | Bounded decompressed body ReadAll (413 on oversize) |
 | `internal/plugins/backends/openairesponses/` | OpenAI Responses backend adapter |
 | `internal/plugins/backends/openailegacy/` | Legacy OpenAI backend adapter |
 | `internal/plugins/backends/anthropic/` | Anthropic backend adapter |

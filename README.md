@@ -56,7 +56,7 @@ go run ./cmd/lipstd --config ./config/config.yaml
 - **Security** - Multi-user or non-loopback deployments need explicit auth/access posture. Local API keys must be at least 16 Unicode code points after trimming. Diagnostics, pprof, metrics, model-catalog diagnostics, and secure-session summaries require a shared secret when exposed beyond loopback. On Unix, OpenAI Codex `auth.json` and managed-OAuth account files must be `0600` (group/other-readable files are now rejected at load); symlinked managed-OAuth account files are skipped. See [`docs/openai-codex-backend.md`](docs/openai-codex-backend.md#token-file-permissions).
 - **Observability** - Optional Prometheus metrics and OpenTelemetry tracing are configured under `observability`. Access logs use bounded-cardinality route groups by default; raw paths are opt-in.
 - **HTTP clients** - The shared upstream client honors `HTTP_PROXY` / `HTTPS_PROXY` by default. Set `http_client.trust_environment_proxy: false` when process environment is not trusted.
-- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps, and B2BUA store caps protect memory and request size boundaries.
+- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps (`max_pending_wire_events`; **0 = unlimited**), B2BUA store caps, and shared frontend **decode admission** (`max_concurrent_decodes` default **32**, `max_inflight_decode_bytes` default **64 MiB**) protect memory and request size boundaries. Absolute decompressed body oversize is **413**; temporary decode admission saturation is **429** + `Retry-After: 1`. Admission runs after body ReadAll (bytes already resident) and covers protocol Decode only. Raise body and inflight budgets together for large multimodal / long-context. See [`EchoesVault/pages/decode-qos-admission.md`](EchoesVault/pages/decode-qos-admission.md).
 
 More detail: [`docs/proxy-identity.md`](docs/proxy-identity.md), [`docs/database-persistence.md`](docs/database-persistence.md), [`docs/routing-health-circuit-breaker.md`](docs/routing-health-circuit-breaker.md), [`docs/execerr-classification.md`](docs/execerr-classification.md), [`docs/extension-platform-authoring.md`](docs/extension-platform-authoring.md), [`docs/performance-checks.md`](docs/performance-checks.md), and [`docs/release-gates.md`](docs/release-gates.md).
 
@@ -88,6 +88,7 @@ Recoverability is defined by the specification bundle: tests, `testdata/` golden
 - `cmd/lipstd/` - standard distribution command and wiring tests.
 - `pkg/lipapi/` - canonical request, event, capability, validation, and error contracts.
 - `pkg/lipsdk/` - stable plugin SDK contracts and standard distribution requirements.
+  - Compatibility note: `FrontendMountOptions` gained an optional `DecodeAdmission` field. Use **named** composite literals; unkeyed literals that previously listed every field in order will not compile.
 - `internal/core/` - runtime orchestration, routing, continuity, secure sessions, hooks/extensions, stream handling, policy, accounting, config, admin, diagnostics, and safety.
 - `internal/plugins/` - bundled frontend, backend, feature, compatibility, and protocol-helper packages.
 - `internal/standardplugins/` - standard bundle registration tables, per-backend factory helpers, and `InstallStandardBundleOn`.

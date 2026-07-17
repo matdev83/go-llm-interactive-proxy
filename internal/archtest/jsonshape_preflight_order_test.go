@@ -11,7 +11,9 @@ import (
 
 // TestFrontendServeHTTPPreflightBeforeDecode locks ServeHTTP call order by
 // source position (not CFG dominance): reqbody.ReadAll -> jsonguard.PreflightContext ->
-// Decode*. Behavioral depth/gzip/UTF-8 tests prove the runtime gate.
+// decodeqos.TryAdmit -> (optional FromModelOrDefault) -> Decode*. Behavioral
+// depth/gzip/UTF-8 tests prove the runtime gate. Body-touching route extraction
+// must not precede TryAdmit.
 func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
@@ -37,7 +39,7 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 			if serve == nil {
 				t.Fatalf("%s: ServeHTTP not found", name)
 			}
-			var readAllPos, preflightPos, decodePos token.Pos
+			var readAllPos, preflightPos, tryAdmitPos, routeExtractPos, decodePos token.Pos
 			ast.Inspect(serve.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
@@ -53,6 +55,14 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 					if preflightPos == 0 {
 						preflightPos = call.Pos()
 					}
+				case pkg == "decodeqos" && cname == "TryAdmit":
+					if tryAdmitPos == 0 {
+						tryAdmitPos = call.Pos()
+					}
+				case cname == "FromModelOrDefault":
+					if routeExtractPos == 0 {
+						routeExtractPos = call.Pos()
+					}
 				case strings.HasPrefix(cname, "Decode") && pkg == "":
 					if decodePos == 0 {
 						decodePos = call.Pos()
@@ -60,13 +70,17 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 				}
 				return true
 			})
-			if readAllPos == 0 || preflightPos == 0 || decodePos == 0 {
-				t.Fatalf("%s ServeHTTP: missing ReadAll(%v) PreflightContext(%v) Decode*(%v)",
-					name, readAllPos != 0, preflightPos != 0, decodePos != 0)
+			if readAllPos == 0 || preflightPos == 0 || tryAdmitPos == 0 || decodePos == 0 {
+				t.Fatalf("%s ServeHTTP: missing ReadAll(%v) PreflightContext(%v) TryAdmit(%v) Decode*(%v)",
+					name, readAllPos != 0, preflightPos != 0, tryAdmitPos != 0, decodePos != 0)
 			}
-			if readAllPos >= preflightPos || preflightPos >= decodePos {
-				t.Fatalf("%s ServeHTTP: want ReadAll < PreflightContext < Decode*; positions %d %d %d",
-					name, readAllPos, preflightPos, decodePos)
+			if readAllPos >= preflightPos || preflightPos >= tryAdmitPos || tryAdmitPos >= decodePos {
+				t.Fatalf("%s ServeHTTP: want ReadAll < PreflightContext < TryAdmit < Decode*; positions %d %d %d %d",
+					name, readAllPos, preflightPos, tryAdmitPos, decodePos)
+			}
+			if routeExtractPos != 0 && (routeExtractPos <= tryAdmitPos || routeExtractPos >= decodePos) {
+				t.Fatalf("%s ServeHTTP: want TryAdmit < FromModelOrDefault < Decode*; positions admit=%d route=%d decode=%d",
+					name, tryAdmitPos, routeExtractPos, decodePos)
 			}
 		})
 	}

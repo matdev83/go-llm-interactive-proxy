@@ -216,7 +216,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 			ALegLifecycle:        leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
 			Rand:                 routing.NewSeededRng(seed),
 			Now:                  in.NowFn,
-			MaxPendingWireEvents: cfg.Server.MaxPendingWireEvents,
+			MaxPendingWireEvents: cfg.Server.EffectiveMaxPendingWireEvents(),
 			StreamRecovery:       streamRecovery,
 		},
 		Routing:       routingRT,
