@@ -3,6 +3,9 @@ name: Mutation smoke (optional)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   mutation-smoke:
     runs-on: ubuntu-latest

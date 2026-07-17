@@ -107,6 +107,49 @@ func TestAttemptCoordinator_AggregatesBoundVersions(t *testing.T) {
 	}
 }
 
+func TestAttemptCoordinator_MixedCurrencyClampReleasesCurrentHolds(t *testing.T) {
+	t.Parallel()
+	usd := &fakeAttemptProvider{id: "usd"}
+	usd.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+		return authority.Decision{
+			Kind:         authority.DecisionAllow,
+			Reservations: []authority.Reservation{{Handle: "usd-h", Kind: authority.ReservationSpend}},
+			Clamps: []authority.Clamp{{
+				Kind:  authority.ClampMaxSpend,
+				Money: economics.Money{NanoUnits: 100, Currency: "USD", Present: true},
+			}},
+		}, nil
+	}
+	eur := &fakeAttemptProvider{id: "eur"}
+	eur.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+		return authority.Decision{
+			Kind:         authority.DecisionAllow,
+			Reservations: []authority.Reservation{{Handle: "eur-h", Kind: authority.ReservationSpend}},
+			Clamps: []authority.Clamp{{
+				Kind:  authority.ClampMaxSpend,
+				Money: economics.Money{NanoUnits: 50, Currency: "EUR", Present: true},
+			}},
+		}, nil
+	}
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "usd", Class: authoritycoord.AttemptPriorityHardSpend, Provider: usd, Strength: authority.StrengthRequired},
+			{ID: "eur", Class: authoritycoord.AttemptPriorityHardSpend, Provider: eur, Strength: authority.StrengthRequired},
+		},
+		CleanupTimeout: time.Second,
+	}
+	_, err := coord.Admit(context.Background(), validAttemptAdmission("b-mixed"))
+	if err == nil {
+		t.Fatal("expected mixed-currency clamp merge failure")
+	}
+	if usd.released.Load() != 1 {
+		t.Fatalf("prior usd hold released=%d want 1", usd.released.Load())
+	}
+	if eur.released.Load() != 1 {
+		t.Fatalf("current eur hold released=%d want 1 (must not leak on clamp merge failure)", eur.released.Load())
+	}
+}
+
 func validAttemptAdmission(bleg string) authority.AttemptAdmission {
 	return authority.AttemptAdmission{
 		RequestID:   "req-1",

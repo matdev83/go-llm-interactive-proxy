@@ -131,8 +131,12 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
 		merged, merr := mergeClampsNonWidening(out.Clamps, d.Clamps)
 		if merr != nil {
+			// d is not on out.Stack yet; compensate its holds before unwinding prior slots.
+			var claimed CompensationStack
+			pushRequestDecisionHolds(&claimed, id, slot.Provider, in.RequestID, d)
+			claimedFails := claimed.ReverseCompensate(ctx, timeout)
 			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = fails
+			out.CompensateFailures = append(claimedFails, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, fmt.Errorf("authoritycoord: request %s: %w", id, merr)
