@@ -16,6 +16,7 @@ const (
 	PartFileRef    PartKind = "file_ref"
 	PartToolResult PartKind = "tool_result"
 	PartJSON       PartKind = "json"
+	PartReasoning  PartKind = "reasoning"
 )
 
 // TextPart constructs a canonical text part for tests and adapters.
@@ -44,6 +45,9 @@ type Part struct {
 	ToolCallID string
 	ToolName   string
 	Content    json.RawMessage
+
+	// Reasoning carries historical assistant reasoning when Kind is PartReasoning.
+	Reasoning *ReasoningPart
 }
 
 func (p Part) validate() error {

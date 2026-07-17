@@ -19,10 +19,12 @@ func TestDefaultFailurePolicyForStage_matchesDesignMatrix(t *testing.T) {
 		{feature.StageIDToolCatalog, extensions.FailurePolicyFailOpen},
 		{feature.StageIDRequestWide, extensions.FailurePolicyFailOpen},
 		{feature.StageIDRouteHinting, extensions.FailurePolicyFailOpen},
+		{feature.StageIDCandidateAttemptTransform, extensions.FailurePolicyFailOpen},
 		{feature.StageIDAttemptLifecycle, extensions.FailurePolicyFailOpen},
 		{feature.StageIDStreamEventMutation, extensions.FailurePolicyFailOpen},
 		{feature.StageIDToolEventReaction, extensions.FailurePolicyFailOpen},
 		{feature.StageIDCompletionGating, extensions.FailurePolicyFailOpen},
+		{feature.StageIDFinalStreamObservation, extensions.FailurePolicyFailOpen},
 		{feature.StageIDTrafficObservation, extensions.FailurePolicyFailOpen},
 		{feature.StageIDEgressEncoding, extensions.FailurePolicyFailClosed},
 	}

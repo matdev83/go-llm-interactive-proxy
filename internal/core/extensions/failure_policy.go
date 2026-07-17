@@ -16,20 +16,22 @@ const (
 
 // Stage name constants for the legal pipeline (stable ids; align with pkg/lipsdk/feature).
 const (
-	StageTransportAuth       = feature.StageIDTransportAuth
-	StageSessionOpen         = feature.StageIDSessionOpen
-	StageSecretGuard         = feature.StageIDSecretGuard
-	StageSubmit              = feature.StageIDSubmit
-	StageToolCatalog         = feature.StageIDToolCatalog
-	StageRequestWide         = feature.StageIDRequestWide
-	StagePreRequest          = feature.StageIDPreRequest
-	StageRouteHinting        = feature.StageIDRouteHinting
-	StageAttemptLifecycle    = feature.StageIDAttemptLifecycle
-	StageStreamEventMutation = feature.StageIDStreamEventMutation
-	StageToolEventReaction   = feature.StageIDToolEventReaction
-	StageCompletionGating    = feature.StageIDCompletionGating
-	StageTrafficObservation  = feature.StageIDTrafficObservation
-	StageEgressEncoding      = feature.StageIDEgressEncoding
+	StageTransportAuth             = feature.StageIDTransportAuth
+	StageSessionOpen               = feature.StageIDSessionOpen
+	StageSecretGuard               = feature.StageIDSecretGuard
+	StageSubmit                    = feature.StageIDSubmit
+	StageToolCatalog               = feature.StageIDToolCatalog
+	StageRequestWide               = feature.StageIDRequestWide
+	StagePreRequest                = feature.StageIDPreRequest
+	StageRouteHinting              = feature.StageIDRouteHinting
+	StageCandidateAttemptTransform = feature.StageIDCandidateAttemptTransform
+	StageAttemptLifecycle          = feature.StageIDAttemptLifecycle
+	StageStreamEventMutation       = feature.StageIDStreamEventMutation
+	StageToolEventReaction         = feature.StageIDToolEventReaction
+	StageCompletionGating          = feature.StageIDCompletionGating
+	StageFinalStreamObservation    = feature.StageIDFinalStreamObservation
+	StageTrafficObservation        = feature.StageIDTrafficObservation
+	StageEgressEncoding            = feature.StageIDEgressEncoding
 )
 
 // DefaultFailurePolicyForStage returns the documented default for the stage (design section 17).
@@ -44,12 +46,16 @@ func DefaultFailurePolicyForStage(stage string) FailurePolicy {
 		return FailurePolicyFailOpen
 	case feature.StageIDRouteHinting:
 		return FailurePolicyFailOpen
+	case feature.StageIDCandidateAttemptTransform:
+		return FailurePolicyFailOpen
 	case feature.StageIDAttemptLifecycle:
 		return FailurePolicyFailOpen
 	case feature.StageIDStreamEventMutation, feature.StageIDToolEventReaction:
 		// Per-hook policies apply; documented stage default matches lenient hook-bus handling.
 		return FailurePolicyFailOpen
 	case feature.StageIDCompletionGating:
+		return FailurePolicyFailOpen
+	case feature.StageIDFinalStreamObservation:
 		return FailurePolicyFailOpen
 	case feature.StageIDTrafficObservation:
 		return FailurePolicyFailOpen

@@ -1,6 +1,7 @@
 package checkpoint_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -47,6 +48,49 @@ func TestCaptureFrontendIngress_ClonesCall(t *testing.T) {
 	}
 	if err := snap.Public.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCaptureFrontendIngress_DeepCopiesReasoningOpaque(t *testing.T) {
+	t.Parallel()
+	opaque := json.RawMessage(`{"k":"v"}`)
+	if !json.Valid(opaque) {
+		t.Fatal("opaque must be valid JSON")
+	}
+	call := lipapi.Call{
+		ID: "req-reason-1",
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleAssistant,
+			Parts: []lipapi.Part{{
+				Kind: lipapi.PartReasoning,
+				Reasoning: &lipapi.ReasoningPart{
+					Dialect: lipapi.ReasoningDialectAnthropicRedactedThinkingV1,
+					Opaque:  opaque,
+				},
+			}},
+		}},
+	}
+	snap, err := checkpoint.CaptureFrontendIngress(checkpoint.FrontendIngressInput{
+		Call:         call,
+		CheckpointID: "cp-fe-reason",
+		StreamID:     "stream-reason",
+		Now:          time.Unix(10, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Call.Messages[0].Parts[0].Reasoning == nil {
+		t.Fatal("checkpoint clone must retain Reasoning")
+	}
+	if call.Messages[0].Parts[0].Reasoning == snap.Call.Messages[0].Parts[0].Reasoning {
+		t.Fatal("checkpoint CloneCall must not share Reasoning pointer")
+	}
+	if &call.Messages[0].Parts[0].Reasoning.Opaque[0] == &snap.Call.Messages[0].Parts[0].Reasoning.Opaque[0] {
+		t.Fatal("checkpoint CloneCall must deep-copy reasoning Opaque")
+	}
+	snap.Call.Messages[0].Parts[0].Reasoning.Opaque[2] = 'X'
+	if string(call.Messages[0].Parts[0].Reasoning.Opaque) != `{"k":"v"}` {
+		t.Fatalf("mutating checkpoint Opaque must not mutate original: %s", call.Messages[0].Parts[0].Reasoning.Opaque)
 	}
 }
 
