@@ -4,6 +4,7 @@
 package jsonguard
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -76,11 +77,16 @@ func NormalizeLimits(limits Limits) Limits {
 
 // Preflight validates JSON size and shape using streaming decoder tokens.
 func Preflight(data []byte, limits Limits) (Result, error) {
-	result, err := jsonshape.Preflight(data, limits)
+	return PreflightContext(context.Background(), data, limits)
+}
+
+// PreflightContext is Preflight with request-cancellation checks at token boundaries.
+func PreflightContext(ctx context.Context, data []byte, limits Limits) (Result, error) {
+	result, err := jsonshape.PreflightContext(ctx, data, limits)
 	return result, mapError(err)
 }
 
-// ReadAndPreflight reads a bounded request body and then applies Preflight.
+// ReadAndPreflight reads a bounded request body and then applies PreflightContext.
 func ReadAndPreflight(w http.ResponseWriter, r *http.Request, limits Limits) ([]byte, Result, error) {
 	limits = NormalizeLimits(limits)
 	data, err := reqbody.ReadAll(w, r, limits.MaxBytes)
@@ -90,7 +96,7 @@ func ReadAndPreflight(w http.ResponseWriter, r *http.Request, limits Limits) ([]
 		}
 		return data, Result{Bytes: len(data)}, err
 	}
-	result, err := Preflight(data, limits)
+	result, err := PreflightContext(r.Context(), data, limits)
 	return data, result, err
 }
 

@@ -277,31 +277,34 @@ func TestPreflightContextDeadlineExceeded(t *testing.T) {
 func TestPreflightContextLargeTokenDeadlineSupplemental(t *testing.T) {
 	t.Parallel()
 
-	// Non-deterministic supplemental: cancel during a wide scan may observe KindCanceled or finish first.
+	// Deterministic: cancel after a fixed number of Err() polls during a wide scan.
 	body := `[` + strings.TrimRight(strings.Repeat(`1,`, 10_000), ",") + `]`
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := jsonshape.PreflightContext(ctx, []byte(body), jsonshape.Limits{MaxArrayElems: 100_000, MaxTokens: 1_000_000})
-		done <- err
-	}()
-	cancel()
-	select {
-	case err := <-done:
-		if err == nil {
-			return
-		}
-		if got := jsonshape.Classify(err); got != jsonshape.KindCanceled {
-			t.Fatalf("unexpected error kind %q: %v", got, err)
-		}
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("errors.Is(Canceled)=false err=%v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("PreflightContext did not return")
+	ctx := &cancelAfterN{Context: context.Background(), after: 3}
+	_, err := jsonshape.PreflightContext(ctx, []byte(body), jsonshape.Limits{MaxArrayElems: 100_000, MaxTokens: 1_000_000})
+	if got := jsonshape.Classify(err); got != jsonshape.KindCanceled {
+		t.Fatalf("Classify(error) = %q, want %q (err=%v)", got, jsonshape.KindCanceled, err)
 	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("errors.Is(Canceled)=false err=%v", err)
+	}
+}
+
+// cancelAfterN returns context.Canceled after after successful Err() polls.
+type cancelAfterN struct {
+	context.Context
+	after int
+	n     int
+}
+
+func (c *cancelAfterN) Err() error {
+	c.n++
+	if c.n > c.after {
+		return context.Canceled
+	}
+	if c.Context != nil {
+		return c.Context.Err()
+	}
+	return nil
 }
 
 func TestPreflightLargeTextWhenConfigured(t *testing.T) {

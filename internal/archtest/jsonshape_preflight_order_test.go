@@ -10,7 +10,7 @@ import (
 )
 
 // TestFrontendServeHTTPPreflightBeforeDecode locks ServeHTTP call order by
-// source position (not CFG dominance): reqbody.ReadAll → jsonguard.Preflight →
+// source position (not CFG dominance): reqbody.ReadAll -> jsonguard.PreflightContext ->
 // Decode*. Behavioral depth/gzip/UTF-8 tests prove the runtime gate.
 func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 	t.Parallel()
@@ -49,7 +49,7 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 					if readAllPos == 0 {
 						readAllPos = call.Pos()
 					}
-				case pkg == "jsonguard" && cname == "Preflight":
+				case pkg == "jsonguard" && cname == "PreflightContext":
 					if preflightPos == 0 {
 						preflightPos = call.Pos()
 					}
@@ -61,11 +61,11 @@ func TestFrontendServeHTTPPreflightBeforeDecode(t *testing.T) {
 				return true
 			})
 			if readAllPos == 0 || preflightPos == 0 || decodePos == 0 {
-				t.Fatalf("%s ServeHTTP: missing ReadAll(%v) Preflight(%v) Decode*(%v)",
+				t.Fatalf("%s ServeHTTP: missing ReadAll(%v) PreflightContext(%v) Decode*(%v)",
 					name, readAllPos != 0, preflightPos != 0, decodePos != 0)
 			}
-			if !(readAllPos < preflightPos && preflightPos < decodePos) {
-				t.Fatalf("%s ServeHTTP: want ReadAll < Preflight < Decode*; positions %d %d %d",
+			if readAllPos >= preflightPos || preflightPos >= decodePos {
+				t.Fatalf("%s ServeHTTP: want ReadAll < PreflightContext < Decode*; positions %d %d %d",
 					name, readAllPos, preflightPos, decodePos)
 			}
 		})

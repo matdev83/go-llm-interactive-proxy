@@ -28,33 +28,25 @@ func FuzzPreflight(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		result, err := jsonshape.Preflight(data, jsonshape.RequestEnvelopeLimits())
-		if err != nil {
-			msg := err.Error()
-			if strings.Contains(msg, "\xff") || looksLikePayloadLeak(msg, data) {
-				t.Fatalf("error appears to leak payload: %q", msg)
+		for _, limits := range []jsonshape.Limits{
+			jsonshape.RequestEnvelopeLimits(),
+			jsonshape.ToolArgumentsLimits(),
+		} {
+			result, err := jsonshape.Preflight(data, limits)
+			if err != nil {
+				msg := err.Error()
+				// Errors must stay payload-free; dedicated canary tests cover leak regression.
+				if strings.Contains(msg, "\xff") {
+					t.Fatalf("error appears to leak invalid UTF-8 payload: %q", msg)
+				}
+				continue
 			}
-			return
-		}
-		if !json.Valid(data) {
-			t.Fatalf("Preflight succeeded but encoding/json.Valid returned false")
-		}
-		if result.Bytes != len(data) || result.Tokens <= 0 || result.MaxDepth < 0 {
-			t.Fatalf("unexpected result: %+v", result)
+			if !json.Valid(data) {
+				t.Fatalf("Preflight succeeded but encoding/json.Valid returned false")
+			}
+			if result.Bytes != len(data) || result.Tokens <= 0 || result.MaxDepth < 0 {
+				t.Fatalf("unexpected result: %+v", result)
+			}
 		}
 	})
-}
-
-func looksLikePayloadLeak(msg string, data []byte) bool {
-	if len(data) < 12 {
-		return false
-	}
-	sample := string(data)
-	if len(sample) > 24 {
-		sample = sample[4:24]
-	}
-	if sample == "" || sample == "{" || sample == "[" {
-		return false
-	}
-	return strings.Contains(msg, sample)
 }
