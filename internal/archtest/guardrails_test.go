@@ -101,7 +101,8 @@ var lineBudgets = []struct {
 	// Raised from 50900 for issue #151 Phase 3 secretsguard catalog/matcher/source.
 	// Raised from 52000 for issue #151 Phase 5 quarantine adapters + runtime barrier.
 	// Raised to 53100 for issue #151 review fixes.
-	{"internal/core", 53100},
+	// Raised to 53200 for issue #151 gofumpt alignment after CI lint remediation.
+	{"internal/core", 53200},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
