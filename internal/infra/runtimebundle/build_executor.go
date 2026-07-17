@@ -173,10 +173,17 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	securityRT.SyntheticLocalPrincipal = cfg.SingleUserLocalMode() && strings.EqualFold(ssStore, "memory")
 
+	policyDiagEnabled := false
+	maxArgsBytes := 0
+	if opts != nil {
+		policyDiagEnabled = opts.Policy.PolicyDiagnosticsEnabled
+		maxArgsBytes = opts.Extensions.ToolCallFinalizationMaxArgsBytes
+	}
+
 	// Compute observability runtime with metrics sinks.
 	obsRT := runtime.ObservabilityRuntime{
 		Log:                      log,
-		PolicyDiagnosticsEnabled: opts.Policy.PolicyDiagnosticsEnabled,
+		PolicyDiagnosticsEnabled: policyDiagEnabled,
 	}
 	if in.Observability.Bundle != nil {
 		obsRT.Metrics = in.Observability.Bundle.ExecutorSink()
@@ -200,11 +207,6 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
 	}
 	routingRT, catalogRuntime := attachModelCatalog(routingRT, in.Model.StartedCatalog, cfg)
-
-	maxArgsBytes := 0
-	if opts != nil {
-		maxArgsBytes = opts.Extensions.ToolCallFinalizationMaxArgsBytes
-	}
 
 	// Construct executor with all fields set — no post-construction mutation.
 	exec := runtime.NewExecutor(runtime.ExecutorConfig{

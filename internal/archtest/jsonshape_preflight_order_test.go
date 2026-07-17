@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,49 +81,51 @@ func TestToolCallRepairMaterializeAfterPreflight(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 	dir := filepath.Join(root, "internal", "core", "toolcallrepair")
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(info os.FileInfo) bool {
-		name := info.Name()
-		return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
-	}, parser.SkipObjectResolution)
+	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
-		t.Fatalf("parse dir: %v", err)
+		t.Fatalf("glob: %v", err)
 	}
-	for _, pkg := range pkgs {
-		for path, f := range pkg.Files {
-			for _, decl := range f.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Body == nil || fn.Name == nil {
-					continue
-				}
-				fname := fn.Name.Name
-				switch fname {
-				case "parseOrderedJSON", "unmarshalSchemaJSON", "materializeFillValue", "repairPreflightedArgsJSON":
-					continue
-				}
-				var preflightPos token.Pos
-				var materializeCalls []token.Pos
-				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					call, ok := n.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-					_, cname := qualifiedCall(call.Fun)
-					switch cname {
-					case "preflightArgsJSON", "preflightSchemaJSON":
-						if preflightPos == 0 {
-							preflightPos = call.Pos()
-						}
-					case "parseOrderedJSON", "unmarshalSchemaJSON":
-						materializeCalls = append(materializeCalls, call.Pos())
-					}
+	fset := token.NewFileSet()
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Name == nil {
+				continue
+			}
+			fname := fn.Name.Name
+			switch fname {
+			case "parseOrderedJSON", "unmarshalSchemaJSON", "materializeFillValue", "repairPreflightedArgsJSON":
+				continue
+			}
+			var preflightPos token.Pos
+			var materializeCalls []token.Pos
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
 					return true
-				})
-				for _, mp := range materializeCalls {
-					if preflightPos == 0 || !(preflightPos < mp) {
-						t.Fatalf("%s:%s: must call preflightArgsJSON/preflightSchemaJSON before materialize",
-							filepath.Base(path), fname)
+				}
+				_, cname := qualifiedCall(call.Fun)
+				switch cname {
+				case "preflightArgsJSON", "preflightSchemaJSON":
+					if preflightPos == 0 {
+						preflightPos = call.Pos()
 					}
+				case "parseOrderedJSON", "unmarshalSchemaJSON":
+					materializeCalls = append(materializeCalls, call.Pos())
+				}
+				return true
+			})
+			for _, mp := range materializeCalls {
+				if preflightPos == 0 || preflightPos >= mp {
+					t.Fatalf("%s:%s: must call preflightArgsJSON/preflightSchemaJSON before materialize",
+						filepath.Base(path), fname)
 				}
 			}
 		}

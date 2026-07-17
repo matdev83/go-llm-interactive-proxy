@@ -11,8 +11,12 @@ import (
 
 func FuzzCompleteJSONSuffix(f *testing.F) {
 	for _, seed := range [][]byte{
-		[]byte(`{"a":1}`), []byte(`{"a":"x"`), []byte(`{"a":[1,2`),
-		[]byte(`{"a":"\u12`), []byte(`{"a":1]`), {0xff},
+		[]byte(`{"a":1}`),
+		[]byte(`{"a":"x"`),
+		[]byte(`{"a":[1,2`),
+		[]byte(`{"a":"\u12`),
+		[]byte(`{"a":1]`),
+		{0xff},
 	} {
 		f.Add(seed)
 	}

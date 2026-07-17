@@ -117,7 +117,7 @@ func BenchmarkEngineRepair(b *testing.B) {
 	}
 }
 
-func TestEngineValidHotPathAllocationBudget(t *testing.T) {
+func TestEngineValidHotPathAllocationBudget(t *testing.T) { //nolint:paralleltest // AllocsPerRun forbids parallel tests
 	schema := json.RawMessage(`{"type":"object","properties":{"location":{"type":"string"}},"required":["location"],"additionalProperties":false}`)
 	catalog := []lipapi.ToolDef{{Name: "get_weather", Parameters: schema}}
 	engine := toolcallrepair.NewEngine()
