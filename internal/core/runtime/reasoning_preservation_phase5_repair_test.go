@@ -223,12 +223,14 @@ type toggleSnapshotStore struct {
 func (s *toggleSnapshotStore) Append(ctx context.Context, p reasoningpreservation.SessionPartition, a reasoningpreservation.TurnArtifact) (reasoningpreservation.EvictionSummary, error) {
 	return s.inner.Append(ctx, p, a)
 }
+
 func (s *toggleSnapshotStore) Snapshot(ctx context.Context, p reasoningpreservation.SessionPartition) ([]reasoningpreservation.TurnArtifact, error) {
 	if s.failSnapshot.Load() {
 		return nil, errors.New("snapshot boom")
 	}
 	return s.inner.Snapshot(ctx, p)
 }
+
 func (s *toggleSnapshotStore) Delete(ctx context.Context, p reasoningpreservation.SessionPartition, ids ...string) error {
 	return s.inner.Delete(ctx, p, ids...)
 }

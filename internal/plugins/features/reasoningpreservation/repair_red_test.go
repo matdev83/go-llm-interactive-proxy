@@ -23,7 +23,6 @@ func TestRestoreMissingReasoning_observeCorruptNeverExcludes(t *testing.T) {
 		reasoningpreservation.PolicyReject,
 		reasoningpreservation.PolicyLogSkip,
 	} {
-		policy := policy
 		t.Run(policy, func(t *testing.T) {
 			t.Parallel()
 			call, _ := missingRestoreFixture(t)

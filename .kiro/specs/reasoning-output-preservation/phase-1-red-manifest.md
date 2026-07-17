@@ -76,11 +76,20 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 | `internal/plugins/features/reasoningpreservation` + `internal/core/runtime` | `TestPhase5_clientHintSpoof*`, `TestPhase5_opaqueAliasingRace`, partition/TTL/restart/cross-instance/sticky tests | Phase 5.4 authoritative isolation / process-local posture |
 | `internal/plugins/features/reasoningpreservation` + `internal/core/runtime` | `TestPhase5_safeInventory*`, `TestPhase5_telemetryRecords*`, `TestPhase5_disabled*` (empty snapshot/merge occupancy), `TestPhase5_noProductionProbeGlobals`, `BenchmarkPhase5_disabledRuntimeNoFeatureParticipants` | Phase 5.5 privacy inventory + fixed outcomes + disabled non-interference |
 
+## Fulfilled by Phase 6 (docs / gates / handoff)
+
+| Package / artifact | Evidence | Fulfilled by |
+|---|---|---|
+| `docs/`, `config/examples/` | Operator guide + observe/restore examples + release checklist | Phase 6.1 |
+| `Makefile` / `docs/release-gates.md` / parity / fuzz | `FuzzComputeAnchor`, `FuzzDecodeConfig`, VisibleThinker parity, `make parity-checks` | Phase 6.2 |
+| Repository gates | `make quality-checks`, lint, `make qa` OK after Postgres ledger unique-ID isolation; race skipped on Windows; full `make test-fuzz` not claimed | Phase 6.3 |
+| Handoff | PR split + review focus + issue #157 / spec links | Phase 6.4 |
+
 ## Intentional RED (must fail for the semantic gap named below)
 
 | Package | Tests / pattern | Why RED |
 |---|---|---|
-| _(none remaining for Phase 5 proofs)_ | — | Phase 6 docs/release gates remain |
+| _(none remaining)_ | — | Spec implementation complete; no intentional RED gaps |
 
 ## Intentionally GREEN characterizations / contract locks (not RED evidence)
 

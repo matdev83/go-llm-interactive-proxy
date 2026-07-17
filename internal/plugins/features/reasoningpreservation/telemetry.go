@@ -21,7 +21,11 @@ func (t *Telemetry) Record(outcome SafeOutcome, _ map[string]int) {
 		return
 	}
 	v, _ := t.outcomes.LoadOrStore(outcome, &atomic.Int64{})
-	v.(*atomic.Int64).Add(1)
+	n, ok := v.(*atomic.Int64)
+	if !ok || n == nil {
+		return
+	}
+	n.Add(1)
 }
 
 func (t *Telemetry) Snapshot() map[SafeOutcome]int64 {

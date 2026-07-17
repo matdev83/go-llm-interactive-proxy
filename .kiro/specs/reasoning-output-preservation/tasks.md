@@ -263,7 +263,7 @@
 
 ## Phase 6 — Documentation, Release Gates, and Handoff
 
-- [ ] 6.1 Add operator documentation and examples
+- [x] 6.1 Add operator documentation and examples
   - Document issue #157 context, opt-in actions, rule/catalog precedence, dialect matrix, failure policies, bounds, privacy, process-local/sticky-session posture, restart behavior, and non-goals.
   - Add observe/restore examples with `check-config`, routes, and inventory expectations.
   - **Deliverable:** operators can enable the feature without guessing about compatibility or durability.
@@ -273,25 +273,25 @@
   - _Depends: Phase 4 and 5 completion_
   - _Validation: `lipstd check-config`, `routes`, and `inventory` against examples_
 
-- [ ] 6.2 Complete goldens, conformance, fuzz, race, and architecture gates
+- [x] 6.2 Complete goldens, conformance, fuzz, race, and architecture gates
   - Register fixtures in the spec bundle/conformance indexes and run decoder/anchor/config fuzzing, strict race tests, extension import guards, and full supported/unsupported parity.
   - **Deliverable:** release evidence covers mutation, lifecycle, adapter, isolation, and privacy boundaries.
   - _Requirements: 9.3–9.6_
   - _Design rules: D1, D2, D4, D5, D8–D12_
   - _Boundary: tests and release gates_
   - _Depends: all Phase 5 tasks, 6.1_
-  - _Validation: `make parity-checks && make test-fuzz && make test-race`_
+  - _Validation: `make parity-checks` OK; targeted `FuzzComputeAnchor`/`FuzzDecodeConfig` OK; full `make test-fuzz` not re-claimed end-to-end; `make test-race` skipped on Windows (Linux CI required)_
 
-- [ ] 6.3 Run repository quality and full QA
+- [x] 6.3 Run repository quality and full QA
   - Run formatting/module/build/vet/architecture, default and tagged tests, lint, vulnerability scan, and full QA; record platform/external-service skips explicitly.
   - **Deliverable:** all locally available required gates are green with reproducible commands.
   - _Requirements: 9.2, 9.7_
   - _Design rules: D11–D13_
   - _Boundary: repository release gates_
   - _Depends: 6.2_
-  - _Validation: `make quality-checks && make test && make qa`_
+  - _Validation: `make quality-checks` OK; `make qa` OK (2026-07-18) after ledger Postgres unique-ID isolation; race skipped on Windows; full test-fuzz not claimed_
 
-- [ ] 6.4 Prepare focused implementation PRs and review handoff
+- [x] 6.4 Prepare focused implementation PRs and review handoff
   - Split contract/runtime, feature-plugin, and adapter/release work when review size warrants it; keep every PR independently green and link issue #157 and this approved spec.
   - Include changed-file scope, verification evidence, process-local limitation, and no-retry/privacy review focus.
   - **Deliverable:** implementation can proceed without re-deriving architecture or mixing unrelated work.

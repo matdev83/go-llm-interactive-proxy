@@ -48,6 +48,10 @@ Authoring and extension rules:
 
 Operator configuration and examples: [`docs/secrets-guard.md`](secrets-guard.md), [`config/config.yaml`](../config/config.yaml), and [`config/examples/`](../config/examples/).
 
+## Standard feature: reasoning-output-preservation
+
+`reasoning-output-preservation` is a bundled standard feature (plugin id `reasoning-output-preservation`, issue #157) registered in `internal/standardplugins/`. When enabled it contributes an attempt transform and a final-stream observer factory for bounded process-local reasoning capture/restore. Feature code lives in `internal/plugins/features/reasoningpreservation/` and must not import runtime, frontends, or backends. Operator configuration and examples: [`docs/reasoning-output-preservation.md`](reasoning-output-preservation.md), [`config/examples/reasoning-preservation-observe.yaml`](../config/examples/reasoning-preservation-observe.yaml), [`config/examples/reasoning-preservation-restore.yaml`](../config/examples/reasoning-preservation-restore.yaml), and the [release checklist](reasoning-output-preservation-release-checklist.md).
+
 ## Authoring rules
 
 - Keep handlers small, deterministic, and context-aware.

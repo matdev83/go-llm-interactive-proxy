@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,8 +50,10 @@ func rpArtifact(text string) reasoningpreservation.TurnArtifact {
 	}
 }
 
-var rpStoredArtifact = rpArtifact(rpStoredThought)
-var rpLargeArtifact = rpArtifact(rpLargeThought)
+var (
+	rpStoredArtifact = rpArtifact(rpStoredThought)
+	rpLargeArtifact  = rpArtifact(rpLargeThought)
+)
 
 type reasoningPreservationTransform struct {
 	mode      string
@@ -148,12 +151,7 @@ func rpReasoningTexts(call *lipapi.Call) []string {
 }
 
 func rpHasReasoningText(call lipapi.Call, want string) bool {
-	for _, text := range rpReasoningTexts(&call) {
-		if text == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(rpReasoningTexts(&call), want)
 }
 
 func rpWire(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
@@ -284,7 +282,6 @@ func TestReasoningPreservationComposition_exactRestoreBeforeOpen(t *testing.T) {
 func TestReasoningPreservationComposition_clientReasoningPreservedNoOverwrite(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"preserved", "conflicting"} {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			xform := &reasoningPreservationTransform{
@@ -336,7 +333,6 @@ func TestReasoningPreservationComposition_failoverRestorationIsolation(t *testin
 			})
 		}},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			xform := &reasoningPreservationTransform{
@@ -354,8 +350,10 @@ func TestReasoningPreservationComposition_failoverRestorationIsolation(t *testin
 						openCalls = append(openCalls, call)
 						mu.Unlock()
 						return lipapi.NewFixedEventStream([]lipapi.Event{
-							{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
-							{Kind: lipapi.EventTextDelta, Delta: "replacement"}, {Kind: lipapi.EventResponseFinished},
+							{Kind: lipapi.EventResponseStarted},
+							{Kind: lipapi.EventMessageStarted},
+							{Kind: lipapi.EventTextDelta, Delta: "replacement"},
+							{Kind: lipapi.EventResponseFinished},
 						}), nil
 					}),
 				}
@@ -442,8 +440,10 @@ func TestReasoningPreservationComposition_parallelRestorationIndependentClones(t
 				return nil, errors.New("parallel open barrier timed out waiting for peer arm")
 			}
 			return lipapi.NewFixedEventStream([]lipapi.Event{
-				{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
-				{Kind: lipapi.EventTextDelta, Delta: name + "-response"}, {Kind: lipapi.EventResponseFinished},
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventTextDelta, Delta: name + "-response"},
+				{Kind: lipapi.EventResponseFinished},
 			}), nil
 		})
 	}
@@ -489,8 +489,10 @@ func TestReasoningPreservationComposition_weightedRestorationIndependentClones(t
 			mu.Unlock()
 			_ = name
 			return lipapi.NewFixedEventStream([]lipapi.Event{
-				{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
-				{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
+				{Kind: lipapi.EventResponseStarted},
+				{Kind: lipapi.EventMessageStarted},
+				{Kind: lipapi.EventTextDelta, Delta: "ok"},
+				{Kind: lipapi.EventResponseFinished},
 			}), nil
 		})
 	}
@@ -646,8 +648,10 @@ func TestReasoningPreservationComposition_streamObserverContributionDropped(t *t
 	ex.Store, ex.Bus, ex.RuntimeSnapshot, ex.Rand = st, bus, snap, routing.NewSeededRng(2)
 	ex.Backends = map[string]execbackend.Backend{"be": rpStreamingBackend(func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 		return lipapi.NewFixedEventStream([]lipapi.Event{
-			{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
-			{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
+			{Kind: lipapi.EventResponseStarted},
+			{Kind: lipapi.EventMessageStarted},
+			{Kind: lipapi.EventTextDelta, Delta: "ok"},
+			{Kind: lipapi.EventResponseFinished},
 		}), nil
 	})}
 	rpCollect(t, ex, "be:m")
