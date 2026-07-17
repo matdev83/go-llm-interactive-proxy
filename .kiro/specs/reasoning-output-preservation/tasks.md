@@ -110,7 +110,7 @@
 
 ## Phase 3 — GREEN: Reasoning Preservation Feature Plugin
 
-- [ ] 3.1 Implement strict config and versioned policy catalog
+- [x] 3.1 Implement strict config and versioned policy catalog
   - Decode unknown-field-rejecting YAML for action, rules, catalog use, failure policies, and bounds.
   - Implement exact instance rules, family-prefix built-ins, model normalization, precedence, and a conservative versioned Kimi/Moonshot seed.
   - **Deliverable:** the feature builds only from valid explicit opt-in configuration.
@@ -120,7 +120,7 @@
   - _Depends: 2.2_
   - _Validation: focused config/catalog/registration/check-config tests_
 
-- [ ] 3.2 Implement deterministic anchors, placements, and classification
+- [x] 3.2 Implement deterministic anchors, placements, and classification
   - Canonically serialize assistant non-reasoning content with length boundaries and normalized JSON/tool arguments, then hash internally.
   - Derive placements and classify exact associations as missing, preserved, conflicting, ambiguous, or unmatched without exposing anchors.
   - **Deliverable:** exact deterministic matching works without stable provider IDs or heuristics.
@@ -130,7 +130,7 @@
   - _Depends: 2.1, 3.1_
   - _Validation: table tests, property tests, and anchor fuzzing_
 
-- [ ] 3.3 Implement the process-local bounded TurnStore
+- [x] 3.3 Implement the process-local bounded TurnStore
   - Add per-feature-instance concurrent state with opaque authoritative partitions, atomic TTL/turn/byte eviction, defensive copies, and bounded snapshots.
   - Clear reachable payloads on expiry/eviction and treat restart/replica movement as a state miss.
   - **Deliverable:** reasoning state is bounded and inaccessible across sessions or plugin instances.
@@ -140,7 +140,7 @@
   - _Depends: 3.1, 3.2_
   - _Validation: store contract, race tests, deterministic-clock expiry tests_
 
-- [ ] 3.4 Implement final-stream capture
+- [x] 3.4 Implement final-stream capture
   - Accumulate bounded final canonical reasoning/non-reasoning/tool/media state, preserve block order and placements, and append only on `success_released`.
   - Discard failed/cancelled/closed/replaced/gate-replaced/oversized observations and emit safe outcomes only.
   - **Deliverable:** one winning released assistant turn produces at most one valid artifact.
@@ -150,7 +150,7 @@
   - _Depends: 2.4, 3.2, 3.3_
   - _Validation: observer unit/lifecycle/gate/parallel tests_
 
-- [ ] 3.5 Implement candidate classification and restoration
+- [x] 3.5 Implement candidate classification and restoration
   - Snapshot state once, classify without mutation, verify every dialect against candidate support, build complete replacement slices, validate, and atomically apply only successful unique missing restorations.
   - Return `exclude_candidate` or configured log-skip for incompatibility/state errors; never overwrite conflicting reasoning.
   - **Deliverable:** restore mode is exact, ordered, idempotent, and candidate-isolated; observe mode never mutates.
