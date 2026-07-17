@@ -3,6 +3,7 @@ package reasoningpreservation_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -195,25 +196,32 @@ func TestPhase5_opaqueAliasingRace(t *testing.T) {
 		TTL: time.Hour, MaxTurnsPerSession: 32, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 1 << 20, Now: now,
 	})
 	partition := reasoningpreservation.NewSessionPartition("sess-opaque-race")
-	base := sampleArtifact("opaque-0", "thought", 64)
-	base.CreatedAt = time.Time{}
-	base.Reasoning[0].Part.Reasoning.Opaque = mustOpaqueJSON(t, `{"k":"v0"}`)
+	// Caller-owned artifacts must be goroutine-local. A shared shallow copy of TurnArtifact
+	// aliases nested Reasoning/Opaque pointers across workers and creates a false store race.
+	const workers = 64
 	var wg sync.WaitGroup
-	for i := range 64 {
+	errCh := make(chan error, workers)
+	for i := range workers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			art := base
-			art.ID = "opaque-" + string(rune('a'+i%26)) + string(rune('A'+i/26))
+			art := sampleArtifact(fmt.Sprintf("opaque-%d", i), "thought", 64)
 			art.CreatedAt = time.Time{}
 			opaque := mustOpaqueJSON(t, `{"k":"v"}`)
 			art.Reasoning[0].Part.Reasoning.Opaque = opaque
 			if _, err := store.Append(context.Background(), partition, art); err != nil {
+				errCh <- fmt.Errorf("Append %d: %w", i, err)
 				return
 			}
+			// Mutate caller-owned bytes/fields after Append; store must retain defensive copies.
 			opaque[2] = 'X'
+			art.Reasoning[0].Part.Reasoning.Text = "mutated-caller"
 			snap, err := store.Snapshot(context.Background(), partition)
-			if err != nil || len(snap) == 0 {
+			if err != nil {
+				errCh <- fmt.Errorf("Snapshot %d: %w", i, err)
+				return
+			}
+			if len(snap) == 0 {
 				return
 			}
 			if len(snap[0].Reasoning) > 0 && snap[0].Reasoning[0].Part.Reasoning != nil {
@@ -222,6 +230,10 @@ func TestPhase5_opaqueAliasingRace(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
 	snap, err := store.Snapshot(context.Background(), partition)
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
@@ -230,8 +242,15 @@ func TestPhase5_opaqueAliasingRace(t *testing.T) {
 		if len(art.Reasoning) == 0 || art.Reasoning[0].Part.Reasoning == nil {
 			continue
 		}
-		if string(art.Reasoning[0].Part.Reasoning.Opaque) == `{"k":"mutated-snap"}` {
+		got := string(art.Reasoning[0].Part.Reasoning.Opaque)
+		if got == `{"k":"mutated-snap"}` {
 			t.Fatal("opaque aliasing: snapshot mutation leaked into store")
+		}
+		if got != `{"k":"v"}` {
+			t.Fatalf("opaque aliasing: caller opaque mutation leaked into store, got %q", got)
+		}
+		if art.Reasoning[0].Part.Reasoning.Text == "mutated-caller" {
+			t.Fatal("text aliasing: caller mutation leaked into store")
 		}
 	}
 }
