@@ -74,7 +74,7 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 
 - Local default: `FUZZTIME=500ms` per target (wall time scales with the number of rows in the table above).
 - Nightly CI: `.github/workflows/race-fuzz-nightly.yml` sets `FUZZTIME=6s` per target for `make test-fuzz` (raise over ad-hoc local smoke when validating releases).
-- PR CI (`.github/workflows/qa.yml`) does **not** run race or Tier-1 fuzz; it keeps merge feedback fast (quality, postgres authority, unit/integration, lint, vuln).
+- PR CI (`.github/workflows/qa.yml`) does **not** run race or Tier-1 fuzz; it keeps merge feedback fast (quality, postgres authority, unit/integration, lint, vuln). PRs that change no `*.go` files skip the suite; the required `qa` gate still succeeds.
 
 ## Fuzz seed corpus (committed)
 

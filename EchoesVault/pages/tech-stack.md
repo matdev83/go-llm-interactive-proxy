@@ -76,7 +76,7 @@ status: active
 - **Linter:** `golangci-lint` v2 (`.golangci.yml`)
 - **Vuln check:** `go tool govulncheck`
 - **Build system:** Makefile-based (`Makefile`)
-- **CI:** GitHub Actions — PR QA (`.github/workflows/qa.yml`); nightly race + fuzz (`.github/workflows/race-fuzz-nightly.yml`)
+- **CI:** GitHub Actions — PR QA (`.github/workflows/qa.yml`, skips when no `*.go` changes); nightly race + fuzz (`.github/workflows/race-fuzz-nightly.yml`)
 - **Pre-commit hooks:** `.githooks/`
 
 ## Structural Patterns

@@ -3,10 +3,36 @@ name: QA
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  qa:
+  # Detect *.go changes so docs/workflow-only PRs skip the expensive suite.
+  # Required check name stays `qa` via the gate job below.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+      - name: Detect Go file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - '**/*.go'
+
+  qa-run:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write # arch-report artifact upload
     services:
       postgres:
         image: postgres:17-alpine
@@ -92,3 +118,28 @@ jobs:
 
       - name: govulncheck
         run: go tool govulncheck ./...
+
+  # Always-run gate so branch protection on check name `qa` stays green when
+  # there are no *.go changes (qa-run is skipped) and fails when qa-run fails.
+  qa:
+    needs: [changes, qa-run]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: QA gate
+        run: |
+          set -euo pipefail
+          if [[ "${{ needs.changes.result }}" != "success" ]]; then
+            echo "changes job result: ${{ needs.changes.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.changes.outputs.go }}" != "true" ]]; then
+            echo "No *.go changes in this PR; QA suite skipped."
+            exit 0
+          fi
+          result="${{ needs.qa-run.result }}"
+          echo "qa-run result: ${result}"
+          if [[ "${result}" == "success" ]]; then
+            exit 0
+          fi
+          exit 1
