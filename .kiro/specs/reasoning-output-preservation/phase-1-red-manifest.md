@@ -52,18 +52,25 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 | `internal/plugins/features/reasoningpreservation` | Decode/catalog/anchor/classify/restore/store/privacy/observer/bundle tests (not `*_contractLock`) | Phase 3.1–3.5 feature plugin implementation |
 | `internal/core/runtime` | `TestReasoningPreservationComposition_*` restore/failover/parallel/weighted/unrepresentable paths | Phase 3.5 restore + composition harness anchors |
 
+## Fulfilled by Phase 4 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/plugins/frontends/openailegacy` | `TestDecodeChat_assistantReasoning*_RED`, `TestEncode_reasoningNonStreamOutput_RED` | Phase 4.1 Chat history/nonstream mapping |
+| `internal/plugins/backends/openailegacy` | `TestParamsForCall_assistantReasoningChatDialect_RED` | Phase 4.1 Chat backend encode |
+| `internal/plugins/frontends/openairesponses` | `TestDecodeCreate_reasoningInputItem_RED` | Phase 4.2 Responses input item decode |
+| `internal/plugins/backends/openairesponses` | `TestParamsForCall_assistantReasoningResponsesDialect_RED` | Phase 4.2 Responses backend encode |
+| `internal/plugins/frontends/anthropic` | `TestDecodeMessage_assistantThinkingAndRedactedInterleaved_RED` | Phase 4.3 Thinking decode |
+| `internal/plugins/backends/protocols/anthropicmessages` | `TestParamsForCall_assistantThinking*_RED` | Phase 4.3 Thinking encode |
+| `internal/plugins/backends/openaifamily` | flavor accept + `TestReasoningReplayProfile_kimiMoonshotExactFlavorAndModel_RED` + dialect-mismatch reject cases | Phase 4.4 flavor-exact replay + `ResolveReplaySupport` |
+| `internal/plugins/backends/protocols/geminigenerate` | `TestStreamParamsForCall_assistantReasoningReplayUnsupported_RED`, `TestStreamParamsForCall_noPositiveReasoningReplayGolden_RED` | Phase 4.5 explicit `reasoning_replay` unsupported classification |
+| `internal/plugins/frontends/parity` | `TestVisibleThinkerReasoning_nonStreamEncodesLegally/openailegacy` | Phase 4.5 nonstream chat reasoning parity |
+
 ## Intentional RED (must fail for the semantic gap named below)
 
 | Package | Tests / pattern | Why RED |
 |---|---|---|
-| `internal/plugins/frontends/openailegacy` | `TestDecodeChat_assistantReasoning*_RED`, `TestEncode_reasoningNonStreamOutput_RED` | Chat history/nonstream mapping (Phase 4.1) |
-| `internal/plugins/backends/openailegacy` | `TestParamsForCall_assistantReasoningChatDialect_RED` | Chat backend encode (Phase 4.1) |
-| `internal/plugins/frontends/openairesponses` | `TestDecodeCreate_reasoningInputItem_RED` | Responses input item decode (Phase 4.2) |
-| `internal/plugins/backends/openairesponses` | `TestParamsForCall_assistantReasoningResponsesDialect_RED` | Responses backend encode (Phase 4.2) |
-| `internal/plugins/frontends/anthropic` | `TestDecodeMessage_assistantThinkingAndRedactedInterleaved_RED` | Thinking decode (Phase 4.3) |
-| `internal/plugins/backends/protocols/anthropicmessages` | `TestParamsForCall_assistantThinking*_RED` | Thinking encode (Phase 4.3) |
-| `internal/plugins/backends/openaifamily` | flavor accept + `TestReasoningReplayProfile_kimiMoonshotExactFlavorAndModel_RED` + dialect-mismatch reject cases | Flavor-exact replay (Phase 4.4); reject cases must fail with dialect-specific errors, not generic `PartReasoning` unsupported |
-| `internal/plugins/backends/protocols/geminigenerate` | `TestStreamParamsForCall_assistantReasoningReplayUnsupported_RED`, `TestStreamParamsForCall_noPositiveReasoningReplayGolden_RED` | Must classify `reasoning replay` / `reasoning_replay` (Phase 4.5); generic text-only / unknown-kind rejection must not green these |
+| _(none remaining for Phase 4 adapter mapping)_ | — | Phase 5 routing/lifecycle/isolation proofs remain |
 
 ## Intentionally GREEN characterizations / contract locks (not RED evidence)
 

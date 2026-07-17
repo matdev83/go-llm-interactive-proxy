@@ -177,11 +177,13 @@ func parseMessages(raw []json.RawMessage) ([]lipapi.Message, error) {
 
 func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 	var probe struct {
-		Role         string          `json:"role"`
-		Content      json.RawMessage `json:"content"`
-		ToolCallID   string          `json:"tool_call_id"`
-		ToolCalls    json.RawMessage `json:"tool_calls"`
-		FunctionCall json.RawMessage `json:"function_call"`
+		Role             string          `json:"role"`
+		Content          json.RawMessage `json:"content"`
+		ToolCallID       string          `json:"tool_call_id"`
+		ToolCalls        json.RawMessage `json:"tool_calls"`
+		FunctionCall     json.RawMessage `json:"function_call"`
+		ReasoningContent *string         `json:"reasoning_content"`
+		Reasoning        *string         `json:"reasoning"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
 		return lipapi.Message{}, fmt.Errorf("openailegacy: message json: %w", err)
@@ -213,7 +215,7 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 			}},
 		}, nil
 	case lipapi.RoleAssistant:
-		parts, err := parseAssistantParts(probe.Content, probe.ToolCalls, probe.FunctionCall)
+		parts, err := parseAssistantParts(probe.Content, probe.ToolCalls, probe.FunctionCall, probe.ReasoningContent, probe.Reasoning)
 		if err != nil {
 			return lipapi.Message{}, fmt.Errorf("openailegacy: assistant message: %w", err)
 		}
@@ -227,7 +229,7 @@ func parseMessage(raw json.RawMessage) (lipapi.Message, error) {
 	return lipapi.Message{Role: role, Parts: parts}, nil
 }
 
-func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]lipapi.Part, error) {
+func parseAssistantParts(content, toolCalls, functionCall json.RawMessage, reasoningContent, reasoningAlias *string) ([]lipapi.Part, error) {
 	contentParts := []lipapi.Part{}
 	toolCallParts := []json.RawMessage{}
 	functionCallPart := json.RawMessage(nil)
@@ -263,11 +265,28 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 		functionCallPart = append(json.RawMessage(nil), functionCall...)
 	}
 
+	reasoningText, _ := chatAssistantReasoningText(reasoningContent, reasoningAlias)
+
 	capHint := len(contentParts) + len(toolCallParts)
 	if len(functionCallPart) > 0 {
 		capHint++
 	}
+	if reasoningText != "" {
+		capHint++
+	}
 	parts := make([]lipapi.Part, 0, capHint)
+	if reasoningText != "" {
+		if err := frontendlimits.StringBytes("reasoning", reasoningText, lipapi.MaxReasoningTextBytes); err != nil {
+			return nil, err
+		}
+		parts = append(parts, lipapi.Part{
+			Kind: lipapi.PartReasoning,
+			Reasoning: &lipapi.ReasoningPart{
+				Dialect: lipapi.ReasoningDialectOpenAIChatTextV1,
+				Text:    reasoningText,
+			},
+		})
+	}
 	parts = append(parts, contentParts...)
 	for _, rc := range toolCallParts {
 		if !json.Valid(rc) {
@@ -282,6 +301,16 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage) ([]li
 		return nil, errEmptyAssistantMessage
 	}
 	return parts, nil
+}
+
+func chatAssistantReasoningText(reasoningContent, reasoningAlias *string) (text string, officialPresent bool) {
+	if reasoningContent != nil {
+		return *reasoningContent, true
+	}
+	if reasoningAlias != nil {
+		return *reasoningAlias, false
+	}
+	return "", false
 }
 
 func parseToolMessageContent(raw json.RawMessage) (any, error) {
