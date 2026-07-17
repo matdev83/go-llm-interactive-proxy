@@ -58,7 +58,8 @@ func (p *previewClampProvider) AdmitAttempt(context.Context, authority.AttemptAd
 	d := authority.Decision{
 		Kind:         authority.DecisionAllow,
 		ProviderID:   p.id,
-		Reservations: []authority.Reservation{{Handle: "h1", Kind: authority.ReservationSpend}}}
+		Reservations: []authority.Reservation{{Handle: "h1", Kind: authority.ReservationSpend}},
+	}
 	admitVal := p.admitValue
 	if admitVal == 0 {
 		admitVal = p.clampValue
@@ -89,25 +90,30 @@ func TestFinalBackendExposure_RatesFrozenIngressNotStaleDecision(t *testing.T) {
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "be-rate", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired}}}
+			ID: "be-rate", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
+		}},
+	}
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call:      lipapi.Call{ID: "req-be", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
 		AttemptID: "b-1", BLegID: "b-1", CheckpointID: "be-cp", StreamID: "be-stream",
-		Now: time.Unix(2, 0).UTC()})
+		Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	holder.MergeBackendIngressQuantities("b-1", []metering.Quantity{
 		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 777, Present: true},
-		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: 9, Present: true}})
+		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: 9, Present: true},
+	})
 	factID, err := ex.persistBackendIngressFact(context.Background(), holder, "b-1")
 	if err != nil || factID == "" {
 		t.Fatalf("persist fact: id=%q err=%v", factID, err)
 	}
 	ctx := withMeteringHolder(context.Background(), holder)
 	stale := accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 1, OutputTokens: 9, TotalTokens: 10, TotalTokensPresent: true}}
+		Count: accountingapp.CountResult{InputTokens: 1, OutputTokens: 9, TotalTokens: 10, TotalTokensPresent: true},
+	}
 	_, err = ex.admitAttemptAuthority(ctx, "trace", "a-1", b2bua.BLegRecord{BLegID: "b-1", Seq: 1},
 		lipapi.Call{ID: "req-be"}, routing.AttemptCandidate{Key: "k", Primary: routing.Primary{Backend: "b", Model: "m"}},
 		stale, false)
@@ -135,7 +141,9 @@ func TestFinalBackendExposure_PreviewForbidsHolds(t *testing.T) {
 	bad := &previewClampProvider{id: "preview-holds", previewHolds: true}
 	coord := &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "preview-holds", Class: authoritycoord.AttemptPriorityHardSpend, Provider: bad, Strength: authority.StrengthRequired}}}
+			ID: "preview-holds", Class: authoritycoord.AttemptPriorityHardSpend, Provider: bad, Strength: authority.StrengthRequired,
+		}},
+	}
 	_, err := coord.PreviewClamps(context.Background(), authority.AttemptAdmission{
 		RequestID: "r", AttemptID: "a", BLegID: "b",
 		Perspective: metering.PerspectiveOperator,
@@ -143,7 +151,9 @@ func TestFinalBackendExposure_PreviewForbidsHolds(t *testing.T) {
 		Exposure: economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
 			Boundary:    metering.BoundaryBackendIngress,
-			Lifecycle:   metering.LifecycleBackendAttempt}})
+			Lifecycle:   metering.LifecycleBackendAttempt,
+		},
+	})
 	if err == nil {
 		t.Fatal("expected preview holds rejection")
 	}
@@ -158,7 +168,9 @@ func TestFinalBackendExposure_PreviewAppliesTokenClamp(t *testing.T) {
 	ex := &Executor{}
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "preview-clamp", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired}}}
+			ID: "preview-clamp", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired,
+		}},
+	}
 	call := lipapi.Call{ID: "req-preview"}
 	clamps, ran, err := ex.previewAndApplyAttemptClamps(context.Background(), &call,
 		routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, "a-1", "b-1")
@@ -185,7 +197,9 @@ func TestFinalBackendExposure_PreviewNonConvergenceFails(t *testing.T) {
 	ex := &Executor{}
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "nc", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired}}}
+			ID: "nc", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired,
+		}},
+	}
 	call := lipapi.Call{ID: "req-nc"}
 	_, _, err := ex.previewAndApplyAttemptClamps(context.Background(), &call,
 		routing.AttemptCandidate{Primary: routing.Primary{Backend: "b", Model: "m"}}, "a-1", "b-1")
@@ -200,12 +214,14 @@ func TestFinalBackendExposure_PreviewNonConvergenceFails(t *testing.T) {
 func TestFinalBackendExposure_UnknownOutputOmittedNotPresentZero(t *testing.T) {
 	t.Parallel()
 	qs := attemptRatingQuantities(accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 3, OutputTokens: 0}})
+		Count: accountingapp.CountResult{InputTokens: 3, OutputTokens: 0},
+	})
 	if quantityComponentPresent(qs, metering.ComponentOutputToken) {
 		t.Fatalf("unknown output must be omitted, got %v", qs)
 	}
 	out := conservativeOutputAssumption(accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 3}}, qs)
+		Count: accountingapp.CountResult{InputTokens: 3},
+	}, qs)
 	if out.Present {
 		t.Fatalf("conservative output must not claim present zero: %+v", out)
 	}
@@ -220,7 +236,9 @@ func TestFinalBackendExposure_PostAdmitMismatchCompensates(t *testing.T) {
 	ex.Now = func() time.Time { return time.Unix(1, 0).UTC() }
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "mismatch", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired}}}
+			ID: "mismatch", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired,
+		}},
+	}
 	holder := &checkpoint.RequestHolder{}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
 	p.ctx = withMeteringHolder(p.ctx, holder)
@@ -251,7 +269,9 @@ func TestFinalBackendExposure_OpenPathPreviewThenFactRateAdmitOnce(t *testing.T)
 	ex.Now = func() time.Time { return time.Unix(1, 0).UTC() }
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "path", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired}}}
+			ID: "path", Class: authoritycoord.AttemptPriorityHardSpend, Provider: prov, Strength: authority.StrengthRequired,
+		}},
+	}
 	holder := &checkpoint.RequestHolder{}
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 5})
 	p.ctx = withMeteringHolder(p.ctx, holder)
@@ -297,7 +317,9 @@ func TestFinalBackendExposure_RaterAbsentMoneyFailsClosed(t *testing.T) {
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
 			ID: "abs", Class: authoritycoord.AttemptPriorityHardSpend,
-			Provider: &recordingAttemptProvider{id: "abs"}, Strength: authority.StrengthRequired}}}
+			Provider: &recordingAttemptProvider{id: "abs"}, Strength: authority.StrengthRequired,
+		}},
+	}
 	_, err := ex.admitAttemptAuthority(context.Background(), "t", "a", b2bua.BLegRecord{BLegID: "b"},
 		lipapi.Call{ID: "r"}, routing.AttemptCandidate{Key: "k", Primary: routing.Primary{Backend: "b", Model: "m"}},
 		accountingpreflight.Decision{Count: accountingapp.CountResult{InputTokens: 1, OutputTokens: 1, TotalTokens: 2, TotalTokensPresent: true}},
@@ -311,7 +333,8 @@ func TestFinalBackendExposure_ExactClampMatchNoPostAdmitMutate(t *testing.T) {
 	t.Parallel()
 	previewed := []authority.Clamp{{Kind: authority.ClampMaxOutputTokens, Value: 20}}
 	state := attemptAuthorityState{
-		admitClamps: []authority.Clamp{{Kind: authority.ClampMaxOutputTokens, Value: 20}}}
+		admitClamps: []authority.Clamp{{Kind: authority.ClampMaxOutputTokens, Value: 20}},
+	}
 	frozen := lipapi.Call{ID: "r"}
 	max := 20
 	frozen.Options.MaxOutputTokens = &max

@@ -41,14 +41,17 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.RequestCoordinator = &authoritycoord.RequestCoordinator{
 		Slots: []authoritycoord.RequestSlot{{
-			ID: "customer-settle", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: prov, Strength: authority.StrengthRequired}}}
+			ID: "customer-settle", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: prov, Strength: authority.StrengthRequired,
+		}},
+	}
 
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
 		Call:         lipapi.Call{ID: "req-cust-usage"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
-		Now:          time.Unix(1, 0).UTC()})
+		Now:          time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,14 +64,19 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 	provider := lipapi.ScopedUsageDelta{
 		InputTokens: 200, OutputTokens: 80, TotalTokens: 280,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}}
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+		},
+	}
 	delivered := lipapi.ScopedUsageDelta{
 		InputTokens: 40, OutputTokens: 12, TotalTokens: 52,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneClientVisible, Source: lipapi.UsageSourceLocalTokenizer, Authority: lipapi.UsageAuthorityEstimated}}
+			Plane: lipapi.UsagePlaneClientVisible, Source: lipapi.UsageSourceLocalTokenizer, Authority: lipapi.UsageAuthorityEstimated,
+		},
+	}
 	raw := lipapi.Event{
 		Kind:        lipapi.EventUsageDelta,
-		UsageScopes: []lipapi.ScopedUsageDelta{delivered, provider}}
+		UsageScopes: []lipapi.ScopedUsageDelta{delivered, provider},
+	}
 	authorityEv := authorityUsageEvent([]lipapi.Event{raw})
 	if authorityEv.InputTokens != provider.InputTokens {
 		t.Fatalf("precondition: authorityUsageEvent must prefer provider input; got %d", authorityEv.InputTokens)
@@ -79,7 +87,8 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 	stream := &retryRecvStream{
 		executor: ex, traceID: "trace-cust-usage",
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-cust-usage"}}
+		baseline: lipapi.Call{ID: "req-cust-usage"},
+	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
 	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
@@ -119,7 +128,8 @@ func TestDualPlaneTerminalInvariants_ProviderCostMustNotEnterFrontendFacts(t *te
 		Call:         lipapi.Call{ID: "req-fe-cost"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
-		Now:          time.Unix(1, 0).UTC()})
+		Now:          time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +145,9 @@ func TestDualPlaneTerminalInvariants_ProviderCostMustNotEnterFrontendFacts(t *te
 		CostSource:    string(lipapi.UsageSourceProviderReported),
 		CostPresent:   true,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}}
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+		},
+	}
 	fact, ok := ex.emitFrontendEgressMeteringFact(ctx, "trace-fe-cost", usage)
 	if !ok {
 		t.Fatal("expected frontend-egress fact")
@@ -158,7 +170,9 @@ func TestDualPlaneTerminalInvariants_AttemptMoneyRatedFromFinalBackendIngressNot
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "rate-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired}}}
+			ID: "rate-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
+		}},
+	}
 
 	holder := &checkpoint.RequestHolder{}
 	const beAttempt = "b-leg-final"
@@ -166,17 +180,21 @@ func TestDualPlaneTerminalInvariants_AttemptMoneyRatedFromFinalBackendIngressNot
 		Call: lipapi.Call{
 			ID: "req-rate-final",
 			Messages: []lipapi.Message{{
-				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("compressed")}}}},
+				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("compressed")},
+			}},
+		},
 		AttemptID: beAttempt, BLegID: beAttempt, ALegID: "a-1",
 		BackendID: "backend-1", Model: "model-1",
 		CheckpointID: "be", StreamID: "be-stream",
-		Now: time.Unix(2, 0).UTC()})
+		Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	holder.MergeBackendIngressQuantities(beAttempt, []metering.Quantity{
 		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 500, Present: true},
-		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: 64, Present: true}})
+		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: 64, Present: true},
+	})
 	be := holder.BackendIngressFor(beAttempt)
 	finalIn, ok := checkpoint.QuantityComponentValue(be.Public.Quantities, metering.ComponentInputToken)
 	if !ok || finalIn != 500 {
@@ -184,7 +202,8 @@ func TestDualPlaneTerminalInvariants_AttemptMoneyRatedFromFinalBackendIngressNot
 	}
 
 	staleDecision := accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 10, OutputTokens: 64, TotalTokens: 74, TotalTokensPresent: true}}
+		Count: accountingapp.CountResult{InputTokens: 10, OutputTokens: 64, TotalTokens: 74, TotalTokensPresent: true},
+	}
 	ctx := withMeteringHolder(context.Background(), holder)
 	_, err = ex.admitAttemptAuthority(
 		ctx, "trace-rate-final", "a-1",
@@ -221,27 +240,35 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 		Call: lipapi.Call{
 			ID: "req-compress",
 			Messages: []lipapi.Message{{
-				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("original long prompt")}}}},
-		CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("original long prompt")},
+			}},
+		},
+		CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	holder.MergeFrontendIngressQuantities([]metering.Quantity{
-		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 1000, Present: true}})
+		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 1000, Present: true},
+	})
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call: lipapi.Call{
 			ID: "req-compress",
 			Messages: []lipapi.Message{{
-				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("compressed")}}}},
+				Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("compressed")},
+			}},
+		},
 		AttemptID: "b-1", BLegID: "b-1", ALegID: "a-1",
 		BackendID: "backend-1", Model: "model-1",
 		CheckpointID: "be", StreamID: "be-stream",
-		Now: time.Unix(2, 0).UTC()})
+		Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	holder.MergeBackendIngressQuantities("b-1", []metering.Quantity{
-		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 200, Present: true}})
+		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 200, Present: true},
+	})
 
 	feIn, _ := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken)
 	beIn, _ := checkpoint.QuantityComponentValue(holder.BackendIngressFor("b-1").Public.Quantities, metering.ComponentInputToken)
@@ -256,16 +283,22 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 	provider := lipapi.ScopedUsageDelta{
 		InputTokens: int(beIn), OutputTokens: 90, TotalTokens: int(beIn) + 90,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}}
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+		},
+	}
 	delivered := lipapi.ScopedUsageDelta{
 		InputTokens: 0, OutputTokens: deliveredOut, TotalTokens: deliveredOut,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneClientVisible, Source: lipapi.UsageSourceLocalTokenizer, Authority: lipapi.UsageAuthorityEstimated}}
+			Plane: lipapi.UsagePlaneClientVisible, Source: lipapi.UsageSourceLocalTokenizer, Authority: lipapi.UsageAuthorityEstimated,
+		},
+	}
 	beUsage := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: int(beIn), OutputTokens: 90, TotalTokens: int(beIn) + 90,
-		Accounting: provider.Accounting}
+		Accounting: provider.Accounting,
+	}
 	raw := lipapi.Event{
-		Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{delivered, provider}}
+		Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{delivered, provider},
+	}
 	authorityEv := authorityUsageEvent([]lipapi.Event{raw})
 	if authorityEv.OutputTokens != provider.OutputTokens {
 		t.Fatalf("precondition: authorityUsageEvent prefers provider output; got %d", authorityEv.OutputTokens)
@@ -275,11 +308,13 @@ func TestDualPlaneTerminalInvariants_CompressionIngressPlanesAndDeliveredEgressO
 	_, output := clientVisibleCount(0, deliveredOut)
 	ex.StreamUsage = accountingstream.New(&stubStreamCounter{
 		call:   accountingapp.CountResult{},
-		output: output}, accountingstream.Config{})
+		output: output,
+	}, accountingstream.Config{})
 	stream := &retryRecvStream{
 		executor: ex, traceID: "trace-compress", bleg: b2bua.BLegRecord{BLegID: "b-1"},
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-compress"}}
+		baseline: lipapi.Call{ID: "req-compress"},
+	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "compressed-out"})
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, beUsage)
 	stream.emitFrontendEgressMeteringFact(ctx, authorityEv)
@@ -310,18 +345,22 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.RequestCoordinator = &authoritycoord.RequestCoordinator{
 		Slots: []authoritycoord.RequestSlot{{
-			ID: "filter-settle", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: prov, Strength: authority.StrengthRequired}}}
+			ID: "filter-settle", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: prov, Strength: authority.StrengthRequired,
+		}},
+	}
 
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
-		Call: lipapi.Call{ID: "req-filter"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+		Call: lipapi.Call{ID: "req-filter"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call:      lipapi.Call{ID: "req-filter", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
 		AttemptID: "b-1", BLegID: "b-1", CheckpointID: "be", StreamID: "be-stream",
-		Now: time.Unix(2, 0).UTC()})
+		Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,11 +374,15 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	provider := lipapi.ScopedUsageDelta{
 		InputTokens: 10, OutputTokens: providerOut, TotalTokens: 10 + providerOut,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}}
+			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+		},
+	}
 	delivered := lipapi.ScopedUsageDelta{
 		InputTokens: 10, OutputTokens: deliveredOut, TotalTokens: 10 + deliveredOut,
 		Accounting: lipapi.UsageAccountingMetadata{
-			Plane: lipapi.UsagePlaneClientVisible, Source: lipapi.UsageSourceLocalTokenizer, Authority: lipapi.UsageAuthorityEstimated}}
+			Plane: lipapi.UsagePlaneClientVisible, Source: lipapi.UsageSourceLocalTokenizer, Authority: lipapi.UsageAuthorityEstimated,
+		},
+	}
 	raw := lipapi.Event{Kind: lipapi.EventUsageDelta, UsageScopes: []lipapi.ScopedUsageDelta{delivered, provider}}
 	authorityEv := authorityUsageEvent([]lipapi.Event{raw})
 	if authorityEv.OutputTokens != providerOut {
@@ -351,7 +394,8 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	stream := &retryRecvStream{
 		executor: ex, traceID: "trace-filter", bleg: b2bua.BLegRecord{BLegID: "b-1"},
 		customer: newCustomerEvidenceAccumulator(),
-		baseline: lipapi.Call{ID: "req-filter"}}
+		baseline: lipapi.Call{ID: "req-filter"},
+	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
@@ -381,14 +425,16 @@ func TestDualPlaneTerminalInvariants_ExplicitZeroCostOperatorPresentCustomerAbse
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
-		Call: lipapi.Call{ID: "req-zero"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+		Call: lipapi.Call{ID: "req-zero"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call:      lipapi.Call{ID: "req-zero", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
 		AttemptID: "b-1", BLegID: "b-1", CheckpointID: "be", StreamID: "be-stream",
-		Now: time.Unix(2, 0).UTC()})
+		Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +444,8 @@ func TestDualPlaneTerminalInvariants_ExplicitZeroCostOperatorPresentCustomerAbse
 	t.Run("absent_cost_must_not_synthesize_present_money_on_customer", func(t *testing.T) {
 		absent := lipapi.Event{
 			Kind: lipapi.EventUsageDelta, InputTokens: 1, OutputTokens: 1, TotalTokens: 2,
-			Currency: "USD", CostNanoUnits: 0, CostPresent: false}
+			Currency: "USD", CostNanoUnits: 0, CostPresent: false,
+		}
 		fe, ok := stream.emitFrontendEgressMeteringFact(ctx, absent)
 		if !ok {
 			t.Fatal("expected FE fact")
@@ -412,7 +459,8 @@ func TestDualPlaneTerminalInvariants_ExplicitZeroCostOperatorPresentCustomerAbse
 		zero := lipapi.Event{
 			Kind: lipapi.EventUsageDelta, InputTokens: 1, OutputTokens: 1, TotalTokens: 2,
 			Currency: "USD", CostNanoUnits: 0, CostPresent: true,
-			CostSource: string(lipapi.UsageSourceProviderReported)}
+			CostSource: string(lipapi.UsageSourceProviderReported),
+		}
 		stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, zero)
 		fe, ok := stream.emitFrontendEgressMeteringFact(ctx, zero)
 		if !ok {
@@ -442,17 +490,22 @@ func TestDualPlaneTerminalInvariants_SequentialFailoverOperatorSettlePerIncurred
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.RequestCoordinator = &authoritycoord.RequestCoordinator{
 		Slots: []authoritycoord.RequestSlot{{
-			ID: "failover-req", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: reqProv, Strength: authority.StrengthRequired}}}
+			ID: "failover-req", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: reqProv, Strength: authority.StrengthRequired,
+		}},
+	}
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "failover-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired}}}
+			ID: "failover-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
+		}},
+	}
 
 	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-failover", "a-1", "trace-failover", scope.PrincipalScopeView{})
 	if err != nil {
 		t.Fatalf("admit request: %v", err)
 	}
 	decision := accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 5, OutputTokens: 5, TotalTokens: 10, TotalTokensPresent: true}}
+		Count: accountingapp.CountResult{InputTokens: 5, OutputTokens: 5, TotalTokens: 10, TotalTokensPresent: true},
+	}
 	failState, err := ex.admitAttemptAuthority(ctx, "trace-failover", "a-1", b2bua.BLegRecord{BLegID: "b-fail", Seq: 1},
 		lipapi.Call{ID: "req-failover"},
 		routing.AttemptCandidate{Key: "b-fail", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}},
@@ -503,14 +556,19 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.RequestCoordinator = &authoritycoord.RequestCoordinator{
 		Slots: []authoritycoord.RequestSlot{{
-			ID: "parallel-req", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: reqProv, Strength: authority.StrengthRequired}}}
+			ID: "parallel-req", Class: authoritycoord.PriorityQuotaBudgetRate, Provider: reqProv, Strength: authority.StrengthRequired,
+		}},
+	}
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "parallel-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired}}}
+			ID: "parallel-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
+		}},
+	}
 
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
-		Call: lipapi.Call{ID: "req-parallel"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+		Call: lipapi.Call{ID: "req-parallel"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +576,8 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 		_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 			Call:      lipapi.Call{ID: "req-parallel", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart(id)}}}},
 			AttemptID: id, BLegID: id, CheckpointID: "be-" + id, StreamID: "be-" + id,
-			Now: time.Unix(2, 0).UTC()})
+			Now: time.Unix(2, 0).UTC(),
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -529,7 +588,8 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 		t.Fatalf("admit request: %v", err)
 	}
 	decision := accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 7, OutputTokens: 3, TotalTokens: 10, TotalTokensPresent: true}}
+		Count: accountingapp.CountResult{InputTokens: 7, OutputTokens: 3, TotalTokens: 10, TotalTokensPresent: true},
+	}
 	loserState, err := ex.admitAttemptAuthority(ctx, "trace-parallel", "a-1", b2bua.BLegRecord{BLegID: "b-loser", Seq: 1},
 		lipapi.Call{ID: "req-parallel"},
 		routing.AttemptCandidate{Key: "b-loser", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}},
@@ -551,7 +611,8 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 	winnerLife.backendAttempted.Store(true)
 	usage := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 7, OutputTokens: 3, TotalTokens: 10,
-		CostNanoUnits: 55, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported)}
+		CostNanoUnits: 55, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
+	}
 	loserObserved := lipapi.Event{
 		Kind: lipapi.EventUsageDelta, InputTokens: 11, OutputTokens: 2, TotalTokens: 13,
 		CostNanoUnits: 77, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
@@ -620,23 +681,28 @@ func TestDualPlaneTerminalInvariants_SwallowedFinalizeRetainsSeenUsage(t *testin
 	ex.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 	ex.AttemptCoordinator = &authoritycoord.AttemptCoordinator{
 		Slots: []authoritycoord.AttemptSlot{{
-			ID: "swallow-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired}}}
+			ID: "swallow-att", Class: authoritycoord.AttemptPriorityHardSpend, Provider: attProv, Strength: authority.StrengthRequired,
+		}},
+	}
 
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
-		Call: lipapi.Call{ID: "req-swallow"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+		Call: lipapi.Call{ID: "req-swallow"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call:      lipapi.Call{ID: "req-swallow", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
-		AttemptID: "b-sw", BLegID: "b-sw", CheckpointID: "be-sw", StreamID: "be-sw", Now: time.Unix(2, 0).UTC()})
+		AttemptID: "b-sw", BLegID: "b-sw", CheckpointID: "be-sw", StreamID: "be-sw", Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := withMeteringHolder(context.Background(), holder)
 	decision := accountingpreflight.Decision{
-		Count: accountingapp.CountResult{InputTokens: 3, OutputTokens: 1, TotalTokens: 4, TotalTokensPresent: true}}
+		Count: accountingapp.CountResult{InputTokens: 3, OutputTokens: 1, TotalTokens: 4, TotalTokensPresent: true},
+	}
 	state, err := ex.admitAttemptAuthority(ctx, "trace-sw", "a-1", b2bua.BLegRecord{BLegID: "b-sw", Seq: 1},
 		lipapi.Call{ID: "req-swallow"},
 		routing.AttemptCandidate{Key: "b-sw", Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}},
@@ -695,7 +761,8 @@ func TestDualPlaneTerminalInvariants_UnobservedIncurredKeepsEmptyShell(t *testin
 	holder := &checkpoint.RequestHolder{}
 	_, err := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call:      lipapi.Call{ID: "req-empty", Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
-		AttemptID: "b-empty", BLegID: "b-empty", CheckpointID: "be-empty", StreamID: "be-empty", Now: time.Unix(2, 0).UTC()})
+		AttemptID: "b-empty", BLegID: "b-empty", CheckpointID: "be-empty", StreamID: "be-empty", Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +786,8 @@ func TestDualPlaneTerminalInvariants_AuxiliaryCallParentScopeSeparatesPlanes(t *
 		State: corestate.NewMem(nil),
 		Aux: auxreq.NewClient(func() auxreq.ExecutorRunner {
 			return ex
-		})})
+		}),
+	})
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -751,23 +819,32 @@ func TestDualPlaneTerminalInvariants_AuxiliaryCallParentScopeSeparatesPlanes(t *
 						CostNanoUnits: 99, Currency: "USD", CostPresent: true,
 						CostSource: string(lipapi.UsageSourceProviderReported),
 						Accounting: lipapi.UsageAccountingMetadata{
-							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}},
-					{Kind: lipapi.EventResponseFinished}}), nil
-			}}}
+							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+						},
+					},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
 	ex.Rand = routing.NewSeededRng(3)
 
 	parent := scope.PrincipalScopeView{
 		SubjectKind: scope.SubjectHuman,
 		PrincipalID: scope.Known("parent-user"),
-		Origin:      scope.OriginClient}
+		Origin:      scope.OriginClient,
+	}
 	ctx := scope.WithScope(context.Background(), parent)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
-			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("aux")}}}}
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("aux")},
+		}},
+	}
 	stream, err := snap.Aux().Stream(ctx, auxiliary.Request{
 		ParentTraceID: "trace-parent",
-		Call:          call})
+		Call:          call,
+	})
 	if err != nil {
 		t.Fatalf("aux Stream: %v", err)
 	}
@@ -812,7 +889,8 @@ func TestDualPlaneTerminalInvariants_CaptureFrontendIngressPropagatesCallIDAsTra
 	const traceID = "trace-corr-real"
 	call := lipapi.Call{
 		ID:      traceID,
-		Session: lipapi.SessionRef{ALegID: "a-leg-corr"}}
+		Session: lipapi.SessionRef{ALegID: "a-leg-corr"},
+	}
 	ctx, holder, err := captureFrontendIngressBeforeSubmit(context.Background(), call, scope.PrincipalScopeView{}, time.Unix(1, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -834,11 +912,13 @@ func TestDualPlaneTerminalInvariants_CaptureFrontendIngressPropagatesCallIDAsTra
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call: lipapi.Call{
 			ID: traceID, Session: lipapi.SessionRef{ALegID: "a-leg-corr"},
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
+		},
 		AttemptID: "b-1", BLegID: "b-1", ALegID: "a-leg-corr",
 		BackendID: "backend-1", Model: "model-1",
 		CheckpointID: "be", StreamID: "be-ingress:b-1",
-		Now: time.Unix(2, 0).UTC()})
+		Now: time.Unix(2, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

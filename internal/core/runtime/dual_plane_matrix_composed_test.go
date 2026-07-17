@@ -229,8 +229,10 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 				events: []lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventTextDelta, Delta: "winner"},
-					{Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
-						CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported)},
+					{
+						Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
+						CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
+					},
 					{Kind: lipapi.EventResponseFinished},
 				},
 			}, nil
@@ -243,11 +245,13 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 				openedCh: leg2OpenedCh,
 				events: []lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
-					{Kind: lipapi.EventUsageDelta, InputTokens: 8, OutputTokens: 1, TotalTokens: 9,
+					{
+						Kind: lipapi.EventUsageDelta, InputTokens: 8, OutputTokens: 1, TotalTokens: 9,
 						CostNanoUnits: 44, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
 						Accounting: lipapi.UsageAccountingMetadata{
 							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
-						}},
+						},
+					},
 				},
 			}, nil
 		},
@@ -259,7 +263,8 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	}
 	holder := &checkpoint.RequestHolder{}
 	_, err = holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
-		Call: lipapi.Call{ID: "req-par"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+		Call: lipapi.Call{ID: "req-par"}, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,8 +291,10 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	}
 
 	life := ex.newAttemptAuthorityLifecycle(out.authority, out.cand)
-	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
-		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported)}
+	usage := lipapi.Event{
+		Kind: lipapi.EventUsageDelta, InputTokens: 4, OutputTokens: 6, TotalTokens: 10,
+		CostNanoUnits: 99, Currency: "USD", CostPresent: true, CostSource: string(lipapi.UsageSourceProviderReported),
+	}
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
@@ -490,11 +497,14 @@ func TestDualPlaneMatrix_FilteringProviderVsDeliveredViaExecute(t *testing.T) {
 				return lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventTextDelta, Delta: "provider-secret"},
-					{Kind: lipapi.EventUsageDelta, InputTokens: 5, OutputTokens: 40, TotalTokens: 45,
+					{
+						Kind: lipapi.EventUsageDelta, InputTokens: 5, OutputTokens: 40, TotalTokens: 45,
 						CostNanoUnits: 77, Currency: "USD", CostPresent: true,
 						CostSource: string(lipapi.UsageSourceProviderReported),
 						Accounting: lipapi.UsageAccountingMetadata{
-							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}},
+							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+						},
+					},
 					{Kind: lipapi.EventResponseFinished},
 				}), nil
 			},
@@ -578,7 +588,8 @@ func TestDualPlaneMatrix_AuxiliaryCallParentScopeSeparatesPlanes(t *testing.T) {
 		State: corestate.NewMem(nil),
 		Aux: auxreq.NewClient(func() auxreq.ExecutorRunner {
 			return ex
-		})})
+		}),
+	})
 	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -612,23 +623,32 @@ func TestDualPlaneMatrix_AuxiliaryCallParentScopeSeparatesPlanes(t *testing.T) {
 						CostNanoUnits: 99, Currency: "USD", CostPresent: true,
 						CostSource: string(lipapi.UsageSourceProviderReported),
 						Accounting: lipapi.UsageAccountingMetadata{
-							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative}},
-					{Kind: lipapi.EventResponseFinished}}), nil
-			}}}
+							Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
+						},
+					},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
 	ex.Rand = routing.NewSeededRng(3)
 
 	parent := scope.PrincipalScopeView{
 		SubjectKind: scope.SubjectHuman,
 		PrincipalID: scope.Known("parent-user"),
-		Origin:      scope.OriginClient}
+		Origin:      scope.OriginClient,
+	}
 	ctx := scope.WithScope(context.Background(), parent)
 	call := &lipapi.Call{
 		Route: lipapi.RouteIntent{Selector: "openai:gpt-4"},
 		Messages: []lipapi.Message{{
-			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("aux")}}}}
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("aux")},
+		}},
+	}
 	stream, err := snap.Aux().Stream(ctx, auxiliary.Request{
 		ParentTraceID: "trace-parent",
-		Call:          call})
+		Call:          call,
+	})
 	if err != nil {
 		t.Fatalf("aux Stream: %v", err)
 	}
@@ -698,15 +718,18 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	orig := lipapi.Call{
 		ID: "req-comp",
 		Messages: []lipapi.Message{{
-			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("original long prompt")}}},
+			Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("original long prompt")},
+		}},
 	}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
-		Call: orig, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC()})
+		Call: orig, CheckpointID: "fe", StreamID: "fe-stream", Now: time.Unix(1, 0).UTC(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	holder.MergeFrontendIngressQuantities([]metering.Quantity{
-		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 800, Present: true}})
+		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: 800, Present: true},
+	})
 
 	ctx := withMeteringHolder(context.Background(), holder)
 	p := authorityOpenParams(t, aLegID, &attemptBudget{max: 3})
@@ -715,7 +738,8 @@ func TestDualPlaneMatrix_CompressionPlanesSettleFromOwnEvidence(t *testing.T) {
 	p.baseline = orig
 	p.baseline.Route.Selector = "backend-1:model-1"
 	p.baseline.Invocation = lipapi.Invocation{
-		Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming}
+		Operation: lipapi.OperationOpenAIChatCompletions, DeliveryMode: lipapi.DeliveryModeStreaming,
+	}
 
 	out, err := ex.openPlannedCandidate(p, authorityCandidate(), nil, "", false)
 	if err != nil || !out.opened {
