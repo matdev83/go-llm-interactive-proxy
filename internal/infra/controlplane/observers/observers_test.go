@@ -201,6 +201,10 @@ type fakeSecureSessionStore struct {
 	updateAttemptOutcomeCalls int
 	lastAttemptOutcome        domain.AttemptOutcome
 
+	quarantineErr   error
+	quarantineCalls int
+	lastQuarantine  domain.QuarantineInput
+
 	addUsageErr   error
 	addUsageCalls int
 	lastUsage     domain.UsageDelta
@@ -268,6 +272,14 @@ func (f *fakeSecureSessionStore) UpdateAttemptOutcome(_ context.Context, outcome
 	f.updateAttemptOutcomeCalls++
 	f.lastAttemptOutcome = outcome
 	return f.updateAttemptOutcomeErr
+}
+
+func (f *fakeSecureSessionStore) Quarantine(_ context.Context, in domain.QuarantineInput) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.quarantineCalls++
+	f.lastQuarantine = in
+	return f.quarantineErr
 }
 
 func (f *fakeSecureSessionStore) AppendTranscript(context.Context, domain.TranscriptItem) error {

@@ -28,6 +28,7 @@ func TestMapToSessionDenial_ClassifyWithoutStringMatching(t *testing.T) {
 		{"invalid_token", domain.ErrInvalidResumeToken, lipapi.SessionDeniedInvalidAuthority},
 		{"owner", domain.ErrOwnerMismatch, lipapi.SessionDeniedOwnerMismatch},
 		{"expired", domain.ErrResumeExpired, lipapi.SessionDeniedResumeExpired},
+		{"quarantined", domain.ErrSessionQuarantined, lipapi.SessionDeniedQuarantined},
 		{"workspace", domain.ErrWorkspaceDenied, lipapi.SessionDeniedWorkspace},
 		{"policy", domain.ErrPolicyUnavailable, lipapi.SessionDeniedPolicyUnavailable},
 		{"workspace_unresolved", domain.ErrWorkspaceUnresolved, lipapi.SessionDeniedWorkspace},

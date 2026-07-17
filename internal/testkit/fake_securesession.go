@@ -36,8 +36,10 @@ type FakeSecureSessionStore struct {
 	TranscriptErr              error
 	ListAttemptEvidenceErr     error
 	CheckReadinessErr          error
+	QuarantineErr              error
 
-	CreateCalls int
+	CreateCalls     int
+	QuarantineCalls int
 }
 
 var (
@@ -295,6 +297,21 @@ func (f *FakeSecureSessionStore) CheckReadiness(ctx context.Context, policy doma
 		return del.CheckReadiness(ctx, policy)
 	}
 	return nil
+}
+
+func (f *FakeSecureSessionStore) Quarantine(ctx context.Context, in domain.QuarantineInput) error {
+	f.mu.Lock()
+	f.QuarantineCalls++
+	err := f.QuarantineErr
+	del := f.Delegate
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if del != nil {
+		return del.Quarantine(ctx, in)
+	}
+	return domain.ErrQuarantineUnimplemented
 }
 
 // FakeB2BUAStore implements [b2bua.Store] with injectable errors and optional backing implementation.

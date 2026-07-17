@@ -7,6 +7,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
@@ -89,4 +90,6 @@ type Built struct {
 	// ReadinessReport aggregates independent authority/journal readiness and
 	// protected-traffic posture (requirements 15.7, 15.8).
 	ReadinessReport *controlplane.ReadinessReportService
+	// SecretGuardInventory carries safe secrets-guard inventory metadata for diagnostics.
+	SecretGuardInventory *diag.InventoryExtras
 }

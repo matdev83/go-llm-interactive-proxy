@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
@@ -21,6 +22,16 @@ import (
 )
 
 type snapCtxKey struct{}
+
+// SecretGuardPlane is the frozen secret-guard composition bound into a request snapshot.
+type SecretGuardPlane struct {
+	Guards             []secretguard.Guard
+	MatcherResolver    secretguard.MatcherResolver
+	DecisionObserver   secretguard.Observer
+	AuditFailurePolicy secretguard.AuditFailurePolicy
+	AccessMode         string
+	ConfigVersion      string
+}
 
 // RequestRuntimeSnapshot is a per-build binding of hook chains and service facades published
 // onto each request context (design §15B, task 4.2). Many request goroutines may read the same
@@ -44,6 +55,7 @@ type RequestRuntimeSnapshot struct {
 	routeHintProviders []routehint.Provider
 	completionGates    []completion.Gate
 	trafficRedactors   []traffic.Redactor
+	secretGuardPlane   SecretGuardPlane
 	policyObserver     policydecision.Observer
 	timeoutBudget      TimeoutBudgetSource
 	timeoutGuard       *ProviderTimeoutGuard
@@ -66,6 +78,7 @@ type SnapshotOptions struct {
 	RouteHintProviders []routehint.Provider
 	CompletionGates    []completion.Gate
 	TrafficRedactors   []traffic.Redactor
+	SecretGuardPlane   SecretGuardPlane
 	// PolicyObserver receives normalized policy decision evidence. Nil defaults to a
 	// disabled no-op observer so deployments without policy evidence keep current request
 	// outcomes (requirements 7.6, 10.5).
@@ -117,6 +130,15 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	routeHints := slices.Clone(opts.RouteHintProviders)
 	compGates := slices.Clone(opts.CompletionGates)
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
+	plane := opts.SecretGuardPlane
+	// Snapshot owns cloning/sorting for secret guards (same contract as tool policies).
+	plane.Guards = secretguard.MaterializeSorted(plane.Guards)
+	if secretguard.IsNilObserver(plane.DecisionObserver) {
+		plane.DecisionObserver = nil
+	}
+	if plane.AuditFailurePolicy == "" {
+		plane.AuditFailurePolicy = secretguard.AuditFailClosed
+	}
 	polObs := opts.PolicyObserver
 	if polObs == nil {
 		polObs = policydecision.NoopObserver{}
@@ -141,6 +163,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		routeHintProviders: routeHints,
 		completionGates:    compGates,
 		trafficRedactors:   reds,
+		secretGuardPlane:   plane,
 		policyObserver:     polObs,
 		timeoutBudget:      budget,
 		timeoutGuard:       NewProviderTimeoutGuard(),
@@ -279,6 +302,29 @@ func (s *RequestRuntimeSnapshot) TrafficRedactors() []traffic.Redactor {
 		return nil
 	}
 	return slices.Clone(s.trafficRedactors)
+}
+
+// SecretGuardPlane returns a defensive copy of the SecretGuardPlane configuration
+// (guards slice cloned). Prefer [RequestRuntimeSnapshot.SecretGuardExecutionPlane]
+// for the runtime executor hot path.
+func (s *RequestRuntimeSnapshot) SecretGuardPlane() SecretGuardPlane {
+	if s == nil {
+		return SecretGuardPlane{}
+	}
+	plane := s.secretGuardPlane
+	plane.Guards = slices.Clone(plane.Guards)
+	return plane
+}
+
+// SecretGuardExecutionPlane returns the frozen secret-guard plane without cloning the
+// guard slice. MatcherResolver, DecisionObserver, and policy/config fields are safe to
+// read; Guards is the snapshot's internal backing store in MaterializeSorted order and
+// must not be mutated.
+func (s *RequestRuntimeSnapshot) SecretGuardExecutionPlane() SecretGuardPlane {
+	if s == nil {
+		return SecretGuardPlane{}
+	}
+	return s.secretGuardPlane
 }
 
 // Generation is an opaque build stamp (e.g. config reload generation in a future spec).

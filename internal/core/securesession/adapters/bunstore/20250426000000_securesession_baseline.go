@@ -27,6 +27,7 @@ func registerSecureSessionBaselineMigration() {
 			return nil
 		})
 		registerSecureSessionUsageAccountingColumnsMigration()
+		registerSecureSessionQuarantineColumnsMigration()
 	})
 }
 
@@ -55,6 +56,9 @@ func secureSessionBaselineUp(ctx context.Context, db *bun.DB) error {
 		if err := upgradeUsageAccountingColumns(ctx, db); err != nil {
 			return err
 		}
+		if err := upgradeQuarantineColumns(ctx, db); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -69,6 +73,9 @@ func runSecureSessionSchemaMigrate(ctx context.Context, db *bun.DB) error {
 		return fmt.Errorf("bunstore: migrator migrate: %w", err)
 	}
 	if err := upgradeUsageAccountingColumns(ctx, db); err != nil {
+		return err
+	}
+	if err := upgradeQuarantineColumns(ctx, db); err != nil {
 		return err
 	}
 	return nil
@@ -94,6 +101,10 @@ func sqliteSecureSessionDDL() []string {
 			audit_mode TEXT NOT NULL DEFAULT '',
 			a_leg_id TEXT NOT NULL DEFAULT '',
 			resume_eligible INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT '',
+			quarantined_at_unix INTEGER NOT NULL DEFAULT 0,
+			quarantine_reason_code TEXT NOT NULL DEFAULT '',
+			quarantine_event_id TEXT NOT NULL DEFAULT '',
 			last_activity_unix INTEGER NOT NULL,
 			last_activity_source TEXT NOT NULL DEFAULT '',
 			created_at_unix INTEGER NOT NULL,
@@ -240,6 +251,10 @@ func postgresSecureSessionDDL() []string {
 			audit_mode TEXT NOT NULL DEFAULT '',
 			a_leg_id TEXT NOT NULL DEFAULT '',
 			resume_eligible INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT '',
+			quarantined_at_unix BIGINT NOT NULL DEFAULT 0,
+			quarantine_reason_code TEXT NOT NULL DEFAULT '',
+			quarantine_event_id TEXT NOT NULL DEFAULT '',
 			last_activity_unix BIGINT NOT NULL,
 			last_activity_source TEXT NOT NULL DEFAULT '',
 			created_at_unix BIGINT NOT NULL,
@@ -417,6 +432,38 @@ func upgradeUsageAccountingColumns(ctx context.Context, db *bun.DB) error {
 				continue
 			}
 			return fmt.Errorf("bunstore: migrate upgrade usage: %w", err)
+		}
+	}
+	return nil
+}
+
+func upgradeQuarantineColumns(ctx context.Context, db *bun.DB) error {
+	var alters []string
+	switch db.Dialect().Name() {
+	case dialect.SQLite:
+		alters = []string{
+			`ALTER TABLE lip_secure_sessions ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_sessions ADD COLUMN quarantined_at_unix INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_sessions ADD COLUMN quarantine_reason_code TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_sessions ADD COLUMN quarantine_event_id TEXT NOT NULL DEFAULT ''`,
+		}
+	case dialect.PG:
+		alters = []string{
+			`ALTER TABLE lip_secure_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_sessions ADD COLUMN IF NOT EXISTS quarantined_at_unix BIGINT NOT NULL DEFAULT 0`,
+			`ALTER TABLE lip_secure_sessions ADD COLUMN IF NOT EXISTS quarantine_reason_code TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE lip_secure_sessions ADD COLUMN IF NOT EXISTS quarantine_event_id TEXT NOT NULL DEFAULT ''`,
+		}
+	default:
+		return fmt.Errorf("bunstore: unsupported bun dialect %s", db.Dialect().Name().String())
+	}
+	for _, q := range alters {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "already exists") {
+				continue
+			}
+			return fmt.Errorf("bunstore: migrate upgrade quarantine: %w", err)
 		}
 	}
 	return nil

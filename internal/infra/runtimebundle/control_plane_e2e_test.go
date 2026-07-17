@@ -1,3 +1,5 @@
+//go:build integration
+
 package runtimebundle
 
 import (
@@ -395,4 +397,8 @@ func (noopSecureSessionStore) ListAttemptEvidence(context.Context, domain.Sessio
 
 func (noopSecureSessionStore) CheckReadiness(context.Context, domain.PolicyMetadata) error {
 	return nil
+}
+
+func (noopSecureSessionStore) Quarantine(context.Context, domain.QuarantineInput) error {
+	return domain.ErrQuarantineUnimplemented
 }

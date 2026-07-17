@@ -18,6 +18,7 @@ const (
 const (
 	StageTransportAuth       = feature.StageIDTransportAuth
 	StageSessionOpen         = feature.StageIDSessionOpen
+	StageSecretGuard         = feature.StageIDSecretGuard
 	StageSubmit              = feature.StageIDSubmit
 	StageToolCatalog         = feature.StageIDToolCatalog
 	StageRequestWide         = feature.StageIDRequestWide
@@ -34,10 +35,10 @@ const (
 // DefaultFailurePolicyForStage returns the documented default for the stage (design section 17).
 func DefaultFailurePolicyForStage(stage string) FailurePolicy {
 	switch stage {
-	case feature.StageIDTransportAuth:
-		return FailurePolicyFailClosed
 	case feature.StageIDSessionOpen:
 		return FailurePolicyFailOpen
+	case feature.StageIDTransportAuth, feature.StageIDSecretGuard:
+		return FailurePolicyFailClosed
 	case feature.StageIDSubmit, feature.StageIDToolCatalog, feature.StageIDRequestWide, feature.StageIDPreRequest:
 		// Pre-backend mutation: compatible with hook-bus per-hook FailureMode; stage default fail-open.
 		return FailurePolicyFailOpen

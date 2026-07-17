@@ -14,14 +14,12 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // Build assembles continuity store, executor, and closers for the standard distribution.
-// cfg must be non-nil. bus may be nil (replaced with an empty hooks.Bus). log must be non-nil.
-// opts must be non-nil and opts.PluginRegistry must be non-nil; other BuildOptions fields are optional.
-// The returned [Built.RuntimeSnapshot] (and executor snapshot) is shared by concurrent requests:
-// do not mutate bus or snapshot contents after Build. Reload or reconfiguration must call Build
-// again and swap to new [*Built] / executor instances so each generation gets its own snapshot.
+// cfg must be non-nil, bus/log must be non-nil, and opts.PluginRegistry must be set.
+// The returned [Built.RuntimeSnapshot] is shared by concurrent requests.
 func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOptions) (built *Built, err error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("runtimebundle: nil config")
@@ -95,8 +93,20 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if concurrencyClosers != nil {
 		closers = append(closers, concurrencyClosers...)
 	}
+	var concurrencyHandle *concurrencyapp.Service
+	if concurrencyRT != nil {
+		concurrencyHandle = concurrencyRT.Service
+	}
 	reg := opts.PluginRegistry
 	sec, err := buildSecurityRuntime(bctx, controlPlane)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
+	}
+	var regs []lipsdk.Registration
+	if cfg != nil {
+		regs = config.RegistrationsFromConfig(cfg)
+	}
+	sg, err := buildSecretGuardRuntime(cfg, log, opts, regs)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}
@@ -120,7 +130,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	snapGen, snapCtrl := buildSnapshotGeneration(cfg, opts.Testing, opts.Production)
 	var exec *runtime.Executor
-	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs)
+	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs, sg)
 	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
 		NowFn:              nowFn,
@@ -168,17 +178,11 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		ControlPlaneStatus:    controlPlane.statusHandle(),
 		ControlPlaneRetention: controlPlane.retentionHandle(),
 		UsageAuthority:        usageAuthorityHandle,
-		ConcurrencyAuthority:  concurrencyServiceHandle(concurrencyRT),
+		ConcurrencyAuthority:  concurrencyHandle,
 		SnapshotGeneration:    snapGen,
 		SnapshotController:    snapCtrl,
 		MeteringQuerier:       opts.Production.MeteringQuerier,
 		ReadinessReport:       execRun.ReadinessReport,
+		SecretGuardInventory:  sg.Inventory,
 	}, nil
-}
-
-func concurrencyServiceHandle(rt *concurrencyAuthorityRuntime) *concurrencyapp.Service {
-	if rt == nil {
-		return nil
-	}
-	return rt.Service
 }

@@ -154,6 +154,7 @@ type Summary struct {
 	TurnCount      int
 	AttemptCount   int
 
+	Status            SessionStatus
 	ResumeEligible    bool
 	ALegID            string
 	PolicyVersion     string
@@ -328,6 +329,10 @@ type Record struct {
 	ClientHints             ClientHints
 	Policy                  PolicyMetadata
 	ALegID                  string
+	Status                  SessionStatus
+	QuarantinedAt           time.Time
+	QuarantineReasonCode    string
+	QuarantineEventID       string
 	ResumeEligible          bool
 	LastActivityAt          time.Time
 	LastActivitySource      ActivitySource

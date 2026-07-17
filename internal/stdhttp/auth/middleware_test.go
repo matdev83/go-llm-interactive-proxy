@@ -3,6 +3,7 @@ package auth_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -308,6 +310,30 @@ func TestMiddleware_providerError_failClosed(t *testing.T) {
 	}
 }
 
+func TestMiddleware_providerError_doesNotLogRawError(t *testing.T) {
+	t.Parallel()
+	secret := testkit.SyntheticOpenAIAPIKey
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := auth.Middleware(log, []httpauth.Provider{leakyErrProvider{
+		err: fmt.Errorf("backend auth failed for Authorization: Bearer %s", secret),
+	}}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("inner should not run")
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code %d", rec.Code)
+	}
+	out := buf.String()
+	if strings.Contains(out, secret) || strings.Contains(out, "Authorization: Bearer") {
+		t.Fatalf("log leaked raw provider error: %q", out)
+	}
+	if !strings.Contains(out, "error_kind=") {
+		t.Fatalf("expected sanitized error kind in log, got %q", out)
+	}
+}
+
 func TestMiddleware_chain_ordering(t *testing.T) {
 	t.Parallel()
 	var order []int
@@ -416,6 +442,14 @@ type errProvider struct{}
 
 func (errProvider) Authenticate(context.Context, http.ResponseWriter, *http.Request) (httpauth.AuthenticationResult, error) {
 	return httpauth.AuthenticationResult{}, context.DeadlineExceeded
+}
+
+type leakyErrProvider struct {
+	err error
+}
+
+func (p leakyErrProvider) Authenticate(context.Context, http.ResponseWriter, *http.Request) (httpauth.AuthenticationResult, error) {
+	return httpauth.AuthenticationResult{}, p.err
 }
 
 type orderProvider struct {

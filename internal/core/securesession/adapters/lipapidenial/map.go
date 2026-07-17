@@ -25,6 +25,8 @@ func MapToSessionDenial(err error) error {
 		return lipapi.NewSessionDenialOwnerMismatch("secure_session: owner mismatch")
 	case errors.Is(err, domain.ErrResumeExpired):
 		return lipapi.NewSessionDenialResumeExpired("secure_session: resume expired")
+	case errors.Is(err, domain.ErrSessionQuarantined):
+		return lipapi.NewSessionDenialQuarantined("secure_session: session quarantined")
 	case errors.Is(err, domain.ErrWorkspaceDenied):
 		return lipapi.NewSessionDenialWorkspace("secure_session: workspace denied")
 	case errors.Is(err, domain.ErrPolicyUnavailable):

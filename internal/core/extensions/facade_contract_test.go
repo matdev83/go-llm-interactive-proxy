@@ -27,8 +27,8 @@ func TestCompletionGatesFromContext_withoutSnapshotUsesFallback(t *testing.T) {
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates: []completion.Gate{gateID("fb")},
 	})
-	// context.TODO (like Background) has no snapshot; must hit fallback path.
-	got := extensions.CompletionGatesFromContext(context.TODO(), fallback)
+	// t.Context() (like Background/TODO) has no snapshot; must hit fallback path.
+	got := extensions.CompletionGatesFromContext(t.Context(), fallback)
 	if len(got) != 1 || got[0].ID() != "fb" {
 		t.Fatalf("got %+v", got)
 	}
@@ -43,7 +43,7 @@ func TestCompletionGatesFromContext_prefersContextOverFallback(t *testing.T) {
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates: []completion.Gate{gateID("fb")},
 	})
-	ctx := extensions.WithRequestRuntimeSnapshot(context.Background(), ctxSnap)
+	ctx := extensions.WithRequestRuntimeSnapshot(t.Context(), ctxSnap)
 	got := extensions.CompletionGatesFromContext(ctx, fallback)
 	if len(got) != 1 || got[0].ID() != "ctx" {
 		t.Fatalf("want ctx gate, got %+v", got)
@@ -56,7 +56,7 @@ func TestCompletionGatesFromContext_missingContextUsesFallback(t *testing.T) {
 	fallback := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
 		CompletionGates: []completion.Gate{gateID("fb")},
 	})
-	got := extensions.CompletionGatesFromContext(context.Background(), fallback)
+	got := extensions.CompletionGatesFromContext(t.Context(), fallback)
 	if len(got) != 1 || got[0].ID() != "fb" {
 		t.Fatalf("got %+v", got)
 	}
@@ -64,7 +64,7 @@ func TestCompletionGatesFromContext_missingContextUsesFallback(t *testing.T) {
 
 func TestCompletionGatesFromContext_nilFallback(t *testing.T) {
 	t.Parallel()
-	got := extensions.CompletionGatesFromContext(context.Background(), nil)
+	got := extensions.CompletionGatesFromContext(t.Context(), nil)
 	if len(got) != 0 {
 		t.Fatalf("want empty, got len=%d", len(got))
 	}
@@ -84,7 +84,7 @@ func (o otherGatesView) CompletionGates() []completion.Gate {
 func TestCompletionGatesFromContext_fallbackIsInterface(t *testing.T) {
 	t.Parallel()
 	fallback := otherGatesView{gates: []completion.Gate{gateID("alt")}}
-	got := extensions.CompletionGatesFromContext(context.Background(), fallback)
+	got := extensions.CompletionGatesFromContext(t.Context(), fallback)
 	if len(got) != 1 || got[0].ID() != "alt" {
 		t.Fatalf("got %+v", got)
 	}

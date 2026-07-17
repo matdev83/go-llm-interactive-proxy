@@ -13,13 +13,31 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/b2bualineage"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/lipapidenial"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/memory"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
 )
+
+// SecretGuardStageInputForTest is the exported mirror of secretGuardStageInput.
+type SecretGuardStageInputForTest struct {
+	TraceID   string
+	Principal execview.PrincipalView
+	Scope     scope.PrincipalScopeView
+	Session   session.SessionView
+	Workspace lipworkspace.WorkspaceView
+	SessionID domain.SessionID
+	TurnID    domain.TurnID
+}
 
 func init() {
 	secureSessionTestPrepare = prepareExecutorSecureSessionForTests
@@ -67,4 +85,21 @@ func (ParallelPreWinFailStream) Close() error { return nil }
 
 func (ParallelPreWinFailStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	return lipapi.CancelResult{}
+}
+
+// RunSecretGuardStageForTest exposes runSecretGuardStage for invariant tests (empty SessionID, etc.).
+func (e *Executor) RunSecretGuardStageForTest(ctx context.Context, call *lipapi.Call, in SecretGuardStageInputForTest) error {
+	return e.runSecretGuardStage(ctx, call, secretGuardStageInput(in))
+}
+
+// ApplySecretGuardBlockForTest exposes the block finalization pipeline for precedence tests.
+func (e *Executor) ApplySecretGuardBlockForTest(ctx context.Context, call *lipapi.Call, in SecretGuardStageInputForTest, block *extensions.SecretGuardBlockInfo) error {
+	meta := secretguard.Meta{
+		TraceID:   in.TraceID,
+		Principal: in.Principal,
+		Scope:     in.Scope,
+		Session:   in.Session,
+		Workspace: in.Workspace,
+	}
+	return e.applySecretGuardBlock(ctx, e.secretGuardAudit(in.TurnID), meta, call, block, secretGuardStageInput(in))
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
 // mountDiagnosticsInput carries inputs for [mountDiagnostics].
@@ -51,10 +52,7 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 		mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
 	}
 	if ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath); ip != "" {
-		ih, err := diag.InventoryHandler(cfg, &diag.InventoryExtras{
-			Reg:           in.Reg,
-			Registrations: in.App.Registrations(),
-		})
+		ih, err := diag.InventoryHandler(cfg, mergeInventoryExtrasForDiagnostics(in.Reg, in.App.Registrations(), in.Built.SecretGuardInventory))
 		if err != nil {
 			return fmt.Errorf("stdhttp: inventory handler: %w", err)
 		}
@@ -77,6 +75,18 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 		}
 	}
 	return nil
+}
+
+func mergeInventoryExtrasForDiagnostics(reg *pluginreg.Registry, registrations []lipsdk.Registration, secretGuard *diag.InventoryExtras) *diag.InventoryExtras {
+	out := &diag.InventoryExtras{Reg: reg, Registrations: registrations}
+	if secretGuard == nil {
+		return out
+	}
+	out.SecretGuardCatalogEntryCount = secretGuard.SecretGuardCatalogEntryCount
+	out.SecretGuardSourceCategories = append([]string(nil), secretGuard.SecretGuardSourceCategories...)
+	out.SecretGuardAccessMode = secretGuard.SecretGuardAccessMode
+	out.SecretGuardAction = secretGuard.SecretGuardAction
+	return out
 }
 
 // diagnosticsMount carries non-context inputs for diagnostics mount functions.

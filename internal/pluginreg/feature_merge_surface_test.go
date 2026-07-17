@@ -310,3 +310,23 @@ func TestMergeFeatureSurface_mergeToolCallPoliciesUsageObserversRegistrationOrde
 		t.Fatalf("second usage observer %#v", m.UsageObservers[1])
 	}
 }
+
+func TestMergeFeatureSurface_ignoresExplicitOtherFactoryEvenWhenIDMatches(t *testing.T) {
+	t.Parallel()
+	reg := pluginreg.NewRegistry()
+	if err := reg.RegisterFeature("other-feature", func(yaml.Node) (feature.FeatureBundle, error) {
+		return feature.FeatureBundle{SchemaVersion: feature.SchemaVersionV1}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	regs := []lipsdk.Registration{
+		{Kind: lipsdk.PluginKindFeature, ID: "secrets-guard", FactoryKind: "other-feature", Enabled: true, Config: lipsdk.ConfigPayload{Node: yaml.Node{}}},
+	}
+	m, err := featurebundle.MergeFeatureSurface(reg, regs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.SecretGuards) != 0 {
+		t.Fatalf("secret guards should come only from the explicit factory, got %+v", m.SecretGuards)
+	}
+}

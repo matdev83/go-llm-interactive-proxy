@@ -12,6 +12,7 @@ import (
 var wantLegalPipelineOrder = []string{
 	extensions.StageTransportAuth,
 	extensions.StageSessionOpen,
+	extensions.StageSecretGuard,
 	extensions.StageSubmit,
 	extensions.StageToolCatalog,
 	extensions.StageRequestWide,

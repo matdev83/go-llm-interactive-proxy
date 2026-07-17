@@ -27,6 +27,10 @@ var legalDecisions = []AllowedDecision{
 	{Stage: feature.StageIDSessionOpen, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate, EffectMutate}},
 	{Stage: feature.StageIDSessionOpen, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
 
+	{Stage: feature.StageIDSecretGuard, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate, EffectMutate}},
+	{Stage: feature.StageIDSecretGuard, Outcome: OutcomeDeny, Effects: []Effect{EffectNone}},
+	{Stage: feature.StageIDSecretGuard, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
+
 	{Stage: feature.StageIDSubmit, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate, EffectMutate}},
 	{Stage: feature.StageIDSubmit, Outcome: OutcomeDeny, Effects: []Effect{EffectNone}},
 	{Stage: feature.StageIDSubmit, Outcome: OutcomeError, Effects: []Effect{EffectNone}},

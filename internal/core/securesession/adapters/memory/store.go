@@ -94,6 +94,7 @@ func (s *Store) Create(ctx context.Context, rec domain.CreateRecord) (domain.Rec
 			ClientHints:        rec.ClientHints,
 			Policy:             rec.Policy,
 			ALegID:             rec.ALegID,
+			Status:             domain.SessionStatusActive,
 			ResumeEligible:     rec.ResumeEligible,
 			LastActivityAt:     rec.CreatedAt,
 			LastActivitySource: domain.ActivitySystem,
@@ -294,13 +295,19 @@ func (s *Store) NextAuditSeq(ctx context.Context, id domain.SessionID) (int64, e
 	if !ok {
 		return 0, domain.ErrSessionNotFound
 	}
+	return nextAuditSeqLocked(row), nil
+}
+
+// nextAuditSeqLocked returns the next audit sequence number for row.
+// Caller must hold s.mu.
+func nextAuditSeqLocked(row *sessionRow) int64 {
 	var n int64
 	for _, a := range row.audit {
 		if a.Seq > n {
 			n = a.Seq
 		}
 	}
-	return n + 1, nil
+	return n + 1
 }
 
 func (s *Store) AppendAudit(ctx context.Context, item domain.AuditItem) error {
@@ -423,6 +430,7 @@ func (s *Store) Summary(ctx context.Context, query domain.SummaryQuery) ([]domai
 			TurnCount:      len(row.turnIDs),
 			AttemptCount:   row.attemptN,
 
+			Status:            row.rec.Status,
 			ResumeEligible:    row.rec.ResumeEligible,
 			ALegID:            row.rec.ALegID,
 			PolicyVersion:     row.rec.Policy.PolicyVersion,

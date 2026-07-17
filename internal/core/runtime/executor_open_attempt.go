@@ -536,6 +536,9 @@ func (e *Executor) openPlannedCandidate(
 	)
 	defer openSpan.End()
 	openStart := time.Now()
+	if aerr := e.assertSecureSessionActiveBeforeOpen(openCtx); aerr != nil {
+		return zero, aerr
+	}
 	cleanupAuthority.backendAttempted.Store(true)
 	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
 	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)

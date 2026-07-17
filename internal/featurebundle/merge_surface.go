@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -39,6 +40,7 @@ type MergedFeatureSurface struct {
 	UsageObservers         []usage.Observer
 	RawCaptureSinks        []traffic.RawCaptureSink
 	TrafficRedactors       []traffic.Redactor
+	SecretGuards           []secretguard.Guard
 }
 
 // Append concatenates all fields from bundle b into the receiver. This is the single
@@ -61,6 +63,7 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
 	m.UsageObservers = append(m.UsageObservers, b.UsageObservers...)
 	m.RawCaptureSinks = append(m.RawCaptureSinks, b.RawCaptureSinks...)
 	m.TrafficRedactors = append(m.TrafficRedactors, b.TrafficRedactors...)
+	m.SecretGuards = append(m.SecretGuards, b.SecretGuards...)
 }
 
 // MergeBundles concatenates one or more FeatureBundles into a single MergedFeatureSurface,
@@ -98,6 +101,8 @@ func buildEnabledFeatureBundles(reg *pluginreg.Registry, registrations []lipsdk.
 
 // MergeFeatureSurface merges enabled feature plugins into SDK hook slices plus extension surfaces.
 // It calls reg.BuildFeatureBundle for each enabled feature plugin and concatenates the results.
+// Secrets-guard uniqueness is enforced at the runtimebundle composition root
+// ([BuildBootstrap] / [buildSecretGuardRuntime]), not in this generic merge helper.
 func MergeFeatureSurface(reg *pluginreg.Registry, registrations []lipsdk.Registration) (MergedFeatureSurface, error) {
 	bundles, err := buildEnabledFeatureBundles(reg, registrations)
 	if err != nil {

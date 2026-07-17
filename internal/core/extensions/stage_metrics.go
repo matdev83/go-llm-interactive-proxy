@@ -4,6 +4,7 @@ package extensions
 const (
 	MetricsStageSessionOpen      = "session_open"
 	MetricsStageWorkspaceResolve = "workspace_resolve"
+	MetricsStageSecretGuard      = "secret_guard"
 	MetricsStageToolCatalog      = "tool_catalog"
 	MetricsStageRequestTransform = "request_transform"
 	MetricsStagePreRequest       = "pre_request"

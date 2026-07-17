@@ -10,10 +10,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -74,6 +77,10 @@ func shutdownTracing(ctx context.Context, shutdown func(context.Context) error) 
 
 // BuildBootstrap centralizes standard-distribution startup used by lipstd inspect and serve paths.
 func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResult, error) {
+	return buildBootstrap(ctx, in, osenv.Process{})
+}
+
+func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv coresg.Environment) (BootstrapResult, error) {
 	var out BootstrapResult
 	if ctx == nil {
 		return out, fmt.Errorf("runtimebundle: nil context")
@@ -141,6 +148,12 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 	}
 
 	regs := config.RegistrationsFromConfig(cfg)
+	// Secrets-guard uniqueness is owned by the feature package; enforce it at the
+	// composition root so inspect and serve both fail closed before merge/build.
+	if _, err := featuresg.EnabledRegistrations(regs); err != nil {
+		shutdownTracing(ctx, traceRes.Shutdown)
+		return out, fmt.Errorf("runtimebundle: secrets-guard composition: %w", err)
+	}
 	merged, err := featurebundle.MergeFeatureSurface(reg, regs)
 	if err != nil {
 		shutdownTracing(ctx, traceRes.Shutdown)
@@ -174,18 +187,20 @@ func BuildBootstrap(ctx context.Context, in BuildBootstrapInput) (BootstrapResul
 				OutboundTracing: traceRes.Active,
 			},
 			Extensions: ExtensionsOptions{
-				SessionOpeners:     merged.SessionOpeners,
-				WorkspaceResolvers: merged.WorkspaceResolvers,
-				ToolCatalogFilters: merged.ToolCatalogFilters,
-				ToolCallPolicies:   merged.ToolCallPolicies,
-				RequestTransforms:  merged.RequestTransforms,
-				PreRequestHandlers: merged.PreRequestHandlers,
-				RouteHintProviders: merged.RouteHintProviders,
-				CompletionGates:    merged.CompletionGates,
-				TrafficObservers:   append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
-				UsageObservers:     append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
-				RawCaptureSinks:    merged.RawCaptureSinks,
-				TrafficRedactors:   merged.TrafficRedactors,
+				SessionOpeners:         merged.SessionOpeners,
+				WorkspaceResolvers:     merged.WorkspaceResolvers,
+				ToolCatalogFilters:     merged.ToolCatalogFilters,
+				ToolCallPolicies:       merged.ToolCallPolicies,
+				RequestTransforms:      merged.RequestTransforms,
+				PreRequestHandlers:     merged.PreRequestHandlers,
+				RouteHintProviders:     merged.RouteHintProviders,
+				CompletionGates:        merged.CompletionGates,
+				TrafficObservers:       append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
+				UsageObservers:         append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
+				RawCaptureSinks:        merged.RawCaptureSinks,
+				TrafficRedactors:       merged.TrafficRedactors,
+				SecretGuards:           merged.SecretGuards,
+				SecretGuardEnvironment: secretEnv,
 			},
 			Production: in.Production,
 		})

@@ -53,17 +53,18 @@ func EnforcementScopeForStoreBacking(store string, strictCapable bool) Enforceme
 type ReadinessComponentID string
 
 const (
-	ReadinessComponentMeteringJournal      ReadinessComponentID = "metering_journal"
-	ReadinessComponentControlPlane         ReadinessComponentID = "control_plane"
-	ReadinessComponentUsageAuthority       ReadinessComponentID = "usage_authority"
-	ReadinessComponentConcurrencyAuthority ReadinessComponentID = "concurrency_authority"
-	ReadinessComponentRequestCoordinator   ReadinessComponentID = "request_coordinator"
-	ReadinessComponentAttemptCoordinator   ReadinessComponentID = "attempt_coordinator"
-	ReadinessComponentUsageSnapshot        ReadinessComponentID = "usage_snapshot"
-	ReadinessComponentConcurrencySnapshot  ReadinessComponentID = "concurrency_snapshot"
-	ReadinessComponentRatingSnapshot       ReadinessComponentID = "rating_snapshot"
-	ReadinessComponentCustomerRater        ReadinessComponentID = "customer_rater"
-	ReadinessComponentOperatorRater        ReadinessComponentID = "operator_rater"
+	ReadinessComponentMeteringJournal       ReadinessComponentID = "metering_journal"
+	ReadinessComponentControlPlane          ReadinessComponentID = "control_plane"
+	ReadinessComponentUsageAuthority        ReadinessComponentID = "usage_authority"
+	ReadinessComponentConcurrencyAuthority  ReadinessComponentID = "concurrency_authority"
+	ReadinessComponentRequestCoordinator    ReadinessComponentID = "request_coordinator"
+	ReadinessComponentAttemptCoordinator    ReadinessComponentID = "attempt_coordinator"
+	ReadinessComponentUsageSnapshot         ReadinessComponentID = "usage_snapshot"
+	ReadinessComponentConcurrencySnapshot   ReadinessComponentID = "concurrency_snapshot"
+	ReadinessComponentRatingSnapshot        ReadinessComponentID = "rating_snapshot"
+	ReadinessComponentCustomerRater         ReadinessComponentID = "customer_rater"
+	ReadinessComponentOperatorRater         ReadinessComponentID = "operator_rater"
+	ReadinessComponentSecretGuardQuarantine ReadinessComponentID = "secret_guard_quarantine"
 )
 
 // ReadinessComponentStatus is one independent authority/journal readiness row

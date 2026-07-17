@@ -50,6 +50,25 @@ handlers:
 	}
 }
 
+func TestStandardBundle_buildsSecretsGuard(t *testing.T) {
+	t.Parallel()
+	var n yaml.Node
+	if err := yaml.Unmarshal([]byte("action: block"), &n); err != nil {
+		t.Fatal(err)
+	}
+	reg := testRegistryWithStdBundle(t)
+	b, err := reg.BuildFeatureBundle("secrets-guard", n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.SecretGuards) != 1 {
+		t.Fatalf("secret guards: %d", len(b.SecretGuards))
+	}
+	if b.SecretGuards[0].ID() != "secrets-guard" {
+		t.Fatalf("guard id: %q", b.SecretGuards[0].ID())
+	}
+}
+
 func TestRequireEmptyFeatureYAML_acceptsEmptyMapping(t *testing.T) {
 	t.Parallel()
 	var n yaml.Node

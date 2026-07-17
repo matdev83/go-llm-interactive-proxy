@@ -45,8 +45,8 @@ func TestMountedInventoryJSON_includesExtensionTruthBlock_RED(t *testing.T) {
 	if err := json.Unmarshal(envelope.Extensions, &ext); err != nil {
 		t.Fatal(err)
 	}
-	if len(ext.LegalPipeline) != 13 || len(ext.Stages) != 13 {
-		t.Fatalf("extensions contract: want 13 pipeline stages each, got pipeline=%d stages=%d", len(ext.LegalPipeline), len(ext.Stages))
+	if len(ext.LegalPipeline) != 14 || len(ext.Stages) != 14 {
+		t.Fatalf("extensions contract: want 14 pipeline stages each, got pipeline=%d stages=%d", len(ext.LegalPipeline), len(ext.Stages))
 	}
 	for _, st := range ext.Stages {
 		if strings.TrimSpace(st.ID) == "" || strings.TrimSpace(st.DefaultFailure) == "" {

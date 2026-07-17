@@ -71,7 +71,7 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			return controlplane.ReadinessComponentStatus{
 				Component:        controlplane.ReadinessComponentMeteringJournal,
 				State:            state,
-				EnforcementScope: controlplane.EnforcementScopeForStoreBacking(m.StoreBacking, storeNameIsPostgres(m.StoreBacking)),
+				EnforcementScope: controlplane.EnforcementScopeForStoreBacking(m.StoreBacking, strings.EqualFold(strings.TrimSpace(m.StoreBacking), "postgres")),
 				StoreBacking:     m.StoreBacking,
 			}, nil
 		}
@@ -83,9 +83,21 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			if cur == nil {
 				return controlplane.CapabilityDisabled, controlplane.CapabilityDisabled, controlplane.CapabilityDisabled
 			}
-			return mapSnapshotState(cur.Usage.State),
-				mapSnapshotState(cur.Concurrency.State),
-				mapSnapshotState(cur.Rating.State)
+			mapState := func(s economics.SnapshotState) controlplane.CapabilityState {
+				switch s {
+				case economics.SnapshotReady, economics.SnapshotStale:
+					return controlplane.CapabilityReady
+				case economics.SnapshotDegraded:
+					return controlplane.CapabilityDegraded
+				case economics.SnapshotUnavailable:
+					return controlplane.CapabilityUnavailable
+				case economics.SnapshotDisabled:
+					return controlplane.CapabilityDisabled
+				default:
+					return controlplane.CapabilityUnavailable
+				}
+			}
+			return mapState(cur.Usage.State), mapState(cur.Concurrency.State), mapState(cur.Rating.State)
 		}
 	}
 	if in.Executor != nil {
@@ -93,6 +105,35 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 		src.RequestCoordinatorEnabled = exec.RequestCoordinator != nil && len(exec.RequestCoordinator.Slots) > 0
 		src.AttemptCoordinatorEnabled = exec.AttemptCoordinator != nil && len(exec.AttemptCoordinator.Slots) > 0
 		src.OperatorRaterAttached = exec.EconomicsRater != nil || in.Production.Rater != nil
+		if exec.SecureSession != nil && exec.RuntimeSnapshot != nil && len(exec.RuntimeSnapshot.SecretGuardPlane().Guards) > 0 {
+			backing := "injected"
+			if in.Cfg != nil {
+				backing = strings.ToLower(strings.TrimSpace(in.Cfg.SecureSession.Store))
+				if in.Cfg.SecureSessionEffectivelyEnabled() {
+					if backing == "" {
+						backing = "memory"
+					}
+				} else if backing == "" {
+					backing = "injected"
+				}
+			}
+			src.SecretGuardQuarantine = func(ctx context.Context) (controlplane.ReadinessComponentStatus, error) {
+				_ = ctx
+				state := controlplane.CapabilityReady
+				reason := controlplane.ReasonNone
+				if exec.QuarantinePersistenceFaulted() {
+					state = controlplane.CapabilityUnavailable
+					reason = controlplane.ReasonBackingUnavailable
+				}
+				return controlplane.ReadinessComponentStatus{
+					Component:        controlplane.ReadinessComponentSecretGuardQuarantine,
+					State:            state,
+					Reason:           reason,
+					EnforcementScope: controlplane.EnforcementScopeForStoreBacking(backing, strings.EqualFold(strings.TrimSpace(backing), "postgres")),
+					StoreBacking:     backing,
+				}, nil
+			}
+		}
 	}
 	src.CustomerRaterAttached = in.Production.Rater != nil
 	return corecp.NewReadinessReportService(src)
@@ -129,23 +170,4 @@ func readinessStoreBackings(cfg *config.Config, prod ProductionOptions) corecp.R
 		}
 	}
 	return out
-}
-
-func mapSnapshotState(s economics.SnapshotState) controlplane.CapabilityState {
-	switch s {
-	case economics.SnapshotReady, economics.SnapshotStale:
-		return controlplane.CapabilityReady
-	case economics.SnapshotDegraded:
-		return controlplane.CapabilityDegraded
-	case economics.SnapshotUnavailable:
-		return controlplane.CapabilityUnavailable
-	case economics.SnapshotDisabled:
-		return controlplane.CapabilityDisabled
-	default:
-		return controlplane.CapabilityUnavailable
-	}
-}
-
-func storeNameIsPostgres(store string) bool {
-	return strings.EqualFold(strings.TrimSpace(store), "postgres")
 }

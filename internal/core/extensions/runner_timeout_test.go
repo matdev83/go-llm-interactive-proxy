@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -97,47 +98,54 @@ func (h hungToolPol) Handle(ctx context.Context, _ lipapi.ToolEvent, _ toolpolic
 // TestRunPreRequestStage_TimeoutBoundsHungProviderAndEmitsEvidence asserts a hung
 // fail-closed pre-request handler is bounded by its evaluation budget and emits a
 // timeout evidence record carrying the evaluation timeout and a non-zero deadline.
+// It uses testing/synctest.Test (Go 1.25+) so the 30ms evaluation timeout advances on
+// the bubble's fake clock instead of blocking on real wall-clock time. The hung
+// handler's bounded goroutine still only completes once its childCtx.Done() fires, so
+// synctest.Test's exit-tracking (wait for all bubble goroutines to finish) exercises
+// the exact same "late/still-running provider" shutdown path as the real-time version.
 func TestRunPreRequestStage_TimeoutBoundsHungProviderAndEmitsEvidence(t *testing.T) {
 	t.Parallel()
-	obs := &runnerEvidenceObserver{}
-	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
-		{feature.StageIDPreRequest, "pr-hung"}: 30 * time.Millisecond,
-	}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
-	call := validCall()
-	start := time.Now()
-	err := extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
-		hungPreReqHandler{id: "pr-hung", mode: sdkhooks.FailClosed},
-	}, &call, prerequest.Meta{}, prerequest.Services{})
-	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("expected timeout failure error")
-	}
-	if !lipapi.IsPolicyFailure(err) {
-		t.Fatalf("timeout fail-closed must be policy failure, got %v", err)
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("timeout must bound hung provider, elapsed %v", elapsed)
-	}
-	rec, ok := obs.findByProvider("pr-hung")
-	if !ok {
-		t.Fatalf("expected pr-hung timeout record, got %+v", obs.snapshot())
-	}
-	if rec.Outcome != policydecision.OutcomeError || rec.Effect != policydecision.EffectNone {
-		t.Fatalf("timeout record: want error/none, got %s/%s", rec.Outcome, rec.Effect)
-	}
-	if rec.ReasonCode != extensions.PolicyReasonTimeout {
-		t.Fatalf("timeout reason: got %q want %q", rec.ReasonCode, extensions.PolicyReasonTimeout)
-	}
-	if rec.FailureBehavior != policydecision.FailureBehaviorFailClosed {
-		t.Fatalf("timeout failure behavior: got %q want fail-closed", rec.FailureBehavior)
-	}
-	if rec.EvaluationTimeout != 30*time.Millisecond {
-		t.Fatalf("evaluation timeout carried: got %v want 30ms", rec.EvaluationTimeout)
-	}
-	if rec.EvaluationDeadline.IsZero() {
-		t.Fatal("evaluation deadline must be populated when timeout is non-zero")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		obs := &runnerEvidenceObserver{}
+		budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
+			{feature.StageIDPreRequest, "pr-hung"}: 30 * time.Millisecond,
+		}}
+		ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
+		call := validCall()
+		start := time.Now()
+		err := extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
+			hungPreReqHandler{id: "pr-hung", mode: sdkhooks.FailClosed},
+		}, &call, prerequest.Meta{}, prerequest.Services{})
+		elapsed := time.Since(start)
+		if err == nil {
+			t.Fatal("expected timeout failure error")
+		}
+		if !lipapi.IsPolicyFailure(err) {
+			t.Fatalf("timeout fail-closed must be policy failure, got %v", err)
+		}
+		if elapsed > 500*time.Millisecond {
+			t.Fatalf("timeout must bound hung provider, elapsed %v", elapsed)
+		}
+		rec, ok := obs.findByProvider("pr-hung")
+		if !ok {
+			t.Fatalf("expected pr-hung timeout record, got %+v", obs.snapshot())
+		}
+		if rec.Outcome != policydecision.OutcomeError || rec.Effect != policydecision.EffectNone {
+			t.Fatalf("timeout record: want error/none, got %s/%s", rec.Outcome, rec.Effect)
+		}
+		if rec.ReasonCode != extensions.PolicyReasonTimeout {
+			t.Fatalf("timeout reason: got %q want %q", rec.ReasonCode, extensions.PolicyReasonTimeout)
+		}
+		if rec.FailureBehavior != policydecision.FailureBehaviorFailClosed {
+			t.Fatalf("timeout failure behavior: got %q want fail-closed", rec.FailureBehavior)
+		}
+		if rec.EvaluationTimeout != 30*time.Millisecond {
+			t.Fatalf("evaluation timeout carried: got %v want 30ms", rec.EvaluationTimeout)
+		}
+		if rec.EvaluationDeadline.IsZero() {
+			t.Fatal("evaluation deadline must be populated when timeout is non-zero")
+		}
+	})
 }
 
 // TestRunRequestTransformStage_TimeoutBoundsHungProviderAndEmitsEvidence asserts a
@@ -148,7 +156,7 @@ func TestRunRequestTransformStage_TimeoutBoundsHungProviderAndEmitsEvidence(t *t
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDRequestWide, "rtx-hung"}: 30 * time.Millisecond,
 	}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	start := time.Now()
 	err := extensions.RunRequestTransformStage(ctx, nil, nil, []request.Transform{
@@ -188,7 +196,7 @@ func TestRunPreRequestStage_TimeoutFailOpenContinuesAndEmitsSkipEvidence(t *test
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDPreRequest, "pr-hung-open"}: 30 * time.Millisecond,
 	}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	var seen []string
 	err := extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
@@ -223,7 +231,7 @@ func TestRunPreRequestStage_ParentCancelNotClassifiedAsTimeout(t *testing.T) {
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDPreRequest, "pr-hung"}: 30 * time.Second,
 	}}
-	parent, cancel := context.WithCancel(context.Background())
+	parent, cancel := context.WithCancel(t.Context())
 	ctx := withRunnerEvidenceAndBudget(parent, obs, budget)
 	call := validCall()
 	// Cancel before running so the provider observes an already-canceled ctx.
@@ -254,7 +262,7 @@ func TestRunPreRequestStage_ZeroTimeoutPreservesSynchronousBehavior(t *testing.T
 	t.Parallel()
 	obs := &runnerEvidenceObserver{}
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	var deadlineOk bool
 	if err := extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
@@ -308,7 +316,7 @@ func TestRunToolPolicyStage_TimeoutBoundsHungPolicyAndEmitsEvidence(t *testing.T
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDToolEventReaction, "tp-hung"}: 30 * time.Millisecond,
 	}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	start := time.Now()
 	err := extensions.RunToolPolicyStage(extensions.ToolPolicyStageInput{
 		Ctx: ctx,
@@ -384,7 +392,7 @@ func TestRunPreRequestStage_TimeoutEvidenceDeadlineEqualsProviderCtxDeadline(t *
 	}}
 	var captured time.Time
 	var saw bool
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	done := make(chan struct{})
 	_ = extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
@@ -444,7 +452,7 @@ func TestRunPreRequestStage_TimeoutEvidenceDeadlineMatchesBoundedDeadline(t *tes
 		{feature.StageIDPreRequest, "pr-result-deadline"}: 100 * time.Millisecond,
 	}}
 	var captured time.Time
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	done := make(chan struct{})
 	_ = extensions.RunPreRequestStage(ctx, nil, nil, []prerequest.Handler{
@@ -506,7 +514,7 @@ func TestRunRequestTransformStage_TimeoutEvidenceDeadlineEqualsProviderCtxDeadli
 	}}
 	var captured time.Time
 	var saw bool
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	done := make(chan struct{})
 	_ = extensions.RunRequestTransformStage(ctx, nil, nil, []request.Transform{
@@ -535,7 +543,7 @@ func TestRunPreRequestStage_NoObserverTimeoutStillEnforces(t *testing.T) {
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDPreRequest, "pr-hung-silent"}: 30 * time.Millisecond,
 	}}
-	ctx := extensions.WithDecisionEvidence(context.Background(), &extensions.DecisionEvidence{
+	ctx := extensions.WithDecisionEvidence(t.Context(), &extensions.DecisionEvidence{
 		Emitter:       nil,
 		Views:         sampleViews(),
 		TimeoutBudget: budget,
@@ -599,7 +607,7 @@ func TestRunRequestTransformStage_TimeoutDoesNotMutateLiveCallAfterTimeout(t *te
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDRequestWide, "rtx-late-mut"}: 30 * time.Millisecond,
 	}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	original := lipapi.CloneCall(call)
 	unblock := make(chan struct{})
@@ -670,7 +678,7 @@ func TestRunPreRequestStage_TimeoutProviderCtxReportsDeadlineExceeded(t *testing
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{
 		{feature.StageIDPreRequest, "pr-deadline-err"}: 30 * time.Millisecond,
 	}}
-	ctx := withRunnerEvidenceAndBudget(context.Background(), obs, budget)
+	ctx := withRunnerEvidenceAndBudget(t.Context(), obs, budget)
 	call := validCall()
 	var captured error
 	done := make(chan struct{})
@@ -707,7 +715,7 @@ func TestRunPreRequestStage_FailOpenCancellationIsPreservedNotSwallowed(t *testi
 	t.Parallel()
 	obs := &runnerEvidenceObserver{}
 	budget := &perProviderTimeoutBudget{budgets: map[[2]string]time.Duration{}}
-	parent, cancel := context.WithCancel(context.Background())
+	parent, cancel := context.WithCancel(t.Context())
 	cancel()
 	ctx := withRunnerEvidenceAndBudget(parent, obs, budget)
 	call := validCall()

@@ -500,3 +500,24 @@ plugins:
     # - id: ref-tool-prefix
     #   enabled: true
     #   config: { prefix: ">>" }
+    #
+    # Secrets guard (issue #151) — ingress secret detection; disabled by default.
+    # Operator guide: docs/secrets-guard.md. Runnable examples: config/examples/secrets-guard-*.yaml
+    # Only one enabled secrets-guard feature instance is supported in v1; multiple enabled
+    # registrations must fail startup. Staged rollout is one action per deployment: disabled -> log -> redact -> block.
+    # - id: secrets-guard
+    #   enabled: false
+    #   config:
+    #     action: block                  # required when enabled: block | redact | log
+    #     audit_failure_policy: fail_closed  # fail_closed | best_effort
+    #     min_secret_bytes: 8
+    #     scan_max_bytes: 2097152        # default 2 MiB per scanned field; max 67108864 (64 MiB)
+    #     single_user:                   # invalid under access.mode: multi_user (omit in multi-user)
+    #       include_popular_env: true    # curated non-proxy env vars (GitHub, Slack, Stripe, …)
+    #       include_env: []              # extra env var names to load at startup
+    #       exclude_env: []              # names to drop from the single-user catalog
+    #     redaction:
+    #       mask_byte: "*"               # single ASCII byte; used when action: redact
+    #       preserve_known_prefixes: true  # keep declared public prefixes (sk-, ghp_, …) during redact
+    #     # single_user catalog is a startup snapshot; credential rotation requires restarting all replicas.
+    #     # log mode leaves ingress unchanged, so downstream response capture may still see a model echo.

@@ -124,12 +124,13 @@ type UsageAuthorityService interface {
 
 // ObservabilityRuntime carries structured logging, metrics, and diagnostics toggles.
 type ObservabilityRuntime struct {
-	Log                      *slog.Logger
-	Metrics                  MetricsSink
-	ExtensionMetrics         extensions.StageMetrics
-	RouteTrace               *diag.RouteTraceBuffer
-	PolicyDiagnosticsEnabled bool
-	CompletionBufferLimits   completion.BufferLimits
+	Log                        *slog.Logger
+	Metrics                    MetricsSink
+	ExtensionMetrics           extensions.StageMetrics
+	SecretGuardDecisionMetrics extensions.SecretGuardDecisionMetrics
+	RouteTrace                 *diag.RouteTraceBuffer
+	PolicyDiagnosticsEnabled   bool
+	CompletionBufferLimits     completion.BufferLimits
 }
 
 // ExtensionRuntime carries the hook bus and frozen per-build extension snapshot.

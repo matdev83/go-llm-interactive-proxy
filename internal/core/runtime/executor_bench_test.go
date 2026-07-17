@@ -53,7 +53,7 @@ func BenchmarkExecutorExecuteAndDrain32Deltas(b *testing.B) {
 			Parts: []lipapi.Part{lipapi.TextPart("bench")},
 		}},
 	}
-	ctx := context.Background()
+	ctx := b.Context()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {

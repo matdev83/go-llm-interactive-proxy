@@ -41,8 +41,12 @@ type extensionRuntime struct {
 // in [Build] via [assemblePolicyObserverChain] so the usage-authority evidence
 // sink can fan to the same chain instance the runtime snapshot uses, avoiding
 // duplicate control-plane events for authority decisions.
-func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer) *extensionRuntime {
-	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs)
+func buildExtensionRuntime(bctx buildContext, nowFn func() time.Time, execRunnerProvider func() auxreq.ExecutorRunner, cp *controlPlaneRuntime, policyObs policydecision.Observer, sg *secretGuardRuntime) *extensionRuntime {
+	var plane extensions.SecretGuardPlane
+	if sg != nil {
+		plane = sg.Plane
+	}
+	snap := buildRuntimeSnapshot(bctx.Bus, bctx.Cfg, bctx.Opts, nowFn, execRunnerProvider, cp, policyObs, plane)
 	return &extensionRuntime{Snap: snap}
 }
 
@@ -80,6 +84,7 @@ func buildRuntimeSnapshot(
 	execRunnerProvider func() auxreq.ExecutorRunner,
 	cp *controlPlaneRuntime,
 	policyObs policydecision.Observer,
+	sgPlane extensions.SecretGuardPlane,
 ) *extensions.RequestRuntimeSnapshot {
 	var ws lipworkspace.Resolver = lipworkspace.DisabledResolver{}
 	if len(opts.Extensions.WorkspaceResolvers) > 0 {
@@ -164,6 +169,7 @@ func buildRuntimeSnapshot(
 		UsageObserver:       usageObs,
 		RawCapture:          trafficRaw,
 		TrafficRedactors:    trafficRedactors,
+		SecretGuardPlane:    sgPlane,
 		PolicyObserver:      policyObs,
 		TimeoutBudgetSource: budgetSrc,
 	})

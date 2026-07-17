@@ -38,6 +38,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reftraffictranscript"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refverifier"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
 	frontanthropic "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/anthropic"
@@ -158,6 +159,7 @@ func StandardBundle() Bundle {
 			{ID: refverifier.ID, Factory: featureRefVerifier},
 			{ID: prerequestpolicy.ID, Factory: featurePreRequestPolicy},
 			{ID: codexclientcompat.ID, Factory: featureCodexClientCompat},
+			{ID: secretsguard.ID, Factory: featureSecretsGuard},
 		},
 	}
 }

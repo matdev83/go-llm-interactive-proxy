@@ -300,6 +300,10 @@ func (m *Manager) beginResume(ctx context.Context, in BeginInput) (BeginResult, 
 		return zero, domain.ErrWorkspaceDenied
 	}
 
+	if rec.Status.IsQuarantined() {
+		return zero, domain.ErrSessionQuarantined
+	}
+
 	if !rec.ResumeEligible {
 		return zero, domain.ErrResumeExpired
 	}

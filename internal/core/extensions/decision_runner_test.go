@@ -43,7 +43,7 @@ func TestRunBoundedCall_CloneSnapshotSurvivesLateTimedOutProvider(t *testing.T) 
 
 	result := make(chan boundedProviderResult[struct{}], 1)
 	go func() {
-		result <- runBoundedCall(context.Background(), ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
+		result <- runBoundedCall(t.Context(), ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
 			<-release
 			observed <- runnerTestText(target)
 			return struct{}{}, ctx.Err()
@@ -73,7 +73,7 @@ func TestRunBoundedCall_CommitOnlyOnSuccessAndNotOnTimeout(t *testing.T) {
 		t.Parallel()
 		ev := &DecisionEvidence{TimeoutBudget: StaticTimeoutBudgetSource{Budget: 5 * time.Second}}
 		call := runnerTestCall("before")
-		res := runBoundedCall(context.Background(), ev, "stage", "prov", call, func(_ context.Context, target *lipapi.Call) (struct{}, error) {
+		res := runBoundedCall(t.Context(), ev, "stage", "prov", call, func(_ context.Context, target *lipapi.Call) (struct{}, error) {
 			setRunnerTestText(target, "bounded")
 			return struct{}{}, nil
 		})
@@ -90,7 +90,7 @@ func TestRunBoundedCall_CommitOnlyOnSuccessAndNotOnTimeout(t *testing.T) {
 		ev := &DecisionEvidence{TimeoutBudget: StaticTimeoutBudgetSource{Budget: 20 * time.Millisecond}}
 		call := runnerTestCall("before")
 		release := make(chan struct{})
-		res := runBoundedCall(context.Background(), ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
+		res := runBoundedCall(t.Context(), ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
 			<-release
 			setRunnerTestText(target, "late")
 			return struct{}{}, ctx.Err()
@@ -107,7 +107,7 @@ func TestRunBoundedCall_CommitOnlyOnSuccessAndNotOnTimeout(t *testing.T) {
 	t.Run("parent cancel does not commit", func(t *testing.T) {
 		t.Parallel()
 		ev := &DecisionEvidence{TimeoutBudget: StaticTimeoutBudgetSource{Budget: 5 * time.Second}}
-		parent, cancel := context.WithCancel(context.Background())
+		parent, cancel := context.WithCancel(t.Context())
 		cancel()
 		call := runnerTestCall("before")
 		res := runBoundedCall(parent, ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
@@ -124,6 +124,33 @@ func TestRunBoundedCall_CommitOnlyOnSuccessAndNotOnTimeout(t *testing.T) {
 	})
 }
 
+func TestRunDecisionProviderWithDeadlineGuarded_parentCanceledSkipsCall(t *testing.T) {
+	t.Parallel()
+	guard := NewProviderTimeoutGuard()
+	parent, cancel := context.WithCancel(t.Context())
+	cancel()
+	started := make(chan struct{}, 1)
+
+	res := RunDecisionProviderWithDeadlineGuarded(parent, time.Now().Add(time.Second), guard, "stage", "prov", func(context.Context) (string, error) {
+		started <- struct{}{}
+		return "unexpected", nil
+	})
+	if !res.ParentCanceled {
+		t.Fatalf("expected parent cancellation, got %#v", res)
+	}
+	if res.TimedOut || res.GuardRejected || res.ProviderStillRunning {
+		t.Fatalf("parent cancellation must not look like timeout/guard rejection, got %#v", res)
+	}
+	if !errors.Is(res.Err, context.Canceled) {
+		t.Fatalf("err must wrap context.Canceled, got %v", res.Err)
+	}
+	select {
+	case <-started:
+		t.Fatal("canceled parent must not launch provider goroutine")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // TestRunBoundedCall_ZeroTimeoutSkipsCloneAndDeadline asserts the zero-timeout legacy
 // path runs directly against the live call with no child context, goroutine, or deadline.
 func TestRunBoundedCall_ZeroTimeoutSkipsCloneAndDeadline(t *testing.T) {
@@ -131,7 +158,7 @@ func TestRunBoundedCall_ZeroTimeoutSkipsCloneAndDeadline(t *testing.T) {
 	ev := &DecisionEvidence{TimeoutBudget: DefaultTimeoutBudgetSource{}}
 	call := runnerTestCall("before")
 	var directCtx context.Context
-	res := runBoundedCall(context.Background(), ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
+	res := runBoundedCall(t.Context(), ev, "stage", "prov", call, func(ctx context.Context, target *lipapi.Call) (struct{}, error) {
 		directCtx = ctx
 		if target != call {
 			t.Fatal("zero-timeout path must run against live call")
@@ -163,7 +190,7 @@ func TestRunBoundedProvider_DeadlineMatchesProviderCtxDeadline(t *testing.T) {
 	ev := &DecisionEvidence{TimeoutBudget: StaticTimeoutBudgetSource{Budget: 5 * time.Second}}
 	var captured time.Time
 	var saw bool
-	res := runBoundedProvider(context.Background(), ev, "stage", "prov", func(ctx context.Context) (struct{}, error) {
+	res := runBoundedProvider(t.Context(), ev, "stage", "prov", func(ctx context.Context) (struct{}, error) {
 		d, ok := ctx.Deadline()
 		if ok {
 			saw = true
@@ -194,7 +221,7 @@ func TestRunBoundedProvider_GuardRejectsWhileProviderStillRunning(t *testing.T) 
 	started := make(chan struct{}, 1)
 	providerCalls := make(chan struct{}, 2)
 
-	first := runBoundedProvider(context.Background(), ev, "stage", "prov", func(ctx context.Context) (struct{}, error) {
+	first := runBoundedProvider(t.Context(), ev, "stage", "prov", func(ctx context.Context) (struct{}, error) {
 		providerCalls <- struct{}{}
 		started <- struct{}{}
 		<-release
@@ -208,7 +235,7 @@ func TestRunBoundedProvider_GuardRejectsWhileProviderStillRunning(t *testing.T) 
 	}
 	<-started
 
-	second := runBoundedProvider(context.Background(), ev, "stage", "prov", func(context.Context) (struct{}, error) {
+	second := runBoundedProvider(t.Context(), ev, "stage", "prov", func(context.Context) (struct{}, error) {
 		providerCalls <- struct{}{}
 		return struct{}{}, nil
 	})
@@ -222,7 +249,7 @@ func TestRunBoundedProvider_GuardRejectsWhileProviderStillRunning(t *testing.T) 
 	close(release)
 	deadline := time.After(2 * time.Second)
 	for {
-		third := runBoundedProvider(context.Background(), ev, "stage", "prov", func(context.Context) (struct{}, error) {
+		third := runBoundedProvider(t.Context(), ev, "stage", "prov", func(context.Context) (struct{}, error) {
 			providerCalls <- struct{}{}
 			return struct{}{}, nil
 		})
@@ -246,7 +273,7 @@ func TestRunBoundedProvider_GuardRejectsWhileProviderStillRunning(t *testing.T) 
 func TestHandleProviderTimeoutNilEmitSafe(t *testing.T) {
 	t.Parallel()
 	cfg := stageFailureConfig{Stage: "test_stage", EmitTimeout: nil}
-	cont, err := handleProviderTimeout(context.Background(), nil, nil, nil, cfg, context.Background(), "p", time.Time{}, sdkhooks.FailOpen)
+	cont, err := handleProviderTimeout(t.Context(), nil, nil, nil, cfg, t.Context(), "p", time.Time{}, sdkhooks.FailOpen)
 	if !cont || err != nil {
 		t.Fatalf("nil EmitTimeout FailOpen = (%v,%v), want (true,nil)", cont, err)
 	}
@@ -255,7 +282,7 @@ func TestHandleProviderTimeoutNilEmitSafe(t *testing.T) {
 func TestHandleProviderFailureNilEmitSafe(t *testing.T) {
 	t.Parallel()
 	cfg := stageFailureConfig{Stage: "test_stage", EmitFailure: nil}
-	cont, err := handleProviderFailure(context.Background(), nil, nil, nil, cfg, context.Background(), "p", time.Time{}, sdkhooks.FailOpen, errors.New("boom"))
+	cont, err := handleProviderFailure(t.Context(), nil, nil, nil, cfg, t.Context(), "p", time.Time{}, sdkhooks.FailOpen, errors.New("boom"))
 	if !cont || err != nil {
 		t.Fatalf("nil EmitFailure FailOpen = (%v,%v), want (true,nil)", cont, err)
 	}

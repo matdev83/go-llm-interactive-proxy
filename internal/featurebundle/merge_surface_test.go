@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -144,6 +145,15 @@ func (testRedactor) Redact(_ context.Context, _ traffic.Leg, _ traffic.CaptureMe
 	return body, nil
 }
 
+type testSecretGuard struct{ tag string }
+
+func (g testSecretGuard) ID() string                         { return g.tag }
+func (testSecretGuard) Order() int                           { return 0 }
+func (testSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+func (testSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
 // --- Tests ---
 
 func TestMergeBundles_empty(t *testing.T) {
@@ -174,6 +184,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		UsageObservers:     []usage.Observer{testUsageObs{tag: "uo1"}},
 		RawCaptureSinks:    []traffic.RawCaptureSink{testRawSink{tag: "rs1"}},
 		TrafficRedactors:   []traffic.Redactor{testRedactor{tag: "red1"}},
+		SecretGuards:       []secretguard.Guard{testSecretGuard{tag: "sg1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
 		SchemaVersion:      lipfeature.SchemaVersionV1,
@@ -193,6 +204,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		UsageObservers:     []usage.Observer{testUsageObs{tag: "uo2"}},
 		RawCaptureSinks:    []traffic.RawCaptureSink{testRawSink{tag: "rs2"}},
 		TrafficRedactors:   []traffic.Redactor{testRedactor{tag: "red2"}},
+		SecretGuards:       []secretguard.Guard{testSecretGuard{tag: "sg2"}},
 	}
 	m := MergeBundles(b1, b2)
 
@@ -216,6 +228,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"UsageObservers", len(m.UsageObservers)},
 		{"RawCaptureSinks", len(m.RawCaptureSinks)},
 		{"TrafficRedactors", len(m.TrafficRedactors)},
+		{"SecretGuards", len(m.SecretGuards)},
 	}
 	for _, c := range checks {
 		if c.got != 2 {

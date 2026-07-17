@@ -220,6 +220,7 @@ const selectSession = `SELECT
 		policy_version, transcript_enabled, effective_treatment, stricter_policy_resolution,
 		route_hint, redaction_profile, audit_mode,
 		a_leg_id, resume_eligible,
+		status, quarantined_at_unix, quarantine_reason_code, quarantine_event_id,
 		last_activity_unix, last_activity_source, created_at_unix,
 		usage_in, usage_out, attempt_count,
 		latest_attempt_trace_json, latest_attempt_outcome_json, latest_attempt_accounting_json
@@ -245,10 +246,11 @@ func (s *Store) Create(ctx context.Context, rec domain.CreateRecord) (domain.Rec
 		policy_version, transcript_enabled, effective_treatment, stricter_policy_resolution,
 		route_hint, redaction_profile, audit_mode,
 		a_leg_id, resume_eligible,
+		status, quarantined_at_unix, quarantine_reason_code, quarantine_event_id,
 		last_activity_unix, last_activity_source, created_at_unix,
 		usage_in, usage_out, attempt_count,
 		latest_attempt_trace_json, latest_attempt_outcome_json, latest_attempt_accounting_json
-	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,'{}','{}','{}')`,
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',0,'','',?,?,?,0,0,0,'{}','{}','{}')`,
 		string(rec.SessionID), fp,
 		rec.Owner.ID, rec.Owner.Issuer, rec.Owner.Tenant,
 		rec.Workspace.ID, rec.ClientHints.ClientSessionID, rec.ClientHints.AgentIdentityDigest,
@@ -973,7 +975,7 @@ func (s *Store) Summary(ctx context.Context, query domain.SummaryQuery) ([]domai
 	q := `SELECT s.session_id, s.owner_id, s.workspace_id, s.last_activity_unix,
 		s.attempt_count,
 		(SELECT COUNT(1) FROM lip_secure_turns t WHERE t.session_id = s.session_id) AS turn_count,
-		s.resume_eligible, s.a_leg_id, s.policy_version, s.transcript_enabled,
+		s.status, s.resume_eligible, s.a_leg_id, s.policy_version, s.transcript_enabled,
 		s.redaction_profile, s.audit_mode, s.usage_in, s.usage_out
 		FROM lip_secure_sessions s`
 	// 2 cond max (owner+workspace); 3 args max (2 cond + limit).
@@ -1003,11 +1005,12 @@ func (s *Store) Summary(ctx context.Context, query domain.SummaryQuery) ([]domai
 		var sid, ownerID, wsID string
 		var lastActUnix int64
 		var attemptCount, turnCount int
+		var status string
 		var resumeElig, transcriptEn int
 		var aLeg, polVer, redProf, auditMode string
 		var usageIn, usageOut int64
 		if err := rows.Scan(&sid, &ownerID, &wsID, &lastActUnix, &attemptCount, &turnCount,
-			&resumeElig, &aLeg, &polVer, &transcriptEn, &redProf, &auditMode, &usageIn, &usageOut); err != nil {
+			&status, &resumeElig, &aLeg, &polVer, &transcriptEn, &redProf, &auditMode, &usageIn, &usageOut); err != nil {
 			return nil, opErr("summary scan", err)
 		}
 		out = append(out, domain.Summary{
@@ -1018,6 +1021,7 @@ func (s *Store) Summary(ctx context.Context, query domain.SummaryQuery) ([]domai
 			TurnCount:      turnCount,
 			AttemptCount:   attemptCount,
 
+			Status:            domain.SessionStatus(status),
 			ResumeEligible:    resumeElig != 0,
 			ALegID:            aLeg,
 			PolicyVersion:     polVer,

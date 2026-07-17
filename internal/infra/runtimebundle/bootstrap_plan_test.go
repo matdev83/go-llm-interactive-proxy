@@ -1,7 +1,7 @@
 package runtimebundle_test
 
 import (
-	"context"
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -19,7 +20,7 @@ func testConfigPath(t *testing.T) string {
 
 func TestBuildBootstrap_inspectLeavesBuiltNil(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: testConfigPath(t),
 		Mode:       runtimebundle.BootstrapInspect,
@@ -31,7 +32,7 @@ func TestBuildBootstrap_inspectLeavesBuiltNil(t *testing.T) {
 	}
 	defer func() {
 		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
+			_ = res.ShutdownTracing(t.Context())
 		}
 	}()
 	if res.Built != nil {
@@ -44,7 +45,7 @@ func TestBuildBootstrap_inspectLeavesBuiltNil(t *testing.T) {
 
 func TestBuildBootstrap_serveSetsBuiltExecutor(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: testConfigPath(t),
 		Mode:       runtimebundle.BootstrapServe,
@@ -56,11 +57,68 @@ func TestBuildBootstrap_serveSetsBuiltExecutor(t *testing.T) {
 	}
 	defer func() {
 		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
+			_ = res.ShutdownTracing(t.Context())
 		}
 	}()
 	if res.Built == nil || res.Built.Executor == nil {
 		t.Fatal("BootstrapServe must produce Built with Executor")
+	}
+}
+
+func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing.T) {
+	const probe = "LIP_TEST_SECRETGUARD_INCLUDE"
+	const secret = testkit.SyntheticOpenAIAPIKey
+	t.Setenv(probe, secret)
+
+	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-block-single-user.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := bytes.Replace(base, []byte("include_popular_env: true\n          include_env: []\n"), []byte("include_popular_env: false\n          include_env: ["+probe+"]\n"), 1)
+	if bytes.Equal(text, base) {
+		t.Fatal("expected secrets-guard example replacement to succeed")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, text, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+		ConfigPath: path,
+		Mode:       runtimebundle.BootstrapServe,
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+		LogWriter:  io.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if res.ShutdownTracing != nil {
+			_ = res.ShutdownTracing(t.Context())
+		}
+	}()
+	if res.Built == nil || res.Built.SecretGuardInventory == nil {
+		t.Fatal("BootstrapServe must build secret-guard inventory")
+	}
+	if res.Built.SecretGuardInventory.SecretGuardCatalogEntryCount == 0 {
+		t.Fatal("single-user serve must snapshot process env into a nonzero secret catalog")
+	}
+	if res.Built.RuntimeSnapshot == nil {
+		t.Fatal("expected runtime snapshot")
+	}
+	m, err := res.Built.RuntimeSnapshot.SecretGuardPlane().MatcherResolver.Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil {
+		t.Fatal("expected matcher resolver")
+	}
+	findings, err := m.ScanString(t.Context(), "prefix="+secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) == 0 {
+		t.Fatal("standard bootstrap serve did not load the synthetic env secret")
 	}
 }
 
@@ -79,7 +137,7 @@ func TestBuildBootstrap_nilContext(t *testing.T) {
 
 func TestBuildBootstrap_unspecifiedMode(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: testConfigPath(t),
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
@@ -109,7 +167,7 @@ func TestBuildBootstrap_inspectRejectsInvalidCustomBackendPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+	_, err = runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
 		ConfigPath: path,
 		Mode:       runtimebundle.BootstrapInspect,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
@@ -120,5 +178,66 @@ func TestBuildBootstrap_inspectRejectsInvalidCustomBackendPrefix(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "custom backend prefix") || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("error = %v, want custom backend prefix reserved", err)
+	}
+}
+
+func TestBuildBootstrap_inspectRejectsDuplicateEnabledSecretsGuardRegistrations(t *testing.T) {
+	t.Parallel()
+	base, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "examples", "secrets-guard-log-single-user.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := `    - id: secrets-guard
+      enabled: true
+      config:
+        action: log
+        audit_failure_policy: best_effort
+        single_user:
+          include_popular_env: true
+          include_env: []
+          exclude_env: []
+`
+	duplicate := `    - kind: secrets-guard
+      id: sg-log-1
+      enabled: true
+      config:
+        action: log
+        audit_failure_policy: best_effort
+        single_user:
+          include_popular_env: true
+          include_env: []
+          exclude_env: []
+    - kind: secrets-guard
+      id: sg-log-2
+      enabled: true
+      config:
+        action: block
+        audit_failure_policy: fail_closed
+        single_user:
+          include_popular_env: true
+          include_env: []
+          exclude_env: []
+`
+	text := strings.Replace(string(base), original, duplicate, 1)
+	if text == string(base) {
+		t.Fatal("expected secrets-guard block replacement to succeed")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+		ConfigPath: path,
+		Mode:       runtimebundle.BootstrapInspect,
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+		LogWriter:  io.Discard,
+	})
+	if err == nil {
+		t.Fatal("expected duplicate enabled secrets-guard registrations to fail")
+	}
+	for _, bad := range []string{"action:", "block", "log", "sg-log-1", "sg-log-2"} {
+		if strings.Contains(err.Error(), bad) {
+			t.Fatalf("error leaked %q: %v", bad, err)
+		}
 	}
 }

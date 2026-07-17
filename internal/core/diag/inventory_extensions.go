@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,36 +17,42 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
 
-// FeatureRegistry is the minimal surface needed to introspect feature bundles for inventory (R14).
-// *pluginreg.Registry implements this without importing pluginreg from diag (avoids import cycles).
 type FeatureRegistry interface {
 	BuildFeatureBundle(factoryKey string, n yaml.Node) (lipfeature.FeatureBundle, error)
 }
 
-// InventoryExtras supplies optional registry context for extension inventory (R14).
 type InventoryExtras struct {
-	Reg           FeatureRegistry
-	Registrations []lipsdk.Registration
+	Reg                          FeatureRegistry
+	Registrations                []lipsdk.Registration
+	SecretGuardCatalogEntryCount int
+	SecretGuardSourceCategories  []string
+	SecretGuardAccessMode        string
+	SecretGuardAction            string
+}
+type InventorySecretGuard struct {
+	InstanceID        string   `json:"instance_id"`
+	Action            string   `json:"action,omitempty"`
+	CatalogEntryCount int      `json:"catalog_entry_count"`
+	SourceCategories  []string `json:"source_categories,omitempty"`
+	AccessMode        string   `json:"access_mode,omitempty"`
 }
 
-// InventoryExtensions is the operator-visible extension surface (design §14).
 type InventoryExtensions struct {
 	LegalPipeline []string                     `json:"legal_pipeline"`
 	Stages        []InventoryExtensionStage    `json:"stages"`
 	Features      []InventoryFeatureExtensions `json:"features"`
 }
 
-// InventoryExtensionStage lists default failure policy per legal stage id.
 type InventoryExtensionStage struct {
 	ID             string `json:"id"`
 	DefaultFailure string `json:"default_failure"`
 }
 
-// InventoryFeatureExtensions is per configured feature row plus brownfield hook occupancy.
 type InventoryFeatureExtensions struct {
 	InstanceID     string                    `json:"instance_id"`
 	FactoryKind    string                    `json:"factory_kind"`
@@ -53,13 +60,9 @@ type InventoryFeatureExtensions struct {
 	BundleError    string                    `json:"bundle_error,omitempty"`
 	StageOccupancy []InventoryStageOccupancy `json:"stage_occupancy"`
 	Privileges     InventoryPrivileges       `json:"privileges"`
+	SecretGuard    *InventorySecretGuard     `json:"secret_guard,omitempty"`
 }
 
-// InventoryStageOccupancy maps one legal stage to sorted handler ids for this plugin instance.
-//
-// Brownfield mapping: submit hooks → submit_request; tool catalog filters → tool_catalog_filter;
-// request-wide transforms and request-part hooks → request_wide_shaping (prefixes distinguish roles);
-// response-part hooks → stream_event_mutation; tool reactors → tool_event_reaction.
 type InventoryStageOccupancy struct {
 	StageID    string   `json:"stage_id"`
 	HandlerIDs []string `json:"handler_ids"`
@@ -72,15 +75,6 @@ type InventoryPrivileges struct {
 	AuxiliaryRequests bool `json:"auxiliary_requests"`
 	AuthProvider      bool `json:"auth_provider"`
 	CompletionGate    bool `json:"completion_gate"`
-}
-
-func zeroPrivileges() InventoryPrivileges {
-	return InventoryPrivileges{
-		RawCapture:        false,
-		AuxiliaryRequests: false,
-		AuthProvider:      false,
-		CompletionGate:    false,
-	}
 }
 
 func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *InventoryExtras) InventoryExtensions {
@@ -123,7 +117,23 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 			FactoryKind:    pc.FactoryID(),
 			Enabled:        pc.Enabled,
 			StageOccupancy: []InventoryStageOccupancy{},
-			Privileges:     zeroPrivileges(),
+			Privileges:     InventoryPrivileges{},
+		}
+		if strings.EqualFold(strings.TrimSpace(pc.FactoryID()), "secrets-guard") {
+			sg := &InventorySecretGuard{InstanceID: pc.InstanceID()}
+			if extras != nil {
+				sg.CatalogEntryCount = extras.SecretGuardCatalogEntryCount
+				if extras.SecretGuardAccessMode != "" {
+					sg.AccessMode = extras.SecretGuardAccessMode
+				}
+				if len(extras.SecretGuardSourceCategories) > 0 {
+					sg.SourceCategories = append([]string(nil), extras.SecretGuardSourceCategories...)
+				}
+				if extras.SecretGuardAction != "" {
+					sg.Action = strings.TrimSpace(extras.SecretGuardAction)
+				}
+			}
+			entry.SecretGuard = sg
 		}
 		if reg != nil && pc.Enabled {
 			if err := ctx.Err(); err != nil {
@@ -332,6 +342,23 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 			HandlerIDs: sessionOpenIDs,
 			Count:      len(sessionOpenIDs),
 		})
+	}
+	if n := len(b.SecretGuards); n > 0 {
+		sorted := secretguard.MaterializeSorted(b.SecretGuards)
+		ids := make([]string, 0, n)
+		for _, g := range sorted {
+			if g == nil {
+				continue
+			}
+			ids = append(ids, "secret_guard:"+g.ID())
+		}
+		if len(ids) > 0 {
+			out = append(out, InventoryStageOccupancy{
+				StageID:    extensions.StageSecretGuard,
+				HandlerIDs: ids,
+				Count:      len(ids),
+			})
+		}
 	}
 	if n := len(b.CompletionGates); n > 0 {
 		sorted := completion.MaterializeSorted(b.CompletionGates)

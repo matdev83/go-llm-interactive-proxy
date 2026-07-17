@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -87,9 +88,12 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 			res, err := p.Authenticate(ctx, w, r)
 			if err != nil {
 				if log != nil {
-					// Provider errors are logged: [httpauth.Provider] implementations must not wrap
-					// secrets or raw Authorization material in returned errors.
-					log.ErrorContext(ctx, "stdhttp: auth provider authenticate failed", "error", err)
+					// Provider errors are logged without the raw error string so request material
+					// wrapped by providers cannot leak into logs.
+					log.ErrorContext(ctx, "stdhttp: auth provider authenticate failed",
+						slog.String("component", "stdhttp.auth"),
+						slog.String("error_kind", authProviderErrorKind(err)),
+					)
 				}
 				http.Error(w, "authentication failed", http.StatusInternalServerError)
 				return
@@ -102,6 +106,13 @@ func Middleware(log *slog.Logger, providers []httpauth.Provider, next http.Handl
 				if res.Scope != nil {
 					ctx = httpauth.WithScope(ctx, *res.Scope)
 				}
+				if res.IngressAttribution != (httpauth.IngressAttribution{}) {
+					ctx = httpauth.WithIngressAttribution(ctx, res.IngressAttribution)
+				}
+				if attacher, ok := p.(authSuccessContextAttacher); ok {
+					ctx = attacher.attachAuthSuccessContext(ctx, r, res)
+				}
+				r = r.WithContext(ctx)
 			case httpauth.TypeAnnotate:
 				mergeAnnotateResponseHeaders(ctx, log, w.Header(), res.ResponseHeaders)
 			case httpauth.TypeReject, httpauth.TypeChallenge:
@@ -129,6 +140,13 @@ func compactNonNilHTTPAuthProviders(providers []httpauth.Provider) []httpauth.Pr
 		}
 	}
 	return out
+}
+
+func authProviderErrorKind(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	return strings.TrimPrefix(fmt.Sprintf("%T", err), "*")
 }
 
 func mergeAnnotateResponseHeaders(ctx context.Context, log *slog.Logger, dst, src http.Header) {

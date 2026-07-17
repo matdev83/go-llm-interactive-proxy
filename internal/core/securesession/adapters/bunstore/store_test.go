@@ -49,6 +49,49 @@ func TestNew_AppliesSchema_SQLite(t *testing.T) {
 	}
 }
 
+func TestQuarantine_zeroTimestampRoundTrips(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, cleanup := newTestStore(t)
+	defer cleanup()
+
+	fp := domain.TokenFingerprint{}
+	fp[0] = 0xaa
+	fp[31] = 0xbb
+	rec, err := st.Create(ctx, domain.CreateRecord{
+		SessionID:         "bun-zero-quarantine",
+		ResumeFingerprint: fp,
+		Owner:             domain.PrincipalRef{ID: "owner-z", Issuer: "iss", Tenant: "ten"},
+		Workspace:         domain.WorkspaceRef{ID: "ws-z"},
+		Policy:            domain.PolicyMetadata{PolicyVersion: "v1", AuditMode: "optional"},
+		ALegID:            "a-leg-zero",
+		ResumeEligible:    true,
+		CreatedAt:         time.Unix(1, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Quarantine(ctx, domain.QuarantineInput{
+		SessionID:  rec.SessionID,
+		TurnID:     "turn-zero",
+		ReasonCode: "secret_guard_block",
+		EventID:    "evt-zero",
+		At:         time.Unix(2, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(ctx, `UPDATE lip_secure_sessions SET quarantined_at_unix = 0 WHERE session_id = ?`, string(rec.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.LoadByID(ctx, rec.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.QuarantinedAt.Equal(time.Unix(0, 0)) {
+		t.Fatalf("quarantined_at = %v want epoch zero", got.QuarantinedAt)
+	}
+}
+
 func TestSchemaMigrateTwice_Idempotent_SQLite(t *testing.T) {
 	t.Parallel()
 	st, cleanup := newTestStore(t)
@@ -75,6 +118,15 @@ func TestSchemaMigrateTwice_Idempotent_SQLite(t *testing.T) {
 	}
 	if applied != 1 {
 		t.Fatalf("expected one applied usage accounting migration row, got %d", applied)
+	}
+	err = st.db.NewRaw(
+		`SELECT count(*) FROM bun_securesession_migrations WHERE name = ?`, quarantineColumnsMigrationName,
+	).Scan(ctx, &applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected one applied quarantine columns migration row, got %d", applied)
 	}
 }
 
@@ -124,6 +176,45 @@ func TestUpgradeUsageAccountingColumns_AddsColumnsToExistingSQLite(t *testing.T)
 	for _, name := range needed {
 		var found int
 		if err := bunDB.NewRaw(`SELECT count(*) FROM pragma_table_info('lip_secure_usage') WHERE name = ?`, name).Scan(ctx, &found); err != nil {
+			t.Fatal(err)
+		}
+		if found != 1 {
+			t.Fatalf("expected upgraded column %s", name)
+		}
+	}
+}
+
+func TestUpgradeQuarantineColumns_AddsColumnsToExistingSQLite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	id := testMemDBSeq.Add(1)
+	dsn := fmt.Sprintf("file:legacy-quarantine-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)", id)
+	sqlDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+	bunDB, err := db.NewBunDB(sqlDB, db.DialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bunDB.ExecContext(ctx, `CREATE TABLE lip_secure_sessions (
+		session_id TEXT NOT NULL PRIMARY KEY,
+		resume_fingerprint BLOB NOT NULL,
+		owner_id TEXT NOT NULL DEFAULT '',
+		resume_eligible INTEGER NOT NULL DEFAULT 0,
+		last_activity_unix INTEGER NOT NULL,
+		created_at_unix INTEGER NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradeQuarantineColumns(ctx, bunDB); err != nil {
+		t.Fatal(err)
+	}
+	needed := []string{"status", "quarantined_at_unix", "quarantine_reason_code", "quarantine_event_id"}
+	for _, name := range needed {
+		var found int
+		if err := bunDB.NewRaw(`SELECT count(*) FROM pragma_table_info('lip_secure_sessions') WHERE name = ?`, name).Scan(ctx, &found); err != nil {
 			t.Fatal(err)
 		}
 		if found != 1 {

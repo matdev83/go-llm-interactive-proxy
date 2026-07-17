@@ -10,8 +10,8 @@ import (
 func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 	t.Parallel()
 	ids := feature.LegalPipelineStageIDs()
-	if len(ids) != 13 {
-		t.Fatalf("want 13 stages, got %d", len(ids))
+	if len(ids) != 14 {
+		t.Fatalf("want 14 stages, got %d", len(ids))
 	}
 	seen := map[string]struct{}{}
 	for _, id := range ids {
@@ -24,8 +24,8 @@ func TestLegalPipelineStageIDs_countAndOrder(t *testing.T) {
 		}
 	}
 	desc := feature.LegalStageDescriptors()
-	if len(desc) != 13 {
-		t.Fatalf("descriptors: want 13 got %d", len(desc))
+	if len(desc) != 14 {
+		t.Fatalf("descriptors: want 14 got %d", len(desc))
 	}
 	gotDescIDs := make([]string, len(desc))
 	for i := range desc {
@@ -41,6 +41,20 @@ func TestStageDescriptorByID_unknown(t *testing.T) {
 	_, ok := feature.StageDescriptorByID("not_a_real_stage")
 	if ok {
 		t.Fatal("expected false for unknown stage")
+	}
+}
+
+func TestLegalPipelineStageIDs_secretGuardBetweenSessionOpenAndSubmit(t *testing.T) {
+	t.Parallel()
+	openIdx := feature.LegalStageDescriptorIndex(feature.StageIDSessionOpen)
+	guardIdx := feature.LegalStageDescriptorIndex(feature.StageIDSecretGuard)
+	submitIdx := feature.LegalStageDescriptorIndex(feature.StageIDSubmit)
+	if !(openIdx < guardIdx && guardIdx < submitIdx) {
+		t.Fatalf("want session_open(%d) < secret_guard(%d) < submit_request(%d)", openIdx, guardIdx, submitIdx)
+	}
+	desc, ok := feature.StageDescriptorByID(feature.StageIDSecretGuard)
+	if !ok || desc.MutationRole != feature.StageRoleMutateReject {
+		t.Fatalf("secret_guard descriptor: ok=%v role=%v", ok, desc.MutationRole)
 	}
 }
 

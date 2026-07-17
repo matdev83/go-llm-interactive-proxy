@@ -12,6 +12,7 @@ import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
@@ -78,7 +79,20 @@ func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
 	out.UsageObservers = append(append([]usage.Observer(nil), a.UsageObservers...), b.UsageObservers...)
 	out.RawCaptureSinks = append(append([]traffic.RawCaptureSink(nil), a.RawCaptureSinks...), b.RawCaptureSinks...)
 	out.TrafficRedactors = append(append([]traffic.Redactor(nil), a.TrafficRedactors...), b.TrafficRedactors...)
+	out.SecretGuards = append(append([]secretguard.Guard(nil), a.SecretGuards...), b.SecretGuards...)
 	return out
+}
+
+type stubSecretGuard struct {
+	id  string
+	ord int
+}
+
+func (s stubSecretGuard) ID() string                           { return s.id }
+func (s stubSecretGuard) Order() int                           { return s.ord }
+func (s stubSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
+func (s stubSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
+	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
 }
 
 func TestEmptyFeatureBundle(t *testing.T) {
@@ -107,6 +121,9 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	}
 	if b.ToolCallPolicies != nil || b.UsageObservers != nil {
 		t.Fatal("expected tool policy and usage observer slices nil on zero value")
+	}
+	if b.SecretGuards != nil {
+		t.Fatal("expected SecretGuards nil on zero value")
 	}
 }
 
@@ -184,6 +201,37 @@ type stubWS struct{}
 
 func (stubWS) Resolve(context.Context) (workspace.WorkspaceView, error) {
 	return workspace.WorkspaceView{}, nil
+}
+
+func TestFeatureBundle_SecretGuards_orderCloneAndValidate(t *testing.T) {
+	t.Parallel()
+	bad := feature.FeatureBundle{SecretGuards: []secretguard.Guard{stubSecretGuard{id: "sg-a", ord: 2}}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected schema error for SecretGuards without SchemaVersionV1")
+	}
+	a := feature.FeatureBundle{
+		SchemaVersion: feature.SchemaVersionV1,
+		SecretGuards:  []secretguard.Guard{stubSecretGuard{id: "sg-a", ord: 2}},
+	}
+	b := feature.FeatureBundle{
+		SchemaVersion: feature.SchemaVersionV1,
+		SecretGuards:  []secretguard.Guard{stubSecretGuard{id: "sg-b", ord: 1}},
+	}
+	if err := a.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	merged := mergeFeatureBundles(a, b)
+	if len(merged.SecretGuards) != 2 {
+		t.Fatalf("merged SecretGuards: %d", len(merged.SecretGuards))
+	}
+	if merged.SecretGuards[0].ID() != "sg-a" || merged.SecretGuards[1].ID() != "sg-b" {
+		t.Fatalf("merge order not preserved: %q then %q", merged.SecretGuards[0].ID(), merged.SecretGuards[1].ID())
+	}
+	// Clone semantics: mutating the source slice after merge must not affect the merged copy.
+	a.SecretGuards[0] = stubSecretGuard{id: "mutated", ord: 99}
+	if merged.SecretGuards[0].ID() != "sg-a" {
+		t.Fatal("merged SecretGuards must be a cloned slice")
+	}
 }
 
 func TestFeatureBundle_Validate_sessionWorkspaceRequiresSchemaV1(t *testing.T) {

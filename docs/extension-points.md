@@ -10,16 +10,18 @@ The canonical stage IDs are defined in `pkg/lipsdk/feature/stages.go` and surfac
 | --- | --- | --- | --- | --- |
 | 1 | `transport_authentication` | stdhttp / auth providers | reject | `pkg/lipsdk/transport/httpauth`, `pkg/lipsdk/auth` |
 | 2 | `session_open` | core + feature plugins | mutate | `pkg/lipsdk/session.Opener` |
-| 3 | `submit_request` | core hook bus + feature plugins | mutate/reject | `pkg/lipsdk/hooks.SubmitHook` |
-| 4 | `tool_catalog_filter` | feature plugins | mutate | `pkg/lipsdk/toolcatalog.Filter` |
-| 5 | `request_wide_shaping` | feature plugins + brownfield hooks | mutate | `pkg/lipsdk/request.Transform`, request-part hooks |
-| 6 | `route_hinting` | feature plugins advise, core decides | observe | `pkg/lipsdk/routehint.Provider` |
-| 7 | `attempt_lifecycle` | core | observe | attempt lineage, route observers, diagnostics |
-| 8 | `stream_event_mutation` | core hook bus + feature plugins | mutate | response-part hooks |
-| 9 | `tool_event_reaction` | core hook bus + feature plugins | mutate/reject | `pkg/lipsdk/toolpolicy.Policy`, then `hooks.ToolReactor` |
-| 10 | `completion_gating` | feature plugins | replace | `pkg/lipsdk/completion.Gate` |
-| 11 | `traffic_observation` | feature plugins | observe | `traffic.Observer`, `usage.Observer`, `RawCaptureSink`, `Redactor` |
-| 12 | `egress_encoding` | frontend adapters | mutate | frontend encoders |
+| 3 | `secret_guard` | core + feature plugins | mutate/reject | `pkg/lipsdk/secretguard.Guard` (after BeginTurn, before FE checkpoint) |
+| 4 | `submit_request` | core hook bus + feature plugins | mutate/reject | `pkg/lipsdk/hooks.SubmitHook` |
+| 5 | `tool_catalog_filter` | feature plugins | mutate | `pkg/lipsdk/toolcatalog.Filter` |
+| 6 | `request_wide_shaping` | feature plugins + brownfield hooks | mutate | `pkg/lipsdk/request.Transform`, request-part hooks |
+| 7 | `pre_request_admission` | feature plugins | reject | `pkg/lipsdk/prerequest.Handler` |
+| 8 | `route_hinting` | feature plugins advise, core decides | observe | `pkg/lipsdk/routehint.Provider` |
+| 9 | `attempt_lifecycle` | core | observe | attempt lineage, route observers, diagnostics |
+| 10 | `stream_event_mutation` | core hook bus + feature plugins | mutate | response-part hooks |
+| 11 | `tool_event_reaction` | core hook bus + feature plugins | mutate/reject | `pkg/lipsdk/toolpolicy.Policy`, then `hooks.ToolReactor` |
+| 12 | `completion_gating` | feature plugins | replace | `pkg/lipsdk/completion.Gate` |
+| 13 | `traffic_observation` | feature plugins | observe | `traffic.Observer`, `usage.Observer`, `RawCaptureSink`, `Redactor` |
+| 14 | `egress_encoding` | frontend adapters | mutate | frontend encoders |
 
 `attempt_lifecycle` and `egress_encoding` are legal inventory stages even though feature bundles do not own handler slices for them.
 
