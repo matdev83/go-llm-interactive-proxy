@@ -3,6 +3,7 @@ package anthropic_test
 import (
 	"bytes"
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,14 +20,14 @@ var minimalMessageRequest = []byte(`{
   "messages": [{"role":"user","content":"ping"}]
 }`)
 
-func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_canceledContextBeforeTryAdmitReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	exec := &recordingExecutor{}
-	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeLimiter: decodeqos.NewLimiter(1)}
+	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeAdmission: decodeqos.New(1, math.MaxInt64)}
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(minimalMessageRequest))
 	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
@@ -41,25 +42,28 @@ func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *tes
 	}
 }
 
-func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_decodeLimiterSaturationReturns429WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
-	limiter := decodeqos.NewLimiter(1)
-	release, ok, err := limiter.TryAcquire(t.Context())
+	limiter := decodeqos.New(1, math.MaxInt64)
+	release, ok, err := limiter.TryAcquire(t.Context(), 0)
 	if err != nil || !ok {
 		t.Fatalf("pre-acquire limiter: ok=%v err=%v", ok, err)
 	}
 	defer release()
 
 	exec := &recordingExecutor{}
-	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeLimiter: limiter}
+	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeAdmission: limiter}
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(minimalMessageRequest))
 	rr := httptest.NewRecorder()
 
 	h.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusServiceUnavailable {
+	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Retry-After"); got != decodeqos.RetryAfterSeconds {
+		t.Fatalf("Retry-After: %q, want %q", got, decodeqos.RetryAfterSeconds)
 	}
 	if exec.called {
 		t.Fatal("executor was called while decode limiter was saturated")
@@ -69,15 +73,15 @@ func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) 
 func TestHandler_oversizedBodyReturns413WithoutAcquiringDecodeLimiter(t *testing.T) {
 	t.Parallel()
 
-	limiter := decodeqos.NewLimiter(1)
-	release, ok, err := limiter.TryAcquire(t.Context())
+	limiter := decodeqos.New(1, math.MaxInt64)
+	release, ok, err := limiter.TryAcquire(t.Context(), 0)
 	if err != nil || !ok {
 		t.Fatalf("pre-acquire limiter: ok=%v err=%v", ok, err)
 	}
 	defer release()
 
 	exec := &recordingExecutor{}
-	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeLimiter: limiter}
+	h := &anthropic.Handler{Exec: exec, DefaultRouteSelector: "stub:claude", DecodeAdmission: limiter}
 	body := bytes.Repeat([]byte("a"), int(reqbody.DefaultMaxBytes)+1)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
@@ -113,10 +117,10 @@ func TestHandler_nilDecodeLimiterStillReachesExecutor(t *testing.T) {
 func TestHandler_decodeLimiterReleasesAfterDecodeFailureAndSuccess(t *testing.T) {
 	t.Parallel()
 
-	limiter := decodeqos.NewLimiter(1)
-	h := &anthropic.Handler{Exec: &recordingExecutor{}, DefaultRouteSelector: "stub:claude", DecodeLimiter: limiter}
+	limiter := decodeqos.New(1, math.MaxInt64)
+	h := &anthropic.Handler{Exec: &recordingExecutor{}, DefaultRouteSelector: "stub:claude", DecodeAdmission: limiter}
 
-	badReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"m"`))
+	badReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
 	badRR := httptest.NewRecorder()
 	h.ServeHTTP(badRR, badReq)
 	if badRR.Code != http.StatusBadRequest {
@@ -130,7 +134,7 @@ func TestHandler_decodeLimiterReleasesAfterDecodeFailureAndSuccess(t *testing.T)
 		t.Fatalf("good status: %d body: %s", goodRR.Code, goodRR.Body.String())
 	}
 
-	release, ok, err := limiter.TryAcquire(t.Context())
+	release, ok, err := limiter.TryAcquire(t.Context(), 0)
 	if err != nil || !ok {
 		t.Fatalf("limiter remained held after success: ok=%v err=%v", ok, err)
 	}

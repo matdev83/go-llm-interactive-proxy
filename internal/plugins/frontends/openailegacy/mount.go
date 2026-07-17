@@ -18,6 +18,7 @@ func Mount(mux *http.ServeMux, opts lipsdk.FrontendMountOptions) error {
 		DefaultRouteSelector: opts.DefaultRoute,
 		RoutePrefixes:        routeselect.NewPrefixSet(opts.RoutePrefixes),
 		MaxRequestBodyBytes:  opts.MaxRequestBodyBytes,
+		DecodeAdmission:      opts.DecodeAdmission,
 		TrafficPorts:         opts.TrafficPorts,
 		PreRequestKeepalive:  opts.PreRequestKeepalive,
 		Config:               cfg,

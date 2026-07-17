@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -71,6 +72,7 @@ func mergeFeatureBundles(a, b feature.FeatureBundle) feature.FeatureBundle {
 	out.WorkspaceResolvers = append(append([]workspace.Resolver(nil), a.WorkspaceResolvers...), b.WorkspaceResolvers...)
 	out.ToolCatalogFilters = append(append([]toolcatalog.Filter(nil), a.ToolCatalogFilters...), b.ToolCatalogFilters...)
 	out.ToolCallPolicies = append(append([]toolpolicy.Policy(nil), a.ToolCallPolicies...), b.ToolCallPolicies...)
+	out.ToolCallFinalizers = append(append([]toolcall.Finalizer(nil), a.ToolCallFinalizers...), b.ToolCallFinalizers...)
 	out.RequestTransforms = append(append([]request.Transform(nil), a.RequestTransforms...), b.RequestTransforms...)
 	out.PreRequestHandlers = append(append([]prerequest.Handler(nil), a.PreRequestHandlers...), b.PreRequestHandlers...)
 	out.RouteHintProviders = slices.Concat(a.RouteHintProviders, b.RouteHintProviders)
@@ -119,8 +121,8 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	if b.TrafficObservers != nil || b.RawCaptureSinks != nil || b.TrafficRedactors != nil {
 		t.Fatal("expected traffic slices nil on zero value")
 	}
-	if b.ToolCallPolicies != nil || b.UsageObservers != nil {
-		t.Fatal("expected tool policy and usage observer slices nil on zero value")
+	if b.ToolCallPolicies != nil || b.ToolCallFinalizers != nil || b.UsageObservers != nil {
+		t.Fatal("expected tool policy/finalizer and usage observer slices nil on zero value")
 	}
 	if b.SecretGuards != nil {
 		t.Fatal("expected SecretGuards nil on zero value")
@@ -162,6 +164,38 @@ func TestFeatureBundle_Validate_emptyAndV1(t *testing.T) {
 	fixed.SchemaVersion = feature.SchemaVersionV1
 	if err := fixed.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFeatureBundle_Validate_maxArgsBytesOnlyRequiresSchemaV1(t *testing.T) {
+	t.Parallel()
+	maxOnly := feature.FeatureBundle{ToolCallFinalizationMaxArgsBytes: 1024}
+	if err := maxOnly.Validate(); err == nil {
+		t.Fatal("expected error for max-args-only bundle with schema version 0")
+	}
+	ok := feature.FeatureBundle{
+		SchemaVersion:                    feature.SchemaVersionV1,
+		ToolCallFinalizationMaxArgsBytes: 1024,
+	}
+	if err := ok.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFeatureBundle_Validate_negativeMaxArgsBytes(t *testing.T) {
+	t.Parallel()
+	bad := feature.FeatureBundle{
+		SchemaVersion:                    feature.SchemaVersionV1,
+		ToolCallFinalizationMaxArgsBytes: -1,
+	}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected error for negative ToolCallFinalizationMaxArgsBytes")
+	}
+	unset := feature.FeatureBundle{
+		ToolCallFinalizationMaxArgsBytes: -8,
+	}
+	if err := unset.Validate(); err == nil {
+		t.Fatal("expected error for negative ToolCallFinalizationMaxArgsBytes even with schema version 0")
 	}
 }
 

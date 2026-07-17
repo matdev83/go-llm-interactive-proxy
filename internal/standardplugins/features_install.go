@@ -1,6 +1,7 @@
 package standardplugins
 
 import (
+	corerepair "github.com/matdev83/go-llm-interactive-proxy/internal/core/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
@@ -14,12 +15,14 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refworkspaceguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolcallrepair"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/toolreactornoop"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -194,4 +197,31 @@ func featureSecretsGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{}, err
 	}
 	return secretsguard.FeatureBundle(cfg), nil
+}
+
+func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	cfg, err := toolcallrepair.DecodeConfig(n)
+	if err != nil {
+		return lipfeature.FeatureBundle{}, err
+	}
+	fin := corerepair.NewFinalizer(corerepair.FinalizerPolicy{
+		ID:             toolcallrepair.ID,
+		MaxArgsBytes:   cfg.MaxArgsBytes,
+		OnUnrepairable: cfg.OnUnrepairable,
+		Order:          cfg.FinalizerOrder(),
+		Schema: corerepair.SchemaLimits{
+			MaxSchemaBytes:   cfg.Schema.MaxSchemaBytes,
+			MaxNestingDepth:  cfg.Schema.MaxNestingDepth,
+			MaxNodes:         cfg.Schema.MaxNodes,
+			MaxProperties:    cfg.Schema.MaxProperties,
+			MaxLocalRefDepth: cfg.Schema.MaxLocalRefDepth,
+			MaxCacheEntries:  cfg.Schema.MaxCacheEntries,
+			MaxCacheBytes:    cfg.Schema.MaxCacheBytes,
+		},
+	})
+	return lipfeature.FeatureBundle{
+		SchemaVersion:                    lipfeature.SchemaVersionV1,
+		ToolCallFinalizers:               []toolcall.Finalizer{fin},
+		ToolCallFinalizationMaxArgsBytes: cfg.MaxArgsBytes,
+	}, nil
 }

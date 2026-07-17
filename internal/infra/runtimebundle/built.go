@@ -18,6 +18,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
@@ -35,6 +36,9 @@ type Built struct {
 	UpstreamHTTP *http.Client
 	// RoutePrefixes are backend route-selector prefixes accepted from frontend protocol model fields.
 	RoutePrefixes []string
+	// DecodeAdmission is the shared frontend decode concurrency/byte limiter for stdhttp mounts.
+	// Nil disables admission (custom/minimal Built only); [Build] always installs a finite limiter.
+	DecodeAdmission lipsdk.DecodeAdmission
 	// PluginRegistry is the registry used to construct backends and must be used when mounting frontends
 	// or composing features. [Build] sets this from [BuildOptions.PluginRegistry].
 	PluginRegistry *pluginreg.Registry

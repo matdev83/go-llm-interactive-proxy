@@ -103,3 +103,15 @@ func (e *Executor) ApplySecretGuardBlockForTest(ctx context.Context, call *lipap
 	}
 	return e.applySecretGuardBlock(ctx, e.secretGuardAudit(in.TurnID), meta, call, block, secretGuardStageInput(in))
 }
+
+// ToolFinalActiveCountForTest returns residual assembler map/drain sizes for the
+// retryRecvStream under stream (0,0,0,0 when cleared or inactive). Used to prove
+// markFinished clears attempt-local finalizer state on normal response_finished.
+func ToolFinalActiveCountForTest(stream lipapi.EventStream) (active, passThrough, completed, drain int) {
+	rs, ok := stream.(*retryRecvStream)
+	if !ok || rs == nil || rs.toolFinal == nil {
+		return 0, 0, 0, 0
+	}
+	a := rs.toolFinal
+	return len(a.active), len(a.passThrough), len(a.completed), len(a.drain)
+}

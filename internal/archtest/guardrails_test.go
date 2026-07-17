@@ -98,11 +98,18 @@ var lineBudgets = []struct {
 	// Raised from 50300 to 50700 for issue #147 identity foundation: pure
 	// identity policy model, defaults/validation/merge, and AcceptClientUserAgent.
 	// Raised for issue #147 OpenRouter attribution: AcceptClientAppURL/AppTitle.
-	// Raised from 50900 for issue #151 Phase 3 secretsguard catalog/matcher/source.
-	// Raised from 52000 for issue #151 Phase 5 quarantine adapters + runtime barrier.
-	// Raised to 53100 for issue #151 review fixes.
-	// Raised to 53200 for issue #151 gofumpt alignment after CI lint remediation.
-	{"internal/core", 53200},
+	// Raised from 50700 to 50900 for issue #147 gap closure: SpecBundleIdentityScenarios.
+	// Raised from 50900 to 51300 for protocol-neutral internal/core/jsonshape
+	// (encoding/json.Decoder.Token size/shape preflight shared by frontend
+	// jsonguard). Measured post-change non-test total is 51185; cap keeps ~115
+	// lines of headroom.
+	// Raised from 51300 to 53900 for issue #152 tool-call repair (toolcallrepair +
+	// assembler/finalization). Measured post-change non-test total is 53816; cap
+	// keeps ~80 lines of headroom.
+	// Raised for issue #151 secretsguard catalog/matcher/source + quarantine
+	// adapters + runtime barrier (merged with #152/#jsonshape on main).
+	// Measured post-merge non-test total is 56295; cap keeps ~105 lines of headroom.
+	{"internal/core", 56400},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -114,7 +121,9 @@ var lineBudgets = []struct {
 	// files and do not use this budget to excuse Build orchestrator re-bloat.
 	// Raised from 5200 for issue #151 Phase 3 secret-guard source binding.
 	// Raised from 5300 for issue #151 composition collapse + bootstrap uniqueness.
-	{"internal/infra/runtimebundle", 5350},
+	// Raised from 5350 after merging main (tool-call repair + secrets-guard wiring).
+	// Measured post-merge non-test total is 5365; cap keeps ~85 lines of headroom.
+	{"internal/infra/runtimebundle", 5450},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

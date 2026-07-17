@@ -34,6 +34,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
 // CoreRuntime carries continuity store, backends, lifecycle coordination, and clocks.
@@ -137,6 +138,12 @@ type ObservabilityRuntime struct {
 type ExtensionRuntime struct {
 	Bus             *hooks.Bus
 	RuntimeSnapshot *extensions.RequestRuntimeSnapshot
+
+	// ToolCallFinalizationMaxArgsBytes is the assembler buffer cap from merged
+	// feature bundles (0 means default at assembler construction).
+	ToolCallFinalizationMaxArgsBytes int
+
+	toolCallFinalizers []toolcall.Finalizer
 }
 
 // InterleavedRuntime carries interleaved-thinking shaping configuration and memo storage.

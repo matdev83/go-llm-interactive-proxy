@@ -39,7 +39,7 @@ func TestHandler_JSONGuardRejectsDeepBodyBeforeExecutor(t *testing.T) {
 	const marker = "MALICIOUS_MARKER"
 	exec := &recordingExecutor{}
 	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash"}
-	body := strings.Repeat("[", 130) + `"` + marker + `"` + strings.Repeat("]", 130)
+	body := strings.Repeat("[", 129) + `"` + marker + `"` + strings.Repeat("]", 129)
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", strings.NewReader(body))
 	rr := httptest.NewRecorder()
 
@@ -59,6 +59,90 @@ func TestHandler_JSONGuardRejectsDeepBodyBeforeExecutor(t *testing.T) {
 	}
 	if strings.Contains(rr.Body.String(), "could not read request body") {
 		t.Fatalf("response body used read-error message: %s", rr.Body.String())
+	}
+}
+
+func TestHandler_JSONGuardDepthExactAcceptsAndRejectsPlusOne(t *testing.T) {
+	t.Parallel()
+	nest := func(depth int, leaf string) string {
+		return strings.Repeat("[", depth) + leaf + strings.Repeat("]", depth)
+	}
+	const path = "/v1beta/models/gemini-2.0-flash:generateContent"
+
+	t.Run("exact_128", func(t *testing.T) {
+		t.Parallel()
+		exec := &recordingExecutor{}
+		h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+		body := `{"contents":[{"parts":[{"text":"hi"}]}],"_nest":` + nest(127, "1") + `}`
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+		}
+		if !exec.called {
+			t.Fatal("executor was not called for exact depth 128")
+		}
+	})
+
+	t.Run("depth_129", func(t *testing.T) {
+		t.Parallel()
+		const marker = "NEST_MARKER"
+		exec := &recordingExecutor{}
+		h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+		body := `{"contents":[{"parts":[{"text":"hi"}]}],"_nest":` + nest(128, `"`+marker+`"`) + `}`
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+		}
+		if exec.called {
+			t.Fatal("executor was called for depth 129")
+		}
+		if strings.Contains(rr.Body.String(), marker) {
+			t.Fatalf("response echoed marker: %s", rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "invalid request JSON") {
+			t.Fatalf("body=%s", rr.Body.String())
+		}
+	})
+}
+
+func TestHandler_JSONGuardRejectsInvalidUTF8(t *testing.T) {
+	t.Parallel()
+	exec := &recordingExecutor{}
+	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+	body := []byte(`{"contents":[{"parts":[{"text":"`)
+	body = append(body, 0xff)
+	body = append(body, `"}]}]}`...)
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if exec.called {
+		t.Fatal("executor was called for invalid UTF-8")
+	}
+	if bytes.Contains(rr.Body.Bytes(), []byte{0xff}) {
+		t.Fatal("response echoed invalid UTF-8 byte")
+	}
+}
+
+func TestHandler_JSONGuardAcceptsDuplicateMembers(t *testing.T) {
+	t.Parallel()
+	exec := &recordingExecutor{}
+	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash"}
+	body := `{"contents":[{"parts":[{"text":"no"}]}],"contents":[{"parts":[{"text":"hi"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if !exec.called {
+		t.Fatal("executor was not called for duplicate-member envelope")
 	}
 }
 

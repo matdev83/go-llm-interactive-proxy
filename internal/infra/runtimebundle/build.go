@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -158,11 +159,15 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	exec = execRun.Exec
 	buildSucceeded = true
 	return &Built{
-		Executor:              execRun.Exec,
-		Store:                 persist.Store,
-		Closers:               closers,
-		UpstreamHTTP:          obs.Upstream,
-		RoutePrefixes:         model.RoutePrefixes,
+		Executor:      execRun.Exec,
+		Store:         persist.Store,
+		Closers:       closers,
+		UpstreamHTTP:  obs.Upstream,
+		RoutePrefixes: model.RoutePrefixes,
+		DecodeAdmission: decodeqos.New(
+			cfg.Server.EffectiveMaxConcurrentDecodes(),
+			cfg.Server.EffectiveMaxInflightDecodeBytes(),
+		),
 		PluginRegistry:        reg,
 		EffectiveDefaultRoute: execRun.EffectiveRoute,
 		Metrics:               obs.Bundle,

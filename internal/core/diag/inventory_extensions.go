@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 )
@@ -306,12 +307,18 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 			Count:      n,
 		})
 	}
-	toolReactionIDs := make([]string, 0, len(b.ToolCallPolicies)+len(ms.ToolReactors))
+	toolReactionIDs := make([]string, 0, len(b.ToolCallPolicies)+len(b.ToolCallFinalizers)+len(ms.ToolReactors))
 	for _, pol := range toolpolicy.MaterializeSorted(b.ToolCallPolicies) {
 		if pol == nil {
 			continue
 		}
 		toolReactionIDs = append(toolReactionIDs, "tool_policy:"+pol.ID())
+	}
+	for _, fin := range toolcall.MaterializeSorted(b.ToolCallFinalizers) {
+		if fin == nil {
+			continue
+		}
+		toolReactionIDs = append(toolReactionIDs, "tool_finalizer:"+fin.ID())
 	}
 	for i := range ms.ToolReactors {
 		toolReactionIDs = append(toolReactionIDs, ms.ToolReactors[i].ID())

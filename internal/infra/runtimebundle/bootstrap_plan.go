@@ -147,6 +147,12 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		}
 	}
 
+	if err := standardplugins.EnsureToolCallRepairInConfig(cfg, standardplugins.ToolCallRepairInjectOpts{
+		StandardDistribution: true,
+	}); err != nil {
+		shutdownTracing(ctx, traceRes.Shutdown)
+		return out, fmt.Errorf("runtimebundle: tool-call-repair defaults: %w", err)
+	}
 	regs := config.RegistrationsFromConfig(cfg)
 	// Secrets-guard uniqueness is owned by the feature package; enforce it at the
 	// composition root so inspect and serve both fail closed before merge/build.
@@ -187,20 +193,22 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 				OutboundTracing: traceRes.Active,
 			},
 			Extensions: ExtensionsOptions{
-				SessionOpeners:         merged.SessionOpeners,
-				WorkspaceResolvers:     merged.WorkspaceResolvers,
-				ToolCatalogFilters:     merged.ToolCatalogFilters,
-				ToolCallPolicies:       merged.ToolCallPolicies,
-				RequestTransforms:      merged.RequestTransforms,
-				PreRequestHandlers:     merged.PreRequestHandlers,
-				RouteHintProviders:     merged.RouteHintProviders,
-				CompletionGates:        merged.CompletionGates,
-				TrafficObservers:       append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
-				UsageObservers:         append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
-				RawCaptureSinks:        merged.RawCaptureSinks,
-				TrafficRedactors:       merged.TrafficRedactors,
-				SecretGuards:           merged.SecretGuards,
-				SecretGuardEnvironment: secretEnv,
+				SessionOpeners:                   merged.SessionOpeners,
+				WorkspaceResolvers:               merged.WorkspaceResolvers,
+				ToolCatalogFilters:               merged.ToolCatalogFilters,
+				ToolCallPolicies:                 merged.ToolCallPolicies,
+				ToolCallFinalizers:               merged.ToolCallFinalizers,
+				ToolCallFinalizationMaxArgsBytes: merged.ToolCallFinalizationMaxArgsBytes,
+				RequestTransforms:                merged.RequestTransforms,
+				PreRequestHandlers:               merged.PreRequestHandlers,
+				RouteHintProviders:               merged.RouteHintProviders,
+				CompletionGates:                  merged.CompletionGates,
+				TrafficObservers:                 append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
+				UsageObservers:                   append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
+				RawCaptureSinks:                  merged.RawCaptureSinks,
+				TrafficRedactors:                 merged.TrafficRedactors,
+				SecretGuards:                     merged.SecretGuards,
+				SecretGuardEnvironment:           secretEnv,
 			},
 			Production: in.Production,
 		})

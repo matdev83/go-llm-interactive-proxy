@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -86,6 +87,14 @@ func (testPolicy) Order() int                        { return 0 }
 func (testPolicy) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
 func (testPolicy) Handle(_ context.Context, _ lipapi.ToolEvent, _ toolpolicy.Meta, _ toolpolicy.Services) (toolpolicy.Decision, error) {
 	return toolpolicy.DecisionAllow, nil
+}
+
+type testFinalizer struct{ tag string }
+
+func (h testFinalizer) ID() string { return h.tag }
+func (testFinalizer) Order() int   { return 0 }
+func (testFinalizer) Finalize(context.Context, toolcall.CompletedCall, lipapi.ToolDef, []lipapi.ToolDef, toolcall.Meta) (toolcall.Result, error) {
+	return toolcall.Result{Action: toolcall.ActionPass}, nil
 }
 
 type testTransform struct{ tag string }
@@ -176,6 +185,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		WorkspaceResolvers: []lipworkspace.Resolver{testResolver{tag: "w1"}},
 		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "c1"}},
 		ToolCallPolicies:   []toolpolicy.Policy{testPolicy{tag: "p1"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "f1"}},
 		RequestTransforms:  []request.Transform{testTransform{tag: "rt1"}},
 		PreRequestHandlers: []prerequest.Handler{testPreReq{tag: "pr1"}},
 		RouteHintProviders: []routehint.Provider{testRouteHint{tag: "rh1"}},
@@ -196,6 +206,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		WorkspaceResolvers: []lipworkspace.Resolver{testResolver{tag: "w2"}},
 		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "c2"}},
 		ToolCallPolicies:   []toolpolicy.Policy{testPolicy{tag: "p2"}},
+		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "f2"}},
 		RequestTransforms:  []request.Transform{testTransform{tag: "rt2"}},
 		PreRequestHandlers: []prerequest.Handler{testPreReq{tag: "pr2"}},
 		RouteHintProviders: []routehint.Provider{testRouteHint{tag: "rh2"}},
@@ -220,6 +231,7 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"WorkspaceResolvers", len(m.WorkspaceResolvers)},
 		{"ToolCatalogFilters", len(m.ToolCatalogFilters)},
 		{"ToolCallPolicies", len(m.ToolCallPolicies)},
+		{"ToolCallFinalizers", len(m.ToolCallFinalizers)},
 		{"RequestTransforms", len(m.RequestTransforms)},
 		{"PreRequestHandlers", len(m.PreRequestHandlers)},
 		{"RouteHintProviders", len(m.RouteHintProviders)},
@@ -234,6 +246,32 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		if c.got != 2 {
 			t.Fatalf("%s: got %d want 2", c.name, c.got)
 		}
+	}
+}
+
+func TestMergeBundles_ToolCallFinalizationMaxArgsBytesMin(t *testing.T) {
+	t.Parallel()
+	m := MergeBundles(
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 4096},
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 1024},
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+	)
+	if m.ToolCallFinalizationMaxArgsBytes != 1024 {
+		t.Fatalf("got %d want 1024 (min of positives)", m.ToolCallFinalizationMaxArgsBytes)
+	}
+}
+
+func TestMergeBundles_ToolCallFinalizationMaxArgsBytesIgnoresNonPositive(t *testing.T) {
+	t.Parallel()
+	// Merge keeps min of positives only; Validate rejects negatives on FeatureBundle.
+	// Non-positive values are not contributions at the merge surface.
+	m := MergeBundles(
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 2048},
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: -1},
+		lipfeature.FeatureBundle{SchemaVersion: lipfeature.SchemaVersionV1, ToolCallFinalizationMaxArgsBytes: 0},
+	)
+	if m.ToolCallFinalizationMaxArgsBytes != 2048 {
+		t.Fatalf("got %d want 2048 (negatives/zero ignored at merge)", m.ToolCallFinalizationMaxArgsBytes)
 	}
 }
 

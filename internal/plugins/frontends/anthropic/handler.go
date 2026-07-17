@@ -38,7 +38,7 @@ type Handler struct {
 	MaxRequestBodyBytes int64
 	Log                 *slog.Logger
 	TrafficPorts        traffic.PortBundle
-	DecodeLimiter       *decodeqos.Limiter
+	DecodeAdmission     lipsdk.DecodeAdmission
 	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
 	Config              Config
 }
@@ -103,29 +103,35 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
 	anthVer := strings.TrimSpace(r.Header.Get(HeaderAnthropicVersion))
-	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
-	if err != nil {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error"))
-		return
-	}
-	if !ok {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error"))
-		return
-	}
-	if _, err := jsonguard.Preflight(body, limits); err != nil {
-		releaseDecode()
+	if _, err := jsonguard.PreflightContext(ctx, body, limits); err != nil {
+		if jsonguard.Classify(err) == jsonguard.KindCanceled {
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage, "api_error"))
+			return
+		}
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON", "invalid_request_error"))
 		return
 	}
-	if sel == "" {
-		sel = h.RoutePrefixes.FromModelOrDefault(body, h.DefaultRouteSelector)
+	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, h.DecodeAdmission, int64(len(body)))
+	if d := decodeqos.Decide(ok, err); d.Status != 0 {
+		if d.RetryAfter {
+			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+		}
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, d.Status, d.Message, "api_error"))
+		return
 	}
-	decoded, err := DecodeMessageRequest(body, DecodeOptions{
-		RouteSelector:    sel,
-		AnthropicVersion: anthVer,
-		Headers:          r.Header,
+	var decoded *DecodedMessage
+	err = decodeqos.Guard(releaseDecode, func() error {
+		if sel == "" {
+			sel = h.RoutePrefixes.FromModelOrDefault(body, h.DefaultRouteSelector)
+		}
+		var derr error
+		decoded, derr = DecodeMessageRequest(body, DecodeOptions{
+			RouteSelector:    sel,
+			AnthropicVersion: anthVer,
+			Headers:          r.Header,
+		})
+		return derr
 	})
-	releaseDecode()
 	if err != nil {
 		log := diag.LoggerOrDefault(h.Log)
 		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))

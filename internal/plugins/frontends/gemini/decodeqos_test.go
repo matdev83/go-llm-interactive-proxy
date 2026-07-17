@@ -3,6 +3,7 @@ package gemini_test
 import (
 	"bytes"
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,14 +19,14 @@ var minimalGenerateContentRequest = []byte(`{
   "generationConfig": {"maxOutputTokens": 128, "temperature": 0.5, "topP": 0.9}
 }`)
 
-func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_canceledContextBeforeTryAdmitReturns503WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	exec := &recordingExecutor{}
-	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeLimiter: decodeqos.NewLimiter(1)}
+	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeAdmission: decodeqos.New(1, math.MaxInt64)}
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", bytes.NewReader(minimalGenerateContentRequest))
 	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
@@ -40,25 +41,28 @@ func TestHandler_canceledContextBeforeTryAcquireReturns503WithoutExecutor(t *tes
 	}
 }
 
-func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) {
+func TestHandler_decodeLimiterSaturationReturns429WithoutExecutor(t *testing.T) {
 	t.Parallel()
 
-	limiter := decodeqos.NewLimiter(1)
-	release, ok, err := limiter.TryAcquire(t.Context())
+	limiter := decodeqos.New(1, math.MaxInt64)
+	release, ok, err := limiter.TryAcquire(t.Context(), 0)
 	if err != nil || !ok {
 		t.Fatalf("pre-acquire limiter: ok=%v err=%v", ok, err)
 	}
 	defer release()
 
 	exec := &recordingExecutor{}
-	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeLimiter: limiter}
+	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeAdmission: limiter}
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", bytes.NewReader(minimalGenerateContentRequest))
 	rr := httptest.NewRecorder()
 
 	h.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusServiceUnavailable {
+	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("status: %d body: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Retry-After"); got != decodeqos.RetryAfterSeconds {
+		t.Fatalf("Retry-After: %q, want %q", got, decodeqos.RetryAfterSeconds)
 	}
 	if exec.called {
 		t.Fatal("executor was called while decode limiter was saturated")
@@ -68,15 +72,15 @@ func TestHandler_decodeLimiterSaturationReturns503WithoutExecutor(t *testing.T) 
 func TestHandler_oversizedBodyReturns413WithoutAcquiringDecodeLimiter(t *testing.T) {
 	t.Parallel()
 
-	limiter := decodeqos.NewLimiter(1)
-	release, ok, err := limiter.TryAcquire(t.Context())
+	limiter := decodeqos.New(1, math.MaxInt64)
+	release, ok, err := limiter.TryAcquire(t.Context(), 0)
 	if err != nil || !ok {
 		t.Fatalf("pre-acquire limiter: ok=%v err=%v", ok, err)
 	}
 	defer release()
 
 	exec := &recordingExecutor{}
-	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeLimiter: limiter}
+	h := &gemini.Handler{Exec: exec, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeAdmission: limiter}
 	body := bytes.Repeat([]byte("a"), int(reqbody.DefaultMaxBytes)+1)
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
@@ -112,10 +116,10 @@ func TestHandler_nilDecodeLimiterStillReachesExecutor(t *testing.T) {
 func TestHandler_decodeLimiterReleasesAfterDecodeFailureAndSuccess(t *testing.T) {
 	t.Parallel()
 
-	limiter := decodeqos.NewLimiter(1)
-	h := &gemini.Handler{Exec: &recordingExecutor{}, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeLimiter: limiter}
+	limiter := decodeqos.New(1, math.MaxInt64)
+	h := &gemini.Handler{Exec: &recordingExecutor{}, DefaultRouteSelector: "stub:gemini-2.0-flash", DecodeAdmission: limiter}
 
-	badReq := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", strings.NewReader(`{"contents"`))
+	badReq := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.0-flash:generateContent", strings.NewReader(`{}`))
 	badRR := httptest.NewRecorder()
 	h.ServeHTTP(badRR, badReq)
 	if badRR.Code != http.StatusBadRequest {
@@ -129,7 +133,7 @@ func TestHandler_decodeLimiterReleasesAfterDecodeFailureAndSuccess(t *testing.T)
 		t.Fatalf("good status: %d body: %s", goodRR.Code, goodRR.Body.String())
 	}
 
-	release, ok, err := limiter.TryAcquire(t.Context())
+	release, ok, err := limiter.TryAcquire(t.Context(), 0)
 	if err != nil || !ok {
 		t.Fatalf("limiter remained held after success: ok=%v err=%v", ok, err)
 	}

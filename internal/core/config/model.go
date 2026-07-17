@@ -295,6 +295,13 @@ type ServerConfig struct {
 	WriteTimeout string `yaml:"write_timeout"`
 	// IdleTimeout is [http.Server.IdleTimeout]. Empty defaults to 120s.
 	IdleTimeout string `yaml:"idle_timeout"`
+	// MaxConcurrentDecodes caps concurrent frontend protocol decode/materialization work.
+	// Zero selects the documented default (32) during validation. Body ReadAll and JSON
+	// preflight run before admission.
+	MaxConcurrentDecodes int `yaml:"max_concurrent_decodes"`
+	// MaxInflightDecodeBytes caps weighted in-flight decode bytes across concurrent decodes
+	// while decode is active. Zero selects the documented default (64 MiB) during validation.
+	MaxInflightDecodeBytes int64 `yaml:"max_inflight_decode_bytes"`
 	// MaxPendingWireEvents caps backend adapter-internal pending-event queues per stream (0 = unlimited).
 	MaxPendingWireEvents int `yaml:"max_pending_wire_events"`
 	// PreRequestKeepalive optionally emits SSE comment keepalives while streaming frontends wait for
@@ -318,6 +325,10 @@ const (
 	defaultServerWriteTimeout      = 120 * time.Second
 	defaultServerIdleTimeout       = 120 * time.Second
 	defaultPreRequestKAInterval    = 15 * time.Second
+
+	defaultMaxRequestBodyBytes    int64 = 8 << 20
+	DefaultMaxConcurrentDecodes         = 32
+	DefaultMaxInflightDecodeBytes       = 64 << 20
 )
 
 func parseServerDurationOrDefault(s string, def time.Duration) time.Duration {
@@ -359,6 +370,36 @@ func (s ServerConfig) EffectiveMaxRequestBodyBytes() int64 {
 		return s.MaxRequestBodyBytes
 	}
 	return 0
+}
+
+// EffectiveMaxConcurrentDecodes returns MaxConcurrentDecodes when positive, otherwise the default (32).
+func (s ServerConfig) EffectiveMaxConcurrentDecodes() int {
+	if s.MaxConcurrentDecodes > 0 {
+		return s.MaxConcurrentDecodes
+	}
+	return DefaultMaxConcurrentDecodes
+}
+
+// EffectiveMaxInflightDecodeBytes returns MaxInflightDecodeBytes when positive, otherwise the default (64 MiB).
+func (s ServerConfig) EffectiveMaxInflightDecodeBytes() int64 {
+	if s.MaxInflightDecodeBytes > 0 {
+		return s.MaxInflightDecodeBytes
+	}
+	return DefaultMaxInflightDecodeBytes
+}
+
+// EffectiveMaxPendingWireEvents returns MaxPendingWireEvents as configured (0 = unlimited).
+func (s ServerConfig) EffectiveMaxPendingWireEvents() int {
+	return s.MaxPendingWireEvents
+}
+
+// EffectiveMaxRequestBodyBytesForBudget returns the largest single request body the server admits
+// for decode-budget checks: MaxRequestBodyBytes when positive, otherwise the documented 8 MiB default.
+func (s ServerConfig) EffectiveMaxRequestBodyBytesForBudget() int64 {
+	if s.MaxRequestBodyBytes > 0 {
+		return s.MaxRequestBodyBytes
+	}
+	return defaultMaxRequestBodyBytes
 }
 
 func (s ServerConfig) EffectivePreRequestKeepalive() EffectivePreRequestKeepaliveConfig {

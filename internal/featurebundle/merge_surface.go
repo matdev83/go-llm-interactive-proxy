@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -22,25 +23,27 @@ import (
 // MergedFeatureSurface is the concatenated contribution of all enabled feature plugins in
 // registration order (session openers and workspace resolvers preserve bundle order within each plugin).
 type MergedFeatureSurface struct {
-	SubmitHooks            []sdk.SubmitHook
-	RequestPartHooks       []sdk.RequestPartHook
-	ResponsePartHooks      []sdk.ResponsePartHook
-	ToolReactors           []sdk.ToolReactor
-	ToolReactorErrorPolicy sdk.ToolReactorErrorPolicy
-	Lifecycles             []lipplugin.Lifecycle
-	SessionOpeners         []session.Opener
-	WorkspaceResolvers     []workspace.Resolver
-	ToolCatalogFilters     []toolcatalog.Filter
-	ToolCallPolicies       []toolpolicy.Policy
-	RequestTransforms      []request.Transform
-	PreRequestHandlers     []prerequest.Handler
-	RouteHintProviders     []routehint.Provider
-	CompletionGates        []completion.Gate
-	TrafficObservers       []traffic.Observer
-	UsageObservers         []usage.Observer
-	RawCaptureSinks        []traffic.RawCaptureSink
-	TrafficRedactors       []traffic.Redactor
-	SecretGuards           []secretguard.Guard
+	SubmitHooks                      []sdk.SubmitHook
+	RequestPartHooks                 []sdk.RequestPartHook
+	ResponsePartHooks                []sdk.ResponsePartHook
+	ToolReactors                     []sdk.ToolReactor
+	ToolReactorErrorPolicy           sdk.ToolReactorErrorPolicy
+	Lifecycles                       []lipplugin.Lifecycle
+	SessionOpeners                   []session.Opener
+	WorkspaceResolvers               []workspace.Resolver
+	ToolCatalogFilters               []toolcatalog.Filter
+	ToolCallPolicies                 []toolpolicy.Policy
+	ToolCallFinalizers               []toolcall.Finalizer
+	ToolCallFinalizationMaxArgsBytes int
+	RequestTransforms                []request.Transform
+	PreRequestHandlers               []prerequest.Handler
+	RouteHintProviders               []routehint.Provider
+	CompletionGates                  []completion.Gate
+	TrafficObservers                 []traffic.Observer
+	UsageObservers                   []usage.Observer
+	RawCaptureSinks                  []traffic.RawCaptureSink
+	TrafficRedactors                 []traffic.Redactor
+	SecretGuards                     []secretguard.Guard
 }
 
 // Append concatenates all fields from bundle b into the receiver. This is the single
@@ -55,6 +58,14 @@ func (m *MergedFeatureSurface) Append(b lipfeature.FeatureBundle) {
 	m.WorkspaceResolvers = append(m.WorkspaceResolvers, b.WorkspaceResolvers...)
 	m.ToolCatalogFilters = append(m.ToolCatalogFilters, b.ToolCatalogFilters...)
 	m.ToolCallPolicies = append(m.ToolCallPolicies, b.ToolCallPolicies...)
+	m.ToolCallFinalizers = append(m.ToolCallFinalizers, b.ToolCallFinalizers...)
+	// Non-positive values are not merge contributions (zero = unset; negatives are
+	// rejected by FeatureBundle.Validate before a valid bundle is merged).
+	if b.ToolCallFinalizationMaxArgsBytes > 0 {
+		if m.ToolCallFinalizationMaxArgsBytes <= 0 || b.ToolCallFinalizationMaxArgsBytes < m.ToolCallFinalizationMaxArgsBytes {
+			m.ToolCallFinalizationMaxArgsBytes = b.ToolCallFinalizationMaxArgsBytes
+		}
+	}
 	m.RequestTransforms = append(m.RequestTransforms, b.RequestTransforms...)
 	m.PreRequestHandlers = append(m.PreRequestHandlers, b.PreRequestHandlers...)
 	m.RouteHintProviders = append(m.RouteHintProviders, b.RouteHintProviders...)

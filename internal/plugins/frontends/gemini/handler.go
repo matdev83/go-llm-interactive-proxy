@@ -36,7 +36,7 @@ type Handler struct {
 	MaxRequestBodyBytes int64
 	Log                 *slog.Logger
 	TrafficPorts        traffic.PortBundle
-	DecodeLimiter       *decodeqos.Limiter
+	DecodeAdmission     lipsdk.DecodeAdmission
 	PreRequestKeepalive lipsdk.FrontendKeepaliveConfig
 	Config              Config
 }
@@ -100,30 +100,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sel := strings.TrimSpace(r.Header.Get(HeaderRouteSelector))
-	releaseDecode, ok, err := h.DecodeLimiter.TryAcquire(ctx)
-	if err != nil {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage))
-		return
-	}
-	if !ok {
-		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage))
-		return
-	}
-	if _, err := jsonguard.Preflight(body, limits); err != nil {
-		releaseDecode()
+	if _, err := jsonguard.PreflightContext(ctx, body, limits); err != nil {
+		if jsonguard.Classify(err) == jsonguard.KindCanceled {
+			h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusServiceUnavailable, execerr.InternalWireMessage))
+			return
+		}
 		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, http.StatusBadRequest, "invalid request JSON"))
 		return
 	}
 	if sel == "" {
 		sel = h.RoutePrefixes.InlineOrDefault(model, h.DefaultRouteSelector)
 	}
-	decoded, err := DecodeGenerateContentRequest(body, DecodeOptions{
-		RouteSelector: sel,
-		Model:         model,
-		Stream:        stream,
-		Headers:       r.Header,
+	releaseDecode, ok, err := decodeqos.TryAdmit(ctx, h.DecodeAdmission, int64(len(body)))
+	if d := decodeqos.Decide(ok, err); d.Status != 0 {
+		if d.RetryAfter {
+			w.Header().Set("Retry-After", decodeqos.RetryAfterSeconds)
+		}
+		h.logWriteJSONErr(ctx, "write error json failed", WriteErrorJSON(w, d.Status, d.Message))
+		return
+	}
+	var decoded *DecodedGenerate
+	err = decodeqos.Guard(releaseDecode, func() error {
+		var derr error
+		decoded, derr = DecodeGenerateContentRequest(body, DecodeOptions{
+			RouteSelector: sel,
+			Model:         model,
+			Stream:        stream,
+			Headers:       r.Header,
+		})
+		return derr
 	})
-	releaseDecode()
 	if err != nil {
 		log := diag.LoggerOrDefault(h.Log)
 		diag.LogError(ctx, log, "decode request failed", diag.AttrOpts{}, err, slog.String("detail", diag.TruncErrDetail(err, 512)))

@@ -118,6 +118,11 @@
       "id": "tool-reactor-noop",
       "factory_kind": "tool-reactor-noop",
       "enabled": true
+    },
+    {
+      "id": "tool-call-repair",
+      "factory_kind": "tool-call-repair",
+      "enabled": true
     }
   ],
   "extensions": {
@@ -262,7 +267,33 @@
           "auth_provider": false,
           "completion_gate": false
         }
+      },
+      {
+        "instance_id": "tool-call-repair",
+        "factory_kind": "tool-call-repair",
+        "enabled": true,
+        "stage_occupancy": [
+          {
+            "stage_id": "tool_event_reaction",
+            "handler_ids": [
+              "tool_finalizer:tool-call-repair"
+            ],
+            "count": 1
+          }
+        ],
+        "privileges": {
+          "raw_capture": false,
+          "auxiliary_requests": false,
+          "auth_provider": false,
+          "completion_gate": false
+        }
       }
     ]
+  },
+  "server_limits": {
+    "max_request_body_bytes": 8388608,
+    "max_concurrent_decodes": 32,
+    "max_inflight_decode_bytes": 67108864,
+    "max_pending_wire_events": 0
   }
 }

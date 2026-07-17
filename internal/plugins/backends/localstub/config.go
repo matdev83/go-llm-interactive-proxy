@@ -14,10 +14,20 @@ type Config struct {
 	InputTokens  int    `yaml:"input_tokens"`
 	OutputTokens int    `yaml:"output_tokens"`
 	ToolName     string `yaml:"tool_name"`
+	// ToolArgs is the raw tool-call arguments delta emitted when ToolName is set.
+	// Empty defaults to "{}". May be intentionally truncated/malformed JSON for
+	// dogfood of canonical tool-call repair (issue #152).
+	ToolArgs string `yaml:"tool_args"`
 	// StreamErrorAfterTextDelta, when true, yields the normal stream through the first assistant
 	// text delta then returns a non-recoverable error (dogfood invariant tests; not provider-like).
 	StreamErrorAfterTextDelta bool `yaml:"stream_error_after_text_delta"`
 }
+
+// DefaultToolArgs is emitted when tool_name is set and tool_args is omitted/empty.
+const DefaultToolArgs = "{}"
+
+// maxToolArgsBytes caps configured tool_args (aligned with default repair max_args_bytes).
+const maxToolArgsBytes = 64 * 1024
 
 // DefaultAssistantText is used when text is empty or whitespace-only after normalization.
 const DefaultAssistantText = "[local-stub] deterministic assistant text"
@@ -48,11 +58,21 @@ func NormalizeConfig(raw Config) (Config, error) {
 	if text == "" {
 		text = DefaultAssistantText
 	}
+	args := raw.ToolArgs
+	if tool == "" {
+		args = ""
+	} else if args == "" {
+		args = DefaultToolArgs
+	}
+	if len(args) > maxToolArgsBytes {
+		return Config{}, fmt.Errorf("local-stub: tool_args exceeds %d bytes", maxToolArgsBytes)
+	}
 	return Config{
 		Text:                      text,
 		InputTokens:               raw.InputTokens,
 		OutputTokens:              raw.OutputTokens,
 		ToolName:                  tool,
+		ToolArgs:                  args,
 		StreamErrorAfterTextDelta: raw.StreamErrorAfterTextDelta,
 	}, nil
 }

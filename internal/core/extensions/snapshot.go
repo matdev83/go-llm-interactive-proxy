@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -50,6 +51,7 @@ type RequestRuntimeSnapshot struct {
 	sessionOpeners     []session.Opener
 	toolCatalogFilters []toolcatalog.Filter
 	toolCallPolicies   []toolpolicy.Policy
+	toolCallFinalizers []toolcall.Finalizer
 	requestTransforms  []request.Transform
 	preRequestHandlers []prerequest.Handler
 	routeHintProviders []routehint.Provider
@@ -73,6 +75,7 @@ type SnapshotOptions struct {
 	SessionOpeners     []session.Opener
 	ToolCatalogFilters []toolcatalog.Filter
 	ToolCallPolicies   []toolpolicy.Policy
+	ToolCallFinalizers []toolcall.Finalizer
 	RequestTransforms  []request.Transform
 	PreRequestHandlers []prerequest.Handler
 	RouteHintProviders []routehint.Provider
@@ -125,6 +128,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	catalog := slices.Clone(opts.ToolCatalogFilters)
 	// Frozen execution order for the request lifetime (same contract as [toolpolicy.MaterializeSorted]).
 	policies := toolpolicy.MaterializeSorted(opts.ToolCallPolicies)
+	finalizers := toolcall.MaterializeSorted(opts.ToolCallFinalizers)
 	transforms := slices.Clone(opts.RequestTransforms)
 	preReqs := prerequest.MaterializeSorted(opts.PreRequestHandlers)
 	routeHints := slices.Clone(opts.RouteHintProviders)
@@ -158,6 +162,7 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		sessionOpeners:     openers,
 		toolCatalogFilters: catalog,
 		toolCallPolicies:   policies,
+		toolCallFinalizers: finalizers,
 		requestTransforms:  transforms,
 		preRequestHandlers: preReqs,
 		routeHintProviders: routeHints,
@@ -262,6 +267,20 @@ func (s *RequestRuntimeSnapshot) ToolCallPoliciesExecution() []toolpolicy.Policy
 		return nil
 	}
 	return s.toolCallPolicies
+}
+
+func (s *RequestRuntimeSnapshot) ToolCallFinalizers() []toolcall.Finalizer {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.toolCallFinalizers)
+}
+
+func (s *RequestRuntimeSnapshot) ToolCallFinalizersExecution() []toolcall.Finalizer {
+	if s == nil {
+		return nil
+	}
+	return s.toolCallFinalizers
 }
 
 // RequestTransforms returns a defensive copy of frozen request-wide transforms (may be empty).

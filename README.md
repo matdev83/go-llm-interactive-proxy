@@ -26,7 +26,7 @@ Exact registration is code-owned by [`internal/standardplugins/standard_table.go
 | Frontends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini` |
 | Hosted/provider backends | `openai-responses`, `openai-legacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openai-codex`, `opencode-go`, `opencode-zen` |
 | Local / compatible backends | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub`, custom OpenAI/Anthropic-compatible backend kinds |
-| Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility |
+| Feature plugins | no-op compatibility hooks plus reference/proof plugins for submit, parts, tools, workspace guard, traffic transcript, verifier, pre-request policy, auto-append, and Codex client compatibility; standard distro also default-enables canonical `tool-call-repair` (ADR 0007; opt out with `enabled: false`) |
 
 ## Quick start
 
@@ -45,7 +45,7 @@ For hosted providers, use [`config/config.yaml`](config/config.yaml) as the samp
 go run ./cmd/lipstd --config ./config/config.yaml
 ```
 
-`lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow.
+`lipstd` accepts `--config` before or after the subcommand; if it appears more than once, the later value wins. See [`docs/dogfood-local.md`](docs/dogfood-local.md) for the full local dogfood flow. Truncated tool-call repair can be exercised with [`config/examples/dogfood-tool-call-repair.yaml`](config/examples/dogfood-tool-call-repair.yaml) (see ADR [`docs/adr/0007-canonical-tool-call-repair.md`](docs/adr/0007-canonical-tool-call-repair.md)).
 
 ## Configuration and operations
 
@@ -56,7 +56,7 @@ go run ./cmd/lipstd --config ./config/config.yaml
 - **Security** - Multi-user or non-loopback deployments need explicit auth/access posture. Local API keys must be at least 16 Unicode code points after trimming. Diagnostics, pprof, metrics, model-catalog diagnostics, and secure-session summaries require a shared secret when exposed beyond loopback. On Unix, OpenAI Codex `auth.json` and managed-OAuth account files must be `0600` (group/other-readable files are now rejected at load); symlinked managed-OAuth account files are skipped. See [`docs/openai-codex-backend.md`](docs/openai-codex-backend.md#token-file-permissions). Optional **secrets guard** (`plugins.features` id `secrets-guard`, disabled by default) scans model-bound ingress for loaded secret values only, including JSON object keys and scalar tokens. It does not scan responses/egress or transformed forms; `log` leaves ingress unchanged, and JSON `redact` blocks unsupported key/scalar tokens with a normal `block` decision so quarantine still applies. Multi-user matching uses only the current request credential and safe attribution identifiers. Only one enabled `secrets-guard` feature instance is supported per deployment, and rollout is staged as disabled -> `log` -> `redact` -> `block`, one action per deployment. See [`docs/secrets-guard.md`](docs/secrets-guard.md) and [`config/examples/secrets-guard-*.yaml`](config/examples/).
 - **Observability** - Optional Prometheus metrics and OpenTelemetry tracing are configured under `observability`. Access logs use bounded-cardinality route groups by default; raw paths are opt-in.
 - **HTTP clients** - The shared upstream client honors `HTTP_PROXY` / `HTTPS_PROXY` by default. Set `http_client.trust_environment_proxy: false` when process environment is not trusted.
-- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps, and B2BUA store caps protect memory and request size boundaries.
+- **Resource bounds** - `lipapi.Call.Validate`, `lipapi.Collect` limits, pending wire event caps (`max_pending_wire_events`; **0 = unlimited**), B2BUA store caps, and shared frontend **decode admission** (`max_concurrent_decodes` default **32**, `max_inflight_decode_bytes` default **64 MiB**) protect memory and request size boundaries. Absolute decompressed body oversize is **413**; temporary decode admission saturation is **429** + `Retry-After: 1`. Admission runs after body ReadAll (bytes already resident) and covers protocol Decode only. Raise body and inflight budgets together for large multimodal / long-context. See [`EchoesVault/pages/decode-qos-admission.md`](EchoesVault/pages/decode-qos-admission.md).
 
 More detail: [`docs/proxy-identity.md`](docs/proxy-identity.md), [`docs/secrets-guard.md`](docs/secrets-guard.md), [`docs/database-persistence.md`](docs/database-persistence.md), [`docs/routing-health-circuit-breaker.md`](docs/routing-health-circuit-breaker.md), [`docs/execerr-classification.md`](docs/execerr-classification.md), [`docs/extension-platform-authoring.md`](docs/extension-platform-authoring.md), [`docs/performance-checks.md`](docs/performance-checks.md), and [`docs/release-gates.md`](docs/release-gates.md).
 
@@ -88,6 +88,7 @@ Recoverability is defined by the specification bundle: tests, `testdata/` golden
 - `cmd/lipstd/` - standard distribution command and wiring tests.
 - `pkg/lipapi/` - canonical request, event, capability, validation, and error contracts.
 - `pkg/lipsdk/` - stable plugin SDK contracts and standard distribution requirements.
+  - Compatibility note: `FrontendMountOptions` gained an optional `DecodeAdmission` field. Use **named** composite literals; unkeyed literals that previously listed every field in order will not compile.
 - `internal/core/` - runtime orchestration, routing, continuity, secure sessions, hooks/extensions, stream handling, policy, accounting, config, admin, diagnostics, and safety.
 - `internal/plugins/` - bundled frontend, backend, feature, compatibility, and protocol-helper packages.
 - `internal/standardplugins/` - standard bundle registration tables, per-backend factory helpers, and `InstallStandardBundleOn`.
