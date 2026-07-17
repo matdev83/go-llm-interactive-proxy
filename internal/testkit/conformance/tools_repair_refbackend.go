@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
@@ -139,19 +140,47 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 
 func openAICompatToolResponsesTruncatedSSE(model string) string {
 	const truncArgs = `{"city":"NYC"`
-	return "event: response.output_item.added\ndata: " +
-		`{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"type":"function_call","id":"fc_int_t","call_id":"call_fc","name":"get_weather","status":"in_progress"}}` +
-		"\n\n" +
-		"event: response.function_call_arguments.delta\ndata: " +
-		`{"type":"response.function_call_arguments.delta","sequence_number":1,"item_id":"fc_int_t","output_index":0,"delta":` + jsonString(truncArgs) + `}` +
-		"\n\n" +
-		"event: response.function_call_arguments.done\ndata: " +
-		`{"type":"response.function_call_arguments.done","sequence_number":2,"item_id":"fc_int_t","output_index":0,"name":"get_weather","arguments":` + jsonString(truncArgs) + `}` +
-		"\n\n" +
-		"event: response.completed\ndata: " +
-		`{"type":"response.completed","sequence_number":3,"response":{"id":"r_tool","object":"response","status":"completed","model":` + jsonString(model) + `,"usage":{"input_tokens":3,"output_tokens":7,"total_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}},"output":[{"type":"function_call","id":"fc_int_t","name":"get_weather","arguments":` + jsonString(truncArgs) + `}]}}` +
-		"\n\n" +
-		"data: [DONE]\n\n"
+	events := []struct {
+		event   string
+		payload any
+	}{
+		{"response.output_item.added", map[string]any{
+			"type": "response.output_item.added", "sequence_number": 0, "output_index": 0,
+			"item": map[string]any{"type": "function_call", "id": "fc_int_t", "call_id": "call_fc", "name": "get_weather", "status": "in_progress"},
+		}},
+		{"response.function_call_arguments.delta", map[string]any{
+			"type": "response.function_call_arguments.delta", "sequence_number": 1, "item_id": "fc_int_t", "output_index": 0, "delta": truncArgs,
+		}},
+		{"response.function_call_arguments.done", map[string]any{
+			"type": "response.function_call_arguments.done", "sequence_number": 2, "item_id": "fc_int_t", "output_index": 0, "name": "get_weather", "arguments": truncArgs,
+		}},
+		{"response.completed", map[string]any{
+			"type": "response.completed", "sequence_number": 3,
+			"response": map[string]any{
+				"id": "r_tool", "object": "response", "status": "completed", "model": model,
+				"usage": map[string]any{
+					"input_tokens": 3, "output_tokens": 7, "total_tokens": 10,
+					"input_tokens_details":  map[string]any{"cached_tokens": 0},
+					"output_tokens_details": map[string]any{"reasoning_tokens": 0},
+				},
+				"output": []any{map[string]any{"type": "function_call", "id": "fc_int_t", "name": "get_weather", "arguments": truncArgs}},
+			},
+		}},
+	}
+	var b strings.Builder
+	for _, ev := range events {
+		raw, err := json.Marshal(ev.payload)
+		if err != nil {
+			panic(err)
+		}
+		b.WriteString("event: ")
+		b.WriteString(ev.event)
+		b.WriteString("\ndata: ")
+		b.Write(raw)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("data: [DONE]\n\n")
+	return b.String()
 }
 
 // jsonString returns a JSON-encoded string literal (including surrounding quotes).
