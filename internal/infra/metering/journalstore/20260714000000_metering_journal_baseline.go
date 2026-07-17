@@ -20,6 +20,8 @@ var (
 func registerMigrations() {
 	registerMigrationsOnce.Do(func() {
 		migrations.MustRegister(baselineUp, func(context.Context, *bun.DB) error { return nil })
+		migrations.MustRegister(storeScopedSourceKeyUp, func(context.Context, *bun.DB) error { return nil })
+		migrations.MustRegister(storeScopedFiltersUp, func(context.Context, *bun.DB) error { return nil })
 	})
 }
 
@@ -78,19 +80,20 @@ func sqliteDDL() []string {
 			authority TEXT NOT NULL DEFAULT '',
 			recorded_at_unix INTEGER NOT NULL,
 			payload_json TEXT NOT NULL,
-			UNIQUE(source_event_key)
+			UNIQUE(store_id, source_event_key)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metering_facts_stream_seq ON metering_facts(stream_id, sequence)`,
 		`CREATE INDEX IF NOT EXISTS idx_metering_facts_request ON metering_facts(request_id) WHERE request_id != ''`,
 		`CREATE TABLE IF NOT EXISTS metering_fact_filters (
 			id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+			store_id TEXT NOT NULL,
 			fact_id TEXT NOT NULL,
 			stream_id TEXT NOT NULL,
 			field_name TEXT NOT NULL,
 			field_value TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metering_fact_filters_field
-			ON metering_fact_filters(field_name, field_value, stream_id)`,
+			ON metering_fact_filters(store_id, field_name, field_value, stream_id)`,
 	}
 }
 
@@ -119,18 +122,19 @@ func postgresDDL() []string {
 			authority TEXT NOT NULL DEFAULT '',
 			recorded_at_unix BIGINT NOT NULL,
 			payload_json TEXT NOT NULL,
-			CONSTRAINT metering_facts_source_event_key_key UNIQUE (source_event_key)
+			CONSTRAINT metering_facts_store_source_event_key_key UNIQUE (store_id, source_event_key)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metering_facts_stream_seq ON metering_facts(stream_id, sequence)`,
 		`CREATE INDEX IF NOT EXISTS idx_metering_facts_request ON metering_facts(request_id) WHERE request_id <> ''`,
 		`CREATE TABLE IF NOT EXISTS metering_fact_filters (
 			id BIGSERIAL PRIMARY KEY,
+			store_id TEXT NOT NULL,
 			fact_id TEXT NOT NULL,
 			stream_id TEXT NOT NULL,
 			field_name TEXT NOT NULL,
 			field_value TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metering_fact_filters_field
-			ON metering_fact_filters(field_name, field_value, stream_id)`,
+			ON metering_fact_filters(store_id, field_name, field_value, stream_id)`,
 	}
 }

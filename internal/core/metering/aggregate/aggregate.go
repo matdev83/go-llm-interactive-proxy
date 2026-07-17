@@ -89,7 +89,8 @@ func Apply(facts []metering.Fact) (Snapshot, error) {
 			for _, id := range f.Supersedes {
 				snap.Superseded[strings.TrimSpace(id)] = struct{}{}
 			}
-			snap.Quantities = make(map[string]int64)
+			// Replace only explicitly present components; unrelated components remain
+			// (design Corrections; requirement 6.8).
 			replacePresent(snap.Quantities, f.Quantities)
 			if err := applyMoneyReplace(&snap, f.Money); err != nil {
 				return Snapshot{}, err

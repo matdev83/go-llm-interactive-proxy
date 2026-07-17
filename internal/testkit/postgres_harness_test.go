@@ -85,7 +85,7 @@ func TestRuntimeSQLGuard_recordsViolations(t *testing.T) {
 	}
 }
 
-func TestCleanupStatementsJournalUsesFactAndStreamIdentity(t *testing.T) {
+func TestCleanupStatementsJournalUsesStoreScopedFilters(t *testing.T) {
 	const storeID = "store-under-test"
 
 	statements := cleanupStatements(PostgresComponentJournal, storeID)
@@ -94,17 +94,9 @@ func TestCleanupStatementsJournalUsesFactAndStreamIdentity(t *testing.T) {
 	}
 
 	filterDelete := strings.Join(strings.Fields(statements[0].sql), " ")
-	for _, fragment := range []string{
-		"(fact_id, stream_id)",
-		"SELECT fact_id, stream_id FROM metering_facts",
-		"WHERE store_id = ?",
-	} {
-		if !strings.Contains(filterDelete, fragment) {
-			t.Fatalf("filter cleanup %q missing %q", filterDelete, fragment)
-		}
-	}
-	if strings.Contains(filterDelete, "fact_id IN (SELECT fact_id FROM") {
-		t.Fatalf("filter cleanup still matches fact_id without stream_id: %q", filterDelete)
+	want := "DELETE FROM metering_fact_filters WHERE store_id = ?"
+	if filterDelete != want {
+		t.Fatalf("filter cleanup %q want %q", filterDelete, want)
 	}
 	if len(statements[0].args) != 1 || statements[0].args[0] != storeID {
 		t.Fatalf("filter cleanup args=%v want [%q]", statements[0].args, storeID)

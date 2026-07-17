@@ -97,10 +97,27 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 	if cloned.RecordedAt.IsZero() {
 		cloned.RecordedAt = s.now().UTC()
 	}
-	key := cloned.IdempotencyKey()
+	key := cloned.SourceEventKey()
+	legacyKey := cloned.IdempotencyKey()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	existingFacts := make([]metering.Fact, len(s.facts))
+	for i, row := range s.facts {
+		existingFacts[i] = row.fact
+	}
+	lookup := func(factID string) (metering.Fact, bool) {
+		for _, f := range existingFacts {
+			if strings.TrimSpace(f.FactID) == factID {
+				return f, true
+			}
+		}
+		return metering.Fact{}, false
+	}
+	if err := validateSupersessionGraph(cloned, lookup, supersessionEdgesFromFacts(existingFacts)); err != nil {
+		return err
+	}
 
 	if idx, ok := s.bySource[key]; ok {
 		existing := s.facts[idx].fact
@@ -109,6 +126,17 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 		}
 		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
 			ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
+	}
+	// Legacy compatibility: rows indexed by IdempotencyKey before SourceEventKey.
+	if legacyKey != key {
+		if idx, ok := s.bySource[legacyKey]; ok {
+			existing := s.facts[idx].fact
+			if metering.SameFactReplay(existing, cloned) {
+				return nil
+			}
+			return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
+				ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
+		}
 	}
 
 	s.seq++

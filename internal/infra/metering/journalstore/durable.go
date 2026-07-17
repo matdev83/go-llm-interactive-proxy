@@ -86,15 +86,16 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 			fragments:   []string{BaselineMigrationName},
 		},
 		{
-			description: "metering_facts source_event_key unique constraint",
+			description: "metering_facts store-scoped source_event_key unique constraint",
 			query: `SELECT lower(pg_get_constraintdef(c.oid)) FROM pg_constraint c
 JOIN pg_class t ON t.oid = c.conrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = current_schema()
   AND t.relname = 'metering_facts'
   AND c.contype = 'u'
+  AND c.conname = 'metering_facts_store_source_event_key_key'
 LIMIT 1`,
-			fragments: []string{"unique (source_event_key)"},
+			fragments: []string{"unique (store_id, source_event_key)"},
 		},
 		{
 			description: "idx_metering_facts_stream_seq",
@@ -121,7 +122,16 @@ WHERE schemaname = current_schema()
   AND tablename = 'metering_fact_filters'
   AND indexname = 'idx_metering_fact_filters_field'
 LIMIT 1`,
-			fragments: []string{"(field_name, field_value, stream_id)"},
+			fragments: []string{"(store_id, field_name, field_value, stream_id)"},
+		},
+		{
+			description: "metering_fact_filters.store_id",
+			query: `SELECT lower(column_name) FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'metering_fact_filters'
+  AND column_name = 'store_id'
+LIMIT 1`,
+			fragments: []string{"store_id"},
 		},
 	}
 	for _, check := range checks {
@@ -229,7 +239,8 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 	if cloned.RecordedAt.IsZero() {
 		cloned.RecordedAt = s.now().UTC()
 	}
-	key := cloned.IdempotencyKey()
+	key := cloned.SourceEventKey()
+	legacyKey := cloned.IdempotencyKey()
 	payload, err := json.Marshal(cloned)
 	if err != nil {
 		return fmt.Errorf("metering/journalstore: marshal payload: %w", err)
@@ -241,9 +252,15 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var existingPayload string
-	err = tx.NewRaw(`SELECT payload_json FROM metering_facts WHERE source_event_key = ?`, key).Scan(ctx, &existingPayload)
-	if err == nil {
+	if err := s.validateDurableSupersession(ctx, tx, cloned); err != nil {
+		return err
+	}
+
+	existingPayload, found, lerr := lookupDurableSourcePayload(ctx, tx, s.cfg.StoreID, key, legacyKey)
+	if lerr != nil {
+		return lerr
+	}
+	if found {
 		var existing metering.Fact
 		if uerr := json.Unmarshal([]byte(existingPayload), &existing); uerr != nil {
 			return fmt.Errorf("metering/journalstore: decode existing: %w", uerr)
@@ -253,9 +270,6 @@ func (s *DurableStore) Append(ctx context.Context, fact metering.Fact) error {
 		}
 		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
 			ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("metering/journalstore: lookup: %w", err)
 	}
 
 	_, err = tx.NewRaw(`
@@ -294,15 +308,15 @@ INSERT INTO metering_facts(
 			// Postgres aborts the transaction on unique violation; release the
 			// connection before resolving on a fresh read (also safe under MaxOpenConns=1).
 			_ = tx.Rollback()
-			return s.resolveAppendConflict(ctx, key, cloned)
+			return s.resolveAppendConflict(ctx, key, legacyKey, cloned)
 		}
 		return fmt.Errorf("metering/journalstore: insert fact: %w", err)
 	}
 	for _, p := range filterPairs(cloned) {
 		if _, ferr := tx.NewRaw(`
-INSERT INTO metering_fact_filters(fact_id, stream_id, field_name, field_value)
-VALUES (?,?,?,?)
-`, cloned.FactID, cloned.StreamID, p[0], p[1]).Exec(ctx); ferr != nil {
+INSERT INTO metering_fact_filters(store_id, fact_id, stream_id, field_name, field_value)
+VALUES (?,?,?,?,?)
+`, s.cfg.StoreID, cloned.FactID, cloned.StreamID, p[0], p[1]).Exec(ctx); ferr != nil {
 			return fmt.Errorf("metering/journalstore: insert filter: %w", ferr)
 		}
 	}
@@ -314,14 +328,13 @@ VALUES (?,?,?,?)
 
 // resolveAppendConflict reads the winning row after a unique-constraint race.
 // It must not reuse the aborted insert transaction (Postgres 25P02).
-func (s *DurableStore) resolveAppendConflict(ctx context.Context, key string, cloned metering.Fact) error {
-	var existingPayload string
-	err := s.db.NewRaw(`SELECT payload_json FROM metering_facts WHERE source_event_key = ?`, key).Scan(ctx, &existingPayload)
+func (s *DurableStore) resolveAppendConflict(ctx context.Context, key, legacyKey string, cloned metering.Fact) error {
+	existingPayload, found, err := lookupDurableSourcePayload(ctx, s.db, s.cfg.StoreID, key, legacyKey)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: source_event_key=%q (retry append): %w", ErrUniqueRaceMissingRow, key, err)
-		}
 		return fmt.Errorf("metering/journalstore: insert fact unique race lookup: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("%w: source_event_key=%q (retry append)", ErrUniqueRaceMissingRow, key)
 	}
 	var existing metering.Fact
 	if uerr := json.Unmarshal([]byte(existingPayload), &existing); uerr != nil {
@@ -332,6 +345,69 @@ func (s *DurableStore) resolveAppendConflict(ctx context.Context, key string, cl
 	}
 	return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
 		ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
+}
+
+// lookupDurableSourcePayload finds a row by SourceEventKey, falling back to the
+// legacy IdempotencyKey encoding for rows written before SourceEventKey persistence.
+func lookupDurableSourcePayload(ctx context.Context, q bun.IDB, storeID, key, legacyKey string) (string, bool, error) {
+	var payload string
+	err := q.NewRaw(
+		`SELECT payload_json FROM metering_facts WHERE store_id = ? AND source_event_key = ?`,
+		storeID, key,
+	).Scan(ctx, &payload)
+	if err == nil {
+		return payload, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", false, fmt.Errorf("metering/journalstore: lookup: %w", err)
+	}
+	if legacyKey == "" || legacyKey == key {
+		return "", false, nil
+	}
+	err = q.NewRaw(
+		`SELECT payload_json FROM metering_facts WHERE store_id = ? AND source_event_key = ?`,
+		storeID, legacyKey,
+	).Scan(ctx, &payload)
+	if err == nil {
+		return payload, true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return "", false, fmt.Errorf("metering/journalstore: legacy lookup: %w", err)
+}
+
+func (s *DurableStore) validateDurableSupersession(ctx context.Context, tx bun.Tx, fact metering.Fact) error {
+	if !fact.Kind.RequiresSupersedes() {
+		return nil
+	}
+	type row struct {
+		FactID  string `bun:"fact_id"`
+		Payload string `bun:"payload_json"`
+	}
+	var rows []row
+	err := tx.NewRaw(
+		`SELECT fact_id, payload_json FROM metering_facts WHERE store_id = ?`,
+		s.cfg.StoreID,
+	).Scan(ctx, &rows)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("metering/journalstore: supersession scan: %w", err)
+	}
+	facts := make([]metering.Fact, 0, len(rows))
+	byID := make(map[string]metering.Fact, len(rows))
+	for _, r := range rows {
+		var existing metering.Fact
+		if uerr := json.Unmarshal([]byte(r.Payload), &existing); uerr != nil {
+			return fmt.Errorf("metering/journalstore: decode supersession row: %w", uerr)
+		}
+		facts = append(facts, existing)
+		byID[strings.TrimSpace(existing.FactID)] = existing
+	}
+	lookup := func(factID string) (metering.Fact, bool) {
+		f, ok := byID[factID]
+		return f, ok
+	}
+	return validateSupersessionGraph(fact, lookup, supersessionEdgesFromFacts(facts))
 }
 
 // List returns a bounded page filtered by indexed selective bounds.

@@ -117,7 +117,7 @@
 
 ## Phase 3 — Complete the Durable Four-Boundary Metering Journal
 
-- [ ] 3.1 Add red identity, ingress, correction, and isolation store contracts
+- [x] 3.1 Add red identity, ingress, correction, and isolation store contracts
   - Define deterministic replay tests across process restart, duplicate/conflicting identity tests, store-ID isolation, signed correction rules, same-stream target checks, cycle rejection, and full customer/operator stream reconstruction.
   - Run the same contracts against memory, SQLite, direct PostgreSQL, and transaction-pooled PostgreSQL where supported.
   - **Deliverable:** journal deficiencies fail before schema or producer changes.

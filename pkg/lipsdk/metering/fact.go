@@ -27,28 +27,32 @@ type MoneyObservation struct {
 // different Sequence, Kind, or double-count-sensitive payload for the same
 // FactID is a contract violation for store implementations to reject.
 type Fact struct {
-	FactID         string                   `json:"fact_id"`
-	StreamID       string                   `json:"stream_id"`
-	Sequence       int64                    `json:"sequence"`
-	Kind           FactKind                 `json:"kind"`
-	Perspective    EconomicPerspective      `json:"perspective"`
-	Boundary       Boundary                 `json:"boundary"`
-	Lifecycle      LifecycleScope           `json:"lifecycle"`
-	Correlation    Correlation              `json:"correlation"`
-	Scope          scope.PrincipalScopeView `json:"scope"`
-	FrontendID     string                   `json:"frontend_id,omitempty"`
-	BackendID      string                   `json:"backend_id,omitempty"`
-	Model          string                   `json:"model,omitempty"`
-	AttemptOutcome AttemptOutcome           `json:"attempt_outcome,omitempty"`
-	Surfaced       SurfacedState            `json:"surfaced,omitempty"`
-	Quantities     []Quantity               `json:"quantities,omitempty"`
-	Money          *MoneyObservation        `json:"money,omitempty"`
-	Source         Source                   `json:"source"`
-	Authority      Authority                `json:"authority"`
-	Presence       Presence                 `json:"presence"`
-	Supersedes     []string                 `json:"supersedes,omitempty"`
-	PolicyVersion  VersionRef               `json:"policy_version,omitzero"`
-	RecordedAt     time.Time                `json:"recorded_at"`
+	FactID          string                   `json:"fact_id"`
+	StreamID        string                   `json:"stream_id"`
+	Sequence        int64                    `json:"sequence"`
+	IdentityVersion int                      `json:"identity_version,omitempty"`
+	SourceRevision  int64                    `json:"source_revision,omitempty"`
+	SourceEventKind string                   `json:"source_event_kind,omitempty"`
+	SourceID        string                   `json:"source_id,omitempty"`
+	Kind            FactKind                 `json:"kind"`
+	Perspective     EconomicPerspective      `json:"perspective"`
+	Boundary        Boundary                 `json:"boundary"`
+	Lifecycle       LifecycleScope           `json:"lifecycle"`
+	Correlation     Correlation              `json:"correlation"`
+	Scope           scope.PrincipalScopeView `json:"scope"`
+	FrontendID      string                   `json:"frontend_id,omitempty"`
+	BackendID       string                   `json:"backend_id,omitempty"`
+	Model           string                   `json:"model,omitempty"`
+	AttemptOutcome  AttemptOutcome           `json:"attempt_outcome,omitempty"`
+	Surfaced        SurfacedState            `json:"surfaced,omitempty"`
+	Quantities      []Quantity               `json:"quantities,omitempty"`
+	Money           *MoneyObservation        `json:"money,omitempty"`
+	Source          Source                   `json:"source"`
+	Authority       Authority                `json:"authority"`
+	Presence        Presence                 `json:"presence"`
+	Supersedes      []string                 `json:"supersedes,omitempty"`
+	PolicyVersion   VersionRef               `json:"policy_version,omitzero"`
+	RecordedAt      time.Time                `json:"recorded_at"`
 }
 
 // IdempotencyKey returns the stable journal key for this fact identity
@@ -58,6 +62,30 @@ type Fact struct {
 // payload equality for idempotent replay is SameFactReplay.
 func (f Fact) IdempotencyKey() string {
 	return strings.TrimSpace(f.StreamID) + "\x00" + strings.TrimSpace(f.FactID)
+}
+
+// SourceEventKey returns the versioned deterministic source-event encoding
+// (design Deterministic Identity): identity version, lifecycle, boundary,
+// event kind, source id, and revision. Store uniqueness scopes this key by
+// logical store_id.
+func (f Fact) SourceEventKey() string {
+	kind := strings.TrimSpace(f.SourceEventKind)
+	if kind == "" {
+		kind = string(f.Kind)
+	}
+	sourceID := strings.TrimSpace(f.SourceID)
+	if sourceID == "" {
+		sourceID = strings.TrimSpace(f.FactID)
+	}
+	lifecycleID := strings.TrimSpace(f.StreamID)
+	return fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s\x00%d",
+		f.IdentityVersion,
+		lifecycleID,
+		string(f.Boundary),
+		kind,
+		sourceID,
+		f.SourceRevision,
+	)
 }
 
 // SameFactIdentity reports whether a and b share FactID, StreamID, and Sequence
@@ -79,6 +107,10 @@ func SameFactReplay(a, b Fact) bool {
 		return false
 	}
 	if a.Kind != b.Kind ||
+		a.IdentityVersion != b.IdentityVersion ||
+		a.SourceRevision != b.SourceRevision ||
+		a.SourceEventKind != b.SourceEventKind ||
+		a.SourceID != b.SourceID ||
 		a.Perspective != b.Perspective ||
 		a.Boundary != b.Boundary ||
 		a.Lifecycle != b.Lifecycle ||
@@ -203,7 +235,8 @@ func stringSetEqual(a, b []string) bool {
 }
 
 // Validate checks required identity and enum fields, quantity rows, and
-// supersession rules for correction/replacement kinds (requirements 3.2, 3.3).
+// supersession rules for correction/replacement kinds (requirements 3.2, 3.3,
+// 5.5, 6.4; design D2, D6, D7).
 func (f Fact) Validate() error {
 	if strings.TrimSpace(f.FactID) == "" {
 		return fmt.Errorf("metering: fact_id required")
@@ -213,6 +246,12 @@ func (f Fact) Validate() error {
 	}
 	if f.Sequence < 0 {
 		return fmt.Errorf("metering: sequence must be non-negative")
+	}
+	if f.IdentityVersion < 0 {
+		return fmt.Errorf("metering: identity_version must be non-negative")
+	}
+	if f.SourceRevision < 0 {
+		return fmt.Errorf("metering: source_revision must be non-negative")
 	}
 	if err := f.Kind.Validate(); err != nil {
 		return err
@@ -224,6 +263,9 @@ func (f Fact) Validate() error {
 		return err
 	}
 	if err := f.Lifecycle.Validate(); err != nil {
+		return err
+	}
+	if err := f.validatePerspectiveBoundaryLifecycle(); err != nil {
 		return err
 	}
 	if err := f.Source.Validate(); err != nil {
@@ -245,22 +287,62 @@ func (f Fact) Validate() error {
 			return err
 		}
 	}
+	allowNegative := f.Kind == FactKindCorrection
 	for i, q := range f.Quantities {
 		if err := q.Validate(); err != nil {
 			return fmt.Errorf("metering: quantities[%d]: %w", i, err)
 		}
+		if q.Present && q.Value < 0 && !allowNegative {
+			return fmt.Errorf("metering: quantities[%d]: negative value only allowed for corrections", i)
+		}
+	}
+	if f.Money != nil && f.Money.Present && f.Money.NanoUnits < 0 && !allowNegative {
+		return fmt.Errorf("metering: negative money only allowed for corrections")
 	}
 	if f.Kind.RequiresSupersedes() {
 		if len(f.Supersedes) == 0 {
 			return fmt.Errorf("metering: kind %q requires non-empty supersedes", f.Kind)
 		}
+		self := strings.TrimSpace(f.FactID)
 		for i, id := range f.Supersedes {
-			if strings.TrimSpace(id) == "" {
+			id = strings.TrimSpace(id)
+			if id == "" {
 				return fmt.Errorf("metering: supersedes[%d] empty", i)
+			}
+			if id == self {
+				return fmt.Errorf("metering: supersedes must not include self")
 			}
 		}
 	} else if len(f.Supersedes) > 0 {
 		return fmt.Errorf("metering: kind %q must not set supersedes", f.Kind)
+	}
+	return nil
+}
+
+func (f Fact) validatePerspectiveBoundaryLifecycle() error {
+	switch f.Perspective {
+	case PerspectiveCustomer:
+		switch f.Boundary {
+		case BoundaryFrontendIngress, BoundaryFrontendEgress:
+		default:
+			return fmt.Errorf("metering: customer perspective requires frontend boundary, got %q", f.Boundary)
+		}
+		if f.Lifecycle != LifecycleLogicalRequest {
+			return fmt.Errorf("metering: customer perspective requires logical_request lifecycle, got %q", f.Lifecycle)
+		}
+	case PerspectiveOperator:
+		switch f.Boundary {
+		case BoundaryBackendIngress, BoundaryBackendEgress:
+		default:
+			return fmt.Errorf("metering: operator perspective requires backend boundary, got %q", f.Boundary)
+		}
+		switch f.Lifecycle {
+		case LifecycleBackendAttempt, LifecycleAuxiliaryRequest:
+		default:
+			return fmt.Errorf("metering: operator perspective requires backend_attempt or auxiliary_request lifecycle, got %q", f.Lifecycle)
+		}
+	case PerspectiveNone:
+		// Technical metrics are not bound to customer/operator boundary rules.
 	}
 	return nil
 }
