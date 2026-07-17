@@ -109,7 +109,13 @@ var lineBudgets = []struct {
 	// Raised for issue #151 secretsguard catalog/matcher/source + quarantine
 	// adapters + runtime barrier (merged with #152/#jsonshape on main).
 	// Measured post-merge non-test total is 56295; cap keeps ~105 lines of headroom.
-	{"internal/core", 56400},
+	// Raised from 56400 to 57550 for dual-plane-economics production-readiness
+	// Phase 1: customer evidence accumulator, final-backend clamp preview,
+	// correlation/presence ingress facts, and control-plane metering projection.
+	// Accidental duplication was removed first (~148 lines); remaining growth is
+	// approved core orchestration. Measured post-simplify non-test total is
+	// 57447; cap keeps ~103 lines of headroom.
+	{"internal/core", 57550},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

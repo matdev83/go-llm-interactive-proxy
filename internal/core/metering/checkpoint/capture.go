@@ -34,6 +34,7 @@ type FrontendIngressInput struct {
 	FrontendID   string
 	CheckpointID string
 	StreamID     string
+	TraceID      string // runtime trace; defaults to Call.ID when empty
 	Perspective  metering.EconomicPerspective
 	Now          time.Time
 }
@@ -62,10 +63,15 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 		now = time.Now().UTC()
 	}
 	cloned := SanitizeCall(lipapi.CloneCall(in.Call))
+	traceID := strings.TrimSpace(in.TraceID)
+	if traceID == "" {
+		traceID = strings.TrimSpace(cloned.ID)
+	}
 	corr := metering.Correlation{
 		RequestID: strings.TrimSpace(cloned.ID),
 		ALegID:    strings.TrimSpace(cloned.Session.ALegID),
 		SessionID: cloned.Session.CorrelationID(),
+		TraceID:   traceID,
 	}
 	pub := metering.Checkpoint{
 		CheckpointID: id,
@@ -93,10 +99,11 @@ func CaptureFrontendIngress(in FrontendIngressInput) (Snapshot, error) {
 // and per-attempt backend-ingress freezes. Methods are safe for concurrent use by
 // parallel racing attempts that store distinct AttemptID keys.
 type RequestHolder struct {
-	mu              sync.Mutex
-	FrontendIngress *Snapshot
-	BackendIngress  map[string]*Snapshot // keyed by AttemptID
-	nextSeq         int64
+	mu                    sync.Mutex
+	FrontendIngress       *Snapshot
+	BackendIngress        map[string]*Snapshot // keyed by AttemptID
+	backendIngressFactIDs map[string]string    // AttemptID -> bound metering FactID
+	nextSeq               int64
 }
 
 // NextSequence returns a monotonically increasing fact sequence for this request.
@@ -141,7 +148,7 @@ type BackendIngressInput struct {
 	Model        string
 	CheckpointID string
 	StreamID     string
-	FEStreamID   string // logical-request FE ingress stream for correlation
+	TraceID      string // runtime trace; defaults to Call.ID when empty (never FE stream id)
 	Perspective  metering.EconomicPerspective
 	Now          time.Time
 }
@@ -176,6 +183,10 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 	if aLeg == "" {
 		aLeg = strings.TrimSpace(cloned.Session.ALegID)
 	}
+	traceID := strings.TrimSpace(in.TraceID)
+	if traceID == "" {
+		traceID = strings.TrimSpace(cloned.ID)
+	}
 	pub := metering.Checkpoint{
 		CheckpointID: id,
 		StreamID:     streamID,
@@ -188,7 +199,7 @@ func CaptureBackendIngress(in BackendIngressInput) (Snapshot, error) {
 			BLegID:    bLegID,
 			AttemptID: attemptID,
 			SessionID: cloned.Session.CorrelationID(),
-			TraceID:   strings.TrimSpace(in.FEStreamID),
+			TraceID:   traceID,
 		},
 		Scope:      in.Scope.Clone(),
 		BackendID:  strings.TrimSpace(in.BackendID),
@@ -268,4 +279,35 @@ func (h *RequestHolder) MergeBackendIngressQuantities(attemptID string, addition
 	}
 	snap.MergeQuantities(additions)
 	return true
+}
+
+// BindBackendIngressFactID records the journal FactID for a frozen attempt.
+func (h *RequestHolder) BindBackendIngressFactID(attemptID, factID string) {
+	if h == nil {
+		return
+	}
+	attemptID = strings.TrimSpace(attemptID)
+	factID = strings.TrimSpace(factID)
+	if attemptID == "" || factID == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.backendIngressFactIDs == nil {
+		h.backendIngressFactIDs = make(map[string]string)
+	}
+	h.backendIngressFactIDs[attemptID] = factID
+}
+
+// BackendIngressFactID returns the bound journal FactID for an attempt, if any.
+func (h *RequestHolder) BackendIngressFactID(attemptID string) string {
+	if h == nil {
+		return ""
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.backendIngressFactIDs == nil {
+		return ""
+	}
+	return h.backendIngressFactIDs[strings.TrimSpace(attemptID)]
 }

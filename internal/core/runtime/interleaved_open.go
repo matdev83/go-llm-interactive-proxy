@@ -233,7 +233,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 			// in tryReplacementIteration (executor_recv_loop.go): ReleaseKindSwallowed, since
 			// the opened attempt produced no client-facing output and is being discarded.
 			l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
-			l.Release(ctx, authorityapp.ReleaseKindSwallowed)
+			l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, lipapi.Event{Kind: lipapi.EventUsageDelta})
 			if out.stream != nil && !errors.Is(err, leglifecycle.ErrALegCanceled) {
 				_ = out.stream.Close()
 			}

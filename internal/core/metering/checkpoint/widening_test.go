@@ -16,14 +16,11 @@ func TestBillableWidened_DetectsAddedMessage(t *testing.T) {
 		ID: "r",
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("a")},
-		}},
-	}
+			Parts: []lipapi.Part{lipapi.TextPart("a")}}}}
 	wide := lipapi.CloneCall(base)
 	wide.Messages = append(wide.Messages, lipapi.Message{
 		Role:  lipapi.RoleUser,
-		Parts: []lipapi.Part{lipapi.TextPart("extra")},
-	})
+		Parts: []lipapi.Part{lipapi.TextPart("extra")}})
 	ok, err := checkpoint.BillableWidened(base, wide)
 	if err != nil || !ok {
 		t.Fatalf("widened=%v err=%v", ok, err)
@@ -44,10 +41,8 @@ func TestBillableWidened_AllowsMaxOutputNarrowing(t *testing.T) {
 		ID: "r",
 		Messages: []lipapi.Message{{
 			Role:  lipapi.RoleUser,
-			Parts: []lipapi.Part{lipapi.TextPart("a")},
-		}},
-		Options: lipapi.GenerationOptions{MaxOutputTokens: &max},
-	}
+			Parts: []lipapi.Part{lipapi.TextPart("a")}}},
+		Options: lipapi.GenerationOptions{MaxOutputTokens: &max}}
 	narrowed := lipapi.CloneCall(base)
 	lower := 40
 	narrowed.Options.MaxOutputTokens = &lower
@@ -69,19 +64,15 @@ func TestCaptureBackendIngress(t *testing.T) {
 			ID: "req-1",
 			Messages: []lipapi.Message{{
 				Role:  lipapi.RoleUser,
-				Parts: []lipapi.Part{lipapi.TextPart("final")},
-			}},
-			Session: lipapi.SessionRef{ALegID: "a-1"},
-		},
+				Parts: []lipapi.Part{lipapi.TextPart("final")}}},
+			Session: lipapi.SessionRef{ALegID: "a-1"}},
 		AttemptID:    "att-1",
 		BLegID:       "b-1",
 		BackendID:    "openai",
 		Model:        "gpt",
 		CheckpointID: "be-in-1",
 		StreamID:     "be-stream-1",
-		FEStreamID:   "fe-ingress:req-1",
-		Now:          time.Unix(1, 0).UTC(),
-	})
+		Now:          time.Unix(1, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +97,7 @@ func TestRequestHolder_ParallelBackendIngressShareFEStream(t *testing.T) {
 		Call:         lipapi.Call{ID: "req-1"},
 		CheckpointID: "fe-1",
 		StreamID:     "fe-stream",
-		Now:          time.Unix(1, 0).UTC(),
-	})
+		Now:          time.Unix(1, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +107,7 @@ func TestRequestHolder_ParallelBackendIngressShareFEStream(t *testing.T) {
 		BLegID:       "b-a",
 		CheckpointID: "be-a",
 		StreamID:     "be-a",
-		FEStreamID:   fe.Public.StreamID,
-		Now:          time.Unix(2, 0).UTC(),
-	})
+		Now:          time.Unix(2, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,9 +117,7 @@ func TestRequestHolder_ParallelBackendIngressShareFEStream(t *testing.T) {
 		BLegID:       "b-b",
 		CheckpointID: "be-b",
 		StreamID:     "be-b",
-		FEStreamID:   fe.Public.StreamID,
-		Now:          time.Unix(3, 0).UTC(),
-	})
+		Now:          time.Unix(3, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}

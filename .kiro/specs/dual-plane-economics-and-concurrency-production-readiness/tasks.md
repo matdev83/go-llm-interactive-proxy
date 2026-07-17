@@ -6,7 +6,7 @@
 
 ## Phase 1 — Restore Strict Dual-Plane Correctness
 
-- [ ] 1.1 Freeze customer-versus-operator terminal invariants with red tests
+- [x] 1.1 Freeze customer-versus-operator terminal invariants with red tests
   - Reproduce provider usage entering customer settlement, provider cost entering frontend facts, stale preflight money after final backend counting, and missing frontend/backend correlation.
   - Cover compression, response filtering, explicit zero cost, absent cost, sequential failover, parallel losers, and auxiliary calls without provider network access.
   - **Deliverable:** executable regressions fail for the reviewed current behavior and name the independent expected planes.
@@ -16,7 +16,7 @@
   - _Depends: approved requirements and design_
   - _Validation: focused `go test ./internal/core/runtime/ ./internal/core/metering/checkpoint/ ./internal/core/accounting/`_
 
-- [ ] 1.2 Implement the final-canonical customer evidence accumulator
+- [x] 1.2 Implement the final-canonical customer evidence accumulator
   - Add request-owned incremental accumulation after response hooks and completion-gate resolution and before release to the frontend encoder.
   - Derive customer output solely from released canonical content; never import provider usage scopes or provider money.
   - Settle customer authority once from frontend ingress, final customer output, and the independent customer rater.
@@ -27,7 +27,7 @@
   - _Depends: 1.1_
   - _Validation: focused customer accumulator, response-hook, gate, stream/non-stream, and settlement tests_
 
-- [ ] 1.3 Build, rate, and authorize the exact final backend exposure
+- [x] 1.3 Build, rate, and authorize the exact final backend exposure
   - Run side-effect-free bounded clamp preview, then construct the complete backend-ingress quantity set after transforms, hooks, route parameters, and converged clamps.
   - Persist or bind the backend-ingress fact, invoke the operator rater from those exact quantities, and attach fact/rating/rule versions to admission.
   - Recount/rerate/reauthorize any later widening or reject it before `Open`.
@@ -38,7 +38,7 @@
   - _Depends: 1.1_
   - _Validation: focused backend-ingress, clamp, widening, rater, and attempt-authority tests_
 
-- [ ] 1.4 Correct boundary correlation, presence, and ingress evidence construction
+- [x] 1.4 Correct boundary correlation, presence, and ingress evidence construction
   - Populate actual trace, frontend, request, A-leg, B-leg, attempt, backend, and model identity at legal checkpoints.
   - Use explicit usage/cost presence rather than value heuristics and preserve authoritative zero independently from absence.
   - Capture immutable calls before mutation, bind trusted scope later, and prepare deterministic ingress fact inputs.
@@ -49,7 +49,7 @@
   - _Depends: 1.2, 1.3_
   - _Validation: focused checkpoint, fact, JSON-presence, and control-plane tests_
 
-- [ ] 1.5 Prove dual-plane behavior across routing and transformations
+- [x] 1.5 Prove dual-plane behavior across routing and transformations
   - Add composed scenarios for original input versus compressed backend input, provider output versus delivered output, retries, failover, parallel races, cancellation, and internal auxiliary calls.
   - Assert one customer settlement, one operator settlement per incurred attempt, and no retry after output.
   - **Deliverable:** Phase 1 invariant matrix is green across the canonical streaming path.

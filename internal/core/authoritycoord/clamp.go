@@ -22,7 +22,7 @@ func mergeClampsNonWidening(dst []authority.Clamp, add []authority.Clamp) []auth
 				out[idx] = c
 			}
 		default:
-			out = append(out, c)
+			// Unknown clamp kinds are ignored here; preview validation rejects them.
 		}
 	}
 	return out

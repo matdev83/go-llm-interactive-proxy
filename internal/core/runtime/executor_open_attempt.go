@@ -397,15 +397,17 @@ func (e *Executor) openPlannedCandidate(
 		return zero, fmt.Errorf("executor: %w", err)
 	}
 
+	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(p.ctx, &openCall, c, p.aLegID, bleg.BLegID)
+	if perr != nil {
+		p.budget.release()
+		return zero, perr
+	}
+
 	// Freeze/store BE ingress before authorization. Authority clamps may narrow
 	// MaxOutputTokens afterward; AssertNotWidened treats that as non-widening (7.5).
 	authorizedFreeze := lipapi.CloneCall(openCall)
 	admitDecision := preflightDecision
 	if holder := meteringHolderFrom(p.ctx); holder != nil {
-		feStream := ""
-		if holder.FrontendIngress != nil {
-			feStream = holder.FrontendIngress.Public.StreamID
-		}
 		if _, cerr := holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 			Call:         authorizedFreeze,
 			Scope:        scopeFromCtx(p.ctx),
@@ -416,7 +418,7 @@ func (e *Executor) openPlannedCandidate(
 			Model:        strings.TrimSpace(c.Primary.Model),
 			CheckpointID: "be-ingress:" + bleg.BLegID,
 			StreamID:     "be-ingress:" + bleg.BLegID,
-			FEStreamID:   feStream,
+			TraceID:      strings.TrimSpace(p.traceID),
 			Now:          e.now(),
 		}); cerr != nil {
 			p.budget.release()
@@ -428,13 +430,17 @@ func (e *Executor) openPlannedCandidate(
 				return zero, fmt.Errorf("executor: token accounting preflight: %w", beDecision.Err)
 			}
 			admitDecision = beDecision
-			e.enrichBackendIngressQuantities(holder, bleg.BLegID, beDecision.Count)
+			e.enrichBackendIngressQuantitiesWithDecision(holder, bleg.BLegID, beDecision)
 			if beDecision.AdjustedMaxOutputTokens != nil {
 				adjusted := *beDecision.AdjustedMaxOutputTokens
 				openCall.Options.MaxOutputTokens = &adjusted
 			}
 		} else {
-			e.enrichBackendIngressQuantities(holder, bleg.BLegID, admitDecision.Count)
+			e.enrichBackendIngressQuantitiesWithDecision(holder, bleg.BLegID, admitDecision)
+		}
+		if _, ferr := e.persistBackendIngressFact(p.ctx, holder, bleg.BLegID); ferr != nil {
+			p.budget.release()
+			return zero, fmt.Errorf("executor: metering backend ingress fact: %w", ferr)
 		}
 	}
 
@@ -463,28 +469,24 @@ func (e *Executor) openPlannedCandidate(
 	cleanupAuthority.backendAttempted.Store(false)
 	defer func() {
 		if !opened {
-			cleanupAuthority.Release(p.ctx, releaseKind)
+			cleanupAuthority.finalizeIncurredOrRelease(p.ctx, releaseKind, lipapi.Event{Kind: lipapi.EventUsageDelta})
 		}
 	}()
-	if clamp := authState.admissionResult.Clamp; clamp != nil {
-		if err := e.applyAuthorityClamp(p.ctx, &openCall, c, clamp, int64(admitDecision.Count.InputTokens)); err != nil {
-			p.budget.release()
-			return zero, err
-		}
-		// Spend-cap clamps must bind on the wire. Backends that cannot represent
-		// MaxOutputTokens (or that mark it ignorable via compat) are excluded so
-		// failover can try an enforceable candidate.
-		if !backendCanEnforceAuthorityClamp(be, &openCall) {
-			diag.LogDecision(
-				p.ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
-				slog.String("candidate_key", c.Key),
-				slog.String("backend", c.Primary.Backend),
-			)
-			releaseKind = authorityapp.ReleaseKindAdmissionFailure
-			p.budget.release()
-			p.excluded[c.Key] = struct{}{}
-			return noOpen, nil
-		}
+	if err := e.enforcePostAdmitClamps(p.ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {
+		releaseKind = authorityapp.ReleaseKindAdmissionFailure
+		p.budget.release()
+		return zero, err
+	}
+	if len(previewedClamps) > 0 && !backendCanEnforceAuthorityClamp(be, &openCall) {
+		diag.LogDecision(
+			p.ctx, e.Log, "authority_clamp_unenforceable_exclude", diag.AttrOpts{CallID: p.traceID},
+			slog.String("candidate_key", c.Key),
+			slog.String("backend", c.Primary.Backend),
+		)
+		releaseKind = authorityapp.ReleaseKindAdmissionFailure
+		p.budget.release()
+		p.excluded[c.Key] = struct{}{}
+		return noOpen, nil
 	}
 	// Preflight-applied max-output clamps must be enforceable on the wire (7.4).
 	if admitDecision.RequireMaxOutputEnforcement && !backendCanEnforceAuthorityClamp(be, &openCall) {

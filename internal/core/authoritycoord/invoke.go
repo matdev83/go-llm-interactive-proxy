@@ -41,6 +41,21 @@ func invokeAdmitAttempt(ctx context.Context, p authority.AttemptProvider, in aut
 	return d, nil
 }
 
+func invokePreviewAttempt(ctx context.Context, p authority.AttemptClampPreviewer, in authority.AttemptAdmission) (d authority.Decision, err error) {
+	if p == nil {
+		return authority.Decision{Kind: authority.DecisionAllow}, nil
+	}
+	defer isolateProviderPanic(&d, &err)
+	d, err = p.PreviewAttempt(ctx, in)
+	if err != nil {
+		return d, err
+	}
+	if vErr := d.Validate(); vErr != nil {
+		return d, vErr
+	}
+	return d, nil
+}
+
 func invokeSettleRequest(ctx context.Context, p authority.RequestProvider, in authority.RequestSettlement) (s authority.Settlement, err error) {
 	if p == nil {
 		return authority.Settlement{Kind: authority.SettlementFinal}, nil

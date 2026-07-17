@@ -6,6 +6,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
 // openInitialAttempt runs the pre-output attempt-open loop until a backend
@@ -61,7 +62,7 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 				// would otherwise be orphaned. Release it with ReleaseKindSwallowed,
 				// mirroring the swallowed-authority release sites in executor_recv_loop.
 				l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
-				l.Release(prep.ctx, authorityapp.ReleaseKindSwallowed)
+				l.finalizeIncurredOrRelease(prep.ctx, authorityapp.ReleaseKindSwallowed, lipapi.Event{Kind: lipapi.EventUsageDelta})
 				return attemptOpenResult{}, err
 			}
 		}

@@ -147,7 +147,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				)
 			}
 		}
-		s.authority.Release(ctx, authorityapp.ReleaseKindLosing)
+		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, lipapi.Event{Kind: lipapi.EventUsageDelta})
 		s.markFinished()
 		s.finishALegScope()
 		return lipapi.Event{}, false, lipapi.ErrTTFTTimeout

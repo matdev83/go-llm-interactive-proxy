@@ -214,27 +214,27 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	if cont {
 		t.Fatal("expected global TTFT timeout to stop the stream")
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls = %d, want 1", auth.releaseCalls.Load())
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred TTFT must settle)", auth.releaseCalls.Load())
 	}
-	release := auth.lastRelease()
-	if release.Kind != authorityapp.ReleaseKindLosing {
-		t.Fatalf("release kind = %q, want losing", release.Kind)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
-	if release.Stage != feature.StageIDAttemptLifecycle {
-		t.Fatalf("release stage = %q, want attempt_lifecycle", release.Stage)
+	settle := auth.lastSettle()
+	if settle.Kind != authorityapp.SettlementKindLosing {
+		t.Fatalf("settle kind = %q, want losing", settle.Kind)
 	}
-	if !release.BackendAttempted {
-		t.Fatal("expected global TTFT losing release to record backendAttempted=true")
+	if settle.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("settle stage = %q, want attempt_lifecycle", settle.Stage)
 	}
-	if release.OutputCommitted {
-		t.Fatal("expected global TTFT losing release to record outputCommitted=false")
+	if !settle.BackendAttempted {
+		t.Fatal("expected global TTFT losing settle to record backendAttempted=true")
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls = %d, want 0", auth.settleCalls.Load())
+	if settle.OutputCommitted {
+		t.Fatal("expected global TTFT losing settle to record outputCommitted=false")
 	}
 	if !rs.authority.Settled() {
-		t.Fatal("expected authority settled=true after global TTFT timeout losing-release so later handlers cannot double-release")
+		t.Fatal("expected authority settled=true after global TTFT timeout losing-settle so later handlers cannot double-settle")
 	}
 }
 
@@ -298,12 +298,18 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 	if !opened {
 		t.Fatal("expected replacement to open")
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls = %d, want 1", auth.releaseCalls.Load())
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred prior must settle)", auth.releaseCalls.Load())
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "reservation-1" {
-		t.Fatalf("release reservation ID = %q, want reservation-1", release.ReservationID)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
+	}
+	settle := auth.lastSettle()
+	if settle.ReservationID != "reservation-1" {
+		t.Fatalf("settle reservation ID = %q, want reservation-1", settle.ReservationID)
+	}
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
 	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
 		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
@@ -392,15 +398,18 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 	if !opened {
 		t.Fatal("expected replacement to open")
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls = %d, want 1", auth.releaseCalls.Load())
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred swallowed prior must settle)", auth.releaseCalls.Load())
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "reservation-1" {
-		t.Fatalf("release reservation ID = %q, want reservation-1", release.ReservationID)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
-	if release.Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind = %q, want swallowed", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "reservation-1" {
+		t.Fatalf("settle reservation ID = %q, want reservation-1", settle.ReservationID)
+	}
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
 	if rs.authority.stateSnapshot().admissionResult.ReservationID != "reservation-2" {
 		t.Fatalf("stream authority reservation ID = %q, want reservation-2", rs.authority.stateSnapshot().admissionResult.ReservationID)
@@ -482,27 +491,27 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 		t.Fatalf("Recv error = %v, want context.Canceled", err)
 	}
 
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls = %d, want 1 (swallowed reservation must be released on replacement error)", auth.releaseCalls.Load())
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred swallowed must settle on replacement error)", auth.releaseCalls.Load())
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "reservation-1" {
-		t.Fatalf("release reservation ID = %q, want reservation-1", release.ReservationID)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls = %d, want 1", auth.settleCalls.Load())
 	}
-	if release.Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind = %q, want swallowed", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "reservation-1" {
+		t.Fatalf("settle reservation ID = %q, want reservation-1", settle.ReservationID)
 	}
-	if release.Stage != feature.StageIDAttemptLifecycle {
-		t.Fatalf("release stage = %q, want attempt_lifecycle", release.Stage)
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
-	if !release.BackendAttempted {
-		t.Fatal("expected replacement-error swallowed release to record backendAttempted=true")
+	if settle.Stage != feature.StageIDAttemptLifecycle {
+		t.Fatalf("settle stage = %q, want attempt_lifecycle", settle.Stage)
 	}
-	if release.OutputCommitted {
-		t.Fatal("expected replacement-error swallowed release to record outputCommitted=false")
+	if !settle.BackendAttempted {
+		t.Fatal("expected replacement-error swallowed settle to record backendAttempted=true")
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls = %d, want 0 (no usage was produced)", auth.settleCalls.Load())
+	if settle.OutputCommitted {
+		t.Fatal("expected replacement-error swallowed settle to record outputCommitted=false")
 	}
 	if !rs.isFinished() {
 		t.Fatal("expected stream to be marked finished after terminal replacement error")

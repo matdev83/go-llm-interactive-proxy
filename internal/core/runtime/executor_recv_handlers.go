@@ -174,6 +174,7 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
+	s.rememberClientEvent(out)
 	if err := s.beforeEmitClientFacing(ctx, out); err != nil {
 		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 			if !s.authority.Settled() {

@@ -37,27 +37,23 @@ func TestEmitEgressFacts_OrderedViaRecorder(t *testing.T) {
 	ex.Now = func() time.Time { return time.Unix(50, 0).UTC() }
 
 	holder := &checkpoint.RequestHolder{}
-	fe, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
+	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
 		Call:         lipapi.Call{ID: "req-eg"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
-		Now:          time.Unix(1, 0).UTC(),
-	})
+		Now:          time.Unix(1, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call: lipapi.Call{
 			ID:       "req-eg",
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
-		},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
 		AttemptID:    "b-leg-1",
 		BLegID:       "b-leg-1",
 		CheckpointID: "be",
 		StreamID:     "be-stream",
-		FEStreamID:   fe.Public.StreamID,
-		Now:          time.Unix(2, 0).UTC(),
-	})
+		Now:          time.Unix(2, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +61,7 @@ func TestEmitEgressFacts_OrderedViaRecorder(t *testing.T) {
 	stream := &retryRecvStream{
 		executor: ex,
 		traceID:  "req-eg",
-		bleg:     b2bua.BLegRecord{BLegID: "b-leg-1"},
-	}
+		bleg:     b2bua.BLegRecord{BLegID: "b-leg-1"}}
 	usageEv := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 1, TotalTokens: 4}
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, usageEv)
 	stream.emitFrontendEgressMeteringFact(ctx, usageEv)
@@ -88,27 +83,23 @@ func TestEmitBackendEgress_LoserFailedCanceledOutcomes(t *testing.T) {
 	ex.MeteringRecorder = rec
 	ex.Now = func() time.Time { return time.Unix(50, 0).UTC() }
 	holder := &checkpoint.RequestHolder{}
-	fe, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
+	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
 		Call:         lipapi.Call{ID: "req-out"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
-		Now:          time.Unix(1, 0).UTC(),
-	})
+		Now:          time.Unix(1, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = holder.StoreBackendIngress(checkpoint.BackendIngressInput{
 		Call: lipapi.Call{
 			ID:       "req-out",
-			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}},
-		},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("x")}}}},
 		AttemptID:    "b-leg-out",
 		BLegID:       "b-leg-out",
 		CheckpointID: "be",
 		StreamID:     "be-stream",
-		FEStreamID:   fe.Public.StreamID,
-		Now:          time.Unix(2, 0).UTC(),
-	})
+		Now:          time.Unix(2, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +114,7 @@ func TestEmitBackendEgress_LoserFailedCanceledOutcomes(t *testing.T) {
 		{"loser", metering.AttemptOutcomeLoser, metering.SurfacedNo},
 		{"failed_swallowed", metering.AttemptOutcomeFailed, metering.SurfacedNo},
 		{"failed_surfaced", metering.AttemptOutcomeFailed, metering.SurfacedYes},
-		{"canceled", metering.AttemptOutcomeCanceled, metering.SurfacedNo},
-	}
+		{"canceled", metering.AttemptOutcomeCanceled, metering.SurfacedNo}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			before := len(rec.facts)
@@ -157,8 +147,7 @@ func TestEmitFrontendEgress_WithoutWinnerFinalize(t *testing.T) {
 		Call:         lipapi.Call{ID: "req-fe-term"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
-		Now:          time.Unix(1, 0).UTC(),
-	})
+		Now:          time.Unix(1, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
