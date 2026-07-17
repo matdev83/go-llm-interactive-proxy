@@ -43,9 +43,28 @@ type parallelLeg struct {
 	authority     authorityLifecycle
 	delay         time.Duration
 	recvErr       error
+	observedMu    sync.Mutex
 	observedUsage lipapi.Event
 	interleaved   interleavedstate.State
 	memoUpdate    *interleavedthinking.PendingMemoUpdate
+}
+
+func (l *parallelLeg) storeObservedUsage(ev lipapi.Event) {
+	if l == nil {
+		return
+	}
+	l.observedMu.Lock()
+	l.observedUsage = ev
+	l.observedMu.Unlock()
+}
+
+func (l *parallelLeg) loadObservedUsage() lipapi.Event {
+	if l == nil {
+		return lipapi.Event{}
+	}
+	l.observedMu.Lock()
+	defer l.observedMu.Unlock()
+	return l.observedUsage
 }
 
 func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
@@ -68,7 +87,7 @@ func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
 	err := cancelLosers(ctx, legs)
 	for _, leg := range legs {
-		usage := leg.observedUsage
+		usage := leg.loadObservedUsage()
 		if usage.Kind == "" {
 			usage = emptyOperatorUsageShell()
 		}
@@ -288,7 +307,7 @@ func (e *Executor) tryOpenParallelGroup(
 				if err != nil {
 					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
-					legs[idx].observedUsage = observed
+					legs[idx].storeObservedUsage(observed)
 					if winnerIdx < 0 {
 						if ttftDeadline.expired(legCtx, err) {
 							if ttftDeadline.scope == ttftTimeoutGlobal {
@@ -318,7 +337,7 @@ func (e *Executor) tryOpenParallelGroup(
 				if isWinningEvent(ev) {
 					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
-					legs[idx].observedUsage = observed
+					legs[idx].storeObservedUsage(observed)
 					if winnerIdx >= 0 {
 						mu.Unlock()
 						return
@@ -390,7 +409,7 @@ func (e *Executor) tryOpenParallelGroup(
 		defer cleanupCancel()
 		for i := range legs {
 			if legs[i].stream != nil {
-				usage := legs[i].observedUsage
+				usage := legs[i].loadObservedUsage()
 				if usage.Kind == "" {
 					usage = emptyOperatorUsageShell()
 				}
