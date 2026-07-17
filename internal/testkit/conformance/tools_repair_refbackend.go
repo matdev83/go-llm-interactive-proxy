@@ -44,21 +44,9 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 		return nil
 	case openairesponses.ID:
 		// Truncated args JSON is {"q":1 (missing closing brace). Wire JSON must still be valid.
-		const truncArgs = `{"q":1`
-		toolStreamSSE := "event: response.output_item.added\ndata: " +
-			`{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"type":"function_call","id":"fc_int_t","call_id":"call_fc","name":"get_weather","status":"in_progress"}}` +
-			"\n\n" +
-			"event: response.function_call_arguments.delta\ndata: " +
-			`{"type":"response.function_call_arguments.delta","sequence_number":1,"item_id":"fc_int_t","output_index":0,"delta":` + jsonString(truncArgs) + `}` +
-			"\n\n" +
-			"event: response.function_call_arguments.done\ndata: " +
-			`{"type":"response.function_call_arguments.done","sequence_number":2,"item_id":"fc_int_t","output_index":0,"name":"get_weather","arguments":` + jsonString(truncArgs) + `}` +
-			"\n\n" +
-			"event: response.completed\ndata: " +
-			`{"type":"response.completed","sequence_number":3,"response":{"id":"r_tool","object":"response","status":"completed","model":"gpt-4o-mini","usage":{"input_tokens":3,"output_tokens":7,"total_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}},"output":[{"type":"function_call","id":"fc_int_t","name":"get_weather","arguments":` + jsonString(truncArgs) + `}]}}` +
-			"\n\n" +
-			"data: [DONE]\n\n"
-		srv := httptest.NewServer(refopenairesponses.NewHandler(refopenairesponses.Config{StreamSSE: toolStreamSSE}))
+		srv := httptest.NewServer(refopenairesponses.NewHandler(refopenairesponses.Config{
+			StreamSSE: openAICompatToolResponsesTruncatedSSE("gpt-4o-mini", `{"q":1`),
+		}))
 		tb.Cleanup(srv.Close)
 		return srv
 	case openailegacy.ID:
@@ -112,7 +100,7 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 			"\n\n" + "data: [DONE]\n\n"
 		srv := httptest.NewServer(refnvidia.NewHandler(refnvidia.Config{
 			ChatStreamSSE:      sse,
-			ResponsesStreamSSE: openAICompatToolResponsesTruncatedSSE("nvidia/llama-3.1-nemotron-nano-8b-v1"),
+			ResponsesStreamSSE: openAICompatToolResponsesTruncatedSSE("nvidia/llama-3.1-nemotron-nano-8b-v1", `{"city":"NYC"`),
 		}))
 		tb.Cleanup(srv.Close)
 		return srv
@@ -128,7 +116,7 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 			"\n\n" + "data: [DONE]\n\n"
 		srv := httptest.NewServer(refopenrouter.NewHandler(refopenrouter.Config{
 			ChatStreamSSE:      sse,
-			ResponsesStreamSSE: openAICompatToolResponsesTruncatedSSE("openai/gpt-4o-mini"),
+			ResponsesStreamSSE: openAICompatToolResponsesTruncatedSSE("openai/gpt-4o-mini", `{"city":"NYC"`),
 		}))
 		tb.Cleanup(srv.Close)
 		return srv
@@ -138,8 +126,7 @@ func NewToolCallRepairRefBackend(tb testing.TB, backendID string) *httptest.Serv
 	}
 }
 
-func openAICompatToolResponsesTruncatedSSE(model string) string {
-	const truncArgs = `{"city":"NYC"`
+func openAICompatToolResponsesTruncatedSSE(model, truncArgs string) string {
 	events := []struct {
 		event   string
 		payload any
@@ -181,15 +168,6 @@ func openAICompatToolResponsesTruncatedSSE(model string) string {
 	}
 	b.WriteString("data: [DONE]\n\n")
 	return b.String()
-}
-
-// jsonString returns a JSON-encoded string literal (including surrounding quotes).
-func jsonString(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		panic(err)
-	}
-	return string(b)
 }
 
 func bedrockToolStreamTruncated(tb testing.TB) []byte {
