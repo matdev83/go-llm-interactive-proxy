@@ -131,6 +131,17 @@ func (s *MemoryStore) Append(ctx context.Context, fact metering.Fact) error {
 		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
 			ErrIdentityCollision, cloned.StreamID, cloned.FactID, existing.Sequence, cloned.Sequence)
 	}
+	for _, row := range s.facts {
+		if strings.TrimSpace(row.fact.StreamID) != strings.TrimSpace(cloned.StreamID) ||
+			strings.TrimSpace(row.fact.FactID) != strings.TrimSpace(cloned.FactID) {
+			continue
+		}
+		if metering.SameFactReplay(row.fact, cloned) {
+			return nil
+		}
+		return fmt.Errorf("%w: stream_id=%q fact_id=%q stored_seq=%d new_seq=%d",
+			ErrIdentityCollision, cloned.StreamID, cloned.FactID, row.fact.Sequence, cloned.Sequence)
+	}
 
 	s.seq++
 	s.bySource[key] = len(s.facts)

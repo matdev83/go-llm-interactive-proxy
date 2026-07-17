@@ -609,7 +609,13 @@ func phase3ContractSourceEventKeyUniqueness(t *testing.T, a phase3Adapter) {
 		t.Fatalf("same SourceEventKey different payload got %v want ErrIdentityCollision (D6)", err)
 	}
 
+	// Metering V2 primary row identity is (store_id, stream_id, fact_id). Distinct
+	// SourceEventKey variants therefore require distinct FactIDs in-stream; the
+	// key components below still prove SourceEventKey uniqueness (D6 / task 3.4).
 	otherVersion := base
+	otherVersion.FactID = base.FactID + "-iv2"
+	otherVersion.SourceID = otherVersion.FactID
+	otherVersion.Sequence = 2
 	otherVersion.IdentityVersion = 2
 	otherVersion.Quantities = []metering.Quantity{{
 		Component: metering.ComponentInputToken,
@@ -622,6 +628,9 @@ func phase3ContractSourceEventKeyUniqueness(t *testing.T, a phase3Adapter) {
 	}
 
 	otherRev := base
+	otherRev.FactID = base.FactID + "-rev3"
+	otherRev.SourceID = otherRev.FactID
+	otherRev.Sequence = 3
 	otherRev.SourceRevision = 3
 	otherRev.Quantities = []metering.Quantity{{
 		Component: metering.ComponentInputToken,
@@ -634,6 +643,9 @@ func phase3ContractSourceEventKeyUniqueness(t *testing.T, a phase3Adapter) {
 	}
 
 	otherKind := base
+	otherKind.FactID = base.FactID + "-kind"
+	otherKind.SourceID = otherKind.FactID
+	otherKind.Sequence = 4
 	otherKind.SourceEventKind = "ingress-observed"
 	otherKind.Quantities = []metering.Quantity{{
 		Component: metering.ComponentInputToken,
@@ -646,7 +658,9 @@ func phase3ContractSourceEventKeyUniqueness(t *testing.T, a phase3Adapter) {
 	}
 
 	otherSource := base
+	otherSource.FactID = base.FactID + "-src"
 	otherSource.SourceID = base.FactID + "-alt"
+	otherSource.Sequence = 5
 	otherSource.Quantities = []metering.Quantity{{
 		Component: metering.ComponentInputToken,
 		Unit:      metering.UnitToken,

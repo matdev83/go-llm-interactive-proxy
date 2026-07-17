@@ -148,7 +148,7 @@
   - _Depends: 1.4, 3.2_
   - _Validation: runtime ingress persistence, scope binding, rating-reference, and failure-posture tests_
 
-- [ ] 3.4 Implement metering schema V2 and deterministic correction aggregation
+- [x] 3.4 Implement metering schema V2 and deterministic correction aggregation
   - Add composite store-scoped identity, identity/revision columns, supersession relation, bounded indexes, and additive direct/admin migrations.
   - Update append conflict resolution and queries to include `store_id`.
   - Apply cumulative, correction, and authoritative replacement semantics without erasing unrelated components or immutable history.
