@@ -101,18 +101,15 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	var recvErr error
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		_, recvErr = rs.Recv(ctx)
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		<-entered
 		_ = rs.Close()
-	}()
+	})
 	close(start)
 	wg.Wait()
 

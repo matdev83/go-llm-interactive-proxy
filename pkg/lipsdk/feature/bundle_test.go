@@ -115,6 +115,12 @@ func TestEmptyFeatureBundle(t *testing.T) {
 	if b.ToolCatalogFilters != nil || b.RequestTransforms != nil || b.PreRequestHandlers != nil || b.RouteHintProviders != nil {
 		t.Fatal("expected catalog/transform/pre-request/route-hint slices nil on zero value")
 	}
+	if b.AttemptTransforms != nil {
+		t.Fatal("expected AttemptTransforms nil on zero value")
+	}
+	if b.StreamObserverFactories != nil {
+		t.Fatal("expected StreamObserverFactories nil on zero value")
+	}
 	if b.CompletionGates != nil {
 		t.Fatal("expected CompletionGates nil on zero value")
 	}

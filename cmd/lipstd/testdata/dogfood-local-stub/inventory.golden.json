@@ -135,10 +135,12 @@
       "request_wide_shaping",
       "pre_request_admission",
       "route_hinting",
+      "candidate_attempt_transform",
       "attempt_lifecycle",
       "stream_event_mutation",
       "tool_event_reaction",
       "completion_gating",
+      "final_stream_observation",
       "traffic_observation",
       "egress_encoding"
     ],
@@ -176,6 +178,10 @@
         "default_failure": "fail_open"
       },
       {
+        "id": "candidate_attempt_transform",
+        "default_failure": "fail_open"
+      },
+      {
         "id": "attempt_lifecycle",
         "default_failure": "fail_open"
       },
@@ -189,6 +195,10 @@
       },
       {
         "id": "completion_gating",
+        "default_failure": "fail_open"
+      },
+      {
+        "id": "final_stream_observation",
         "default_failure": "fail_open"
       },
       {
@@ -288,7 +298,13 @@
           "completion_gate": false
         }
       }
-    ]
+    ],
+    "generic_ports": {
+      "attempt_transform_occupied": false,
+      "attempt_transform_handlers": 0,
+      "final_stream_observation_occupied": false,
+      "final_stream_observation_handlers": 0
+    }
   },
   "server_limits": {
     "max_request_body_bytes": 8388608,

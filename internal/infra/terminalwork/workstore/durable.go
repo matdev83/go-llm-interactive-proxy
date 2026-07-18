@@ -244,7 +244,8 @@ func (s *DurableStore) AppendIntent(ctx context.Context, rec terminalwork.WorkRe
 		return resolveExistingRecord(existing, cloned)
 	}
 
-	_, err = tx.NewRaw(`
+	_, err = tx.NewRaw(
+		`
 INSERT INTO economic_terminal_work(
   store_id, work_id, source_key, identity_version, payload_version, kind, state,
   provider_id, request_id, attempt_id, trace_id, generation_id, bound_provider_id,
@@ -316,7 +317,8 @@ func (s *DurableStore) PromotePending(ctx context.Context, cmd PromotePendingCom
 	if now.IsZero() {
 		now = s.now().UTC()
 	}
-	res, err := s.db.NewRaw(`
+	res, err := s.db.NewRaw(
+		`
 UPDATE economic_terminal_work
 SET state = ?, updated_at_unix = ?
 WHERE store_id = ? AND work_id = ? AND state = ?`,
@@ -457,7 +459,8 @@ func (s *DurableStore) claimDueSQLite(ctx context.Context, cmd ClaimDueCommand, 
 		}
 		rec.ApplyWorkItem(item, now)
 		updated := recordToRow(s.cfg.StoreID, rec)
-		res, err := tx.NewRaw(`
+		res, err := tx.NewRaw(
+			`
 UPDATE economic_terminal_work
 SET state = ?, claim_owner_id = ?, claim_expires_at_unix = ?, updated_at_unix = ?
 WHERE store_id = ? AND work_id = ? AND state = ? AND claim_owner_id = ? AND claim_expires_at_unix = ?`,
@@ -485,7 +488,8 @@ func (s *DurableStore) RenewClaim(ctx context.Context, cmd RenewClaimCommand) er
 	}
 	now := cmd.Now
 	expires := now.Add(cmd.TTL)
-	res, err := s.db.NewRaw(`
+	res, err := s.db.NewRaw(
+		`
 UPDATE economic_terminal_work
 SET claim_expires_at_unix = ?, updated_at_unix = ?
 WHERE store_id = ? AND work_id = ? AND state = ? AND claim_owner_id = ? AND claim_expires_at_unix > ?`,
@@ -515,7 +519,8 @@ func (s *DurableStore) Complete(ctx context.Context, cmd CompleteCommand) error 
 	if now.IsZero() {
 		now = s.now().UTC()
 	}
-	res, err := s.db.NewRaw(`
+	res, err := s.db.NewRaw(
+		`
 UPDATE economic_terminal_work
 SET state = ?, claim_owner_id = ?, claim_expires_at_unix = ?, error_code = ?, error_permanent = ?, error_message = ?, updated_at_unix = ?
 WHERE store_id = ? AND work_id = ? AND state = ? AND claim_owner_id = ?`,
@@ -553,7 +558,8 @@ func (s *DurableStore) ScheduleRetry(ctx context.Context, cmd ScheduleRetryComma
 	}
 	rec.ApplyWorkItem(item, now)
 	row := recordToRow(s.cfg.StoreID, rec)
-	res, err := s.db.NewRaw(`
+	res, err := s.db.NewRaw(
+		`
 UPDATE economic_terminal_work
 SET state = ?, attempts = ?, next_retry_at_unix = ?, claim_owner_id = ?, claim_expires_at_unix = ?,
   error_code = ?, error_permanent = ?, error_message = ?, updated_at_unix = ?
@@ -587,7 +593,8 @@ func (s *DurableStore) Quarantine(ctx context.Context, cmd QuarantineCommand) er
 	}
 	rec.ApplyWorkItem(item, now)
 	row := recordToRow(s.cfg.StoreID, rec)
-	res, err := s.db.NewRaw(`
+	res, err := s.db.NewRaw(
+		`
 UPDATE economic_terminal_work
 SET state = ?, claim_owner_id = ?, claim_expires_at_unix = ?, error_code = ?, error_permanent = ?, error_message = ?, updated_at_unix = ?
 WHERE store_id = ? AND work_id = ? AND state IN (?, ?, ?)`,
@@ -657,7 +664,8 @@ func (s *DurableStore) List(ctx context.Context, q Query) (Page, error) {
 
 func lookupByWorkID(ctx context.Context, q bun.IDB, storeID, workID string) (terminalwork.WorkRecord, bool, error) {
 	var row workRow
-	err := q.NewRaw(`
+	err := q.NewRaw(
+		`
 SELECT store_id, work_id, source_key, identity_version, payload_version, kind, state,
   provider_id, request_id, attempt_id, trace_id, generation_id, bound_provider_id,
   rating_id, fact_id, lease_set_id, payload_json, attempts, next_retry_at_unix,
@@ -682,7 +690,8 @@ WHERE store_id = ? AND work_id = ?`,
 
 func lookupBySourceKey(ctx context.Context, q bun.IDB, storeID, sourceKey string) (terminalwork.WorkRecord, bool, error) {
 	var row workRow
-	err := q.NewRaw(`
+	err := q.NewRaw(
+		`
 SELECT store_id, work_id, source_key, identity_version, payload_version, kind, state,
   provider_id, request_id, attempt_id, trace_id, generation_id, bound_provider_id,
   rating_id, fact_id, lease_set_id, payload_json, attempts, next_retry_at_unix,

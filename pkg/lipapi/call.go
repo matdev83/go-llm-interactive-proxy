@@ -3,6 +3,7 @@ package lipapi
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -78,6 +79,7 @@ func (c Call) Validate() error {
 	if err := c.validateEnvelopeSizes(); err != nil {
 		return err
 	}
+	var reasoningBytes int64
 	for i, m := range c.Messages {
 		if m.Role == "" {
 			return &ValidationError{Field: fmt.Sprintf("Messages[%d].Role", i), Message: "role is required"}
@@ -88,6 +90,21 @@ func (c Call) Validate() error {
 		for j, p := range m.Parts {
 			if err := p.validate(); err != nil {
 				return &ValidationError{Field: fmt.Sprintf("Messages[%d].Parts[%d]", i, j), Message: err.Error()}
+			}
+			if p.Kind == PartReasoning {
+				if m.Role != RoleAssistant {
+					return &ValidationError{
+						Field:   fmt.Sprintf("Messages[%d].Parts[%d]", i, j),
+						Message: "reasoning parts are only allowed on assistant messages",
+					}
+				}
+				reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(p.Reasoning)))
+				if reasoningBytes > int64(MaxReasoningBytesPerCall) {
+					return &ValidationError{
+						Field:   fmt.Sprintf("Messages[%d].Parts[%d]", i, j),
+						Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
+					}
+				}
 			}
 		}
 	}
@@ -101,6 +118,21 @@ func (c Call) Validate() error {
 		for j, p := range m.Parts {
 			if err := p.validate(); err != nil {
 				return &ValidationError{Field: fmt.Sprintf("Instructions[%d].Parts[%d]", i, j), Message: err.Error()}
+			}
+			if p.Kind == PartReasoning {
+				if m.Role != RoleAssistant {
+					return &ValidationError{
+						Field:   fmt.Sprintf("Instructions[%d].Parts[%d]", i, j),
+						Message: "reasoning parts are only allowed on assistant messages",
+					}
+				}
+				reasoningBytes = addSaturatingInt64(reasoningBytes, int64(ReasoningPayloadBytes(p.Reasoning)))
+				if reasoningBytes > int64(MaxReasoningBytesPerCall) {
+					return &ValidationError{
+						Field:   fmt.Sprintf("Instructions[%d].Parts[%d]", i, j),
+						Message: fmt.Sprintf("total reasoning payload exceeds %d bytes", MaxReasoningBytesPerCall),
+					}
+				}
 			}
 		}
 	}
@@ -119,4 +151,44 @@ func (c Call) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func addSaturatingInt64(a, b int64) int64 {
+	if a < 0 {
+		a = 0
+	}
+	if b < 0 {
+		b = 0
+	}
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+// SaturatingAddInt64 returns a+b clamped at math.MaxInt64 (negatives treated as 0).
+func SaturatingAddInt64(a, b int64) int64 { return addSaturatingInt64(a, b) }
+
+// CallReasoningPayloadBytes returns the saturating sum of reasoning Text+Signature+Opaque
+// lengths across Messages and Instructions (dialect and non-reasoning content excluded).
+func CallReasoningPayloadBytes(c *Call) int64 {
+	if c == nil {
+		return 0
+	}
+	var n int64
+	for _, m := range c.Messages {
+		for _, p := range m.Parts {
+			if p.Kind == PartReasoning {
+				n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(p.Reasoning)))
+			}
+		}
+	}
+	for _, m := range c.Instructions {
+		for _, p := range m.Parts {
+			if p.Kind == PartReasoning {
+				n = addSaturatingInt64(n, int64(ReasoningPayloadBytes(p.Reasoning)))
+			}
+		}
+	}
+	return n
 }

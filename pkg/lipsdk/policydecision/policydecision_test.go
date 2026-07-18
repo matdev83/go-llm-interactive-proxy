@@ -231,6 +231,17 @@ func TestPolicyDecisionLegalPairs(t *testing.T) {
 		{feature.StageIDToolEventReaction, policydecision.OutcomeSkip, policydecision.EffectSwallow, true},
 		{feature.StageIDToolEventReaction, policydecision.OutcomeAllow, policydecision.EffectReplace, true},
 		{feature.StageIDToolEventReaction, policydecision.OutcomeSkip, policydecision.EffectNone, false},
+		{feature.StageIDCandidateAttemptTransform, policydecision.OutcomeAllow, policydecision.EffectMutate, true},
+		{feature.StageIDCandidateAttemptTransform, policydecision.OutcomeSkip, policydecision.EffectNone, true},
+		{feature.StageIDCandidateAttemptTransform, policydecision.OutcomeDeny, policydecision.EffectNone, false},
+		{feature.StageIDCandidateAttemptTransform, policydecision.OutcomeAllow, policydecision.EffectReplace, false},
+		{feature.StageIDCandidateAttemptTransform, policydecision.OutcomeSkip, policydecision.EffectSwallow, false},
+		{feature.StageIDFinalStreamObservation, policydecision.OutcomeAllow, policydecision.EffectAnnotate, true},
+		{feature.StageIDFinalStreamObservation, policydecision.OutcomeSkip, policydecision.EffectNone, true},
+		{feature.StageIDFinalStreamObservation, policydecision.OutcomeAllow, policydecision.EffectMutate, false},
+		{feature.StageIDFinalStreamObservation, policydecision.OutcomeAllow, policydecision.EffectReplace, false},
+		{feature.StageIDFinalStreamObservation, policydecision.OutcomeAllow, policydecision.EffectReplay, false},
+		{feature.StageIDFinalStreamObservation, policydecision.OutcomeDeny, policydecision.EffectNone, false},
 		{"unknown_stage", policydecision.OutcomeAllow, policydecision.EffectNone, false},
 	}
 	for _, c := range cases {

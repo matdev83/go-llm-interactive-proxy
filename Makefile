@@ -149,6 +149,8 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
 	# Dual-plane Phase 7.2 state-machine / renew / work / owner / money / fact fuzz
 	$(FUZZ_WRAPPER) -fuzz=FuzzLeaseSet_OccupiesCapacity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/domain
 	$(FUZZ_WRAPPER) -fuzz=FuzzIsAmbiguousRenewError$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/app

@@ -56,9 +56,11 @@ type wireChatChoice struct {
 }
 
 type wireAssistant struct {
-	Role      string           `json:"role"`
-	Content   json.RawMessage  `json:"content,omitempty"` // JSON string or multimodal part array
-	ToolCalls []wireToolCallNS `json:"tool_calls,omitempty"`
+	Role             string           `json:"role"`
+	Content          json.RawMessage  `json:"content,omitempty"` // JSON string or multimodal part array
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Reasoning        string           `json:"reasoning,omitempty"`
+	ToolCalls        []wireToolCallNS `json:"tool_calls,omitempty"`
 }
 
 type wireToolCallNS struct {
@@ -212,6 +214,10 @@ func WriteNonStreamJSON(ctx context.Context, w http.ResponseWriter, call *lipapi
 		return err
 	}
 	msg := &wireAssistant{Role: "assistant", Content: contentJSON}
+	if reasoning := col.Reasoning.String(); reasoning != "" {
+		msg.ReasoningContent = reasoning
+		msg.Reasoning = reasoning
+	}
 	for _, tc := range tools {
 		var wtc wireToolCallNS
 		wtc.ID = tc.ID

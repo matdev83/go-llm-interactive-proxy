@@ -49,8 +49,7 @@ func TestPhase45_TerminalWorkPromBoundedLabels(t *testing.T) {
 		"lip_terminal_work_transitions_total",
 	}
 	for _, n := range want {
-		found := slices.Contains(names, n)
-		if !found {
+		if !slices.Contains(names, n) {
 			t.Fatalf("missing metric %s in %v", n, names)
 		}
 	}

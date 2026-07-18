@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -64,6 +65,33 @@ func TestApplyGenerationBoundVersion_PrefersPublishedGeneration(t *testing.T) {
 	if _, err := pub.PublishExecutable(gen); err != nil {
 		t.Fatal(err)
 	}
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{SnapshotGeneration: pub},
+	}
+	res := authorityapp.AdmissionResult{
+		BoundVersion: economics.PolicySnapshotRef{
+			VersionRef: economics.VersionRef{ID: "usage_authority", Version: "rules-old"},
+			PolicyID:   "usage_authority",
+		},
+	}
+	ex.applyGenerationBoundVersion(&res)
+	if res.BoundVersion.Version != "gen-v9" {
+		t.Fatalf("bound=%+v, want gen-v9 from SnapshotGeneration", res.BoundVersion)
+	}
+}
+
+func TestApplyGenerationBoundVersion_DeprecatedPublishCompatibility(t *testing.T) {
+	t.Parallel()
+	pub := snapshotgen.NewPublisher()
+	//nolint:staticcheck // SA1019: metadata Publish remains the compatibility path under test
+	pub.Publish(snapshotgen.RuntimeGeneration{
+		State: economics.SnapshotReady,
+		Usage: economics.Snapshot[economics.PolicyRulesView]{
+			ID: "usage_authority", Version: "gen-v9", State: economics.SnapshotReady,
+			EffectiveAt: time.Unix(1, 0).UTC(),
+			Value:       economics.PolicyRulesView{Kind: economics.PolicyKindUsageAuthority},
+		},
+	})
 	ex := &Executor{
 		AccountingRuntime: AccountingRuntime{SnapshotGeneration: pub},
 	}

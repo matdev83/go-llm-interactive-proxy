@@ -132,6 +132,7 @@ func (facadePhase55Req) AdmitRequest(context.Context, authority.RequestAdmission
 func (facadePhase55Req) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }
+
 func (facadePhase55Req) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
 
 type facadePhase55Rater struct{}

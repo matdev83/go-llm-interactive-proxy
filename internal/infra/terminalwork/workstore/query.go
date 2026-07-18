@@ -43,11 +43,8 @@ func recordMatchesQuery(r terminalwork.WorkRecord, q Query) bool {
 	if q.State != "" && r.State != q.State {
 		return false
 	}
-	if len(q.States) > 0 {
-		match := slices.Contains(q.States, r.State)
-		if !match {
-			return false
-		}
+	if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
+		return false
 	}
 	if provider := strings.TrimSpace(q.ProviderID); provider != "" && r.ProviderID != provider {
 		return false

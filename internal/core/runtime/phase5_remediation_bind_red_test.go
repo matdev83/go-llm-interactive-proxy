@@ -32,6 +32,7 @@ func (s phase5RemedReq) AdmitRequest(context.Context, authority.RequestAdmission
 func (s phase5RemedReq) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }
+
 func (s phase5RemedReq) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
 
 type phase5RemedConc struct{ id string }

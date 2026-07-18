@@ -84,7 +84,7 @@ func (p *Publisher) UnresolvedProviderIDs() []string {
 	var out []string
 	p.retained.Range(func(_, value any) bool {
 		gen, ok := value.(*ExecutableGeneration)
-		if !ok {
+		if !ok || gen == nil {
 			return true
 		}
 		for _, id := range gen.PendingProviderIDs() {
@@ -114,7 +114,7 @@ func (p *Publisher) CanRemoveProvider(providerID string) bool {
 	ok := true
 	p.retained.Range(func(_, value any) bool {
 		gen, typed := value.(*ExecutableGeneration)
-		if !typed {
+		if !typed || gen == nil {
 			return true
 		}
 		if !gen.CanRemoveProvider(providerID) {

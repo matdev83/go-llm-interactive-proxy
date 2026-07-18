@@ -2,6 +2,7 @@ package extensions_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -10,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -152,6 +154,115 @@ func (stubGate) Order() int                        { return 0 }
 func (stubGate) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
 func (stubGate) Handle(context.Context, completion.Meta, completion.Buffered, completion.Services) (completion.Outcome, error) {
 	return completion.PassOriginalOutcome(), nil
+}
+
+type stubAttemptTransform struct{ id string }
+
+func (s stubAttemptTransform) ID() string                      { return s.id }
+func (stubAttemptTransform) Order() int                        { return 0 }
+func (stubAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (stubAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
+	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+}
+
+type stubStreamObserverFactory struct{ id string }
+
+func (s stubStreamObserverFactory) ID() string                      { return s.id }
+func (stubStreamObserverFactory) Order() int                        { return 0 }
+func (stubStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (stubStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return nil, nil
+}
+
+func TestNewRequestRuntimeSnapshot_panicsOnNilAttemptTransform(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil AttemptTransform")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "AttemptTransforms contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	_ = extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		AttemptTransforms: []request.AttemptTransform{nil},
+	})
+}
+
+func TestNewRequestRuntimeSnapshot_panicsOnNilStreamObserverFactory(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("want panic on nil StreamObserverFactory")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "StreamObserverFactories contains nil entry") {
+			t.Fatalf("panic=%v", r)
+		}
+	}()
+	_ = extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		StreamObserverFactories: []response.StreamObserverFactory{nil},
+	})
+}
+
+func TestRequestRuntimeSnapshot_AttemptTransformsAndStreamObservers_defensiveCopyAndSort(t *testing.T) {
+	t.Parallel()
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		AttemptTransforms: []request.AttemptTransform{
+			stubAttemptTransform{id: "z"},
+			stubAttemptTransform{id: "a"},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			stubStreamObserverFactory{id: "z"},
+			stubStreamObserverFactory{id: "a"},
+		},
+	})
+	gotAT := snap.AttemptTransforms()
+	if len(gotAT) != 2 || gotAT[0].ID() != "a" || gotAT[1].ID() != "z" {
+		t.Fatalf("AttemptTransforms sorted IDs=%v want [a z]", idsOfAttempt(gotAT))
+	}
+	gotAT[0] = nil
+	againAT := snap.AttemptTransforms()
+	if len(againAT) != 2 || againAT[0] == nil || againAT[0].ID() != "a" {
+		t.Fatal("AttemptTransforms must return a defensive copy")
+	}
+	gotSO := snap.StreamObserverFactories()
+	if len(gotSO) != 2 || gotSO[0].ID() != "a" || gotSO[1].ID() != "z" {
+		t.Fatalf("StreamObserverFactories sorted IDs=%v want [a z]", idsOfStreamObs(gotSO))
+	}
+	gotSO[0] = nil
+	againSO := snap.StreamObserverFactories()
+	if len(againSO) != 2 || againSO[0] == nil || againSO[0].ID() != "a" {
+		t.Fatal("StreamObserverFactories must return a defensive copy")
+	}
+}
+
+func idsOfAttempt(in []request.AttemptTransform) []string {
+	out := make([]string, len(in))
+	for i, t := range in {
+		if t == nil {
+			out[i] = "<nil>"
+			continue
+		}
+		out[i] = t.ID()
+	}
+	return out
+}
+
+func idsOfStreamObs(in []response.StreamObserverFactory) []string {
+	out := make([]string, len(in))
+	for i, f := range in {
+		if f == nil {
+			out[i] = "<nil>"
+			continue
+		}
+		out[i] = f.ID()
+	}
+	return out
 }
 
 func TestRequestRuntimeSnapshot_CompletionGates_returnsDefensiveCopy(t *testing.T) {

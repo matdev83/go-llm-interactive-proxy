@@ -161,7 +161,6 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 			failClosed := false
 			anyFailOpenRetry := false
-			tickOK := true
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
 			if setID != "" {
 				primary := live[0]
@@ -208,6 +207,7 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 					st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
 				}
 			} else {
+				tickOK := true
 				pending := append([]leaseRenewTarget(nil), live...)
 				for i := range pending {
 					src := live[i]

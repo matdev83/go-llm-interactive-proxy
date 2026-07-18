@@ -93,10 +93,10 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 	if w2.State != sdk.WorkStateRetry {
 		t.Fatalf("state=%q", w2.State)
 	}
-	if !w2.NextRetryAt.After(clock.Now()) {
-		t.Fatalf("NextRetryAt=%v want strictly after %v", w2.NextRetryAt, clock.Now())
-	}
 	wantNext := clock.Now().Add(time.Second)
+	if !w2.NextRetryAt.After(clock.Now()) {
+		t.Fatalf("NextRetryAt=%v must be strictly after now=%v", w2.NextRetryAt, clock.Now())
+	}
 	if !w2.NextRetryAt.Equal(wantNext) {
 		t.Fatalf("NextRetryAt=%v want %v", w2.NextRetryAt, wantNext)
 	}
