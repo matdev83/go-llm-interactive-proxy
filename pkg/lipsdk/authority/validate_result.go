@@ -95,8 +95,8 @@ func (s Settlement) ValidateFor(handles []string, p metering.EconomicPerspective
 		return fmt.Errorf("authority: unknown settlement kind %q", s.Kind)
 	}
 	h := strings.TrimSpace(s.Handle)
-	switch {
-	case h == "":
+	switch h {
+	case "":
 		if len(handles) > 0 && (s.Kind == SettlementFinal || s.Kind == SettlementPartial || s.Kind == SettlementEstimated) {
 			return fmt.Errorf("authority: settlement handle required")
 		}

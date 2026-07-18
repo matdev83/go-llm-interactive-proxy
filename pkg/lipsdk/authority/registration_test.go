@@ -13,9 +13,11 @@ type stubRequestProvider struct{ id string }
 func (s stubRequestProvider) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: s.id}, nil
 }
+
 func (s stubRequestProvider) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
+
 func (s stubRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return nil
 }
@@ -32,9 +34,11 @@ type stubAttemptProvider struct{ id string }
 func (s stubAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: s.id}, nil
 }
+
 func (s stubAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
+
 func (s stubAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	return nil
 }
@@ -44,12 +48,15 @@ type stubConcurrencyProvider struct{}
 func (stubConcurrencyProvider) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow}, nil
 }
+
 func (stubConcurrencyProvider) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow}, nil
 }
+
 func (stubConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseRelease) error {
 	return nil
 }
+
 func (stubConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }
@@ -324,9 +331,11 @@ type ptrRequestProvider struct{ stubRequestProvider }
 func (p *ptrRequestProvider) AdmitRequest(ctx context.Context, in authority.RequestAdmission) (authority.Decision, error) {
 	return p.stubRequestProvider.AdmitRequest(ctx, in)
 }
+
 func (p *ptrRequestProvider) SettleRequest(ctx context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	return p.stubRequestProvider.SettleRequest(ctx, in)
 }
+
 func (p *ptrRequestProvider) ReleaseRequest(ctx context.Context, in authority.RequestRelease) error {
 	return p.stubRequestProvider.ReleaseRequest(ctx, in)
 }

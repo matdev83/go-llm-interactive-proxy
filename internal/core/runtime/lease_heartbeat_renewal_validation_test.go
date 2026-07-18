@@ -391,6 +391,7 @@ type fixedExpiryConcurrency struct {
 func (f *fixedExpiryConcurrency) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{}, nil
 }
+
 func (f *fixedExpiryConcurrency) RenewLease(_ context.Context, in authority.LeaseRenew) (authority.LeaseDecision, error) {
 	now := f.expiresAt
 	if now.IsZero() {
@@ -407,9 +408,11 @@ func (f *fixedExpiryConcurrency) RenewLease(_ context.Context, in authority.Leas
 	}
 	return d, nil
 }
+
 func (f *fixedExpiryConcurrency) ReleaseLease(context.Context, authority.LeaseRelease) error {
 	return nil
 }
+
 func (f *fixedExpiryConcurrency) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }
@@ -467,6 +470,7 @@ func (p *partialMultiRenewConcurrency) ReleaseLease(context.Context, authority.L
 	p.released.Add(1)
 	return nil
 }
+
 func (p *partialMultiRenewConcurrency) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }

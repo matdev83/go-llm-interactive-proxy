@@ -537,9 +537,11 @@ type releaseOrderProvider struct {
 func (p *releaseOrderProvider) AdmitRequest(ctx context.Context, in authority.RequestAdmission) (authority.Decision, error) {
 	return p.inner.AdmitRequest(ctx, in)
 }
+
 func (p *releaseOrderProvider) SettleRequest(ctx context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	return p.inner.SettleRequest(ctx, in)
 }
+
 func (p *releaseOrderProvider) ReleaseRequest(ctx context.Context, in authority.RequestRelease) error {
 	prev, _ := p.order.Load().([]string)
 	p.order.Store(append(append([]string(nil), prev...), p.name))
@@ -864,13 +866,16 @@ func (p *previewAttemptProvider) AdmitAttempt(ctx context.Context, in authority.
 	}
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (p *previewAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
+
 func (p *previewAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	p.released.Add(1)
 	return nil
 }
+
 func (p *previewAttemptProvider) PreviewAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
 	if p.preview != nil {
 		return p.preview(ctx, in)
