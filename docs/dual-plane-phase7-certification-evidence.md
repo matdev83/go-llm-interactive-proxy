@@ -4,6 +4,7 @@ Factual archive for `dual-plane-economics-and-concurrency-production-readiness` 
 
 **Branch:** `feat/dual-plane-readiness-phase-7`
 **Head SHA (certified):** `4de4bbf28b14b21561c80862f3199f493dac22b1`
+**Merge-to-main prep SHA:** `03550afa5f5db224998ec80792b5012341b8be44` (`merge: sync origin/main into dual-plane phase-7 for PR 181`; base retargeted from phase-6 → `main` at `6e12ce23`)
 **Host (local gates):** Windows 10 (`GOOS=windows`, `GOARCH=amd64`), 2026-07-18
 **PR:** [#181](https://github.com/matdev83/go-llm-interactive-proxy/pull/181)
 
