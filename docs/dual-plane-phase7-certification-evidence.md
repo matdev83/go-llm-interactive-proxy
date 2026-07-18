@@ -99,7 +99,7 @@ Local Windows `make test-race` is a documented no-op and must not be cited as ra
 
 ## Task 7.5 checkbox decision
 
-Marked **checked** in `.kiro/specs/dual-plane-economics-and-concurrency-production-readiness/tasks.md`.
+Marked **checked** in `.kiro/specs/archive/dual-plane-economics-and-concurrency-production-readiness/tasks.md`.
 
 Reason: the full mandatory matrix passed, including Linux strict race (`29636530168`) and attested PgBouncer pooled PostgreSQL via PR QA (`29636531519`). The archive truthfully marks OSS foundation `EconomicControlReady` while retaining the explicit non-claim of commercial billing.
 

@@ -9,7 +9,7 @@ Generated: 2026-07-17T10:16:22+02:00
 - Predecessor authority implementation: PR #128, `usage-quota-rate-budget-authority`
 - Predecessor architecture specification: PR #130, `dual-plane-economics-and-concurrency-foundation`
 - Implementation stack reviewed: PRs #133, #134, #135, #141, #142, #143, #144, and #145
-- Requirements source: `.kiro/specs/dual-plane-economics-and-concurrency-production-readiness/requirements.md`
+- Requirements source: `.kiro/specs/archive/dual-plane-economics-and-concurrency-production-readiness/requirements.md`
 - Review mode: static source, contract, persistence, lifecycle, steering, and archived-spec review through the connected GitHub repository
 - Scope: brownfield backend/core hardening only; this PR changes specifications only
 
