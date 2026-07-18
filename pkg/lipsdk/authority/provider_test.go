@@ -15,8 +15,8 @@ func (fakeRequestProvider) AdmitRequest(context.Context, authority.RequestAdmiss
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (fakeRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (fakeRequestProvider) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (fakeRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
@@ -29,8 +29,8 @@ func (fakeAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmiss
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (fakeAttemptProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (fakeAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (fakeAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {

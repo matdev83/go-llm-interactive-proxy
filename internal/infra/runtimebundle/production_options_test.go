@@ -36,8 +36,8 @@ func (prodAllowRequest) AdmitRequest(context.Context, authority.RequestAdmission
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
 
-func (prodAllowRequest) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (prodAllowRequest) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (prodAllowRequest) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
@@ -47,12 +47,26 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{
-		MeteringRecorder:    prodMeter{},
-		RequestProviders:    []authority.RequestProvider{prodAllowRequest{}},
+		MeteringRecorder: prodMeter{},
+		RequestRegistrations: []authority.RequestRegistration{{
+			Descriptor: authority.ProviderDescriptor{
+				ID:   "prod-request",
+				Kind: authority.ProviderKindAuthority,
+				Postures: []authority.StagePosture{{
+					Stage:           authority.StageRequestAdmit,
+					Strength:        authority.StrengthRequired,
+					FailureBehavior: authority.FailureFailClosed,
+				}},
+			},
+			Priority: authority.RequestPriorityQuotaBudgetRate,
+			Provider: prodAllowRequest{},
+		}},
 		UsageSnapshotSource: prodRuleSource{ver: "prod-snap-v1"},
-		Rater:               prodRater{},
-		EvidenceSink:        prodEvidence{},
-		MeteringQuerier:     prodQuerier{},
+		RaterRegistrations: []economics.RaterRegistration{{
+			ID: "prod-operator-rater", Perspective: metering.PerspectiveOperator, Rater: prodRater{},
+		}},
+		EvidenceSink:    prodEvidence{},
+		MeteringQuerier: prodQuerier{},
 	}
 	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
 	if err != nil {
@@ -85,7 +99,12 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 type prodRater struct{}
 
 func (prodRater) Rate(context.Context, economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{Money: economics.Money{Present: true, NanoUnits: 1, Currency: "USD"}}, nil
+	return economics.RatingResult{
+		Money:       economics.Money{Present: true, NanoUnits: 1, Currency: "USD"},
+		Perspective: metering.PerspectiveOperator,
+		RaterID:     "prod-rater",
+		Version:     economics.VersionRef{ID: "prod-rater", Version: "v1"},
+	}, nil
 }
 
 type prodEvidence struct{}

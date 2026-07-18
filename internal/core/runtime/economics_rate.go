@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
@@ -30,11 +31,8 @@ func (e *Executor) rateMonetaryExposure(ctx context.Context, req economics.Ratin
 	if err != nil {
 		return economics.RatingResult{}, err
 	}
-	if !res.Money.Present {
-		return res, fmt.Errorf("runtime: economics rater returned absent money (distinct from authoritative zero)")
-	}
-	if res.Perspective == "" {
-		res.Perspective = req.Perspective
+	if vErr := res.ValidateFor(req); vErr != nil {
+		return economics.RatingResult{}, fmt.Errorf("runtime: economics rater result: %w", vErr)
 	}
 	return res, nil
 }
@@ -187,13 +185,7 @@ func conservativeOutputAssumption(decision accountingpreflight.Decision, quantit
 }
 
 func usageEventRatingQuantities(ev lipapi.Event) []metering.Quantity {
-	return []metering.Quantity{
-		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: int64(ev.InputTokens), Present: true},
-		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: int64(ev.OutputTokens), Present: true},
-		{Component: metering.ComponentCacheReadInputToken, Unit: metering.UnitToken, Value: int64(ev.CacheReadTokens), Present: ev.CacheReadTokens > 0},
-		{Component: metering.ComponentCacheWriteInputToken, Unit: metering.UnitToken, Value: int64(ev.CacheWriteTokens), Present: ev.CacheWriteTokens > 0},
-		{Component: metering.ComponentReasoningOutputToken, Unit: metering.UnitToken, Value: int64(ev.ReasoningTokens), Present: ev.ReasoningTokens > 0},
-	}
+	return plane.QuantitiesFromUsageEvent(ev)
 }
 
 func (e *Executor) rateOperatorAttemptSpend(

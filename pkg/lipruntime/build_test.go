@@ -56,8 +56,8 @@ func (allowRequestProvider) AdmitRequest(context.Context, authority.RequestAdmis
 	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: "enterprise-req"}, nil
 }
 
-func (allowRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (allowRequestProvider) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (allowRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
@@ -77,8 +77,22 @@ func TestBuild_PublicOnlyOptions(t *testing.T) {
 		MeteringRecorder: meter,
 		MeteringQuerier:  querier,
 		EvidenceSink:     sink,
-		Rater:            rater,
-		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
+		RaterRegistrations: []economics.RaterRegistration{{
+			ID: "enterprise-operator-rater", Perspective: metering.PerspectiveOperator, Rater: rater,
+		}},
+		RequestRegistrations: []authority.RequestRegistration{{
+			Descriptor: authority.ProviderDescriptor{
+				ID:   "enterprise-req",
+				Kind: authority.ProviderKindAuthority,
+				Postures: []authority.StagePosture{{
+					Stage:           authority.StageRequestAdmit,
+					Strength:        authority.StrengthRequired,
+					FailureBehavior: authority.FailureFailClosed,
+				}},
+			},
+			Priority: authority.RequestPriorityQuotaBudgetRate,
+			Provider: allowRequestProvider{},
+		}},
 		UsageSnapshotSource: staticRuleSource{snap: economics.Snapshot[economics.PolicyRulesView]{
 			ID: "usage_authority", Version: "ent-v1", EffectiveAt: now, FetchedAt: now,
 			State: economics.SnapshotReady,
@@ -129,7 +143,12 @@ func (recordingEvidence) RecordAccountingAuthority(context.Context, controlplane
 type recordingRater struct{}
 
 func (recordingRater) Rate(_ context.Context, req economics.RatingRequest) (economics.RatingResult, error) {
-	return economics.RatingResult{Money: economics.Money{Present: true, NanoUnits: 1, Currency: "USD"}, Perspective: req.Perspective}, nil
+	return economics.RatingResult{
+		Money:       economics.Money{Present: true, NanoUnits: 1, Currency: "USD"},
+		Perspective: req.Perspective,
+		RaterID:     "recording",
+		Version:     economics.VersionRef{ID: "recording", Version: "v1"},
+	}, nil
 }
 
 type recordingQuerier struct{}

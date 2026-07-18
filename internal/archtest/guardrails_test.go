@@ -118,6 +118,9 @@ var lineBudgets = []struct {
 	// Raised from 57550 to 57650 for Phase 1 follow-up: operator usage retention on
 	// incurred loser/swallowed paths plus metering/plane extraction of pure
 	// dual-plane helpers.
+	// Raised from 57650 to 58300 for dual-plane Phase 2.3 authority coordinator
+	// posture/compensation, settlement concurrency state, and req 4.3 hold
+	// validation (measured ~58197 non-test lines).
 	// Raised from 56400 (main lineage) for reasoning-output-preservation Phase 2.3:
 	// RunCandidateAttemptTransformStage + openPlannedCandidate wiring / post-hook rederive.
 	// Raised from 56900 for Phase 2.4 final_stream_observation runner + recv/gate lifecycle.
@@ -129,7 +132,9 @@ var lineBudgets = []struct {
 	// taxonomy + swallowed release; nil-executor-safe cancel path).
 	// Combined dual-plane Phase 1 + reasoning-preservation on merge into main.
 	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
-	{"internal/core", 58850},
+	// Phase 2 + reasoning-preservation combined after merge into main: 59500
+	// (main 58850 + Phase 2 +650); post-merge measured 59256.
+	{"internal/core", 59500},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -143,7 +148,13 @@ var lineBudgets = []struct {
 	// Raised from 5300 for issue #151 composition collapse + bootstrap uniqueness.
 	// Raised from 5350 after merging main (tool-call repair + secrets-guard wiring).
 	// Measured post-merge non-test total is 5365; cap keeps ~85 lines of headroom.
-	{"internal/infra/runtimebundle", 5450},
+	// Raised from 5450 for dual-plane Phase 2.2 descriptor-bound registrations:
+	// production authority_coord consumes Request/Attempt/Concurrency/Rater
+	// registrations with stable IDs (no production-request-%d generation).
+	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
+	// Raised from 5580 to 5690 after merging reasoning-output-preservation into
+	// Phase 2 (post-merge measured 5586; ~100 lines headroom).
+	{"internal/infra/runtimebundle", 5690},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

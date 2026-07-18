@@ -14,6 +14,7 @@ import (
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -30,8 +31,8 @@ func (p *countingAdmitRequestProvider) AdmitRequest(_ context.Context, in author
 	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: "qty-req"}, nil
 }
 
-func (p *countingAdmitRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (p *countingAdmitRequestProvider) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *countingAdmitRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
@@ -49,14 +50,18 @@ func (p *countingAdmitAttemptProvider) AdmitAttempt(_ context.Context, in author
 	cp.Exposure.Quantities = append([]metering.Quantity(nil), in.Exposure.Quantities...)
 	p.last.Store(cp)
 	return authority.Decision{
-		Kind:         authority.DecisionAllow,
-		ProviderID:   "qty-att",
-		Reservations: []authority.Reservation{{Handle: "qty-h", Kind: authority.ReservationSpend}},
+		Kind:       authority.DecisionAllow,
+		ProviderID: "qty-att",
+		Reservations: []authority.Reservation{{
+			Handle: "qty-h",
+			Kind:   authority.ReservationSpend,
+			Money:  &economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		}},
 	}, nil
 }
 
-func (p *countingAdmitAttemptProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (p *countingAdmitAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *countingAdmitAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {

@@ -92,6 +92,17 @@ func (r *rateOnlyRater) Rate(_ context.Context, req economics.RatingRequest) (ec
 		Money:       economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
 		Perspective: req.Perspective,
 		RaterID:     "rate-only",
+		Version:     economics.VersionRef{ID: "rate-only", Version: "v1"},
+	}, nil
+}
+
+type emptyPerspectiveRater struct{}
+
+func (emptyPerspectiveRater) Rate(_ context.Context, _ economics.RatingRequest) (economics.RatingResult, error) {
+	return economics.RatingResult{
+		Money:   economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		RaterID: "hostile",
+		Version: economics.VersionRef{ID: "hostile", Version: "v1"},
 	}, nil
 }
 

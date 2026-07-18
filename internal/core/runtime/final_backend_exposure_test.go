@@ -56,9 +56,13 @@ func (p *previewClampProvider) PreviewAttempt(_ context.Context, in authority.At
 func (p *previewClampProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	p.admitCalls.Add(1)
 	d := authority.Decision{
-		Kind:         authority.DecisionAllow,
-		ProviderID:   p.id,
-		Reservations: []authority.Reservation{{Handle: "h1", Kind: authority.ReservationSpend}},
+		Kind:       authority.DecisionAllow,
+		ProviderID: p.id,
+		Reservations: []authority.Reservation{{
+			Handle: "h1",
+			Kind:   authority.ReservationSpend,
+			Money:  &economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		}},
 	}
 	admitVal := p.admitValue
 	if admitVal == 0 {
@@ -72,8 +76,8 @@ func (p *previewClampProvider) AdmitAttempt(context.Context, authority.AttemptAd
 	return d, nil
 }
 
-func (p *previewClampProvider) SettleAttempt(context.Context, authority.AttemptSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (p *previewClampProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *previewClampProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
@@ -247,6 +251,9 @@ func TestFinalBackendExposure_PostAdmitMismatchCompensates(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unpreviewed clamp rejection")
 	}
+	if !strings.Contains(err.Error(), "unpreviewed") && !strings.Contains(err.Error(), "exposure") {
+		t.Fatalf("want unpreviewed/exposure rejection before Open, got %v", err)
+	}
 	if backend.openCalls.Load() != 0 {
 		t.Fatal("Open must not run after mismatch")
 	}
@@ -326,6 +333,22 @@ func TestFinalBackendExposure_RaterAbsentMoneyFailsClosed(t *testing.T) {
 		false)
 	if err == nil {
 		t.Fatal("absent money must fail closed before Open")
+	}
+}
+
+func TestRateMonetaryExposure_EmptyPerspectiveFailsClosed(t *testing.T) {
+	t.Parallel()
+	ex := &Executor{AccountingRuntime: AccountingRuntime{EconomicsRater: emptyPerspectiveRater{}}}
+	ex.Now = func() time.Time { return time.Unix(1, 0).UTC() }
+	_, err := ex.rateMonetaryExposure(context.Background(), economics.RatingRequest{
+		Perspective: metering.PerspectiveOperator,
+		At:          time.Unix(1, 0).UTC(),
+	})
+	if err == nil {
+		t.Fatal("empty rating perspective must fail ValidateFor (req 4.7; D5)")
+	}
+	if !strings.Contains(err.Error(), "perspective") {
+		t.Fatalf("error=%v want perspective mismatch", err)
 	}
 }
 

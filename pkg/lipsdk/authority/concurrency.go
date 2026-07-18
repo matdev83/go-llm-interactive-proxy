@@ -2,7 +2,6 @@ package authority
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -89,14 +88,6 @@ type LeaseDecision struct {
 	Leases []LeaseOccupancy `json:"leases,omitempty"`
 }
 
-// Validate checks LeaseDecisionKind when set.
-func (d LeaseDecision) Validate() error {
-	if d.Kind != "" && !d.Kind.IsKnown() {
-		return fmt.Errorf("authority: unknown lease decision kind %q", d.Kind)
-	}
-	return nil
-}
-
 // LeaseRelease releases a previously acquired lease.
 type LeaseRelease struct {
 	LeaseID   string `json:"lease_id"`
@@ -105,13 +96,16 @@ type LeaseRelease struct {
 }
 
 // LeaseRenew extends an active lease before expiry using generation CAS.
-// ExpectedGeneration must match the lease's current generation; a mismatch or
-// non-active lease must not resurrect released/expired capacity.
+// ExpectedGeneration is the caller's current generation; providers must not
+// resurrect released/expired capacity on mismatch. A successful renew may return
+// the same generation when only TTL/expiry is extended (TTL-only renew).
 type LeaseRenew struct {
 	LeaseID            string        `json:"lease_id"`
 	RequestID          string        `json:"request_id,omitempty"`
 	ExpectedGeneration int64         `json:"expected_generation"`
 	TTL                time.Duration `json:"ttl,omitempty"`
+	// RuleID, when set, constrains occupancy rule identity on the renewal result.
+	RuleID string `json:"rule_id,omitempty"`
 }
 
 // LeaseQuery is a bounded filter for active/history lease queries.

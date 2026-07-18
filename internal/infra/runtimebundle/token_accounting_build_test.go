@@ -30,11 +30,11 @@ func (p *requestAdmissionCapture) AdmitRequest(_ context.Context, in authority.R
 	p.mu.Lock()
 	p.last = in
 	p.mu.Unlock()
-	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: "request-capture"}, nil
+	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: "token-accounting-request"}, nil
 }
 
-func (*requestAdmissionCapture) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+func (*requestAdmissionCapture) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (*requestAdmissionCapture) ReleaseRequest(context.Context, authority.RequestRelease) error {
@@ -176,7 +176,21 @@ func TestBuildWiresIngressCountingWhenAccountingAdminDisabled(t *testing.T) {
 	}
 	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
-		Production:     runtimebundle.ProductionOptions{RequestProviders: []authority.RequestProvider{provider}},
+		Production: runtimebundle.ProductionOptions{
+			RequestRegistrations: []authority.RequestRegistration{{
+				Descriptor: authority.ProviderDescriptor{
+					ID:   "token-accounting-request",
+					Kind: authority.ProviderKindAuthority,
+					Postures: []authority.StagePosture{{
+						Stage:           authority.StageRequestAdmit,
+						Strength:        authority.StrengthRequired,
+						FailureBehavior: authority.FailureFailClosed,
+					}},
+				},
+				Priority: authority.RequestPriorityQuotaBudgetRate,
+				Provider: provider,
+			}},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

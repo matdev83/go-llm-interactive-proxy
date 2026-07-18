@@ -30,7 +30,7 @@ func mergeClampsNonWidening(dst []authority.Clamp, add []authority.Clamp) ([]aut
 				out[idx] = c
 			}
 		default:
-			// Unknown clamp kinds are ignored here; preview validation rejects them.
+			return nil, fmt.Errorf("unknown or unapplicable clamp kind %q", c.Kind)
 		}
 	}
 	return out, nil

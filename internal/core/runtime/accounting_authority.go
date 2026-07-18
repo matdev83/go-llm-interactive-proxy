@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/bits"
 	"strings"
 	"time"
 
@@ -426,23 +425,15 @@ func authorityClampMaxOutputTokens(catalog accounting.PriceCatalog, c routing.At
 	if sample.Unavailable || sample.NanoUnits <= 0 {
 		return 0, authorityClampPricingUnavailable
 	}
-	// Use a 128-bit intermediate so a large money cap cannot overflow before
-	// conversion to output tokens. The quotient is capped before conversion
-	// to int because call options use the platform's native int width.
-	productHigh, productLow := bits.Mul64(uint64(remainingNano), 1_000_000)
-	if productHigh >= uint64(sample.NanoUnits) {
-		return int64(^uint64(0) >> 1), authorityClampApplied
+	tokens, err := economics.TokensFromMoneyPer1M(remainingNano, sample.NanoUnits, economics.RoundingTowardZero)
+	if err != nil {
+		return 0, authorityClampPricingUnavailable
 	}
-	quotient, _ := bits.Div64(productHigh, productLow, uint64(sample.NanoUnits))
-	maxInt64 := uint64(^uint64(0) >> 1)
-	if quotient > maxInt64 {
-		quotient = maxInt64
+	maxInt := int64(^uint(0) >> 1)
+	if tokens > maxInt {
+		tokens = maxInt
 	}
-	maxInt := uint64(^uint(0) >> 1)
-	if quotient > maxInt {
-		quotient = maxInt
-	}
-	return int64(quotient), authorityClampApplied
+	return tokens, authorityClampApplied
 }
 
 // applyAuthorityClamp mutates the call's requested max output so the backend

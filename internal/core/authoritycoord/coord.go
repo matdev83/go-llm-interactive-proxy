@@ -37,8 +37,11 @@ type StackEntry struct {
 }
 
 // CompensationStack holds successful admits in acquisition order.
+// settle is a shared pointer so pass-by-value Settle calls retain per-provider
+// settlement state across retries and concurrent callers (requirements 7.7, 8.6).
 type CompensationStack struct {
 	entries []StackEntry
+	settle  *settlementTracker
 }
 
 // Push appends a successful hold.
@@ -46,7 +49,20 @@ func (s *CompensationStack) Push(e StackEntry) {
 	if s == nil {
 		return
 	}
+	if s.settle == nil {
+		s.settle = newSettlementTracker()
+	}
 	s.entries = append(s.entries, e)
+}
+
+func (s *CompensationStack) settlement() *settlementTracker {
+	if s == nil {
+		return nil
+	}
+	if s.settle == nil {
+		s.settle = newSettlementTracker()
+	}
+	return s.settle
 }
 
 // Entries returns a copy of stack entries in acquisition order.

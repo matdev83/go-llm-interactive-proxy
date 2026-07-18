@@ -2,6 +2,7 @@ package authoritycoord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -26,6 +27,11 @@ type AttemptSlot struct {
 	Provider        authority.AttemptProvider
 	Strength        authority.Strength
 	FailureBehavior authority.FailureBehavior
+	// Descriptor, when set, is the registration descriptor for Decision.ValidateFor.
+	// Nil uses a synthetic descriptor from ID/strength/failure and Stage.
+	Descriptor *authority.ProviderDescriptor
+	// Stage defaults to StageAttemptAdmit when empty.
+	Stage authority.Stage
 }
 
 // AttemptCoordinator evaluates operator attempt providers per committed B-leg
@@ -33,6 +39,8 @@ type AttemptSlot struct {
 type AttemptCoordinator struct {
 	Slots          []AttemptSlot
 	CleanupTimeout time.Duration
+	// Now mirrors RequestCoordinator for call-scoped time seams on public operations.
+	Now func() time.Time
 }
 
 // Admit runs attempt-stage admission for one B-leg.
@@ -42,6 +50,9 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 	}
 	if c == nil {
 		return CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessDisabled}, nil
+	}
+	if err := validateAttemptSlots(c.Slots); err != nil {
+		return CompositeDecision{}, err
 	}
 	out := CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessReady}
 	timeout := c.CleanupTimeout
@@ -62,52 +73,70 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 			continue
 		}
 		id := strings.TrimSpace(slot.ID)
-		if id == "" {
-			id = fmt.Sprintf("attempt-class-%d", slot.Class)
-		}
-		strength := slot.Strength
-		if strength == "" {
-			if slot.Class == AttemptPriorityAdvisory {
-				strength = authority.StrengthAdvisory
-			} else {
-				strength = authority.StrengthRequired
-			}
-		}
-		failBeh := slot.FailureBehavior
-		if failBeh == "" {
-			if strength == authority.StrengthAdvisory {
-				failBeh = authority.FailureFailOpen
-			} else {
-				failBeh = authority.FailureFailClosed
-			}
-		}
+		strength, failBeh := resolveAttemptPosture(slot)
 
 		d, err := invokeAdmitAttempt(ctx, slot.Provider, in)
 		if err != nil {
-			var claimed CompensationStack
-			pushAttemptDecisionHolds(&claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
-			claimedFails := claimed.ReverseCompensate(ctx, timeout)
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				pushAttemptDecisionHolds(claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
 			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
-				out.CompensateFailures = append(out.CompensateFailures, claimedFails...)
 				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
 				continue
 			}
-			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = append(claimedFails, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, &ErrUnavailable{ProviderID: id, Err: err}
 		}
+
+		reg, stage := attemptSlotRegistration(slot)
+		if vErr := validateCoordinatorDecision(d, reg, stage); vErr != nil {
+			ownsHolds := decisionHasHolds(d)
+			if errors.Is(vErr, errNonAllowWithHolds) && d.Kind == authority.DecisionDeny && strength == authority.StrengthAdvisory {
+				fails := compensateCurrentOnly(ctx, timeout, func(claimed *CompensationStack) {
+					pushAttemptDecisionHolds(claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+				})
+				out.CompensateFailures = append(out.CompensateFailures, fails...)
+				d.Kind = authority.DecisionAdvisory
+				d.Evidence = advisoryEvidenceFrom(d)
+				out.ProviderDecisions = append(out.ProviderDecisions, d)
+				out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			if strength == authority.StrengthAdvisory {
+				fails := compensateCurrentOnly(ctx, timeout, func(claimed *CompensationStack) {
+					if ownsHolds {
+						pushAttemptDecisionHolds(claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+					}
+				})
+				out.CompensateFailures = append(out.CompensateFailures, fails...)
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				if ownsHolds {
+					pushAttemptDecisionHolds(claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+				}
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = id
+			if errors.Is(vErr, errNonAllowWithHolds) && d.Kind == authority.DecisionDeny {
+				return out, &ErrDenied{ProviderID: id, Decision: d}
+			}
+			return out, &ErrUnavailable{ProviderID: id, Err: vErr}
+		}
+
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
 		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
 		merged, merr := mergeClampsNonWidening(out.Clamps, d.Clamps)
 		if merr != nil {
-			// d is not on out.Stack yet; compensate its holds before unwinding prior slots.
-			var claimed CompensationStack
-			pushAttemptDecisionHolds(&claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
-			claimedFails := claimed.ReverseCompensate(ctx, timeout)
-			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = append(claimedFails, fails...)
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				pushAttemptDecisionHolds(claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, fmt.Errorf("authoritycoord: attempt %s: %w", id, merr)
@@ -119,16 +148,51 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 
 		switch d.Kind {
 		case authority.DecisionDeny:
-			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = fails
+			if strength == authority.StrengthAdvisory {
+				d.Kind = authority.DecisionAdvisory
+				d.Evidence = advisoryEvidenceFrom(d)
+				out.ProviderDecisions[len(out.ProviderDecisions)-1] = d
+				out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				if decisionHasHolds(d) {
+					pushAttemptDecisionHolds(claimed, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+				}
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, &ErrDenied{ProviderID: id, Decision: d}
 		case authority.DecisionAllow, authority.DecisionAdvisory, "":
 			pushAttemptDecisionHolds(&out.Stack, id, slot.Provider, in.RequestID, in.AttemptID, in.BLegID, d)
+			if d.Kind == authority.DecisionAdvisory {
+				out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+			}
 		}
 	}
 	return out, nil
+}
+
+func resolveAttemptPosture(slot AttemptSlot) (authority.Strength, authority.FailureBehavior) {
+	strength := slot.Strength
+	if strength == "" {
+		if slot.Class == AttemptPriorityAdvisory {
+			strength = authority.StrengthAdvisory
+		} else {
+			strength = authority.StrengthRequired
+		}
+	}
+	failBeh := slot.FailureBehavior
+	if failBeh == "" {
+		if strength == authority.StrengthAdvisory {
+			failBeh = authority.FailureFailOpen
+		} else {
+			failBeh = authority.FailureFailClosed
+		}
+	}
+	return strength, failBeh
 }
 
 // Settle settles attempt reservations through their owning providers using the
@@ -136,9 +200,13 @@ func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmi
 // broadcast across providers: each slot receives only its own reservation handles.
 // An empty stack is a no-op. Each provider callback runs on a fresh bounded
 // cleanup context independent of client cancellation (requirements 8.7, 15.3).
+// Successful providers are not re-settled on retry (requirements 7.7, 8.6).
 func (c *AttemptCoordinator) Settle(parent context.Context, stack CompensationStack, in authority.AttemptSettlement) error {
 	if c == nil {
 		return nil
+	}
+	if err := validateAttemptSlots(c.Slots); err != nil {
+		return err
 	}
 	timeout := defaultCleanupTimeout
 	if c.CleanupTimeout > 0 {
@@ -153,40 +221,45 @@ func (c *AttemptCoordinator) Settle(parent context.Context, stack CompensationSt
 		}
 		handlesByProvider[id] = append(handlesByProvider[id], h)
 	}
+	tracker := stack.settlement()
 	var first error
 	for _, slot := range c.Slots {
 		if slot.Provider == nil {
 			continue
 		}
 		id := strings.TrimSpace(slot.ID)
-		if id == "" {
-			id = fmt.Sprintf("attempt-class-%d", slot.Class)
-		}
 		handles := handlesByProvider[id]
 		if len(handles) == 0 {
 			continue
 		}
-		strength := slot.Strength
-		if strength == "" {
-			if slot.Class == AttemptPriorityAdvisory {
-				strength = authority.StrengthAdvisory
-			} else {
-				strength = authority.StrengthRequired
-			}
+		strength, failBeh := resolveAttemptPosture(slot)
+		skip, wait, finish := tracker.beginSettle(id)
+		if skip {
+			continue
 		}
-		failBeh := slot.FailureBehavior
-		if failBeh == "" {
-			if strength == authority.StrengthAdvisory {
-				failBeh = authority.FailureFailOpen
-			} else {
-				failBeh = authority.FailureFailClosed
+		if wait != nil {
+			<-wait
+			if err := tracker.waitResult(id); err != nil {
+				if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
+					continue
+				}
+				if first == nil {
+					first = &ErrUnavailable{ProviderID: id, Err: err}
+				}
 			}
+			continue
 		}
 		settlement := in
 		settlement.Handles = append([]string(nil), handles...)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-		_, err := invokeSettleAttempt(ctx, slot.Provider, settlement)
+		result, err := invokeSettleAttempt(ctx, slot.Provider, settlement)
 		cancel()
+		if err == nil {
+			if vErr := validateAttemptSettlement(result, handles); vErr != nil {
+				err = vErr
+			}
+		}
+		finish(err)
 		if err == nil {
 			continue
 		}

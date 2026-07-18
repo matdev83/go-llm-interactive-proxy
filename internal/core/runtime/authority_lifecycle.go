@@ -455,9 +455,12 @@ func (l *authorityLifecycle) Settle(ctx context.Context, kind authorityapp.Settl
 	return false
 }
 
-// usageAuthorityAttemptProviderID is the stable AttemptCoordinator slot ID used
-// by BuildAuthorityCoordinators for the built-in usage-authority adapter.
-const usageAuthorityAttemptProviderID = "usage-authority-attempt"
+// Stable BuildAuthorityCoordinators slot / Decision.ProviderID identities for the
+// built-in usage-authority adapter (must match registration descriptor IDs).
+const (
+	usageAuthorityRequestProviderID = "usage-authority-request"
+	usageAuthorityAttemptProviderID = "usage-authority-attempt"
+)
 
 func (l *authorityLifecycle) settleViaCoordinatorLocked(ctx context.Context, kind authorityapp.SettlementKind, usageEv lipapi.Event, clientCanceled bool) bool {
 	if l.attemptCoord == nil {

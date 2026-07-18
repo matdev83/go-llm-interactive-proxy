@@ -1,8 +1,6 @@
 package authority
 
 import (
-	"fmt"
-
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
@@ -143,12 +141,4 @@ type Decision struct {
 	RatingVersions     []economics.RatingSnapshotRef `json:"rating_versions,omitempty"`
 	Exposure           economics.ExposureBasis       `json:"exposure,omitempty"`
 	Evidence           SafeEvidence                  `json:"evidence,omitempty"`
-}
-
-// Validate checks DecisionKind when set.
-func (d Decision) Validate() error {
-	if d.Kind != "" && !d.Kind.IsKnown() {
-		return fmt.Errorf("authority: unknown decision kind %q", d.Kind)
-	}
-	return nil
 }
