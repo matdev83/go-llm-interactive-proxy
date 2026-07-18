@@ -94,9 +94,9 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 		Sequence:    1,
 		Kind:        metering.FactKindCumulative,
 		Perspective: metering.PerspectiveCustomer,
-		Boundary:    metering.BoundaryBackendEgress,
-		Lifecycle:   metering.LifecycleBackendAttempt,
-		Correlation: metering.Correlation{RequestID: "req-1", ALegID: "a-1", BLegID: "b-1"},
+		Boundary:    metering.BoundaryFrontendEgress,
+		Lifecycle:   metering.LifecycleLogicalRequest,
+		Correlation: metering.Correlation{RequestID: "req-1", ALegID: "a-1"},
 		Scope: scope.PrincipalScopeView{
 			PrincipalID: scope.Known("prin-1"),
 			TenantID:    scope.Known("ten-1"),
