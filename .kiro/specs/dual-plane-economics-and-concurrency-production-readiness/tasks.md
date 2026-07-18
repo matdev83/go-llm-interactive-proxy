@@ -345,7 +345,7 @@
   - _Depends: Phases 1–6_
   - _Validation: `make parity-checks` plus dedicated dual-plane conformance rows_
 
-- [ ] 7.2 Add dedicated race, fuzz, state-machine, and fault-injection gates
+- [x] 7.2 Add dedicated race, fuzz, state-machine, and fault-injection gates
   - Add strict race suites for terminal owners, accumulators, workers, stores, generation publication, and heartbeats.
   - Add fuzz/model targets for facts/corrections, external results, money/currency, work transitions, and lease sets.
   - Add deterministic fault campaigns for panic, timeout, malformed result, outage, ambiguous success, process crash, restart, and partial completion.

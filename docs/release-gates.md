@@ -69,6 +69,13 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzCompleteJSONSuffix` | `internal/core/toolcallrepair` | Append-only JSON suffix completion (ADR 0007) |
 | `FuzzSchemaPreScanCompile` | `internal/core/toolcallrepair` | Offline schema pre-scan/compile bounds |
 | `FuzzEngineRepair` | `internal/core/toolcallrepair` | Deterministic tool-call repair engine |
+| `FuzzLeaseSet_OccupiesCapacity` | `internal/core/concurrencyauthority/domain` | Lease-set state occupancy model |
+| `FuzzIsAmbiguousRenewError` | `internal/core/concurrencyauthority/app` | Renew ambiguity classification |
+| `FuzzWorkItem_TransitionSequence` | `internal/core/terminalwork` | Terminal-work state machine |
+| `FuzzOwner_CommandSequences` | `internal/core/terminal` | Terminal owner command sequences |
+| `FuzzParseDecimalToNano` | `pkg/lipsdk/economics` | Money decimal parse bounds |
+| `FuzzPhase32_SourceEventKey_DelimiterSafety` | `pkg/lipsdk/metering` | Fact source-key delimiter safety |
+| `FuzzPhase32_MoneyPresentCurrency` | `pkg/lipsdk/metering` | Money present/currency invariants |
 
 ## Time budget
 
@@ -97,8 +104,9 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Cross-protocol baseline (17.1, 17.3) | OpenAI Responses/legacy, Anthropic, Gemini FE×BE matrix remains green (dual-plane features default-off compatible) | `make parity-checks` |
 | Shared checkpoint contract | Supported frontend `Operation` values share the same executor frontend-ingress checkpoint boundary/lifecycle | `go test ./internal/core/runtime/ -run SharedCheckpointAcrossFrontend` |
 | Parallel race benches (16.6) | Parallel routing under authority with 2/4/8 legs | `go test ./internal/core/runtime/ -run '^$' -bench BenchmarkParallelRaceLegsAuthority` |
-| Critical fuzz | Existing Tier-1 protocol/decode fuzz smoke (not dual-plane fact/correction fuzz) | `make test-fuzz` or `make release-gates` |
-| Race (17.9) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); Windows `make test-race` is a documented no-op |
+| Critical fuzz | Tier-1 protocol/decode fuzz plus Phase 7.2 dual-plane fuzz (`FuzzLeaseSet_OccupiesCapacity`, `FuzzIsAmbiguousRenewError`, `FuzzWorkItem_TransitionSequence`, `FuzzOwner_CommandSequences`, money/fact seeds) | `make test-fuzz` or `make release-gates` |
+| Fault campaign (13.3–13.4, 13.7–13.8) | Deterministic panic/timeout/malformed/outage/ambiguous/partial/restart campaign + concurrent terminal race suite | `go test ./internal/core/runtime/ -run 'TestPhase72_'` |
+| Race (17.9) | Full suite under race on Linux (includes Phase 7.2 race suite) | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); Windows `make test-race` is a documented no-op |
 | PostgreSQL direct runtime (9.9, 17.9) | Cross-instance durable authority, lease, and journal proofs through a direct/admin-capable endpoint | `make test-authority-postgres-direct` with `LIP_TEST_POSTGRES_DSN` |
 | PostgreSQL migrations (18.9-18.10) | Explicit admin migration followed by read-only schema verification | `make test-postgres-migrations`; prefers `LIP_MIGRATION_POSTGRES_DSN`, then test admin/runtime DSNs |
 | PostgreSQL aggregate | Migration, direct runtime, and pooled runtime gates all pass | `make test-authority-postgres` |
