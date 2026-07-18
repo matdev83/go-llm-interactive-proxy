@@ -1,0 +1,377 @@
+Results:
+
+Golang errors in file: [/app/.cursor/skills/golang-cli/assets/examples/args.go]:
+
+  > [line 6 : column 2] - could not import github.com/spf13/cobra (invalid package name: "")
+
+
+Golang errors in file: [/app/.cursor/skills/golang-cli/assets/examples/config.go]:
+
+  > [line 9 : column 2] - could not import github.com/fsnotify/fsnotify (invalid package name: "")
+
+  > [line 10 : column 2] - could not import github.com/spf13/viper (invalid package name: "")
+
+
+Golang errors in file: [/app/.cursor/skills/golang-cli/assets/examples/exit_codes.go]:
+
+  > [line 7 : column 2] - could not import github.com/you/myapp/cmd (invalid package name: "")
+
+
+Golang errors in file: [/app/.cursor/skills/golang-cli/assets/examples/output.go]:
+
+  > [line 9 : column 2] - could not import github.com/fatih/color (invalid package name: "")
+
+
+Golang errors in file: [/app/.kiro/skills/golang-cli/assets/examples/args.go]:
+
+  > [line 6 : column 2] - could not import github.com/spf13/cobra (invalid package name: "")
+
+
+Golang errors in file: [/app/.kiro/skills/golang-cli/assets/examples/config.go]:
+
+  > [line 9 : column 2] - could not import github.com/fsnotify/fsnotify (invalid package name: "")
+
+  > [line 10 : column 2] - could not import github.com/spf13/viper (invalid package name: "")
+
+
+Golang errors in file: [/app/.kiro/skills/golang-cli/assets/examples/exit_codes.go]:
+
+  > [line 7 : column 2] - could not import github.com/you/myapp/cmd (invalid package name: "")
+
+
+Golang errors in file: [/app/.kiro/skills/golang-cli/assets/examples/output.go]:
+
+  > [line 9 : column 2] - could not import github.com/fatih/color (invalid package name: "")
+
+
+Golang errors in file: [/app/internal/core/controlplane/normalizer.go]:
+
+  > [line 294 : column 18] - ProjectObservedStreamUsage(ObservedStreamUsageInput{…}) is not a type
+
+  > [line 392 : column 18] - ProjectObservedStreamUsage(ObservedStreamInputFromUsageEvent(ev)) is not a type
+
+  > [line 583 : column 13] - d is not a type
+
+
+
+[/app/internal/plugins/backends/acp/process_identity_unix.go:135] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    134: 			if ok {
+  > 135: 				return time.Unix(int64(secs), 0)
+    136: 			}
+
+Autofix:
+
+[/app/internal/infra/runtimebundle/secure_session.go:242] - G115 (CWE-190): integer overflow conversion uint64 -> int (Confidence: MEDIUM, Severity: HIGH)
+    241: 			bunOpts.SQLQueryCacheTTL = ttl
+  > 242: 			bunOpts.SQLQueryCacheMaxEntries = int(maxE)
+    243: 		}
+
+Autofix:
+
+[/app/internal/infra/runtimebundle/secure_session.go:179] - G115 (CWE-190): integer overflow conversion uint64 -> int (Confidence: MEDIUM, Severity: HIGH)
+    178: 			sqlOpts.SQLQueryCacheTTL = ttl
+  > 179: 			sqlOpts.SQLQueryCacheMaxEntries = int(maxE)
+    180: 		}
+
+Autofix:
+
+[/app/internal/core/runtime/accounting_authority.go:429] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    428: 	// to int because call options use the platform's native int width.
+  > 429: 	productHigh, productLow := bits.Mul64(uint64(remainingNano), 1_000_000)
+    430: 	if productHigh >= uint64(sample.NanoUnits) {
+
+Autofix:
+
+[/app/internal/core/securesession/adapters/sqlite/store.go:110] - G115 (CWE-190): integer overflow conversion int -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    109: 	if opts.SQLQueryCacheTTL > 0 {
+  > 110: 		cap := uint64(opts.SQLQueryCacheMaxEntries)
+    111: 		if cap == 0 {
+
+Autofix:
+
+[/app/internal/core/securesession/adapters/bunstore/store.go:76] - G115 (CWE-190): integer overflow conversion int -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    75: 	if opts.SQLQueryCacheTTL > 0 {
+  > 76: 		cap := uint64(opts.SQLQueryCacheMaxEntries)
+    77: 		if cap == 0 {
+
+Autofix:
+
+[/app/internal/plugins/backends/openaicodex/managed_oauth_store.go:137] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    136: 	_, _ = h.Write([]byte(session))
+  > 137: 	pos := int(h.Sum32() % uint32(len(usable)))
+    138: 	return usable[pos], nil
+
+Autofix:
+
+[/app/pkg/lipsdk/toolcall/finalizer.go:19] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    18: const (
+  > 19: 	ReasonValidPassThrough          = "valid_pass_through"
+    20: 	ReasonSyntaxRepaired            = "syntax_repaired"
+
+Autofix:
+
+[/app/pkg/lipsdk/metering/quantity.go:11] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    10: 	ComponentCacheReadInputToken  = "cache_read_input_token"
+  > 11: 	ComponentCacheWriteInputToken = "cache_write_input_token"
+    12: 	ComponentReasoningOutputToken = "reasoning_output_token"
+
+Autofix:
+
+[/app/pkg/lipsdk/backend_security.go:14] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    13: 	// CredentialOAuthUser uses user-scoped OAuth credentials; eligibility is validated against access mode.
+  > 14: 	CredentialOAuthUser BackendCredentialMode = "oauth_user"
+    15: 	// CredentialNone means the backend does not use upstream credentials (deterministic local adapters).
+
+Autofix:
+
+[/app/pkg/lipsdk/auth/kinds.go:22] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    21: 	LevelAPIKey    RequiredLevel = "api_key"
+  > 22: 	LevelAPIKeySSO RequiredLevel = "api_key_sso"
+    23:
+
+Autofix:
+
+[/app/pkg/lipsdk/auth/kinds.go:17] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    16: 	HandlerLocalNoop   HandlerKind = "local_noop"
+  > 17: 	HandlerLocalAPIKey HandlerKind = "local_api_key"
+    18: 	HandlerRemote      HandlerKind = "remote"
+
+Autofix:
+
+[/app/internal/stdhttp/cancel.go:19] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    18: 	headerAuthoritativeSessionID = "X-LIP-Session-Id"
+  > 19: 	headerResumeToken            = "X-LIP-Resume-Token"
+    20: )
+
+Autofix:
+
+[/app/internal/plugins/frontends/sessionwire/sessionwire.go:16] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    15: 	HeaderAuthoritativeSessionID = "X-LIP-Session-Id"
+  > 16: 	HeaderResumeToken            = "X-LIP-Resume-Token"
+    17: 	HeaderALegID                 = "X-LIP-A-Leg-Id"
+
+Autofix:
+
+[/app/internal/plugins/backends/openaiusage/usage.go:17] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    16: const (
+  > 17: 	lipCacheWriteTokensKey  = "x_lip_cache_write_tokens"
+    18: 	usageCostKey            = "cost"
+
+Autofix:
+
+[/app/internal/plugins/backends/openaicodex/config.go:16] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    15: const (
+  > 16: 	DefaultOAuthTokenURL = "https://auth.openai.com/oauth/token"
+    17: 	DefaultOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
+Autofix:
+
+[/app/internal/infra/tokenizers/tiktoken/counter.go:22] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    21: 	tokenizerType      = "tiktoken"
+  > 22: 	tokenizerSource    = "github.com/tiktoken-go/tokenizer"
+    23:
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/fields/fields.go:15] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    14: 	ScopePrincipalID    = "scope.principal_id"
+  > 15: 	ScopeCredentialID   = "scope.credential_id"
+    16: 	ScopeTenantID       = "scope.tenant_id"
+
+Autofix:
+
+[/app/internal/core/usageauthority/domain/amount.go:12] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    11: 	AmountUnitCacheReadTokens  AmountUnit = "cache_read_tokens"
+  > 12: 	AmountUnitCacheWriteTokens AmountUnit = "cache_write_tokens"
+    13: 	AmountUnitReasoningTokens  AmountUnit = "reasoning_tokens"
+
+Autofix:
+
+[/app/internal/plugins/backends/cursorcliacp/models.go:100] - G204 (CWE-78): Subprocess launched with a potential tainted input or cmd arguments (Confidence: HIGH, Severity: MEDIUM)
+    99: 	}
+  > 100: 	cmd := exec.CommandContext(ctx, binary, listModelsArgs(endpoint)...)
+    101: 	var stderr bytes.Buffer
+
+Autofix:
+
+[/app/internal/plugins/backends/acp/transport_stdio_os.go:26] - G204 (CWE-78): Subprocess launched with a potential tainted input or cmd arguments (Confidence: HIGH, Severity: MEDIUM)
+    25: 	}
+  > 26: 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+    27: 	if cwd != "" {
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store_queries.go:341] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    340: 	}
+  > 341: 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC LIMIT " + w.placeholder()
+    342: 	w.args = append(w.args, limit+1)
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store_queries.go:270] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    269: 	w.applyCommon(q.Common, s.unsupportedFields)
+  > 270: 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC"
+    271:
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store_queries.go:221] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    220: 	}
+  > 221: 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC LIMIT " + w.placeholder()
+    222: 	w.args = append(w.args, limit+1)
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store_queries.go:162] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    161: 	}
+  > 162: 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC LIMIT " + w.placeholder()
+    163: 	w.args = append(w.args, limit+1)
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store_queries.go:82] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    81: 	w.addRaw("session_id <> ''")
+  > 82: 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC"
+    83:
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store_queries.go:33] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    32:
+  > 33: 	sqlStr := "SELECT " + eventSelectColumns + " FROM control_plane_events" + w.clause() + " ORDER BY id ASC"
+    34: 	if limit > 0 {
+
+Autofix:
+
+[/app/internal/infra/controlplane/ledgerstore/store.go:227] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    226: 	placeholderList := s.placeholderList(len(args))
+  > 227: 	sqlStr := "INSERT INTO control_plane_events(" + insertColumns + ") VALUES(" + placeholderList + ") RETURNING id"
+    228: 	rows, err := s.sqlDB.QueryContext(ctx, sqlStr, args...)
+
+Autofix:
+
+[/app/internal/core/securesession/adapters/sqlite/store.go:1090] - G202 (CWE-89): SQL string concatenation (Confidence: HIGH, Severity: MEDIUM)
+    1089: 	if len(cond) > 0 {
+  > 1090: 		q += ` WHERE ` + strings.Join(cond, ` AND `)
+    1091: 	}
+
+Autofix:
+
+[/app/scripts/arch-report.go:316] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    315: func countFileLines(path string) (n int, err error) {
+  > 316: 	f, err := os.Open(path)
+    317: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/scripts/arch-report.go:233] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    232:
+  > 233: 	raw, err := os.ReadFile(filepath.Join(root, hexagonalBaselineRelPath))
+    234: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/standardplugins/modelinventory_yaml.go:114] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    113: func loadModelInventoryFile(path string) ([]modelInventoryItemYAML, error) {
+  > 114: 	b, err := os.ReadFile(path)
+    115: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/plugins/features/prerequestpolicy/config.go:145] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    144: func loadPrompt(dir, name string) (string, error) {
+  > 145: 	b, err := os.ReadFile(filepath.Join(dir, name))
+    146: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/plugins/backends/openaicodex/managed_oauth_quota.go:34] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    33: func writeQuotaHeadersToFile(filePath string, headers map[string]string) error {
+  > 34: 	b, err := os.ReadFile(filePath)
+    35: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/plugins/backends/openaicodex/managed_oauth_files.go:61] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    60: 	}
+  > 61: 	b, err := os.ReadFile(path)
+    62: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/plugins/backends/openaicodex/authjson.go:81] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    80: 	}
+  > 81: 	b, err := os.ReadFile(path)
+    82: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/plugins/backends/acp/workspace.go:117] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    116: 	// Check readability by attempting to open the directory.
+  > 117: 	f, err := os.Open(path)
+    118: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/plugins/backends/acp/process_identity_unix.go:46] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    45: 	statPath := "/proc/" + strconv.Itoa(pid) + "/stat"
+  > 46: 	data, err := os.ReadFile(statPath)
+    47: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/core/config/interleaved.go:215] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    214: 	max := DefaultInterleavedMaxInstructionsBytes
+  > 215: 	f, err := os.Open(path)
+    216: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/internal/core/codexcatalog/fallback.go:25] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    24: 	if path := strings.TrimSpace(overridePath); path != "" {
+  > 25: 		data, err := os.ReadFile(path)
+    26: 		if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/app/.cursor/skills/golang-cli/assets/examples/signal.go:24] - G112 (CWE-400): Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server (Confidence: LOW, Severity: MEDIUM)
+    23:
+  > 24: 		srv := &http.Server{Addr: ":8080"}
+    25: 		go func() {
+
+Autofix:
+
+[/app/.kiro/skills/golang-cli/assets/examples/signal.go:29] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    28: 			defer cancel()
+  > 29: 			srv.Shutdown(shutdownCtx)
+    30: 		}()
+
+Autofix:
+
+[/app/.kiro/skills/golang-cli/assets/examples/output.go:60] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    59: 		}
+  > 60: 		w.Flush()
+    61: 	}
+
+Autofix:
+
+[/app/.cursor/skills/golang-cli/assets/examples/signal.go:29] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    28: 			defer cancel()
+  > 29: 			srv.Shutdown(shutdownCtx)
+    30: 		}()
+
+Autofix:
+
+[/app/.cursor/skills/golang-cli/assets/examples/output.go:60] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    59: 		}
+  > 60: 		w.Flush()
+    61: 	}
+
+Autofix:
+
+Summary:
+  Gosec  : dev
+  Files  : 1158
+  Lines  : 140114
+  Nosec  : 14
+  Issues : 45

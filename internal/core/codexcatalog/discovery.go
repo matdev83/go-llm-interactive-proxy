@@ -62,7 +62,7 @@ func ResolveExecutable(configured string) (string, error) {
 	if runtime.GOOS == "windows" {
 		for _, envVar := range []string{"APPDATA", "LOCALAPPDATA"} {
 			if dir := strings.TrimSpace(os.Getenv(envVar)); dir != "" {
-				candidate := filepath.Join(dir, "npm", "codex.cmd")
+				candidate := filepath.Join(filepath.Clean(dir), "npm", "codex.cmd")
 				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 					return candidate, nil
 				}
@@ -71,7 +71,7 @@ func ResolveExecutable(configured string) (string, error) {
 	} else {
 		if home, err := os.UserHomeDir(); err == nil {
 			for _, rel := range []string{".local/bin/codex", ".npm-global/bin/codex"} {
-				candidate := filepath.Join(home, rel)
+				candidate := filepath.Join(filepath.Clean(home), filepath.Clean(rel))
 				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 					return candidate, nil
 				}
@@ -87,7 +87,7 @@ func checkExecutable(candidate string) (string, bool) {
 		return "", false
 	}
 	if filepath.IsAbs(c) {
-		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+		if info, err := os.Stat(filepath.Clean(c)); err == nil && !info.IsDir() {
 			return c, true
 		}
 		return "", false
