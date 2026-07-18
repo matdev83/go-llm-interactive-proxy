@@ -2,8 +2,8 @@ package authoritystore
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -501,7 +501,7 @@ func limitRowKey(row controlplane.AccountingLimitStatusRow) string {
 	if raw, err := json.Marshal(identity); err == nil {
 		return string(raw)
 	}
-	return fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%d|%d", row.RuleID, row.Correlation.RequestID, row.Correlation.ALegID, row.Correlation.BLegID, row.Correlation.BackendID, row.Correlation.Model, row.WindowStart.UTC().Format(time.RFC3339Nano), row.WindowEnd.UTC().Format(time.RFC3339Nano), row.WindowStart.UnixNano(), row.WindowEnd.UnixNano())
+	return row.RuleID + "|" + row.Correlation.RequestID + "|" + row.Correlation.ALegID + "|" + row.Correlation.BLegID + "|" + row.Correlation.BackendID + "|" + row.Correlation.Model + "|" + row.WindowStart.UTC().Format(time.RFC3339Nano) + "|" + row.WindowEnd.UTC().Format(time.RFC3339Nano) + "|" + strconv.FormatInt(row.WindowStart.UnixNano(), 10) + "|" + strconv.FormatInt(row.WindowEnd.UnixNano(), 10)
 }
 
 func (c *storeCore) nextDecisionSeq() int64 {
