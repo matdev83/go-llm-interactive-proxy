@@ -1,6 +1,7 @@
 package snapshotgen
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -8,7 +9,8 @@ import (
 )
 
 // RuntimeGeneration is one immutable published set of usage, concurrency, and
-// rating snapshots (design: Publication).
+// rating snapshots (design: Publication). Metadata views remain for compatibility;
+// enforcement uses ExecutableGeneration (D10).
 type RuntimeGeneration struct {
 	ID          int64
 	PublishedAt time.Time
@@ -21,8 +23,10 @@ type RuntimeGeneration struct {
 
 // Publisher atomically publishes immutable generations for request binding.
 type Publisher struct {
-	active atomic.Pointer[RuntimeGeneration]
-	seq    atomic.Int64
+	active     atomic.Pointer[RuntimeGeneration]
+	executable atomic.Pointer[ExecutableGeneration]
+	retained   sync.Map // int64 -> *ExecutableGeneration
+	seq        atomic.Int64
 }
 
 // NewPublisher returns an empty publisher (Current is nil until Publish).

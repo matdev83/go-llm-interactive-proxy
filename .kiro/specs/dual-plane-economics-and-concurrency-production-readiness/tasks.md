@@ -227,7 +227,7 @@
 
 ## Phase 5 — Publish Executable Immutable Generations
 
-- [ ] 5.1 Add red generation behavior and lifetime tests
+- [x] 5.1 Add red generation behavior and lifetime tests
   - Prove current metadata-only refresh cannot be accepted as behavioral enforcement.
   - Define tests for five-to-two concurrency refresh, rating change, failed refresh, in-flight binding, settlement versions, pending-work provider resolution, and incompatible provider removal.
   - **Deliverable:** executable generation and lifetime expectations fail before new composition exists.
