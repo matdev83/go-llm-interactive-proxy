@@ -147,5 +147,8 @@ func validateScopedUsage(scopes []ScopedUsageDelta) error {
 
 func cloneEvent(ev Event) Event {
 	ev.UsageScopes = slices.Clone(ev.UsageScopes)
+	if len(ev.Opaque) > 0 {
+		ev.Opaque = append([]byte(nil), ev.Opaque...)
+	}
 	return ev
 }

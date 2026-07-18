@@ -72,6 +72,48 @@ func TestParamsForCall_assistantThinkingAndRedactedBlocks_RED(t *testing.T) {
 	}
 }
 
+func TestParamsForCall_userToolResultBlock_RED(t *testing.T) {
+	t.Parallel()
+	call := lipapi.Call{
+		ID: "anthropic-tool-result-user",
+		Messages: []lipapi.Message{
+			{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("hi")}},
+			{
+				Role: lipapi.RoleAssistant,
+				Parts: []lipapi.Part{
+					thinkingPart("plan", "sig-a"),
+					lipapi.TextPart("checking"),
+					{Kind: lipapi.PartJSON, ToolCallID: "toolu_1", ToolName: "lookup", Content: json.RawMessage(`{"q":"x"}`)},
+				},
+			},
+			{
+				Role: lipapi.RoleUser,
+				Parts: []lipapi.Part{{
+					Kind:       lipapi.PartToolResult,
+					ToolCallID: "toolu_1",
+					Text:       `{"ok":true}`,
+				}},
+			},
+		},
+	}
+	cand := routing.AttemptCandidate{Primary: routing.Primary{Model: "claude-3-5-haiku-20241022"}}
+	p, err := anthropicmessages.ParamsForCall(&call, cand)
+	if err != nil {
+		t.Fatalf("RED: ParamsForCall must encode user tool_result: %v", err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `"type":"tool_result"`) || !strings.Contains(s, `"tool_use_id":"toolu_1"`) {
+		t.Fatalf("RED: must encode tool_result block, got_bytes=%d", len(s))
+	}
+	if !strings.Contains(s, `"type":"thinking"`) || !strings.Contains(s, `"type":"tool_use"`) {
+		t.Fatalf("RED: must keep thinking/tool_use with tool_result, got_bytes=%d", len(s))
+	}
+}
+
 func TestParamsForCall_assistantThinkingEmptySignatureNotFabricated_RED(t *testing.T) {
 	t.Parallel()
 	call := lipapi.Call{

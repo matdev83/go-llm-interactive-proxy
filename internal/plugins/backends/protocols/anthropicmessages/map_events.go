@@ -145,6 +145,24 @@ func (s *msgStream) handleEvent(cur anthropic.MessageStreamEventUnion) error {
 				}); err != nil {
 					return err
 				}
+			case "redacted_thinking":
+				rt := cb.AsRedactedThinking()
+				opaque, err := json.Marshal(map[string]string{
+					"type": "redacted_thinking",
+					"data": rt.Data,
+				})
+				if err != nil {
+					return fmt.Errorf("anthropic: redacted_thinking opaque: %w", err)
+				}
+				if err := s.ensureFrameStarted(); err != nil {
+					return err
+				}
+				if err := s.pending.Push(lipapi.Event{
+					Kind:   lipapi.EventReasoningOpaqueDelta,
+					Opaque: opaque,
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	case anthropic.ContentBlockDeltaEvent:

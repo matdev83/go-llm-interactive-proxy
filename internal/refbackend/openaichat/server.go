@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
@@ -15,6 +16,12 @@ import (
 const maxBodyBytes = 10 << 20
 
 // Config tunes the emulator handler.
+//
+// Response precedence after route/auth succeed:
+//  1. ForcedHTTPStatus (when non-zero) — Responder is not invoked
+//  2. Responder (when non-nil) — overrides NonStreamJSON / StreamSSE / defaults
+//  3. NonStreamJSON / StreamSSE fixed overrides
+//  4. built-in default JSON / SSE bodies
 type Config struct {
 	// AllowMissingBearer, if true, skips the Authorization: Bearer check.
 	AllowMissingBearer bool
@@ -30,6 +37,9 @@ type Config struct {
 	// OnRequestBody is invoked with the full request body after a successful route/auth
 	// check and before the response is written.
 	OnRequestBody func(body []byte)
+	// Responder, when non-nil and ForcedHTTPStatus is zero, builds the HTTP response
+	// per request. Must be safe for concurrent use. See Request / Response.
+	Responder Responder
 	// NonStreamJSON overrides the JSON body for non-streaming responses. When empty, a
 	// minimal chat.completion is returned.
 	NonStreamJSON string
@@ -40,6 +50,7 @@ type Config struct {
 
 // NewHandler returns an http.Handler that emulates POST …/chat/completions for the official SDK.
 func NewHandler(cfg Config) http.Handler {
+	var seq atomic.Int64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/chat/completions") {
 			http.NotFound(w, r)
@@ -56,8 +67,10 @@ func NewHandler(cfg Config) http.Handler {
 			http.Error(w, "read body", http.StatusBadRequest)
 			return
 		}
+		// Oracle/validate on a clone of the post-transform body before any response path.
+		// Responder receives an independent clone so validators cannot mutate scripted input.
 		if cfg.OnRequestBody != nil {
-			cfg.OnRequestBody(body)
+			cfg.OnRequestBody(append([]byte(nil), body...))
 		}
 
 		secret := strings.TrimPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer ")
@@ -69,13 +82,50 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		stream := strings.Contains(string(body), `"stream":true`)
+		stream := bytes.Contains(body, []byte(`"stream":true`))
+		if cfg.Responder != nil {
+			cloned := append([]byte(nil), body...)
+			req := Request{
+				Sequence: seq.Add(1),
+				Body:     cloned,
+				Stream:   stream,
+			}
+			writeResponder(w, req, cfg.Responder(req))
+			return
+		}
 		if stream {
 			writeStream(w, cfg, body)
 			return
 		}
 		writeJSON(w, cfg)
 	})
+}
+
+func writeResponder(w http.ResponseWriter, req Request, resp Response) {
+	status := resp.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if resp.Headers != nil {
+		for k, vals := range resp.Headers.Clone() {
+			for _, v := range vals {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+	if req.Stream {
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(resp.SSE))
+		return
+	}
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(resp.JSON))
 }
 
 func defaultForcedErrorJSON(status int) string {

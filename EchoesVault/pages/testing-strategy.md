@@ -39,7 +39,7 @@ Race detector required for stream pumps, cancellation-sensitive components, stor
 
 | Tag | Purpose | Default Suite |
 |---|---|---|
-| `precommit` | Hygiene checks + executor matrices | No (`make test-precommit-extra`) |
+| `precommit` | Hygiene/runtime matrices (`test-precommit-extra`) + wider tagged tree under `make qa` (includes reasoning HTTP matrix compile/run; soak still skips unless `LIP_REASONING_E2E_SOAK=1`) | No for default `test-unit` |
 | `integration` | Env-gated PostgreSQL tests | No (requires `LIP_TEST_POSTGRES_DSN`) |
 | (no tag) | All fast, deterministic tests | Yes |
 
@@ -53,6 +53,7 @@ make parity-checks    # conformance (-tags=precommit,integration)
 make test-fuzz        # short fuzz smoke (nightly CI FUZZTIME=6s)
 make test-race        # race detector (Linux nightly CI; skipped on Windows)
 make test-precommit-extra  # hygiene + executor matrices
+make test-reasoning-e2e-soak  # opt-in reasoning full-HTTP soak (not a PR gate)
 make qa               # quality + full test + lint + vuln
 make bench            # benchmark smoke
 ```

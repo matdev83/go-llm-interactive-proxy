@@ -9,9 +9,13 @@ package lipapi
 // EventReasoningSignatureDelta is intentionally excluded: it is Anthropic
 // integrity metadata that arrives after reasoning text (which already commits),
 // not user-visible output content.
+//
+// EventReasoningOpaqueDelta commits: redacted_thinking is a first-class content
+// block that can arrive without a preceding reasoning_delta.
 func OutputCommitted(ev Event) bool {
 	switch ev.Kind {
-	case EventTextDelta, EventReasoningDelta, EventToolCallStarted, EventToolCallArgsDelta,
+	case EventTextDelta, EventReasoningDelta, EventReasoningOpaqueDelta,
+		EventToolCallStarted, EventToolCallArgsDelta,
 		EventAssistantImageRef, EventAssistantFileRef:
 		return true
 	default:

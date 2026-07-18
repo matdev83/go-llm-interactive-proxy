@@ -128,9 +128,42 @@ Hard capability: `reasoning_replay`. Every restored dialect must be explicitly s
 - Python-era LIP had no equivalent Go-portable durable store; do not expect cross-process continuity in v1.
 - See [feature-migration-map.md](feature-migration-map.md) and [reasoning-output-preservation-release-checklist.md](reasoning-output-preservation-release-checklist.md).
 
+## Full HTTP E2E validation
+
+Follow-up spec: [`.kiro/specs/reasoning-preservation-e2e-validation/`](../.kiro/specs/reasoning-preservation-e2e-validation/) (parent issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157); parent feature spec [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/)).
+
+Proofs drive a stateful client transcript and independent backend-request oracle through `runtimebundle.BuildBootstrap` + `stdhttp` + real Chat/Anthropic adapters + protocol emulators (`internal/refbackend`). Failures report seed/mode/turn/structural reason codes only — never reasoning text, signatures, opaque payloads, anchors, or raw bodies.
+
+| Suite | Gate | What it covers |
+|-------|------|----------------|
+| Deterministic controls | Default `go test` / `make test-unit` | OpenAI Chat disabled/observe/restore paths, tools, conflict/ambiguity, session isolation |
+| Anthropic cross-check | Default suite | Signed `thinking` / `redacted_thinking` observe/restore (or observe-only) through real Anthropic adapters |
+| Seeded matrix 64×20 | `//go:build precommit` | 16 `random_backend_drop_all` + 16 `always_reason_random_client` + 32 `combined`; 20 HTTP turns/seed; run via `make qa` tagged suite or targeted `go test -tags=precommit -run TestReasoningPreservationHTTP_RandomMatrix ./internal/stdhttp/` (not lightweight `make test-precommit-extra`) |
+| Soak 1000×100 | Env `LIP_REASONING_E2E_SOAK=1` + `make test-reasoning-e2e-soak` | Same full HTTP stack; 250/250/500 mode split; bounded workers; **not** a PR/default gate |
+
+```bash
+# Deterministic + Anthropic HTTP E2E (default tags)
+go test -count=1 -run 'TestReasoningPreservationHTTP' ./internal/stdhttp/
+
+# Precommit 64×20 matrix
+go test -tags=precommit -count=1 -run TestReasoningPreservationHTTP_RandomMatrix ./internal/stdhttp/
+
+# Opt-in soak (defaults 1000 seeds × 100 turns; override for smoke)
+LIP_REASONING_E2E_SEEDS=3 LIP_REASONING_E2E_TURNS=4 LIP_REASONING_E2E_WORKERS=2 make test-reasoning-e2e-soak
+
+# Single-seed soak replay (one command)
+LIP_REASONING_E2E_SOAK=1 LIP_REASONING_E2E_MODE=combined LIP_REASONING_E2E_SEED=42 \
+  go test -tags=precommit -run TestReasoningPreservationHTTP_Soak -count=1 ./internal/stdhttp/
+```
+
+Soak env: `LIP_REASONING_E2E_SOAK=1` (required), `LIP_REASONING_E2E_SEEDS` (default 1000), `LIP_REASONING_E2E_TURNS` (default 100), `LIP_REASONING_E2E_WORKERS` (default 4, max 32), replay pair `LIP_REASONING_E2E_MODE` + `LIP_REASONING_E2E_SEED`. Nightly/manual workflow: `.github/workflows/reasoning-e2e-soak-nightly.yml` (not attached to PR `qa.yml` or `race-fuzz-nightly.yml`).
+
+**OpenAI Chat** is the deep HTTP E2E surface (including reasoning + tool-call replay). **OpenAI Responses** full HTTP E2E is deferred until a stable Responses replay harness exists — do not treat Responses as covered by these suites.
+
 ## Release evidence pointers
 
 - Phase 5 runtime/feature proofs: `TestPhase5_*` under `internal/core/runtime` and `internal/plugins/features/reasoningpreservation`.
+- Full HTTP E2E: `TestReasoningPreservationHTTP*` under `internal/stdhttp` (matrix/soak require `-tags=precommit`; soak also requires `LIP_REASONING_E2E_SOAK=1`).
 - Adapter/parity: Phase 4 dialect encode + `internal/plugins/frontends/parity` VisibleThinker reasoning tests.
 - Fuzz: `FuzzComputeAnchor`, `FuzzDecodeConfig` (wired into `make test-fuzz`).
 - Architecture: official features must not import `internal/core` (`internal/archtest`).

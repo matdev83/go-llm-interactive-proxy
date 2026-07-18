@@ -45,13 +45,17 @@ const (
 	// is canonical. Mirrors the EventReasoningDelta precedent of carrying provider
 	// reasoning text through the canonical stream.
 	EventReasoningSignatureDelta EventKind = "reasoning_signature_delta"
-	EventToolCallStarted         EventKind = "tool_call_started"
-	EventToolCallArgsDelta       EventKind = "tool_call_args_delta"
-	EventToolCallFinished        EventKind = "tool_call_finished"
-	EventUsageDelta              EventKind = "usage_delta"
-	EventWarning                 EventKind = "warning"
-	EventError                   EventKind = "error"
-	EventResponseFinished        EventKind = "response_finished"
+	// EventReasoningOpaqueDelta carries a provider opaque reasoning payload
+	// (Anthropic redacted_thinking envelope bytes). Non-Anthropic frontends ignore
+	// it via their default switch case; the carrier is canonical.
+	EventReasoningOpaqueDelta EventKind = "reasoning_opaque_delta"
+	EventToolCallStarted      EventKind = "tool_call_started"
+	EventToolCallArgsDelta    EventKind = "tool_call_args_delta"
+	EventToolCallFinished     EventKind = "tool_call_finished"
+	EventUsageDelta           EventKind = "usage_delta"
+	EventWarning              EventKind = "warning"
+	EventError                EventKind = "error"
+	EventResponseFinished     EventKind = "response_finished"
 
 	// Assistant-side multimodal references (streaming). Adapters emit these instead of
 	// overloading text_delta when the vendor returns image/file output items.
@@ -64,7 +68,7 @@ const (
 // content-class group in the sequence validators below.
 func isContentClassKind(k EventKind) bool {
 	switch k {
-	case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta,
+	case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta, EventReasoningOpaqueDelta,
 		EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
 		EventAssistantImageRef, EventAssistantFileRef:
 		return true
@@ -80,7 +84,10 @@ type Event struct {
 	Delta        string
 	// Signature carries the Anthropic thinking-block signature on
 	// EventReasoningSignatureDelta; it is empty for other kinds.
-	Signature  string
+	Signature string
+	// Opaque carries provider opaque reasoning bytes on EventReasoningOpaqueDelta
+	// (Anthropic redacted_thinking JSON envelope). Empty for other kinds.
+	Opaque     []byte
 	ToolCallID string
 	ToolName   string
 
@@ -173,6 +180,9 @@ func ValidateEventEnvelope(ev *Event) error {
 	}
 	if err := validateStringField("Signature", ev.Signature, MaxRefStringBytes); err != nil {
 		return err
+	}
+	if len(ev.Opaque) > MaxReasoningOpaqueBytes {
+		return &ValidationError{Field: "Opaque", Message: fmt.Sprintf("exceeds %d bytes", MaxReasoningOpaqueBytes)}
 	}
 	if err := ev.Accounting.validate("Accounting"); err != nil {
 		return err

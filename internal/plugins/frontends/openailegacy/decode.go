@@ -292,7 +292,11 @@ func parseAssistantParts(content, toolCalls, functionCall json.RawMessage, reaso
 		if !json.Valid(rc) {
 			return nil, errors.New("openailegacy: invalid tool_calls entry")
 		}
-		parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: append(json.RawMessage(nil), rc...)})
+		part, err := assistantToolCallPart(rc)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
 	}
 	if len(functionCallPart) > 0 {
 		parts = append(parts, lipapi.Part{Kind: lipapi.PartJSON, Content: functionCallPart})
@@ -311,6 +315,59 @@ func chatAssistantReasoningText(reasoningContent, reasoningAlias *string) (text 
 		return *reasoningAlias, false
 	}
 	return "", false
+}
+
+// assistantToolCallPart normalizes a wire tool_calls entry into PartJSON matching
+// stream-observer shape: ToolCallID/ToolName set and Content holding arguments JSON.
+func assistantToolCallPart(rc json.RawMessage) (lipapi.Part, error) {
+	var wire struct {
+		ID       string `json:"id"`
+		Type     string `json:"type"`
+		Function struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(rc, &wire); err != nil {
+		return lipapi.Part{}, fmt.Errorf("openailegacy: tool_calls entry: %w", err)
+	}
+	id := strings.TrimSpace(wire.ID)
+	name := strings.TrimSpace(wire.Function.Name)
+	if id == "" || name == "" {
+		return lipapi.Part{}, errors.New("openailegacy: tool_calls entry requires id and function.name")
+	}
+	args := json.RawMessage(`{}`)
+	if jsonpresence.IsPresentNonNullJSON(wire.Function.Arguments) {
+		switch wire.Function.Arguments[0] {
+		case '"':
+			var s string
+			if err := json.Unmarshal(wire.Function.Arguments, &s); err != nil {
+				return lipapi.Part{}, fmt.Errorf("openailegacy: tool_calls.arguments: %w", err)
+			}
+			if strings.TrimSpace(s) == "" {
+				args = json.RawMessage(`{}`)
+			} else if json.Valid([]byte(s)) {
+				args = json.RawMessage(s)
+			} else {
+				b, err := json.Marshal(s)
+				if err != nil {
+					return lipapi.Part{}, err
+				}
+				args = b
+			}
+		default:
+			if !json.Valid(wire.Function.Arguments) {
+				return lipapi.Part{}, errors.New("openailegacy: tool_calls.arguments invalid json")
+			}
+			args = append(json.RawMessage(nil), wire.Function.Arguments...)
+		}
+	}
+	return lipapi.Part{
+		Kind:       lipapi.PartJSON,
+		ToolCallID: id,
+		ToolName:   name,
+		Content:    args,
+	}, nil
 }
 
 func parseToolMessageContent(raw json.RawMessage) (any, error) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
+	frontendlimits "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/limits"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -135,6 +136,17 @@ type anthropicSSEThinkingBlock struct {
 	Type      string `json:"type"`
 	Thinking  string `json:"thinking"`
 	Signature string `json:"signature"`
+}
+
+type anthropicSSEContentBlockStartRedacted struct {
+	Type         string                    `json:"type"`
+	Index        int                       `json:"index"`
+	ContentBlock anthropicSSERedactedBlock `json:"content_block"`
+}
+
+type anthropicSSERedactedBlock struct {
+	Type string `json:"type"`
+	Data string `json:"data"`
 }
 
 type anthropicSSEContentBlockStartTool struct {
@@ -544,6 +556,41 @@ func WriteStreamSSE(ctx context.Context, w http.ResponseWriter, call *lipapi.Cal
 				return fmt.Errorf("anthropic: thinking signature exceeds %d byte limit", lipapi.MaxRefStringBytes)
 			}
 			thinkingSignature += ev.Signature
+		case lipapi.EventReasoningOpaqueDelta:
+			if err := closeThinkingBlock(); err != nil {
+				return err
+			}
+			if err := flushMessageStart(); err != nil {
+				return err
+			}
+			data := ""
+			if len(ev.Opaque) > 0 {
+				var envelope struct {
+					Type string `json:"type"`
+					Data string `json:"data"`
+				}
+				if err := json.Unmarshal(ev.Opaque, &envelope); err != nil {
+					return fmt.Errorf("anthropic: redacted_thinking opaque: %w", err)
+				}
+				data = envelope.Data
+			}
+			if err := frontendlimits.StringBytes("redacted_thinking.data", data, lipapi.MaxReasoningOpaqueBytes); err != nil {
+				return err
+			}
+			idx := nextBlockIdx
+			nextBlockIdx++
+			cb := anthropicSSEContentBlockStartRedacted{
+				Type:         "content_block_start",
+				Index:        idx,
+				ContentBlock: anthropicSSERedactedBlock{Type: "redacted_thinking", Data: data},
+			}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_start", &cb); err != nil {
+				return err
+			}
+			cbStop := anthropicSSEContentBlockStop{Type: "content_block_stop", Index: idx}
+			if err := stream.FlushSSEEventJSON(w, fl, "content_block_stop", &cbStop); err != nil {
+				return err
+			}
 		case lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef:
 			if err := closeThinkingBlock(); err != nil {
 				return err
