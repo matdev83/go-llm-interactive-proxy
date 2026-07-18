@@ -45,12 +45,17 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 | `internal/core/diag` | `TestBuildInventoryExtensions_genericPort*`, `TestBuildInventoryExtensions_absentPortsZeroPosture` | Phase 2.5 generic-port aggregate posture + privacy projection |
 | `cmd/lipstd` | `TestRunCommand_inventory_dogfoodLocalStub_matchesGoldenJSON` | Phase 2.5 inventory golden includes `generic_ports` |
 
+## Fulfilled by Phase 3 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/plugins/features/reasoningpreservation` | Decode/catalog/anchor/classify/restore/store/privacy/observer/bundle tests (not `*_contractLock`) | Phase 3.1–3.5 feature plugin implementation |
+| `internal/core/runtime` | `TestReasoningPreservationComposition_*` restore/failover/parallel/weighted/unrepresentable paths | Phase 3.5 restore + composition harness anchors |
+
 ## Intentional RED (must fail for the semantic gap named below)
 
 | Package | Tests / pattern | Why RED |
 |---|---|---|
-| `internal/plugins/features/reasoningpreservation` | Decode/catalog/anchor/classify/restore/store/privacy projection tests (not `*_contractLock`) | Feature behavior stubs return `ErrNotImplemented` (Phase 3) |
-| `internal/core/runtime` | `TestReasoningPreservationComposition_*` except `*_characterization` / harness anti-soft-green | Composition stubs returning `ErrNotImplemented` fail-closed until Phase 3 restore. `TestReasoningPreservationComposition_unrepresentableReplayAllExcluded_RED` must not green on generic/`ErrNotImplemented` — requires stable `unrepresentable_replay` from the feature |
 | `internal/plugins/frontends/openailegacy` | `TestDecodeChat_assistantReasoning*_RED`, `TestEncode_reasoningNonStreamOutput_RED` | Chat history/nonstream mapping (Phase 4.1) |
 | `internal/plugins/backends/openailegacy` | `TestParamsForCall_assistantReasoningChatDialect_RED` | Chat backend encode (Phase 4.1) |
 | `internal/plugins/frontends/openairesponses` | `TestDecodeCreate_reasoningInputItem_RED` | Responses input item decode (Phase 4.2) |
@@ -67,7 +72,7 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 | `pkg/lipapi` | `TestNegotiate_reasoningReplayNotSoftDowngradable_characterization`, `TestApplyNegotiatedDowngrades_doesNotStripHistoricalReasoning_characterization` | Existing negotiate/downgrade invariants; hard replay derivation is `TestRequiredCapabilities_hardReasoningReplay` (green since Phase 2.1) |
 | `pkg/lipapi` | `TestReasoningPart_byteAndCountLimits/per_message_part_count_via_reasoning_alias` | `MaxReasoningPartsPerMessage` aliases `MaxPartsPerMessage`; generic envelope bound is the approved acceptance |
 | `internal/plugins/frontends/openailegacy` | `TestEncode_reasoningStream_characterization` | Stream already emits `reasoning_content` |
-| `internal/core/runtime` | `TestReasoningPreservationComposition_disabledFeatureNonInterference_characterization`, `…_noRetryAfterFirstOutput_characterization`, `TestReasoningPreservationTransform_errNotImplementedDoesNotBecomeUnrepresentableExclude` | Baseline non-interference / no-retry-after-output; harness must propagate `ErrNotImplemented` (not soft-map to exclude) |
+| `internal/core/runtime` | `TestReasoningPreservationComposition_disabledFeatureNonInterference_characterization`, `…_noRetryAfterFirstOutput_characterization`, `TestReasoningPreservationTransform_unrepresentableRejectExcludesCandidate` | Baseline non-interference / no-retry-after-output; Phase 3 unrepresentable exclude characterization |
 | `internal/plugins/features/reasoningpreservation` | `TestSafeOutcome_wireValuesExact_contractLock`, `TestBuiltinCatalogVersion_nonEmpty_contractLock`, `TestSessionPartition_StringEmptyForPrivacy_contractLock` | Wire/privacy contract locks |
 | `internal/plugins/backends/openaifamily` | `TestResolveFlavor_upstreamResponsesExtension` | Existing flavor resolver characterization |
 

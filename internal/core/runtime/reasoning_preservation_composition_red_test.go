@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -32,11 +33,19 @@ var rpLargeThought = strings.Repeat("R", 512)
 var rpReplaySupport = lipapi.ReasoningReplaySupport{Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1}}
 
 func rpArtifact(text string) reasoningpreservation.TurnArtifact {
+	anchor, err := reasoningpreservation.ComputeAnchor(lipapi.Message{
+		Role:  lipapi.RoleAssistant,
+		Parts: []lipapi.Part{lipapi.TextPart("visible answer")},
+	})
+	if err != nil {
+		panic("rpArtifact: ComputeAnchor: " + err.Error())
+	}
 	return reasoningpreservation.TurnArtifact{
-		ID: "art-1", SourceBackend: "src-be", SourceModel: "src-m",
+		ID: "art-1", Anchor: anchor, SourceBackend: "src-be", SourceModel: "src-m",
 		Reasoning: []reasoningpreservation.PlacedReasoning{{BeforeNonReasoningPart: 0, Part: lipapi.Part{
 			Kind: lipapi.PartReasoning, Reasoning: &lipapi.ReasoningPart{Dialect: lipapi.ReasoningDialectOpenAIChatTextV1, Text: text},
 		}}},
+		ReasoningBytes: len(text),
 	}
 }
 
@@ -417,11 +426,21 @@ func TestReasoningPreservationComposition_parallelRestorationIndependentClones(t
 	}
 	var mu sync.Mutex
 	var openCalls []lipapi.Call
+	var openArrived atomic.Int32
+	gate := make(chan struct{})
 	track := func(name string) execbackend.Backend {
 		return rpStreamingBackend(func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			mu.Lock()
 			openCalls = append(openCalls, call)
 			mu.Unlock()
+			if openArrived.Add(1) == 2 {
+				close(gate)
+			}
+			select {
+			case <-gate:
+			case <-time.After(3 * time.Second):
+				return nil, errors.New("parallel open barrier timed out waiting for peer arm")
+			}
 			return lipapi.NewFixedEventStream([]lipapi.Event{
 				{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
 				{Kind: lipapi.EventTextDelta, Delta: name + "-response"}, {Kind: lipapi.EventResponseFinished},
@@ -625,25 +644,30 @@ func TestReasoningPreservationComposition_streamObserverContributionDropped(t *t
 	bus, snap := rpWire(t, b)
 	ex := runtime.TestExecutor()
 	ex.Store, ex.Bus, ex.RuntimeSnapshot, ex.Rand = st, bus, snap, routing.NewSeededRng(2)
-	ex.Backends = map[string]execbackend.Backend{"be": fixedSuccessBackend("ok")}
+	ex.Backends = map[string]execbackend.Backend{"be": rpStreamingBackend(func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+		return lipapi.NewFixedEventStream([]lipapi.Event{
+			{Kind: lipapi.EventResponseStarted}, {Kind: lipapi.EventMessageStarted},
+			{Kind: lipapi.EventTextDelta, Delta: "ok"}, {Kind: lipapi.EventResponseFinished},
+		}), nil
+	})}
 	rpCollect(t, ex, "be:m")
 	if factory.opens.Load() == 0 {
 		t.Fatal("RED: reasoning FeatureBundle StreamObserverFactories must Open on winning B-leg (runner absent; see Phase 1.3)")
 	}
 }
 
-func TestReasoningPreservationTransform_errNotImplementedDoesNotBecomeUnrepresentableExclude(t *testing.T) {
+func TestReasoningPreservationTransform_unrepresentableRejectExcludesCandidate(t *testing.T) {
 	t.Parallel()
 	xform := &reasoningPreservationTransform{
 		mode: "exclude_all_unrepresentable", artifacts: []reasoningpreservation.TurnArtifact{rpStoredArtifact},
 		replay: rpReplaySupport, calls: &atomic.Int64{}, onUnrep: "reject",
 	}
 	dec, err := xform.HandleAttempt(t.Context(), rpMissingReasoningCall("a:m"), request.AttemptMeta{BackendID: "a", CandidateKey: "a:m"}, request.Services{})
-	if !errors.Is(err, reasoningpreservation.ErrNotImplemented) {
-		t.Fatalf("expected ErrNotImplemented propagation from RestoreMissingReasoning, got dec=%+v err=%v", dec, err)
+	if err != nil {
+		t.Fatalf("RestoreMissingReasoning: %v", err)
 	}
-	if dec.Kind == request.AttemptExcludeCandidate {
-		t.Fatal("ErrNotImplemented fail-closed must not soft-map to AttemptExcludeCandidate/unrepresentable_replay")
+	if dec.Kind != request.AttemptExcludeCandidate || dec.ReasonCode != "unrepresentable_replay" {
+		t.Fatalf("expected exclude_candidate/unrepresentable_replay, got dec=%+v", dec)
 	}
 	if xform.calls.Load() != 1 {
 		t.Fatalf("transform must be invoked once, calls=%d", xform.calls.Load())

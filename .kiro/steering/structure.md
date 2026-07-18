@@ -106,6 +106,7 @@ Provider SDKs and provider wire models stay here or in backend-private protocol 
 - bundled no-op compatibility hooks: `submitnoop/`, `partsnoop/`, `toolreactornoop/`
 - standard security feature: `secretsguard/` (call scanner + `block`/`redact`/`log` Guard)
 - standard feature: `toolcallrepair/` (YAML-only; engine in `internal/core/toolcallrepair`)
+- standard feature: `reasoningpreservation/` (`reasoning-output-preservation`; config/catalog/store/observer/transform; adapters in Phase 4)
 - reference/proof features: `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `codexclientcompat/`, and related proof directories
 - feature plugins are expected to consume `pkg/lipsdk` facades rather than `internal/core`
 
