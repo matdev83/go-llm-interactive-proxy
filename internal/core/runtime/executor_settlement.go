@@ -205,19 +205,13 @@ func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Ev
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
-	s.rememberClientEvent(ev)
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			return lipapi.Event{}, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
 	pm, _ := s.recvHookMeta()
-	s.emitTrafficPTC(ctx, ev, pm)
-	s.emitUsage(ctx, ev)
-	return ev, nil
+	out, err := s.emitClientFacingObserved(ctx, ev, pm)
+	if err != nil {
+		return lipapi.Event{}, err
+	}
+	s.emitUsage(ctx, out)
+	return out, nil
 }
 
 func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish lipapi.Event) (lipapi.Event, bool, error) {

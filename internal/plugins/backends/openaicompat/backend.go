@@ -55,14 +55,24 @@ func NewBackend(spec BackendSpec) execbackend.Backend {
 	if err != nil {
 		return newConfigErrorBackend(spec.ID, fmt.Errorf("%s: credentials: %w", spec.ID, err))
 	}
+	prefixes := []string{spec.ID}
 	return execbackend.Backend{
-		Caps:                    openaicaps.HostedFull,
+		Caps:          openaicaps.HostedFull,
+		ReplaySupport: lipapi.ReasoningReplaySupport{},
+		ResolveReplaySupport: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.ReasoningReplaySupport {
+			model := resolveModel(spec, cand, call)
+			flavor := openaicaps.FlavorChat
+			if resolveFlavor(spec, call) == FlavorResponses {
+				flavor = openaicaps.FlavorResponses
+			}
+			return openaicaps.ResolveCompatibleReplaySupport(flavor, model, prefixes)
+		},
 		TransportCaps:           hostedTransportCaps(),
-		BackendPrefixes:         []string{spec.ID},
+		BackendPrefixes:         prefixes,
 		EnforcesMaxOutputTokens: true,
 		ModelInventory:          spec.Inventory,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-			return openaicaps.ForHostedModel(resolveModel(spec, cand, call))
+			return openaicaps.ForHostedModelCompatibleReplay(resolveModel(spec, cand, call), prefixes)
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {

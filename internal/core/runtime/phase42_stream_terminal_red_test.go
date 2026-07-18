@@ -96,24 +96,20 @@ func TestPhase42_RecvCloseRace_SingleSettlement(t *testing.T) {
 	rs.markCommitted()
 	rs.ensureTerminals()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var recvErr error
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		_, recvErr = rs.Recv(ctx)
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		<-entered
 		_ = rs.Close()
-	}()
+	})
 	close(start)
 	wg.Wait()
 
@@ -159,7 +155,6 @@ func TestPhase42_MajorExitCommands_ClaimOnce(t *testing.T) {
 		{"backend_open", sdk.CommandBackendOpenFailure, sdk.ScopeAttempt},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var effects atomic.Int32

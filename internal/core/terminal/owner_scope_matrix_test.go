@@ -15,9 +15,7 @@ func TestOwner_Claim_CommandScopeMatrix(t *testing.T) {
 	t.Parallel()
 
 	for _, scope := range []sdk.Scope{sdk.ScopeRequest, sdk.ScopeAttempt} {
-		scope := scope
 		for _, cmd := range sdk.AllCommands() {
-			cmd := cmd
 			name := string(scope) + "/" + string(cmd)
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()

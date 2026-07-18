@@ -8,6 +8,7 @@ import (
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -51,6 +52,10 @@ type FeatureBundle struct {
 
 	CompletionGates []completion.Gate
 
+	AttemptTransforms []request.AttemptTransform
+
+	StreamObserverFactories []response.StreamObserverFactory
+
 	TrafficObservers []traffic.Observer
 	UsageObservers   []usage.Observer
 	RawCaptureSinks  []traffic.RawCaptureSink
@@ -77,6 +82,8 @@ func (b FeatureBundle) empty() bool {
 		len(b.PreRequestHandlers) == 0 &&
 		len(b.RouteHintProviders) == 0 &&
 		len(b.CompletionGates) == 0 &&
+		len(b.AttemptTransforms) == 0 &&
+		len(b.StreamObserverFactories) == 0 &&
 		len(b.TrafficObservers) == 0 &&
 		len(b.UsageObservers) == 0 &&
 		len(b.RawCaptureSinks) == 0 &&
@@ -100,6 +107,16 @@ func (b FeatureBundle) Validate() error {
 	}
 	if b.SchemaVersion != SchemaVersionV1 {
 		return fmt.Errorf("feature: FeatureBundle: schema version want %d got %d", SchemaVersionV1, b.SchemaVersion)
+	}
+	for i, at := range b.AttemptTransforms {
+		if at == nil {
+			return fmt.Errorf("feature: FeatureBundle: AttemptTransforms[%d] must not be nil", i)
+		}
+	}
+	for i, f := range b.StreamObserverFactories {
+		if f == nil {
+			return fmt.Errorf("feature: FeatureBundle: StreamObserverFactories[%d] must not be nil", i)
+		}
 	}
 	return nil
 }

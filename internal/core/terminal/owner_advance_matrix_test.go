@@ -32,9 +32,7 @@ func TestOwner_Advance_ExhaustiveStateMatrix(t *testing.T) {
 	}
 
 	for _, from := range sdk.AllStates() {
-		from := from
 		for _, to := range sdk.AllStates() {
-			to := to
 			wantOK := legal[from][to]
 			t.Run(string(from)+"->"+string(to), func(t *testing.T) {
 				t.Parallel()
@@ -68,7 +66,6 @@ func TestOwner_Advance_AllFailedPaths(t *testing.T) {
 		sdk.StateSettled,
 		sdk.StateReleasePending,
 	} {
-		from := from
 		t.Run(string(from)+"->failed", func(t *testing.T) {
 			t.Parallel()
 			o := ownerAt(t, from)

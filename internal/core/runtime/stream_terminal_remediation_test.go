@@ -123,9 +123,7 @@ func TestStreamTerminal_OutputCommittedAfterClaim_AwaitsWinner(t *testing.T) {
 	var wg sync.WaitGroup
 	var closeRes, gateRes coreterm.Result
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		closeRes = term.Terminalize(context.Background(), sdk.CommandClose, func() coreterm.AccumulatorSnapshot {
 			return coreterm.NewAccumulatorSnapshot([]byte("close"), true)
 		}, func(context.Context, coreterm.Outcome) error {
@@ -133,7 +131,7 @@ func TestStreamTerminal_OutputCommittedAfterClaim_AwaitsWinner(t *testing.T) {
 			<-release
 			return nil
 		})
-	}()
+	})
 	<-entered
 	done := make(chan struct{})
 	go func() {

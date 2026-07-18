@@ -369,9 +369,11 @@ type allowAttemptProvider struct{}
 func (allowAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow, ProviderID: "enterprise-hard-spend"}, nil
 }
+
 func (allowAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
+
 func (allowAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
 	return nil
 }
@@ -381,12 +383,15 @@ type allowConcurrencyProvider struct{}
 func (allowConcurrencyProvider) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "lease-1"}, nil
 }
+
 func (allowConcurrencyProvider) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "lease-1"}, nil
 }
+
 func (allowConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseRelease) error {
 	return nil
 }
+
 func (allowConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }

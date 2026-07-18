@@ -37,3 +37,27 @@ func MaterializeSorted(transforms []Transform) []Transform {
 	}
 	return out
 }
+
+// MaterializeAttemptsSorted returns a copy of attempt transforms sorted for stable
+// execution (same rule as [MaterializeSorted]: ascending Order, ID, registration index).
+// Nil entries are not special-cased; callers must not pass nil interfaces (matches
+// [MaterializeSorted] for request.Transform).
+func MaterializeAttemptsSorted(transforms []AttemptTransform) []AttemptTransform {
+	if len(transforms) == 0 {
+		return nil
+	}
+	h := slices.Clone(transforms)
+	idx := make([]int, len(h))
+	for i := range idx {
+		idx[i] = i
+	}
+	slices.SortFunc(idx, func(hi, hj int) int {
+		a, b := h[hi], h[hj]
+		return participantLess(a.Order(), b.Order(), a.ID(), b.ID(), hi, hj)
+	})
+	out := make([]AttemptTransform, len(h))
+	for k, ii := range idx {
+		out[k] = h[ii]
+	}
+	return out
+}

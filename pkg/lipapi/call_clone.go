@@ -64,8 +64,24 @@ func cloneParts(in []Part) []Part {
 		if len(in[i].Content) > 0 {
 			out[i].Content = append(json.RawMessage(nil), in[i].Content...)
 		}
+		if in[i].Reasoning != nil {
+			out[i].Reasoning = cloneReasoningPart(in[i].Reasoning)
+		}
 	}
 	return out
+}
+
+func cloneReasoningPart(in *ReasoningPart) *ReasoningPart {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Opaque != nil {
+		out.Opaque = append(json.RawMessage{}, in.Opaque...)
+	} else {
+		out.Opaque = nil
+	}
+	return &out
 }
 
 func cloneTools(in []ToolDef) []ToolDef {

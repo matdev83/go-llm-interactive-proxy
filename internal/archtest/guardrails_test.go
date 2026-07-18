@@ -121,27 +121,37 @@ var lineBudgets = []struct {
 	// Raised from 57650 to 58300 for dual-plane Phase 2.3 authority coordinator
 	// posture/compensation, settlement concurrency state, and req 4.3 hold
 	// validation (measured ~58197 non-test lines).
-	// Raised from 58300 to 58650 for dual-plane Phase 3 durable metering journal:
+	// Raised from 56400 (main lineage) for reasoning-output-preservation Phase 2.3:
+	// RunCandidateAttemptTransformStage + openPlannedCandidate wiring / post-hook rederive.
+	// Raised from 56900 for Phase 2.4 final_stream_observation runner + recv/gate lifecycle.
+	// Raised from 57200 for Phase 2.4 repair: race-safe session claim, CompletionGateChainResult,
+	// central emitClientFacingObserved (recoverDrain/synthesized usage), parallel excluded nil-guard.
+	// Raised from 57250 to 57380 for Phase 2.5 safe generic stage telemetry
+	// (bounded label collapse, count/byte helpers, generic-port inventory posture).
+	// Raised to 57400 for early Recv ctx-cancel remediation (nil-inner Cancelled
+	// taxonomy + swallowed release; nil-executor-safe cancel path).
+	// Combined dual-plane Phase 1 + reasoning-preservation on merge into main.
+	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
+	// Phase 2 + reasoning-preservation combined after merge into main: 59500
+	// (main 58850 + Phase 2 +650); post-merge measured 59256.
+	// Raised from 59500 to 59800 for dual-plane Phase 3 durable metering journal:
 	// ingress checkpoint producers, control-plane metering usage bridge/projection,
-	// and reconstruction seams (+373 non-test lines across checkpoint/runtime/
-	// controlplane since Phase 2 base; measured 58539). Cap keeps ~111 lines of
-	// headroom. Prefer further decomposition over another raise.
-	// Raised from 58650 to 59750 for dual-plane Phase 4 terminal ownership and
-	// terminal-work domain: stream terminal session wiring, terminal owner CAS,
-	// WorkRecord/SameIntentReplay, and claim-lease transitions (measured 59641;
-	// cap keeps ~109 lines of headroom).
-	// Raised from 59750 to 60400 for dual-plane Phase 4.4 terminal-work processor
-	// app (EffectProvider registry, bounded ClaimDue processor, store commands
-	// owned in core). Measured ~60254; cap keeps ~146 lines of headroom.
-	// Raised from 60400 to 60650 for Phase 4.4 remediation (owned tick/renew,
-	// unresolved-provider readiness, ProcessDue serialize, renew-fail cancel).
-	// Measured ~60495; cap keeps ~155 lines of headroom.
-	// Raised from 61400 to 61600 for Phase 4.5 correctness (metrics pagination,
-	// AttemptID identity, AuthorityRequestEffectProvider).
-	// Raised from 61600 to 62000 for Phase 5 executable generations.
-	// Raised from 62000 to 63000 for Phase 5 remediation: generation-owned
-	// RequestCoordinator/AttemptCoordinator/max-active limiter + rater binding.
-	{"internal/core", 63000},
+	// and reconstruction seams (retarget onto main Phase 1+2 + reasoning; measured
+	// 59629). Cap keeps ~171 lines of headroom. Prefer further decomposition over
+	// another raise.
+	// Raised for dual-plane Phase 4 terminal ownership and terminal-work domain:
+	// stream terminal session wiring, terminal owner CAS, WorkRecord/SameIntentReplay,
+	// claim-lease transitions, Phase 4.4 processor app, and Phase 4.5 durable
+	// settle/release recovery + query/metrics/readiness. Combined with main
+	// reasoning-output-preservation on merge into Phase 4: measured 62647;
+	// cap 62750 keeps ~103 lines of headroom.
+	// Raised from 62750 to 63750 for dual-plane Phase 5 executable generations
+	// (contribution compile/publish/bind/lifetime, generation-owned
+	// RequestCoordinator/AttemptCoordinator/max-active limiter + rater binding,
+	// control-plane executable readiness) merged onto main Phase 1–4 + reasoning.
+	// Post-merge measured non-test total is 63659; cap keeps ~91 lines of headroom.
+	// Prefer further decomposition over another raise.
+	{"internal/core", 63750},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -159,19 +169,18 @@ var lineBudgets = []struct {
 	// production authority_coord consumes Request/Attempt/Concurrency/Rater
 	// registrations with stable IDs (no production-request-%d generation).
 	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
-	// Raised from 5580 to 5750 for Phase 4.4 terminal-work processor ownership
-	// (ProductionOptions + Built + buildTerminalWorkRuntime). Measured ~5696;
-	// cap keeps ~54 lines of headroom.
-	// Raised from 5750 to 5850 for Phase 4.4 remediation (tick/renew defaults,
-	// TerminalWorkReadiness). Measured ~5801; cap keeps ~49 lines of headroom.
-	// Raised from 5850 to 6000 for Phase 4.5 (IntentService injection before
-	// executor, query/metrics ownership, terminal_recovery readiness source).
-	// Raised from 6000 to 6100 for Phase 4.5 composition
-	// (RequestRegistrations → AuthorityRequestEffectProvider merge). Measured ~6052.
-	// Raised from 6100 to 6150 for ProcessDue metrics observer adapter. Measured ~6105.
-	// Raised from 6250 to 6300 for Phase 5.5 executable readiness wiring.
-	// Raised from 6300 to 6400 for Phase 5 remediation (provider-removal
-	// validation + terminal pending-drain binding at composition root).
+	// Raised from 5580 to 5690 after merging reasoning-output-preservation into
+	// Phase 2 (post-merge measured 5586; ~100 lines headroom).
+	// Raised for dual-plane Phase 4.4–4.5 terminal-work processor ownership
+	// (ProductionOptions + Built + buildTerminalWorkRuntime, tick/renew defaults,
+	// TerminalWorkReadiness, IntentService injection, RequestRegistrations →
+	// AuthorityRequestEffectProvider merge, ProcessDue metrics observer). Combined
+	// with main reasoning wiring on merge into Phase 4: measured 6121;
+	// cap 6170 keeps ~49 lines of headroom.
+	// Raised from 6170 to 6400 for Phase 5 executable generation compile/publish/
+	// readiness plus Phase 5 remediation (provider-removal validation + terminal
+	// pending-drain binding at composition root). Post-merge measured non-test
+	// total is 6353; cap keeps ~47 lines of headroom.
 	{"internal/infra/runtimebundle", 6400},
 }
 
