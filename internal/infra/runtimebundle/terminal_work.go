@@ -3,9 +3,13 @@ package runtimebundle
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
@@ -42,6 +46,24 @@ type terminalWorkRuntime struct {
 	storeBacking string
 	clock        func() time.Time
 	prom         *metrics.TerminalWorkProm
+	snapshotPub  *snapshotgen.Publisher
+}
+
+func (rt *terminalWorkRuntime) bindSnapshotPublisher(pub *snapshotgen.Publisher) {
+	if rt == nil {
+		return
+	}
+	rt.snapshotPub = pub
+	if rt.Processor == nil || pub == nil {
+		return
+	}
+	rt.Processor.SetOnTerminalDone(func(rec terminalwork.WorkRecord) {
+		gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.GenerationID), 10, 64)
+		if err != nil || gid <= 0 {
+			return
+		}
+		pub.ClearPendingProvider(gid, rec.ProviderID)
+	})
 }
 
 type terminalWorkBuildInput struct {
@@ -57,6 +79,7 @@ type terminalWorkBuildInput struct {
 	Clock         func() time.Time
 	StoreBacking  string
 	Prom          *metrics.TerminalWorkProm
+	SnapshotPub   *snapshotgen.Publisher
 }
 
 func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle) (
@@ -186,6 +209,15 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 		RenewInterval:  renewInterval,
 		Clock:          clockFunc{now: clock},
 	}
+	if pub := in.SnapshotPub; pub != nil {
+		cfg.OnTerminalDone = func(rec terminalwork.WorkRecord) {
+			gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.GenerationID), 10, 64)
+			if err != nil || gid <= 0 {
+				return
+			}
+			pub.ClearPendingProvider(gid, rec.ProviderID)
+		}
+	}
 	if obs := newTerminalWorkProcessObserver(metricsObs, in.Prom); obs != nil {
 		cfg.Metrics = obs
 	}
@@ -207,6 +239,7 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 		storeBacking: backing,
 		clock:        clock,
 		prom:         in.Prom,
+		snapshotPub:  in.SnapshotPub,
 	}
 	if ready, ok := in.Store.(interface {
 		CheckReadiness(context.Context) error
@@ -236,6 +269,11 @@ func (rt *terminalWorkRuntime) Readiness(ctx context.Context) TerminalWorkReadin
 	snap := rt.Processor.Readiness()
 	out.Running = snap.Running
 	out.UnresolvedProviderIDs = append([]string(nil), snap.UnresolvedProviderIDs...)
+	if rt.snapshotPub != nil {
+		for _, id := range rt.snapshotPub.UnresolvedProviderIDs() {
+			out.UnresolvedProviderIDs = appendUniqueString(out.UnresolvedProviderIDs, id)
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -386,6 +424,17 @@ func (b *Built) TerminalWorkReadiness(ctx context.Context) TerminalWorkReadiness
 		return out
 	}
 	return b.terminalWorkRT.Readiness(ctx)
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	if slices.Contains(values, value) {
+		return values
+	}
+	return append(values, value)
 }
 
 // PublishTerminalWorkMetrics pushes MetricsObserver snapshot gauges onto the

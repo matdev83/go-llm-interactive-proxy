@@ -37,7 +37,8 @@ func (h *leaseHeartbeat) Degraded() bool {
 }
 
 func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthorityState) {
-	if e == nil || st == nil || e.RequestCoordinator == nil || e.RequestCoordinator.Concurrency == nil {
+	coord := e.requestCoordinatorFor(st)
+	if e == nil || st == nil || coord == nil || coord.Concurrency == nil {
 		return
 	}
 	targets := append([]leaseRenewTarget(nil), st.LeaseTargets...)
@@ -130,7 +131,6 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 	hb := newLeaseHeartbeat()
 	st.heartbeat = hb
-	coord := e.RequestCoordinator
 	reqID := st.RequestID
 	cleanupTimeout := coord.CleanupTimeout
 	if cleanupTimeout <= 0 {

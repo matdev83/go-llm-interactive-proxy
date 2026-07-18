@@ -26,6 +26,9 @@ type Config struct {
 	RenewPulse     <-chan struct{}
 	NewTicker      func(time.Duration) Ticker
 	Metrics        ProcessMetrics
+	// OnTerminalDone is invoked after successful Complete or Quarantine so
+	// generation pending-provider refs can be cleared (requirement 9.8).
+	OnTerminalDone func(rec terminalwork.WorkRecord)
 }
 
 // Processor claims due work, invokes providers once per claim, and completes/retries/quarantines.
@@ -215,6 +218,7 @@ func (p *Processor) processOne(ctx context.Context, rec terminalwork.WorkRecord)
 			return err
 		}
 		p.observeTransition(string(sdk.WorkStateCompleted), kind, providerID)
+		p.notifyTerminalDone(rec)
 		return nil
 	}
 	if IsPermanent(invokeErr) {
@@ -232,6 +236,7 @@ func (p *Processor) processOne(ctx context.Context, rec terminalwork.WorkRecord)
 		}
 		p.observeTransition(TransitionValidationFailed, kind, providerID)
 		p.observeTransition(string(sdk.WorkStateQuarantined), kind, providerID)
+		p.notifyTerminalDone(rec)
 		return nil
 	}
 	if err := p.store.ScheduleRetry(storeCtx, terminalwork.ScheduleRetryCommand{
@@ -536,6 +541,21 @@ func (p *Processor) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (p *Processor) notifyTerminalDone(rec terminalwork.WorkRecord) {
+	if p == nil || p.cfg.OnTerminalDone == nil {
+		return
+	}
+	p.cfg.OnTerminalDone(rec)
+}
+
+// SetOnTerminalDone wires generation pending-drain callbacks after composition.
+func (p *Processor) SetOnTerminalDone(fn func(rec terminalwork.WorkRecord)) {
+	if p == nil {
+		return
+	}
+	p.cfg.OnTerminalDone = fn
 }
 
 func (p *Processor) noteUnresolved(providerID string) {

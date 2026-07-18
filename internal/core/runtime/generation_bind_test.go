@@ -12,6 +12,7 @@ import (
 func TestApplyGenerationBoundVersion_PrefersPublishedGeneration(t *testing.T) {
 	t.Parallel()
 	pub := snapshotgen.NewPublisher()
+	//nolint:staticcheck // SA1019: metadata Publish remains the compatibility path under test
 	pub.Publish(snapshotgen.RuntimeGeneration{
 		State: economics.SnapshotReady,
 		Usage: economics.Snapshot[economics.PolicyRulesView]{

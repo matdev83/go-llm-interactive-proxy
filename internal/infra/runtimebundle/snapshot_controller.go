@@ -21,10 +21,13 @@ const DefaultSnapshotRefreshTimeout = 5 * time.Second
 //
 // Refresh is an explicit publication API: callers invoke it after Build and on
 // enterprise source updates. No unmanaged background polling is started.
+// Metadata planes remain additive compatibility/source-fetch views; enforcement
+// objects are republished via PublishExecutableFromProduction (D10, task 5.5).
 type SnapshotController struct {
 	refreshMu sync.Mutex
 	pub       *snapshotgen.Publisher
 	cfg       *config.Config
+	prod      ProductionOptions
 	clock     func() time.Time
 	timeout   time.Duration
 
@@ -41,6 +44,7 @@ func newSnapshotController(cfg *config.Config, testing TestingOptions, prod Prod
 	return &SnapshotController{
 		pub:         snapshotgen.NewPublisher(),
 		cfg:         cfg,
+		prod:        prod,
 		clock:       clock,
 		timeout:     DefaultSnapshotRefreshTimeout,
 		usage:       prod.UsageSnapshotSource,
@@ -128,7 +132,13 @@ func (c *SnapshotController) Refresh(ctx context.Context) error {
 	if len(errs) > 0 && gen.State == economics.SnapshotReady {
 		gen.State = economics.SnapshotDegraded
 	}
+	//nolint:staticcheck // SA1019: metadata Publish keeps source-fetch compatibility views (req 11.2)
 	c.pub.Publish(gen)
+	// Source-fetch failures leave the prior executable generation active (9.6)
+	// and report degraded metadata planes separately from executable readiness.
+	if len(errs) == 0 {
+		_, _ = PublishExecutableFromProduction(c.pub, c.cfg, c.prod, now)
+	}
 	return errors.Join(errs...)
 }
 

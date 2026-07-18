@@ -227,7 +227,7 @@
 
 ## Phase 5 — Publish Executable Immutable Generations
 
-- [ ] 5.1 Add red generation behavior and lifetime tests
+- [x] 5.1 Add red generation behavior and lifetime tests
   - Prove current metadata-only refresh cannot be accepted as behavioral enforcement.
   - Define tests for five-to-two concurrency refresh, rating change, failed refresh, in-flight binding, settlement versions, pending-work provider resolution, and incompatible provider removal.
   - **Deliverable:** executable generation and lifetime expectations fail before new composition exists.
@@ -237,7 +237,7 @@
   - _Depends: Phase 4_
   - _Validation: focused snapshot generation and end-to-end behavior tests_
 
-- [ ] 5.2 Add public executable generation contributions and static compilation
+- [x] 5.2 Add public executable generation contributions and static compilation
   - Add public generation contribution/source contracts carrying descriptor-bound authorities and customer/operator raters.
   - Compile static YAML authority, concurrency, and reference rating configuration into the same immutable contribution shape.
   - Validate all registrations, versions, readiness, and required components before publication.
@@ -248,7 +248,7 @@
   - _Depends: 2.2–2.5, 5.1_
   - _Validation: public source/registration tests, static compiler tests, and separate enterprise-module fixture_
 
-- [ ] 5.3 Build, validate, publish, and bind executable generations
+- [x] 5.3 Build, validate, publish, and bind executable generations
   - Construct immutable request/attempt coordinators, concurrency registration, and raters in each generation.
   - Publish only complete required generations; retain the previous executable generation on refresh failure.
   - Bind one generation after trusted scope and before request authority, and use it for attempts and terminal work.
@@ -259,7 +259,7 @@
   - _Depends: 5.2_
   - _Validation: five-to-two, rating-change, failure-preservation, request/attempt/settlement binding tests_
 
-- [ ] 5.4 Preserve old-generation and pending-handle compatibility
+- [x] 5.4 Preserve old-generation and pending-handle compatibility
   - Keep live generation references reachable and route pending work through stable provider IDs.
   - Require same-ID providers to settle historical handles; use a new ID for incompatible replacement and block removal while pending work references the old ID.
   - Expose unresolved provider-generation references in readiness and queries.
@@ -270,7 +270,7 @@
   - _Depends: 4.4, 5.3_
   - _Validation: old-provider drain, incompatible replacement, restart, missing provider, and readiness tests_
 
-- [ ] 5.5 Migrate snapshot APIs and expose accurate generation readiness
+- [x] 5.5 Migrate snapshot APIs and expose accurate generation readiness
   - Deprecate metadata-only policy publication as an enforcement path while preserving additive compatibility views.
   - Report executable generation ID/version/state separately from source fetch state and terminal provider-resolution state.
   - Update public facade/docs/examples without exposing internal coordinator types.
