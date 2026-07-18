@@ -257,9 +257,7 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 				if err := e.markLeaseSetUncertain(parent, st); err != nil {
 					st.LeaseSetUncertainErr = err
 				}
-				if err := e.acceptLeaseSetReleaseIntent(parent, st, "renew_fail_closed"); err != nil {
-					st.LeaseSetReleaseAcceptErr = err
-				}
+				_ = e.acceptLeaseSetReleaseIntent(parent, st, "renew_fail_closed")
 				if st.cancelRequest != nil {
 					st.cancelRequest()
 				}

@@ -62,6 +62,7 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
 | Independent review: evidence claimed readiness while gates `_pending_` | This document rewritten with actual EXIT codes; unconditional `EconomicControlReady` withdrawn |
 | Earlier cert: pooled hang under ambient direct DSN | `EvaluateDualPlanePostgresGate` always requires pooler attestation; Makefile pooled target fails closed without `=1` |
 | Earlier cert: ledgerstore `ListByAttempt` length drift | Unique IDs + DELETE cleanup in ledgerstore Postgres integration test |
+| Linux strict race run `29636161699` FAIL | Distinct race (2 reports, same address): heartbeat wrote `LeaseSetReleaseAcceptErr` while `TestPhase6Remediation_FailClosedRecordsAcceptFailure` polled it before `ctx.Done`. Ownership: heartbeat records accept err then `cancelRequest`; observers must wait on cancel. Fix: `awaitFailClosedCancel` + focused regression; drop redundant heartbeat reassignment. Local: focused Phase6 + `make quality-checks` + `make qa` PASS (Postgres env cleared). Linux race re-dispatch pending. |
 
 ## CI configuration (authoritative for deferred gates)
 
@@ -76,7 +77,7 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
   - `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`
   - runs `make test-authority-postgres` (migrations + direct + pooled, including workstore under `-run 'Pooled'`)
 
-**This branch:** PR #181 open. QA runs: `29634914224` FAIL (migrate 42P07); `29635473410` FAIL (pooled mutex deadlock after migrate green). Further fix pushed — re-check pending.
+**This branch:** PR #181 open. QA runs: `29634914224` FAIL (migrate 42P07); `29635473410` FAIL (pooled mutex deadlock); later QA checks SUCCESS on head before race fix push. Race nightly `29636161699` FAIL (fail-closed accept-err poll race) — remediation pushed; re-dispatch pending archive.
 
 ### Linux strict race + fuzz (nightly)
 
