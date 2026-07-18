@@ -90,21 +90,24 @@ func TestPhase55_DocDistinguishesExecutableFromMetadataPublication(t *testing.T)
 
 func assertLipruntimeImportsPublicOnly(t *testing.T) {
 	t.Helper()
-	fset := token.NewFileSet()
-	//nolint:staticcheck // SA1019: intentional lightweight AST scan of one package dir
-	pkgs, err := parser.ParseDir(fset, ".", func(info os.FileInfo) bool {
-		return !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			for _, imp := range f.Imports {
-				path := strings.Trim(imp.Path.Value, `"`)
-				if strings.Contains(path, "authoritycoord") || strings.Contains(path, "internal/core/runtime") {
-					t.Fatalf("lipruntime must not import %s", path)
-				}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, imp := range f.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			if strings.Contains(path, "authoritycoord") || strings.Contains(path, "internal/core/runtime") {
+				t.Fatalf("lipruntime must not import %s", path)
 			}
 		}
 	}

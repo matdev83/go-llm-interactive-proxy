@@ -42,13 +42,10 @@ func (p *Publisher) Current() *RuntimeGeneration {
 	return p.active.Load()
 }
 
-// Publish stores gen as the active metadata compatibility view with a new
-// monotonic ID. Callers must treat returned generations as immutable.
-//
-// Deprecated: metadata-only publication is not an enforcement path (D10).
-// Use PublishExecutable for admission/settlement evaluator objects. Publish
-// remains for additive source-fetch compatibility views (requirement 11.2).
-func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
+// PublishMetadata stores gen as the active metadata compatibility view with a
+// new monotonic ID (requirement 11.2). Callers must treat returned generations
+// as immutable. Enforcement uses PublishExecutable (D10).
+func (p *Publisher) PublishMetadata(gen RuntimeGeneration) *RuntimeGeneration {
 	if p == nil {
 		return nil
 	}
@@ -62,6 +59,16 @@ func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
 	cp := gen
 	p.active.Store(&cp)
 	return &cp
+}
+
+// Publish stores gen as the active metadata compatibility view with a new
+// monotonic ID. Callers must treat returned generations as immutable.
+//
+// Deprecated: metadata-only publication is not an enforcement path (D10).
+// Use PublishExecutable for admission/settlement evaluator objects, or
+// PublishMetadata for additive source-fetch compatibility views (requirement 11.2).
+func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
+	return p.PublishMetadata(gen)
 }
 
 // MarkUnusable updates readiness of the active generation without replacing

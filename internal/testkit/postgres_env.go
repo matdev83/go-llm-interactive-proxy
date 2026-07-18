@@ -118,9 +118,12 @@ type DualPlanePostgresGate struct {
 }
 
 // EvaluateDualPlanePostgresGate looks up admin/runtime DSNs without logging them.
+// Explicit LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 attestation is always required
+// before pooled helpers may proceed — ambient admin/runtime DSNs alone are not
+// enough (make qa must skip, not hang, against a direct endpoint).
 func EvaluateDualPlanePostgresGate() DualPlanePostgresGate {
 	admin, runtime, err := LookupDualPlanePostgresDSNs()
-	if err == nil && PostgresPoolerRequired() && !envTruthy(LIPTestPostgresRuntimeIsPooler) {
+	if err == nil && !envTruthy(LIPTestPostgresRuntimeIsPooler) {
 		err = fmt.Errorf("pooled PostgreSQL gate requires explicit runtime topology attestation: set %s=1", LIPTestPostgresRuntimeIsPooler)
 	}
 	return DualPlanePostgresGate{
@@ -132,8 +135,10 @@ func EvaluateDualPlanePostgresGate() DualPlanePostgresGate {
 }
 
 // SkipUnlessPostgresPooled skips (or fails closed) unless both admin and runtime
-// DSNs are configured. When LIP_REQUIRE_POSTGRES_POOLER is set, missing endpoints
-// fail with an actionable message and never infer/rewrite hostnames.
+// DSNs are configured and the runtime endpoint is explicitly attested as a
+// transaction pooler. When LIP_REQUIRE_POSTGRES_POOLER is set, missing endpoints
+// or missing attestation fail with an actionable message and never
+// infer/rewrite hostnames.
 func SkipUnlessPostgresPooled(t *testing.T) (adminDSN, runtimeDSN string) {
 	t.Helper()
 	gate := EvaluateDualPlanePostgresGate()

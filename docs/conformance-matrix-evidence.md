@@ -14,6 +14,7 @@ Instead of one test function per cell, the conformance package **iterates `AllCe
 | **Tool-call repair** | `ToolsViable` | `TestConformance_ToolCallRepairCanonicalMatrix` uses truncated-args refbackends ([`NewToolCallRepairRefBackend`](../internal/testkit/conformance/tools_repair_refbackend.go)) and asserts closed repaired args; gemini cells skip (wire materializes args as objects) |
 | **Multimodal** | `MultimodalViable` | `TestConformance_Multimodal_imageInUpstream`, `TestConformance_Multimodal_pdfInUpstream` in [`conformance_multimodal_test.go`](../internal/testkit/conformance/conformance_multimodal_test.go) — **excludes** FE×`acp` |
 | **Multimodal (credential pool)** | `MultimodalViable` | `TestConformance_CredentialPool_Multimodal_*` in [`backend_credentials_test.go`](../internal/testkit/conformance/backend_credentials_test.go) |
+| **Dual-plane economic** | `DualPlaneEconomicCells()` (FE × stream/nonstream/protocol_error/cancel/encoding_failure) | `TestDualPlaneEconomic_*` in [`dual_plane_economic_conformance_test.go`](../internal/testkit/conformance/dual_plane_economic_conformance_test.go); customer FE quantity equivalence in [`phase71_cross_protocol_economic_conformance_red_test.go`](../internal/core/runtime/phase71_cross_protocol_economic_conformance_red_test.go) |
 
 ## Explicit exceptions (no extra tests required beyond matrix meta)
 

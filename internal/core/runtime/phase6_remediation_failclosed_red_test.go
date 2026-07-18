@@ -93,6 +93,19 @@ func (s *capturingIntentStore) PromotePending(context.Context, terminalwork.Prom
 	return nil
 }
 
+// awaitFailClosedCancel waits until the lease heartbeat cancels the request
+// context. Heartbeat writes LeaseSetReleaseAcceptErr / intent / uncertain mark
+// before cancelRequest, so receiving on ctx.Done establishes happens-before for
+// those fields without sleeping on unsynchronized spies.
+func awaitFailClosedCancel(ctx context.Context, t *testing.T) {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for fail-closed cancel")
+	}
+}
+
 func TestPhase6Remediation_FailClosedMarksUncertainAcceptsIntentThenCancels(t *testing.T) {
 	t.Parallel()
 	conc := &remediatingSetConc{}
@@ -113,13 +126,7 @@ func TestPhase6Remediation_FailClosedMarksUncertainAcceptsIntentThenCancels(t *t
 		t.Fatal(err)
 	}
 	st := requestAuthorityFrom(ctx)
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if ctx.Err() != nil && conc.uncertain.Load() > 0 && len(store.appended) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	awaitFailClosedCancel(ctx, t)
 	if conc.uncertain.Load() < 1 {
 		t.Fatal("must MarkLeaseSetUncertain before cancel")
 	}
@@ -156,18 +163,40 @@ func TestPhase6Remediation_FailClosedRecordsAcceptFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := requestAuthorityFrom(ctx)
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if st.LeaseSetReleaseAcceptErr != nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	awaitFailClosedCancel(ctx, t)
 	if st.LeaseSetReleaseAcceptErr == nil {
 		t.Fatal("accept failure must be recorded, never ignored")
 	}
 	if ctx.Err() == nil {
 		t.Fatal("must still cancel on fail-closed")
+	}
+}
+
+func TestPhase6Remediation_FailClosedAcceptErrObservableOnlyAfterCancel(t *testing.T) {
+	t.Parallel()
+	conc := &remediatingSetConc{}
+	conc.failRenew.Store(true)
+	store := &capturingIntentStore{fail: errors.New("intent store down")}
+	intents := terminalworkapp.NewIntentService(store, terminalworkapp.IntentServiceConfig{})
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency: conc, CleanupTimeout: time.Second,
+			},
+			TerminalWork: intents,
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-accept-hb", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := requestAuthorityFrom(ctx)
+	awaitFailClosedCancel(ctx, t)
+	if st.LeaseSetReleaseAcceptErr == nil {
+		t.Fatal("accept failure must be recorded before cancelRequest")
+	}
+	if conc.uncertain.Load() < 1 {
+		t.Fatal("uncertain mark must precede cancel")
 	}
 }
 

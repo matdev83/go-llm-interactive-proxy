@@ -335,7 +335,7 @@
 
 ## Phase 7 — Certify Production Readiness
 
-- [ ] 7.1 Build the cross-protocol economic conformance matrix
+- [x] 7.1 Build the cross-protocol economic conformance matrix
   - Prove equivalent frontend-ingress and final frontend-egress customer semantics for OpenAI Responses, OpenAI Chat, Anthropic Messages, Gemini, and every supported operation with legal canonical representation.
   - Cover streaming and non-streaming collection, protocol errors, cancellation, and frontend encoding failure.
   - **Deliverable:** protocol adapters cannot change customer economic boundary meaning.
@@ -345,7 +345,7 @@
   - _Depends: Phases 1–6_
   - _Validation: `make parity-checks` plus dedicated dual-plane conformance rows_
 
-- [ ] 7.2 Add dedicated race, fuzz, state-machine, and fault-injection gates
+- [x] 7.2 Add dedicated race, fuzz, state-machine, and fault-injection gates
   - Add strict race suites for terminal owners, accumulators, workers, stores, generation publication, and heartbeats.
   - Add fuzz/model targets for facts/corrections, external results, money/currency, work transitions, and lease sets.
   - Add deterministic fault campaigns for panic, timeout, malformed result, outage, ambiguous success, process crash, restart, and partial completion.
@@ -356,7 +356,7 @@
   - _Depends: Phases 1–6_
   - _Validation: targeted fuzz/model commands, Linux strict race, fault suites, and goleak_
 
-- [ ] 7.3 Add performance budgets, operational metrics, and readiness alerts
+- [x] 7.3 Add performance budgets, operational metrics, and readiness alerts
   - Benchmark disabled/no-feature path, independent principals, hot identities, fact append/replay, terminal-work claims/dispatch, generation refresh, and five-slot contention.
   - Add bounded metrics and alert recommendations for authority/rating latency, terminal backlog/age, quarantine, generation staleness, lease uncertainty, renewal failures, and store contention.
   - **Deliverable:** overhead and degraded economic-control posture are measurable before rollout.
@@ -366,7 +366,7 @@
   - _Depends: Phases 1–6_
   - _Validation: focused metrics/readiness tests and repeated benchmarks suitable for `benchstat`_
 
-- [ ] 7.4 Complete migration, rollout, rollback, and open-core verification
+- [x] 7.4 Complete migration, rollout, rollback, and open-core verification
   - Add direct/admin migrations, pooled runtime schema verification, identity-version compatibility, legacy projections, provider-drain checks, and rollback that continues terminal-work draining.
   - Update examples and operator documentation for `EconomicControlReady`, local versus distributed posture, migration ordering, stop conditions, and non-goals.
   - Re-run the separate enterprise module using public contracts only and verify no proprietary financial logic enters OSS.
@@ -377,7 +377,7 @@
   - _Depends: Phases 3–6_
   - _Validation: migration/direct/pooled gates, enterprise fixture, architecture guards, check-config, and rollout rehearsal_
 
-- [ ] 7.5 Run the clean-environment certification matrix and archive evidence
+- [x] 7.5 Run the clean-environment certification matrix and archive evidence
   - Run focused phase suites, `make quality-checks`, `make test`, `make parity-checks`, Linux strict race, required PostgreSQL migration/direct/pooled gates, dedicated fuzz smoke, enterprise-module compile/run, benchmarks, and `make qa` from a clean environment.
   - Record exact commands, environment posture, failures/remediations, and unresolved limitations; do not claim commercial billing readiness.
   - **Deliverable:** all mandatory gates pass and the archived implementation spec can truthfully mark the OSS foundation `EconomicControlReady`.

@@ -236,7 +236,7 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 		t.Fatalf("settle: %v", err)
 	}
 	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
-		t.Fatalf("settle again: %v", err)
+		t.Fatalf("settle replay: %v", err)
 	}
 
 	if prov.settleCalls.Load() != 1 {

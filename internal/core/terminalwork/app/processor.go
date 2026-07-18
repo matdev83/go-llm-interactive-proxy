@@ -388,11 +388,9 @@ func (p *Processor) providerSemaphore(providerID string) chan struct{} {
 	}
 	if v, ok := p.providerSems.Load(key); ok {
 		sem, ok := v.(chan struct{})
-		if !ok {
-			sem = make(chan struct{}, p.cfg.PerProviderMax)
-			p.providerSems.Store(key, sem)
+		if ok {
+			return sem
 		}
-		return sem
 	}
 	ch := make(chan struct{}, p.cfg.PerProviderMax)
 	actual, _ := p.providerSems.LoadOrStore(key, ch)
