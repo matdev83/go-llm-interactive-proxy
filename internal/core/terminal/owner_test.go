@@ -90,7 +90,6 @@ func TestOwner_Claim_CommandTransitionMatrix(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			scope := sdk.ScopeRequest
@@ -123,7 +122,6 @@ func TestOwner_Claim_CommandTransitionMatrix(t *testing.T) {
 
 	// Exhaustive: every request-legal command wins from open (scope matrix covers mismatches).
 	for _, cmd := range sdk.AllCommands() {
-		cmd := cmd
 		if !cmd.AllowsScope(sdk.ScopeRequest) {
 			continue
 		}
@@ -185,7 +183,6 @@ func TestOwner_Advance_LegalMatrix(t *testing.T) {
 		{sdk.StateTerminalizing, sdk.StateReleased}, // skip work_pending/settled
 	}
 	for _, tc := range illegal {
-		tc := tc
 		t.Run(string(tc.from)+"->"+string(tc.to), func(t *testing.T) {
 			t.Parallel()
 			own := ownerAt(t, tc.from)
@@ -300,7 +297,7 @@ func TestOwner_ConflictingClaimObservesWinner(t *testing.T) {
 func TestOwner_ConcurrentClaim_RecvCloseRace(t *testing.T) {
 	t.Parallel()
 	const n = 32
-	for i := 0; i < n; i++ {
+	for i := range n {
 		o := coreterm.NewOwner(sdk.ScopeRequest)
 		start := make(chan struct{})
 		var wg sync.WaitGroup

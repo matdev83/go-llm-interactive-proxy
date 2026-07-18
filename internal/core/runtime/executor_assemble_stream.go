@@ -45,6 +45,12 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		attemptTerm:   newStreamTerminal(sdkterminal.ScopeAttempt),
 	}
 	rs.storeInner(out.stream)
+	if err := rs.openFinalStreamObservation(prep.ctx); err != nil {
+		if out.stream != nil {
+			_ = out.stream.Close()
+		}
+		return nil, err
+	}
 	if e.shouldWrapHiddenInterleavedThinker(out.cand) {
 		rs.holdALegEnd = true
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)

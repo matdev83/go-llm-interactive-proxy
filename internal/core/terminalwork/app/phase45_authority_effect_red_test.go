@@ -27,6 +27,7 @@ type recordingAuthority struct {
 func (p *recordingAuthority) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (p *recordingAuthority) SettleRequest(_ context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	p.settleCalls.Add(1)
 	p.lastHandles.Store(append([]string(nil), in.Handles...))
@@ -35,6 +36,7 @@ func (p *recordingAuthority) SettleRequest(_ context.Context, in authority.Reque
 	}
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
+
 func (p *recordingAuthority) ReleaseRequest(_ context.Context, in authority.RequestRelease) error {
 	p.releaseCalls.Add(1)
 	p.lastHandles.Store(append([]string(nil), in.Handles...))

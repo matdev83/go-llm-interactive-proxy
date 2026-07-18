@@ -17,7 +17,7 @@ func TestPhase45_TerminalWorkPromProviderLabelBoundedCardinality(t *testing.T) {
 		t.Fatal("expected TerminalWorkProm")
 	}
 	secret := "SECRET_PROVIDER_TOKEN_xyz"
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		m.ObserveTransition("pending", "settle_request_provider", fmt.Sprintf("hostile-%d-%s", i, secret))
 	}
 	families, err := reg.Gather()

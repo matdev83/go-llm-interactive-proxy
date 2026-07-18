@@ -231,7 +231,8 @@ func TestPhase34_MigrationNameRegistered(t *testing.T) {
 func runFactIdentityRace(t *testing.T, store interface {
 	Append(context.Context, metering.Fact) error
 	List(context.Context, metering.Query) (metering.Page, error)
-}, streamID, factID string) {
+}, streamID, factID string,
+) {
 	t.Helper()
 	ctx := context.Background()
 	const workers = 8

@@ -30,7 +30,6 @@ func TestCommand_AllowedScopes_Exhaustive(t *testing.T) {
 	}
 
 	for _, cmd := range terminal.AllCommands() {
-		cmd := cmd
 		t.Run(string(cmd), func(t *testing.T) {
 			t.Parallel()
 			scopes := cmd.AllowedScopes()

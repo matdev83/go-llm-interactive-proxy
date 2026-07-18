@@ -21,9 +21,11 @@ func (s stubReq) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (s stubReq) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (s stubReq) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }

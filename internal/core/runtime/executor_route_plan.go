@@ -27,6 +27,7 @@ type routePlanState struct {
 	lastTransportReject    lipapi.TransportNegotiationResult
 	contextLimitExhaustion bool
 	lastParallelFailure    error
+	transformExcludes      transformExcludeTracker
 }
 
 // buildRoutePlan parses the route selector, applies model-only defaulting, and

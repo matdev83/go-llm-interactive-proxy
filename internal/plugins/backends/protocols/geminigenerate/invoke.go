@@ -221,6 +221,9 @@ func userPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
 func assistantPartsToGenaiParts(parts []lipapi.Part) ([]*genai.Part, error) {
 	out := make([]*genai.Part, 0, len(parts))
 	for _, p := range parts {
+		if p.Kind == lipapi.PartReasoning {
+			return nil, fmt.Errorf("gemini: reasoning replay unsupported (capability reasoning_replay)")
+		}
 		if p.Kind != lipapi.PartText {
 			return nil, fmt.Errorf("gemini: assistant message may only contain text parts in this adapter")
 		}

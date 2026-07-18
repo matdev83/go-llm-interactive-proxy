@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	completion "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
@@ -83,9 +84,6 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 		return s.handleGatedPath(ctx, gates, ev, pm)
 	}
 
-	if lipapi.OutputCommitted(ev) {
-		s.markOutputCommitted(ev)
-	}
 	s.accounting.observeClientEvent(s.now(), ev)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
@@ -93,21 +91,8 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	if ev.Kind == lipapi.EventResponseFinished {
 		return s.handleResponseFinishedPath(ctx, ev, pm)
 	}
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
-			return lipapi.Event{}, false, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
-	// Remember only after mandatory recording succeeds (or is best-effort), so
-	// undelivered client output is not settled into customer evidence.
-	s.rememberClientEvent(ev)
-	s.commitAffinityIfOutput(ctx, ev)
-	s.emitTrafficPTC(ctx, ev, pm)
-	return ev, false, nil
+	out, err := s.emitClientFacingObserved(ctx, ev, pm)
+	return out, false, err
 }
 
 // handleToolEventPath runs tool policies, tool reactors, and merges a
@@ -175,26 +160,30 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		}
 	}
 	out = s.emitGateDrained(ctx, out)
-	s.markOutputCommitted(out)
 	s.accounting.observeClientEvent(s.now(), out)
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
-	if !finishPreflighted {
-		if err := s.beforeEmitClientFacing(ctx, out); err != nil {
-			if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-				s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
+	if finishPreflighted {
+		// Evidence already recorded in mandatoryClientFacingPreflight; still
+		// observe + remember/emit without re-running beforeEmit.
+		if s.executor != nil {
+			if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, out, s.isCommitted()); err != nil {
+				s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
+				s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 				return lipapi.Event{}, false, err
 			}
-			if s.executor != nil && s.executor.Log != nil {
-				s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-			}
 		}
+		s.rememberClientEvent(out)
+		if out.Kind == lipapi.EventResponseFinished {
+			s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
+		}
+		s.commitAffinityIfOutput(ctx, out)
+		s.emitTrafficPTC(ctx, out, pm)
+		return out, false, nil
 	}
-	s.rememberClientEvent(out)
-	s.commitAffinityIfOutput(ctx, out)
-	s.emitTrafficPTC(ctx, out, pm)
-	return out, false, nil
+	out, err := s.emitClientFacingObserved(ctx, out, pm)
+	return out, false, err
 }
 
 // handleResponseFinishedPath finalizes the response_finished branch: token
@@ -226,8 +215,17 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 	s.markFinished()
 	s.finishALegScope()
-	// Evidence already recorded in mandatoryClientFacingPreflight.
+	// Evidence already recorded in mandatoryClientFacingPreflight; still observe
+	// + remember/emit without re-running beforeEmit (NormalFinish already competed).
+	if s.executor != nil {
+		if obsErr := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, ev, s.isCommitted()); obsErr != nil {
+			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(obsErr), obsErr)
+			return lipapi.Event{}, false, obsErr
+		}
+	}
 	s.rememberClientEvent(ev)
+	s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
 	s.commitAffinityIfOutput(ctx, ev)
 	s.emitTrafficPTC(ctx, ev, pm)
 	return ev, false, nil
@@ -247,6 +245,7 @@ func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev
 		}
 		return nil
 	}
+	s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 	s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
 	return err
 }
@@ -303,7 +302,8 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
 				return lipapi.Event{}, nil
 			}
-			return ev, nil
+			pm, _ := s.recvHookMeta()
+			return s.emitClientFacingObserved(ctx, ev, pm)
 		}
 	}
 	if !s.isFinished() {
@@ -318,6 +318,7 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 	}
 	s.runStreamTerminal(ctx, sdkterminal.CommandEOF, func(cctx context.Context) error {
 		s.recordPartialTokenAccounting(cctx, "stream ended without response_finished", io.EOF)
+		s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 		s.markFinished()
 		return nil
 	})

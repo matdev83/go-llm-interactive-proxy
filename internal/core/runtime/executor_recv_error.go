@@ -12,6 +12,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -57,7 +58,7 @@ func cancellationAttemptReason(ctx context.Context, recvErr error) string {
 // or return the (event, err) pair to the client (false).
 func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err error, idleDeadline idleContextDeadline, ttftDeadline ttftContextDeadline) (lipapi.Event, bool, error) {
 	s.resetToolFinal()
-	if idleDeadline.expired(recvCtx, err) {
+	if idleDeadline.expired(recvCtx, err) && s.recoverPolicy != nil {
 		dec := s.recoverPolicy.DecideIdle(s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
@@ -77,19 +78,21 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			s.recoverDrain = append(s.recoverDrain, dec.Finish)
 			// Defer response_finished authority finalization to the recoverDrain drain path on the
 			// next Recv call, matching handleRecvEOF's single-owner invariant. Surface the head
-			// event (the warning when present) and keep the finish in recoverDrain; when the head is
-			// the finish itself, re-queue it and return a zero event so the next Recv call's drain
-			// path finalizes via finalizeResponseFinishedAuthority and emits the synthesized
-			// usage_delta (the client-reporting consistency fix). Return cont=false so Recv returns
-			// to the caller and re-enters at the recoverDrain drain check; a continue would skip
-			// that check and wrongly drive a replacement iteration.
+			// event (the warning when present) via emitClientFacingObserved and keep the finish in
+			// recoverDrain; when the head is the finish itself, re-queue it and return a zero event
+			// so the next Recv call's drain path finalizes via finalizeResponseFinishedAuthority and
+			// emits the synthesized usage_delta (the client-reporting consistency fix). Return
+			// cont=false so Recv returns to the caller and re-enters at the recoverDrain drain check;
+			// a continue would skip that check and wrongly drive a replacement iteration.
 			ev := s.recoverDrain[0]
 			s.recoverDrain = s.recoverDrain[1:]
 			if ev.Kind == lipapi.EventResponseFinished {
 				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
 				return lipapi.Event{}, false, nil
 			}
-			return ev, false, nil
+			pm, _ := s.recvHookMeta()
+			out, emitErr := s.emitClientFacingObserved(ctx, ev, pm)
+			return out, false, emitErr
 		}
 		if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
@@ -151,6 +154,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		s.runStreamTerminal(ctx, sdkterminal.CommandTimeout, func(cctx context.Context) error {
 			s.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
+			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 			s.markFinished()
 			return nil
 		})
@@ -190,6 +194,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
 			s.persistCancellationBilling(cctx, reason)
+			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 			s.markFinished()
 			return nil
 		})
@@ -224,6 +229,7 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		}
 		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
 			s.recordPartialTokenAccounting(cctx, attemptReasonDetail(surfErr), surfErr)
+			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 			s.markFinished()
 			return nil
 		})

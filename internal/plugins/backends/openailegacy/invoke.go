@@ -144,13 +144,7 @@ func messageToChatParam(m lipapi.Message) (openai.ChatCompletionMessageParamUnio
 		return openai.ToolMessage(toolResultString(p), p.ToolCallID), nil
 
 	case lipapi.RoleAssistant:
-		if err := assertAssistantPartsSupported(m.Parts); err != nil {
-			return openai.ChatCompletionMessageParamUnion{}, err
-		}
-		if len(m.Parts) == 1 && m.Parts[0].Kind == lipapi.PartText {
-			return openai.AssistantMessage(m.Parts[0].Text), nil
-		}
-		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message must be plain text for this adapter")
+		return assistantChatMessage(m)
 
 	case lipapi.RoleUser, lipapi.RoleSystem:
 		return userOrSystemChatMessage(m)
@@ -160,13 +154,48 @@ func messageToChatParam(m lipapi.Message) (openai.ChatCompletionMessageParamUnio
 	}
 }
 
-func assertAssistantPartsSupported(parts []lipapi.Part) error {
-	for _, p := range parts {
-		if p.Kind != lipapi.PartText {
-			return fmt.Errorf("openailegacy: assistant message part kind %q not supported", p.Kind)
+func assistantChatMessage(m lipapi.Message) (openai.ChatCompletionMessageParamUnion, error) {
+	var textParts []string
+	var reasoningText string
+	for _, p := range m.Parts {
+		switch p.Kind {
+		case lipapi.PartText:
+			if strings.TrimSpace(p.Text) == "" {
+				continue
+			}
+			textParts = append(textParts, p.Text)
+		case lipapi.PartReasoning:
+			if p.Reasoning == nil {
+				return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: reasoning part missing payload")
+			}
+			d := lipapi.NormalizeReasoningDialect(p.Reasoning.Dialect)
+			if d != lipapi.ReasoningDialectOpenAIChatTextV1 {
+				return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: reasoning dialect %q not supported for chat replay (want %s)", d, lipapi.ReasoningDialectOpenAIChatTextV1)
+			}
+			if t := strings.TrimSpace(p.Reasoning.Text); t != "" {
+				if reasoningText != "" {
+					reasoningText += t
+				} else {
+					reasoningText = t
+				}
+			}
+		default:
+			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message part kind %q not supported", p.Kind)
 		}
 	}
-	return nil
+	if len(textParts) == 0 && reasoningText == "" {
+		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message is empty after trimming")
+	}
+	u := openai.AssistantMessage(strings.Join(textParts, ""))
+	if reasoningText != "" {
+		if u.OfAssistant == nil {
+			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message param missing")
+		}
+		u.OfAssistant.SetExtraFields(map[string]any{
+			"reasoning_content": reasoningText,
+		})
+	}
+	return u, nil
 }
 
 func userOrSystemChatMessage(m lipapi.Message) (openai.ChatCompletionMessageParamUnion, error) {

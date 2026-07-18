@@ -66,7 +66,11 @@ func (p *Publisher) LookupExecutable(id int64) *ExecutableGeneration {
 		return nil
 	}
 	if v, ok := p.retained.Load(id); ok {
-		return v.(*ExecutableGeneration)
+		gen, ok := v.(*ExecutableGeneration)
+		if !ok {
+			return nil
+		}
+		return gen
 	}
 	return nil
 }
@@ -79,7 +83,10 @@ func (p *Publisher) UnresolvedProviderIDs() []string {
 	seen := map[string]struct{}{}
 	var out []string
 	p.retained.Range(func(_, value any) bool {
-		gen := value.(*ExecutableGeneration)
+		gen, ok := value.(*ExecutableGeneration)
+		if !ok || gen == nil {
+			return true
+		}
 		for _, id := range gen.PendingProviderIDs() {
 			if _, ok := seen[id]; ok {
 				continue
@@ -106,7 +113,10 @@ func (p *Publisher) CanRemoveProvider(providerID string) bool {
 	}
 	ok := true
 	p.retained.Range(func(_, value any) bool {
-		gen := value.(*ExecutableGeneration)
+		gen, typed := value.(*ExecutableGeneration)
+		if !typed || gen == nil {
+			return true
+		}
 		if !gen.CanRemoveProvider(providerID) {
 			ok = false
 			return false

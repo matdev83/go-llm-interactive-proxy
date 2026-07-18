@@ -54,6 +54,7 @@ func TestPhase34_Postgres_VerifySchemaV2(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	ensureDirectJournalSchema(t, dsn)
 	bunDB := testkit.OpenPostgresBunForTest(t, dsn, 2)
+	t.Cleanup(func() { _ = bunDB.Close() })
 	if err := journalstore.VerifySchema(context.Background(), bunDB); err != nil {
 		t.Fatalf("VerifySchema V2: %v", err)
 	}
@@ -61,8 +62,7 @@ func TestPhase34_Postgres_VerifySchemaV2(t *testing.T) {
 
 func TestPhase34_PostgresPooled_VerifySchemaFailsWhenV2IndexMissing(t *testing.T) {
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
-	pooledJournalTestMu.Lock()
-	t.Cleanup(pooledJournalTestMu.Unlock)
+	pooledJournalTestMu.Lock(t)
 	ensurePooledJournalSchema(t, adminDSN)
 	runtime := sharedPooledJournalRuntime(t, runtimeDSN)
 	admin := testkit.OpenPostgresBunForTest(t, adminDSN, 2)

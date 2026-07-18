@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -35,6 +36,47 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		return lipapi.Event{}, io.EOF
 	}
 	ctx = s.recvExecContext(ctx)
+	if err := ctx.Err(); err != nil {
+		if s.isFinished() {
+			return lipapi.Event{}, err
+		}
+		if s.loadInner() != nil {
+			ev, _, herr := s.handleRecvError(ctx, ctx, err, idleContextDeadline{}, ttftContextDeadline{})
+			if herr != nil {
+				return ev, herr
+			}
+			return lipapi.Event{}, err
+		}
+		if !s.authority.Settled() {
+			s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
+		}
+		reason := cancellationAttemptReason(ctx, err)
+		if s.executor != nil {
+			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
+				ALegID:    s.aLegID,
+				BLeg:      s.bleg,
+				Cand:      s.cand,
+				Outcome:   lipapi.AttemptCancelled,
+				Reason:    reason,
+				DetailErr: err,
+			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
+		}
+		cmd := sdkterminal.CommandCancel
+		if errors.Is(err, context.DeadlineExceeded) {
+			cmd = sdkterminal.CommandTimeout
+		}
+		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			s.persistCancellationBilling(cctx, reason)
+			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
+		s.finishALegScope()
+		return lipapi.Event{}, err
+	}
 	if len(s.recoverDrain) > 0 {
 		ev := s.recoverDrain[0]
 		s.recoverDrain = s.recoverDrain[1:]
@@ -58,7 +100,8 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			s.markFinished()
 			s.finishALegScope()
 		}
-		return ev, nil
+		pm, _ := s.recvHookMeta()
+		return s.emitClientFacingObserved(ctx, ev, pm)
 	}
 	for {
 		if ev, ok := s.popToolFinalDrain(); ok {
@@ -94,22 +137,9 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				}
 			}
 			ev = s.emitGateDrained(ctx, ev)
-			s.markOutputCommitted(ev)
 			s.accounting.observeClientEvent(s.now(), ev)
-			if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-				if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-					s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
-					return lipapi.Event{}, err
-				}
-				if s.executor != nil && s.executor.Log != nil {
-					s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-				}
-			}
-			s.rememberClientEvent(ev)
-			s.commitAffinityIfOutput(ctx, ev)
 			pm, _ := s.recvHookMeta()
-			s.emitTrafficPTC(ctx, ev, pm)
-			return ev, nil
+			return s.emitClientFacingObserved(ctx, ev, pm)
 		}
 		var inner lipapi.ManagedEventStream
 		for {
@@ -133,6 +163,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					s.resetAttemptTerminal()
 				}
 				s.runStreamTerminal(ctx, sdkterminal.CommandPartialError, func(cctx context.Context) error {
+					s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
 					s.markFinished()
 					return nil
 				})
@@ -186,6 +217,7 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				_ = s.takeAndNilInner()
 				s.runStreamTerminal(ctx, sdkterminal.CommandCancel, func(cctx context.Context) error {
 					s.persistCancellationBilling(cctx, "a-leg canceled")
+					s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
 					s.markFinished()
 					return nil
 				})
@@ -272,6 +304,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		affinityKey:              s.affinityKey,
 		affinitySet:              s.affinitySet,
 		isContextLimitExhaustion: &s.isContextLimitExhaustion,
+		transformExcludes:        &s.transformExcludes,
 		interleaved:              s.interleaved,
 		suppressThinker:          s.suppressThinker,
 		suppressVisibleMemo:      s.suppressVisibleMemo,
@@ -305,6 +338,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			return false, err
 		}
 	}
+	s.finishFinalStreamObservation(ctx, response.OutcomeReplaced)
 	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
@@ -318,10 +352,9 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	if s.executor != nil {
 		s.recoverPolicy = streamrecovery.NewPolicy(s.executor.StreamRecovery, s.now())
 	}
-	// The prior swallowed reservation was released before tryPlanOpenOnce so the
-	// replacement's authoritative admission did not overlap it on the live window.
-	// Reset swaps in the freshly opened reservation and clears the settled guard
-	// for the new attempt's independent settle/release lifecycle.
 	s.authority.Reset(out.authority, out.cand)
+	if err := s.openFinalStreamObservation(ctx); err != nil && !s.isCommitted() {
+		return false, err
+	}
 	return true, nil
 }
