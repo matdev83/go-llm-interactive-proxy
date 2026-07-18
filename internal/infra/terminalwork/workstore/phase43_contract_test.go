@@ -178,6 +178,7 @@ func withPhase43UniqueStoreIDs(a phase43Adapter) phase43Adapter {
 			return nil
 		}
 		return func(t *testing.T, storeID string) phase43Store {
+			t.Helper()
 			return open(t, resolve(storeID))
 		}
 	}
@@ -188,6 +189,7 @@ func withPhase43UniqueStoreIDs(a phase43Adapter) phase43Adapter {
 }
 
 func phase43IntentIdempotentAndConflict(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-intent")
 	rec := sampleRecord("w-1", "sk-1", "prov-a", sdk.WorkKindSettleRequestProvider)
@@ -213,6 +215,7 @@ func phase43IntentIdempotentAndConflict(t *testing.T, a phase43Adapter) {
 }
 
 func phase43IntentSurvivesRestart(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	if a.reopen == nil {
 		t.Skip("restart not supported")
 	}
@@ -237,6 +240,7 @@ func phase43IntentSurvivesRestart(t *testing.T, a phase43Adapter) {
 }
 
 func phase43StoreIDIsolation(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	aStore := a.open(t, "store-a")
 	rec := sampleRecord("w-a", "sk-a", "prov-a", sdk.WorkKindReleaseRequestProvider)
@@ -254,6 +258,7 @@ func phase43StoreIDIsolation(t *testing.T, a phase43Adapter) {
 }
 
 func phase43ClaimDueAndComplete(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-claim")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -296,6 +301,7 @@ func phase43ClaimDueAndComplete(t *testing.T, a phase43Adapter) {
 }
 
 func phase43ClaimRenewExtendsLease(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-renew")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -351,6 +357,7 @@ func phase43ClaimRenewExtendsLease(t *testing.T, a phase43Adapter) {
 }
 
 func phase43ClaimCommandValidation(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-claim-cmd")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -407,6 +414,7 @@ func phase43ClaimCommandValidation(t *testing.T, a phase43Adapter) {
 }
 
 func phase43RenewClaimErrorTaxonomy(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-renew-tax")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -478,6 +486,7 @@ func phase43RenewClaimErrorTaxonomy(t *testing.T, a phase43Adapter) {
 }
 
 func phase43PromotePendingReplayIdempotent(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-promote")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -501,6 +510,7 @@ func phase43PromotePendingReplayIdempotent(t *testing.T, a phase43Adapter) {
 }
 
 func phase43AppendIntentUniqueRace(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	storeID := "store-race"
 	base := a.open(t, storeID)
@@ -579,6 +589,7 @@ func isSQLiteBusy(err error) bool {
 }
 
 func phase43ClaimContentionTwoHandles(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	if a.openPeer == nil {
 		t.Skip("peer handle not supported")
 	}
@@ -617,6 +628,7 @@ func phase43ClaimContentionTwoHandles(t *testing.T, a phase43Adapter) {
 }
 
 func phase43RetryScheduleAndReclaim(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-retry")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -655,6 +667,7 @@ func phase43RetryScheduleAndReclaim(t *testing.T, a phase43Adapter) {
 }
 
 func phase43QuarantinePermanent(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-quarantine")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
@@ -682,6 +695,7 @@ func phase43QuarantinePermanent(t *testing.T, a phase43Adapter) {
 }
 
 func phase43BoundedQueryRejectsBroad(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-broad")
 	_, err := store.List(ctx, workstore.Query{Limit: 10})
@@ -691,6 +705,7 @@ func phase43BoundedQueryRejectsBroad(t *testing.T, a phase43Adapter) {
 }
 
 func phase43BoundedQueryByStateAndRequest(t *testing.T, a phase43Adapter) {
+	t.Helper()
 	ctx := context.Background()
 	store := a.open(t, "store-query")
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)

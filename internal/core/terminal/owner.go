@@ -73,15 +73,15 @@ func (o *Owner) Claim(cmd sdk.Command, snap AccumulatorSnapshot) Result {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	if o.claimed {
+		return o.observeLocked(cmd)
+	}
+
 	if err := cmd.Validate(); err != nil {
 		return Result{Won: false, State: o.state, Err: fmt.Errorf("%w: %v", sdk.ErrInvalid, err)}
 	}
 	if !cmd.AllowsScope(o.scope) {
 		return Result{Won: false, State: o.state, Err: sdk.ErrScopeMismatch}
-	}
-
-	if o.claimed {
-		return o.observeLocked(cmd)
 	}
 
 	if o.state != sdk.StateOpen {

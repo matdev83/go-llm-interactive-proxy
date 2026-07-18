@@ -90,7 +90,6 @@ func TestOwner_Claim_CommandTransitionMatrix(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			scope := sdk.ScopeRequest
@@ -123,7 +122,6 @@ func TestOwner_Claim_CommandTransitionMatrix(t *testing.T) {
 
 	// Exhaustive: every request-legal command wins from open (scope matrix covers mismatches).
 	for _, cmd := range sdk.AllCommands() {
-		cmd := cmd
 		if !cmd.AllowsScope(sdk.ScopeRequest) {
 			continue
 		}
@@ -185,7 +183,6 @@ func TestOwner_Advance_LegalMatrix(t *testing.T) {
 		{sdk.StateTerminalizing, sdk.StateReleased}, // skip work_pending/settled
 	}
 	for _, tc := range illegal {
-		tc := tc
 		t.Run(string(tc.from)+"->"+string(tc.to), func(t *testing.T) {
 			t.Parallel()
 			own := ownerAt(t, tc.from)
@@ -297,10 +294,29 @@ func TestOwner_ConflictingClaimObservesWinner(t *testing.T) {
 	}
 }
 
+func TestOwner_UnknownSecondCommandObservesWinner(t *testing.T) {
+	t.Parallel()
+	o := coreterm.NewOwner(sdk.ScopeAttempt)
+	win := o.Claim(sdk.CommandParallelLoser, coreterm.NewAccumulatorSnapshot([]byte("a"), false))
+	if !win.Won {
+		t.Fatalf("winner: %+v", win)
+	}
+	lose := o.Claim(sdk.Command("0"), coreterm.NewAccumulatorSnapshot([]byte("b"), true))
+	if lose.Won {
+		t.Fatal("unknown second command must not win")
+	}
+	if !lose.Outcome.Snapshot.Equal(win.Outcome.Snapshot) {
+		t.Fatal("unknown second command must still observe winner snapshot")
+	}
+	if lose.Outcome.Command != sdk.CommandParallelLoser {
+		t.Fatalf("loser cmd=%q want parallel_loser", lose.Outcome.Command)
+	}
+}
+
 func TestOwner_ConcurrentClaim_RecvCloseRace(t *testing.T) {
 	t.Parallel()
 	const n = 32
-	for i := 0; i < n; i++ {
+	for i := range n {
 		o := coreterm.NewOwner(sdk.ScopeRequest)
 		start := make(chan struct{})
 		var wg sync.WaitGroup
@@ -434,7 +450,6 @@ func FuzzOwner_CommandSequences(f *testing.F) {
 		}
 		o := coreterm.NewOwner(scope)
 		r1 := o.Claim(cmd1, coreterm.NewAccumulatorSnapshot([]byte("a"), out1))
-		r2 := o.Claim(cmd2, coreterm.NewAccumulatorSnapshot([]byte("b"), out2))
 		if !cmd1.IsKnown() {
 			if r1.Won || o.State() != sdk.StateOpen {
 				t.Fatalf("unknown first command must not claim: %+v state=%s", r1, o.State())
@@ -456,19 +471,14 @@ func FuzzOwner_CommandSequences(f *testing.F) {
 		if !r1.Won {
 			t.Fatalf("known in-scope command should win: %+v", r1)
 		}
-		// Exactly one published outcome; second never re-snapshots.
+		// Second claim only after a published winner exists.
+		r2 := o.Claim(cmd2, coreterm.NewAccumulatorSnapshot([]byte("b"), out2))
 		out, ok := o.Outcome()
 		if !ok || !out.Snapshot.Equal(r1.Outcome.Snapshot) {
 			t.Fatal("published snapshot mismatch")
 		}
 		if r2.Won {
 			t.Fatal("second claim must not win")
-		}
-		if cmd2.IsKnown() && !cmd2.AllowsScope(scope) {
-			if !errors.Is(r2.Err, sdk.ErrScopeMismatch) {
-				t.Fatalf("scope-illegal second: %+v", r2)
-			}
-			return
 		}
 		if !r2.Outcome.Snapshot.Equal(r1.Outcome.Snapshot) {
 			t.Fatal("second must observe first snapshot")

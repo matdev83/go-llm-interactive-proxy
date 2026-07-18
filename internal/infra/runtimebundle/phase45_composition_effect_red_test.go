@@ -66,6 +66,7 @@ func (p *overrideInvokeStub) Version() string    { return "9" }
 func (p *overrideInvokeStub) SupportedKinds() []sdk.WorkKind {
 	return []sdk.WorkKind{sdk.WorkKindSettleRequestProvider, sdk.WorkKindReleaseRequestProvider}
 }
+
 func (p *overrideInvokeStub) Invoke(context.Context, terminalwork.WorkRecord, string) error {
 	p.invokeCalls.Add(1)
 	return nil

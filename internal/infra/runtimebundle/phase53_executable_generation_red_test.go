@@ -28,9 +28,11 @@ func (s phase53Req) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (s phase53Req) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (s phase53Req) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }

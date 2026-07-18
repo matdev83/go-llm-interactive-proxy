@@ -132,7 +132,7 @@ func (c *SnapshotController) Refresh(ctx context.Context) error {
 	if len(errs) > 0 && gen.State == economics.SnapshotReady {
 		gen.State = economics.SnapshotDegraded
 	}
-	c.pub.Publish(gen)
+	c.pub.PublishMetadata(gen)
 	// Source-fetch failures leave the prior executable generation active (9.6)
 	// and report degraded metadata planes separately from executable readiness.
 	if len(errs) == 0 {

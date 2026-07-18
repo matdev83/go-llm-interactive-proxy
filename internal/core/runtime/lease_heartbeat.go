@@ -187,7 +187,6 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 					behavior = defaultFB
 				}
 				if err != nil || dec.Kind != authority.LeaseAllow {
-					tickOK = false
 					hb.degraded.Store(true)
 					if behavior == authority.FailureFailClosed {
 						failClosed = true

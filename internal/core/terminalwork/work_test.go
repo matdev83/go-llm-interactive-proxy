@@ -93,8 +93,8 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 	if w2.State != sdk.WorkStateRetry {
 		t.Fatalf("state=%q", w2.State)
 	}
-	if w2.NextRetryAt.Before(clock.Now()) || w2.NextRetryAt.Equal(clock.Now()) {
-		// NextRetryAt should be strictly in the future for Initial > 0
+	if !w2.NextRetryAt.After(clock.Now()) {
+		t.Fatalf("NextRetryAt=%v want strictly after %v", w2.NextRetryAt, clock.Now())
 	}
 	wantNext := clock.Now().Add(time.Second)
 	if !w2.NextRetryAt.Equal(wantNext) {
@@ -119,6 +119,7 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 		{
 			name: "complete from intent",
 			prep: func(t *testing.T) *terminalwork.WorkItem {
+				t.Helper()
 				return newIntent(t, "sk-ill-1", "w1", "", sdk.WorkKindAppendFact)
 			},
 			act: actComplete,
@@ -126,6 +127,7 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 		{
 			name: "claim from intent",
 			prep: func(t *testing.T) *terminalwork.WorkItem {
+				t.Helper()
 				return newIntent(t, "sk-ill-2", "w2", "", sdk.WorkKindAppendFact)
 			},
 			act: actClaim,
@@ -133,6 +135,7 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 		{
 			name: "pending from claimed",
 			prep: func(t *testing.T) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "sk-ill-3", "w3", "p", sdk.WorkKindCompensateProvider)
 				_ = w.MarkPending()
 				_ = w.Claim("w", time.Minute, clock)
@@ -143,6 +146,7 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 		{
 			name: "retry from completed",
 			prep: func(t *testing.T) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "sk-ill-4", "w4", "p", sdk.WorkKindSettleAttemptProvider)
 				_ = w.MarkPending()
 				_ = w.Claim("w", time.Minute, clock)
@@ -154,6 +158,7 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 		{
 			name: "claim from quarantined",
 			prep: func(t *testing.T) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "sk-ill-5", "w5", "p", sdk.WorkKindSettleRequestProvider)
 				_ = w.MarkPending()
 				_ = w.Quarantine(terminalwork.BoundedError{Code: "bad", Permanent: true})
@@ -163,7 +168,6 @@ func TestWorkItem_LegalTransitionMatrix(t *testing.T) {
 		},
 	}
 	for _, tc := range illegal {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			item := tc.prep(t)

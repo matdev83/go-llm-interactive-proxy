@@ -31,9 +31,11 @@ func (s stubRequestProvider) Describe() authority.ProviderDescriptor {
 func (s stubRequestProvider) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (s stubRequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }
+
 func (s stubRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return nil
 }
@@ -51,15 +53,19 @@ func (s stubConcurrencyProvider) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (s stubConcurrencyProvider) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L1"}, nil
 }
+
 func (s stubConcurrencyProvider) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L1"}, nil
 }
+
 func (s stubConcurrencyProvider) ReleaseLease(context.Context, authority.LeaseRelease) error {
 	return nil
 }
+
 func (s stubConcurrencyProvider) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }

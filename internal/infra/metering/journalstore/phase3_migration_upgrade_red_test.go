@@ -129,7 +129,7 @@ WHERE name IN (?, ?)`,
 	); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := bunDB.ExecContext(ctx, `
 INSERT INTO bun_metering_journal_migrations(name, group_id, migrated_at)
 VALUES (?, 1, CURRENT_TIMESTAMP)`, journalstore.BaselineMigrationName); err != nil {
@@ -275,7 +275,7 @@ func assertExactMigrationCounts(t *testing.T, bunDB *bun.DB, want map[string]int
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	got := map[string]int{}
 	for rows.Next() {
 		var name string

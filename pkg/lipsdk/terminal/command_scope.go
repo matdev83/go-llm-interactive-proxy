@@ -1,5 +1,7 @@
 package terminal
 
+import "slices"
+
 // AllowedScopes returns the terminal owner scopes that may claim with c.
 //
 // Conservative mapping from design Single Terminal Ownership / D8:
@@ -23,10 +25,5 @@ func (c Command) AllowedScopes() []Scope {
 
 // AllowsScope reports whether c may compete on the given owner scope.
 func (c Command) AllowsScope(s Scope) bool {
-	for _, a := range c.AllowedScopes() {
-		if a == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.AllowedScopes(), s)
 }

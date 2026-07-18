@@ -116,7 +116,7 @@ func ValidateTiming(leaseTTL, renewBefore time.Duration) error {
 	if renewBefore <= 0 {
 		return fmt.Errorf("%w: renew_before must be > 0", ErrInvalidTiming)
 	}
-	if !(renewBefore < leaseTTL) {
+	if renewBefore >= leaseTTL {
 		return fmt.Errorf("%w: renew_before must be < lease_ttl", ErrInvalidTiming)
 	}
 	const maxTTL = 24 * time.Hour

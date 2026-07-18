@@ -18,7 +18,7 @@ import (
 func TestStreamTerminal_ConcurrentClaim_EffectsOnce(t *testing.T) {
 	t.Parallel()
 	const rounds = 32
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		term := newStreamTerminal(sdk.ScopeRequest)
 		var effects atomic.Int32
 		start := make(chan struct{})

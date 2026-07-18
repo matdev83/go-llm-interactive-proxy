@@ -281,6 +281,7 @@ type prodAllowAttempt struct{}
 func (prodAllowAttempt) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (prodAllowAttempt) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	return authority.OwnedFinalSettlement(in.Handles), nil
 }
@@ -291,6 +292,7 @@ type prodAllowConcurrency struct{}
 func (prodAllowConcurrency) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "l1"}, nil
 }
+
 func (prodAllowConcurrency) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "l1"}, nil
 }

@@ -477,12 +477,13 @@ func (s *DurableStore) countLiveTx(ctx context.Context, tx bun.Tx, ruleID, dimKe
 
 func (s *DurableStore) countLiveTxExcluding(ctx context.Context, tx bun.Tx, ruleID, dimKey string, nowUnix int64, exclude []string) (int, error) {
 	var n int
-	q := `
+	var q strings.Builder
+	q.WriteString(`
 SELECT COUNT(*) FROM concurrency_leases
 WHERE store_id=? AND rule_id=? AND dimension_key=?
   AND state IN (?, ?)
   AND (expires_at_unix > ? OR COALESCE(set_state, '') = ?)
-`
+`)
 	args := []any{
 		s.cfg.StoreID, ruleID, dimKey,
 		string(domain.LeaseStateActive), string(domain.LeaseStateExpiring),
@@ -490,17 +491,17 @@ WHERE store_id=? AND rule_id=? AND dimension_key=?
 		string(domain.LeaseSetStateUncertain),
 	}
 	if len(exclude) > 0 {
-		q += ` AND lease_id NOT IN (`
+		q.WriteString(` AND lease_id NOT IN (`)
 		for i, id := range exclude {
 			if i > 0 {
-				q += `,`
+				q.WriteString(`,`)
 			}
-			q += `?`
+			q.WriteString(`?`)
 			args = append(args, id)
 		}
-		q += `)`
+		q.WriteString(`)`)
 	}
-	err := tx.NewRaw(q, args...).Scan(ctx, &n)
+	err := tx.NewRaw(q.String(), args...).Scan(ctx, &n)
 	if err != nil {
 		return 0, fmt.Errorf("leasestore: count live: %w", err)
 	}

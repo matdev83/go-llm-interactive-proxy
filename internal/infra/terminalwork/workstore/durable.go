@@ -15,7 +15,7 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register sqlite driver for durable terminal-work stores
 )
 
 type DurableConfig struct {

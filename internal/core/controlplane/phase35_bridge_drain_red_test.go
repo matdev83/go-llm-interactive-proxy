@@ -15,7 +15,6 @@ import (
 func TestPhase35_BridgeDrain_PagedIngressEgressStaysRecordedAndComplete(t *testing.T) {
 	t.Parallel()
 	for _, pageSize := range []int{1, 2} {
-		pageSize := pageSize
 		t.Run("limit_"+drainItoa(pageSize), func(t *testing.T) {
 			t.Parallel()
 			s, err := journalstore.NewMemoryStore(journalstore.MemoryConfig{

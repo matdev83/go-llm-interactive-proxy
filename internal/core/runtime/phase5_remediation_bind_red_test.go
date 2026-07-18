@@ -24,9 +24,11 @@ func (s phase5RemedReq) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (s phase5RemedReq) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (s phase5RemedReq) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }
@@ -43,9 +45,11 @@ func (s phase5RemedConc) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (s phase5RemedConc) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L-" + s.id, Generation: 1}, nil
 }
+
 func (s phase5RemedConc) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L-" + s.id, Generation: 2}, nil
 }

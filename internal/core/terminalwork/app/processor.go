@@ -132,14 +132,11 @@ func (p *Processor) ProcessDue(ctx context.Context) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(claimed))
 	for _, rec := range claimed {
-		rec := rec
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := p.processOne(ctx, rec); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)
@@ -183,9 +180,7 @@ func (p *Processor) processOne(ctx context.Context, rec terminalwork.WorkRecord)
 		defer stopRenew()
 	}
 	if renewSrc != nil {
-		renewWG.Add(1)
-		go func() {
-			defer renewWG.Done()
+		renewWG.Go(func() {
 			if err := p.renewLoop(invokeCtx, rec.WorkID, renewSrc); err != nil {
 				select {
 				case renewErrCh <- err:
@@ -193,7 +188,7 @@ func (p *Processor) processOne(ctx context.Context, rec terminalwork.WorkRecord)
 				}
 				cancel()
 			}
-		}()
+		})
 	}
 
 	invokeErr := p.invokeSafe(invokeCtx, rec)
@@ -392,11 +387,18 @@ func (p *Processor) providerSemaphore(providerID string) chan struct{} {
 		key = "_"
 	}
 	if v, ok := p.providerSems.Load(key); ok {
-		return v.(chan struct{})
+		sem, ok := v.(chan struct{})
+		if ok {
+			return sem
+		}
 	}
 	ch := make(chan struct{}, p.cfg.PerProviderMax)
 	actual, _ := p.providerSems.LoadOrStore(key, ch)
-	return actual.(chan struct{})
+	sem, ok := actual.(chan struct{})
+	if !ok {
+		return ch
+	}
+	return sem
 }
 
 // Run processes ticks until ctx is cancelled.

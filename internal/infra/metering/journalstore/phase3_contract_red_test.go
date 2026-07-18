@@ -146,6 +146,7 @@ func withPhase3UniqueStoreIDs(a phase3Adapter) phase3Adapter {
 			return nil
 		}
 		return func(t *testing.T, storeID string) phase3Journal {
+			t.Helper()
 			return open(t, resolve(storeID))
 		}
 	}
@@ -156,6 +157,7 @@ func withPhase3UniqueStoreIDs(a phase3Adapter) phase3Adapter {
 }
 
 func phase3ContractIdempotentAndConflict(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-idem"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -184,6 +186,7 @@ func phase3ContractIdempotentAndConflict(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractStoreIDIsolation(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	if a.openPeer == nil {
 		t.Skip("store_id isolation requires shared durable substrate; memory deferred (task 3.4 schema uniqueness)")
 	}
@@ -231,6 +234,7 @@ func phase3ContractStoreIDIsolation(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractRestartReplay(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	if a.reopen == nil {
 		t.Skip("restart replay unsupported for " + a.name)
 	}
@@ -299,6 +303,7 @@ func phase3ContractRestartReplay(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractIngressReconstruction(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-ingress"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -339,6 +344,7 @@ func phase3ContractIngressReconstruction(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractCorrectionSameStream(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-same-stream"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -365,6 +371,7 @@ func phase3ContractCorrectionSameStream(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractCorrectionTargetExists(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-target-exist"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -383,6 +390,7 @@ func phase3ContractCorrectionTargetExists(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractCorrectionRejectsSelf(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-self"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -401,6 +409,7 @@ func phase3ContractCorrectionRejectsSelf(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractCorrectionRejectsCycle(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-cycle"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -449,6 +458,7 @@ func phase3ContractCorrectionRejectsCycle(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractCorrectionAppendOnly(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-append-only"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -487,6 +497,7 @@ func phase3ContractCorrectionAppendOnly(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractBoundedQueryNoLeak(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	if a.openPeer == nil {
 		t.Skip("cross-store query isolation requires shared durable substrate")
 	}
@@ -526,6 +537,7 @@ func phase3ContractBoundedQueryNoLeak(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractFilterStoreScopedNoFalsePositive(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	if a.openPeer == nil {
 		t.Skip("filter store isolation requires shared durable substrate")
 	}
@@ -582,6 +594,7 @@ func phase3ContractFilterStoreScopedNoFalsePositive(t *testing.T, a phase3Adapte
 }
 
 func phase3ContractSourceEventKeyUniqueness(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-sek"
 	s := a.open(t, storeID)
 	ctx := context.Background()
@@ -688,6 +701,7 @@ func phase3ContractSourceEventKeyUniqueness(t *testing.T, a phase3Adapter) {
 }
 
 func phase3ContractSignedCorrectionOnly(t *testing.T, a phase3Adapter) {
+	t.Helper()
 	storeID := "p3-" + a.name + "-signed"
 	s := a.open(t, storeID)
 	ctx := context.Background()
