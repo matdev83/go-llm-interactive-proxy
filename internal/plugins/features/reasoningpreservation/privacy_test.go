@@ -157,7 +157,6 @@ func TestPrivacy_forbiddenNeedlesTable(t *testing.T) {
 		"moonshot-v1-8k",
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			counts := map[string]int{"count": 1}

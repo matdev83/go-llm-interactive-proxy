@@ -29,6 +29,7 @@ func (o *fsObs) Observe(_ context.Context, ev lipapi.Event) error {
 	o.mu.Unlock()
 	return nil
 }
+
 func (o *fsObs) Finish(_ context.Context, outcome response.StreamOutcome) error {
 	o.finish = outcome
 	return nil
@@ -70,6 +71,7 @@ func (m *mutatingScopeObs) Observe(_ context.Context, ev lipapi.Event) error { r
 func (m *mutatingScopeObs) Finish(_ context.Context, _ response.StreamOutcome) error {
 	return nil
 }
+
 func (m *mutatingScopeObs) capture(meta response.StreamMeta) {
 	m.seen = meta.Scope
 	meta.Scope.PrincipalID = scope.Known("mutated")
@@ -112,6 +114,7 @@ func (c *countingFinishObs) Observe(context.Context, lipapi.Event) error {
 	c.observeN.Add(1)
 	return nil
 }
+
 func (c *countingFinishObs) Finish(_ context.Context, outcome response.StreamOutcome) error {
 	c.mu.Lock()
 	c.finish = outcome

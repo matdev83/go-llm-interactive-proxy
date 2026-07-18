@@ -158,7 +158,6 @@ func TestDecodeConfig_onUnrepresentablePolicies(t *testing.T) {
 	t.Parallel()
 	base := "action: observe\non_ambiguous: log_skip\non_state_error: log_skip\nstate:\n  ttl: 1h\n  max_turns_per_session: 1\n  max_reasoning_bytes_per_turn: 1\n  max_session_bytes: 1\n"
 	for _, policy := range []string{"reject", "log_skip"} {
-		policy := policy
 		t.Run(policy, func(t *testing.T) {
 			t.Parallel()
 			raw := base + "on_unrepresentable: " + policy + "\n"
@@ -180,7 +179,6 @@ func TestDecodeConfig_onStateErrorPolicies(t *testing.T) {
 	t.Parallel()
 	base := "action: observe\non_ambiguous: log_skip\non_unrepresentable: reject\nstate:\n  ttl: 1h\n  max_turns_per_session: 1\n  max_reasoning_bytes_per_turn: 1\n  max_session_bytes: 1\n"
 	for _, policy := range []string{"log_skip", "reject"} {
-		policy := policy
 		t.Run(policy, func(t *testing.T) {
 			t.Parallel()
 			raw := base + "on_state_error: " + policy + "\n"

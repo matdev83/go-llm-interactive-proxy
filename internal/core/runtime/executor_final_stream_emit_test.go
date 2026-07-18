@@ -40,6 +40,7 @@ func (o *emitTestObserver) Observe(_ context.Context, ev lipapi.Event) error {
 	o.mu.Unlock()
 	return nil
 }
+
 func (o *emitTestObserver) Finish(_ context.Context, outcome response.StreamOutcome) error {
 	o.finishN.Add(1)
 	o.mu.Lock()
@@ -87,6 +88,7 @@ type failingSecureRecorderEmit struct{ err error }
 func (f failingSecureRecorderEmit) RecordClientTurnAfterGate(context.Context, secureapp.ClientTurnRecordInput) error {
 	return nil
 }
+
 func (f failingSecureRecorderEmit) RecordPostHookStreamEvent(context.Context, secureapp.StreamEventRecordInput) error {
 	return f.err
 }
@@ -419,6 +421,7 @@ func (o failClosedObserve) Observe(ctx context.Context, ev lipapi.Event) error {
 	}
 	return o.err
 }
+
 func (o failClosedObserve) Finish(ctx context.Context, outcome response.StreamOutcome) error {
 	if o.inner != nil {
 		return o.inner.Finish(ctx, outcome)
@@ -465,11 +468,9 @@ func TestEmitClientFacingObserved_concurrentCloseRecv(t *testing.T) {
 
 	ctx := context.Background()
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_, _ = rs.Recv(ctx)
-	}()
+	})
 	select {
 	case <-obs.observeEntered:
 	case <-time.After(2 * time.Second):

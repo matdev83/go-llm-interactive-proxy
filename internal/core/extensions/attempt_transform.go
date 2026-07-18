@@ -160,7 +160,7 @@ func safeAttemptTransformReasonCode(code string) string {
 		return ReasonAttemptTransformExcluded
 	}
 	for _, r := range code {
-		if r > unicode.MaxASCII || !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.' || r == '-') {
+		if r > unicode.MaxASCII || (!unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' && r != '-') {
 			return ReasonAttemptTransformExcluded
 		}
 	}

@@ -83,7 +83,7 @@ func jsonPart(content string) lipapi.Part {
 }
 
 func boolPtr(v bool) *bool {
-	return &v
+	return new(v)
 }
 
 func turnArtifact(id string, anchor [32]byte, reasoning ...reasoningpreservation.PlacedReasoning) reasoningpreservation.TurnArtifact {
