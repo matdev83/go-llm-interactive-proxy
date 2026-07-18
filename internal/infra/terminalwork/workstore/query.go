@@ -29,46 +29,15 @@ type Page struct {
 	Cursor  string
 }
 
-type ClaimDueCommand struct {
-	OwnerID    string
-	TTL        time.Duration
-	Limit      int
-	Now        time.Time
-	ProviderID string
-	Kind       sdk.WorkKind
-}
-
-type RenewClaimCommand struct {
-	WorkID  string
-	OwnerID string
-	TTL     time.Duration
-	Now     time.Time
-}
-
-type CompleteCommand struct {
-	WorkID          string
-	ExpectedOwnerID string
-	Now             time.Time
-}
-
-type ScheduleRetryCommand struct {
-	WorkID          string
-	ExpectedOwnerID string
-	Schedule        terminalwork.RetrySchedule
-	Err             terminalwork.BoundedError
-	Now             time.Time
-}
-
-type QuarantineCommand struct {
-	WorkID string
-	Err    terminalwork.BoundedError
-	Now    time.Time
-}
-
-type PromotePendingCommand struct {
-	WorkID string
-	Now    time.Time
-}
+// Command types are owned by the core terminalwork package (hexagonal port).
+type (
+	ClaimDueCommand       = terminalwork.ClaimDueCommand
+	RenewClaimCommand     = terminalwork.RenewClaimCommand
+	CompleteCommand       = terminalwork.CompleteCommand
+	ScheduleRetryCommand  = terminalwork.ScheduleRetryCommand
+	QuarantineCommand     = terminalwork.QuarantineCommand
+	PromotePendingCommand = terminalwork.PromotePendingCommand
+)
 
 func ValidateQuery(q Query) error {
 	if !HasSelectiveBound(q) {

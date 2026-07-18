@@ -130,7 +130,13 @@ var lineBudgets = []struct {
 	// terminal-work domain: stream terminal session wiring, terminal owner CAS,
 	// WorkRecord/SameIntentReplay, and claim-lease transitions (measured 59641;
 	// cap keeps ~109 lines of headroom).
-	{"internal/core", 59750},
+	// Raised from 59750 to 60400 for dual-plane Phase 4.4 terminal-work processor
+	// app (EffectProvider registry, bounded ClaimDue processor, store commands
+	// owned in core). Measured ~60254; cap keeps ~146 lines of headroom.
+	// Raised from 60400 to 60650 for Phase 4.4 remediation (owned tick/renew,
+	// unresolved-provider readiness, ProcessDue serialize, renew-fail cancel).
+	// Measured ~60495; cap keeps ~155 lines of headroom.
+	{"internal/core", 60650},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -148,7 +154,12 @@ var lineBudgets = []struct {
 	// production authority_coord consumes Request/Attempt/Concurrency/Rater
 	// registrations with stable IDs (no production-request-%d generation).
 	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
-	{"internal/infra/runtimebundle", 5580},
+	// Raised from 5580 to 5750 for Phase 4.4 terminal-work processor ownership
+	// (ProductionOptions + Built + buildTerminalWorkRuntime). Measured ~5696;
+	// cap keeps ~54 lines of headroom.
+	// Raised from 5750 to 5850 for Phase 4.4 remediation (tick/renew defaults,
+	// TerminalWorkReadiness). Measured ~5801; cap keeps ~49 lines of headroom.
+	{"internal/infra/runtimebundle", 5850},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

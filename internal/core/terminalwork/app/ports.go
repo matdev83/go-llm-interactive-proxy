@@ -1,0 +1,32 @@
+package app
+
+import (
+	"context"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
+)
+
+// Clock is an injectable time source for claim/retry decisions.
+type Clock interface {
+	Now() time.Time
+}
+
+// WorkStore is the consumer-owned persistence port for processor mutations.
+// Adapters (memory/SQLite/PostgreSQL) implement these workstore commands.
+type WorkStore interface {
+	ClaimDue(ctx context.Context, cmd terminalwork.ClaimDueCommand) ([]terminalwork.WorkRecord, error)
+	RenewClaim(ctx context.Context, cmd terminalwork.RenewClaimCommand) error
+	Complete(ctx context.Context, cmd terminalwork.CompleteCommand) error
+	ScheduleRetry(ctx context.Context, cmd terminalwork.ScheduleRetryCommand) error
+	Quarantine(ctx context.Context, cmd terminalwork.QuarantineCommand) error
+}
+
+// EffectProvider is a provider-neutral terminal-effect handler routed by stable ID.
+type EffectProvider interface {
+	ProviderID() string
+	SupportedKinds() []sdk.WorkKind
+	Version() string
+	Invoke(ctx context.Context, rec terminalwork.WorkRecord, idempotencyKey string) error
+}

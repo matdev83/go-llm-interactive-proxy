@@ -204,7 +204,7 @@
   - _Depends: 4.1, 3.4_
   - _Validation: store contracts, migration, claim contention, ambiguous commit, restart, and pooled PostgreSQL tests_
 
-- [ ] 4.4 Implement the bounded terminal-work processor and provider router
+- [x] 4.4 Implement the bounded terminal-work processor and provider router
   - Create durable intent before required external/separately durable effects, invoke with the same idempotency key, and mark completion independently per action/provider.
   - Resolve stable provider IDs, bound global/per-provider concurrency, renew claims, back off retries, quarantine permanent invalid work, and own startup/shutdown.
   - **Deliverable:** facts, settlements, releases, compensation, lease release, and corrections recover without repeating completed providers.

@@ -157,6 +157,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		})
 	}
 	exec = execRun.Exec
+	twProc, twReg, twReady, twClosers, err := buildTerminalWorkFromProduction(opts.Production, opts.Testing.Clock)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
+	}
+	if twClosers != nil {
+		closers = append(closers, twClosers...)
+	}
 	buildSucceeded = true
 	return &Built{
 		Executor:      execRun.Exec,
@@ -189,5 +196,8 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		MeteringQuerier:       opts.Production.MeteringQuerier,
 		ReadinessReport:       execRun.ReadinessReport,
 		SecretGuardInventory:  sg.Inventory,
+		TerminalWorkProcessor: twProc,
+		TerminalWorkRegistry:  twReg,
+		terminalWorkReady:     twReady,
 	}, nil
 }
