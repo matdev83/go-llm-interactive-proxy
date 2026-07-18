@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
@@ -37,6 +38,7 @@ type requestAuthorityState struct {
 	LeaseTTL        time.Duration
 	FailureBehavior authority.FailureBehavior
 	heartbeat       *leaseHeartbeat
+	ExecutableGen   *snapshotgen.ExecutableGeneration
 }
 
 // leaseRenewTarget is one occupancy the heartbeat renews until settle/release.
@@ -181,6 +183,12 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		LeaseTTL:        d.Lease.TTL,
 		FailureBehavior: d.Lease.FailureBehavior,
 	}
+	if e.SnapshotGeneration != nil {
+		if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+			exec.Retain()
+			st.ExecutableGen = exec
+		}
+	}
 	outCtx := withRequestAuthority(ctx, st)
 	e.startLeaseHeartbeat(outCtx, st)
 	return outCtx, nil
@@ -272,6 +280,10 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 	_ = e.RequestCoordinator.ReleaseLeases(ctx, ids, st.RequestID, "settled")
 	st.Settled = true
 	st.Released = true
+	if st.ExecutableGen != nil {
+		st.ExecutableGen.Release()
+		st.ExecutableGen = nil
+	}
 	return nil
 }
 
@@ -290,6 +302,10 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 		return e.acceptReleaseDurableIntents(ctx, st, fails)
 	}
 	st.Released = true
+	if st.ExecutableGen != nil {
+		st.ExecutableGen.Release()
+		st.ExecutableGen = nil
+	}
 	return nil
 }
 
@@ -329,6 +345,9 @@ func (e *Executor) acceptSettleDurableIntents(ctx context.Context, st *requestAu
 			acceptErrs = append(acceptErrs, err)
 			continue
 		}
+		if st.ExecutableGen != nil {
+			st.ExecutableGen.AddPendingProvider(providerID)
+		}
 		accepted++
 	}
 	if accepted == 0 {
@@ -367,6 +386,9 @@ func (e *Executor) acceptReleaseDurableIntents(ctx context.Context, st *requestA
 		}); err != nil {
 			acceptErrs = append(acceptErrs, err)
 			continue
+		}
+		if st.ExecutableGen != nil {
+			st.ExecutableGen.AddPendingProvider(providerID)
 		}
 		accepted++
 	}

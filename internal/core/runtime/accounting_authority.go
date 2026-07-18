@@ -805,10 +805,30 @@ func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err err
 	}
 }
 
-// applyGenerationBoundVersion prefers the published runtime generation's usage
-// snapshot identity when SnapshotGeneration is wired (design: Publication).
+// applyGenerationBoundVersion prefers the published executable generation's
+// evaluator object identity when wired (requirements 9.3, 9.9; design D10).
 func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult) {
 	if e == nil || res == nil || e.SnapshotGeneration == nil {
+		return
+	}
+	if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+		obj := exec.EvidenceObjectID()
+		if obj != "" {
+			res.BoundVersion = economics.PolicySnapshotRef{
+				VersionRef: economics.VersionRef{
+					ID: obj, Version: exec.Version, EffectiveAt: exec.PublishedAt,
+				},
+				PolicyID: obj,
+			}
+		}
+		if rid := strings.TrimSpace(exec.RatingObjectID); rid != "" {
+			res.BoundRatingVersion = economics.RatingSnapshotRef{
+				VersionRef: economics.VersionRef{
+					ID: rid, Version: exec.Version, EffectiveAt: exec.PublishedAt,
+				},
+				RaterID: rid,
+			}
+		}
 		return
 	}
 	gen := e.SnapshotGeneration.Current()
@@ -831,10 +851,23 @@ func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult
 	}
 }
 
-// mergeGenerationBoundVersions appends Current() usage/concurrency refs onto a
+// mergeGenerationBoundVersions appends executable generation evidence refs onto a
 // request-stage composite decision when SnapshotGeneration is wired.
 func (e *Executor) mergeGenerationBoundVersions(d *authoritycoord.CompositeDecision) {
 	if e == nil || d == nil || e.SnapshotGeneration == nil {
+		return
+	}
+	if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+		obj := exec.EvidenceObjectID()
+		if obj != "" {
+			ref := economics.PolicySnapshotRef{
+				VersionRef: economics.VersionRef{
+					ID: obj, Version: exec.Version, EffectiveAt: exec.PublishedAt,
+				},
+				PolicyID: obj,
+			}
+			d.BoundVersions = prependPolicyRef(d.BoundVersions, ref)
+		}
 		return
 	}
 	gen := e.SnapshotGeneration.Current()

@@ -248,7 +248,7 @@
   - _Depends: 2.2–2.5, 5.1_
   - _Validation: public source/registration tests, static compiler tests, and separate enterprise-module fixture_
 
-- [ ] 5.3 Build, validate, publish, and bind executable generations
+- [x] 5.3 Build, validate, publish, and bind executable generations
   - Construct immutable request/attempt coordinators, concurrency registration, and raters in each generation.
   - Publish only complete required generations; retain the previous executable generation on refresh failure.
   - Bind one generation after trusted scope and before request authority, and use it for attempts and terminal work.
