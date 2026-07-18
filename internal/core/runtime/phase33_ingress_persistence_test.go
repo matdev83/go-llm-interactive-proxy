@@ -49,9 +49,11 @@ func (p *phase33RequestProvider) AdmitRequest(_ context.Context, in authority.Re
 	p.scope.Store(in.Scope)
 	return authority.Decision{Kind: authority.DecisionAllow, Evidence: authority.SafeEvidence{Category: "ok", Message: "allow"}}, nil
 }
+
 func (p *phase33RequestProvider) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }
+
 func (p *phase33RequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return nil
 }
@@ -81,7 +83,7 @@ func TestPhase33_PersistFrontendIngress_BeforeRequestAuthority(t *testing.T) {
 	if !strings.HasPrefix(holder.FrontendIngress.Public.StreamID, "customer-request:") {
 		t.Fatalf("StreamID=%q want customer-request: prefix", holder.FrontendIngress.Public.StreamID)
 	}
-	ctx, err = ex.admitRequestAuthorityOnce(ctx, "req-fe-33", "a-1", "trace-fe-33", scope.PrincipalScopeView{
+	_, err = ex.admitRequestAuthorityOnce(ctx, "req-fe-33", "a-1", "trace-fe-33", scope.PrincipalScopeView{
 		PrincipalID: scope.Known("untrusted-spoof"),
 	})
 	if err != nil {
@@ -213,7 +215,7 @@ func TestPhase33_FrontendIngress_ReplayIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, err = ex.admitRequestAuthorityOnce(ctx, "req-replay", "a-1", "t1", scope.PrincipalScopeView{})
+	_, err = ex.admitRequestAuthorityOnce(ctx, "req-replay", "a-1", "t1", scope.PrincipalScopeView{})
 	if err != nil {
 		t.Fatalf("replay admit: %v", err)
 	}
