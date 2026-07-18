@@ -19,13 +19,16 @@ type recordingLeaseConc struct {
 func (r *recordingLeaseConc) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow}, nil
 }
+
 func (r *recordingLeaseConc) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow}, nil
 }
+
 func (r *recordingLeaseConc) ReleaseLease(_ context.Context, in authority.LeaseRelease) error {
 	r.releases = append(r.releases, in)
 	return nil
 }
+
 func (r *recordingLeaseConc) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }
@@ -80,6 +83,7 @@ func (s *recordingIntentStore) AppendIntent(_ context.Context, rec terminalwork.
 	s.appended = append(s.appended, rec)
 	return nil
 }
+
 func (s *recordingIntentStore) PromotePending(context.Context, terminalwork.PromotePendingCommand) error {
 	return nil
 }

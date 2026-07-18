@@ -161,7 +161,6 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 			failClosed := false
 			anyFailOpenRetry := false
-			tickOK := true
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
 			if setID != "" {
 				primary := live[0]
@@ -187,7 +186,6 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 					behavior = defaultFB
 				}
 				if err != nil || dec.Kind != authority.LeaseAllow {
-					tickOK = false
 					hb.degraded.Store(true)
 					if behavior == authority.FailureFailClosed {
 						failClosed = true
@@ -209,6 +207,7 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 					st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
 				}
 			} else {
+				tickOK := true
 				pending := append([]leaseRenewTarget(nil), live...)
 				for i := range pending {
 					src := live[i]

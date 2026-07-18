@@ -35,7 +35,7 @@ func TestPhase65_FiveSlotMultiInstanceContention(t *testing.T) {
 
 	var allowed atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

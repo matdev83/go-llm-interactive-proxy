@@ -490,15 +490,17 @@ WHERE store_id=? AND rule_id=? AND dimension_key=?
 		string(domain.LeaseSetStateUncertain),
 	}
 	if len(exclude) > 0 {
-		q += ` AND lease_id NOT IN (`
+		var b strings.Builder
+		b.WriteString(` AND lease_id NOT IN (`)
 		for i, id := range exclude {
 			if i > 0 {
-				q += `,`
+				b.WriteByte(',')
 			}
-			q += `?`
+			b.WriteByte('?')
 			args = append(args, id)
 		}
-		q += `)`
+		b.WriteByte(')')
+		q += b.String()
 	}
 	err := tx.NewRaw(q, args...).Scan(ctx, &n)
 	if err != nil {

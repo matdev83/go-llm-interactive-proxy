@@ -65,9 +65,11 @@ func (s *remediatingSetConc) ReleaseLease(_ context.Context, in authority.LeaseR
 	_ = in
 	return nil
 }
+
 func (s *remediatingSetConc) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }
+
 func (s *remediatingSetConc) MarkLeaseSetUncertain(_ context.Context, setID string) error {
 	s.uncertain.Add(1)
 	s.lastSetID.Store(setID)
@@ -86,6 +88,7 @@ func (s *capturingIntentStore) AppendIntent(_ context.Context, rec terminalwork.
 	s.appended = append(s.appended, rec)
 	return nil
 }
+
 func (s *capturingIntentStore) PromotePending(context.Context, terminalwork.PromotePendingCommand) error {
 	return nil
 }

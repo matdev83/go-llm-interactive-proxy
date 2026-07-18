@@ -38,7 +38,7 @@ func runAcquireSetFailureMatrixContract(t *testing.T, a, b app.LeaseStore) {
 	}
 
 	// Fill remaining slots (limit 5) then prove no over-admit.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		_, _ = b.AcquireSet(ctx, acquireSetCmd(fmt.Sprintf("req-fill-%02d", i), rules, now, ttl))
 	}
 	over, err := a.AcquireSet(ctx, acquireSetCmd("req-over", rules, now, ttl))
