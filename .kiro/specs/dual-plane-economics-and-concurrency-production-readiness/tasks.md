@@ -172,7 +172,7 @@
 
 ## Phase 4 — Centralize Terminal Ownership and Durable Economic Recovery
 
-- [ ] 4.1 Define red terminal and terminal-work state-machine contracts
+- [x] 4.1 Define red terminal and terminal-work state-machine contracts
   - Model request and attempt terminal states plus commands for normal finish, partial/error, cancellation, close, timeout, gate replacement, parallel loser, frontend encoder failure, pre-backend denial, and panic.
   - Model one durable action per fact/provider/lease operation, stable source keys, retries, claims, completion, and quarantine.
   - Add interleaving/model tests before changing stream behavior or schemas.
