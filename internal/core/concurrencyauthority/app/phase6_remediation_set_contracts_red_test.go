@@ -169,3 +169,41 @@ func TestPhase6Remediation_ReadinessDegradesOnUncertain(t *testing.T) {
 		t.Fatalf("counts=%+v", counts)
 	}
 }
+
+func TestPhase6Remediation_ReadinessDegradesOnExpiring(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 18, 20, 0, 0, 0, time.UTC)
+	store := newMemoryStore()
+	rule := strictRule(2)
+	rule.RenewBefore = 15 * time.Second
+	svc := newService(t, []domain.Rule{rule}, store, now)
+	res, err := svc.Admit(context.Background(), app.AdmitInput{
+		RequestID: "req-exp", Scope: principalScope("alice"), Namespace: "default",
+	})
+	if err != nil || res.SetID == "" {
+		t.Fatalf("admit=%+v err=%v", res, err)
+	}
+	store.mu.Lock()
+	for id, l := range store.leases {
+		if l.SetID == res.SetID {
+			l.SetState = domain.LeaseSetStateExpiring
+			l.State = domain.LeaseStateExpiring
+			store.leases[id] = l
+		}
+	}
+	store.mu.Unlock()
+	ready, err := svc.ReadinessDomain(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.State != domain.ReadinessStateDegraded {
+		t.Fatalf("state=%s want degraded on expiring", ready.State)
+	}
+	counts, err := svc.LeaseSetOccupancyCounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Expiring != 1 {
+		t.Fatalf("counts=%+v", counts)
+	}
+}

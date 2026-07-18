@@ -9,10 +9,12 @@ import (
 	corecp "github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 type readinessReportBuildInput struct {
@@ -44,6 +46,7 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 	}
 	if in.Concurrency != nil {
 		svc := in.Concurrency
+		tw := in.TerminalWork
 		src.ConcurrencyAuthority = func(ctx context.Context) (controlplane.ConcurrencyAuthorityStatus, error) {
 			ready, err := svc.ReadinessDomain(ctx)
 			if err != nil {
@@ -64,10 +67,26 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 					Active: counts.Active, Uncertain: counts.Uncertain, Expiring: counts.Expiring,
 					Released: counts.Released, Failed: counts.Failed,
 				}
-				if counts.Uncertain > 0 || counts.Failed > 0 {
+				if counts.Uncertain > 0 || counts.Failed > 0 || counts.Expiring > 0 {
 					out.State = controlplane.ConcurrencyAuthorityDegraded
 					if out.Reason == "" {
-						out.Reason = "lease_set_uncertain_or_failed"
+						out.Reason = "lease_set_uncertain_failed_or_expiring"
+					}
+				}
+			}
+			if tw != nil && tw.Queries != nil {
+				page, qerr := tw.Queries.List(ctx, terminalworkapp.WorkQuery{
+					Kind:  sdk.WorkKindReleaseLeaseSet,
+					Class: terminalworkapp.QueryClassPendingTerminalWork,
+					Limit: 500,
+				})
+				if qerr == nil {
+					out.LeaseSets.PendingRelease = len(page.Rows)
+					if out.LeaseSets.PendingRelease > 0 {
+						out.State = controlplane.ConcurrencyAuthorityDegraded
+						if out.Reason == "" {
+							out.Reason = "lease_set_release_pending"
+						}
 					}
 				}
 			}

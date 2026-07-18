@@ -175,7 +175,8 @@ var lineBudgets = []struct {
 	// validation + terminal pending-drain binding at composition root).
 	// Raised from 6400 to 6450 for Phase 6 remediation (lease-set QuerySets
 	// readiness + startup uncertain-set reconcile at composition root).
-	{"internal/infra/runtimebundle", 6450},
+	// Raised from 6450 to 6470 for Phase 6 settle-release pending counts on readiness.
+	{"internal/infra/runtimebundle", 6470},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

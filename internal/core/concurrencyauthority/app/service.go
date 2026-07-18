@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -331,7 +332,9 @@ func (s *Service) Renew(ctx context.Context, in RenewInput) (AdmitResult, error)
 		})
 		if err != nil {
 			if IsAmbiguousRenewError(err) {
-				_ = s.store.MarkSetUncertain(ctx, setID, s.now())
+				if markErr := s.store.MarkSetUncertain(ctx, setID, s.now()); markErr != nil {
+					return AdmitResult{}, errors.Join(WrapError("renew", err), WrapError("mark_uncertain", markErr))
+				}
 			}
 			return AdmitResult{}, WrapError("renew", err)
 		}
@@ -448,10 +451,10 @@ func (s *Service) ReadinessDomain(ctx context.Context) (domain.Readiness, error)
 		ready.State = domain.ReadinessStateReady
 	}
 	counts, countErr := s.LeaseSetOccupancyCounts(ctx)
-	if countErr == nil && (counts.Uncertain > 0 || counts.Failed > 0) {
+	if countErr == nil && (counts.Uncertain > 0 || counts.Failed > 0 || counts.Expiring > 0) {
 		ready = mergeReadiness(ready, &domain.Readiness{
 			State:  domain.ReadinessStateDegraded,
-			Reason: "lease_set_uncertain_or_failed",
+			Reason: "lease_set_uncertain_failed_or_expiring",
 		})
 	}
 	return ready, nil
@@ -501,7 +504,9 @@ func (s *Service) ReconcileUncertainSets(ctx context.Context) ([]string, error) 
 		if set.SetID == "" {
 			continue
 		}
-		_ = s.store.MarkSetUncertain(ctx, set.SetID, s.now())
+		if err := s.store.MarkSetUncertain(ctx, set.SetID, s.now()); err != nil {
+			return ids, WrapError("reconcile", err)
+		}
 		ids = append(ids, set.SetID)
 	}
 	return ids, nil

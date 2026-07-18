@@ -16,12 +16,14 @@ import (
 )
 
 type remediatingSetConc struct {
-	failRenew  atomic.Bool
-	uncertain  atomic.Int32
-	renewCalls atomic.Int32
-	lastSetID  atomic.Value
-	markErr    error
-	renewErr   error
+	failRenew   atomic.Bool
+	failRelease atomic.Bool
+	uncertain   atomic.Int32
+	renewCalls  atomic.Int32
+	lastSetID   atomic.Value
+	markErr     error
+	renewErr    error
+	releaseErr  error
 }
 
 func (s *remediatingSetConc) AdmitLease(_ context.Context, _ authority.LeaseAdmission) (authority.LeaseDecision, error) {
@@ -53,7 +55,16 @@ func (s *remediatingSetConc) RenewLease(_ context.Context, in authority.LeaseRen
 	}, nil
 }
 
-func (s *remediatingSetConc) ReleaseLease(context.Context, authority.LeaseRelease) error { return nil }
+func (s *remediatingSetConc) ReleaseLease(_ context.Context, in authority.LeaseRelease) error {
+	if s.failRelease.Load() {
+		if s.releaseErr != nil {
+			return s.releaseErr
+		}
+		return errors.New("release lease set failed")
+	}
+	_ = in
+	return nil
+}
 func (s *remediatingSetConc) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
 	return authority.LeasePage{}, nil
 }
@@ -154,5 +165,73 @@ func TestPhase6Remediation_FailClosedRecordsAcceptFailure(t *testing.T) {
 	}
 	if ctx.Err() == nil {
 		t.Fatal("must still cancel on fail-closed")
+	}
+}
+
+func TestPhase6Remediation_SettleReleaseFailureAcceptsDurablePending(t *testing.T) {
+	t.Parallel()
+	conc := &remediatingSetConc{}
+	conc.failRelease.Store(true)
+	store := &capturingIntentStore{}
+	intents := terminalworkapp.NewIntentService(store, terminalworkapp.IntentServiceConfig{})
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency: conc, CleanupTimeout: time.Second,
+			},
+			TerminalWork: intents,
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-settle-rel", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ex.settleRequestAuthority(ctx, nil)
+	if !errors.Is(err, terminalworkapp.ErrDurablePending) {
+		t.Fatalf("got %v want ErrDurablePending", err)
+	}
+	st := requestAuthorityFrom(ctx)
+	if st.Settled || st.Released {
+		t.Fatalf("must not mark settled/released; settled=%v released=%v", st.Settled, st.Released)
+	}
+	if len(store.appended) != 1 || store.appended[0].Kind != sdk.WorkKindReleaseLeaseSet {
+		t.Fatalf("want release_lease_set intent, got %+v", store.appended)
+	}
+	if store.appended[0].LeaseSetID != "set-remed" {
+		t.Fatalf("lease_set_id=%q", store.appended[0].LeaseSetID)
+	}
+}
+
+func TestPhase6Remediation_SettleReleaseAcceptFailureRecorded(t *testing.T) {
+	t.Parallel()
+	conc := &remediatingSetConc{}
+	conc.failRelease.Store(true)
+	store := &capturingIntentStore{fail: errors.New("intent store down")}
+	intents := terminalworkapp.NewIntentService(store, terminalworkapp.IntentServiceConfig{})
+	ex := &Executor{
+		AccountingRuntime: AccountingRuntime{
+			RequestCoordinator: &authoritycoord.RequestCoordinator{
+				Concurrency: conc, CleanupTimeout: time.Second,
+			},
+			TerminalWork: intents,
+		},
+	}
+	ctx, err := ex.admitRequestAuthorityOnce(context.Background(), "req-settle-accept-fail", "a1", "t1", scope.PrincipalScopeView{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ex.settleRequestAuthority(ctx, nil)
+	if err == nil {
+		t.Fatal("want settle error when release+accept fail")
+	}
+	st := requestAuthorityFrom(ctx)
+	if st.Settled || st.Released {
+		t.Fatalf("must not mark settled/released; settled=%v released=%v", st.Settled, st.Released)
+	}
+	if st.LeaseSetReleaseAcceptErr == nil {
+		t.Fatal("accept failure must be recorded")
+	}
+	if errors.Is(err, terminalworkapp.ErrDurablePending) {
+		t.Fatal("accept failure must not report durable pending")
 	}
 }

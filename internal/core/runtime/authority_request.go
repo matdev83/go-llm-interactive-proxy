@@ -42,6 +42,7 @@ type requestAuthorityState struct {
 	ExecutableGen            *snapshotgen.ExecutableGeneration
 	cancelRequest            context.CancelFunc
 	LeaseSetReleaseAcceptErr error
+	LeaseSetUncertainErr     error
 }
 
 // leaseRenewTarget is one occupancy the heartbeat renews until settle/release.
@@ -308,13 +309,21 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 	// RequestCoordinator.Settle does not release concurrency occupancy (10.5).
 	e.stopLeaseHeartbeat(st)
 	if setID := strings.TrimSpace(st.LeaseSetID); setID != "" {
-		_ = coord.ReleaseLeaseSet(ctx, setID, st.LeaseID, st.RequestID, "settled")
+		if err := coord.ReleaseLeaseSet(ctx, setID, st.LeaseID, st.RequestID, "settled"); err != nil {
+			acceptErr := e.acceptLeaseSetReleaseIntent(ctx, st, "settle_release_failure")
+			if acceptErr != nil {
+				return errors.Join(err, acceptErr)
+			}
+			return errors.Join(err, terminalworkapp.ErrDurablePending)
+		}
 	} else {
 		ids := st.LeaseIDs
 		if len(ids) == 0 && st.LeaseID != "" {
 			ids = []string{st.LeaseID}
 		}
-		_ = coord.ReleaseLeases(ctx, ids, st.RequestID, "settled")
+		if err := coord.ReleaseLeases(ctx, ids, st.RequestID, "settled"); err != nil {
+			return err
+		}
 	}
 	st.Settled = true
 	st.Released = true
@@ -340,7 +349,11 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 	e.stopLeaseHeartbeat(st)
 	if setID := strings.TrimSpace(st.LeaseSetID); setID != "" {
 		if err := coord.ReleaseLeaseSet(ctx, setID, st.LeaseID, st.RequestID, "released"); err != nil {
-			return errors.Join(err, e.acceptLeaseSetReleaseIntent(ctx, st, "release_failure"))
+			acceptErr := e.acceptLeaseSetReleaseIntent(ctx, st, "release_failure")
+			if acceptErr != nil {
+				return errors.Join(err, acceptErr)
+			}
+			return errors.Join(err, terminalworkapp.ErrDurablePending)
 		}
 	}
 	fails := coord.Release(ctx, st.Decision.Stack, st.RequestID)
