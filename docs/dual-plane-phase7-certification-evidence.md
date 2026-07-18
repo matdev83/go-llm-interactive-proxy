@@ -55,7 +55,8 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
 
 | Issue | Remediation |
 |-------|-------------|
-| PR #181 QA `make test-authority-postgres`: `lipstd migrate` failed at metering `20260718000000` with `relation "metering_facts_store_source_event_key_key" already exists (SQLSTATE=42P07)` | Root cause: baseline DDL already creates that UNIQUE constraint; Up only caught `duplicate_object`/`unique_violation`, but PostgreSQL raises `duplicate_table` (`42P07`) for the existing index/relation. Fix: catch `duplicate_table` in the DO block. RED: unit SQL guard + Postgres integration idempotency re-run of Up after Migrate. Local proof: unit + `make test-postgres-migrations` + journalstore collision integration + `make quality-checks` + `make qa` PASS. Task 7.5 left unchecked pending green PR QA pooled run. |
+| PR #181 QA `make test-authority-postgres`: `lipstd migrate` failed at metering `20260718000000` with `relation "metering_facts_store_source_event_key_key" already exists (SQLSTATE=42P07)` | Root cause: baseline DDL already creates that UNIQUE constraint; Up only caught `duplicate_object`/`unique_violation`, but PostgreSQL raises `duplicate_table` (`42P07`) for the existing index/relation. Fix: catch `duplicate_table` in the DO block. RED: unit SQL guard + Postgres integration idempotency re-run of Up after Migrate. Local proof: unit + `make test-postgres-migrations` + journalstore collision integration + `make quality-checks` + `make qa` PASS. |
+| PR #181 QA run `29635473410` (after 42P07 fix): migrate + direct PASS; pooled journalstore timed out 10m on `TestPhase3_PostgresPooledJournalContracts/store_id_isolation` | Root cause: `openSharedPooledJournalStore` took non-reentrant `pooledJournalTestMu`; `store_id_isolation` calls open + openPeer → self-deadlock. Fix: reentrantTBMutex keyed by `*testing.T`. RED: nested Lock / nested openShared tests. Task 7.5 left unchecked pending green PR QA pooled run. |
 | Independent review: workstore missing from Makefile PG gates | Added `./internal/infra/terminalwork/workstore` to `test-authority-postgres-direct` and `test-authority-postgres-pooled` (Windows + Unix); contract tests enforce inclusion; direct keeps `-skip 'Pooled'`, pooled keeps `-run 'Pooled'` |
 | Independent review: metadata-only bound-version fallback untested | Added `TestApplyGenerationBoundVersion_MetadataOnlyPublishMetadataFallback` using `PublishMetadata` only |
 | Independent review: evidence claimed readiness while gates `_pending_` | This document rewritten with actual EXIT codes; unconditional `EconomicControlReady` withdrawn |
@@ -75,7 +76,7 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
   - `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`
   - runs `make test-authority-postgres` (migrations + direct + pooled, including workstore under `-run 'Pooled'`)
 
-**This branch:** PR #181 open. First QA pooled proof run `https://github.com/matdev83/go-llm-interactive-proxy/actions/runs/29634914224` **FAIL**ed (see remediations). Post-fix re-run pending.
+**This branch:** PR #181 open. QA runs: `29634914224` FAIL (migrate 42P07); `29635473410` FAIL (pooled mutex deadlock after migrate green). Further fix pushed — re-check pending.
 
 ### Linux strict race + fuzz (nightly)
 

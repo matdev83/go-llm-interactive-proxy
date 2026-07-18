@@ -62,8 +62,7 @@ func TestPhase34_Postgres_VerifySchemaV2(t *testing.T) {
 
 func TestPhase34_PostgresPooled_VerifySchemaFailsWhenV2IndexMissing(t *testing.T) {
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
-	pooledJournalTestMu.Lock()
-	t.Cleanup(pooledJournalTestMu.Unlock)
+	pooledJournalTestMu.Lock(t)
 	ensurePooledJournalSchema(t, adminDSN)
 	runtime := sharedPooledJournalRuntime(t, runtimeDSN)
 	admin := testkit.OpenPostgresBunForTest(t, adminDSN, 2)
