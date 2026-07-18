@@ -377,7 +377,7 @@
   - _Depends: Phases 3–6_
   - _Validation: migration/direct/pooled gates, enterprise fixture, architecture guards, check-config, and rollout rehearsal_
 
-- [ ] 7.5 Run the clean-environment certification matrix and archive evidence
+- [x] 7.5 Run the clean-environment certification matrix and archive evidence
   - Run focused phase suites, `make quality-checks`, `make test`, `make parity-checks`, Linux strict race, required PostgreSQL migration/direct/pooled gates, dedicated fuzz smoke, enterprise-module compile/run, benchmarks, and `make qa` from a clean environment.
   - Record exact commands, environment posture, failures/remediations, and unresolved limitations; do not claim commercial billing readiness.
   - **Deliverable:** all mandatory gates pass and the archived implementation spec can truthfully mark the OSS foundation `EconomicControlReady`.
