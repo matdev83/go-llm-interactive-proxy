@@ -50,8 +50,8 @@ make quality-checks   # fmt, tidy, build, vet, archtest
 make test             # quality-checks + unit + parity
 make test-unit        # go test -parallel=8 -timeout=10m ./...
 make parity-checks    # conformance (-tags=precommit,integration)
-make test-fuzz        # short fuzz smoke
-make test-race        # race detector (Linux CI; skipped on Windows)
+make test-fuzz        # short fuzz smoke (nightly CI FUZZTIME=6s)
+make test-race        # race detector (Linux nightly CI; skipped on Windows)
 make test-precommit-extra  # hygiene + executor matrices
 make qa               # quality + full test + lint + vuln
 make bench            # benchmark smoke

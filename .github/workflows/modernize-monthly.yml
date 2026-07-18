@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: "41 4 1 * *" # 04:41 UTC on the 1st of each month
 
+permissions:
+  contents: read
+
 jobs:
   modernize:
     runs-on: ubuntu-latest
