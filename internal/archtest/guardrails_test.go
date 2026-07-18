@@ -138,7 +138,8 @@ var lineBudgets = []struct {
 	// Measured ~60495; cap keeps ~155 lines of headroom.
 	// Raised from 61400 to 61600 for Phase 4.5 correctness (metrics pagination,
 	// AttemptID identity, AuthorityRequestEffectProvider).
-	{"internal/core", 61600},
+	// Raised from 61600 to 62000 for Phase 5 executable generations.
+	{"internal/core", 62000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -166,7 +167,8 @@ var lineBudgets = []struct {
 	// Raised from 6000 to 6100 for Phase 4.5 composition
 	// (RequestRegistrations → AuthorityRequestEffectProvider merge). Measured ~6052.
 	// Raised from 6100 to 6150 for ProcessDue metrics observer adapter. Measured ~6105.
-	{"internal/infra/runtimebundle", 6150},
+	// Raised from 6150 to 6250 for Phase 5 executable generation compile/publish.
+	{"internal/infra/runtimebundle", 6250},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

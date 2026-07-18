@@ -259,7 +259,7 @@
   - _Depends: 5.2_
   - _Validation: five-to-two, rating-change, failure-preservation, request/attempt/settlement binding tests_
 
-- [ ] 5.4 Preserve old-generation and pending-handle compatibility
+- [x] 5.4 Preserve old-generation and pending-handle compatibility
   - Keep live generation references reachable and route pending work through stable provider IDs.
   - Require same-ID providers to settle historical handles; use a new ID for incompatible replacement and block removal while pending work references the old ID.
   - Expose unresolved provider-generation references in readiness and queries.
