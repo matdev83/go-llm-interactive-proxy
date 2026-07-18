@@ -23,6 +23,16 @@ func TestPostgresPooled_FiveSlotAcrossTwoRuntimeHandles(t *testing.T) {
 	guardB.AssertNoViolations(t)
 }
 
+func TestPostgresPooled_AcquireSetFiveSlotMultiRule(t *testing.T) {
+	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
+	storeID := testkit.UniquePostgresStoreID("pg-pooled-lease-set")
+	a, guardA := openOwnedPooledLeaseStore(t, adminDSN, runtimeDSN, storeID)
+	b, guardB := openOwnedPooledLeaseStore(t, adminDSN, runtimeDSN, storeID)
+	runFiveSlotAcquireSetContract(t, a, b)
+	guardA.AssertNoViolations(t)
+	guardB.AssertNoViolations(t)
+}
+
 func TestPostgresPooled_ReleaseRenewNoResurrection(t *testing.T) {
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
 	storeID := testkit.UniquePostgresStoreID("pg-pooled-cas")

@@ -390,7 +390,7 @@ func advisoryRule(limit int) domain.Rule {
 	return r
 }
 
-func newService(t *testing.T, rules []domain.Rule, store *memoryStore, now time.Time) *app.Service {
+func newService(t *testing.T, rules []domain.Rule, store app.LeaseStore, now time.Time) *app.Service {
 	t.Helper()
 	return app.NewService(staticRules{snap: app.RuleSnapshot{
 		Readiness: domain.Readiness{State: domain.ReadinessStateReady},

@@ -284,6 +284,15 @@ type QuerySetsCommand struct {
 	Limit     int
 }
 
+// LeaseSetOccupancyCounts is a bounded control-plane projection of set states.
+type LeaseSetOccupancyCounts struct {
+	Active    int
+	Uncertain int
+	Expiring  int
+	Released  int
+	Failed    int
+}
+
 // QuerySetsResult is a bounded page of lease sets.
 type QuerySetsResult struct {
 	Sets []domain.LeaseSet

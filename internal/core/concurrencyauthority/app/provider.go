@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
@@ -41,6 +42,18 @@ func (p *Provider) AdmitLease(ctx context.Context, in authority.LeaseAdmission) 
 		return authority.LeaseDecision{}, err
 	}
 	return mapAdmitDecision(res), nil
+}
+
+// MarkLeaseSetUncertain marks a set conservatively occupied after ambiguous renew.
+func (p *Provider) MarkLeaseSetUncertain(ctx context.Context, setID string) error {
+	if p == nil || p.svc == nil || p.svc.store == nil {
+		return WrapError("mark_uncertain", ErrUnavailable)
+	}
+	setID = strings.TrimSpace(setID)
+	if setID == "" {
+		return WrapError("mark_uncertain", ErrInvalidInput)
+	}
+	return p.svc.store.MarkSetUncertain(ctx, setID, p.svc.now())
 }
 
 // RenewLease implements authority.ConcurrencyProvider.

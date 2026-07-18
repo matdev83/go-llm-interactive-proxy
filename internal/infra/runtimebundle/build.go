@@ -130,7 +130,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts.Testing.Clock != nil {
 		nowFn = opts.Testing.Clock
 	}
-	twRT, twClosers, err := buildTerminalWorkFromProduction(opts.Production, opts.Testing.Clock, obs.Bundle)
+	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, opts.Production, opts.Testing.Clock, obs.Bundle, concurrencyHandle)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
 	}

@@ -173,7 +173,9 @@ var lineBudgets = []struct {
 	// Raised from 6250 to 6300 for Phase 5.5 executable readiness wiring.
 	// Raised from 6300 to 6400 for Phase 5 remediation (provider-removal
 	// validation + terminal pending-drain binding at composition root).
-	{"internal/infra/runtimebundle", 6400},
+	// Raised from 6400 to 6450 for Phase 6 remediation (lease-set QuerySets
+	// readiness + startup uncertain-set reconcile at composition root).
+	{"internal/infra/runtimebundle", 6450},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

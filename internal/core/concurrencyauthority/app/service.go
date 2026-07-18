@@ -330,7 +330,9 @@ func (s *Service) Renew(ctx context.Context, in RenewInput) (AdmitResult, error)
 			TTL: ttl, RenewBefore: renewBefore, Now: s.now(),
 		})
 		if err != nil {
-			_ = s.store.MarkSetUncertain(ctx, setID, s.now())
+			if IsAmbiguousRenewError(err) {
+				_ = s.store.MarkSetUncertain(ctx, setID, s.now())
+			}
 			return AdmitResult{}, WrapError("renew", err)
 		}
 		primaryID := in.LeaseID
@@ -428,6 +430,7 @@ func (s *Service) Query(ctx context.Context, q QueryCommand) (QueryResult, error
 }
 
 // ReadinessDomain returns domain readiness from store (and optional snapshot).
+// Uncertain or failed lease-set occupancy degrades readiness (task 6.4 remediation).
 func (s *Service) ReadinessDomain(ctx context.Context) (domain.Readiness, error) {
 	if s == nil || s.store == nil {
 		return domain.Readiness{State: domain.ReadinessStateUnavailable}, WrapError("readiness", ErrUnavailable)
@@ -444,7 +447,64 @@ func (s *Service) ReadinessDomain(ctx context.Context) (domain.Readiness, error)
 	if ready.State == "" {
 		ready.State = domain.ReadinessStateReady
 	}
+	counts, countErr := s.LeaseSetOccupancyCounts(ctx)
+	if countErr == nil && (counts.Uncertain > 0 || counts.Failed > 0) {
+		ready = mergeReadiness(ready, &domain.Readiness{
+			State:  domain.ReadinessStateDegraded,
+			Reason: "lease_set_uncertain_or_failed",
+		})
+	}
 	return ready, nil
+}
+
+// LeaseSetOccupancyCounts returns bounded occupancy counts by set state.
+func (s *Service) LeaseSetOccupancyCounts(ctx context.Context) (LeaseSetOccupancyCounts, error) {
+	if s == nil || s.store == nil {
+		return LeaseSetOccupancyCounts{}, WrapError("query_sets", ErrUnavailable)
+	}
+	res, err := s.store.QuerySets(ctx, QuerySetsCommand{Now: s.now(), Limit: 500})
+	if err != nil {
+		return LeaseSetOccupancyCounts{}, WrapError("query_sets", err)
+	}
+	var out LeaseSetOccupancyCounts
+	for _, set := range res.Sets {
+		switch set.State {
+		case domain.LeaseSetStateActive:
+			out.Active++
+		case domain.LeaseSetStateUncertain:
+			out.Uncertain++
+		case domain.LeaseSetStateExpiring:
+			out.Expiring++
+		case domain.LeaseSetStateReleased:
+			out.Released++
+		case domain.LeaseSetStateFailed:
+			out.Failed++
+		}
+	}
+	return out, nil
+}
+
+// ReconcileUncertainSets conservatively keeps uncertain sets occupied and returns
+// their IDs for durable release-work resumption (startup reconciliation).
+func (s *Service) ReconcileUncertainSets(ctx context.Context) ([]string, error) {
+	if s == nil || s.store == nil {
+		return nil, WrapError("reconcile", ErrUnavailable)
+	}
+	res, err := s.store.QuerySets(ctx, QuerySetsCommand{
+		State: domain.LeaseSetStateUncertain, Now: s.now(), Limit: 500,
+	})
+	if err != nil {
+		return nil, WrapError("reconcile", err)
+	}
+	ids := make([]string, 0, len(res.Sets))
+	for _, set := range res.Sets {
+		if set.SetID == "" {
+			continue
+		}
+		_ = s.store.MarkSetUncertain(ctx, set.SetID, s.now())
+		ids = append(ids, set.SetID)
+	}
+	return ids, nil
 }
 
 // Readiness maps domain readiness onto the public authority readiness enum.

@@ -30,6 +30,17 @@ func TestPostgresStore_FiveSlotAcrossTwoInstances(t *testing.T) {
 	runFiveSlotContract(t, a, b)
 }
 
+func TestPostgresStore_AcquireSetFiveSlotMultiRule(t *testing.T) {
+	dsn := testkit.SkipUnlessPostgres(t)
+	storeID := testkit.UniquePostgresStoreID("pg-lease-set")
+	t.Cleanup(func() {
+		testkit.CleanupPostgresStoreByID(t, adminDSNForCleanup(dsn), storeID, testkit.PostgresComponentLease)
+	})
+	a := newPostgresStore(t, dsn, storeID)
+	b := newPostgresStore(t, dsn, storeID)
+	runFiveSlotAcquireSetContract(t, a, b)
+}
+
 func TestPostgresStore_ReadinessDistributedStrict(t *testing.T) {
 	dsn := testkit.SkipUnlessPostgres(t)
 	storeID := testkit.UniquePostgresStoreID("pg-ready")

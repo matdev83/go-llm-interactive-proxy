@@ -255,11 +255,15 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 				}
 			}
 			if failClosed {
-				// Cancel before unproven expiry (requirement 10.6/10.7).
+				// Mark uncertain, accept durable set-release with WithoutCancel,
+				// then cancel before unproven expiry (10.6/10.7 remediation).
+				_ = e.markLeaseSetUncertain(parent, st)
+				if err := e.acceptLeaseSetReleaseIntent(parent, st, "renew_fail_closed"); err != nil {
+					st.LeaseSetReleaseAcceptErr = err
+				}
 				if st.cancelRequest != nil {
 					st.cancelRequest()
 				}
-				_ = e.acceptLeaseSetReleaseIntent(parent, st, "renew_fail_closed")
 				return
 			}
 			if anyFailOpenRetry {

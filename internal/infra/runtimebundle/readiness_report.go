@@ -58,7 +58,20 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			case "disabled":
 				st = controlplane.ConcurrencyAuthorityDisabled
 			}
-			return controlplane.ConcurrencyAuthorityStatus{State: st, Reason: ready.Reason}, nil
+			out := controlplane.ConcurrencyAuthorityStatus{State: st, Reason: ready.Reason}
+			if counts, cerr := svc.LeaseSetOccupancyCounts(ctx); cerr == nil {
+				out.LeaseSets = controlplane.LeaseSetOccupancyCounts{
+					Active: counts.Active, Uncertain: counts.Uncertain, Expiring: counts.Expiring,
+					Released: counts.Released, Failed: counts.Failed,
+				}
+				if counts.Uncertain > 0 || counts.Failed > 0 {
+					out.State = controlplane.ConcurrencyAuthorityDegraded
+					if out.Reason == "" {
+						out.Reason = "lease_set_uncertain_or_failed"
+					}
+				}
+			}
+			return out, nil
 		}
 	}
 	if in.Metering != nil {

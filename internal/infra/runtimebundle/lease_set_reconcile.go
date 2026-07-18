@@ -1,0 +1,61 @@
+package runtimebundle
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+)
+
+func buildTerminalWorkWithSetReconcile(
+	ctx context.Context,
+	prod ProductionOptions,
+	clock func() time.Time,
+	bundle *metrics.Bundle,
+	conc *concurrencyapp.Service,
+) (*terminalWorkRuntime, []func() error, error) {
+	twRT, closers, err := buildTerminalWorkFromProduction(prod, clock, bundle)
+	if err != nil {
+		return nil, closers, err
+	}
+	if err := reconcileUncertainLeaseSets(ctx, conc, twRT); err != nil {
+		return nil, closers, err
+	}
+	return twRT, closers, nil
+}
+
+// reconcileUncertainLeaseSets scans uncertain sets conservatively and ensures
+// durable release_lease_set intents exist so pending work resumes after restart.
+func reconcileUncertainLeaseSets(ctx context.Context, conc *concurrencyapp.Service, tw *terminalWorkRuntime) error {
+	if conc == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ids, err := conc.ReconcileUncertainSets(ctx)
+	if err != nil {
+		return fmt.Errorf("runtimebundle: reconcile uncertain lease sets: %w", err)
+	}
+	if tw == nil || tw.Intents == nil {
+		return nil
+	}
+	for _, setID := range ids {
+		setID = strings.TrimSpace(setID)
+		if setID == "" {
+			continue
+		}
+		if err := tw.Intents.AcceptLeaseSetRelease(ctx, terminalworkapp.LeaseSetReleaseInput{
+			RequestID:  "reconcile:" + setID,
+			LeaseSetID: setID,
+			Reason:     "startup_uncertain_reconcile",
+		}); err != nil {
+			return fmt.Errorf("runtimebundle: accept lease set release for %s: %w", setID, err)
+		}
+	}
+	return nil
+}
