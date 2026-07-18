@@ -29,6 +29,56 @@ type readinessReportBuildInput struct {
 	TerminalWork       *terminalWorkRuntime
 }
 
+func leaseSetConcurrencyStatus(
+	ctx context.Context,
+	svc *concurrencyapp.Service,
+	tw *terminalWorkRuntime,
+) (controlplane.ConcurrencyAuthorityStatus, error) {
+	ready, err := svc.ReadinessDomain(ctx)
+	if err != nil {
+		return controlplane.ConcurrencyAuthorityStatus{}, err
+	}
+	st := controlplane.ConcurrencyAuthorityReady
+	switch string(ready.State) {
+	case "degraded":
+		st = controlplane.ConcurrencyAuthorityDegraded
+	case "unavailable":
+		st = controlplane.ConcurrencyAuthorityUnavailable
+	case "disabled":
+		st = controlplane.ConcurrencyAuthorityDisabled
+	}
+	out := controlplane.ConcurrencyAuthorityStatus{State: st, Reason: ready.Reason}
+	if counts, cerr := svc.LeaseSetOccupancyCounts(ctx); cerr == nil {
+		out.LeaseSets = controlplane.LeaseSetOccupancyCounts{
+			Active: counts.Active, Uncertain: counts.Uncertain, Expiring: counts.Expiring,
+			Released: counts.Released, Failed: counts.Failed,
+		}
+		if counts.Uncertain > 0 || counts.Failed > 0 || counts.Expiring > 0 {
+			out.State = controlplane.ConcurrencyAuthorityDegraded
+			if out.Reason == "" {
+				out.Reason = "lease_set_uncertain_failed_or_expiring"
+			}
+		}
+	}
+	if tw != nil && tw.Queries != nil {
+		page, qerr := tw.Queries.List(ctx, terminalworkapp.WorkQuery{
+			Kind:  sdk.WorkKindReleaseLeaseSet,
+			Class: terminalworkapp.QueryClassPendingTerminalWork,
+			Limit: 500,
+		})
+		if qerr == nil {
+			out.LeaseSets.PendingRelease = len(page.Rows)
+			if out.LeaseSets.PendingRelease > 0 {
+				out.State = controlplane.ConcurrencyAuthorityDegraded
+				if out.Reason == "" {
+					out.Reason = "lease_set_release_pending"
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
 func buildReadinessReportService(in readinessReportBuildInput) *corecp.ReadinessReportService {
 	src := corecp.ReadinessReportSources{
 		StoreBackings: readinessStoreBackings(in.Cfg, in.Production),
@@ -48,49 +98,7 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 		svc := in.Concurrency
 		tw := in.TerminalWork
 		src.ConcurrencyAuthority = func(ctx context.Context) (controlplane.ConcurrencyAuthorityStatus, error) {
-			ready, err := svc.ReadinessDomain(ctx)
-			if err != nil {
-				return controlplane.ConcurrencyAuthorityStatus{}, err
-			}
-			st := controlplane.ConcurrencyAuthorityReady
-			switch string(ready.State) {
-			case "degraded":
-				st = controlplane.ConcurrencyAuthorityDegraded
-			case "unavailable":
-				st = controlplane.ConcurrencyAuthorityUnavailable
-			case "disabled":
-				st = controlplane.ConcurrencyAuthorityDisabled
-			}
-			out := controlplane.ConcurrencyAuthorityStatus{State: st, Reason: ready.Reason}
-			if counts, cerr := svc.LeaseSetOccupancyCounts(ctx); cerr == nil {
-				out.LeaseSets = controlplane.LeaseSetOccupancyCounts{
-					Active: counts.Active, Uncertain: counts.Uncertain, Expiring: counts.Expiring,
-					Released: counts.Released, Failed: counts.Failed,
-				}
-				if counts.Uncertain > 0 || counts.Failed > 0 || counts.Expiring > 0 {
-					out.State = controlplane.ConcurrencyAuthorityDegraded
-					if out.Reason == "" {
-						out.Reason = "lease_set_uncertain_failed_or_expiring"
-					}
-				}
-			}
-			if tw != nil && tw.Queries != nil {
-				page, qerr := tw.Queries.List(ctx, terminalworkapp.WorkQuery{
-					Kind:  sdk.WorkKindReleaseLeaseSet,
-					Class: terminalworkapp.QueryClassPendingTerminalWork,
-					Limit: 500,
-				})
-				if qerr == nil {
-					out.LeaseSets.PendingRelease = len(page.Rows)
-					if out.LeaseSets.PendingRelease > 0 {
-						out.State = controlplane.ConcurrencyAuthorityDegraded
-						if out.Reason == "" {
-							out.Reason = "lease_set_release_pending"
-						}
-					}
-				}
-			}
-			return out, nil
+			return leaseSetConcurrencyStatus(ctx, svc, tw)
 		}
 	}
 	if in.Metering != nil {
