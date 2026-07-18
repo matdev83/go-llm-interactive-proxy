@@ -59,26 +59,29 @@ type ScopeFilters struct {
 // Query is a bounded filter for listing metering facts. Unsupported or
 // too-broad filters return stable outcomes rather than scanning (14.4, 14.8).
 type Query struct {
-	Class       QueryClass          `json:"class,omitempty"`
-	Scope       ScopeFilters        `json:"scope,omitzero"`
-	TimeRange   TimeRange           `json:"time_range,omitzero"`
-	Perspective EconomicPerspective `json:"perspective,omitempty"`
-	Boundary    Boundary            `json:"boundary,omitempty"`
-	Lifecycle   LifecycleScope      `json:"lifecycle,omitempty"`
-	StreamID    string              `json:"stream_id,omitempty"`
-	RequestID   string              `json:"request_id,omitempty"`
-	TraceID     string              `json:"trace_id,omitempty"`
-	SessionID   string              `json:"session_id,omitempty"`
-	ALegID      string              `json:"a_leg_id,omitempty"`
-	BLegID      string              `json:"b_leg_id,omitempty"`
-	AttemptID   string              `json:"attempt_id,omitempty"`
-	FrontendID  string              `json:"frontend_id,omitempty"`
-	BackendID   string              `json:"backend_id,omitempty"`
-	Model       string              `json:"model,omitempty"`
-	RouteID     string              `json:"route_id,omitempty"`
-	RuleID      string              `json:"rule_id,omitempty"`
-	Limit       int                 `json:"limit,omitempty"`
-	Cursor      string              `json:"cursor,omitempty"`
+	Class           QueryClass          `json:"class,omitempty"`
+	Scope           ScopeFilters        `json:"scope,omitzero"`
+	TimeRange       TimeRange           `json:"time_range,omitzero"`
+	Perspective     EconomicPerspective `json:"perspective,omitempty"`
+	Boundary        Boundary            `json:"boundary,omitempty"`
+	Lifecycle       LifecycleScope      `json:"lifecycle,omitempty"`
+	StreamID        string              `json:"stream_id,omitempty"`
+	RequestID       string              `json:"request_id,omitempty"`
+	TraceID         string              `json:"trace_id,omitempty"`
+	SessionID       string              `json:"session_id,omitempty"`
+	ALegID          string              `json:"a_leg_id,omitempty"`
+	BLegID          string              `json:"b_leg_id,omitempty"`
+	AttemptID       string              `json:"attempt_id,omitempty"`
+	FrontendID      string              `json:"frontend_id,omitempty"`
+	BackendID       string              `json:"backend_id,omitempty"`
+	Model           string              `json:"model,omitempty"`
+	RouteID         string              `json:"route_id,omitempty"`
+	RuleID          string              `json:"rule_id,omitempty"`
+	Source          Source              `json:"source,omitempty"`
+	Authority       Authority           `json:"authority,omitempty"`
+	IdentityVersion int                 `json:"identity_version,omitempty"`
+	Limit           int                 `json:"limit,omitempty"`
+	Cursor          string              `json:"cursor,omitempty"`
 }
 
 // Page is one bounded page of facts plus continuation and unsupported-filter

@@ -159,7 +159,7 @@
   - _Depends: 3.1–3.3_
   - _Validation: migration, append-race, correction, restart, direct PostgreSQL, and pooled PostgreSQL tests_
 
-- [ ] 3.5 Add compatibility projections, bounded queries, and restart reconstruction
+- [x] 3.5 Add compatibility projections, bounded queries, and restart reconstruction
   - Preserve legacy token-ledger/control-plane views where representable and mark historical rows without ingress facts explicitly incomplete.
   - Add indexed filters for perspective, boundary, lifecycle, correlation, time, source, authority, and identity version.
   - Reconstruct customer usage, operator usage/cost, routing overhead, and compression-savings inputs from facts alone.

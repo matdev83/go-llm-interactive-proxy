@@ -264,6 +264,32 @@ func UsageRowFromMeteringFact(f metering.Fact) cp.UsageRow {
 	})
 }
 
+// UsageRowsFromMeteringFacts projects a fact set onto usage rows. When the set
+// contains egress without any ingress fact, rows are marked EvidencePartial
+// (incomplete historical view) and quantities are not invented.
+func UsageRowsFromMeteringFacts(facts []metering.Fact) []cp.UsageRow {
+	seenIngress := false
+	seenEgress := false
+	for _, f := range facts {
+		switch f.Boundary {
+		case metering.BoundaryFrontendIngress, metering.BoundaryBackendIngress:
+			seenIngress = true
+		case metering.BoundaryFrontendEgress, metering.BoundaryBackendEgress:
+			seenEgress = true
+		}
+	}
+	incomplete := seenEgress && !seenIngress
+	out := make([]cp.UsageRow, 0, len(facts))
+	for _, f := range facts {
+		row := UsageRowFromMeteringFact(f)
+		if incomplete {
+			row.EvidenceState = cp.EvidencePartial
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func provenanceFromMetering(f metering.Fact) cp.UsageProvenance {
 	switch f.Authority {
 	case metering.AuthorityAuthoritative:
