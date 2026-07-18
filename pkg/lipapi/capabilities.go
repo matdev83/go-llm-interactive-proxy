@@ -17,6 +17,7 @@ const (
 	CapabilityDocuments         Capability = "documents"
 	CapabilityStructuredOutputs Capability = "structured_outputs"
 	CapabilityReasoning         Capability = "reasoning"
+	CapabilityReasoningReplay   Capability = "reasoning_replay" // hard; required when historical reasoning parts are present
 	CapabilityParallelToolCalls Capability = "parallel_tool_calls"
 )
 

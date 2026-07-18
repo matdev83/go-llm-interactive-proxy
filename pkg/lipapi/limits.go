@@ -39,6 +39,13 @@ const (
 	MaxEventDeltaBytes       = MaxPartTextBytes  // TextDelta, ReasoningDelta, ToolCallArgsDelta
 	MaxEventDiagMessageBytes = 4 << 20           // WarningMessage, ErrorMessage per event
 	MaxEventCodeFieldBytes   = MaxRefStringBytes // WarningCode, ErrorCode when non-empty
+
+	MaxReasoningDialectBytes    = MaxRefStringBytes
+	MaxReasoningTextBytes       = MaxPartTextBytes
+	MaxReasoningSignatureBytes  = MaxRefStringBytes
+	MaxReasoningOpaqueBytes     = MaxPartJSONBytes
+	MaxReasoningPartsPerMessage = MaxPartsPerMessage
+	MaxReasoningBytesPerCall    = MaxPartTextBytes
 )
 
 func validateStringField(name, s string, max int) error {

@@ -1,6 +1,8 @@
 package checkpoint_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -140,5 +142,44 @@ func TestRequestHolder_ParallelBackendIngressShareFEStream(t *testing.T) {
 	}
 	if h.FrontendIngress.Public.StreamID != fe.Public.StreamID {
 		t.Fatal("FE stream must remain shared")
+	}
+}
+
+func TestBillableFingerprint_includesReasoningPayload(t *testing.T) {
+	t.Parallel()
+	opaqueA := json.RawMessage(`{"data":"a"}`)
+	opaqueB := json.RawMessage(`{"data":"b"}`)
+	if !json.Valid(opaqueA) || !json.Valid(opaqueB) {
+		t.Fatal("opaque must be valid JSON")
+	}
+	left := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleAssistant,
+			Parts: []lipapi.Part{{
+				Kind: lipapi.PartReasoning,
+				Reasoning: &lipapi.ReasoningPart{
+					Dialect:   lipapi.ReasoningDialectAnthropicThinkingV1,
+					Text:      "think-a",
+					Signature: "sig-a",
+					Opaque:    opaqueA,
+				},
+			}},
+		}},
+	}
+	right := lipapi.CloneCall(left)
+	right.Messages[0].Parts[0].Reasoning.Text = "think-b"
+	right.Messages[0].Parts[0].Reasoning.Signature = "sig-b"
+	right.Messages[0].Parts[0].Reasoning.Opaque = append(json.RawMessage(nil), opaqueB...)
+
+	fpLeft, err := checkpoint.BillableFingerprint(left)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpRight, err := checkpoint.BillableFingerprint(right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(fpLeft, fpRight) {
+		t.Fatal("billable fingerprint equality must include reasoning text/signature/opaque")
 	}
 }

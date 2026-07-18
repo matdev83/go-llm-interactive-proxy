@@ -1,0 +1,496 @@
+package runtime_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedthinking"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
+	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+)
+
+const attemptTransformMarker = "attempt-transform-marker"
+
+type recordingAttemptTransform struct {
+	id       string
+	mode     string
+	calls    *atomic.Int64
+	metaMu   sync.Mutex
+	metas    []request.AttemptMeta
+	callPtrs []*lipapi.Call
+}
+
+func (r *recordingAttemptTransform) ID() string {
+	if r.id != "" {
+		return r.id
+	}
+	return "recording-attempt-xform"
+}
+func (r *recordingAttemptTransform) Order() int                        { return 0 }
+func (r *recordingAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (r *recordingAttemptTransform) HandleAttempt(_ context.Context, call *lipapi.Call, meta request.AttemptMeta, _ request.Services) (request.AttemptDecision, error) {
+	if r.calls != nil {
+		r.calls.Add(1)
+	}
+	r.metaMu.Lock()
+	r.metas = append(r.metas, meta)
+	r.callPtrs = append(r.callPtrs, call)
+	r.metaMu.Unlock()
+	switch r.mode {
+	case "exclude_first":
+		if meta.BackendID == "a" || strings.HasPrefix(meta.CandidateKey, "a:") {
+			return request.AttemptDecision{Kind: request.AttemptExcludeCandidate, ReasonCode: "unrepresentable_replay"}, nil
+		}
+	case "mutate_marker":
+		if call != nil {
+			call.Instructions = append(call.Instructions, lipapi.Message{
+				Role:  lipapi.RoleSystem,
+				Parts: []lipapi.Part{lipapi.TextPart(attemptTransformMarker)},
+			})
+		}
+	case "mutate_tool_after_shape":
+		if call != nil {
+			call.Tools = append(call.Tools, lipapi.ToolDef{Name: "post-shape-tool", Description: "added after shape"})
+		}
+	case "mutate_tools_caps":
+		if call != nil {
+			call.Tools = append(call.Tools, lipapi.ToolDef{Name: "need-tools", Description: "forces CapabilityTools"})
+		}
+	case "tag_candidate":
+		if call != nil {
+			call.ID = "tagged:" + meta.CandidateKey
+		}
+	}
+	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+}
+
+func attemptTransformBaseCall(selector string) *lipapi.Call {
+	return &lipapi.Call{
+		ID:    "baseline-immutable",
+		Route: lipapi.RouteIntent{Selector: selector},
+		Messages: []lipapi.Message{{
+			Role:  lipapi.RoleUser,
+			Parts: []lipapi.Part{lipapi.TextPart("hello")},
+		}},
+		Invocation: lipapi.Invocation{
+			Operation:    lipapi.OperationOpenAIChatCompletions,
+			DeliveryMode: lipapi.DeliveryModeNonStreaming,
+		},
+	}
+}
+
+func contributeAttemptTransformBundle(t *testing.T, xform request.AttemptTransform) lipfeature.FeatureBundle {
+	t.Helper()
+	b := lipfeature.FeatureBundle{
+		SchemaVersion:     lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{xform},
+	}
+	if err := b.Validate(); err != nil {
+		t.Fatalf("FeatureBundle.Validate: %v", err)
+	}
+	if len(b.AttemptTransforms) != 1 {
+		t.Fatal("bundle must carry AttemptTransforms contribution")
+	}
+	return b
+}
+
+// wireMergedAttemptSurface mirrors bootstrap: only MergedFeatureSurface fields exist today.
+// AttemptTransforms are dropped until Phase 2.2 Append/snapshot wiring.
+func wireMergedAttemptSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
+	t.Helper()
+	merged := featurebundle.MergeBundles(bundle)
+	bus := hooks.New(hooks.Config{})
+	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
+		RequestTransforms: merged.RequestTransforms,
+	})
+	return bus, snap
+}
+
+func TestCandidateAttemptTransform_invokedWithMetaMutationObservedByOpen(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xform := &recordingAttemptTransform{mode: "mutate_marker", calls: &atomic.Int64{}}
+	bundle := contributeAttemptTransformBundle(t, xform)
+	bus, snap := wireMergedAttemptSurface(t, bundle)
+
+	var gotMu sync.Mutex
+	var gotCall lipapi.Call
+	var opened atomic.Int64
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Rand = routing.NewSeededRng(2)
+	ex.Backends = map[string]execbackend.Backend{
+		"be": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(_ context.Context, call lipapi.Call, c routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				opened.Add(1)
+				gotMu.Lock()
+				gotCall = call
+				gotMu.Unlock()
+				_ = c
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		},
+	}
+
+	stream, execErr := ex.Execute(t.Context(), attemptTransformBaseCall("be:m"))
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if stream != nil {
+		if _, err := lipapi.Collect(t.Context(), stream); err != nil {
+			t.Fatalf("collect: %v", err)
+		}
+	}
+	if opened.Load() == 0 {
+		t.Fatal("expected backend Open after Execute")
+	}
+
+	gotMu.Lock()
+	openedCall := gotCall
+	gotMu.Unlock()
+	hasMarker := false
+	for _, msg := range openedCall.Instructions {
+		if strings.Contains(textOf(msg), attemptTransformMarker) {
+			hasMarker = true
+			break
+		}
+	}
+	if !hasMarker {
+		t.Fatal("RED: AttemptTransform contributed via FeatureBundle must mutate the candidate clone observed by backend Open (merge/snapshot/runner wiring absent)")
+	}
+	xform.metaMu.Lock()
+	metas := append([]request.AttemptMeta(nil), xform.metas...)
+	xform.metaMu.Unlock()
+	if len(metas) == 0 {
+		t.Fatal("RED: AttemptTransform must be invoked with AttemptMeta for the selected candidate")
+	}
+	meta := metas[0]
+	if meta.BackendID == "" || meta.CandidateKey == "" || meta.Model == "" {
+		t.Fatalf("RED: AttemptMeta incomplete: %+v", meta)
+	}
+}
+
+func TestCandidateAttemptTransform_runsAfterInterleavedShapeBeforeCapabilities(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xform := &recordingAttemptTransform{mode: "mutate_tool_after_shape", calls: &atomic.Int64{}}
+	bundle := contributeAttemptTransformBundle(t, xform)
+	bus, snap := wireMergedAttemptSurface(t, bundle)
+
+	var gotMu sync.Mutex
+	var gotCall lipapi.Call
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Rand = routing.NewSeededRng(2)
+	ex.InterleavedConfig = interleavedthinking.ShapeConfig{Instructions: "Think step by step and emit a memo."}
+	ex.Backends = map[string]execbackend.Backend{
+		"thinker-be": *interleavedBackend(
+			lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			func(c lipapi.Call) {
+				gotMu.Lock()
+				gotCall = c
+				gotMu.Unlock()
+			},
+		),
+		"unused-exec": recoverableInterleavedBackend(nil),
+	}
+
+	call := interleavedBaseCall("[thinker]thinker-be:m^unused-exec:m")
+	stream, execErr := ex.Execute(t.Context(), call)
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if stream != nil {
+		if _, err := lipapi.Collect(t.Context(), stream); err != nil {
+			t.Fatalf("collect: %v", err)
+		}
+	}
+
+	gotMu.Lock()
+	shaped := gotCall
+	gotMu.Unlock()
+	if len(shaped.Instructions) == 0 || !strings.Contains(textOf(shaped.Instructions[0]), "Think step by step") {
+		t.Fatal("interleaved shape must run (thinker instructions) before asserting transform placement")
+	}
+	hasPostShapeTool := false
+	for _, tool := range shaped.Tools {
+		if tool.Name == "post-shape-tool" {
+			hasPostShapeTool = true
+			break
+		}
+	}
+	if !hasPostShapeTool {
+		t.Fatal("RED: AttemptTransform must run after shapeAttemptCall so post-shape tool mutations reach Open (thinker shape otherwise leaves Tools empty)")
+	}
+}
+
+func TestCandidateAttemptTransform_mutationAffectsRequiredCapabilitiesBeforeOpen(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xform := &recordingAttemptTransform{mode: "mutate_tools_caps", calls: &atomic.Int64{}}
+	bundle := contributeAttemptTransformBundle(t, xform)
+	bus, snap := wireMergedAttemptSurface(t, bundle)
+
+	var openedA, openedB atomic.Int64
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.MaxAttempts = 3
+	ex.Rand = routing.NewSeededRng(11)
+	ex.Backends = map[string]execbackend.Backend{
+		"a": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				openedA.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+			},
+		},
+		"b": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming, lipapi.CapabilityTools),
+			TransportCaps: lipapi.NewBackendTransportCaps(lipapi.OperationTransportSupport{
+				Operation: lipapi.OperationOpenAIChatCompletions,
+				Modes:     []lipapi.TransportMode{lipapi.TransportModeStreaming, lipapi.TransportModeNonStreaming},
+			}),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				openedB.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+			},
+		},
+	}
+
+	stream, execErr := ex.Execute(t.Context(), attemptTransformBaseCall("a:m|b:m"))
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if stream != nil {
+		_, _ = lipapi.Collect(t.Context(), stream)
+	}
+	if openedA.Load() != 0 {
+		t.Fatal("RED: AttemptTransform tool mutation must rederive RequiredCapabilities before Open so backend a (no tools) never opens")
+	}
+	if openedB.Load() == 0 {
+		t.Fatal("RED: after capability reject of a, failover must open backend b which advertises tools")
+	}
+}
+
+func TestCandidateAttemptTransform_excludeSkipsOpenAndFailsover(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xform := &recordingAttemptTransform{mode: "exclude_first", calls: &atomic.Int64{}}
+	bundle := contributeAttemptTransformBundle(t, xform)
+	bus, snap := wireMergedAttemptSurface(t, bundle)
+
+	var openedA, openedB atomic.Int64
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.MaxAttempts = 3
+	ex.Rand = routing.NewSeededRng(11)
+	ex.Backends = map[string]execbackend.Backend{
+		"a": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				openedA.Add(1)
+				return nil, lipapi.RecoverablePreOutputError(errors.New("should-not-open-a"))
+			},
+		},
+		"b": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				openedB.Add(1)
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+			},
+		},
+	}
+
+	stream, execErr := ex.Execute(t.Context(), attemptTransformBaseCall("a:m|b:m"))
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if stream != nil {
+		_, _ = lipapi.Collect(t.Context(), stream)
+	}
+	if openedA.Load() != 0 {
+		t.Fatal("RED: exclude_candidate must prevent backend Open for the excluded candidate")
+	}
+	if openedB.Load() == 0 {
+		t.Fatal("RED: normal failover must open the next candidate after exclude_candidate")
+	}
+}
+
+func TestCandidateAttemptTransform_sequentialAttemptsStartFromImmutableBaseline(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xform := &recordingAttemptTransform{mode: "mutate_marker", calls: &atomic.Int64{}}
+	bundle := contributeAttemptTransformBundle(t, xform)
+	bus, snap := wireMergedAttemptSurface(t, bundle)
+
+	var mu sync.Mutex
+	var openCalls []lipapi.Call
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.MaxAttempts = 3
+	ex.Rand = routing.NewSeededRng(11)
+	ex.Backends = map[string]execbackend.Backend{
+		"a": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				mu.Lock()
+				openCalls = append(openCalls, call)
+				mu.Unlock()
+				return nil, lipapi.RecoverablePreOutputError(errors.New("temp-a"))
+			},
+		},
+		"b": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				mu.Lock()
+				openCalls = append(openCalls, call)
+				mu.Unlock()
+				return lipapi.NewFixedEventStream([]lipapi.Event{{Kind: lipapi.EventResponseFinished}}), nil
+			},
+		},
+	}
+
+	baseline := attemptTransformBaseCall("a:m|b:m")
+	stream, execErr := ex.Execute(t.Context(), baseline)
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if stream != nil {
+		_, _ = lipapi.Collect(t.Context(), stream)
+	}
+	if baseline.ID != "baseline-immutable" {
+		t.Fatal("immutable baseline must not observe attempt-transform mutations")
+	}
+	mu.Lock()
+	got := append([]lipapi.Call(nil), openCalls...)
+	mu.Unlock()
+	if len(got) < 2 {
+		t.Fatalf("want sequential failover opens>=2 got %d", len(got))
+	}
+	countMarker := func(c lipapi.Call) int {
+		n := 0
+		for _, msg := range c.Instructions {
+			if strings.Contains(textOf(msg), attemptTransformMarker) {
+				n++
+			}
+		}
+		return n
+	}
+	if countMarker(got[0]) != 1 || countMarker(got[1]) != 1 {
+		t.Fatal("RED: each sequential attempt must CloneCall(baseline) and run AttemptTransform independently (no shared mutation accumulation)")
+	}
+}
+
+func TestCandidateAttemptTransform_parallelArmsIndependentClones(t *testing.T) {
+	t.Parallel()
+	st, err := b2bua.NewMemoryStore(b2bua.MemoryStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xform := &recordingAttemptTransform{mode: "tag_candidate", calls: &atomic.Int64{}}
+	bundle := contributeAttemptTransformBundle(t, xform)
+	bus, snap := wireMergedAttemptSurface(t, bundle)
+
+	var mu sync.Mutex
+	var openIDs []string
+	tracking := func(name string) execbackend.Backend {
+		return execbackend.Backend{
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(_ context.Context, call lipapi.Call, _ routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				mu.Lock()
+				openIDs = append(openIDs, call.ID)
+				mu.Unlock()
+				return lipapi.NewFixedEventStream([]lipapi.Event{
+					{Kind: lipapi.EventResponseStarted},
+					{Kind: lipapi.EventMessageStarted},
+					{Kind: lipapi.EventTextDelta, Delta: name + "-response"},
+					{Kind: lipapi.EventResponseFinished},
+				}), nil
+			},
+		}
+	}
+	ex := runtime.TestExecutor()
+	ex.Store = st
+	ex.Bus = bus
+	ex.RuntimeSnapshot = snap
+	ex.Rand = routing.NewSeededRng(1)
+	ex.Backends = map[string]execbackend.Backend{
+		"slow": tracking("slow"),
+		"fast": tracking("fast"),
+	}
+
+	stream, execErr := ex.Execute(t.Context(), attemptTransformBaseCall("slow:model!fast:model"))
+	if execErr != nil {
+		t.Fatalf("execute: %v", execErr)
+	}
+	if stream != nil {
+		_, _ = lipapi.Collect(t.Context(), stream)
+	}
+	mu.Lock()
+	ids := append([]string(nil), openIDs...)
+	mu.Unlock()
+	if len(ids) < 2 {
+		t.Fatalf("parallel arms must each Open, got %d", len(ids))
+	}
+	tagged := 0
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		if strings.HasPrefix(id, "tagged:") {
+			tagged++
+			seen[id] = struct{}{}
+		}
+	}
+	if tagged < 2 || len(seen) < 2 {
+		t.Fatal("RED: each parallel arm must invoke AttemptTransform on an independent CloneCall(baseline)")
+	}
+}

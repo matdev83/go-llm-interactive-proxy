@@ -6,7 +6,7 @@
 
 ## Phase 1 — RED: Contracts, Fixtures, and Failing Acceptance Tests
 
-- [ ] 1.1 Freeze canonical reasoning and hard replay contracts
+- [x] 1.1 Freeze canonical reasoning and hard replay contracts
   - Add contract shapes and red tests for assistant-only ordered reasoning, dialect/payload validation, byte/count limits, deep cloning, sizing/counting/checkpoint participation, and non-downgradable `reasoning_replay`.
   - Add fixtures for text reasoning, signed thinking, redacted/opaque thinking, multiple blocks, and interleaved tool calls.
   - **Deliverable:** reviewable canonical tests fail only because the contracts are not implemented.
@@ -16,7 +16,7 @@
   - _Depends: approved requirements and design_
   - _Validation: focused `go test ./pkg/lipapi/`_
 
-- [ ] 1.2 Define attempt-transform contracts and red ordering tests
+- [x] 1.2 Define attempt-transform contracts and red ordering tests
   - Add `AttemptTransform`, candidate metadata, replay support, `continue`, and `exclude_candidate` shapes plus optional schema-V1 bundle contribution.
   - Prove the stage must run on `CloneCall(baseline)` after interleaved shaping and before final capabilities, context eligibility, preflight, backend-ingress freeze, authorization, and `Open`.
   - **Deliverable:** extension/runtime tests define the missing candidate stage and failover semantics without production implementation.
@@ -26,7 +26,7 @@
   - _Depends: 1.1_
   - _Validation: focused request-extension and executor tests_
 
-- [ ] 1.3 Define final-stream observer contracts and red lifecycle tests
+- [x] 1.3 Define final-stream observer contracts and red lifecycle tests
   - Add observer factory, read-only observer, metadata, and exactly-once outcomes for success release, failure, cancellation, early close, replacement, and gate replacement.
   - Prove observers receive post-response-hook/post-gate events, do not enable completion buffering, and open only for the active surfaced B-leg.
   - **Deliverable:** every commit/discard terminal path is executable before a runner exists.
@@ -36,7 +36,7 @@
   - _Depends: 1.1_
   - _Validation: focused observer, recv, gate, close, and parallel tests_
 
-- [ ] 1.4 Add red feature-domain, store, and privacy tests
+- [x] 1.4 Add red feature-domain, store, and privacy tests
   - Cover strict config, catalog precedence, exact normalized anchors, placement, preserved/missing/conflicting/ambiguous/unmatched classification, idempotent restoration, and unrepresentable/state policies.
   - Define a TurnStore contract for TTL, turn/per-turn/session bounds, atomic append/eviction, defensive copies, session/plugin isolation, and concurrency.
   - **Deliverable:** feature behavior is specified before config, store, matcher, observer, or transform implementation.
@@ -46,7 +46,7 @@
   - _Depends: 1.1–1.3_
   - _Validation: focused feature-package tests_
 
-- [ ] 1.5 Add red adapter goldens and composed routing scenarios
+- [x] 1.5 Add red adapter goldens and composed routing scenarios
   - Add Chat, Responses, Anthropic, OpenRouter/compatible, and explicit Gemini-unsupported request/response fixtures.
   - Add disabled, sequential/recv failover, context-limit-after-restoration, weighted, parallel, response-hook mutation, and gate-replacement scenarios.
   - **Deliverable:** protocol and routing gaps are reproducible without provider network calls.

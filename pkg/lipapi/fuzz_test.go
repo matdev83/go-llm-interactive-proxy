@@ -13,6 +13,7 @@ import (
 func FuzzCallValidateJSON(f *testing.F) {
 	f.Add([]byte(`{}`))
 	f.Add([]byte(`{"Messages":[{"Role":"user","Parts":[{"Kind":"text","Text":"x"}]}]}`))
+	f.Add([]byte(`{"Messages":[{"Role":"assistant","Parts":[{"Kind":"reasoning","Reasoning":{"Dialect":"openai.chat.reasoning_text.v1","Text":"think"}},{"Kind":"text","Text":"hi"}]}]}`))
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		raw = testkit.CapBytes(raw, 512<<10)
