@@ -120,3 +120,43 @@ func (s CompensationStack) SettleWaitingCount(providerID string) int {
 	}
 	return s.settle.waitingCount(providerID)
 }
+
+// UnfinishedSettleProviders returns stack provider IDs that still need settle
+// (never successfully completed). Concurrency entries are omitted. Order follows
+// first appearance on the stack (requirements 7.7, 8.6; Phase 4.5).
+func (s CompensationStack) UnfinishedSettleProviders() []string {
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, e := range s.Entries() {
+		id := strings.TrimSpace(e.ProviderID)
+		h := strings.TrimSpace(e.Handle)
+		if id == "" || h == "" || id == "concurrency" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if s.settle == nil {
+		return ids
+	}
+	return s.settle.unfinished(ids)
+}
+
+func (t *settlementTracker) unfinished(ids []string) []string {
+	if t == nil {
+		return append([]string(nil), ids...)
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		st := t.providers[id]
+		if st == nil || !st.done {
+			out = append(out, id)
+		}
+	}
+	return out
+}

@@ -64,9 +64,9 @@ test-unit:
 # invoked without a configured DSN.
 test-authority-postgres-direct:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -skip '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -skip 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore"
 else
-	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) test $(GO_TEST_FLAGS) -tags=integration -skip '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) test $(GO_TEST_FLAGS) -tags=integration -skip 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore
 endif
 
 test-postgres-migrations:
@@ -81,10 +81,10 @@ endif
 # Uses normal parallelism (-parallel=8 by default); do not force -parallel=1.
 test-authority-postgres-pooled:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES_POOLER','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_RUNTIME_IS_POOLER','Process') -ne '1') { throw 'set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint' }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -run '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/runtimebundle"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES_POOLER','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_RUNTIME_IS_POOLER','Process') -ne '1') { throw 'set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint' }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -run 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore ./internal/infra/runtimebundle"
 else
 	@test "$${LIP_TEST_POSTGRES_RUNTIME_IS_POOLER:-}" = "1" || { echo "set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint" >&2; exit 1; }
-	@LIP_REQUIRE_POSTGRES_POOLER=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration -run '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/runtimebundle
+	@LIP_REQUIRE_POSTGRES_POOLER=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration -run 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore ./internal/infra/runtimebundle
 endif
 
 test-authority-postgres: test-postgres-migrations test-authority-postgres-direct test-authority-postgres-pooled
@@ -164,6 +164,14 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
 	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	# Dual-plane Phase 7.2 state-machine / renew / work / owner / money / fact fuzz
+	$(FUZZ_WRAPPER) -fuzz=FuzzLeaseSet_OccupiesCapacity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/domain
+	$(FUZZ_WRAPPER) -fuzz=FuzzIsAmbiguousRenewError$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/app
+	$(FUZZ_WRAPPER) -fuzz=FuzzWorkItem_TransitionSequence$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminalwork
+	$(FUZZ_WRAPPER) -fuzz=FuzzOwner_CommandSequences$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminal
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
+	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
 
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...
@@ -177,6 +185,9 @@ bench:
 		./internal/core/securesession/... \
 		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
 		./internal/core/toolcallrepair/... \
+		./internal/infra/concurrencyauthority/leasestore/... \
+		./internal/infra/metering/journalstore/... \
+		./internal/infra/usageauthority/authoritystore/... \
 		./internal/plugins/frontends/openailegacy/... \
 		./internal/plugins/frontends/gemini/... \
 		./internal/plugins/frontends/openairesponses/... \

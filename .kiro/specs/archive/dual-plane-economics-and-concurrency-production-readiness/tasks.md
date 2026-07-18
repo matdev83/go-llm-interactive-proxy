@@ -172,7 +172,7 @@
 
 ## Phase 4 — Centralize Terminal Ownership and Durable Economic Recovery
 
-- [ ] 4.1 Define red terminal and terminal-work state-machine contracts
+- [x] 4.1 Define red terminal and terminal-work state-machine contracts
   - Model request and attempt terminal states plus commands for normal finish, partial/error, cancellation, close, timeout, gate replacement, parallel loser, frontend encoder failure, pre-backend denial, and panic.
   - Model one durable action per fact/provider/lease operation, stable source keys, retries, claims, completion, and quarantine.
   - Add interleaving/model tests before changing stream behavior or schemas.
@@ -183,7 +183,7 @@
   - _Depends: Phase 3_
   - _Validation: focused state-machine/model tests and concurrent terminal race reproducer_
 
-- [ ] 4.2 Implement one request/stream terminal owner
+- [x] 4.2 Implement one request/stream terminal owner
   - Add one CAS-owned terminal result per logical request and per attempt; delegate existing lifecycle settlement/release to the owner.
   - Make `Recv`, `Close`, cancellation, errors, encoder failure, and panic paths signal or await terminalization rather than execute competing accounting.
   - Snapshot accumulators once and preserve per-provider partial completion and no-retry-after-output.
@@ -194,7 +194,7 @@
   - _Depends: 4.1_
   - _Validation: focused `Recv`/`Close` race, cancel, encoder, gate, failover, parallel, and panic tests under `-race`_
 
-- [ ] 4.3 Implement terminal-work domain and durable stores
+- [x] 4.3 Implement terminal-work domain and durable stores
   - Add versioned per-action work identity/payload/state, durable intent, provider/fact/lease correlation, claim leases, retry schedule, and quarantine.
   - Implement memory, SQLite, direct PostgreSQL, and transaction-pool-safe PostgreSQL stores with additive migrations and bounded queries.
   - **Deliverable:** required terminal intent survives process exit and is idempotent under replay or ambiguous commit.
@@ -204,7 +204,7 @@
   - _Depends: 4.1, 3.4_
   - _Validation: store contracts, migration, claim contention, ambiguous commit, restart, and pooled PostgreSQL tests_
 
-- [ ] 4.4 Implement the bounded terminal-work processor and provider router
+- [x] 4.4 Implement the bounded terminal-work processor and provider router
   - Create durable intent before required external/separately durable effects, invoke with the same idempotency key, and mark completion independently per action/provider.
   - Resolve stable provider IDs, bound global/per-provider concurrency, renew claims, back off retries, quarantine permanent invalid work, and own startup/shutdown.
   - **Deliverable:** facts, settlements, releases, compensation, lease release, and corrections recover without repeating completed providers.
@@ -214,7 +214,7 @@
   - _Depends: 2.2–2.4, 4.3_
   - _Validation: fault injection for timeout, panic, outage, crash, partial completion, restart, missing provider, and shutdown_
 
-- [ ] 4.5 Integrate truthful live state, queries, readiness, and fault recovery
+- [x] 4.5 Integrate truthful live state, queries, readiness, and fault recovery
   - Mark holds/leases complete only after successful action or accepted durable intent; retain pending/quarantine state instead of ignoring errors.
   - Add bounded terminal-work queries, backlog/oldest-age metrics, readiness degradation, and operator-safe error codes.
   - Prove post-output failures preserve output and eventually converge after restart.
@@ -227,7 +227,7 @@
 
 ## Phase 5 — Publish Executable Immutable Generations
 
-- [ ] 5.1 Add red generation behavior and lifetime tests
+- [x] 5.1 Add red generation behavior and lifetime tests
   - Prove current metadata-only refresh cannot be accepted as behavioral enforcement.
   - Define tests for five-to-two concurrency refresh, rating change, failed refresh, in-flight binding, settlement versions, pending-work provider resolution, and incompatible provider removal.
   - **Deliverable:** executable generation and lifetime expectations fail before new composition exists.
@@ -237,7 +237,7 @@
   - _Depends: Phase 4_
   - _Validation: focused snapshot generation and end-to-end behavior tests_
 
-- [ ] 5.2 Add public executable generation contributions and static compilation
+- [x] 5.2 Add public executable generation contributions and static compilation
   - Add public generation contribution/source contracts carrying descriptor-bound authorities and customer/operator raters.
   - Compile static YAML authority, concurrency, and reference rating configuration into the same immutable contribution shape.
   - Validate all registrations, versions, readiness, and required components before publication.
@@ -248,7 +248,7 @@
   - _Depends: 2.2–2.5, 5.1_
   - _Validation: public source/registration tests, static compiler tests, and separate enterprise-module fixture_
 
-- [ ] 5.3 Build, validate, publish, and bind executable generations
+- [x] 5.3 Build, validate, publish, and bind executable generations
   - Construct immutable request/attempt coordinators, concurrency registration, and raters in each generation.
   - Publish only complete required generations; retain the previous executable generation on refresh failure.
   - Bind one generation after trusted scope and before request authority, and use it for attempts and terminal work.
@@ -259,7 +259,7 @@
   - _Depends: 5.2_
   - _Validation: five-to-two, rating-change, failure-preservation, request/attempt/settlement binding tests_
 
-- [ ] 5.4 Preserve old-generation and pending-handle compatibility
+- [x] 5.4 Preserve old-generation and pending-handle compatibility
   - Keep live generation references reachable and route pending work through stable provider IDs.
   - Require same-ID providers to settle historical handles; use a new ID for incompatible replacement and block removal while pending work references the old ID.
   - Expose unresolved provider-generation references in readiness and queries.
@@ -270,7 +270,7 @@
   - _Depends: 4.4, 5.3_
   - _Validation: old-provider drain, incompatible replacement, restart, missing provider, and readiness tests_
 
-- [ ] 5.5 Migrate snapshot APIs and expose accurate generation readiness
+- [x] 5.5 Migrate snapshot APIs and expose accurate generation readiness
   - Deprecate metadata-only policy publication as an enforcement path while preserving additive compatibility views.
   - Report executable generation ID/version/state separately from source fetch state and terminal provider-resolution state.
   - Update public facade/docs/examples without exposing internal coordinator types.
@@ -283,7 +283,7 @@
 
 ## Phase 6 — Finalize Strict Distributed Concurrency
 
-- [ ] 6.1 Add red lease-set, timing, and renewal-loss contracts
+- [x] 6.1 Add red lease-set, timing, and renewal-loss contracts
   - Define store/service tests for atomic multi-rule acquire/renew/release, replay, deterministic lock order, `renew_before < lease_ttl`, external result validation, uncertain occupancy, strict cancellation before expiry, rollback failure, and auxiliary inheritance.
   - **Deliverable:** existing sequential/per-lease behavior fails the new strict contracts.
   - _Requirements: 10.1–10.10, 13.1, 13.6–13.8_
@@ -292,7 +292,7 @@
   - _Depends: Phase 5_
   - _Validation: focused concurrency service/store/heartbeat tests and deterministic-clock state models_
 
-- [ ] 6.2 Implement atomic lease-set acquire, renew, and release
+- [x] 6.2 Implement atomic lease-set acquire, renew, and release
   - Add one set identity/generation/state and complete-set commands.
   - Implement targeted atomic mutations for memory, SQLite, direct PostgreSQL, and transaction-pooled PostgreSQL with deterministic key ordering and bounded expiry cleanup.
   - Migrate legacy rows as one-member sets without reinterpreting history.
@@ -303,7 +303,7 @@
   - _Depends: 6.1_
   - _Validation: store contracts, migration, contention, replay, direct/pooled PostgreSQL tests_
 
-- [ ] 6.3 Enforce strict heartbeat and ambiguous-renewal behavior
+- [x] 6.3 Enforce strict heartbeat and ambiguous-renewal behavior
   - Validate timing and returned set shape, renew the complete set atomically, and conservatively count ambiguous occupancy.
   - For fail-closed strict rules, cancel and terminalize early enough to avoid continuing beyond unproven expiry; keep fail-open explicit and degraded.
   - **Deliverable:** a live strict request cannot become invisible to capacity accounting after renewal failure.
@@ -313,7 +313,7 @@
   - _Depends: 4.2, 6.2_
   - _Validation: fake-clock renewal, ambiguous commit, partition, cancellation-before-expiry, and race tests_
 
-- [ ] 6.4 Route lease-set release and rollback through terminal work
+- [x] 6.4 Route lease-set release and rollback through terminal work
   - Create one durable set-release/rollback action; do not mark capacity released until the store confirms it.
   - Reconcile pending/uncertain sets after restart and expose active, uncertain, expiring, released, and failed state through bounded queries.
   - **Deliverable:** lease cleanup failure cannot be ignored or permanently leak/over-admit capacity.
@@ -323,7 +323,7 @@
   - _Depends: 4.3–4.5, 6.2, 6.3_
   - _Validation: release outage, restart, uncertain occupancy, bounded query, and readiness tests_
 
-- [ ] 6.5 Prove five-slot behavior across instances and failures
+- [x] 6.5 Prove five-slot behavior across instances and failures
   - Run high-contention admission across at least two proxy/service instances with five slots and multiple matching rules.
   - Cover process crash, database outage, pooler operation, renewal loss, terminal release failure, auxiliary calls, retries, and parallel B-legs.
   - **Deliverable:** no execution admits more than five proven top-level logical requests, and capacity recovers only through valid release/reconciliation.
@@ -335,7 +335,7 @@
 
 ## Phase 7 — Certify Production Readiness
 
-- [ ] 7.1 Build the cross-protocol economic conformance matrix
+- [x] 7.1 Build the cross-protocol economic conformance matrix
   - Prove equivalent frontend-ingress and final frontend-egress customer semantics for OpenAI Responses, OpenAI Chat, Anthropic Messages, Gemini, and every supported operation with legal canonical representation.
   - Cover streaming and non-streaming collection, protocol errors, cancellation, and frontend encoding failure.
   - **Deliverable:** protocol adapters cannot change customer economic boundary meaning.
@@ -345,7 +345,7 @@
   - _Depends: Phases 1–6_
   - _Validation: `make parity-checks` plus dedicated dual-plane conformance rows_
 
-- [ ] 7.2 Add dedicated race, fuzz, state-machine, and fault-injection gates
+- [x] 7.2 Add dedicated race, fuzz, state-machine, and fault-injection gates
   - Add strict race suites for terminal owners, accumulators, workers, stores, generation publication, and heartbeats.
   - Add fuzz/model targets for facts/corrections, external results, money/currency, work transitions, and lease sets.
   - Add deterministic fault campaigns for panic, timeout, malformed result, outage, ambiguous success, process crash, restart, and partial completion.
@@ -356,7 +356,7 @@
   - _Depends: Phases 1–6_
   - _Validation: targeted fuzz/model commands, Linux strict race, fault suites, and goleak_
 
-- [ ] 7.3 Add performance budgets, operational metrics, and readiness alerts
+- [x] 7.3 Add performance budgets, operational metrics, and readiness alerts
   - Benchmark disabled/no-feature path, independent principals, hot identities, fact append/replay, terminal-work claims/dispatch, generation refresh, and five-slot contention.
   - Add bounded metrics and alert recommendations for authority/rating latency, terminal backlog/age, quarantine, generation staleness, lease uncertainty, renewal failures, and store contention.
   - **Deliverable:** overhead and degraded economic-control posture are measurable before rollout.
@@ -366,7 +366,7 @@
   - _Depends: Phases 1–6_
   - _Validation: focused metrics/readiness tests and repeated benchmarks suitable for `benchstat`_
 
-- [ ] 7.4 Complete migration, rollout, rollback, and open-core verification
+- [x] 7.4 Complete migration, rollout, rollback, and open-core verification
   - Add direct/admin migrations, pooled runtime schema verification, identity-version compatibility, legacy projections, provider-drain checks, and rollback that continues terminal-work draining.
   - Update examples and operator documentation for `EconomicControlReady`, local versus distributed posture, migration ordering, stop conditions, and non-goals.
   - Re-run the separate enterprise module using public contracts only and verify no proprietary financial logic enters OSS.
@@ -377,7 +377,7 @@
   - _Depends: Phases 3–6_
   - _Validation: migration/direct/pooled gates, enterprise fixture, architecture guards, check-config, and rollout rehearsal_
 
-- [ ] 7.5 Run the clean-environment certification matrix and archive evidence
+- [x] 7.5 Run the clean-environment certification matrix and archive evidence
   - Run focused phase suites, `make quality-checks`, `make test`, `make parity-checks`, Linux strict race, required PostgreSQL migration/direct/pooled gates, dedicated fuzz smoke, enterprise-module compile/run, benchmarks, and `make qa` from a clean environment.
   - Record exact commands, environment posture, failures/remediations, and unresolved limitations; do not claim commercial billing readiness.
   - **Deliverable:** all mandatory gates pass and the archived implementation spec can truthfully mark the OSS foundation `EconomicControlReady`.

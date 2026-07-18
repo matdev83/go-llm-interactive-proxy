@@ -25,6 +25,7 @@ type Bundle struct {
 	Upstream            *UpstreamProm
 	TokenAccounting     *TokenAccountingProm
 	PostgresPool        *PostgresPoolProm
+	TerminalWork        *TerminalWorkProm
 	sink                runtime.MetricsSink
 	tokenAccountingSink *TokenAccountingPromSink
 }
@@ -44,6 +45,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 	up := RegisterUpstreamProm(r, exemplars)
 	tok := RegisterTokenAccountingProm(r)
 	pg := RegisterPostgresPoolProm(r, poolStats)
+	tw := RegisterTerminalWorkProm(r)
 	return &Bundle{
 		Registry:            r,
 		HTTP:                httpm,
@@ -55,6 +57,7 @@ func NewBundle(cfg *config.Config, poolStats func() []sql.DBStats) *Bundle {
 		Upstream:            up,
 		TokenAccounting:     tok,
 		PostgresPool:        pg,
+		TerminalWork:        tw,
 		sink:                NewExecutorPromSink(exec),
 		tokenAccountingSink: NewTokenAccountingPromSink(tok),
 	}

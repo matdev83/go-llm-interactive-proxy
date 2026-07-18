@@ -194,7 +194,7 @@ func TestDualPlaneMatrix_SequentialFailoverIncurredSettlesViaOpen(t *testing.T) 
 	if !life.Settle(ctx, authorityapp.SettlementKindFinal, lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 3, OutputTokens: 2, TotalTokens: 5}, false) {
 		t.Fatal("winner settle must apply")
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 
 	if att.settleCalls.Load() != 2 {
 		t.Fatalf("operator SettleAttempt=%d want 2 (failed+winner)", att.settleCalls.Load())
@@ -299,7 +299,7 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 		t.Fatal("winner settle must apply")
 	}
 	stream := &retryRecvStream{executor: ex, traceID: "trace-par", bleg: out.bleg}
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if att.settleCalls.Load() != 2 {
 		t.Fatalf("operator SettleAttempt=%d want 2 (winner+loser)", att.settleCalls.Load())

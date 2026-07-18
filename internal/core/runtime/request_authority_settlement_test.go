@@ -109,7 +109,7 @@ func TestSettleRequestAuthority_PassesFrontendEgressFact(t *testing.T) {
 		t.Fatalf("boundary=%s", fact.Boundary)
 	}
 
-	ex.settleRequestAuthority(ctx, []metering.Fact{fact})
+	_ = ex.settleRequestAuthority(ctx, []metering.Fact{fact})
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("SettleRequest calls=%d want 1", prov.settleCalls.Load())
 	}
@@ -137,7 +137,7 @@ func TestSettleRequestAuthority_FailureRemainsRetryable(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	st := requestAuthorityFrom(ctx)
 	if st == nil {
 		t.Fatal("expected request authority state")
@@ -150,7 +150,7 @@ func TestSettleRequestAuthority_FailureRemainsRetryable(t *testing.T) {
 	}
 
 	prov.settleErr = nil
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if prov.settleCalls.Load() != 2 {
 		t.Fatalf("retry settle calls=%d want 2 (failure must remain retryable)", prov.settleCalls.Load())
 	}
@@ -176,13 +176,13 @@ func TestSettleRequestAuthority_AdvisoryFailureRemainsRetryable(t *testing.T) {
 		t.Fatalf("admit: %v", err)
 	}
 
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	st := requestAuthorityFrom(ctx)
 	if st == nil || st.Settled || st.Released {
 		t.Fatalf("advisory settle failure must retain retryable state: %+v", st)
 	}
 	prov.settleErr = nil
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if prov.settleCalls.Load() != 2 {
 		t.Fatalf("settle calls=%d want 2", prov.settleCalls.Load())
 	}
@@ -222,7 +222,7 @@ func TestSettleRequestAuthority_AppendFailureRemainsRetryable(t *testing.T) {
 	stream := &retryRecvStream{executor: ex, traceID: "trace-append-retry"}
 	usage := lipapi.Event{Kind: lipapi.EventUsageDelta, InputTokens: 2, OutputTokens: 3, TotalTokens: 5}
 
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 	if prov.settleCalls.Load() != 0 {
 		t.Fatalf("settle calls=%d want 0 while frontend-egress fact is not durable", prov.settleCalls.Load())
 	}
@@ -232,7 +232,7 @@ func TestSettleRequestAuthority_AppendFailureRemainsRetryable(t *testing.T) {
 	}
 
 	recorder.err = nil
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("settle calls=%d want 1 after durable append recovers", prov.settleCalls.Load())
 	}

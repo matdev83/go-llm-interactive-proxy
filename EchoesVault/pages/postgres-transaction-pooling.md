@@ -68,7 +68,7 @@ Admin/DDL opens use a separate short-lived 1-connection handle and must not be c
 - `LIP_TEST_POSTGRES_ADMIN_DSN` is the preferred direct test bootstrap and cleanup endpoint.
 - `LIP_TEST_POSTGRES_DSN` is the runtime endpoint.
 - Tests may reuse the runtime DSN for admin setup when it has admin rights.
-- The pooled release gate additionally requires `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`; topology is never inferred from the hostname or DSN.
+- Any test that calls `SkipUnlessPostgresPooled` requires `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`; ambient admin/runtime DSNs alone are not enough. Without attestation the helper skips (or fails closed when `LIP_REQUIRE_POSTGRES_POOLER` is set). Topology is never inferred from the hostname or DSN.
 - `make test-postgres-migrations` proves migration and verification.
 - `make test-authority-postgres-direct` proves direct runtime contracts.
 - `make test-authority-postgres-pooled` proves transaction-pooled runtime contracts at normal parallelism.

@@ -23,6 +23,8 @@ func TestMatrixEvidence_docsPresent(t *testing.T) {
 		"conformance_text_test.go",
 		"conformance_tools_test.go",
 		"conformance_multimodal_test.go",
+		"dual_plane_economic_conformance_test.go",
+		"DualPlaneEconomicCells()",
 		"matrix.go",
 		"TextViable",
 		"ToolsViable",
@@ -62,6 +64,16 @@ func TestMatrixEvidence_sourceFilesIterateAllCells(t *testing.T) {
 	}
 	for _, f := range MatrixEvidenceMultimodalFiles {
 		assertFile(f, "MultimodalViable")
+	}
+	for _, f := range MatrixEvidenceDualPlaneEconomicFiles {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		s := string(b)
+		if !strings.Contains(s, "DualPlaneEconomicCells()") {
+			t.Fatalf("%s: expected iteration over DualPlaneEconomicCells()", f)
+		}
 	}
 }
 

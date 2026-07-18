@@ -1,0 +1,225 @@
+package runtimebundle_test
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
+)
+
+func phase5ConcCfg(max int, version string) *config.Config {
+	cfg := baseAuthorityConfig(false, "fail_closed")
+	cfg.Accounting.Concurrency.Enabled = true
+	cfg.Accounting.Concurrency.SnapshotVersion = version
+	cfg.Accounting.Concurrency.Rules = []config.ConcurrencyAuthorityRuleConfig{{
+		ID: "max-active", MaxActiveRequests: max,
+		Match: config.AccountingAuthorityDimensionsConfig{
+			Principal: config.AccountingAuthorityDimensionMatcherConfig{Value: scope.Known("alice")},
+		},
+	}}
+	return cfg
+}
+
+func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
+	t.Parallel()
+	cfg := phase5ConcCfg(5, "conc-five")
+	opts := baseAuthorityOptions(t, nil)
+	opts.Production.RequestRegistrations = []authority.RequestRegistration{{
+		Descriptor: phase53Req{id: "quota-v1"}.Describe(),
+		Priority:   authority.RequestPriorityQuotaBudgetRate,
+		Provider:   phase53Req{id: "quota-v1"},
+	}}
+	opts.Production.ConcurrencyRegistration = &authority.ConcurrencyRegistration{
+		Descriptor: authority.ProviderDescriptor{
+			ID: "conc", Kind: authority.ProviderKindAuthority,
+			Postures: []authority.StagePosture{{
+				Stage: authority.StageLeaseAdmit, Strength: authority.StrengthRequired,
+				FailureBehavior: authority.FailureFailClosed,
+			}},
+		},
+		Provider: phase53Conc{id: "conc"},
+	}
+	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
+		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
+	}}
+	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, c := range built.Closers {
+			_ = c()
+		}
+	})
+	g1 := built.SnapshotGeneration.CurrentExecutable()
+	if g1 == nil || g1.RequestCoord == nil || g1.EnforcementMaxActive() != 5 {
+		t.Fatalf("build executable must enforce max=5 via live coordinator: %+v", g1)
+	}
+	for i := range 5 {
+		if _, err := g1.RequestCoord.Admit(context.Background(), phase5E2EAdmit(fmt.Sprintf("e2e-old-%d", i))); err != nil {
+			t.Fatalf("admit %d under five: %v", i, err)
+		}
+	}
+	if _, err := g1.RequestCoord.Admit(context.Background(), phase5E2EAdmit("e2e-old-overflow")); err == nil {
+		t.Fatal("five-slot generation must deny sixth admit")
+	}
+
+	cfgTwo := phase5ConcCfg(2, "conc-two")
+	prodTwo := opts.Production
+	prodTwo.RaterRegistrations = []economics.RaterRegistration{{
+		ID: "op-r2", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r2"},
+	}}
+	g1.Retain()
+	g2, err := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, cfgTwo, prodTwo, time.Unix(20, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g2.EnforcementMaxActive() != 2 || g2.EvidenceObjectID() != "op-r2" {
+		t.Fatalf("refresh must change admit limit and rating evidence: %+v", g2)
+	}
+	cur := built.SnapshotGeneration.CurrentExecutable()
+	for i := range 2 {
+		if _, err := cur.RequestCoord.Admit(context.Background(), phase5E2EAdmit(fmt.Sprintf("e2e-new-%d", i))); err != nil {
+			t.Fatalf("admit %d under two: %v", i, err)
+		}
+	}
+	if _, err := cur.RequestCoord.Admit(context.Background(), phase5E2EAdmit("e2e-new-overflow")); err == nil {
+		t.Fatal("two-slot generation must deny third new admit")
+	}
+	if g1.EnforcementMaxActive() != 5 || g1.EvidenceObjectID() != "op-r1" {
+		t.Fatalf("in-flight generation mutated: max=%d evidence=%q", g1.EnforcementMaxActive(), g1.EvidenceObjectID())
+	}
+
+	bad := phase5ConcCfg(2, "conc-bad")
+	badProd := prodTwo
+	badProd.RequestRegistrations = nil
+	badProd.ConcurrencyRegistration = nil
+	badProd.RaterRegistrations = nil
+	prior := built.SnapshotGeneration.CurrentExecutable()
+	got, pubErr := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, bad, badProd, time.Unix(30, 0).UTC())
+	if pubErr == nil {
+		t.Fatal("empty contribution refresh must fail")
+	}
+	if got != prior || built.SnapshotGeneration.CurrentExecutable().Version != prior.Version {
+		t.Fatal("failed refresh must preserve prior executable")
+	}
+}
+
+func TestPhase5Remediation_PendingClearAndCanRemoveProvider(t *testing.T) {
+	t.Parallel()
+	clock := time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC)
+	store, err := workstore.NewMemoryStore(workstore.MemoryConfig{
+		StoreID: "phase5-pending-drain",
+		Now:     func() time.Time { return clock },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := phase5ConcCfg(2, "conc-pending")
+	opts := baseAuthorityOptions(t, nil)
+	opts.Production.TerminalWorkStore = store
+	opts.Production.TerminalWorkOwnerID = "owner-1"
+	opts.Production.RequestRegistrations = []authority.RequestRegistration{{
+		Descriptor: phase53Req{id: "quota-old"}.Describe(),
+		Priority:   authority.RequestPriorityQuotaBudgetRate,
+		Provider:   phase53Req{id: "quota-old"},
+	}}
+	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
+		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
+	}}
+	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, c := range built.Closers {
+			_ = c()
+		}
+	})
+	if built.TerminalWorkProcessor == nil {
+		t.Fatal("expected terminal work processor wired by Build")
+	}
+	gen := built.SnapshotGeneration.CurrentExecutable()
+	if gen == nil {
+		t.Fatal("expected executable")
+	}
+	gen.Retain()
+	gen.AddPendingProvider("quota-old")
+	if built.SnapshotGeneration.CanRemoveProvider("quota-old") {
+		t.Fatal("pending ref must block provider removal")
+	}
+	nextProd := opts.Production
+	nextProd.RequestRegistrations = []authority.RequestRegistration{{
+		Descriptor: phase53Req{id: "quota-new"}.Describe(),
+		Priority:   authority.RequestPriorityQuotaBudgetRate,
+		Provider:   phase53Req{id: "quota-new"},
+	}}
+	if _, err := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, cfg, nextProd, clock); err == nil {
+		t.Fatal("publish that drops pending provider must fail CanRemoveProvider validation")
+	}
+	if built.SnapshotGeneration.CurrentExecutable().RequestRegistrations[0].Descriptor.ID != "quota-old" {
+		t.Fatal("blocked removal must keep prior executable")
+	}
+
+	// Drain pending via the same Publisher.ClearPendingProvider path Build wires
+	// from Processor.OnTerminalDone after Complete/Quarantine.
+	built.SnapshotGeneration.ClearPendingProvider(gen.ID, "quota-old")
+	gen.Release()
+	if !built.SnapshotGeneration.CanRemoveProvider("quota-old") {
+		t.Fatal("after pending drain and live release, provider must be removable")
+	}
+	if _, err := runtimebundle.PublishExecutableFromProduction(built.SnapshotGeneration, cfg, nextProd, clock.Add(time.Second)); err != nil {
+		t.Fatalf("publish after drain: %v", err)
+	}
+	if built.SnapshotGeneration.CurrentExecutable().RequestRegistrations[0].Descriptor.ID != "quota-new" {
+		t.Fatal("incompatible replacement must publish under new provider id")
+	}
+}
+
+func phase5E2EAdmit(requestID string) authority.RequestAdmission {
+	return authority.RequestAdmission{
+		RequestID:   requestID,
+		ALegID:      "a-1",
+		Perspective: metering.PerspectiveCustomer,
+		Lifecycle:   metering.LifecycleLogicalRequest,
+		Exposure: economics.ExposureBasis{
+			Perspective: metering.PerspectiveCustomer,
+			Boundary:    metering.BoundaryFrontendIngress,
+			Lifecycle:   metering.LifecycleLogicalRequest,
+		},
+	}
+}
+
+type phase53Conc struct{ id string }
+
+func (s phase53Conc) Describe() authority.ProviderDescriptor {
+	return authority.ProviderDescriptor{
+		ID: s.id, Kind: authority.ProviderKindAuthority,
+		Postures: []authority.StagePosture{{
+			Stage: authority.StageLeaseAdmit, Strength: authority.StrengthRequired,
+			FailureBehavior: authority.FailureFailClosed,
+		}},
+	}
+}
+
+func (s phase53Conc) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
+	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L1", Generation: 1}, nil
+}
+
+func (s phase53Conc) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
+	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L1", Generation: 2}, nil
+}
+func (s phase53Conc) ReleaseLease(context.Context, authority.LeaseRelease) error { return nil }
+func (s phase53Conc) QueryLeases(context.Context, authority.LeaseQuery) (authority.LeasePage, error) {
+	return authority.LeasePage{}, nil
+}

@@ -46,14 +46,15 @@ type Options struct {
 	// only with exactly one lease-stage ProviderDescriptor when the registration
 	// pointer is nil.
 	ConcurrencyProvider authority.ConcurrencyProvider
-	// UsageSnapshotSource supplies the usage-authority snapshot for publication
-	// and RefreshSnapshots.
+	// UsageSnapshotSource supplies the usage-authority source-fetch metadata
+	// view for publication and RefreshSnapshots. It is not enforcement evidence;
+	// executable generations bind descriptor-bound registrations instead.
 	UsageSnapshotSource economics.RuleSnapshotSource
-	// ConcurrencySnapshotSource supplies the concurrency snapshot for publication
-	// and RefreshSnapshots.
+	// ConcurrencySnapshotSource supplies the concurrency source-fetch metadata
+	// view for publication and RefreshSnapshots.
 	ConcurrencySnapshotSource economics.RuleSnapshotSource
-	// RatingSnapshotSource supplies the rating/catalog snapshot for publication
-	// and RefreshSnapshots.
+	// RatingSnapshotSource supplies the rating/catalog source-fetch metadata
+	// view for publication and RefreshSnapshots.
 	RatingSnapshotSource economics.RatingSnapshotSource
 	// Rater is deprecated. Use RaterRegistrations. When set alone, it maps to a
 	// deterministic operator registration with ID "legacy-production-rater".

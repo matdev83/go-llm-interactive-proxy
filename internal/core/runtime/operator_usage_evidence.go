@@ -31,5 +31,5 @@ func (s *retryRecvStream) operatorUsageForFinalize() lipapi.Event {
 	if s.lastAuthorityUsage.Kind != "" {
 		return s.lastAuthorityUsage
 	}
-	return operatorUsageOrShell(s.seenEvents)
+	return operatorUsageOrShell(s.seenEventsCopy())
 }

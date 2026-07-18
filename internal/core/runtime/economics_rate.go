@@ -9,6 +9,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -260,11 +261,22 @@ func (e *Executor) rateCustomerRequestExposure(
 	factIDs []string,
 	factRefs []metering.FactRef,
 ) (economics.Money, economics.RatingResult, error) {
-	if e == nil || e.EconomicsRater == nil {
+	return e.rateCustomerRequestExposureWithGen(ctx, nil, quantities, at, factIDs, factRefs)
+}
+
+func (e *Executor) rateCustomerRequestExposureWithGen(
+	ctx context.Context,
+	bound *snapshotgen.ExecutableGeneration,
+	quantities []metering.Quantity,
+	at time.Time,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (economics.Money, economics.RatingResult, error) {
+	rater := e.economicsRaterFor(bound, metering.PerspectiveCustomer)
+	if e == nil || rater == nil {
 		return economics.Money{}, economics.RatingResult{}, nil
 	}
-	// Empty quantities are still legal (fixed fees / request-count offers; req 6.9).
-	res, err := e.rateMonetaryExposure(ctx, economics.RatingRequest{
+	res, err := e.rateMonetaryExposureWith(ctx, rater, economics.RatingRequest{
 		Perspective: metering.PerspectiveCustomer,
 		Quantities:  append([]metering.Quantity(nil), quantities...),
 		FactIDs:     append([]string(nil), factIDs...),
@@ -275,6 +287,79 @@ func (e *Executor) rateCustomerRequestExposure(
 		return economics.Money{}, res, err
 	}
 	return res.Money, res, nil
+}
+
+func (e *Executor) rateOperatorAttemptSpendWithGen(
+	ctx context.Context,
+	bound *snapshotgen.ExecutableGeneration,
+	c routing.AttemptCandidate,
+	decision accountingpreflight.Decision,
+	quantities []metering.Quantity,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (domain.Amount, economics.RatingResult, error) {
+	qs := quantities
+	if len(qs) == 0 {
+		qs = attemptRatingQuantities(decision)
+	}
+	rater := e.economicsRaterFor(bound, metering.PerspectiveOperator)
+	if e == nil || rater == nil {
+		catalog := accounting.PriceCatalog{}
+		if e != nil {
+			catalog = e.AccountingPriceCatalog
+		}
+		return attemptAuthoritySpendAmountFromQuantities(catalog, c, qs), economics.RatingResult{}, nil
+	}
+	res, err := e.rateMonetaryExposureWith(ctx, rater, economics.RatingRequest{
+		Perspective: metering.PerspectiveOperator,
+		BackendID:   strings.TrimSpace(c.Primary.Backend),
+		Model:       strings.TrimSpace(c.Primary.Model),
+		Quantities:  qs,
+		Output:      conservativeOutputAssumption(decision, qs),
+		FactIDs:     append([]string(nil), factIDs...),
+		FactRefs:    append([]metering.FactRef(nil), factRefs...),
+		At:          e.now(),
+	})
+	if err != nil {
+		return domain.Amount{}, res, err
+	}
+	return ratingResultToSpend(res), res, nil
+}
+
+func (e *Executor) economicsRaterFor(bound *snapshotgen.ExecutableGeneration, perspective metering.EconomicPerspective) economics.Rater {
+	if bound != nil {
+		switch perspective {
+		case metering.PerspectiveCustomer:
+			if bound.CustomerRater != nil {
+				return bound.CustomerRater
+			}
+		case metering.PerspectiveOperator:
+			if bound.OperatorRater != nil {
+				return bound.OperatorRater
+			}
+		}
+	}
+	if e != nil {
+		return e.EconomicsRater
+	}
+	return nil
+}
+
+func (e *Executor) rateMonetaryExposureWith(ctx context.Context, rater economics.Rater, req economics.RatingRequest) (economics.RatingResult, error) {
+	if rater == nil {
+		return economics.RatingResult{}, fmt.Errorf("runtime: economics rater not configured")
+	}
+	if req.At.IsZero() && e != nil {
+		req.At = e.now()
+	}
+	res, err := rater.Rate(ctx, req)
+	if err != nil {
+		return economics.RatingResult{}, err
+	}
+	if vErr := res.ValidateFor(req); vErr != nil {
+		return economics.RatingResult{}, fmt.Errorf("runtime: economics rater result: %w", vErr)
+	}
+	return res, nil
 }
 
 func bindAdmissionRatingVersion(res *authorityapp.AdmissionResult, rated economics.RatingResult) {

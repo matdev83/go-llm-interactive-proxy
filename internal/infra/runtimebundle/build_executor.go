@@ -57,6 +57,7 @@ type executorBuildInput struct {
 	UsageAuthority     *authorityapp.Service
 	Concurrency        *concurrencyAuthorityRuntime
 	SnapshotGeneration *snapshotgen.Publisher
+	TerminalWork       *terminalWorkRuntime
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -161,6 +162,9 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		}
 	}
 	accountingRT.SnapshotGeneration = in.SnapshotGeneration
+	if in.TerminalWork != nil {
+		accountingRT.TerminalWork = in.TerminalWork.Intents
+	}
 	if len(cfg.Accounting.Pricing.Models) > 0 {
 		catalog, err := accounting.NewPriceCatalog(config.AccountingPriceCatalogConfig(cfg.Accounting.Pricing))
 		if err != nil {
@@ -259,6 +263,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		SnapshotGeneration: in.SnapshotGeneration,
 		Executor:           exec,
 		Production:         prod,
+		TerminalWork:       in.TerminalWork,
 	})
 	return &executorRuntime{
 		Exec:                 exec,

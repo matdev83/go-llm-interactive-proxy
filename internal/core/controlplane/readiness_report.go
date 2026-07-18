@@ -25,6 +25,7 @@ type ReadinessReportSources struct {
 	ConcurrencyAuthority      func(context.Context) (cp.ConcurrencyAuthorityStatus, error)
 	MeteringJournal           func(context.Context) (cp.ReadinessComponentStatus, error)
 	SnapshotStates            func() (usage, concurrency, rating cp.CapabilityState)
+	ExecutableGeneration      func() cp.ExecutableGenerationStatus
 	RequestCoordinatorEnabled bool
 	AttemptCoordinatorEnabled bool
 	RequestCoordinatorIDs     []string
@@ -34,6 +35,7 @@ type ReadinessReportSources struct {
 	CustomerRaterIDs          []string
 	OperatorRaterIDs          []string
 	SecretGuardQuarantine     func(context.Context) (cp.ReadinessComponentStatus, error)
+	TerminalRecovery          func(context.Context) (cp.ReadinessComponentStatus, error)
 	StoreBackings             ReadinessStoreBackings
 }
 
@@ -61,7 +63,18 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 	if s != nil {
 		src = s.src
 	}
-	components := make([]cp.ReadinessComponentStatus, 0, 11)
+	components := make([]cp.ReadinessComponentStatus, 0, 12)
+	var execStatus cp.ExecutableGenerationStatus
+	if src.ExecutableGeneration != nil {
+		execStatus = src.ExecutableGeneration()
+		execStatus.LastUpdatedAt = now
+	} else {
+		execStatus = cp.ExecutableGenerationStatus{
+			State:         cp.CapabilityDisabled,
+			Reason:        cp.ReasonDisabled,
+			LastUpdatedAt: now,
+		}
+	}
 	if src.MeteringJournal != nil {
 		if row, err := src.MeteringJournal(ctx); err == nil {
 			row.LastUpdatedAt = now
@@ -132,6 +145,7 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 		components = append(components, disabledComponent(cp.ReadinessComponentConcurrencySnapshot, now))
 		components = append(components, disabledComponent(cp.ReadinessComponentRatingSnapshot, now))
 	}
+	components = append(components, executableGenerationComponent(execStatus, now))
 	components = append(components, enabledComponent(cp.ReadinessComponentCustomerRater, src.CustomerRaterAttached, src.CustomerRaterIDs, now))
 	components = append(components, enabledComponent(cp.ReadinessComponentOperatorRater, src.OperatorRaterAttached, src.OperatorRaterIDs, now))
 	if src.SecretGuardQuarantine != nil {
@@ -144,10 +158,42 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 	} else {
 		components = append(components, disabledComponent(cp.ReadinessComponentSecretGuardQuarantine, now))
 	}
+	if src.TerminalRecovery != nil {
+		if row, err := src.TerminalRecovery(ctx); err == nil {
+			row.LastUpdatedAt = now
+			components = append(components, row)
+		} else {
+			components = append(components, unavailableComponent(cp.ReadinessComponentTerminalRecovery, "", now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentTerminalRecovery, now))
+	}
 	return cp.ReadinessReport{
-		Components: components,
-		Posture:    cp.AggregateProtectedTrafficPosture(components, now),
+		Components:           components,
+		ExecutableGeneration: execStatus,
+		Posture:              cp.AggregateProtectedTrafficPosture(components, now),
 	}, nil
+}
+
+func executableGenerationComponent(status cp.ExecutableGenerationStatus, at time.Time) cp.ReadinessComponentStatus {
+	state := status.State
+	if state == "" {
+		state = cp.CapabilityDisabled
+	}
+	reason := status.Reason
+	if state == cp.CapabilityDisabled && reason == "" {
+		reason = cp.ReasonDisabled
+	}
+	return cp.ReadinessComponentStatus{
+		Component:         cp.ReadinessComponentExecutableGeneration,
+		State:             state,
+		Reason:            reason,
+		EnforcementScope:  cp.EnforcementScopeAdvisorySingleProcess,
+		GenerationID:      status.ID,
+		GenerationVersion: status.Version,
+		EvidenceObjectID:  status.EvidenceObjectID,
+		LastUpdatedAt:     at,
+	}
 }
 
 func disabledComponent(id cp.ReadinessComponentID, at time.Time) cp.ReadinessComponentStatus {

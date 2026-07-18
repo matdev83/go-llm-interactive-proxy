@@ -163,8 +163,8 @@ func TestPhase6_settleRequestAuthorityOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}
-	ex.settleRequestAuthority(ctx, nil)
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 
 	// Re-admit must no-op when state already present.
 	ctx2, err := ex.admitRequestAuthorityOnce(ctx, "request-1", aLegID, "trace-1", scope.PrincipalScopeView{})
@@ -191,8 +191,8 @@ func TestPhase6_releaseRequestAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admit: %v", err)
 	}
-	ex.releaseRequestAuthority(ctx)
-	ex.releaseRequestAuthority(ctx) // idempotent
+	_ = ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx) // idempotent
 
 	if got := auth.releaseCalls.Load(); got < 1 {
 		t.Fatalf("releaseCalls=%d want >=1", got)

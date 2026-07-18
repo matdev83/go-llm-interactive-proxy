@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
@@ -43,6 +44,18 @@ func (p *Provider) AdmitLease(ctx context.Context, in authority.LeaseAdmission) 
 	return mapAdmitDecision(res), nil
 }
 
+// MarkLeaseSetUncertain marks a set conservatively occupied after ambiguous renew.
+func (p *Provider) MarkLeaseSetUncertain(ctx context.Context, setID string) error {
+	if p == nil || p.svc == nil || p.svc.store == nil {
+		return WrapError("mark_uncertain", ErrUnavailable)
+	}
+	setID = strings.TrimSpace(setID)
+	if setID == "" {
+		return WrapError("mark_uncertain", ErrInvalidInput)
+	}
+	return p.svc.store.MarkSetUncertain(ctx, setID, p.svc.now())
+}
+
 // RenewLease implements authority.ConcurrencyProvider.
 func (p *Provider) RenewLease(ctx context.Context, in authority.LeaseRenew) (authority.LeaseDecision, error) {
 	if p == nil || p.svc == nil {
@@ -53,6 +66,8 @@ func (p *Provider) RenewLease(ctx context.Context, in authority.LeaseRenew) (aut
 		RequestID:          in.RequestID,
 		ExpectedGeneration: in.ExpectedGeneration,
 		TTL:                in.TTL,
+		SetID:              in.SetID,
+		RenewBefore:        in.RenewBefore,
 	})
 	if err != nil {
 		return authority.LeaseDecision{}, err
@@ -69,6 +84,7 @@ func (p *Provider) ReleaseLease(ctx context.Context, in authority.LeaseRelease) 
 		LeaseID:   in.LeaseID,
 		RequestID: in.RequestID,
 		Reason:    in.Reason,
+		SetID:     in.SetID,
 	})
 }
 
@@ -118,6 +134,7 @@ func mapAdmitDecision(res AdmitResult) authority.LeaseDecision {
 		RenewBefore:     res.RenewBefore,
 		TTL:             res.TTL,
 		FailureBehavior: authority.FailureBehavior(res.FailureBehavior),
+		SetID:           res.SetID,
 		Evidence: authority.SafeEvidence{
 			Category: res.Evidence.Category,
 			Code:     res.Evidence.Code,

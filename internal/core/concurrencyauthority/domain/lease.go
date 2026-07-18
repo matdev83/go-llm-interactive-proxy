@@ -38,19 +38,23 @@ var (
 
 // Lease is one logical-request occupancy record.
 type Lease struct {
-	LeaseID     string
-	RuleID      string
-	RuleVersion string
-	Namespace   string
-	Dimensions  Dimensions
-	LogicalID   string
-	HolderID    string
-	AcquiredAt  time.Time
-	RenewedAt   time.Time
-	ExpiresAt   time.Time
-	ReleasedAt  time.Time
-	Generation  int64
-	State       LeaseState
+	LeaseID         string
+	RuleID          string
+	RuleVersion     string
+	Namespace       string
+	Dimensions      Dimensions
+	LogicalID       string
+	HolderID        string
+	AcquiredAt      time.Time
+	RenewedAt       time.Time
+	ExpiresAt       time.Time
+	ReleasedAt      time.Time
+	Generation      int64
+	State           LeaseState
+	IdentityVersion int
+	SetID           string
+	SetGeneration   int64
+	SetState        LeaseSetState
 }
 
 // NewLeaseParams constructs an active lease at Now with TTL.
@@ -100,6 +104,10 @@ func (l Lease) IsLive(now time.Time) bool {
 	case LeaseStateReleased, LeaseStateExpired:
 		return false
 	default:
+		// Uncertain set members remain occupied until reconciliation (10.7).
+		if l.SetState == LeaseSetStateUncertain {
+			return true
+		}
 		if !l.ExpiresAt.IsZero() && !now.Before(l.ExpiresAt) {
 			return false
 		}

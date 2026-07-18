@@ -1,6 +1,7 @@
 package snapshotgen
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -8,7 +9,8 @@ import (
 )
 
 // RuntimeGeneration is one immutable published set of usage, concurrency, and
-// rating snapshots (design: Publication).
+// rating snapshots (design: Publication). Metadata views remain for compatibility;
+// enforcement uses ExecutableGeneration (D10).
 type RuntimeGeneration struct {
 	ID          int64
 	PublishedAt time.Time
@@ -21,8 +23,10 @@ type RuntimeGeneration struct {
 
 // Publisher atomically publishes immutable generations for request binding.
 type Publisher struct {
-	active atomic.Pointer[RuntimeGeneration]
-	seq    atomic.Int64
+	active     atomic.Pointer[RuntimeGeneration]
+	executable atomic.Pointer[ExecutableGeneration]
+	retained   sync.Map // int64 -> *ExecutableGeneration
+	seq        atomic.Int64
 }
 
 // NewPublisher returns an empty publisher (Current is nil until Publish).
@@ -38,9 +42,10 @@ func (p *Publisher) Current() *RuntimeGeneration {
 	return p.active.Load()
 }
 
-// Publish stores gen as the active generation with a new monotonic ID.
-// Callers must treat returned generations as immutable.
-func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
+// PublishMetadata stores gen as the active metadata compatibility view with a
+// new monotonic ID (requirement 11.2). Callers must treat returned generations
+// as immutable. Enforcement uses PublishExecutable (D10).
+func (p *Publisher) PublishMetadata(gen RuntimeGeneration) *RuntimeGeneration {
 	if p == nil {
 		return nil
 	}
@@ -54,6 +59,16 @@ func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
 	cp := gen
 	p.active.Store(&cp)
 	return &cp
+}
+
+// Publish stores gen as the active metadata compatibility view with a new
+// monotonic ID. Callers must treat returned generations as immutable.
+//
+// Deprecated: metadata-only publication is not an enforcement path (D10).
+// Use PublishExecutable for admission/settlement evaluator objects, or
+// PublishMetadata for additive source-fetch compatibility views (requirement 11.2).
+func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
+	return p.PublishMetadata(gen)
 }
 
 // MarkUnusable updates readiness of the active generation without replacing

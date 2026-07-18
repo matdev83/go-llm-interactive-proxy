@@ -163,6 +163,9 @@ func run(ctx context.Context) error {
 	if rt.SnapshotGenerationID() == 0 {
 		return fmt.Errorf("expected published generation")
 	}
+	if rt.ExecutableGenerationID() == 0 || rt.ExecutableEvidenceObjectID() == "" {
+		return fmt.Errorf("expected executable generation evidence object id")
+	}
 	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
 		return fmt.Errorf("production evidence/rater/query mounts not wired")
 	}
@@ -234,6 +237,23 @@ func run(ctx context.Context) error {
 	}
 	if rater.quoteCalls < 1 {
 		return fmt.Errorf("expected fake QuoteOutputLimit invocation")
+	}
+	// Public-only EconomicControlReady evaluation (OSS technical posture, not billing).
+	now := time.Now().UTC()
+	report := controlplane.ReadinessReport{
+		ExecutableGeneration: controlplane.ExecutableGenerationStatus{
+			State: controlplane.CapabilityReady, ID: rt.ExecutableGenerationID(), LastUpdatedAt: now,
+		},
+		Components: []controlplane.ReadinessComponentStatus{
+			{Component: controlplane.ReadinessComponentExecutableGeneration, State: controlplane.CapabilityReady},
+			{Component: controlplane.ReadinessComponentMeteringJournal, State: controlplane.CapabilityReady},
+			{Component: controlplane.ReadinessComponentUsageAuthority, State: controlplane.CapabilityReady, EnforcementScope: controlplane.EnforcementScopeAdvisorySingleProcess},
+			{Component: controlplane.ReadinessComponentTerminalRecovery, State: controlplane.CapabilityDisabled},
+		},
+		Posture: controlplane.ProtectedTrafficPosture{State: controlplane.CapabilityReady, MayServeStrict: false, LastUpdatedAt: now},
+	}
+	if !controlplane.EconomicControlReady(report) {
+		return fmt.Errorf("expected EconomicControlReady on public readiness shape")
 	}
 	view := rt.ExecutorView()
 	stream, err := view.Execute(ctx, &lipapi.Call{
