@@ -146,6 +146,9 @@ func partBytes(p lipapi.Part) int64 {
 		return int64(len(p.ImageRef)) + int64(len(p.ImageMIME))
 	case lipapi.PartFileRef:
 		return int64(len(p.FileRef)) + int64(len(p.FileMIME)) + int64(len(p.FileName))
+	case lipapi.PartReasoning:
+		// Dialect is catalog metadata; sizing counts replay payload bytes only (text+signature+opaque).
+		return int64(lipapi.ReasoningPayloadBytes(p.Reasoning))
 	default:
 		return 0
 	}

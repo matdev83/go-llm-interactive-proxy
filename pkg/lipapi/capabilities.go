@@ -17,6 +17,7 @@ const (
 	CapabilityDocuments         Capability = "documents"
 	CapabilityStructuredOutputs Capability = "structured_outputs"
 	CapabilityReasoning         Capability = "reasoning"
+	CapabilityReasoningReplay   Capability = "reasoning_replay" // hard; required when historical reasoning parts are present
 	CapabilityParallelToolCalls Capability = "parallel_tool_calls"
 )
 
@@ -74,6 +75,9 @@ func RequiredCapabilities(c Call) []Capability {
 				}
 				if p.Kind == PartFileRef {
 					add(CapabilityDocuments)
+				}
+				if p.Kind == PartReasoning {
+					add(CapabilityReasoningReplay)
 				}
 			}
 		}

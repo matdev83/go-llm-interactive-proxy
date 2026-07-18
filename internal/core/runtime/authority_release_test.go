@@ -104,6 +104,7 @@ func TestRetryRecvStreamFailedPartialSettleReleasesLosingAndReplacementResetsAut
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:    &attemptBudget{max: 3, used: 0},
 		aLegID:    aLegID,
@@ -186,7 +187,7 @@ func TestRetryRecvStreamGlobalTTFTTimeoutReleasesAuthority(t *testing.T) {
 	ex, _, aLegID := newAuthorityRuntimeTestExecutor(t, auth)
 	rs := &retryRecvStream{
 		executor: ex,
-		baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}},
+		baseline: lipapi.Call{ID: "request-ttft", Invocation: lipapi.Invocation{Operation: lipapi.OperationOpenAIChatCompletions}, Messages: testMinimalUserMessages()},
 		bleg:     b2bua.BLegRecord{BLegID: aLegID, Seq: 1},
 		cand:     authorityCandidate(),
 		authority: testAuthorityLifecycle(ex, attemptAuthorityState{
@@ -278,6 +279,7 @@ func TestRetryRecvStreamReplacementRefreshesAuthority(t *testing.T) {
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:    &attemptBudget{max: 3, used: 0},
 		aLegID:    aLegID,
@@ -359,6 +361,7 @@ func TestRetryRecvStreamSwallowedFailureReleasesAuthorityOnReplacement(t *testin
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:    &attemptBudget{max: 3, used: 0},
 		aLegID:    aLegID,
@@ -464,6 +467,7 @@ func TestRetryRecvStreamReplacementErrorReleasesSwallowedAuthority(t *testing.T)
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:     &attemptBudget{max: 3, used: 0},
 		aLegID:     aLegID,

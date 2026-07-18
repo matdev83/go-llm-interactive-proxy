@@ -78,6 +78,14 @@ var ErrUnresolvedModelOnlySelector = errors.New("lipapi: model-only route select
 // request-size estimate (pre-output routing only).
 var ErrAllCandidatesContextLimitExceeded = errors.New("lipapi: all route candidates excluded by context limit")
 
+// ErrAllCandidatesUnrepresentableReplay is returned when every evaluated route candidate was
+// excluded by attempt transforms with the canonical unrepresentable_replay reason.
+var ErrAllCandidatesUnrepresentableReplay = errors.New("lipapi: all route candidates excluded: unrepresentable_replay")
+
+// ErrAllCandidatesExcluded is returned when every evaluated route candidate was excluded by
+// attempt transforms with a non-canonical (but sanitized) reason.
+var ErrAllCandidatesExcluded = errors.New("lipapi: all route candidates excluded: candidate_excluded")
+
 // IsAllCandidatesContextLimitExceeded reports whether err is or wraps [ErrAllCandidatesContextLimitExceeded].
 func IsAllCandidatesContextLimitExceeded(err error) bool {
 	return errors.Is(err, ErrAllCandidatesContextLimitExceeded)

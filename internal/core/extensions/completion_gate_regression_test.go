@@ -55,7 +55,7 @@ func TestApplyCompletionGateChain_auxInfluencedReplace(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "upstream"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateUsesAux{}}, completion.Meta{}, orig, false, completion.Services{
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateUsesAux{}}, completion.Meta{}, orig, false, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   aux,
 	}, nil)
@@ -65,8 +65,11 @@ func TestApplyCompletionGateChain_auxInfluencedReplace(t *testing.T) {
 	if aux.calls != 1 {
 		t.Fatalf("aux calls=%d", aux.calls)
 	}
-	if len(out) != 4 || out[2].Delta != "aux-steered" {
-		t.Fatalf("got %#v", out)
+	if len(result.Events) != 4 || result.Events[2].Delta != "aux-steered" {
+		t.Fatalf("got %#v", result.Events)
+	}
+	if !result.Replaced {
+		t.Fatal("expected Replaced=true")
 	}
 }
 
@@ -76,14 +79,14 @@ func TestApplyCompletionGateChain_auxDisabledPassThrough(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "upstream"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateUsesAux{}}, completion.Meta{}, orig, false, completion.Services{
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateUsesAux{}}, completion.Meta{}, orig, false, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   auxiliary.DisabledClient{},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 || out[0].Delta != "upstream" {
-		t.Fatalf("got %#v", out)
+	if len(result.Events) != 2 || result.Events[0].Delta != "upstream" {
+		t.Fatalf("got %#v", result.Events)
 	}
 }

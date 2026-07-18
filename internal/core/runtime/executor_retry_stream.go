@@ -38,6 +38,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -70,6 +71,7 @@ type retryRecvStream struct {
 	lastHardReject           lipapi.NegotiationResult
 	lastHardTransportReject  lipapi.TransportNegotiationResult
 	isContextLimitExhaustion bool
+	transformExcludes        transformExcludeTracker
 
 	innerMu            sync.Mutex
 	inner              lipapi.ManagedEventStream
@@ -153,6 +155,8 @@ type retryRecvStream struct {
 	attemptTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
 	eventsMu sync.Mutex
+
+	finalStreamObs *extensions.FinalStreamObservationSession
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -469,6 +473,7 @@ func (s *retryRecvStream) Close() error {
 	if c == nil {
 		if !s.isFinished() {
 			s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+				s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
 				s.persistCancellationBilling(cctx, "client closed")
 				s.markFinished()
 				return nil
@@ -487,6 +492,7 @@ func (s *retryRecvStream) Close() error {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
 		s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+			s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
 			s.persistCancellationBilling(cctx, "client closed")
 			s.markFinished()
 			return nil
@@ -755,7 +761,7 @@ func (s *retryRecvStream) completionGatedEmit(
 		}
 		committed := s.isCommitted()
 		committedForPanic := committed || gateBufHasCommittedOutput(s.gateBuf)
-		out, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() ([]lipapi.Event, error) {
+		gateResult, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() (extensions.CompletionGateChainResult, error) {
 			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, committed, svc, stageLog)
 		})
 		if err != nil {
@@ -769,9 +775,15 @@ func (s *retryRecvStream) completionGatedEmit(
 			s.gateBuf = nil
 			return lipapi.Event{}, err
 		}
+		out := gateResult.Events
 		s.gateBuf = nil
 		if len(out) == 0 {
 			return lipapi.Event{}, errors.New("runtime: completion gate produced empty stream")
+		}
+		if gateResult.Replaced {
+			if err := s.cycleFinalStreamObservation(ctx, response.OutcomeGateReplaced); err != nil {
+				return lipapi.Event{}, err
+			}
 		}
 		s.gateDrain = out[1:]
 		return out[0], nil

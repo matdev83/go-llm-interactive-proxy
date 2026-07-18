@@ -1,6 +1,7 @@
 package metering_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -92,12 +93,7 @@ func TestPhase32_SourceEventLookupKeys_V2NoV0V1Alias(t *testing.T) {
 }
 
 func containsKey(keys []string, want string) bool {
-	for _, k := range keys {
-		if k == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(keys, want)
 }
 
 func TestPhase32_SameFactReplay_EffectiveKindAndSourceID(t *testing.T) {

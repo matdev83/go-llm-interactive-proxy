@@ -52,6 +52,7 @@ func NewBackend(cfg Config) execbackend.Backend {
 	}
 	return execbackend.Backend{
 		Caps:                    defaultBackendCaps(),
+		ReplaySupport:           ReplaySupport(),
 		BackendPrefixes:         []string{id},
 		EnforcesMaxOutputTokens: true,
 		ProviderCounter:         cfg.ProviderCounter,

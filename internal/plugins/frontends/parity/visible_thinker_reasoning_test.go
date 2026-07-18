@@ -175,7 +175,7 @@ func TestVisibleThinkerReasoning_nonStreamEncodesLegally(t *testing.T) {
 					CreatedAt:    1715620000,
 				})
 			},
-			expectReasoning: false,
+			expectReasoning: true,
 		},
 		{
 			name: "openairesponses",

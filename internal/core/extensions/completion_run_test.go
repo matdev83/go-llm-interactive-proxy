@@ -31,16 +31,52 @@ func TestApplyCompletionGateChain_replace(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "a"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplace{}}, completion.Meta{}, orig, false, completion.Services{
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplace{}}, completion.Meta{}, orig, false, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   auxiliary.DisabledClient{},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 || out[0].Delta != "x" {
-		t.Fatalf("got %#v", out)
+	if len(result.Events) != 2 || result.Events[0].Delta != "x" {
+		t.Fatalf("got %#v", result.Events)
 	}
+	if !result.Replaced {
+		t.Fatal("expected Replaced=true")
+	}
+}
+
+func TestApplyCompletionGateChain_replaceEqualContentStillReplaced(t *testing.T) {
+	t.Parallel()
+	orig := []lipapi.Event{
+		{Kind: lipapi.EventTextDelta, Delta: "a"},
+		{Kind: lipapi.EventResponseFinished},
+	}
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplaceEqual{}}, completion.Meta{}, orig, false, completion.Services{
+		State: state.DisabledStore{},
+		Aux:   auxiliary.DisabledClient{},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 2 || result.Events[0].Delta != "a" {
+		t.Fatalf("got %#v", result.Events)
+	}
+	if !result.Replaced {
+		t.Fatal("equal-content replace must set Replaced=true")
+	}
+}
+
+type gateReplaceEqual struct{}
+
+func (gateReplaceEqual) ID() string                        { return "rep-eq" }
+func (gateReplaceEqual) Order() int                        { return 0 }
+func (gateReplaceEqual) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (gateReplaceEqual) Handle(context.Context, completion.Meta, completion.Buffered, completion.Services) (completion.Outcome, error) {
+	return completion.ReplaceOutcome([]lipapi.Event{
+		{Kind: lipapi.EventTextDelta, Delta: "a"},
+		{Kind: lipapi.EventResponseFinished},
+	}), nil
 }
 
 func TestApplyCompletionGateChain_replaceIgnoredWhenCommitted(t *testing.T) {
@@ -49,15 +85,18 @@ func TestApplyCompletionGateChain_replaceIgnoredWhenCommitted(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "a"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplace{}}, completion.Meta{}, orig, true, completion.Services{
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateReplace{}}, completion.Meta{}, orig, true, completion.Services{
 		State: state.DisabledStore{},
 		Aux:   auxiliary.DisabledClient{},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 || out[0].Delta != "a" {
-		t.Fatalf("expected original, got %#v", out)
+	if len(result.Events) != 2 || result.Events[0].Delta != "a" {
+		t.Fatalf("expected original, got %#v", result.Events)
+	}
+	if result.Replaced {
+		t.Fatal("committed replace must not set Replaced")
 	}
 }
 
@@ -73,12 +112,12 @@ func (gateFailOpenErr) Handle(context.Context, completion.Meta, completion.Buffe
 func TestApplyCompletionGateChain_handlerErrorFailOpen(t *testing.T) {
 	t.Parallel()
 	orig := []lipapi.Event{{Kind: lipapi.EventResponseFinished}}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateFailOpenErr{}}, completion.Meta{}, orig, false, completion.Services{}, nil)
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{gateFailOpenErr{}}, completion.Meta{}, orig, false, completion.Services{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 1 || out[0].Kind != lipapi.EventResponseFinished {
-		t.Fatalf("got %#v", out)
+	if len(result.Events) != 1 || result.Events[0].Kind != lipapi.EventResponseFinished {
+		t.Fatalf("got %#v", result.Events)
 	}
 }
 

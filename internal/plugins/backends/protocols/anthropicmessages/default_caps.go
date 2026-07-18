@@ -9,5 +9,6 @@ func defaultBackendCaps() lipapi.BackendCaps {
 		lipapi.CapabilityVision,
 		lipapi.CapabilityDocuments,
 		lipapi.CapabilityParallelToolCalls,
+		lipapi.CapabilityReasoningReplay,
 	)
 }

@@ -15,18 +15,25 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 )
 
+// CompletionGateChainResult is the outcome of running completion gates over a buffered stream.
+type CompletionGateChainResult struct {
+	Events   []lipapi.Event
+	Replaced bool // true when OutcomeReplace was applied (not ignored after output commitment)
+}
+
 // ApplyCompletionGateChain runs sorted gates over the buffered completion (design §6, §17).
 // When outputCommitted is true, replacement outcomes are ignored (original buffer preserved).
 // Handler errors honor per-gate FailureMode; the stage default is fail-open (see DefaultFailurePolicyForStage).
 // log may be nil; when set, completion-gate panics are logged via [logFailOpenExtensionPanic] before
 // they are returned to the runtime stream boundary (panics are not swallowed by fail-open policy).
-func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta completion.Meta, original []lipapi.Event, outputCommitted bool, svc completion.Services, log *slog.Logger) ([]lipapi.Event, error) {
+func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta completion.Meta, original []lipapi.Event, outputCommitted bool, svc completion.Services, log *slog.Logger) (CompletionGateChainResult, error) {
 	if len(gates) == 0 {
-		return slices.Clone(original), nil
+		return CompletionGateChainResult{Events: slices.Clone(original)}, nil
 	}
 	sorted := completion.MaterializeSorted(gates)
 	originalCopy := slices.Clone(original)
 	current := slices.Clone(original)
+	replaced := false
 	ev := DecisionEvidenceFromContext(ctx)
 	// completionGateFailureCfg carries outputCommitted (constant for the whole chain)
 	// into the shared timeout helper's evidence emitter. Failure handling stays inline
@@ -57,14 +64,14 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 			})
 		})
 		if res.ParentCanceled {
-			return nil, res.Err
+			return CompletionGateChainResult{}, res.Err
 		}
 		if res.TimedOut {
 			cont, terr := handleProviderTimeout(ctx, log, nil, ev, completionGateFailureCfg, res.IterCtx, g.ID(), res.Deadline, mode)
 			if cont {
 				continue
 			}
-			return nil, terr
+			return CompletionGateChainResult{}, terr
 		}
 		iterCtx := res.IterCtx
 		deadline := res.Deadline
@@ -74,21 +81,21 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 			if errors.As(err, &pe) {
 				emitCompletionGateEvidence(iterCtx, ev, g.ID(), zeroOutcome, err, sdkhooks.FailClosed, outputCommitted, false, deadline)
 				logFailOpenExtensionPanic(ctx, log, "completion_gate", g.ID(), err)
-				return nil, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)
+				return CompletionGateChainResult{}, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)
 			}
 			emitCompletionGateEvidence(iterCtx, ev, g.ID(), zeroOutcome, err, mode, outputCommitted, false, deadline)
 			if mode == sdkhooks.FailClosed {
 				if IsContextCancellation(ctx, err) {
-					return nil, err
+					return CompletionGateChainResult{}, err
 				}
-				return nil, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)
+				return CompletionGateChainResult{}, PolicyErrorFromProviderFailure(feature.StageIDCompletionGating, g.ID(), policydecision.FailureBehaviorFailClosed, err)
 			}
 			continue
 		}
 		if vErr := out.Validate(); vErr != nil {
 			emitCompletionGateEvidence(iterCtx, ev, g.ID(), out, vErr, mode, outputCommitted, true, deadline)
 			if mode == sdkhooks.FailClosed {
-				return nil, PolicyErrorFromMalformed(feature.StageIDCompletionGating, g.ID(), vErr)
+				return CompletionGateChainResult{}, PolicyErrorFromMalformed(feature.StageIDCompletionGating, g.ID(), vErr)
 			}
 			continue
 		}
@@ -103,15 +110,16 @@ func ApplyCompletionGateChain(ctx context.Context, gates []completion.Gate, meta
 				continue
 			}
 			current = slices.Clone(out.Events)
+			replaced = true
 		case completion.OutcomeReject:
-			return nil, lipapi.NewPolicyDeniedError(feature.StageIDCompletionGating, g.ID(), ReasonCompletionReject, CategoryDenied, "completion rejected by policy", out.Err)
+			return CompletionGateChainResult{}, lipapi.NewPolicyDeniedError(feature.StageIDCompletionGating, g.ID(), ReasonCompletionReject, CategoryDenied, "completion rejected by policy", out.Err)
 		default:
 			if mode == sdkhooks.FailClosed {
-				return nil, PolicyErrorFromMalformed(feature.StageIDCompletionGating, g.ID(), errors.New("extensions: unknown completion outcome"))
+				return CompletionGateChainResult{}, PolicyErrorFromMalformed(feature.StageIDCompletionGating, g.ID(), errors.New("extensions: unknown completion outcome"))
 			}
 		}
 	}
-	return current, nil
+	return CompletionGateChainResult{Events: current, Replaced: replaced}, nil
 }
 
 // emitCompletionGateEvidence projects one completion-gate outcome into shared

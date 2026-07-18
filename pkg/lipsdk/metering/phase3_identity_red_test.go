@@ -16,7 +16,7 @@ import (
 
 func TestPhase3_Fact_IdentityVersionAndRevisionFields(t *testing.T) {
 	t.Parallel()
-	rt := reflect.TypeOf(metering.Fact{})
+	rt := reflect.TypeFor[metering.Fact]()
 	for _, name := range []string{"IdentityVersion", "SourceRevision", "SourceEventKind", "SourceID"} {
 		if _, ok := rt.FieldByName(name); !ok {
 			t.Fatalf("Fact.%s missing (design Deterministic Identity / V-06; task 3.2)", name)
@@ -26,7 +26,7 @@ func TestPhase3_Fact_IdentityVersionAndRevisionFields(t *testing.T) {
 
 func TestPhase3_Fact_SourceEventKeyIncludesIdentityVersionRevision(t *testing.T) {
 	t.Parallel()
-	rt := reflect.TypeOf(metering.Fact{})
+	rt := reflect.TypeFor[metering.Fact]()
 	_, hasVersion := rt.FieldByName("IdentityVersion")
 	_, hasRevision := rt.FieldByName("SourceRevision")
 	if !hasVersion || !hasRevision {
