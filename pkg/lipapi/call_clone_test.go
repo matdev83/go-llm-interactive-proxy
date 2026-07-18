@@ -75,9 +75,6 @@ func TestCloneCall_preservesNilReasoningOpaque(t *testing.T) {
 func TestCloneCall_preservesEmptyNonNilReasoningOpaque(t *testing.T) {
 	t.Parallel()
 	empty := json.RawMessage{}
-	if empty == nil {
-		t.Fatal("precondition: empty non-nil Opaque required")
-	}
 	orig := lipapi.Call{
 		Messages: []lipapi.Message{{
 			Role: lipapi.RoleAssistant,

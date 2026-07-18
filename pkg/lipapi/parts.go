@@ -52,7 +52,7 @@ type Part struct {
 
 func (p Part) validate() error {
 	if p.Reasoning != nil && p.Kind != PartReasoning {
-		return errors.New("Reasoning is only allowed when Kind is reasoning")
+		return errors.New("reasoning is only allowed when Kind is reasoning")
 	}
 	switch p.Kind {
 	case PartText:

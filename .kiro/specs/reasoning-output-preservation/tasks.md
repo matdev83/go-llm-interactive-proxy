@@ -162,7 +162,7 @@
 
 ## Phase 4 — GREEN: Adapter Replay Dialects
 
-- [ ] 4.1 Add OpenAI-compatible Chat reasoning replay
+- [x] 4.1 Add OpenAI-compatible Chat reasoning replay
   - Decode recognized assistant reasoning fields into the text dialect, add legal non-stream response representation where supported, and serialize canonical reasoning only through proven compatible backend fields.
   - **Deliverable:** Chat request → canonical → backend and backend → canonical → stream/non-stream goldens pass.
   - _Requirements: 7.1, 7.4, 7.6, 7.8, 7.9_
@@ -171,7 +171,7 @@
   - _Depends: 2.1, 3.5_
   - _Validation: focused decode/payload/stream/non-stream/golden tests_
 
-- [ ] 4.2 Add OpenAI Responses reasoning-item replay
+- [x] 4.2 Add OpenAI Responses reasoning-item replay
   - Decode supported reasoning input items while retaining bounded item metadata and encrypted/opaque replay data; reconstruct legal provider input items through current SDK or bounded adapter-local wire helpers.
   - **Deliverable:** manually managed Responses history round-trips required reasoning items.
   - _Requirements: 7.2, 7.4–7.6, 7.8_
@@ -180,7 +180,7 @@
   - _Depends: 2.1, 3.5_
   - _Validation: focused Responses decoder/payload/integration/golden tests_
 
-- [ ] 4.3 Add Anthropic thinking and redacted-thinking replay
+- [x] 4.3 Add Anthropic thinking and redacted-thinking replay
   - Decode ordered `thinking` and `redacted_thinking` blocks with signatures/opaque data and reconstruct legal backend blocks without inventing signatures.
   - Revalidate the archived thinking-signature contracts and multi-block tool-use fixtures.
   - **Deliverable:** signed and redacted Anthropic history round-trips exactly.
@@ -190,7 +190,7 @@
   - _Depends: 2.1, 3.5_
   - _Validation: focused Anthropic decode/payload/signature/parity tests_
 
-- [ ] 4.4 Resolve OpenRouter and compatible/custom replay profiles
+- [x] 4.4 Resolve OpenRouter and compatible/custom replay profiles
   - Project effective upstream flavor, family prefixes, selected model, and supported dialects through a pure candidate resolver.
   - Prove arbitrary instance IDs use explicit rules, built-ins use family/model identity, and no dialect crosses an incompatible family.
   - **Deliverable:** compatible routing excludes candidates that cannot legally replay every block.
@@ -200,7 +200,7 @@
   - _Depends: 4.1–4.3_
   - _Validation: focused OpenRouter/compatible resolver/payload/exclusion tests_
 
-- [ ] 4.5 Lock unsupported protocol isolation and parity
+- [x] 4.5 Lock unsupported protocol isolation and parity
   - Add Gemini and other no-support tests proving replay is explicitly excluded/skipped and never silently encoded, dropped, or converted.
   - Extend supported streaming/non-streaming frontend/backend parity matrices.
   - **Deliverable:** every supported and unsupported edge has deterministic behavior.

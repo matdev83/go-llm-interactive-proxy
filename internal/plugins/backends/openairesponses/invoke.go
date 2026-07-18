@@ -132,6 +132,14 @@ func buildInputItems(call *lipapi.Call) ([]responses.ResponseInputItemUnionParam
 				items = append(items, fcs...)
 				continue
 			}
+			expanded, err := assistantPartsToInputItems(m.Parts)
+			if err != nil {
+				return nil, fmt.Errorf("openairesponses: input item: %w", err)
+			}
+			if expanded != nil {
+				items = append(items, expanded...)
+				continue
+			}
 		}
 		it, err := messageToInputItem(m)
 		if err != nil {
@@ -140,6 +148,123 @@ func buildInputItems(call *lipapi.Call) ([]responses.ResponseInputItemUnionParam
 		items = append(items, it)
 	}
 	return items, nil
+}
+
+// assistantPartsToInputItems expands assistant parts that include reasoning replay items.
+// Returns nil,nil when the message has no PartReasoning (caller uses messageToInputItem).
+func assistantPartsToInputItems(parts []lipapi.Part) ([]responses.ResponseInputItemUnionParam, error) {
+	hasReasoning := false
+	for _, p := range parts {
+		if p.Kind == lipapi.PartReasoning {
+			hasReasoning = true
+			break
+		}
+	}
+	if !hasReasoning {
+		return nil, nil
+	}
+
+	var items []responses.ResponseInputItemUnionParam
+	var contentParts []lipapi.Part
+	flushContent := func() error {
+		if len(contentParts) == 0 {
+			return nil
+		}
+		list, err := partsToContentList(contentParts)
+		if err != nil {
+			return err
+		}
+		items = append(items, responses.ResponseInputItemParamOfInputMessage(list, "assistant"))
+		contentParts = nil
+		return nil
+	}
+	for _, p := range parts {
+		switch p.Kind {
+		case lipapi.PartReasoning:
+			if err := flushContent(); err != nil {
+				return nil, err
+			}
+			it, err := reasoningPartToInputItem(p)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, it)
+		case lipapi.PartText, lipapi.PartImageRef, lipapi.PartFileRef:
+			contentParts = append(contentParts, p)
+		default:
+			return nil, fmt.Errorf("openairesponses: unsupported part kind %q in assistant message with reasoning replay", p.Kind)
+		}
+	}
+	if err := flushContent(); err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("openairesponses: assistant message with reasoning produced no input items")
+	}
+	return items, nil
+}
+
+func reasoningPartToInputItem(p lipapi.Part) (responses.ResponseInputItemUnionParam, error) {
+	if p.Reasoning == nil {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning part missing payload")
+	}
+	d := lipapi.NormalizeReasoningDialect(p.Reasoning.Dialect)
+	if d != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning dialect %q not supported for responses replay (want %s)", d, lipapi.ReasoningDialectOpenAIResponsesItemV1)
+	}
+	var wire struct {
+		ID               string          `json:"id"`
+		Summary          json.RawMessage `json:"summary"`
+		Content          json.RawMessage `json:"content"`
+		EncryptedContent string          `json:"encrypted_content"`
+	}
+	if len(p.Reasoning.Opaque) > 0 {
+		if err := json.Unmarshal(p.Reasoning.Opaque, &wire); err != nil {
+			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning opaque: %w", err)
+		}
+	}
+	id := strings.TrimSpace(wire.ID)
+	if id == "" {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning item id is required for responses replay")
+	}
+	var summary []responses.ResponseReasoningItemSummaryParam
+	if jsonpresence.IsPresentNonNullJSON(wire.Summary) {
+		var items []struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(wire.Summary, &items); err != nil {
+			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning summary: %w", err)
+		}
+		for _, it := range items {
+			summary = append(summary, responses.ResponseReasoningItemSummaryParam{Text: it.Text})
+		}
+	} else if t := strings.TrimSpace(p.Reasoning.Text); t != "" {
+		summary = []responses.ResponseReasoningItemSummaryParam{{Text: t}}
+	}
+	if summary == nil {
+		summary = []responses.ResponseReasoningItemSummaryParam{}
+	}
+	item := responses.ResponseInputItemParamOfReasoning(id, summary)
+	if item.OfReasoning == nil {
+		return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning input item param missing")
+	}
+	if enc := strings.TrimSpace(wire.EncryptedContent); enc != "" {
+		item.OfReasoning.EncryptedContent = openai.String(enc)
+	}
+	if jsonpresence.IsPresentNonNullJSON(wire.Content) {
+		var contents []struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(wire.Content, &contents); err != nil {
+			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("openairesponses: reasoning content: %w", err)
+		}
+		out := make([]responses.ResponseReasoningItemContentParam, 0, len(contents))
+		for _, c := range contents {
+			out = append(out, responses.ResponseReasoningItemContentParam{Text: c.Text})
+		}
+		item.OfReasoning.Content = out
+	}
+	return item, nil
 }
 
 // assistantWireFunctionCalls maps assistant-only PartJSON items produced by the

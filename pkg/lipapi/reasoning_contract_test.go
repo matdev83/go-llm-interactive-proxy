@@ -88,7 +88,6 @@ func TestReasoningPart_assistantOnlyOrdered(t *testing.T) {
 	})
 
 	for _, role := range []lipapi.Role{lipapi.RoleUser, lipapi.RoleSystem, lipapi.RoleTool} {
-		role := role
 		t.Run("rejects_"+string(role), func(t *testing.T) {
 			t.Parallel()
 			call := lipapi.Call{
@@ -120,7 +119,7 @@ func TestReasoningPart_dialectAndPayloadValidation(t *testing.T) {
 		t.Parallel()
 		ve := requireValidationError(t, assistantReasoningCall(reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, "", "", nil)).Validate())
 		msg := strings.ToLower(ve.Message)
-		if !strings.Contains(msg, "payload") && !(strings.Contains(msg, "text") && strings.Contains(msg, "signature")) {
+		if !strings.Contains(msg, "payload") && (!strings.Contains(msg, "text") || !strings.Contains(msg, "signature")) {
 			t.Fatalf("expected empty-payload rejection, got %q", ve.Message)
 		}
 	})
@@ -202,7 +201,9 @@ func TestReasoningPart_dialectAndPayloadValidation(t *testing.T) {
 }
 
 func TestReasoningPart_byteAndCountLimits(t *testing.T) {
+	t.Parallel()
 	t.Run("dialect_bytes", func(t *testing.T) {
+		t.Parallel()
 		d := lipapi.ReasoningDialect(strings.Repeat("d", lipapi.MaxReasoningDialectBytes+1))
 		ve := requireValidationError(t, assistantReasoningCall(reasoningPart(d, "t", "", nil)).Validate())
 		if !strings.Contains(strings.ToLower(ve.Message), "dialect") {
@@ -211,6 +212,7 @@ func TestReasoningPart_byteAndCountLimits(t *testing.T) {
 	})
 
 	t.Run("text_bytes", func(t *testing.T) {
+		t.Parallel()
 		ve := requireValidationError(t, assistantReasoningCall(reasoningPart(
 			lipapi.ReasoningDialectOpenAIChatTextV1,
 			strings.Repeat("t", lipapi.MaxReasoningTextBytes+1),
@@ -224,6 +226,7 @@ func TestReasoningPart_byteAndCountLimits(t *testing.T) {
 	})
 
 	t.Run("signature_bytes", func(t *testing.T) {
+		t.Parallel()
 		ve := requireValidationError(t, assistantReasoningCall(reasoningPart(
 			lipapi.ReasoningDialectAnthropicThinkingV1,
 			"",
@@ -236,6 +239,7 @@ func TestReasoningPart_byteAndCountLimits(t *testing.T) {
 	})
 
 	t.Run("opaque_bytes", func(t *testing.T) {
+		t.Parallel()
 		raw := make(json.RawMessage, lipapi.MaxReasoningOpaqueBytes+1)
 		raw[0] = '"'
 		for i := 1; i < len(raw)-1; i++ {
@@ -255,12 +259,13 @@ func TestReasoningPart_byteAndCountLimits(t *testing.T) {
 	})
 
 	t.Run("per_message_part_count_via_reasoning_alias", func(t *testing.T) {
+		t.Parallel()
 		if lipapi.MaxReasoningPartsPerMessage != lipapi.MaxPartsPerMessage {
 			t.Fatalf("MaxReasoningPartsPerMessage must alias MaxPartsPerMessage (no distinct bound approved), got %d vs %d",
 				lipapi.MaxReasoningPartsPerMessage, lipapi.MaxPartsPerMessage)
 		}
 		parts := make([]lipapi.Part, 0, lipapi.MaxReasoningPartsPerMessage+1)
-		for i := 0; i < lipapi.MaxReasoningPartsPerMessage+1; i++ {
+		for range lipapi.MaxReasoningPartsPerMessage + 1 {
 			parts = append(parts, reasoningPart(lipapi.ReasoningDialectOpenAIChatTextV1, "x", "", nil))
 		}
 		ve := requireValidationError(t, lipapi.Call{
@@ -273,6 +278,7 @@ func TestReasoningPart_byteAndCountLimits(t *testing.T) {
 	})
 
 	t.Run("per_call_total_reasoning_bytes", func(t *testing.T) {
+		t.Parallel()
 		half := lipapi.MaxReasoningBytesPerCall/2 + 1
 		ve := requireValidationError(t, lipapi.Call{
 			Messages: []lipapi.Message{{
@@ -291,6 +297,7 @@ func TestReasoningPart_byteAndCountLimits(t *testing.T) {
 	})
 
 	t.Run("combined_payload_bytes_count_toward_call_limit", func(t *testing.T) {
+		t.Parallel()
 		sig := strings.Repeat("s", 100)
 		text := strings.Repeat("t", lipapi.MaxReasoningBytesPerCall-50)
 		opaque := mustOpaqueJSON(t, `{"x":"`+strings.Repeat("o", 40)+`"}`)
@@ -487,7 +494,6 @@ func TestReasoningFixtures_validate(t *testing.T) {
 		{name: "interleaved_tool_calls.json", assistantIdx: 1, reasoningKinds: 2, firstDialect: lipapi.ReasoningDialectAnthropicThinkingV1, requireSignature: true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			raw, err := os.ReadFile(filepath.Join("testdata", "reasoning", tc.name))
@@ -563,7 +569,6 @@ func TestReasoningPart_rejectsUnrelatedFields(t *testing.T) {
 		{name: "content", part: lipapi.Part{Kind: lipapi.PartReasoning, Content: json.RawMessage(`{}`), Reasoning: &base}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ve := requireValidationError(t, lipapi.Call{

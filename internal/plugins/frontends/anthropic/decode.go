@@ -409,9 +409,67 @@ func parseContentBlock(blk json.RawMessage) (lipapi.Part, error) {
 		return parseToolUseBlock(blk)
 	case "tool_result":
 		return parseToolResultBlock(blk)
+	case "thinking":
+		return parseThinkingBlock(blk)
+	case "redacted_thinking":
+		return parseRedactedThinkingBlock(blk)
 	default:
 		return lipapi.Part{}, fmt.Errorf("anthropic: unsupported content block type %q", probe.Type)
 	}
+}
+
+func parseThinkingBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		Thinking  string `json:"thinking"`
+		Signature string `json:"signature"`
+	}
+	if err := json.Unmarshal(blk, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	thinking := w.Thinking
+	if err := frontendlimits.StringBytes("thinking", thinking, lipapi.MaxReasoningTextBytes); err != nil {
+		return lipapi.Part{}, err
+	}
+	if err := frontendlimits.StringBytes("thinking.signature", w.Signature, lipapi.MaxReasoningSignatureBytes); err != nil {
+		return lipapi.Part{}, err
+	}
+	if strings.TrimSpace(thinking) == "" && strings.TrimSpace(w.Signature) == "" {
+		return lipapi.Part{}, errors.New("anthropic: thinking block requires thinking or signature")
+	}
+	return lipapi.Part{
+		Kind: lipapi.PartReasoning,
+		Reasoning: &lipapi.ReasoningPart{
+			Dialect:   lipapi.ReasoningDialectAnthropicThinkingV1,
+			Text:      thinking,
+			Signature: w.Signature,
+		},
+	}, nil
+}
+
+func parseRedactedThinkingBlock(blk json.RawMessage) (lipapi.Part, error) {
+	var w struct {
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(blk, &w); err != nil {
+		return lipapi.Part{}, err
+	}
+	if err := frontendlimits.StringBytes("redacted_thinking.data", w.Data, lipapi.MaxReasoningOpaqueBytes); err != nil {
+		return lipapi.Part{}, err
+	}
+	opaque, err := json.Marshal(map[string]string{
+		"type": "redacted_thinking",
+		"data": w.Data,
+	})
+	if err != nil {
+		return lipapi.Part{}, fmt.Errorf("anthropic: redacted_thinking opaque: %w", err)
+	}
+	return lipapi.Part{
+		Kind: lipapi.PartReasoning,
+		Reasoning: &lipapi.ReasoningPart{
+			Dialect: lipapi.ReasoningDialectAnthropicRedactedThinkingV1,
+			Opaque:  opaque,
+		},
+	}, nil
 }
 
 func parseTools(raw json.RawMessage) ([]lipapi.ToolDef, error) {

@@ -73,7 +73,7 @@ func TestLegalPipeline_candidateAttemptTransformBetweenRouteHintAndAttemptLifecy
 	if routeIdx < 0 || xformIdx < 0 || lifeIdx < 0 {
 		t.Fatalf("missing stages route=%d transform=%d lifecycle=%d", routeIdx, xformIdx, lifeIdx)
 	}
-	if !(routeIdx < xformIdx && xformIdx < lifeIdx) {
+	if routeIdx >= xformIdx || xformIdx >= lifeIdx {
 		t.Fatalf("want route_hinting(%d) < candidate_attempt_transform(%d) < attempt_lifecycle(%d)", routeIdx, xformIdx, lifeIdx)
 	}
 	desc, ok := feature.StageDescriptorByID(feature.StageIDCandidateAttemptTransform)
