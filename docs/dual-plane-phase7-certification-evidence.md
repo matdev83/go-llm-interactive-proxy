@@ -2,8 +2,8 @@
 
 Factual archive for `dual-plane-economics-and-concurrency-production-readiness` Phase 7 / task **7.5** (requirements 13.1–13.12).
 
-**Branch:** `feat/dual-plane-readiness-phase-7`  
-**Host:** Windows 10 (`GOOS=windows`, `GOARCH=amd64`), 2026-07-18 local run  
+**Branch:** `feat/dual-plane-readiness-phase-7`
+**Host:** Windows 10 (`GOOS=windows`, `GOARCH=amd64`), 2026-07-18 local run
 **PR / Actions on this branch:** none (`gh pr list --head feat/dual-plane-readiness-phase-7` → `[]`; no recorded workflow runs to cite)
 
 ## Posture (conditional)
