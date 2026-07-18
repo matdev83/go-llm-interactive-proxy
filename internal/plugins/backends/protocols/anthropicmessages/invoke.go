@@ -158,9 +158,10 @@ func messageToParam(m lipapi.Message) (anthropic.MessageParam, error) {
 		if len(m.Parts) != 1 || m.Parts[0].Kind != lipapi.PartToolResult {
 			return anthropic.MessageParam{}, fmt.Errorf("anthropic: tool message must have one tool_result part")
 		}
-		p := m.Parts[0]
-		content := string(p.Content)
-		b := anthropic.NewToolResultBlock(p.ToolCallID, content, false)
+		b, err := toolResultBlockFromPart(m.Parts[0])
+		if err != nil {
+			return anthropic.MessageParam{}, err
+		}
 		return anthropic.NewUserMessage(b), nil
 	default:
 		return anthropic.MessageParam{}, fmt.Errorf("anthropic: unsupported message role %q", m.Role)
@@ -252,6 +253,12 @@ func userPartsToBlocks(parts []lipapi.Part) ([]anthropic.ContentBlockParamUnion,
 				continue
 			}
 			out = append(out, anthropic.NewTextBlock(p.Text))
+		case lipapi.PartToolResult:
+			blk, err := toolResultBlockFromPart(p)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, blk)
 		case lipapi.PartImageRef:
 			blk, err := imageBlockFromPart(p)
 			if err != nil {
@@ -272,6 +279,17 @@ func userPartsToBlocks(parts []lipapi.Part) ([]anthropic.ContentBlockParamUnion,
 		return nil, fmt.Errorf("anthropic: user message has no mappable content blocks")
 	}
 	return out, nil
+}
+
+func toolResultBlockFromPart(p lipapi.Part) (anthropic.ContentBlockParamUnion, error) {
+	if strings.TrimSpace(p.ToolCallID) == "" {
+		return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: tool_result requires tool_call_id")
+	}
+	content := p.Text
+	if content == "" && len(p.Content) > 0 {
+		content = string(p.Content)
+	}
+	return anthropic.NewToolResultBlock(p.ToolCallID, content, false), nil
 }
 
 func imageBlockFromPart(p lipapi.Part) (anthropic.ContentBlockParamUnion, error) {

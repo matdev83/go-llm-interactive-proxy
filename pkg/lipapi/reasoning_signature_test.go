@@ -74,3 +74,49 @@ func TestCollect_ignoresReasoningSignatureDelta(t *testing.T) {
 		t.Fatalf("reasoning = %q, want %q", col.Reasoning.String(), "think")
 	}
 }
+
+func TestOutputCommitted_reasoningOpaqueDelta(t *testing.T) {
+	t.Parallel()
+	if !lipapi.OutputCommitted(lipapi.Event{Kind: lipapi.EventReasoningOpaqueDelta, Opaque: []byte(`{"type":"redacted_thinking","data":"x"}`)}) {
+		t.Fatal("reasoning_opaque_delta must commit for failover")
+	}
+}
+
+func TestValidateEventSequence_acceptsReasoningOpaqueDeltaAfterMessageStarted(t *testing.T) {
+	t.Parallel()
+	err := lipapi.ValidateEventSequence([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningOpaqueDelta, Opaque: []byte(`{"type":"redacted_thinking","data":"opaque"}`)},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	if err != nil {
+		t.Fatalf("expected accept, got %v", err)
+	}
+}
+
+func TestValidateEventEnvelope_reasoningOpaqueDeltaOversized(t *testing.T) {
+	t.Parallel()
+	ev := &lipapi.Event{Kind: lipapi.EventReasoningOpaqueDelta, Opaque: []byte(strings.Repeat("o", lipapi.MaxReasoningOpaqueBytes+1))}
+	if err := lipapi.ValidateEventEnvelope(ev); err == nil {
+		t.Fatal("expected oversized opaque to be rejected")
+	}
+}
+
+func TestCollect_ignoresReasoningOpaqueDelta(t *testing.T) {
+	t.Parallel()
+	stream := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "think"},
+		{Kind: lipapi.EventReasoningOpaqueDelta, Opaque: []byte(`{"type":"redacted_thinking","data":"opaque"}`)},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	col, err := lipapi.Collect(context.Background(), stream)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if col.Reasoning.String() != "think" {
+		t.Fatalf("reasoning = %q, want %q", col.Reasoning.String(), "think")
+	}
+}

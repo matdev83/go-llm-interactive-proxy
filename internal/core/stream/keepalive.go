@@ -225,6 +225,13 @@ func (k *Keepalive) Recv(ctx context.Context) (lipapi.Event, error) {
 		k.abortCurrentRead()
 		return lipapi.Event{}, ctx.Err()
 	case it, ok := <-k.result:
+		// AfterFunc aborts the detached inner read when ctx ends. That abort posts
+		// context.Canceled on the result channel and can race with ctx.Done() here.
+		// Prefer the caller's context error so consumers observe DeadlineExceeded
+		// (or their cancel) instead of the inner abort cancel.
+		if err := ctx.Err(); err != nil && (!ok || errors.Is(it.err, context.Canceled)) {
+			return lipapi.Event{}, err
+		}
 		if !ok {
 			return lipapi.Event{}, context.Canceled
 		}

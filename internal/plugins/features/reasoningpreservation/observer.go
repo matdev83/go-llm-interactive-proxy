@@ -2,6 +2,7 @@ package reasoningpreservation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -132,6 +133,22 @@ func (o *streamObserver) Observe(_ context.Context, ev lipapi.Event) error {
 			o.curReason.Dialect = lipapi.ReasoningDialectAnthropicThinkingV1
 		}
 		o.reasoningBytes += len(ev.Signature)
+	case lipapi.EventReasoningOpaqueDelta:
+		o.flushToolLocked()
+		o.flushTextLocked()
+		o.flushReasoningLocked()
+		if len(ev.Opaque) == 0 {
+			break
+		}
+		opaque := append(json.RawMessage(nil), ev.Opaque...)
+		o.parts = append(o.parts, lipapi.Part{
+			Kind: lipapi.PartReasoning,
+			Reasoning: &lipapi.ReasoningPart{
+				Dialect: lipapi.ReasoningDialectAnthropicRedactedThinkingV1,
+				Opaque:  opaque,
+			},
+		})
+		o.reasoningBytes += len(opaque)
 	case lipapi.EventToolCallStarted:
 		o.flushTextLocked()
 		o.flushReasoningLocked()

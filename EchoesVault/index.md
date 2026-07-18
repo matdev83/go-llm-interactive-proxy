@@ -23,4 +23,4 @@ This index tracks all structured pages in the vault.
 - [[postgres-transaction-pooling]]: PostgreSQL admin/runtime separation, shared pool ownership, schema lifecycle, and pooled release gates.
 - [[tool-call-repair]]: Canonical native tool-call repair (ADR 0007): finalizer seam, deterministic V1 matrix, buffering, and config defaults.
 - [[decode-qos-admission]]: Shared frontend decode admission limiter: finite defaults, 413 vs 429, handler order, inventory numbers.
-- [[reasoning-output-preservation]]: Opt-in process-local historical reasoning capture/restore (issue #157), observe/restore actions, privacy and dialect posture.
+- [[reasoning-output-preservation]]: Opt-in process-local historical reasoning capture/restore (issue #157), observe/restore actions, privacy/dialect posture, and full HTTP E2E suite topology (default / precommit matrix / env-gated soak; Responses deferred).

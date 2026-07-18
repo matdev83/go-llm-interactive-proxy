@@ -1,6 +1,6 @@
 # Reasoning Output Preservation — Release Checklist
 
-Issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157). Spec: [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/). Operator guide: [reasoning-output-preservation.md](reasoning-output-preservation.md).
+Issue [#157](https://github.com/matdev83/go-llm-interactive-proxy/issues/157). Parent spec: [`.kiro/specs/reasoning-output-preservation/`](../.kiro/specs/reasoning-output-preservation/). Follow-up full HTTP E2E spec: [`.kiro/specs/reasoning-preservation-e2e-validation/`](../.kiro/specs/reasoning-preservation-e2e-validation/). Operator guide: [reasoning-output-preservation.md](reasoning-output-preservation.md).
 
 ## PR split (when review size warrants)
 
@@ -19,8 +19,10 @@ Every PR must link issue #157 and the approved spec path above.
 - Privacy: no payloads/anchors/partitions in logs/metrics/inventory/errors.
 - D12: disabled/absent feature adds no participants or behavior change.
 - Hard `reasoning_replay` — no silent dialect downgrade (`reject` excludes; configured `log_skip` continues without restore).
-- Examples are **config-validation dogfood** (local-stub); behavioral E2E is `TestPhase5_*`.
+- Examples are **config-validation dogfood** (local-stub); in-process behavioral proofs remain `TestPhase5_*`; full HTTP proofs are `TestReasoningPreservationHTTP*` (see suite topology below).
 - `lipstd inventory` = generic participant/stage posture; outcome aggregates = `BuildSafeInventory`/telemetry API only.
+- OpenAI Responses full HTTP E2E is **deferred** (not claimed by this checklist).
+- Soak / randomized matrix are **not** mandatory PR gates; failure traces must stay content-safe (no reasoning/signature/opaque payloads).
 
 ## Gate commands (record outcomes)
 
@@ -33,6 +35,10 @@ go run ./cmd/lipstd routes --config config/examples/reasoning-preservation-resto
 go run ./cmd/lipstd inventory --config config/examples/reasoning-preservation-restore.yaml
 
 go test -count=1 -run 'TestPhase5_|TestVisibleThinkerReasoning_' ./internal/core/runtime/ ./internal/plugins/features/reasoningpreservation/ ./internal/plugins/frontends/parity/
+go test -count=1 -run 'TestReasoningPreservationHTTP' ./internal/stdhttp/
+go test -tags=precommit -count=1 -run TestReasoningPreservationHTTP_RandomMatrix ./internal/stdhttp/
+# Soak is opt-in only (not required for PR green):
+# LIP_REASONING_E2E_SEEDS=3 LIP_REASONING_E2E_TURNS=4 LIP_REASONING_E2E_WORKERS=2 make test-reasoning-e2e-soak
 make quality-checks
 make test-unit
 make parity-checks
@@ -41,6 +47,16 @@ go test -fuzz=FuzzDecodeConfig$ -fuzztime=30s -run=^$ ./internal/plugins/feature
 make test-fuzz   # full suite; do not claim if only targeted fuzz ran
 make qa          # quality + unit + lint + vuln (+ integration when DSN set)
 ```
+
+### Full HTTP E2E suite topology
+
+| Suite | Command / gate | PR mandatory? |
+|-------|----------------|---------------|
+| Deterministic Chat + Anthropic cross-check | `go test -run TestReasoningPreservationHTTP ./internal/stdhttp/` | Yes (default tags) |
+| Seeded matrix 64×20 | `go test -tags=precommit -run TestReasoningPreservationHTTP_RandomMatrix ./internal/stdhttp/` | Via `make qa` / CI `-tags=precommit`; not default `test-unit`; not lightweight `test-precommit-extra` |
+| Soak 1000×100 | `make test-reasoning-e2e-soak` / `.github/workflows/reasoning-e2e-soak-nightly.yml` | **No** (env + nightly/manual only) |
+| OpenAI Responses HTTP E2E | — | Deferred (not covered) |
+
 
 ### Recorded evidence (Phase 6 repair, Windows local 2026-07-18)
 

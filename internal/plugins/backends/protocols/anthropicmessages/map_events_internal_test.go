@@ -113,6 +113,38 @@ func TestHandleEvent_signatureDeltaEstablishesFrame(t *testing.T) {
 	}
 }
 
+func TestHandleEvent_redactedThinkingStartMapsOpaqueDelta(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque-blob"}}`
+	var u anthropic.MessageStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := &msgStream{}
+	if err := s.handleEvent(u); err != nil {
+		t.Fatalf("handleEvent: %v", err)
+	}
+	var opaque []byte
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventReasoningOpaqueDelta {
+			opaque = ev.Opaque
+		}
+	}
+	if len(opaque) == 0 {
+		t.Fatal("RED: redacted_thinking start must map to EventReasoningOpaqueDelta")
+	}
+	var got struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(opaque, &got); err != nil {
+		t.Fatalf("opaque envelope: %v", err)
+	}
+	if got.Type != "redacted_thinking" || got.Data != "opaque-blob" {
+		t.Fatalf("opaque structural miss type_ok=%v data_ok=%v", got.Type == "redacted_thinking", got.Data == "opaque-blob")
+	}
+}
+
 func kindsOf(events []lipapi.Event) []lipapi.EventKind {
 	out := make([]lipapi.EventKind, 0, len(events))
 	for _, ev := range events {

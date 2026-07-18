@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -17,6 +17,7 @@ help:
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 6s per target in .github/workflows/race-fuzz-nightly.yml)"
+	@echo "  make test-reasoning-e2e-soak - opt-in reasoning preservation full-HTTP soak (sets LIP_REASONING_E2E_SOAK=1; not a PR/default gate; see docs/reasoning-output-preservation.md)"
 	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
@@ -109,6 +110,18 @@ FUZZ_WRAPPER := $(GO) test
 else
 FUZZ_WRAPPER := bash scripts/fuzz-run.sh
 endif
+# Opt-in reasoning-preservation full HTTP soak (1000×100 default). Not part of
+# make test / test-unit / qa / PR gates. Overrides: LIP_REASONING_E2E_SEEDS,
+# LIP_REASONING_E2E_TURNS, LIP_REASONING_E2E_WORKERS. Single-seed replay:
+# LIP_REASONING_E2E_MODE + LIP_REASONING_E2E_SEED.
+REASONING_E2E_SOAK_TIMEOUT ?= 6h
+test-reasoning-e2e-soak:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REASONING_E2E_SOAK','1','Process'); & '$(GO)' test -parallel=8 -timeout=$(REASONING_E2E_SOAK_TIMEOUT) -tags=precommit -run '^TestReasoningPreservationHTTP_Soak$$' -count=1 ./internal/stdhttp/"
+else
+	@LIP_REASONING_E2E_SOAK=1 $(GO) test -parallel=8 -timeout=$(REASONING_E2E_SOAK_TIMEOUT) -tags=precommit -run '^TestReasoningPreservationHTTP_Soak$$' -count=1 ./internal/stdhttp/
+endif
+
 test-fuzz:
 	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
 	$(FUZZ_WRAPPER) -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
