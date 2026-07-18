@@ -8,7 +8,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
+	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -47,11 +49,17 @@ func captureFrontendIngressBeforeSubmit(
 	if id == "" {
 		return ctx, holder, fmt.Errorf("executor: metering frontend ingress requires call id")
 	}
+	frontendID := ""
+	if fe, ok := execview.FrontendIDFromContext(ctx); ok {
+		frontendID = fe
+	}
 	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
 		Call:         work,
 		Scope:        reqScope,
+		FrontendID:   frontendID,
 		CheckpointID: "fe-ingress:" + id,
 		StreamID:     "fe-ingress:" + id,
+		TraceID:      id,
 		Perspective:  metering.PerspectiveCustomer,
 		Now:          now,
 	})
@@ -130,4 +138,53 @@ func (e *Executor) enrichBackendIngressQuantities(holder *checkpoint.RequestHold
 		return
 	}
 	holder.MergeBackendIngressQuantities(attemptID, countedInputQuantities(count))
+}
+
+// enrichBackendIngressQuantitiesWithDecision merges counted inputs and the
+// conservative output assumption from the final preflight decision.
+func (e *Executor) enrichBackendIngressQuantitiesWithDecision(
+	holder *checkpoint.RequestHolder,
+	attemptID string,
+	decision accountingpreflight.Decision,
+) {
+	if holder == nil {
+		return
+	}
+	qs := countedInputQuantities(decision.Count)
+	if out, ok := explicitOutputQuantity(decision); ok {
+		qs = append(qs, out)
+	}
+	holder.MergeBackendIngressQuantities(attemptID, qs)
+}
+
+// persistBackendIngressFact appends a real BE-ingress journal fact when a
+// MeteringRecorder is configured and binds its FactID for rating/admission.
+func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
+	if e == nil || holder == nil {
+		return "", nil
+	}
+	be := holder.BackendIngressFor(attemptID)
+	if be == nil {
+		return "", nil
+	}
+	if e.MeteringRecorder == nil {
+		return "", nil
+	}
+	seq := holder.NextSequence()
+	factID := fmt.Sprintf("be-ingress:%s:%d", strings.TrimSpace(attemptID), seq)
+	fact, err := checkpoint.FactFromIngress(checkpoint.IngressFactInput{
+		Checkpoint: be.Public,
+		FactID:     factID,
+		Sequence:   seq,
+		Quantities: append([]metering.Quantity(nil), be.Public.Quantities...),
+		Now:        e.now(),
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := e.appendMeteringFact(ctx, fact); err != nil {
+		return "", err
+	}
+	holder.BindBackendIngressFactID(attemptID, factID)
+	return factID, nil
 }

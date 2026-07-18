@@ -87,7 +87,6 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
-	s.rememberClientEvent(ev)
 	if ev.Kind == lipapi.EventResponseFinished {
 		return s.handleResponseFinishedPath(ctx, ev, pm)
 	}
@@ -174,6 +173,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 		return lipapi.Event{}, false, err
 	}
 	if ok {
+		s.rememberClientEvent(ev)
 		s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
 		ev, err := s.emitSynthesizedUsage(ctx, usageEv)
 		return ev, false, err

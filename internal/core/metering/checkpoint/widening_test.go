@@ -81,7 +81,6 @@ func TestCaptureBackendIngress(t *testing.T) {
 		Model:        "gpt",
 		CheckpointID: "be-in-1",
 		StreamID:     "be-stream-1",
-		FEStreamID:   "fe-ingress:req-1",
 		Now:          time.Unix(1, 0).UTC(),
 	})
 	if err != nil {
@@ -119,7 +118,6 @@ func TestRequestHolder_ParallelBackendIngressShareFEStream(t *testing.T) {
 		BLegID:       "b-a",
 		CheckpointID: "be-a",
 		StreamID:     "be-a",
-		FEStreamID:   fe.Public.StreamID,
 		Now:          time.Unix(2, 0).UTC(),
 	})
 	if err != nil {
@@ -131,7 +129,6 @@ func TestRequestHolder_ParallelBackendIngressShareFEStream(t *testing.T) {
 		BLegID:       "b-b",
 		CheckpointID: "be-b",
 		StreamID:     "be-b",
-		FEStreamID:   fe.Public.StreamID,
 		Now:          time.Unix(3, 0).UTC(),
 	})
 	if err != nil {

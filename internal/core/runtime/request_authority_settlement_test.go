@@ -16,11 +16,12 @@ import (
 )
 
 type settleRecordingRequestProvider struct {
-	id          string
-	settleErr   error
-	settleCalls atomic.Int32
-	lastFacts   atomic.Value // []metering.Fact
-	lastHandles atomic.Value // []string
+	id           string
+	settleErr    error
+	settleCalls  atomic.Int32
+	releaseCalls atomic.Int32
+	lastFacts    atomic.Value // []metering.Fact
+	lastHandles  atomic.Value // []string
 }
 
 type failingMeteringRecorder struct {
@@ -49,6 +50,7 @@ func (p *settleRecordingRequestProvider) SettleRequest(_ context.Context, in aut
 }
 
 func (p *settleRecordingRequestProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
+	p.releaseCalls.Add(1)
 	return nil
 }
 

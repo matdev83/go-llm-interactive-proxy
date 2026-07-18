@@ -33,6 +33,7 @@ type attemptAuthorityState struct {
 	viaCoordinator bool
 	stack          authoritycoord.CompensationStack
 	boundVersions  []economics.PolicySnapshotRef
+	admitClamps    []authority.Clamp
 	requestID      string
 	attemptID      string
 	bLegID         string
@@ -67,7 +68,17 @@ func (e *Executor) admitAttemptAuthority(
 	if svc == nil {
 		return attemptAuthorityState{}, nil
 	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision)
+	quantities := attemptRatingQuantities(decision)
+	factIDs := []string(nil)
+	if !estimateOnly {
+		quantities = finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
+		if holder := meteringHolderFrom(ctx); holder != nil {
+			if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
+				factIDs = []string{id}
+			}
+		}
+	}
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs...)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -89,14 +100,6 @@ func (e *Executor) admitAttemptAuthority(
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
 	}
-	quantities := attemptRatingQuantities(decision)
-	if !estimateOnly {
-		if holder := meteringHolderFrom(ctx); holder != nil {
-			if be := holder.BackendIngressFor(bleg.BLegID); be != nil && len(be.Public.Quantities) > 0 {
-				quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
-			}
-		}
-	}
 	if rated.Money.Present || len(quantities) > 0 {
 		admissionInput.Exposure = economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
@@ -104,6 +107,7 @@ func (e *Executor) admitAttemptAuthority(
 			Lifecycle:   metering.LifecycleBackendAttempt,
 			Quantities:  quantities,
 			Money:       rated.Money,
+			Output:      conservativeOutputAssumption(decision, quantities),
 		}
 	}
 	// When request coordinator already reserved request-count, avoid double-charging
@@ -153,7 +157,14 @@ func (e *Executor) admitAttemptViaCoordinator(
 	c routing.AttemptCandidate,
 	decision accountingpreflight.Decision,
 ) (attemptAuthorityState, error) {
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision)
+	quantities := finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
+	factIDs := []string(nil)
+	if holder := meteringHolderFrom(ctx); holder != nil {
+		if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
+			factIDs = []string{id}
+		}
+	}
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs...)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -163,7 +174,6 @@ func (e *Executor) admitAttemptViaCoordinator(
 			rateErr,
 		)
 	}
-	quantities := attemptRatingQuantities(decision)
 	in := authority.AttemptAdmission{
 		RequestID:      strings.TrimSpace(call.ID),
 		AttemptID:      strings.TrimSpace(bleg.BLegID),
@@ -181,19 +191,11 @@ func (e *Executor) admitAttemptViaCoordinator(
 			Lifecycle:   metering.LifecycleBackendAttempt,
 			Quantities:  quantities,
 			Money:       rated.Money,
+			Output:      conservativeOutputAssumption(decision, quantities),
 		},
 	}
 	if rated.Money.Present {
 		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
-	}
-	if holder := meteringHolderFrom(ctx); holder != nil {
-		if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
-			in.Exposure.Quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
-			// Keep rated money; re-rate is not performed after backend-ingress merge.
-			if !in.Exposure.Money.Present && rated.Money.Present {
-				in.Exposure.Money = rated.Money
-			}
-		}
 	}
 	d, err := e.AttemptCoordinator.Admit(ctx, in)
 	if err != nil {
@@ -258,6 +260,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 		viaCoordinator:  true,
 		stack:           d.Stack,
 		boundVersions:   append([]economics.PolicySnapshotRef(nil), d.BoundVersions...),
+		admitClamps:     append([]authority.Clamp(nil), d.Clamps...),
 		requestID:       in.RequestID,
 		attemptID:       in.AttemptID,
 		bLegID:          in.BLegID,

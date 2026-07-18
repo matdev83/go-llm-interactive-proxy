@@ -19,6 +19,7 @@ type recordingAttemptProvider struct {
 	settleCalls  atomic.Int32
 	releaseCalls atomic.Int32
 	lastSettle   atomic.Value // []string
+	lastSettleIn atomic.Value // authority.AttemptSettlement
 }
 
 func (p *recordingAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
@@ -32,6 +33,7 @@ func (p *recordingAttemptProvider) AdmitAttempt(context.Context, authority.Attem
 func (p *recordingAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	p.settleCalls.Add(1)
 	p.lastSettle.Store(append([]string(nil), in.Handles...))
+	p.lastSettleIn.Store(in)
 	return authority.Settlement{Kind: authority.SettlementFinal}, nil
 }
 

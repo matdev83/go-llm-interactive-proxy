@@ -26,6 +26,7 @@ type overlapDetectingAuthority struct {
 
 	admitResult  authorityapp.AdmissionResult
 	releaseCalls atomic.Int64
+	settleCalls  atomic.Int64
 }
 
 func newOverlapDetectingAuthority(result authorityapp.AdmissionResult) *overlapDetectingAuthority {
@@ -68,6 +69,7 @@ func (s *overlapDetectingAuthority) Release(_ context.Context, in authorityapp.R
 func (s *overlapDetectingAuthority) Settle(_ context.Context, in authorityapp.SettleInput) (authorityapp.SettleResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.settleCalls.Add(1)
 	delete(s.active, in.ReservationID)
 	return authorityapp.SettleResult{Applied: true, ReservationID: in.ReservationID}, nil
 }
@@ -183,13 +185,16 @@ func TestRecvLoopFailoverReleasesBeforeAdmission(t *testing.T) {
 		t.Fatalf("authoritative admit overlapped active prior reservation(s) %v; the swallowed reservation must be released before the replacement is admitted", overlaps)
 	}
 
-	// The prior reservation must have been released exactly once (swallowed),
+	// The prior reservation must have been settled exactly once (swallowed),
 	// and the replacement's reservation must now be the active one on the stream.
-	if got, want := auth.releaseCalls.Load(), int64(1); got != want {
-		t.Fatalf("release calls = %d, want %d (prior swallowed reservation released before replacement admit)", got, want)
+	if got, want := auth.releaseCalls.Load(), int64(0); got != want {
+		t.Fatalf("release calls = %d, want %d (incurred prior must settle, not release)", got, want)
+	}
+	if got, want := auth.settleCalls.Load(), int64(1); got != want {
+		t.Fatalf("settle calls = %d, want %d (prior swallowed reservation settled before replacement admit)", got, want)
 	}
 	if auth.isActive("reservation-prior") {
-		t.Fatal("prior reservation must no longer be active after release")
+		t.Fatal("prior reservation must no longer be active after settle")
 	}
 	if !auth.isActive("reservation-repl") {
 		t.Fatal("replacement reservation must be active after successful open")

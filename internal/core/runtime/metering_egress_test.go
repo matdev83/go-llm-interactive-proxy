@@ -37,7 +37,7 @@ func TestEmitEgressFacts_OrderedViaRecorder(t *testing.T) {
 	ex.Now = func() time.Time { return time.Unix(50, 0).UTC() }
 
 	holder := &checkpoint.RequestHolder{}
-	fe, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
+	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
 		Call:         lipapi.Call{ID: "req-eg"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
@@ -55,7 +55,6 @@ func TestEmitEgressFacts_OrderedViaRecorder(t *testing.T) {
 		BLegID:       "b-leg-1",
 		CheckpointID: "be",
 		StreamID:     "be-stream",
-		FEStreamID:   fe.Public.StreamID,
 		Now:          time.Unix(2, 0).UTC(),
 	})
 	if err != nil {
@@ -88,7 +87,7 @@ func TestEmitBackendEgress_LoserFailedCanceledOutcomes(t *testing.T) {
 	ex.MeteringRecorder = rec
 	ex.Now = func() time.Time { return time.Unix(50, 0).UTC() }
 	holder := &checkpoint.RequestHolder{}
-	fe, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
+	_, err := holder.CaptureOrReuseFrontendIngress(checkpoint.FrontendIngressInput{
 		Call:         lipapi.Call{ID: "req-out"},
 		CheckpointID: "fe",
 		StreamID:     "fe-stream",
@@ -106,7 +105,6 @@ func TestEmitBackendEgress_LoserFailedCanceledOutcomes(t *testing.T) {
 		BLegID:       "b-leg-out",
 		CheckpointID: "be",
 		StreamID:     "be-stream",
-		FEStreamID:   fe.Public.StreamID,
 		Now:          time.Unix(2, 0).UTC(),
 	})
 	if err != nil {

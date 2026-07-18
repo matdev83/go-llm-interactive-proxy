@@ -127,10 +127,29 @@ type UsageDetail struct {
 	CacheWriteTokens    int                 `json:"cache_write_tokens,omitempty"`
 	ReasoningTokens     int                 `json:"reasoning_tokens,omitempty"`
 	TotalTokens         int                 `json:"total_tokens,omitempty"`
+	TokenPresence       UsageTokenPresence  `json:"token_presence,omitzero"`
 	CostNanoUnits       int64               `json:"cost_nano_units,omitempty"`
+	CostPresent         bool                `json:"cost_present"`
 	Currency            string              `json:"currency,omitempty"`
 	AccountingAuthority string              `json:"accounting_authority,omitempty"`
 	CostSource          string              `json:"cost_source,omitempty"`
+}
+
+// UsageTokenPresence records which token counters were explicitly present on
+// projected usage evidence (requirement 2.9). False means omitted, not zero.
+type UsageTokenPresence struct {
+	InputTokens      bool `json:"input_tokens"`
+	OutputTokens     bool `json:"output_tokens"`
+	CacheReadTokens  bool `json:"cache_read_tokens"`
+	CacheWriteTokens bool `json:"cache_write_tokens"`
+	ReasoningTokens  bool `json:"reasoning_tokens"`
+	TotalTokens      bool `json:"total_tokens"`
+}
+
+// Any reports whether at least one token counter was explicitly present.
+func (p UsageTokenPresence) Any() bool {
+	return p.InputTokens || p.OutputTokens || p.CacheReadTokens ||
+		p.CacheWriteTokens || p.ReasoningTokens || p.TotalTokens
 }
 
 // UsagePlane identifies whether usage evidence is observed from the provider

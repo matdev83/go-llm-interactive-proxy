@@ -43,8 +43,10 @@ type sequencingAuthorityRecorder struct {
 	mu             sync.Mutex
 	admitInputsV   []authorityapp.AdmissionInput
 	releaseInputsV []authorityapp.ReleaseInput
+	settleInputsV  []authorityapp.SettleInput
 	admitCalls     atomic.Int64
 	releaseCalls   atomic.Int64
+	settleCalls    atomic.Int64
 	seq            atomic.Int64
 }
 
@@ -67,6 +69,10 @@ func (s *sequencingAuthorityRecorder) Admit(_ context.Context, in authorityapp.A
 }
 
 func (s *sequencingAuthorityRecorder) Settle(_ context.Context, in authorityapp.SettleInput) (authorityapp.SettleResult, error) {
+	s.settleCalls.Add(1)
+	s.mu.Lock()
+	s.settleInputsV = append(s.settleInputsV, in)
+	s.mu.Unlock()
 	return authorityapp.SettleResult{Applied: true, ReservationID: in.ReservationID}, nil
 }
 
@@ -111,6 +117,14 @@ func (s *sequencingAuthorityRecorder) releases() []authorityapp.ReleaseInput {
 	defer s.mu.Unlock()
 	out := make([]authorityapp.ReleaseInput, len(s.releaseInputsV))
 	copy(out, s.releaseInputsV)
+	return out
+}
+
+func (s *sequencingAuthorityRecorder) settles() []authorityapp.SettleInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]authorityapp.SettleInput, len(s.settleInputsV))
+	copy(out, s.settleInputsV)
 	return out
 }
 
@@ -301,32 +315,30 @@ func TestAuthorityTiming_loserReleaseAfterOpenSetsBackendAttempted(t *testing.T)
 		t.Fatalf("winner backend = %q, want winner", out.cand.Primary.Backend)
 	}
 
-	// Wait briefly for loser cancel/release path to finish after winner election.
+	// Wait briefly for loser cancel/settle path to finish after winner election.
 	deadline := time.Now().Add(2 * time.Second)
-	var releases []authorityapp.ReleaseInput
+	var settles []authorityapp.SettleInput
 	for time.Now().Before(deadline) {
-		releases = auth.releases()
-		if len(releases) >= 1 {
+		settles = auth.settles()
+		if len(settles) >= 1 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(releases) < 1 {
-		t.Fatal("expected at least one Losing release for the opened loser")
+	if len(settles) < 1 {
+		t.Fatal("expected at least one Losing settle for the opened loser")
 	}
 
 	foundOpenedLoser := false
-	for _, rel := range releases {
-		if rel.Kind == authorityapp.ReleaseKindLosing && rel.BackendAttempted {
+	for _, st := range settles {
+		if st.Kind == authorityapp.SettlementKindLosing && st.BackendAttempted {
 			foundOpenedLoser = true
 			break
 		}
 	}
 	if !foundOpenedLoser {
-		t.Fatalf("expected a Losing release with BackendAttempted=true after provider open; releases=%+v", releases)
+		t.Fatalf("expected a Losing settle with BackendAttempted=true after provider open; settles=%+v", settles)
 	}
-	// Characterization note: opened losers are released without Settle today
-	// (operator incurred cost is erased). Phase 6 settles before residual release.
 }
 
 // TestAuthorityTiming_requestHookMutatesBeforeAuthoritativeAdmit locks the

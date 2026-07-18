@@ -83,6 +83,45 @@ func FactFromEgress(in EgressFactInput) (metering.Fact, error) {
 	return fact, nil
 }
 
+// IngressFactInput builds a metering fact for a frozen backend-ingress checkpoint.
+type IngressFactInput struct {
+	Checkpoint metering.Checkpoint
+	FactID     string
+	Sequence   int64
+	Kind       metering.FactKind
+	Quantities []metering.Quantity
+	Presence   metering.Presence
+	Source     metering.Source
+	Authority  metering.Authority
+	Now        time.Time
+}
+
+// FactFromIngress drafts a Fact from a backend-ingress freeze (requirements 2.2, 5.2).
+func FactFromIngress(in IngressFactInput) (metering.Fact, error) {
+	kind := in.Kind
+	if kind == "" {
+		kind = metering.FactKindReservationEstimate
+	}
+	authority := in.Authority
+	if authority == "" {
+		authority = metering.AuthorityEstimated
+	}
+	cp := in.Checkpoint
+	cp.Boundary = metering.BoundaryBackendIngress
+	cp.Lifecycle = metering.LifecycleBackendAttempt
+	return FactFromEgress(EgressFactInput{
+		Checkpoint: cp,
+		FactID:     in.FactID,
+		Sequence:   in.Sequence,
+		Kind:       kind,
+		Quantities: in.Quantities,
+		Presence:   in.Presence,
+		Source:     in.Source,
+		Authority:  authority,
+		Now:        in.Now,
+	})
+}
+
 // BackendEgressCheckpoint templates a public checkpoint for one B-leg egress fact.
 func BackendEgressCheckpoint(ingress Snapshot, outcome metering.AttemptOutcome, surfaced metering.SurfacedState) metering.Checkpoint {
 	_ = outcome

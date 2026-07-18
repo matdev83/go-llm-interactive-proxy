@@ -219,6 +219,65 @@ func TestEmitClientFacingObserved_mandatoryBeforeEmitFinishFailed(t *testing.T) 
 	}
 }
 
+func TestEmitClientFacingObserved_RemembersAfterSuccessfulRecording(t *testing.T) {
+	t.Parallel()
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Allowed: true, Reserved: true, ReservationID: "res-remember-ok",
+			ReservedAmount: authorityInputAmount(7),
+			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	factory := &emitTestObserverFactory{}
+	_, rs := setupEmitObserverStream(t, auth, factory, nil)
+	rs.customer = newCustomerEvidenceAccumulator()
+
+	out, err := rs.emitClientFacingObserved(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "hello"}, sdkhooks.PartMeta{})
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if out.Delta != "hello" {
+		t.Fatalf("delta=%q", out.Delta)
+	}
+	text, _, _, n := rs.customer.Snapshot()
+	if text != "hello" || n != 1 {
+		t.Fatalf("customer evidence text=%q n=%d; remember must run after successful recording", text, n)
+	}
+	observers := factory.snapshot()
+	if len(observers) == 0 || len(observers[0].events) != 1 {
+		t.Fatalf("final-stream observation must still see the event; observers=%d", len(observers))
+	}
+}
+
+func TestEmitClientFacingObserved_MandatoryFailureDoesNotRemember(t *testing.T) {
+	t.Parallel()
+	auth := &recordingAuthorityService{
+		admitResult: authorityapp.AdmissionResult{
+			Allowed: true, Reserved: true, ReservationID: "res-remember-fail",
+			ReservedAmount: authorityInputAmount(7),
+			PolicyRecord:   policydecision.Record{ReasonCode: "reserved"},
+		},
+		status: controlplane.AccountingAuthorityStatus{State: controlplane.AccountingAuthorityReady},
+	}
+	factory := &emitTestObserverFactory{}
+	ex, rs := setupEmitObserverStream(t, auth, factory, nil)
+	rs.customer = newCustomerEvidenceAccumulator()
+	recErr := errors.New("recorder boom")
+	ex.SecureSessionRecorder = failingSecureRecorderEmit{err: recErr}
+	ex.SecureSessionRecordingMandatory = true
+	rs.secureTurnOK = true
+
+	_, err := rs.emitClientFacingObserved(context.Background(), lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "undelivered"}, sdkhooks.PartMeta{})
+	if !errors.Is(err, recErr) {
+		t.Fatalf("err=%v want recorder boom", err)
+	}
+	text, _, _, n := rs.customer.Snapshot()
+	if text != "" || n != 0 {
+		t.Fatalf("undelivered output must not enter customer evidence; text=%q n=%d", text, n)
+	}
+}
+
 func TestEmitClientFacingObserved_equalContentGateReplaceCyclesLifecycle(t *testing.T) {
 	t.Parallel()
 	auth := &recordingAuthorityService{

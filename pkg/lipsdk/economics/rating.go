@@ -20,12 +20,21 @@ const (
 
 // RatingRequest asks a rater to price quantities for one economic perspective.
 // Customer and operator rating are independent invocations (requirements 1.4, 4.6, 5.8).
+// FactIDs bind journal fact identities for the rated exposure (Phase 1 backend-ingress
+// facts when a MeteringRecorder is configured). Output carries the conservative
+// output assumption when future output is bounded; omit when unknown.
+//
+// Compatibility: callers must construct RatingRequest with keyed field literals.
+// New fields may be added in minor releases; unkeyed composite literals will not
+// compile against newer SDK versions.
 type RatingRequest struct {
 	Perspective metering.EconomicPerspective `json:"perspective"`
 	BackendID   string                       `json:"backend_id,omitempty"`
 	Model       string                       `json:"model,omitempty"`
 	FrontendID  string                       `json:"frontend_id,omitempty"`
 	Quantities  []metering.Quantity          `json:"quantities,omitempty"`
+	Output      ConservativeOutputAssumption `json:"output,omitzero"`
+	FactIDs     []string                     `json:"fact_ids,omitempty"`
 	At          time.Time                    `json:"at,omitzero"`
 }
 

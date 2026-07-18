@@ -23,11 +23,12 @@ import (
 )
 
 type injectedRater struct {
-	nano     int64
-	currency string
-	err      error
-	calls    atomic.Int32
-	last     atomic.Value // economics.RatingRequest
+	nano        int64
+	currency    string
+	err         error
+	absentMoney bool
+	calls       atomic.Int32
+	last        atomic.Value // economics.RatingRequest
 
 	quoteMax    int64
 	quoteStatus economics.OutputLimitStatus
@@ -46,8 +47,9 @@ func (r *injectedRater) Rate(_ context.Context, req economics.RatingRequest) (ec
 	if cur == "" {
 		cur = "USD"
 	}
+	present := !r.absentMoney
 	return economics.RatingResult{
-		Money:       economics.Money{NanoUnits: r.nano, Currency: cur, Present: true},
+		Money:       economics.Money{NanoUnits: r.nano, Currency: cur, Present: present},
 		Source:      "injected-test-rater",
 		Authority:   "estimated",
 		Version:     economics.VersionRef{ID: "injected-rater", Version: "rate-v9"},

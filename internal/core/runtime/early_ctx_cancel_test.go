@@ -147,14 +147,20 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 	if gotOutcome != response.OutcomeCancelled {
 		t.Fatalf("Finish outcome=%q want %q", gotOutcome, response.OutcomeCancelled)
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls=%d want 1", auth.releaseCalls.Load())
+	// Opened-attempt lifecycles default backendAttempted=true, so dual-plane Phase 1
+	// settles incurred operator liability instead of a pre-work Release.
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls=%d want 0 (incurred early cancel must settle)", auth.releaseCalls.Load())
 	}
-	if auth.lastRelease().Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind=%q want swallowed", auth.lastRelease().Kind)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls=%d want 1", auth.settleCalls.Load())
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls=%d want 0 after swallowed release", auth.settleCalls.Load())
+	settle := auth.lastSettle()
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind=%q want swallowed", settle.Kind)
+	}
+	if !settle.BackendAttempted {
+		t.Fatal("expected incurred early-cancel settle to record backendAttempted=true")
 	}
 
 	atts, err := ex.Store.LoadAttempts(context.Background(), aLegID)
@@ -176,8 +182,11 @@ func TestRecv_earlyCtxCancel_nilInner_cancelledOutcomeAndAuthorityOnce(t *testin
 	if got := obs.finishN.Load(); got != 1 {
 		t.Fatalf("Close must not Finish again; got %d", got)
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("authority release must stay exactly once; got %d", auth.releaseCalls.Load())
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("authority release must stay unused; got %d", auth.releaseCalls.Load())
+	}
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("authority settle must stay exactly once; got %d", auth.settleCalls.Load())
 	}
 }
 

@@ -62,7 +62,7 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 				// would otherwise be orphaned. Release it with ReleaseKindSwallowed,
 				// mirroring the swallowed-authority release sites in executor_recv_loop.
 				l := e.newAttemptAuthorityLifecycle(out.authority, out.cand)
-				l.Release(prep.ctx, authorityapp.ReleaseKindSwallowed)
+				l.finalizeIncurredOrRelease(prep.ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
 				return attemptOpenResult{}, err
 			}
 		}

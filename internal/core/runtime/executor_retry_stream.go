@@ -27,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -91,6 +92,15 @@ type retryRecvStream struct {
 	lastParent  context.Context
 	cachedCtx   context.Context
 
+	// metering retains the prepare-time RequestHolder so Recv/terminal paths can
+	// reattach it when callers pass a bare context (auxiliary child streams).
+	metering *checkpoint.RequestHolder
+	// requestAuth retains prepare-time request-authority state so Recv/settle paths
+	// can reattach it when callers pass a bare context (mirrors metering).
+	requestAuth *requestAuthorityState
+	// customer records released client-visible content for FE egress settlement.
+	customer *customerEvidenceAccumulator
+
 	// secureTurn preserves validated secure-session ids for attempt trace/outcome on recv paths.
 	secureTurn   execctx.SecureSessionTurn
 	secureTurnOK bool
@@ -113,7 +123,10 @@ type retryRecvStream struct {
 	// intentionally omit provider-billable scopes, so keep the two views
 	// separate.
 	lastAuthorityUsage lipapi.Event
-	aScope             *leglifecycle.ALeg
+	// lastCustomerUsage caches client-visible reconstruction from finalize for
+	// settle/FE egress when StreamUsage is unavailable on a later path.
+	lastCustomerUsage lipapi.Event
+	aScope            *leglifecycle.ALeg
 
 	// interleaved is the current interleaved-thinking state (cycle cursor + memo reference)
 	// for the A-leg, threaded across recv-phase failover iterations so retry continues from
@@ -279,6 +292,12 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	}
 
 	ctx := diag.EnsureCallDiag(parent, s.traceID, s.aLegID)
+	if s.metering != nil {
+		ctx = withMeteringHolder(ctx, s.metering)
+	}
+	if s.requestAuth != nil {
+		ctx = withRequestAuthority(ctx, s.requestAuth)
+	}
 	if s.recvViewsOK {
 		ctx = execctx.WithViews(ctx, s.recvViews)
 	}

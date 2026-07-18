@@ -6,37 +6,17 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 func quantitiesFromUsageEvent(ev lipapi.Event) []metering.Quantity {
-	totalPresent := ev.TotalTokens > 0 || (ev.InputTokens+ev.OutputTokens) > 0 || ev.Kind == lipapi.EventUsageDelta
-	total := int64(ev.TotalTokens)
-	if total == 0 {
-		total = int64(ev.InputTokens + ev.OutputTokens)
-	}
-	return checkpoint.QuantitiesFromTokenCounts(
-		int64(ev.InputTokens),
-		int64(ev.OutputTokens),
-		int64(ev.CacheReadTokens),
-		int64(ev.CacheWriteTokens),
-		int64(ev.ReasoningTokens),
-		total,
-		totalPresent,
-	)
+	return plane.QuantitiesFromUsageEvent(ev)
 }
 
 func moneyFromUsageEvent(ev lipapi.Event) *metering.MoneyObservation {
-	if strings.TrimSpace(ev.Currency) == "" && ev.CostNanoUnits == 0 && strings.TrimSpace(ev.CostSource) == "" {
-		return nil
-	}
-	return &metering.MoneyObservation{
-		NanoUnits: ev.CostNanoUnits,
-		Currency:  strings.TrimSpace(ev.Currency),
-		Present:   true,
-		Source:    metering.SourceProviderReported,
-	}
+	return plane.MoneyFromUsageEvent(ev)
 }
 
 // emitBackendEgressMeteringFact appends a backend-egress fact when a freeze exists
@@ -93,13 +73,19 @@ func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID s
 	if holder == nil || holder.FrontendIngress == nil {
 		return metering.Fact{}, false
 	}
+	customerEv := customerPlaneUsageEvent(usageEv)
+	if customerEv.Kind == "" && usageEv.Kind == lipapi.EventUsageDelta {
+		// Provider-only evidence still requires a customer FE terminal fact with
+		// quantities omitted rather than importing provider counters/money.
+		customerEv = lipapi.Event{Kind: lipapi.EventUsageDelta}
+	}
 	seq := holder.NextSequence()
 	fact, err := checkpoint.FactFromEgress(checkpoint.EgressFactInput{
 		Checkpoint: checkpoint.FrontendEgressCheckpoint(*holder.FrontendIngress),
 		FactID:     fmt.Sprintf("fe-egress:%s:%d", strings.TrimSpace(traceID), seq),
 		Sequence:   seq,
-		Quantities: quantitiesFromUsageEvent(usageEv),
-		Money:      moneyFromUsageEvent(usageEv),
+		Quantities: quantitiesFromUsageEvent(customerEv),
+		Money:      nil,
 		Now:        e.now(),
 	})
 	if err != nil {
@@ -128,7 +114,7 @@ func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, us
 	if s == nil || s.executor == nil {
 		return metering.Fact{}, false
 	}
-	return s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, usageEv)
+	return s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, s.resolveCustomerUsage(ctx, usageEv))
 }
 
 func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {

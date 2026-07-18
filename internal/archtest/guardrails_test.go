@@ -109,18 +109,27 @@ var lineBudgets = []struct {
 	// Raised for issue #151 secretsguard catalog/matcher/source + quarantine
 	// adapters + runtime barrier (merged with #152/#jsonshape on main).
 	// Measured post-merge non-test total is 56295; cap keeps ~105 lines of headroom.
-	// Raised from 56400 for reasoning-output-preservation Phase 2.3:
+	// Raised from 56400 to 57550 for dual-plane-economics production-readiness
+	// Phase 1: customer evidence accumulator, final-backend clamp preview,
+	// correlation/presence ingress facts, and control-plane metering projection.
+	// Accidental duplication was removed first (~148 lines); remaining growth is
+	// approved core orchestration. Measured post-simplify non-test total is
+	// 57447; cap keeps ~103 lines of headroom.
+	// Raised from 57550 to 57650 for Phase 1 follow-up: operator usage retention on
+	// incurred loser/swallowed paths plus metering/plane extraction of pure
+	// dual-plane helpers.
+	// Raised from 56400 (main lineage) for reasoning-output-preservation Phase 2.3:
 	// RunCandidateAttemptTransformStage + openPlannedCandidate wiring / post-hook rederive.
 	// Raised from 56900 for Phase 2.4 final_stream_observation runner + recv/gate lifecycle.
 	// Raised from 57200 for Phase 2.4 repair: race-safe session claim, CompletionGateChainResult,
 	// central emitClientFacingObserved (recoverDrain/synthesized usage), parallel excluded nil-guard.
-	// Measured post-repair non-test total is ~57222; cap keeps ~30 lines of headroom.
 	// Raised from 57250 to 57380 for Phase 2.5 safe generic stage telemetry
 	// (bounded label collapse, count/byte helpers, generic-port inventory posture).
-	// Measured ~57345 non-test lines after absent-port no-op repair.
 	// Raised to 57400 for early Recv ctx-cancel remediation (nil-inner Cancelled
 	// taxonomy + swallowed release; nil-executor-safe cancel path).
-	{"internal/core", 57400},
+	// Combined dual-plane Phase 1 + reasoning-preservation on merge into main.
+	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
+	{"internal/core", 58850},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

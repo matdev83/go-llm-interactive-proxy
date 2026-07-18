@@ -81,6 +81,9 @@ func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipap
 			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
 		}
 	}
+	// Remember only after mandatory recording succeeds (or is best-effort), so
+	// undelivered client output is not settled into customer evidence.
+	s.rememberClientEvent(ev)
 	if ev.Kind == lipapi.EventResponseFinished {
 		s.finishFinalStreamObservation(ctx, response.OutcomeSuccessReleased)
 	}

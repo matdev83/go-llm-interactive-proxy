@@ -37,14 +37,15 @@ func (e *Executor) logParallelRacePanic(ctx context.Context, pe *safety.PanicErr
 }
 
 type parallelLeg struct {
-	cand        routing.AttemptCandidate
-	bleg        b2bua.BLegRecord
-	stream      lipapi.ManagedEventStream
-	authority   authorityLifecycle
-	delay       time.Duration
-	recvErr     error
-	interleaved interleavedstate.State
-	memoUpdate  *interleavedthinking.PendingMemoUpdate
+	cand          routing.AttemptCandidate
+	bleg          b2bua.BLegRecord
+	stream        lipapi.ManagedEventStream
+	authority     authorityLifecycle
+	delay         time.Duration
+	recvErr       error
+	observedUsage atomic.Value // lipapi.Event; set by leg workers, read on loser cleanup
+	interleaved   interleavedstate.State
+	memoUpdate    *interleavedthinking.PendingMemoUpdate
 }
 
 func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
@@ -57,19 +58,24 @@ func releaseBLegs(scope *leglifecycle.ALeg, legs []*parallelLeg) {
 }
 
 // releaseLosers composes the parallel-race loser cleanup sequence: cancel/close
-// the loser streams, release each loser's authority reservation with
-// ReleaseKindLosing, then drop the loser B-legs from the A-leg scope. It returns
+// the loser streams, settle (or release) each loser's authority reservation, then
+// drop the loser B-legs from the A-leg scope. Incurred losers SettleAttempt with
+// SettlementKindLosing; pre-work losers remain on ReleaseKindLosing. It returns
 // the cancelLosers error so callers can fold stream-cleanup failures into their
 // aggregated error exactly as the prior hand-written blocks did. The per-leg
-// authority release and releaseBLegs are best-effort (the owner's Release and
-// ReleaseBLeg are individually guarded), matching the previous behavior.
+// authority finalize and releaseBLegs are best-effort (individually guarded),
+// matching the previous behavior.
 func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg, legs []*parallelLeg) error {
 	err := cancelLosers(ctx, legs)
 	for _, leg := range legs {
-		leg.authority.Release(ctx, authorityapp.ReleaseKindLosing)
+		usage, _ := leg.observedUsage.Load().(lipapi.Event)
+		if usage.Kind == "" {
+			usage = emptyOperatorUsageShell()
+		}
+		leg.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, usage)
 		// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
 		if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
-			e.emitBackendEgressMeteringFact(ctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, lipapi.Event{Kind: lipapi.EventUsageDelta})
+			e.emitBackendEgressMeteringFact(ctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
 		}
 	}
 	releaseBLegs(aScope, legs)
@@ -249,9 +255,15 @@ func (e *Executor) tryOpenParallelGroup(
 						}
 					}
 					// legs[idx].authority is not assigned until after RegisterBLeg succeeds, so
-					// release the just-opened local reservation (out.authority) before returning.
+					// finalize the just-opened local reservation (out.authority) before returning.
+					// Backend ingress already occurred in openPlannedCandidate; emit BE egress so
+					// the incurred terminal stays correlated (req 2.3 / 5.3).
 					l := e.newAttemptAuthorityLifecycle(out.authority, entry.cand)
-					l.Release(ctx, authorityapp.ReleaseKindLosing)
+					usage := emptyOperatorUsageShell()
+					l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, usage)
+					if l.backendAttempted != nil && l.backendAttempted.Load() {
+						e.emitBackendEgressMeteringFact(ctx, out.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
+					}
 					return
 				}
 			}
@@ -280,7 +292,9 @@ func (e *Executor) tryOpenParallelGroup(
 			for {
 				ev, err := out.stream.Recv(legCtx)
 				if err != nil {
+					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
+					legs[idx].observedUsage.Store(observed)
 					if winnerIdx < 0 {
 						if ttftDeadline.expired(legCtx, err) {
 							if ttftDeadline.scope == ttftTimeoutGlobal {
@@ -308,7 +322,9 @@ func (e *Executor) tryOpenParallelGroup(
 				}
 				preBuf = append(preBuf, ev)
 				if isWinningEvent(ev) {
+					observed := operatorUsageOrShell(preBuf)
 					mu.Lock()
+					legs[idx].observedUsage.Store(observed)
 					if winnerIdx >= 0 {
 						mu.Unlock()
 						return
@@ -380,7 +396,11 @@ func (e *Executor) tryOpenParallelGroup(
 		defer cleanupCancel()
 		for i := range legs {
 			if legs[i].stream != nil {
-				legs[i].authority.Release(cleanupCtx, authorityapp.ReleaseKindLosing)
+				usage, _ := legs[i].observedUsage.Load().(lipapi.Event)
+				if usage.Kind == "" {
+					usage = emptyOperatorUsageShell()
+				}
+				legs[i].authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindLosing, usage)
 			}
 		}
 		return zero, fmt.Errorf("executor: parallel race aborted: %w", fatal)

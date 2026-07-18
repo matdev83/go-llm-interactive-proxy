@@ -62,17 +62,17 @@ func TestInterleavedAbortExecutorHandoff_ReleasesExecutorLegAuthority(t *testing
 		t.Fatalf("beginExecutorContinuation error = %v, want io.EOF (handoff aborted)", err)
 	}
 
-	if got, want := auth.releaseCalls.Load(), int64(1); got != want {
-		t.Fatalf("release calls = %d, want %d (executor-leg reservation must be released on abort, not leaked)", got, want)
+	if got, want := auth.releaseCalls.Load(), int64(0); got != want {
+		t.Fatalf("release calls = %d, want %d (incurred executor-leg must settle on abort)", got, want)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "reservation-executor-abort" {
-		t.Fatalf("released reservation ID = %q, want reservation-executor-abort (the executor-leg reservation)", release.ReservationID)
+	if got, want := auth.settleCalls.Load(), int64(1); got != want {
+		t.Fatalf("settle calls = %d, want %d (executor-leg reservation must settle on abort, not leak)", got, want)
 	}
-	if release.Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind = %q, want swallowed (no client-facing output was produced before the abort)", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "reservation-executor-abort" {
+		t.Fatalf("settled reservation ID = %q, want reservation-executor-abort (the executor-leg reservation)", settle.ReservationID)
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls = %d, want 0 (no usage was produced before the abort)", auth.settleCalls.Load())
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed (no client-facing output was produced before the abort)", settle.Kind)
 	}
 }
