@@ -350,14 +350,23 @@ func (p *Processor) acquire(ctx context.Context, providerID string) error {
 		return ctx.Err()
 	case p.globalSem <- struct{}{}:
 	}
+	if err := ctx.Err(); err != nil {
+		<-p.globalSem
+		return err
+	}
 	sem := p.providerSemaphore(providerID)
 	select {
 	case <-ctx.Done():
 		<-p.globalSem
 		return ctx.Err()
 	case sem <- struct{}{}:
-		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		<-sem
+		<-p.globalSem
+		return err
+	}
+	return nil
 }
 
 func (p *Processor) release(providerID string) {

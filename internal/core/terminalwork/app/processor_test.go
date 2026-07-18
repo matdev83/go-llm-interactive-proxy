@@ -787,9 +787,18 @@ func TestProcessor_OwnedTickIntervalContinuous(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("tick did not process work")
 	}
-	got, _ := store.GetByWorkID(context.Background(), "w-tick")
-	if got.State != sdk.WorkStateCompleted {
-		t.Fatalf("state=%s", got.State)
+	deadline := time.Now().Add(2 * time.Second)
+	var got terminalwork.WorkRecord
+	for {
+		var err error
+		got, err = store.GetByWorkID(context.Background(), "w-tick")
+		if err == nil && got.State == sdk.WorkStateCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("state=%s err=%v", got.State, err)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if err := p.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
@@ -810,4 +819,49 @@ type manualTicker struct {
 func (m *manualTicker) C() <-chan time.Time { return m.ch }
 func (m *manualTicker) Stop() {
 	m.once.Do(func() { close(m.stopped) })
+}
+
+func TestProcessor_LifecycleNoGoroutineLeak(t *testing.T) {
+	clock := &manualClock{t: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}
+	store := openStore(t, clock)
+	prov := &fakeProvider{
+		id: "prov-a", kinds: []sdk.WorkKind{sdk.WorkKindSettleRequestProvider}, ver: "1",
+	}
+	reg := app.NewRegistry()
+	_ = reg.Register(prov)
+	seedPending(t, store, clock, sampleRec("w-life", "sk-life", "prov-a", sdk.WorkKindSettleRequestProvider))
+
+	tick := make(chan struct{})
+	p := newProc(t, store, reg, clock, app.Config{TickC: tick, ClaimLimit: 1})
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Running() {
+		t.Fatal("expected running after Start")
+	}
+	tick <- struct{}{}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got, err := store.GetByWorkID(context.Background(), "w-life")
+		if err == nil && got.State == sdk.WorkStateCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("work not completed: err=%v state=%v", err, got.State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	if p.Running() {
+		t.Fatal("expected stopped after Shutdown")
+	}
+	if err := p.Shutdown(context.Background()); err != nil {
+		t.Fatalf("idempotent shutdown: %v", err)
+	}
 }
