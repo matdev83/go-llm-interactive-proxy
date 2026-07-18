@@ -203,6 +203,43 @@ func TestWorkItem_IndependentProviderCompletion(t *testing.T) {
 	}
 }
 
+func TestWorkItem_RenewClaim(t *testing.T) {
+	t.Parallel()
+	clock := &manualClock{t: time.Date(2026, 7, 18, 5, 0, 0, 0, time.UTC)}
+	w := newIntent(t, "renew-key", "wr", "prov", sdk.WorkKindSettleRequestProvider)
+	_ = w.MarkPending()
+	if err := w.Claim("worker-a", time.Minute, clock); err != nil {
+		t.Fatal(err)
+	}
+	wantExpires := clock.Now().Add(time.Minute)
+	if !w.Lease.ExpiresAt.Equal(wantExpires) {
+		t.Fatalf("ExpiresAt=%v want %v", w.Lease.ExpiresAt, wantExpires)
+	}
+
+	clock.Advance(30 * time.Second)
+	if err := w.RenewClaim("worker-a", 2*time.Minute, clock); err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+	wantRenewed := clock.Now().Add(2 * time.Minute)
+	if !w.Lease.ExpiresAt.Equal(wantRenewed) {
+		t.Fatalf("renewed ExpiresAt=%v want %v", w.Lease.ExpiresAt, wantRenewed)
+	}
+
+	if err := w.RenewClaim("worker-b", time.Minute, clock); !errors.Is(err, sdk.ErrConflict) {
+		t.Fatalf("wrong owner err=%v want ErrConflict", err)
+	}
+
+	clock.Advance(2 * time.Minute)
+	if err := w.RenewClaim("worker-a", time.Minute, clock); !errors.Is(err, sdk.ErrClaimLeaseHeld) {
+		t.Fatalf("expired lease err=%v want ErrClaimLeaseHeld", err)
+	}
+
+	w2 := newIntent(t, "renew-intent", "wri", "prov", sdk.WorkKindAppendFact)
+	if err := w2.RenewClaim("worker-a", time.Minute, clock); !errors.Is(err, sdk.ErrInvalidTransition) {
+		t.Fatalf("renew from intent err=%v want ErrInvalidTransition", err)
+	}
+}
+
 func TestWorkItem_ClaimLeaseExpiry(t *testing.T) {
 	t.Parallel()
 	clock := &manualClock{t: time.Date(2026, 7, 18, 2, 0, 0, 0, time.UTC)}

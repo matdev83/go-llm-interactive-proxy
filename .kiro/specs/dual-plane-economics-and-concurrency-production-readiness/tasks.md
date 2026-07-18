@@ -194,7 +194,7 @@
   - _Depends: 4.1_
   - _Validation: focused `Recv`/`Close` race, cancel, encoder, gate, failover, parallel, and panic tests under `-race`_
 
-- [ ] 4.3 Implement terminal-work domain and durable stores
+- [x] 4.3 Implement terminal-work domain and durable stores
   - Add versioned per-action work identity/payload/state, durable intent, provider/fact/lease correlation, claim leases, retry schedule, and quarantine.
   - Implement memory, SQLite, direct PostgreSQL, and transaction-pool-safe PostgreSQL stores with additive migrations and bounded queries.
   - **Deliverable:** required terminal intent survives process exit and is idempotent under replay or ambiguous commit.

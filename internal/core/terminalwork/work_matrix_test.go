@@ -16,13 +16,14 @@ type workOp string
 const (
 	opPending    workOp = "pending"
 	opClaim      workOp = "claim"
+	opRenewClaim workOp = "renew_claim"
 	opComplete   workOp = "complete"
 	opRetry      workOp = "retry"
 	opQuarantine workOp = "quarantine"
 )
 
 func allWorkOps() []workOp {
-	return []workOp{opPending, opClaim, opComplete, opRetry, opQuarantine}
+	return []workOp{opPending, opClaim, opRenewClaim, opComplete, opRetry, opQuarantine}
 }
 
 func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
@@ -48,6 +49,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    nil,
 				opClaim:      sdk.ErrInvalidTransition,
+				opRenewClaim: sdk.ErrInvalidTransition,
 				opComplete:   sdk.ErrInvalidTransition,
 				opRetry:      sdk.ErrInvalidTransition,
 				opQuarantine: sdk.ErrInvalidTransition,
@@ -66,6 +68,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    sdk.ErrInvalidTransition,
 				opClaim:      nil,
+				opRenewClaim: sdk.ErrInvalidTransition,
 				opComplete:   sdk.ErrInvalidTransition,
 				opRetry:      sdk.ErrInvalidTransition,
 				opQuarantine: nil,
@@ -85,6 +88,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    sdk.ErrInvalidTransition,
 				opClaim:      sdk.ErrClaimLeaseHeld, // lease still held
+				opRenewClaim: nil,
 				opComplete:   nil,
 				opRetry:      nil,
 				opQuarantine: nil,
@@ -105,6 +109,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    sdk.ErrInvalidTransition,
 				opClaim:      sdk.ErrNotDue,
+				opRenewClaim: sdk.ErrInvalidTransition,
 				opComplete:   sdk.ErrInvalidTransition,
 				opRetry:      sdk.ErrInvalidTransition,
 				opQuarantine: nil,
@@ -124,6 +129,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    sdk.ErrInvalidTransition,
 				opClaim:      nil,
+				opRenewClaim: sdk.ErrInvalidTransition,
 				opComplete:   sdk.ErrInvalidTransition,
 				opRetry:      sdk.ErrInvalidTransition,
 				opQuarantine: nil,
@@ -142,6 +148,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    sdk.ErrInvalidTransition,
 				opClaim:      sdk.ErrInvalidTransition,
+				opRenewClaim: sdk.ErrInvalidTransition,
 				opComplete:   sdk.ErrInvalidTransition,
 				opRetry:      sdk.ErrInvalidTransition,
 				opQuarantine: sdk.ErrInvalidTransition,
@@ -159,6 +166,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			legal: map[workOp]error{
 				opPending:    sdk.ErrInvalidTransition,
 				opClaim:      sdk.ErrInvalidTransition,
+				opRenewClaim: sdk.ErrInvalidTransition,
 				opComplete:   sdk.ErrInvalidTransition,
 				opRetry:      sdk.ErrInvalidTransition,
 				opQuarantine: sdk.ErrInvalidTransition,
@@ -205,6 +213,12 @@ func applyWorkOp(w *terminalwork.WorkItem, op workOp, clock *manualClock, sched 
 		return w.MarkPending()
 	case opClaim:
 		return w.Claim("worker-mx", time.Minute, clock)
+	case opRenewClaim:
+		owner := w.Lease.OwnerID
+		if owner == "" {
+			owner = "worker-mx"
+		}
+		return w.RenewClaim(owner, time.Minute, clock)
 	case opComplete:
 		return w.Complete()
 	case opRetry:

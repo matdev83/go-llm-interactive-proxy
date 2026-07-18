@@ -34,9 +34,10 @@ func UniquePostgresStoreID(prefix string) string {
 type PostgresStoreComponent string
 
 const (
-	PostgresComponentAuthority PostgresStoreComponent = "authority"
-	PostgresComponentLease     PostgresStoreComponent = "lease"
-	PostgresComponentJournal   PostgresStoreComponent = "journal"
+	PostgresComponentAuthority    PostgresStoreComponent = "authority"
+	PostgresComponentLease        PostgresStoreComponent = "lease"
+	PostgresComponentJournal      PostgresStoreComponent = "journal"
+	PostgresComponentTerminalWork PostgresStoreComponent = "terminal-work"
 )
 
 // DualPlanePostgresSearchPathGuardDirs lists strict dual-plane store packages
@@ -46,6 +47,7 @@ func DualPlanePostgresSearchPathGuardDirs() []string {
 		"internal/infra/usageauthority/authoritystore",
 		"internal/infra/concurrencyauthority/leasestore",
 		"internal/infra/metering/journalstore",
+		"internal/infra/terminalwork/workstore",
 	}
 }
 
@@ -347,6 +349,10 @@ func cleanupStatements(component PostgresStoreComponent, storeID string) []clean
 		return []cleanupStmt{
 			{`DELETE FROM metering_fact_filters WHERE store_id = ?`, []any{storeID}},
 			{`DELETE FROM metering_facts WHERE store_id = ?`, []any{storeID}},
+		}
+	case PostgresComponentTerminalWork:
+		return []cleanupStmt{
+			{`DELETE FROM economic_terminal_work WHERE store_id = ?`, []any{storeID}},
 		}
 	default:
 		return nil

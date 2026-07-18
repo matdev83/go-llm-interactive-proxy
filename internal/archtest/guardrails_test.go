@@ -126,7 +126,11 @@ var lineBudgets = []struct {
 	// and reconstruction seams (+373 non-test lines across checkpoint/runtime/
 	// controlplane since Phase 2 base; measured 58539). Cap keeps ~111 lines of
 	// headroom. Prefer further decomposition over another raise.
-	{"internal/core", 58650},
+	// Raised from 58650 to 59750 for dual-plane Phase 4 terminal ownership and
+	// terminal-work domain: stream terminal session wiring, terminal owner CAS,
+	// WorkRecord/SameIntentReplay, and claim-lease transitions (measured 59641;
+	// cap keeps ~109 lines of headroom).
+	{"internal/core", 59750},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

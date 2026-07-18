@@ -122,6 +122,31 @@ func (w *WorkItem) Retry(schedule RetrySchedule, clock Clock, err BoundedError) 
 	return nil
 }
 
+// RenewClaim extends a held claim lease for the same owner.
+func (w *WorkItem) RenewClaim(ownerID string, ttl time.Duration, clock Clock) error {
+	if clock == nil {
+		return fmt.Errorf("%w: nil clock", sdk.ErrInvalid)
+	}
+	if strings.TrimSpace(ownerID) == "" {
+		return fmt.Errorf("%w: empty claim owner", sdk.ErrInvalid)
+	}
+	if ttl <= 0 {
+		return fmt.Errorf("%w: non-positive claim ttl", sdk.ErrInvalid)
+	}
+	if w.State != sdk.WorkStateClaimed {
+		return fmt.Errorf("%w: renew from %s", sdk.ErrInvalidTransition, w.State)
+	}
+	if w.Lease.OwnerID != ownerID {
+		return sdk.ErrConflict
+	}
+	now := clock.Now()
+	if !w.Lease.HeldAt(now) {
+		return sdk.ErrClaimLeaseHeld
+	}
+	w.Lease.ExpiresAt = now.Add(ttl)
+	return nil
+}
+
 // Quarantine permanently parks malformed or non-retryable work.
 func (w *WorkItem) Quarantine(err BoundedError) error {
 	switch w.State {
