@@ -121,7 +121,12 @@ var lineBudgets = []struct {
 	// Raised from 57650 to 58300 for dual-plane Phase 2.3 authority coordinator
 	// posture/compensation, settlement concurrency state, and req 4.3 hold
 	// validation (measured ~58197 non-test lines).
-	{"internal/core", 58300},
+	// Raised from 58300 to 58650 for dual-plane Phase 3 durable metering journal:
+	// ingress checkpoint producers, control-plane metering usage bridge/projection,
+	// and reconstruction seams (+373 non-test lines across checkpoint/runtime/
+	// controlplane since Phase 2 base; measured 58539). Cap keeps ~111 lines of
+	// headroom. Prefer further decomposition over another raise.
+	{"internal/core", 58650},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

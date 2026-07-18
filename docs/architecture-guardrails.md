@@ -49,7 +49,7 @@ Run `go test ./internal/archtest/...` and full `go test ./...` (also invoked fro
 
 When a deliberate feature requires a larger core or composition layer, raise the limits in `guardrails_test.go` and record the rationale in ADR 0005 or a short note in the PR.
 
-The current `internal/core` ceiling includes prior usage-authority / model-registry / tool-call-repair / jsonshape growth plus dual-plane-economics production-readiness Phase 1 and its follow-up, plus Phase 2.3 authority-coordinator posture/compensation and settlement concurrency state. Accidental duplication was removed before raising the budget. The cap is 58300. Prefer decomposing further core growth rather than absorbing it by another budget increase.
+The current `internal/core` ceiling includes prior usage-authority / model-registry / tool-call-repair / jsonshape growth plus dual-plane-economics production-readiness Phase 1 and its follow-up, Phase 2.3 authority-coordinator posture/compensation and settlement concurrency state, plus Phase 3 durable metering journal (ingress checkpoint producers, control-plane metering usage bridge/projection, restart reconstruction). Accidental duplication was removed before raising the budget. The cap is 58650 (measured 58539 after Phase 3). Prefer decomposing further core growth rather than absorbing it by another budget increase.
 
 The `internal/infra/runtimebundle` ceiling was raised to 5580 for dual-plane Phase 2.2 descriptor-bound provider/rater registration composition (stable IDs, readiness ProviderIDs, legacy parallel-slice rejection; measured 5562). Prefer keeping Build orchestration thin; new registration validation belongs on the public facade when practical.
 
