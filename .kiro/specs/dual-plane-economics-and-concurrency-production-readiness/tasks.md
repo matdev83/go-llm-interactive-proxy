@@ -356,7 +356,7 @@
   - _Depends: Phases 1–6_
   - _Validation: targeted fuzz/model commands, Linux strict race, fault suites, and goleak_
 
-- [ ] 7.3 Add performance budgets, operational metrics, and readiness alerts
+- [x] 7.3 Add performance budgets, operational metrics, and readiness alerts
   - Benchmark disabled/no-feature path, independent principals, hot identities, fact append/replay, terminal-work claims/dispatch, generation refresh, and five-slot contention.
   - Add bounded metrics and alert recommendations for authority/rating latency, terminal backlog/age, quarantine, generation staleness, lease uncertainty, renewal failures, and store contention.
   - **Deliverable:** overhead and degraded economic-control posture are measurable before rollout.
