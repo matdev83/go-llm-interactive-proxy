@@ -50,6 +50,10 @@ var legalDecisions = []AllowedDecision{
 	{Stage: feature.StageIDRouteHinting, Outcome: OutcomeSkip, Effects: []Effect{EffectNone}},
 	{Stage: feature.StageIDRouteHinting, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
 
+	{Stage: feature.StageIDCandidateAttemptTransform, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate, EffectMutate}},
+	{Stage: feature.StageIDCandidateAttemptTransform, Outcome: OutcomeSkip, Effects: []Effect{EffectNone}},
+	{Stage: feature.StageIDCandidateAttemptTransform, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
+
 	{Stage: feature.StageIDAttemptLifecycle, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate}},
 	{Stage: feature.StageIDAttemptLifecycle, Outcome: OutcomeSkip, Effects: []Effect{EffectNone}},
 	{Stage: feature.StageIDAttemptLifecycle, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
@@ -66,6 +70,10 @@ var legalDecisions = []AllowedDecision{
 	{Stage: feature.StageIDCompletionGating, Outcome: OutcomeDeny, Effects: []Effect{EffectNone}},
 	{Stage: feature.StageIDCompletionGating, Outcome: OutcomeSkip, Effects: []Effect{EffectNone}},
 	{Stage: feature.StageIDCompletionGating, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
+
+	{Stage: feature.StageIDFinalStreamObservation, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate}},
+	{Stage: feature.StageIDFinalStreamObservation, Outcome: OutcomeSkip, Effects: []Effect{EffectNone}},
+	{Stage: feature.StageIDFinalStreamObservation, Outcome: OutcomeError, Effects: []Effect{EffectNone}},
 
 	{Stage: feature.StageIDTrafficObservation, Outcome: OutcomeAllow, Effects: []Effect{EffectNone, EffectAnnotate}},
 	{Stage: feature.StageIDTrafficObservation, Outcome: OutcomeSkip, Effects: []Effect{EffectNone}},

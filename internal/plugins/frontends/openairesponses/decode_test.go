@@ -224,9 +224,56 @@ func TestDecodeCreate_functionCallInputItem(t *testing.T) {
 	}
 }
 
+func TestDecodeCreate_reasoningInputItem_RED(t *testing.T) {
+	t.Parallel()
+	const body = `{"model":"gpt-4o-mini","input":[{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"s"}],"content":[{"type":"reasoning_text","text":"c"}],"encrypted_content":"enc"}]}`
+	d, err := openairesponses.DecodeCreateRequest([]byte(body), openairesponses.DecodeOptions{
+		RouteSelector: "stub:gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatalf("RED: reasoning input item must decode: %v", err)
+	}
+	var reasoning *lipapi.Part
+	for _, m := range d.Call.Messages {
+		if m.Role != lipapi.RoleAssistant {
+			continue
+		}
+		for i := range m.Parts {
+			if m.Parts[i].Kind == lipapi.PartReasoning {
+				reasoning = &m.Parts[i]
+				break
+			}
+		}
+	}
+	if reasoning == nil || reasoning.Reasoning == nil {
+		t.Fatalf("RED: expected PartReasoning for reasoning input item, got messages: %+v", d.Call.Messages)
+	}
+	if reasoning.Reasoning.Dialect != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+		t.Fatalf("RED: dialect = %q, want %q", reasoning.Reasoning.Dialect, lipapi.ReasoningDialectOpenAIResponsesItemV1)
+	}
+	if len(reasoning.Reasoning.Opaque) == 0 {
+		t.Fatal("RED: responses reasoning item must preserve wire fields in Opaque")
+	}
+	var wire struct {
+		ID               string          `json:"id"`
+		EncryptedContent string          `json:"encrypted_content"`
+		Summary          json.RawMessage `json:"summary"`
+		Content          json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(reasoning.Reasoning.Opaque, &wire); err != nil {
+		t.Fatalf("RED: opaque must be valid reasoning item JSON: %v", err)
+	}
+	if wire.ID != "r1" {
+		t.Fatalf("RED: opaque id = %q, want r1", wire.ID)
+	}
+	if wire.EncryptedContent != "enc" {
+		t.Fatalf("RED: opaque encrypted_content = %q, want enc", wire.EncryptedContent)
+	}
+}
+
 func TestDecodeCreate_unsupportedInputItemType(t *testing.T) {
 	t.Parallel()
-	const body = `{"model":"gpt-4o-mini","input":[{"type":"reasoning","id":"r1"}]}`
+	const body = `{"model":"gpt-4o-mini","input":[{"type":"computer_call","id":"c1"}]}`
 	_, err := openairesponses.DecodeCreateRequest([]byte(body), openairesponses.DecodeOptions{
 		RouteSelector: "stub:m",
 	})

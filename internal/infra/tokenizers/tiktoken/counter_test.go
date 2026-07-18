@@ -603,6 +603,51 @@ func TestCountCallUnsupportedToolResultPart(t *testing.T) {
 	}
 }
 
+func TestCountCall_countsReasoningParts(t *testing.T) {
+	t.Parallel()
+
+	counter, err := NewCounter(Config{DefaultEncoding: "cl100k_base"})
+	if err != nil {
+		t.Fatalf("NewCounter() error = %v", err)
+	}
+
+	opaque := json.RawMessage(`{"data":"hidden"}`)
+	if !json.Valid(opaque) {
+		t.Fatal("opaque must be valid JSON")
+	}
+	baseline := lipapi.Call{Messages: []lipapi.Message{{
+		Role:  lipapi.RoleAssistant,
+		Parts: []lipapi.Part{lipapi.TextPart("answer")},
+	}}}
+	withReasoning := lipapi.Call{Messages: []lipapi.Message{{
+		Role: lipapi.RoleAssistant,
+		Parts: []lipapi.Part{
+			{
+				Kind: lipapi.PartReasoning,
+				Reasoning: &lipapi.ReasoningPart{
+					Dialect:   lipapi.ReasoningDialectAnthropicThinkingV1,
+					Text:      "long reasoning token bait abcdefghijklmnop",
+					Signature: "sig_token_bait",
+					Opaque:    opaque,
+				},
+			},
+			lipapi.TextPart("answer"),
+		},
+	}}}
+
+	baseCount, err := counter.CountCall(context.Background(), app.CountCallInput{Model: "cl100k_base", Call: baseline})
+	if err != nil {
+		t.Fatalf("baseline CountCall() error = %v", err)
+	}
+	got, err := counter.CountCall(context.Background(), app.CountCallInput{Model: "cl100k_base", Call: withReasoning})
+	if err != nil {
+		t.Fatalf("reasoning CountCall() error = %v (reasoning parts must be token-count inputs, not unsupported)", err)
+	}
+	if got.InputTokens <= baseCount.InputTokens {
+		t.Fatalf("InputTokens=%d want > baseline %d (reasoning text/signature/opaque must increase token count)", got.InputTokens, baseCount.InputTokens)
+	}
+}
+
 func imagePart(ref, detail string) lipapi.Part {
 	content := json.RawMessage(nil)
 	if detail != "" {

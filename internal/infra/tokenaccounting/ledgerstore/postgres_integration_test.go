@@ -4,7 +4,9 @@ package ledgerstore
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
@@ -36,11 +38,13 @@ func TestPostgresLedgerStore_recordsRoundTrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	record := testRecord("pg-req", "pg-attempt", lipapi.UsagePlaneProviderBillable, 10, 20)
+	reqID := fmt.Sprintf("pg-req-%d", time.Now().UnixNano())
+	attemptID := fmt.Sprintf("pg-attempt-%d", time.Now().UnixNano())
+	record := testRecord(reqID, attemptID, lipapi.UsagePlaneProviderBillable, 10, 20)
 	if err := store.Record(ctx, record); err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
-	got, err := store.ListByAttempt(ctx, "pg-req", "pg-attempt")
+	got, err := store.ListByAttempt(ctx, reqID, attemptID)
 	if err != nil {
 		t.Fatalf("ListByAttempt() error = %v", err)
 	}
