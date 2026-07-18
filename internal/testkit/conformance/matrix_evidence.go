@@ -20,3 +20,9 @@ var MatrixEvidenceMultimodalFiles = []string{
 	"conformance_multimodal_test.go",
 	"backend_credentials_test.go",
 }
+
+// MatrixEvidenceDualPlaneEconomicFiles list Phase 7.1 dual-plane economic
+// conformance sources that iterate DualPlaneEconomicCells / modes.
+var MatrixEvidenceDualPlaneEconomicFiles = []string{
+	"dual_plane_economic_conformance_test.go",
+}

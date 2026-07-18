@@ -335,7 +335,7 @@
 
 ## Phase 7 — Certify Production Readiness
 
-- [ ] 7.1 Build the cross-protocol economic conformance matrix
+- [x] 7.1 Build the cross-protocol economic conformance matrix
   - Prove equivalent frontend-ingress and final frontend-egress customer semantics for OpenAI Responses, OpenAI Chat, Anthropic Messages, Gemini, and every supported operation with legal canonical representation.
   - Cover streaming and non-streaming collection, protocol errors, cancellation, and frontend encoding failure.
   - **Deliverable:** protocol adapters cannot change customer economic boundary meaning.
