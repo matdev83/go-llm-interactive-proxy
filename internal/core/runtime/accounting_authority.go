@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -60,8 +61,11 @@ func (e *Executor) admitAttemptAuthority(
 	estimateOnly bool,
 ) (attemptAuthorityState, error) {
 	// External AttemptProviders must run even when built-in UsageAuthority is disabled.
-	if !estimateOnly && e != nil && e.AttemptCoordinator != nil {
-		return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
+	if !estimateOnly && e != nil {
+		bound := requestAuthorityFrom(ctx)
+		if e.AttemptCoordinator != nil || (bound != nil && bound.ExecutableGen != nil && bound.ExecutableGen.AttemptCoord != nil) {
+			return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
+		}
 	}
 	svc := e.authorityService()
 	if svc == nil {
@@ -142,7 +146,11 @@ func (e *Executor) admitAttemptAuthority(
 	if result.ReservedAmount.Unit != "" {
 		admissionInput.Request = result.ReservedAmount
 	}
-	e.applyGenerationBoundVersion(&result)
+	var boundGen *snapshotgen.ExecutableGeneration
+	if st := requestAuthorityFrom(ctx); st != nil {
+		boundGen = st.ExecutableGen
+	}
+	e.applyGenerationBoundVersionFrom(boundGen, &result)
 	bindAdmissionRatingVersion(&result, rated)
 	state := attemptAuthorityState{
 		admissionInput:  admissionInput,
@@ -177,7 +185,11 @@ func (e *Executor) admitAttemptViaCoordinator(
 			factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
 		}
 	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs, factRefs)
+	boundGen := (*snapshotgen.ExecutableGeneration)(nil)
+	if st := requestAuthorityFrom(ctx); st != nil {
+		boundGen = st.ExecutableGen
+	}
+	spend, rated, rateErr := e.rateOperatorAttemptSpendWithGen(ctx, boundGen, c, decision, quantities, factIDs, factRefs)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -212,7 +224,17 @@ func (e *Executor) admitAttemptViaCoordinator(
 	if rated.Money.Present {
 		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
 	}
-	d, err := e.AttemptCoordinator.Admit(ctx, in)
+	attemptCoord := e.AttemptCoordinator
+	if boundGen != nil && boundGen.AttemptCoord != nil {
+		attemptCoord = boundGen.AttemptCoord
+	}
+	if attemptCoord == nil {
+		return attemptAuthorityState{}, attemptAuthorityAdmissionError(
+			authorityapp.AdmissionResult{Outcome: domain.DecisionOutcomeUnavailable},
+			errors.New("attempt coordinator unavailable"),
+		)
+	}
+	d, err := attemptCoord.Admit(ctx, in)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return attemptAuthorityState{}, err
@@ -252,7 +274,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 	if len(d.BoundVersions) > 0 {
 		res.BoundVersion = d.BoundVersions[0]
 	}
-	e.applyGenerationBoundVersion(&res)
+	e.applyGenerationBoundVersionFrom(boundGen, &res)
 	bindAdmissionRatingVersion(&res, rated)
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
@@ -805,13 +827,22 @@ func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err err
 	}
 }
 
-// applyGenerationBoundVersion prefers the published executable generation's
-// evaluator object identity when wired (requirements 9.3, 9.9; design D10).
+// applyGenerationBoundVersion prefers the request-bound executable generation's
+// evaluator object identity (requirements 9.3, 9.5, 9.9; design D10).
 func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult) {
-	if e == nil || res == nil || e.SnapshotGeneration == nil {
+	e.applyGenerationBoundVersionFrom(nil, res)
+}
+
+func (e *Executor) applyGenerationBoundVersionFrom(bound *snapshotgen.ExecutableGeneration, res *authorityapp.AdmissionResult) {
+	if e == nil || res == nil {
 		return
 	}
-	if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+	exec := bound
+	if exec == nil && e.SnapshotGeneration != nil {
+		// Compatibility only when no request binding exists yet.
+		exec = e.SnapshotGeneration.CurrentExecutable()
+	}
+	if exec != nil {
 		obj := exec.EvidenceObjectID()
 		if obj != "" {
 			res.BoundVersion = economics.PolicySnapshotRef{
@@ -829,6 +860,9 @@ func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult
 				RaterID: rid,
 			}
 		}
+		return
+	}
+	if e.SnapshotGeneration == nil {
 		return
 	}
 	gen := e.SnapshotGeneration.Current()
@@ -851,23 +885,29 @@ func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult
 	}
 }
 
-// mergeGenerationBoundVersions appends executable generation evidence refs onto a
-// request-stage composite decision when SnapshotGeneration is wired.
-func (e *Executor) mergeGenerationBoundVersions(d *authoritycoord.CompositeDecision) {
-	if e == nil || d == nil || e.SnapshotGeneration == nil {
+// mergeGenerationBoundVersionsFrom appends bound executable generation evidence.
+func (e *Executor) mergeGenerationBoundVersionsFrom(bound *snapshotgen.ExecutableGeneration, d *authoritycoord.CompositeDecision) {
+	if e == nil || d == nil {
 		return
 	}
-	if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
-		obj := exec.EvidenceObjectID()
+	if bound != nil {
+		obj := bound.EvidenceObjectID()
 		if obj != "" {
 			ref := economics.PolicySnapshotRef{
 				VersionRef: economics.VersionRef{
-					ID: obj, Version: exec.Version, EffectiveAt: exec.PublishedAt,
+					ID: obj, Version: bound.Version, EffectiveAt: bound.PublishedAt,
 				},
 				PolicyID: obj,
 			}
 			d.BoundVersions = prependPolicyRef(d.BoundVersions, ref)
 		}
+		return
+	}
+	if e.SnapshotGeneration == nil {
+		return
+	}
+	if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+		e.mergeGenerationBoundVersionsFrom(exec, d)
 		return
 	}
 	gen := e.SnapshotGeneration.Current()

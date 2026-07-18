@@ -139,7 +139,9 @@ var lineBudgets = []struct {
 	// Raised from 61400 to 61600 for Phase 4.5 correctness (metrics pagination,
 	// AttemptID identity, AuthorityRequestEffectProvider).
 	// Raised from 61600 to 62000 for Phase 5 executable generations.
-	{"internal/core", 62000},
+	// Raised from 62000 to 63000 for Phase 5 remediation: generation-owned
+	// RequestCoordinator/AttemptCoordinator/max-active limiter + rater binding.
+	{"internal/core", 63000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -168,7 +170,9 @@ var lineBudgets = []struct {
 	// (RequestRegistrations → AuthorityRequestEffectProvider merge). Measured ~6052.
 	// Raised from 6100 to 6150 for ProcessDue metrics observer adapter. Measured ~6105.
 	// Raised from 6250 to 6300 for Phase 5.5 executable readiness wiring.
-	{"internal/infra/runtimebundle", 6300},
+	// Raised from 6300 to 6400 for Phase 5 remediation (provider-removal
+	// validation + terminal pending-drain binding at composition root).
+	{"internal/infra/runtimebundle", 6400},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

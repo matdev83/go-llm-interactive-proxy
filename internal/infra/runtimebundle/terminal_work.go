@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
@@ -45,6 +47,23 @@ type terminalWorkRuntime struct {
 	clock        func() time.Time
 	prom         *metrics.TerminalWorkProm
 	snapshotPub  *snapshotgen.Publisher
+}
+
+func (rt *terminalWorkRuntime) bindSnapshotPublisher(pub *snapshotgen.Publisher) {
+	if rt == nil {
+		return
+	}
+	rt.snapshotPub = pub
+	if rt.Processor == nil || pub == nil {
+		return
+	}
+	rt.Processor.SetOnTerminalDone(func(rec terminalwork.WorkRecord) {
+		gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.GenerationID), 10, 64)
+		if err != nil || gid <= 0 {
+			return
+		}
+		pub.ClearPendingProvider(gid, rec.ProviderID)
+	})
 }
 
 type terminalWorkBuildInput struct {
@@ -189,6 +208,15 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 		TickInterval:   tickInterval,
 		RenewInterval:  renewInterval,
 		Clock:          clockFunc{now: clock},
+	}
+	if pub := in.SnapshotPub; pub != nil {
+		cfg.OnTerminalDone = func(rec terminalwork.WorkRecord) {
+			gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.GenerationID), 10, 64)
+			if err != nil || gid <= 0 {
+				return
+			}
+			pub.ClearPendingProvider(gid, rec.ProviderID)
+		}
 	}
 	if obs := newTerminalWorkProcessObserver(metricsObs, in.Prom); obs != nil {
 		cfg.Metrics = obs

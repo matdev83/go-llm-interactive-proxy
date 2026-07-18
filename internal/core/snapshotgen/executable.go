@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/runtimegen"
@@ -32,6 +33,13 @@ type ExecutableGeneration struct {
 	CustomerRaters          []economics.RaterRegistration
 	OperatorRaters          []economics.RaterRegistration
 
+	// RequestCoord/AttemptCoord are the concrete immutable evaluators for this
+	// generation. New admissions must use these when present (D10).
+	RequestCoord  *authoritycoord.RequestCoordinator
+	AttemptCoord  *authoritycoord.AttemptCoordinator
+	CustomerRater economics.Rater
+	OperatorRater economics.Rater
+
 	MaxActiveRequests int
 	RatingObjectID    string
 
@@ -49,9 +57,13 @@ func (g *ExecutableGeneration) ValidateComplete() error {
 		return fmt.Errorf("snapshotgen: generation version required")
 	}
 	if g.State == economics.SnapshotReady {
-		if g.ConcurrencyRegistration == nil && len(g.RequestRegistrations) == 0 &&
+		if g.RequestCoord == nil && g.AttemptCoord == nil && g.CustomerRater == nil && g.OperatorRater == nil &&
+			g.ConcurrencyRegistration == nil && len(g.RequestRegistrations) == 0 &&
 			len(g.AttemptRegistrations) == 0 && len(g.CustomerRaters) == 0 && len(g.OperatorRaters) == 0 {
 			return fmt.Errorf("snapshotgen: metadata-only generation rejected (D10)")
+		}
+		if g.MaxActiveRequests > 0 && (g.RequestCoord == nil || g.RequestCoord.Concurrency == nil) {
+			return fmt.Errorf("snapshotgen: ready concurrency generation requires request coordinator concurrency")
 		}
 		if g.ConcurrencyRegistration != nil && g.MaxActiveRequests <= 0 {
 			return fmt.Errorf("snapshotgen: ready concurrency generation requires max_active_requests")
@@ -215,6 +227,10 @@ func CompileExecutable(contrib runtimegen.GenerationContribution) (*ExecutableGe
 	if state == "" {
 		state = economics.SnapshotReady
 	}
+	reqCoord, attCoord, customerRater, operatorRater, err := buildCoordinators(contrib)
+	if err != nil {
+		return nil, err
+	}
 	gen := &ExecutableGeneration{
 		Version:                 strings.TrimSpace(contrib.Version),
 		SourceID:                strings.TrimSpace(contrib.SourceID),
@@ -225,6 +241,10 @@ func CompileExecutable(contrib runtimegen.GenerationContribution) (*ExecutableGe
 		ConcurrencyRegistration: contrib.ConcurrencyRegistration,
 		CustomerRaters:          append([]economics.RaterRegistration(nil), contrib.CustomerRaters...),
 		OperatorRaters:          append([]economics.RaterRegistration(nil), contrib.OperatorRaters...),
+		RequestCoord:            reqCoord,
+		AttemptCoord:            attCoord,
+		CustomerRater:           customerRater,
+		OperatorRater:           operatorRater,
 		MaxActiveRequests:       contrib.MaxActiveRequests,
 	}
 	if gen.PublishedAt.IsZero() {

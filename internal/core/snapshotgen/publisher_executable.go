@@ -98,3 +98,30 @@ func (p *Publisher) retainExecutable(gen *ExecutableGeneration) {
 	}
 	p.retained.Store(gen.ID, gen)
 }
+
+// CanRemoveProvider reports whether providerID may be removed across retained generations.
+func (p *Publisher) CanRemoveProvider(providerID string) bool {
+	if p == nil {
+		return true
+	}
+	ok := true
+	p.retained.Range(func(_, value any) bool {
+		gen := value.(*ExecutableGeneration)
+		if !gen.CanRemoveProvider(providerID) {
+			ok = false
+			return false
+		}
+		return true
+	})
+	return ok
+}
+
+// ClearPendingProvider clears a pending provider ref on the named generation.
+func (p *Publisher) ClearPendingProvider(generationID int64, providerID string) {
+	if p == nil {
+		return
+	}
+	if gen := p.LookupExecutable(generationID); gen != nil {
+		gen.ClearPendingProvider(providerID)
+	}
+}

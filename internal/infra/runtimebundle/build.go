@@ -139,7 +139,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	}
 	snapGen, snapCtrl := buildSnapshotGeneration(cfg, opts.Testing, opts.Production)
 	if twRT != nil {
-		twRT.snapshotPub = snapGen
+		twRT.bindSnapshotPublisher(snapGen)
 	}
 	var exec *runtime.Executor
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs, sg)

@@ -82,7 +82,13 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		return ctx, fmt.Errorf("executor: metering frontend ingress fact: %w", err)
 	}
 	if e.RequestCoordinator == nil {
-		return ctx, nil
+		exec := (*snapshotgen.ExecutableGeneration)(nil)
+		if e.SnapshotGeneration != nil {
+			exec = e.SnapshotGeneration.CurrentExecutable()
+		}
+		if exec == nil || exec.RequestCoord == nil {
+			return ctx, nil
+		}
 	}
 	lifecycle := metering.LifecycleLogicalRequest
 	parentLeaseID := ""
@@ -145,17 +151,40 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 			in.Exposure.FactRefs = append([]metering.FactRef(nil), feFactRefs...)
 		}
 	}
-	if money, rated, rateErr := e.rateCustomerRequestExposure(ctx, in.Exposure.Quantities, e.now(), feFactIDs, feFactRefs); rateErr != nil {
+	var boundGen *snapshotgen.ExecutableGeneration
+	if e.SnapshotGeneration != nil {
+		if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+			exec.Retain()
+			boundGen = exec
+		}
+	}
+	if money, rated, rateErr := e.rateCustomerRequestExposureWithGen(ctx, boundGen, in.Exposure.Quantities, e.now(), feFactIDs, feFactRefs); rateErr != nil {
+		if boundGen != nil {
+			boundGen.Release()
+		}
 		return ctx, fmt.Errorf("executor: request authority rating: %w", rateErr)
 	} else if money.Present {
 		in.Exposure.Money = money
 		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
 	}
-	d, err := e.RequestCoordinator.Admit(ctx, in)
+	coord := e.RequestCoordinator
+	if boundGen != nil && boundGen.RequestCoord != nil {
+		coord = boundGen.RequestCoord
+	}
+	if coord == nil {
+		if boundGen != nil {
+			boundGen.Release()
+		}
+		return ctx, nil
+	}
+	d, err := coord.Admit(ctx, in)
 	if err != nil {
+		if boundGen != nil {
+			boundGen.Release()
+		}
 		return ctx, mapRequestAuthorityError(err)
 	}
-	e.mergeGenerationBoundVersions(&d)
+	e.mergeGenerationBoundVersionsFrom(boundGen, &d)
 	targets := leaseTargetsFromDecision(d.Lease)
 	leaseIDs := make([]string, 0, len(targets))
 	for _, t := range targets {
@@ -182,12 +211,7 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		RenewBefore:     d.Lease.RenewBefore,
 		LeaseTTL:        d.Lease.TTL,
 		FailureBehavior: d.Lease.FailureBehavior,
-	}
-	if e.SnapshotGeneration != nil {
-		if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
-			exec.Retain()
-			st.ExecutableGen = exec
-		}
+		ExecutableGen:   boundGen,
 	}
 	outCtx := withRequestAuthority(ctx, st)
 	e.startLeaseHeartbeat(outCtx, st)
@@ -251,14 +275,18 @@ func leaseTargetsFromDecision(ld authority.LeaseDecision) []leaseRenewTarget {
 }
 
 func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.Fact, rated ...economics.RatingResult) error {
-	if e == nil || e.RequestCoordinator == nil {
+	if e == nil {
 		return nil
 	}
 	st := requestAuthorityFrom(ctx)
 	if st == nil || st.Settled || st.Released {
 		return nil
 	}
-	err := e.RequestCoordinator.Settle(ctx, st.Decision.Stack, authority.RequestSettlement{
+	coord := e.requestCoordinatorFor(st)
+	if coord == nil {
+		return nil
+	}
+	err := coord.Settle(ctx, st.Decision.Stack, authority.RequestSettlement{
 		RequestID:     st.RequestID,
 		Handles:       st.Decision.Stack.Handles(),
 		Facts:         facts,
@@ -277,7 +305,7 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 	if len(ids) == 0 && st.LeaseID != "" {
 		ids = []string{st.LeaseID}
 	}
-	_ = e.RequestCoordinator.ReleaseLeases(ctx, ids, st.RequestID, "settled")
+	_ = coord.ReleaseLeases(ctx, ids, st.RequestID, "settled")
 	st.Settled = true
 	st.Released = true
 	if st.ExecutableGen != nil {
@@ -288,15 +316,19 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 }
 
 func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
-	if e == nil || e.RequestCoordinator == nil {
+	if e == nil {
 		return nil
 	}
 	st := requestAuthorityFrom(ctx)
 	if st == nil || st.Settled || st.Released {
 		return nil
 	}
+	coord := e.requestCoordinatorFor(st)
+	if coord == nil {
+		return nil
+	}
 	e.stopLeaseHeartbeat(st)
-	fails := e.RequestCoordinator.Release(ctx, st.Decision.Stack, st.RequestID)
+	fails := coord.Release(ctx, st.Decision.Stack, st.RequestID)
 	if len(fails) > 0 {
 		// Live release incomplete: keep Released=false and accept durable intents.
 		return e.acceptReleaseDurableIntents(ctx, st, fails)
@@ -305,6 +337,16 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 	if st.ExecutableGen != nil {
 		st.ExecutableGen.Release()
 		st.ExecutableGen = nil
+	}
+	return nil
+}
+
+func (e *Executor) requestCoordinatorFor(st *requestAuthorityState) *authoritycoord.RequestCoordinator {
+	if st != nil && st.ExecutableGen != nil && st.ExecutableGen.RequestCoord != nil {
+		return st.ExecutableGen.RequestCoord
+	}
+	if e != nil {
+		return e.RequestCoordinator
 	}
 	return nil
 }
@@ -420,6 +462,15 @@ func handlesByProviderFromStack(stack authoritycoord.CompensationStack) map[stri
 func boundVersionsForProvider(st *requestAuthorityState, providerID string) terminalwork.BoundVersions {
 	ver := terminalwork.BoundVersions{ProviderID: providerID}
 	if st == nil {
+		return ver
+	}
+	if st.ExecutableGen != nil {
+		ver.GenerationID = fmt.Sprintf("%d", st.ExecutableGen.ID)
+		if rid := strings.TrimSpace(st.ExecutableGen.RatingObjectID); rid != "" {
+			ver.RatingID = rid
+		} else if v := strings.TrimSpace(st.ExecutableGen.Version); v != "" {
+			ver.RatingID = v
+		}
 		return ver
 	}
 	for _, ref := range st.Decision.BoundVersions {

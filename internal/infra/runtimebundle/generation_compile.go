@@ -82,6 +82,9 @@ func PublishExecutableFromProduction(pub *snapshotgen.Publisher, cfg *config.Con
 	if err != nil {
 		return pub.CurrentExecutable(), err
 	}
+	if err := validateProviderRemovals(pub, gen); err != nil {
+		return pub.CurrentExecutable(), err
+	}
 	if prior := pub.Current(); prior != nil {
 		// Copy source-fetch metadata planes for compatibility views only.
 		// Executable State remains the contribution/enforcement posture (9.6, 12.1).
@@ -90,4 +93,58 @@ func PublishExecutableFromProduction(pub *snapshotgen.Publisher, cfg *config.Con
 		gen.Rating = prior.Rating
 	}
 	return pub.PublishExecutable(gen)
+}
+
+func validateProviderRemovals(pub *snapshotgen.Publisher, next *snapshotgen.ExecutableGeneration) error {
+	prior := pub.CurrentExecutable()
+	if prior == nil || next == nil {
+		return nil
+	}
+	nextIDs := providerIDSet(next)
+	for _, id := range providerIDs(prior) {
+		if _, ok := nextIDs[id]; ok {
+			continue
+		}
+		if !pub.CanRemoveProvider(id) {
+			return fmt.Errorf("runtimebundle: cannot remove provider %q while live or pending refs remain", id)
+		}
+	}
+	return nil
+}
+
+func providerIDs(g *snapshotgen.ExecutableGeneration) []string {
+	if g == nil {
+		return nil
+	}
+	out := make([]string, 0, len(g.RequestRegistrations)+len(g.AttemptRegistrations)+1)
+	seen := map[string]struct{}{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if g.ConcurrencyRegistration != nil {
+		add(g.ConcurrencyRegistration.Descriptor.ID)
+	}
+	for _, reg := range g.RequestRegistrations {
+		add(reg.Descriptor.ID)
+	}
+	for _, reg := range g.AttemptRegistrations {
+		add(reg.Descriptor.ID)
+	}
+	return out
+}
+
+func providerIDSet(g *snapshotgen.ExecutableGeneration) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, id := range providerIDs(g) {
+		out[id] = struct{}{}
+	}
+	return out
 }
