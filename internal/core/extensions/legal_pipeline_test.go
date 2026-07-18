@@ -18,10 +18,12 @@ var wantLegalPipelineOrder = []string{
 	extensions.StageRequestWide,
 	extensions.StagePreRequest,
 	extensions.StageRouteHinting,
+	extensions.StageCandidateAttemptTransform,
 	extensions.StageAttemptLifecycle,
 	extensions.StageStreamEventMutation,
 	extensions.StageToolEventReaction,
 	extensions.StageCompletionGating,
+	extensions.StageFinalStreamObservation,
 	extensions.StageTrafficObservation,
 	extensions.StageEgressEncoding,
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -41,47 +42,51 @@ type SecretGuardPlane struct {
 // or rebinding must publish a new snapshot (new [RequestRuntimeSnapshot] value and new executor
 // wiring from [github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle.Build]).
 type RequestRuntimeSnapshot struct {
-	hookBus            *hooks.Bus
-	state              state.Store
-	aux                auxiliary.Client
-	obs                traffic.Observer
-	usageObs           usage.Observer
-	raw                traffic.RawCaptureSink
-	ws                 workspace.Resolver
-	sessionOpeners     []session.Opener
-	toolCatalogFilters []toolcatalog.Filter
-	toolCallPolicies   []toolpolicy.Policy
-	toolCallFinalizers []toolcall.Finalizer
-	requestTransforms  []request.Transform
-	preRequestHandlers []prerequest.Handler
-	routeHintProviders []routehint.Provider
-	completionGates    []completion.Gate
-	trafficRedactors   []traffic.Redactor
-	secretGuardPlane   SecretGuardPlane
-	policyObserver     policydecision.Observer
-	timeoutBudget      TimeoutBudgetSource
-	timeoutGuard       *ProviderTimeoutGuard
-	gen                int64
+	hookBus                 *hooks.Bus
+	state                   state.Store
+	aux                     auxiliary.Client
+	obs                     traffic.Observer
+	usageObs                usage.Observer
+	raw                     traffic.RawCaptureSink
+	ws                      workspace.Resolver
+	sessionOpeners          []session.Opener
+	toolCatalogFilters      []toolcatalog.Filter
+	toolCallPolicies        []toolpolicy.Policy
+	toolCallFinalizers      []toolcall.Finalizer
+	requestTransforms       []request.Transform
+	preRequestHandlers      []prerequest.Handler
+	routeHintProviders      []routehint.Provider
+	completionGates         []completion.Gate
+	attemptTransforms       []request.AttemptTransform
+	streamObserverFactories []response.StreamObserverFactory
+	trafficRedactors        []traffic.Redactor
+	secretGuardPlane        SecretGuardPlane
+	policyObserver          policydecision.Observer
+	timeoutBudget           TimeoutBudgetSource
+	timeoutGuard            *ProviderTimeoutGuard
+	gen                     int64
 }
 
 // SnapshotOptions configures optional facades; zero value uses disabled placeholders.
 type SnapshotOptions struct {
-	State              state.Store
-	Aux                auxiliary.Client
-	TrafficObserver    traffic.Observer
-	UsageObserver      usage.Observer
-	RawCapture         traffic.RawCaptureSink
-	Workspace          workspace.Resolver
-	SessionOpeners     []session.Opener
-	ToolCatalogFilters []toolcatalog.Filter
-	ToolCallPolicies   []toolpolicy.Policy
-	ToolCallFinalizers []toolcall.Finalizer
-	RequestTransforms  []request.Transform
-	PreRequestHandlers []prerequest.Handler
-	RouteHintProviders []routehint.Provider
-	CompletionGates    []completion.Gate
-	TrafficRedactors   []traffic.Redactor
-	SecretGuardPlane   SecretGuardPlane
+	State                   state.Store
+	Aux                     auxiliary.Client
+	TrafficObserver         traffic.Observer
+	UsageObserver           usage.Observer
+	RawCapture              traffic.RawCaptureSink
+	Workspace               workspace.Resolver
+	SessionOpeners          []session.Opener
+	ToolCatalogFilters      []toolcatalog.Filter
+	ToolCallPolicies        []toolpolicy.Policy
+	ToolCallFinalizers      []toolcall.Finalizer
+	RequestTransforms       []request.Transform
+	PreRequestHandlers      []prerequest.Handler
+	RouteHintProviders      []routehint.Provider
+	CompletionGates         []completion.Gate
+	AttemptTransforms       []request.AttemptTransform
+	StreamObserverFactories []response.StreamObserverFactory
+	TrafficRedactors        []traffic.Redactor
+	SecretGuardPlane        SecretGuardPlane
 	// PolicyObserver receives normalized policy decision evidence. Nil defaults to a
 	// disabled no-op observer so deployments without policy evidence keep current request
 	// outcomes (requirements 7.6, 10.5).
@@ -133,6 +138,8 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 	preReqs := prerequest.MaterializeSorted(opts.PreRequestHandlers)
 	routeHints := slices.Clone(opts.RouteHintProviders)
 	compGates := slices.Clone(opts.CompletionGates)
+	attemptXforms := request.MaterializeAttemptsSorted(requireNonNilAttemptTransforms(opts.AttemptTransforms))
+	streamObs := response.MaterializeSorted(requireNonNilStreamObserverFactories(opts.StreamObserverFactories))
 	reds := traffic.MaterializeSortedRedactors(opts.TrafficRedactors)
 	plane := opts.SecretGuardPlane
 	// Snapshot owns cloning/sorting for secret guards (same contract as tool policies).
@@ -152,27 +159,29 @@ func NewRequestRuntimeSnapshot(bus *hooks.Bus, opts SnapshotOptions) *RequestRun
 		budget = DefaultTimeoutBudgetSource{}
 	}
 	return &RequestRuntimeSnapshot{
-		hookBus:            bus,
-		state:              st,
-		aux:                ax,
-		obs:                ob,
-		usageObs:           uob,
-		raw:                raw,
-		ws:                 ws,
-		sessionOpeners:     openers,
-		toolCatalogFilters: catalog,
-		toolCallPolicies:   policies,
-		toolCallFinalizers: finalizers,
-		requestTransforms:  transforms,
-		preRequestHandlers: preReqs,
-		routeHintProviders: routeHints,
-		completionGates:    compGates,
-		trafficRedactors:   reds,
-		secretGuardPlane:   plane,
-		policyObserver:     polObs,
-		timeoutBudget:      budget,
-		timeoutGuard:       NewProviderTimeoutGuard(),
-		gen:                opts.Generation,
+		hookBus:                 bus,
+		state:                   st,
+		aux:                     ax,
+		obs:                     ob,
+		usageObs:                uob,
+		raw:                     raw,
+		ws:                      ws,
+		sessionOpeners:          openers,
+		toolCatalogFilters:      catalog,
+		toolCallPolicies:        policies,
+		toolCallFinalizers:      finalizers,
+		requestTransforms:       transforms,
+		preRequestHandlers:      preReqs,
+		routeHintProviders:      routeHints,
+		completionGates:         compGates,
+		attemptTransforms:       attemptXforms,
+		streamObserverFactories: streamObs,
+		trafficRedactors:        reds,
+		secretGuardPlane:        plane,
+		policyObserver:          polObs,
+		timeoutBudget:           budget,
+		timeoutGuard:            NewProviderTimeoutGuard(),
+		gen:                     opts.Generation,
 	}
 }
 
@@ -313,6 +322,40 @@ func (s *RequestRuntimeSnapshot) CompletionGates() []completion.Gate {
 		return nil
 	}
 	return slices.Clone(s.completionGates)
+}
+
+// AttemptTransforms returns a defensive copy of frozen candidate attempt transforms (may be empty).
+func (s *RequestRuntimeSnapshot) AttemptTransforms() []request.AttemptTransform {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.attemptTransforms)
+}
+
+// StreamObserverFactories returns a defensive copy of frozen stream observer factories (may be empty).
+func (s *RequestRuntimeSnapshot) StreamObserverFactories() []response.StreamObserverFactory {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.streamObserverFactories)
+}
+
+func requireNonNilAttemptTransforms(in []request.AttemptTransform) []request.AttemptTransform {
+	for _, t := range in {
+		if t == nil {
+			panic("extensions: SnapshotOptions.AttemptTransforms contains nil entry")
+		}
+	}
+	return in
+}
+
+func requireNonNilStreamObserverFactories(in []response.StreamObserverFactory) []response.StreamObserverFactory {
+	for _, f := range in {
+		if f == nil {
+			panic("extensions: SnapshotOptions.StreamObserverFactories contains nil entry")
+		}
+	}
+	return in
 }
 
 // TrafficRedactors returns a defensive copy of frozen redactors for the traffic pipeline (may be empty).

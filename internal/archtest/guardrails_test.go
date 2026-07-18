@@ -118,7 +118,18 @@ var lineBudgets = []struct {
 	// Raised from 57550 to 57650 for Phase 1 follow-up: operator usage retention on
 	// incurred loser/swallowed paths plus metering/plane extraction of pure
 	// dual-plane helpers.
-	{"internal/core", 57650},
+	// Raised from 56400 (main lineage) for reasoning-output-preservation Phase 2.3:
+	// RunCandidateAttemptTransformStage + openPlannedCandidate wiring / post-hook rederive.
+	// Raised from 56900 for Phase 2.4 final_stream_observation runner + recv/gate lifecycle.
+	// Raised from 57200 for Phase 2.4 repair: race-safe session claim, CompletionGateChainResult,
+	// central emitClientFacingObserved (recoverDrain/synthesized usage), parallel excluded nil-guard.
+	// Raised from 57250 to 57380 for Phase 2.5 safe generic stage telemetry
+	// (bounded label collapse, count/byte helpers, generic-port inventory posture).
+	// Raised to 57400 for early Recv ctx-cancel remediation (nil-inner Cancelled
+	// taxonomy + swallowed release; nil-executor-safe cancel path).
+	// Combined dual-plane Phase 1 + reasoning-preservation on merge into main.
+	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
+	{"internal/core", 58850},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

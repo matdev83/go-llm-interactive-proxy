@@ -179,22 +179,68 @@ func userMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
 }
 
 func assistantMessageParam(m lipapi.Message) (anthropic.MessageParam, error) {
-	for _, p := range m.Parts {
-		if p.Kind != lipapi.PartText {
-			return anthropic.MessageParam{}, fmt.Errorf("anthropic: assistant message may only contain text parts in this adapter")
-		}
-	}
 	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.Parts))
 	for _, p := range m.Parts {
-		if strings.TrimSpace(p.Text) == "" {
-			continue
+		switch p.Kind {
+		case lipapi.PartText:
+			if strings.TrimSpace(p.Text) == "" {
+				continue
+			}
+			blocks = append(blocks, anthropic.NewTextBlock(p.Text))
+		case lipapi.PartReasoning:
+			blk, err := reasoningPartToAnthropicBlock(p)
+			if err != nil {
+				return anthropic.MessageParam{}, err
+			}
+			blocks = append(blocks, blk)
+		case lipapi.PartJSON:
+			if strings.TrimSpace(p.ToolCallID) == "" || strings.TrimSpace(p.ToolName) == "" {
+				return anthropic.MessageParam{}, fmt.Errorf("anthropic: assistant tool_use part requires tool_call_id and tool_name")
+			}
+			var input any
+			if len(p.Content) > 0 {
+				if err := json.Unmarshal(p.Content, &input); err != nil {
+					return anthropic.MessageParam{}, fmt.Errorf("anthropic: tool_use input: %w", err)
+				}
+			} else {
+				input = map[string]any{}
+			}
+			blocks = append(blocks, anthropic.NewToolUseBlock(p.ToolCallID, input, p.ToolName))
+		default:
+			return anthropic.MessageParam{}, fmt.Errorf("anthropic: unsupported assistant part kind %q", p.Kind)
 		}
-		blocks = append(blocks, anthropic.NewTextBlock(p.Text))
 	}
 	if len(blocks) == 0 {
 		return anthropic.MessageParam{}, fmt.Errorf("anthropic: assistant message is empty after trimming")
 	}
 	return anthropic.NewAssistantMessage(blocks...), nil
+}
+
+func reasoningPartToAnthropicBlock(p lipapi.Part) (anthropic.ContentBlockParamUnion, error) {
+	if p.Reasoning == nil {
+		return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: reasoning part missing payload")
+	}
+	d := lipapi.NormalizeReasoningDialect(p.Reasoning.Dialect)
+	switch d {
+	case lipapi.ReasoningDialectAnthropicThinkingV1:
+		// Preserve empty signatures exactly; never fabricate.
+		return anthropic.NewThinkingBlock(p.Reasoning.Signature, p.Reasoning.Text), nil
+	case lipapi.ReasoningDialectAnthropicRedactedThinkingV1:
+		data := ""
+		if len(p.Reasoning.Opaque) > 0 {
+			var opaque struct {
+				Type string `json:"type"`
+				Data string `json:"data"`
+			}
+			if err := json.Unmarshal(p.Reasoning.Opaque, &opaque); err != nil {
+				return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: redacted_thinking opaque: %w", err)
+			}
+			data = opaque.Data
+		}
+		return anthropic.NewRedactedThinkingBlock(data), nil
+	default:
+		return anthropic.ContentBlockParamUnion{}, fmt.Errorf("anthropic: reasoning dialect %q not supported for anthropic replay", d)
+	}
 }
 
 func userPartsToBlocks(parts []lipapi.Part) ([]anthropic.ContentBlockParamUnion, error) {
