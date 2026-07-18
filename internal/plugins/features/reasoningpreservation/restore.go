@@ -12,6 +12,7 @@ type RestoreResult struct {
 	RestoredBytes int
 	Exclude       bool
 	ReasonCode    string
+	Outcomes      []SafeOutcome
 }
 
 type RestoreInput struct {
@@ -31,12 +32,13 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 	artifacts := cloneArtifacts(in.Artifacts)
 	if in.Action == ActionObserve {
 		if err := validateArtifacts(artifacts); err != nil {
-			return RestoreResult{ReasonCode: "state_error"}, nil
+			return RestoreResult{ReasonCode: "state_error", Outcomes: []SafeOutcome{OutcomeStateError}}, nil
 		}
-		if _, err := ClassifyAssistantTurns(in.Call.Messages, artifacts); err != nil {
-			return RestoreResult{ReasonCode: "state_error"}, nil
+		classified, err := ClassifyAssistantTurns(in.Call.Messages, artifacts)
+		if err != nil {
+			return RestoreResult{ReasonCode: "state_error", Outcomes: []SafeOutcome{OutcomeStateError}}, nil
 		}
-		return RestoreResult{}, nil
+		return RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}, nil
 	}
 	if err := validateArtifacts(artifacts); err != nil {
 		return applyStateErrorPolicy(in.OnStateError)
@@ -46,7 +48,7 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		return applyStateErrorPolicy(in.OnStateError)
 	}
 	if !in.Eligible {
-		return RestoreResult{}, nil
+		return RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}, nil
 	}
 	if in.Action != ActionRestore {
 		return RestoreResult{}, fmt.Errorf("%s: unknown action %q", ID, in.Action)
@@ -62,6 +64,7 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		art      TurnArtifact
 	}
 	var toRestore []pending
+	restoredIDs := map[string]struct{}{}
 	assistantIdx := 0
 	for i, m := range in.Call.Messages {
 		if m.Role != lipapi.RoleAssistant {
@@ -82,7 +85,7 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		toRestore = append(toRestore, pending{msgIndex: i, art: art})
 	}
 	if len(toRestore) == 0 {
-		return RestoreResult{}, nil
+		return RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}, nil
 	}
 
 	supported := dialectSet(in.ReplaySupport.Dialects)
@@ -90,7 +93,11 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		for _, pr := range p.art.Reasoning {
 			d := lipapi.NormalizeReasoningDialect(pr.Part.Reasoning.Dialect)
 			if _, ok := supported[d]; !ok {
-				return applyUnrepresentablePolicy(in.OnUnrepresentable)
+				res, err := applyUnrepresentablePolicy(in.OnUnrepresentable)
+				if res.ReasonCode != "" && len(res.Outcomes) == 0 {
+					res.Outcomes = []SafeOutcome{OutcomeUnrepresentable}
+				}
+				return res, err
 			}
 		}
 	}
@@ -107,6 +114,7 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		work.Messages[p.msgIndex].Parts = newParts
 		restoredCount++
 		restoredBytes += bytes
+		restoredIDs[p.art.ID] = struct{}{}
 	}
 	if err := work.Validate(); err != nil {
 		return applyStateErrorPolicy(in.OnStateError)
@@ -116,15 +124,39 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 		Mutated:       true,
 		RestoredCount: restoredCount,
 		RestoredBytes: restoredBytes,
+		Outcomes:      outcomesFromClassifications(classified, restoredIDs),
 	}, nil
+}
+
+func outcomesFromClassifications(classified []ClassifiedTurn, restoredIDs map[string]struct{}) []SafeOutcome {
+	out := make([]SafeOutcome, 0, len(classified))
+	for _, c := range classified {
+		switch c.Classification {
+		case ClassMissing:
+			if _, ok := restoredIDs[c.ArtifactID]; ok {
+				out = append(out, OutcomeRestored)
+			} else {
+				out = append(out, OutcomeMissing)
+			}
+		case ClassPreserved:
+			out = append(out, OutcomePreserved)
+		case ClassConflicting:
+			out = append(out, OutcomeConflicting)
+		case ClassAmbiguous:
+			out = append(out, OutcomeAmbiguous)
+		case ClassUnmatched:
+			out = append(out, OutcomeUnmatched)
+		}
+	}
+	return out
 }
 
 func applyUnrepresentablePolicy(policy string) (RestoreResult, error) {
 	switch policy {
 	case PolicyReject, "":
-		return RestoreResult{Exclude: true, ReasonCode: "unrepresentable_replay"}, nil
+		return RestoreResult{Exclude: true, ReasonCode: "unrepresentable_replay", Outcomes: []SafeOutcome{OutcomeUnrepresentable}}, nil
 	case PolicyLogSkip:
-		return RestoreResult{ReasonCode: "unrepresentable"}, nil
+		return RestoreResult{ReasonCode: "unrepresentable", Outcomes: []SafeOutcome{OutcomeUnrepresentable}}, nil
 	default:
 		return RestoreResult{}, fmt.Errorf("%s: unknown on_unrepresentable policy", ID)
 	}
@@ -133,9 +165,9 @@ func applyUnrepresentablePolicy(policy string) (RestoreResult, error) {
 func applyStateErrorPolicy(policy string) (RestoreResult, error) {
 	switch policy {
 	case PolicyReject:
-		return RestoreResult{Exclude: true, ReasonCode: "state_error"}, nil
+		return RestoreResult{Exclude: true, ReasonCode: "state_error", Outcomes: []SafeOutcome{OutcomeStateError}}, nil
 	case PolicyLogSkip, "":
-		return RestoreResult{ReasonCode: "state_error"}, nil
+		return RestoreResult{ReasonCode: "state_error", Outcomes: []SafeOutcome{OutcomeStateError}}, nil
 	default:
 		return RestoreResult{}, fmt.Errorf("%s: unknown on_state_error policy", ID)
 	}

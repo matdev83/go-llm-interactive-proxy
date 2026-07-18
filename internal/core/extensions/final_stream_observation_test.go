@@ -99,6 +99,7 @@ func (failObs) Finish(context.Context, response.StreamOutcome) error {
 type failClosedObs struct{}
 
 func (failClosedObs) Observe(context.Context, lipapi.Event) error { return errors.New("observe fail") }
+
 func (failClosedObs) Finish(context.Context, response.StreamOutcome) error {
 	return nil
 }

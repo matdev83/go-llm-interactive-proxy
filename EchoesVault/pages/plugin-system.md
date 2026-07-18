@@ -53,6 +53,7 @@ Consume `pkg/lipsdk` facades. No `internal/core` imports.
 
 - **No-op compatibility hooks:** `submitnoop/`, `partsnoop/`, `toolreactornoop/`
 - **Reference/proof features:** `refsubmit/`, `refparts/`, `reftool/`, `reftoolpolicy/`, `refautoappend/`, `refworkspaceguard/`, `reftraffictranscript/`, `refverifier/`, `prerequestpolicy/`, `codexclientcompat/`
+- **Product features (examples):** `secretsguard/`, `toolcallrepair/`, `reasoningpreservation/` (see [reasoning-output-preservation](reasoning-output-preservation.md))
 
 ## Extension Pipeline
 

@@ -66,11 +66,30 @@ Production runners, merge/snapshot wiring, feature restore behavior, and adapter
 | `internal/plugins/backends/protocols/geminigenerate` | `TestStreamParamsForCall_assistantReasoningReplayUnsupported_RED`, `TestStreamParamsForCall_noPositiveReasoningReplayGolden_RED` | Phase 4.5 explicit `reasoning_replay` unsupported classification |
 | `internal/plugins/frontends/parity` | `TestVisibleThinkerReasoning_nonStreamEncodesLegally/openailegacy` | Phase 4.5 nonstream chat reasoning parity |
 
+## Fulfilled by Phase 5 (now green)
+
+| Package | Tests / pattern | Fulfilled by |
+|---|---|---|
+| `internal/core/runtime` | `TestPhase5_failoverIsolation*`, `TestPhase5_allCandidatesUnrepresentable*`, `TestPhase5_realBundleStateErrorExcludesCandidate`, `TestPhase5_realBundleRestoredContextLimitExclusion` | Phase 5.1 sequential/recv failover isolation + real-bundle state_error/context-limit |
+| `internal/core/runtime` | `TestPhase5_parallelWinnerOnlyPersistence`, `TestPhase5_weightedIndependentClonesAndDialectEligibility`, `TestPhase5_parallelCancellationDiscardsPending`, `TestPhase5_winnerRestoredReasoningPrepended` | Phase 5.2 weighted/parallel winner-only + cancel/prepend |
+| `internal/core/runtime` | `TestPhase5_responseHookAndGateLifecycle*` (post-hook anchor), Finish exactly-once, `TestPhase5_observerFailurePreservesCommittedOutputNoRetry` | Phase 5.3 hook/gate/terminal commit-discard |
+| `internal/plugins/features/reasoningpreservation` + `internal/core/runtime` | `TestPhase5_clientHintSpoof*`, `TestPhase5_opaqueAliasingRace`, partition/TTL/restart/cross-instance/sticky tests | Phase 5.4 authoritative isolation / process-local posture |
+| `internal/plugins/features/reasoningpreservation` + `internal/core/runtime` | `TestPhase5_safeInventory*`, `TestPhase5_telemetryRecords*`, `TestPhase5_disabled*` (empty snapshot/merge occupancy), `TestPhase5_noProductionProbeGlobals`, `BenchmarkPhase5_disabledRuntimeNoFeatureParticipants` | Phase 5.5 privacy inventory + fixed outcomes + disabled non-interference |
+
+## Fulfilled by Phase 6 (docs / gates / handoff)
+
+| Package / artifact | Evidence | Fulfilled by |
+|---|---|---|
+| `docs/`, `config/examples/` | Operator guide + observe/restore examples + release checklist | Phase 6.1 |
+| `Makefile` / `docs/release-gates.md` / parity / fuzz | `FuzzComputeAnchor`, `FuzzDecodeConfig`, VisibleThinker parity, `make parity-checks` | Phase 6.2 |
+| Repository gates | `make quality-checks`, lint, `make qa` OK after Postgres ledger unique-ID isolation; race skipped on Windows; full `make test-fuzz` not claimed | Phase 6.3 |
+| Handoff | PR split + review focus + issue #157 / spec links | Phase 6.4 |
+
 ## Intentional RED (must fail for the semantic gap named below)
 
 | Package | Tests / pattern | Why RED |
 |---|---|---|
-| _(none remaining for Phase 4 adapter mapping)_ | — | Phase 5 routing/lifecycle/isolation proofs remain |
+| _(none remaining)_ | — | Spec implementation complete; no intentional RED gaps |
 
 ## Intentionally GREEN characterizations / contract locks (not RED evidence)
 

@@ -16,15 +16,24 @@ import (
 type StreamObserverFactory struct {
 	cfg      Config
 	store    TurnStore
+	tel      *Telemetry
 	id       string
 	order    int
 	lastDiag atomic.Value
 }
 
-func NewStreamObserverFactory(cfg Config, store TurnStore) *StreamObserverFactory {
+func NewStreamObserverFactory(cfg Config, store TurnStore, tel ...*Telemetry) *StreamObserverFactory {
+	var t *Telemetry
+	if len(tel) > 0 {
+		t = tel[0]
+	}
+	if t == nil {
+		t = NewTelemetry()
+	}
 	f := &StreamObserverFactory{
 		cfg:   cfg,
 		store: store,
+		tel:   t,
 		id:    ID + "-observer",
 		order: 0,
 	}
@@ -46,6 +55,9 @@ func (f *StreamObserverFactory) LastSafeDiagnostic() string {
 }
 
 func (f *StreamObserverFactory) recordOutcome(outcome SafeOutcome, counts map[string]int) {
+	if f.tel != nil {
+		f.tel.Record(outcome, counts)
+	}
 	diag, err := FormatSafeDiagnostic(outcome, "", counts)
 	if err != nil {
 		diag, _ = ProjectSafeError(err)
@@ -229,10 +241,17 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 		CreatedAt:      o.now().UTC(),
 		ReasoningBytes: reasoningBytes,
 	}
-	if _, err := o.store.Append(ctx, partition, art); err != nil {
+	sum, err := o.store.Append(ctx, partition, art)
+	if err != nil {
 		o.factory.recordOutcome(OutcomeStateError, map[string]int{"count": 1})
 		o.clearPendingLocked()
 		return nil
+	}
+	if sum.EvictedTurns > 0 || sum.ExpiredTurns > 0 || sum.EvictedBytes > 0 || sum.ExpiredBytes > 0 {
+		o.factory.recordOutcome(OutcomeEvicted, map[string]int{
+			"count": sum.EvictedTurns + sum.ExpiredTurns,
+			"bytes": sum.EvictedBytes + sum.ExpiredBytes,
+		})
 	}
 	o.factory.recordOutcome(OutcomeObserved, map[string]int{"count": 1, "bytes": reasoningBytes})
 	o.clearPendingLocked()
