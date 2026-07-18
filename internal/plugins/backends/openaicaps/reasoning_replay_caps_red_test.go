@@ -41,7 +41,6 @@ func TestForHostedModel_kimiMoonshotClaimsReasoningReplay_RED(t *testing.T) {
 		{model: "kimi-k2-preview", prefixes: []string{"openai-responses"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.model, func(t *testing.T) {
 			t.Parallel()
 			c := openaicaps.ForHostedModelCompatibleReplay(tc.model, tc.prefixes)

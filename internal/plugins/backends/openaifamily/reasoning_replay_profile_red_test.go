@@ -115,7 +115,6 @@ func TestReasoningReplayProfile_flavorExactDialectSupport_RED(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			gotFlavor := openaifamily.ResolveFlavor(tc.call)
@@ -211,7 +210,6 @@ func TestReasoningReplayProfile_kimiMoonshotExactFlavorAndModel_RED(t *testing.T
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			call := callWithFlavor(tc.flavor, tc.dialect)

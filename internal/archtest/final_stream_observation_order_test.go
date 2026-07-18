@@ -63,7 +63,7 @@ func TestDispatchClientFacingEvent_finalStreamObservationAfterHooksBeforeEmit(t 
 		t.Fatalf("RED: dispatchClientFacingEvent must call %s or %s after RunResponsePartHooks and before client emit",
 			runFinalStreamObservationStage, emitClientFacingObserved)
 	}
-	if !(hooksPos < obsPos && obsPos <= emitPos) {
+	if hooksPos >= obsPos || obsPos > emitPos {
 		t.Fatalf("want RunResponsePartHooks < observation/emit <= client emit; positions hooks=%d obs=%d emit=%d",
 			hooksPos, obsPos, emitPos)
 	}
@@ -98,7 +98,7 @@ func TestHandleGatedPath_finalStreamObservationBeforeEmit(t *testing.T) {
 		t.Fatalf("RED: handleGatedPath must call %s or %s after gate resolution and before client emit",
 			runFinalStreamObservationStage, emitClientFacingObserved)
 	}
-	if !(gatePos < obsPos && obsPos <= emitPos) {
+	if gatePos >= obsPos || obsPos > emitPos {
 		t.Fatalf("want gate-resolution < observation/emit <= client emit; positions gate=%d obs=%d emit=%d",
 			gatePos, obsPos, emitPos)
 	}
@@ -126,7 +126,7 @@ func TestHandleResponseFinishedPath_finalStreamObservationBeforeEmit(t *testing.
 		t.Fatalf("RED: handleResponseFinishedPath must call %s or %s before client emit so success_released observes released response_finished",
 			runFinalStreamObservationStage, emitClientFacingObserved)
 	}
-	if !(obsPos <= emitPos) {
+	if obsPos > emitPos {
 		t.Fatalf("want observation/emit before client release; obs=%d emit=%d", obsPos, emitPos)
 	}
 }
@@ -136,6 +136,7 @@ func TestRuntimeFinalStreamOutcomes_freezeGateReplacedAndSuccessReleased(t *test
 	root := repoRoot(t)
 	path := filepath.Join(root, "internal", "core", "runtime")
 	fset := token.NewFileSet()
+	//nolint:staticcheck // SA1019: intentional lightweight AST scan of one package dir
 	pkgs, err := parser.ParseDir(fset, path, func(info os.FileInfo) bool {
 		name := info.Name()
 		return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
