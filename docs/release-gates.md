@@ -7,8 +7,8 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 | Gate | Criterion | Command |
 |------|-----------|---------|
 | Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...`; see [conformance-matrix-evidence.md](conformance-matrix-evidence.md)) |
-| Race (Req. 14.6) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); on Windows `make test-race` is a no-op (race disabled locally) |
-| Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` (see budgets) |
+| Race (Req. 14.6) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); on Windows `make test-race` is a no-op (race disabled locally). Not part of PR `qa.yml`. |
+| Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` locally; nightly CI via `.github/workflows/race-fuzz-nightly.yml`. Not part of PR `qa.yml`. |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
 
 ## API parity (LLM surfaces)
@@ -29,7 +29,7 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 
 ## Fuzz tiers
 
-**Tier 1 (release / CI):** explicit targets below (`make test-fuzz`). Each `go test -fuzz=...` uses a trailing `$` on the fuzz name regex so only one fuzz runs per package when multiple `Fuzz*` exist. CI runs each with the same `FUZZTIME` (default `500ms` locally; override e.g. `FUZZTIME=3s make release-gates`).
+**Tier 1 (release / nightly CI):** explicit targets below (`make test-fuzz`). Each `go test -fuzz=...` uses a trailing `$` on the fuzz name regex so only one fuzz runs per package when multiple `Fuzz*` exist. Nightly CI runs each with the same `FUZZTIME` (default `500ms` locally; override e.g. `FUZZTIME=3s make release-gates`).
 
 | Fuzz function | Package | Role |
 |---------------|---------|------|
@@ -75,7 +75,8 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 ## Time budget
 
 - Local default: `FUZZTIME=500ms` per target (wall time scales with the number of rows in the table above).
-- CI: `.github/workflows/qa.yml` sets `FUZZTIME=6s` per target for `make test-fuzz` (raise over ad-hoc local smoke when validating merges).
+- Nightly CI: `.github/workflows/race-fuzz-nightly.yml` sets `FUZZTIME=6s` per target for `make test-fuzz` (raise over ad-hoc local smoke when validating releases).
+- PR CI (`.github/workflows/qa.yml`) does **not** run race or Tier-1 fuzz; it keeps merge feedback fast (quality, postgres authority, unit/integration, lint, vuln). PRs that change no `*.go` files skip the suite; the required `qa` gate still succeeds.
 
 ## Fuzz seed corpus (committed)
 
@@ -86,8 +87,8 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 
 ## Single entry point
 
-- `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on CI (`bash scripts/race-check.sh --strict`; Windows skips race via `scripts/race-check.ps1`).
-- Full QA remains `make qa` (quality + unit tests + lint + vuln). CI also runs race, lint, and vuln as separate steps (see `.github/workflows/qa.yml`).
+- `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on nightly CI (`bash scripts/race-check.sh --strict` in `.github/workflows/race-fuzz-nightly.yml`; Windows skips race via `scripts/race-check.ps1`).
+- Full local QA remains `make qa` (quality + unit tests + lint + vuln). PR CI runs quality, postgres authority, tagged unit tests, lint, and vuln (see `.github/workflows/qa.yml`). Race and Tier-1 fuzz run on the nightly workflow (and via `workflow_dispatch`).
 
 ## Dual-plane economics and concurrency (feature gates)
 
@@ -99,7 +100,7 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Shared checkpoint contract | Supported frontend `Operation` values share the same executor frontend-ingress checkpoint boundary/lifecycle | `go test ./internal/core/runtime/ -run SharedCheckpointAcrossFrontend` |
 | Parallel race benches (16.6) | Parallel routing under authority with 2/4/8 legs | `go test ./internal/core/runtime/ -run '^$' -bench BenchmarkParallelRaceLegsAuthority` |
 | Critical fuzz | Existing Tier-1 protocol/decode fuzz smoke (not dual-plane fact/correction fuzz) | `make test-fuzz` or `make release-gates` |
-| Race (17.9) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); Windows `make test-race` is a documented no-op |
+| Race (17.9) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); Windows `make test-race` is a documented no-op |
 | PostgreSQL direct runtime (9.9, 17.9) | Cross-instance durable authority, lease, and journal proofs through a direct/admin-capable endpoint | `make test-authority-postgres-direct` with `LIP_TEST_POSTGRES_DSN` |
 | PostgreSQL migrations (18.9-18.10) | Explicit admin migration followed by read-only schema verification | `make test-postgres-migrations`; prefers `LIP_MIGRATION_POSTGRES_DSN`, then test admin/runtime DSNs |
 | PostgreSQL aggregate | Migration, direct runtime, and pooled runtime gates all pass | `make test-authority-postgres` |
@@ -112,4 +113,4 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Explicit non-goals (17.8) | No web GUI, payments, invoices, tax, SSO/SAML/SCIM, CSP, or compression algorithms in this feature | design / requirements exclusions |
 | Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
 
-Do **not** claim Windows race-green without Linux/CI evidence. Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.
+Do **not** claim Windows race-green without Linux evidence (local or nightly CI). Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.
