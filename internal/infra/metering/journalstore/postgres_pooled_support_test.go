@@ -27,9 +27,51 @@ var (
 	pooledJournalRuntimeErr  error
 	pooledJournalSharedGuard = testkit.NewRuntimeSQLGuard()
 	// pooledJournalTestMu serializes shared-pool tests so Reset/Assert cannot cross-talk
-	// if a test accidentally calls t.Parallel().
-	pooledJournalTestMu sync.Mutex
+	// if a test accidentally calls t.Parallel(). Re-entrant for the same *testing.T so
+	// open + openPeer (store_id_isolation) does not deadlock.
+	pooledJournalTestMu reentrantTBMutex
 )
+
+// reentrantTBMutex serializes tests that share package-level pooled runtime
+// state, while allowing the same *testing.T to nest acquire (e.g. open + openPeer).
+type reentrantTBMutex struct {
+	mu    sync.Mutex
+	meta  sync.Mutex
+	owner *testing.T
+	depth int
+}
+
+func (r *reentrantTBMutex) Lock(t *testing.T) {
+	t.Helper()
+	r.meta.Lock()
+	if r.owner == t {
+		r.depth++
+		r.meta.Unlock()
+		t.Cleanup(r.release)
+		return
+	}
+	r.meta.Unlock()
+
+	r.mu.Lock()
+	r.meta.Lock()
+	r.owner = t
+	r.depth = 1
+	r.meta.Unlock()
+	t.Cleanup(r.release)
+}
+
+func (r *reentrantTBMutex) release() {
+	r.meta.Lock()
+	r.depth--
+	done := r.depth == 0
+	if done {
+		r.owner = nil
+	}
+	r.meta.Unlock()
+	if done {
+		r.mu.Unlock()
+	}
+}
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -89,8 +131,7 @@ func sharedPooledJournalRuntime(t *testing.T, runtimeDSN string) *bun.DB {
 
 func openSharedPooledJournalStore(t *testing.T, adminDSN, runtimeDSN, storeID string) (*journalstore.DurableStore, *testkit.RuntimeSQLGuard) {
 	t.Helper()
-	pooledJournalTestMu.Lock()
-	t.Cleanup(pooledJournalTestMu.Unlock)
+	pooledJournalTestMu.Lock(t)
 	ensurePooledJournalSchema(t, adminDSN)
 	t.Cleanup(func() {
 		testkit.CleanupPostgresStoreByID(t, adminDSN, storeID, testkit.PostgresComponentJournal)

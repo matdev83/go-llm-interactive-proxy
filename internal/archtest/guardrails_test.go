@@ -134,7 +134,12 @@ var lineBudgets = []struct {
 	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
 	// Phase 2 + reasoning-preservation combined after merge into main: 59500
 	// (main 58850 + Phase 2 +650); post-merge measured 59256.
-	{"internal/core", 59500},
+	// Raised from 59500 to 59800 for dual-plane Phase 3 durable metering journal:
+	// ingress checkpoint producers, control-plane metering usage bridge/projection,
+	// and reconstruction seams (retarget onto main Phase 1+2 + reasoning; measured
+	// 59629). Cap keeps ~171 lines of headroom. Prefer further decomposition over
+	// another raise.
+	{"internal/core", 59800},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

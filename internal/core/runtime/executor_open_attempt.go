@@ -464,8 +464,8 @@ func (e *Executor) openPlannedCandidate(
 			ALegID:       p.aLegID,
 			BackendID:    strings.TrimSpace(c.Primary.Backend),
 			Model:        strings.TrimSpace(c.Primary.Model),
-			CheckpointID: "be-ingress:" + bleg.BLegID,
-			StreamID:     "be-ingress:" + bleg.BLegID,
+			CheckpointID: "operator-attempt:" + bleg.BLegID,
+			StreamID:     "operator-attempt:" + bleg.BLegID,
 			TraceID:      strings.TrimSpace(p.traceID),
 			Now:          e.now(),
 		}); cerr != nil {

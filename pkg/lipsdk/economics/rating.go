@@ -35,6 +35,7 @@ type RatingRequest struct {
 	Quantities  []metering.Quantity          `json:"quantities,omitempty"`
 	Output      ConservativeOutputAssumption `json:"output,omitzero"`
 	FactIDs     []string                     `json:"fact_ids,omitempty"`
+	FactRefs    []metering.FactRef           `json:"fact_refs,omitempty"`
 	At          time.Time                    `json:"at,omitzero"`
 }
 

@@ -26,9 +26,17 @@ type settleRecordingRequestProvider struct {
 
 type failingMeteringRecorder struct {
 	err error
+	// failBoundary when set limits Append failures to that boundary (nil fails all).
+	failBoundary *metering.Boundary
 }
 
-func (r *failingMeteringRecorder) Append(context.Context, metering.Fact) error {
+func (r *failingMeteringRecorder) Append(_ context.Context, fact metering.Fact) error {
+	if r.err == nil {
+		return nil
+	}
+	if r.failBoundary != nil && fact.Boundary != *r.failBoundary {
+		return nil
+	}
 	return r.err
 }
 
@@ -187,7 +195,11 @@ func TestSettleRequestAuthority_AppendFailureRemainsRetryable(t *testing.T) {
 	t.Parallel()
 
 	prov := &settleRecordingRequestProvider{id: "quota"}
-	recorder := &failingMeteringRecorder{err: errors.New("journal unavailable")}
+	feEgress := metering.BoundaryFrontendEgress
+	recorder := &failingMeteringRecorder{
+		err:          errors.New("journal unavailable"),
+		failBoundary: &feEgress,
+	}
 	ex := &Executor{AccountingRuntime: AccountingRuntime{MeteringRecorder: recorder}}
 	ex.Now = func() time.Time { return time.Unix(50, 0).UTC() }
 	ex.RequestCoordinator = &authoritycoord.RequestCoordinator{

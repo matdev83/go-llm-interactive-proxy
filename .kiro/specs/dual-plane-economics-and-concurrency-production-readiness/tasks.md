@@ -117,7 +117,7 @@
 
 ## Phase 3 — Complete the Durable Four-Boundary Metering Journal
 
-- [ ] 3.1 Add red identity, ingress, correction, and isolation store contracts
+- [x] 3.1 Add red identity, ingress, correction, and isolation store contracts
   - Define deterministic replay tests across process restart, duplicate/conflicting identity tests, store-ID isolation, signed correction rules, same-stream target checks, cycle rejection, and full customer/operator stream reconstruction.
   - Run the same contracts against memory, SQLite, direct PostgreSQL, and transaction-pooled PostgreSQL where supported.
   - **Deliverable:** journal deficiencies fail before schema or producer changes.
@@ -127,7 +127,7 @@
   - _Depends: Phase 2_
   - _Validation: focused aggregate, reconcile, memory/SQLite/PostgreSQL journal tests_
 
-- [ ] 3.2 Implement deterministic event identity and strict fact validation
+- [x] 3.2 Implement deterministic event identity and strict fact validation
   - Add identity version, lifecycle ID, boundary, source event kind, source ID, revision, and stable sequence semantics.
   - Validate perspective/boundary/lifecycle combinations, quantity/money presence, nonnegative ordinary facts, signed corrections, currency, versions, and duplicate semantics.
   - **Deliverable:** the same economic event produces the same key after retry/restart, and conflicting facts fail integrity checks.
@@ -137,7 +137,7 @@
   - _Depends: 3.1_
   - _Validation: public fact/quantity tests, identity property tests, and fuzzing_
 
-- [ ] 3.3 Persist customer-request and operator-attempt ingress facts
+- [x] 3.3 Persist customer-request and operator-attempt ingress facts
   - Persist trusted-scope frontend ingress before request authority and final backend ingress before rating/attempt authority.
   - Use one customer stream per logical request and one operator stream per attempt.
   - Pass durable fact references into rating and reservation inputs; fail closed when strict required ingress evidence cannot persist.
@@ -148,7 +148,7 @@
   - _Depends: 1.4, 3.2_
   - _Validation: runtime ingress persistence, scope binding, rating-reference, and failure-posture tests_
 
-- [ ] 3.4 Implement metering schema V2 and deterministic correction aggregation
+- [x] 3.4 Implement metering schema V2 and deterministic correction aggregation
   - Add composite store-scoped identity, identity/revision columns, supersession relation, bounded indexes, and additive direct/admin migrations.
   - Update append conflict resolution and queries to include `store_id`.
   - Apply cumulative, correction, and authoritative replacement semantics without erasing unrelated components or immutable history.
@@ -159,7 +159,7 @@
   - _Depends: 3.1–3.3_
   - _Validation: migration, append-race, correction, restart, direct PostgreSQL, and pooled PostgreSQL tests_
 
-- [ ] 3.5 Add compatibility projections, bounded queries, and restart reconstruction
+- [x] 3.5 Add compatibility projections, bounded queries, and restart reconstruction
   - Preserve legacy token-ledger/control-plane views where representable and mark historical rows without ingress facts explicitly incomplete.
   - Add indexed filters for perspective, boundary, lifecycle, correlation, time, source, authority, and identity version.
   - Reconstruct customer usage, operator usage/cost, routing overhead, and compression-savings inputs from facts alone.

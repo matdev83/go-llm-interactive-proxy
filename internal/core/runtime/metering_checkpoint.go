@@ -32,6 +32,15 @@ func meteringHolderFrom(ctx context.Context) *checkpoint.RequestHolder {
 	return h
 }
 
+// trustedFrontendIngressScope prefers the immutable FE-ingress trusted scope over
+// later untrusted request metadata (requirement 5.6 / task 3.3).
+func trustedFrontendIngressScope(ctx context.Context, fallback scope.PrincipalScopeView) scope.PrincipalScopeView {
+	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil {
+		return holder.FrontendIngress.Public.Scope.Clone()
+	}
+	return fallback
+}
+
 // captureFrontendIngressBeforeSubmit stores one immutable FE-ingress checkpoint
 // before submit hooks mutate the working call (requirement 2.1).
 func captureFrontendIngressBeforeSubmit(
@@ -57,8 +66,8 @@ func captureFrontendIngressBeforeSubmit(
 		Call:         work,
 		Scope:        reqScope,
 		FrontendID:   frontendID,
-		CheckpointID: "fe-ingress:" + id,
-		StreamID:     "fe-ingress:" + id,
+		CheckpointID: "customer-request:" + id,
+		StreamID:     "customer-request:" + id,
 		TraceID:      id,
 		Perspective:  metering.PerspectiveCustomer,
 		Now:          now,
@@ -75,6 +84,50 @@ func (e *Executor) appendMeteringFact(ctx context.Context, fact metering.Fact) e
 		return nil
 	}
 	return e.MeteringRecorder.Append(ctx, fact)
+}
+
+// persistFrontendIngressFact appends the customer FE-ingress journal fact when a
+// MeteringRecorder is configured and binds its FactID for rating/admission.
+// Append failure is returned so strict economic paths fail closed (task 3.3).
+// FactID/SourceID/Sequence are deterministic from the logical request so retry
+// and process restart SameFactReplay without double-count (D6).
+func (e *Executor) persistFrontendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder) (string, error) {
+	if e == nil || holder == nil {
+		return "", nil
+	}
+	fe := holder.FrontendIngress
+	if fe == nil {
+		return "", nil
+	}
+	if id := strings.TrimSpace(holder.FrontendIngressFactID()); id != "" {
+		return id, nil
+	}
+	if e.MeteringRecorder == nil {
+		return "", nil
+	}
+	reqID := strings.TrimSpace(fe.Public.Correlation.RequestID)
+	if reqID == "" {
+		reqID = strings.TrimSpace(fe.Call.ID)
+	}
+	factID, sourceID, seq := checkpoint.FrontendIngressIdentity(reqID)
+	holder.ReserveSequenceFloor(seq)
+	fact, err := checkpoint.FactFromFrontendIngress(checkpoint.IngressFactInput{
+		Checkpoint:      fe.Public,
+		FactID:          factID,
+		Sequence:        seq,
+		SourceID:        sourceID,
+		IdentityVersion: metering.IdentityVersionV1,
+		Quantities:      append([]metering.Quantity(nil), fe.Public.Quantities...),
+		Now:             e.now(),
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := e.appendMeteringFact(ctx, fact); err != nil {
+		return "", err
+	}
+	holder.BindFrontendIngressFactID(factID)
+	return factID, nil
 }
 
 // enrichFrontendIngressQuantities deferred-counts the immutable FE call via the
@@ -159,6 +212,8 @@ func (e *Executor) enrichBackendIngressQuantitiesWithDecision(
 
 // persistBackendIngressFact appends a real BE-ingress journal fact when a
 // MeteringRecorder is configured and binds its FactID for rating/admission.
+// FactID/SourceID/Sequence are deterministic per attempt so failover streams
+// stay distinct and Append-fail/restart SameFactReplay without double-count.
 func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkpoint.RequestHolder, attemptID string) (string, error) {
 	if e == nil || holder == nil {
 		return "", nil
@@ -170,14 +225,19 @@ func (e *Executor) persistBackendIngressFact(ctx context.Context, holder *checkp
 	if e.MeteringRecorder == nil {
 		return "", nil
 	}
-	seq := holder.NextSequence()
-	factID := fmt.Sprintf("be-ingress:%s:%d", strings.TrimSpace(attemptID), seq)
+	if id := strings.TrimSpace(holder.BackendIngressFactID(attemptID)); id != "" {
+		return id, nil
+	}
+	factID, sourceID, seq := checkpoint.BackendIngressIdentity(attemptID)
+	holder.ReserveSequenceFloor(seq)
 	fact, err := checkpoint.FactFromIngress(checkpoint.IngressFactInput{
-		Checkpoint: be.Public,
-		FactID:     factID,
-		Sequence:   seq,
-		Quantities: append([]metering.Quantity(nil), be.Public.Quantities...),
-		Now:        e.now(),
+		Checkpoint:      be.Public,
+		FactID:          factID,
+		Sequence:        seq,
+		SourceID:        sourceID,
+		IdentityVersion: metering.IdentityVersionV1,
+		Quantities:      append([]metering.Quantity(nil), be.Public.Quantities...),
+		Now:             e.now(),
 	})
 	if err != nil {
 		return "", err

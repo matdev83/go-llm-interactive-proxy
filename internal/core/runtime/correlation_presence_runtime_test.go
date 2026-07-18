@@ -22,7 +22,7 @@ func TestRuntimeCorrelation_FEAndBEIngressEgressShareIdentities(t *testing.T) {
 		frontendID = "openai-responses"
 		backendID  = "backend-corr"
 		modelID    = "model-corr"
-		feStream   = "fe-ingress:" + traceID
+		feStream   = "customer-request:" + traceID
 	)
 
 	call := lipapi.Call{

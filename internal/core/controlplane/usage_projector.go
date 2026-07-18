@@ -264,6 +264,48 @@ func UsageRowFromMeteringFact(f metering.Fact) cp.UsageRow {
 	})
 }
 
+// UsageRowsFromMeteringFacts projects a fact set onto usage rows. Customer
+// facts without frontend ingress and operator facts without backend ingress
+// are marked EvidencePartial; quantities are not invented.
+func UsageRowsFromMeteringFacts(facts []metering.Fact) []cp.UsageRow {
+	seenFEIngress := false
+	seenBEIngress := false
+	seenCustomer := false
+	seenOperator := false
+	for _, f := range facts {
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			seenCustomer = true
+		case metering.PerspectiveOperator:
+			seenOperator = true
+		}
+		switch f.Boundary {
+		case metering.BoundaryFrontendIngress:
+			seenFEIngress = true
+		case metering.BoundaryBackendIngress:
+			seenBEIngress = true
+		}
+	}
+	customerIncomplete := seenCustomer && !seenFEIngress
+	operatorIncomplete := seenOperator && !seenBEIngress
+	out := make([]cp.UsageRow, 0, len(facts))
+	for _, f := range facts {
+		row := UsageRowFromMeteringFact(f)
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			if customerIncomplete {
+				row.EvidenceState = cp.EvidencePartial
+			}
+		case metering.PerspectiveOperator:
+			if operatorIncomplete {
+				row.EvidenceState = cp.EvidencePartial
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func provenanceFromMetering(f metering.Fact) cp.UsageProvenance {
 	switch f.Authority {
 	case metering.AuthorityAuthoritative:

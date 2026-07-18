@@ -2,6 +2,7 @@ package journalstore
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -11,7 +12,7 @@ import (
 type factFilter struct {
 	name   string
 	value  string
-	column string // non-empty means filter on metering_facts column directly
+	column string // non-empty means filter on metering_facts column directly (prefixed with f.)
 }
 
 func factFiltersForQuery(q metering.Query) []factFilter {
@@ -34,6 +35,11 @@ func factFiltersForQuery(q metering.Query) []factFilter {
 	addCol("perspective", "perspective", string(q.Perspective))
 	addCol("boundary", "boundary", string(q.Boundary))
 	addCol("lifecycle", "lifecycle_scope", string(q.Lifecycle))
+	add("source", string(q.Source))
+	add("authority", string(q.Authority))
+	if q.IdentityVersion != 0 {
+		add("identity_version", strconv.Itoa(q.IdentityVersion))
+	}
 	add("a_leg_id", strings.TrimSpace(q.ALegID))
 	add("b_leg_id", strings.TrimSpace(q.BLegID))
 	add("attempt_id", strings.TrimSpace(q.AttemptID))
@@ -67,7 +73,7 @@ func buildDurableListQuery(storeID string, q metering.Query, limit, offset int) 
 			args = append(args, filter.value)
 			continue
 		}
-		where = append(where, `EXISTS (SELECT 1 FROM metering_fact_filters ff WHERE ff.fact_id = f.fact_id AND ff.stream_id = f.stream_id AND ff.field_name = ? AND ff.field_value = ?)`)
+		where = append(where, `EXISTS (SELECT 1 FROM metering_fact_filters ff WHERE ff.store_id = f.store_id AND ff.fact_id = f.fact_id AND ff.stream_id = f.stream_id AND ff.field_name = ? AND ff.field_value = ?)`)
 		args = append(args, filter.name, filter.value)
 	}
 	if !q.TimeRange.From.IsZero() {

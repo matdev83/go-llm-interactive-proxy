@@ -69,15 +69,21 @@ func (e *Executor) admitAttemptAuthority(
 	}
 	quantities := attemptRatingQuantities(decision)
 	factIDs := []string(nil)
+	factRefs := []metering.FactRef(nil)
 	if !estimateOnly {
 		quantities = finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
 		if holder := meteringHolderFrom(ctx); holder != nil {
 			if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
 				factIDs = []string{id}
+				streamID := "operator-attempt:" + strings.TrimSpace(bleg.BLegID)
+				if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+					streamID = be.Public.StreamID
+				}
+				factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
 			}
 		}
 	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs...)
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs, factRefs)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -87,9 +93,10 @@ func (e *Executor) admitAttemptAuthority(
 			rateErr,
 		)
 	}
+	admitScope := trustedFrontendIngressScope(ctx, scopeFromCtx(ctx))
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
-		Scope:          scopeFromCtx(ctx),
+		Scope:          admitScope,
 		Dimensions:     attemptAuthorityDimensions(ctx, call, c),
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
@@ -99,7 +106,7 @@ func (e *Executor) admitAttemptAuthority(
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
 	}
-	if rated.Money.Present || len(quantities) > 0 {
+	if rated.Money.Present || len(quantities) > 0 || len(factRefs) > 0 {
 		admissionInput.Exposure = economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
 			Boundary:    metering.BoundaryBackendIngress,
@@ -107,6 +114,7 @@ func (e *Executor) admitAttemptAuthority(
 			Quantities:  quantities,
 			Money:       rated.Money,
 			Output:      conservativeOutputAssumption(decision, quantities),
+			FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		}
 	}
 	// When request coordinator already reserved request-count, avoid double-charging
@@ -158,12 +166,18 @@ func (e *Executor) admitAttemptViaCoordinator(
 ) (attemptAuthorityState, error) {
 	quantities := finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
 	factIDs := []string(nil)
+	factRefs := []metering.FactRef(nil)
 	if holder := meteringHolderFrom(ctx); holder != nil {
 		if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
 			factIDs = []string{id}
+			streamID := "operator-attempt:" + strings.TrimSpace(bleg.BLegID)
+			if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+				streamID = be.Public.StreamID
+			}
+			factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
 		}
 	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs...)
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs, factRefs)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -173,6 +187,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 			rateErr,
 		)
 	}
+	admitScope := trustedFrontendIngressScope(ctx, scopeFromCtx(ctx))
 	in := authority.AttemptAdmission{
 		RequestID:      strings.TrimSpace(call.ID),
 		AttemptID:      strings.TrimSpace(bleg.BLegID),
@@ -182,7 +197,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 		Model:          strings.TrimSpace(c.Primary.Model),
 		Perspective:    metering.PerspectiveOperator,
 		Lifecycle:      metering.LifecycleBackendAttempt,
-		Scope:          scopeFromCtx(ctx),
+		Scope:          admitScope,
 		IdempotencyKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c).String(),
 		Exposure: economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
@@ -191,6 +206,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 			Quantities:  quantities,
 			Money:       rated.Money,
 			Output:      conservativeOutputAssumption(decision, quantities),
+			FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		},
 	}
 	if rated.Money.Present {

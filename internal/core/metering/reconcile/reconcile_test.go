@@ -19,7 +19,7 @@ func TestStream_RestartNoDoubleCountAndUnresolved(t *testing.T) {
 	ctx := context.Background()
 	egress := metering.Fact{
 		FactID: "eg-1", StreamID: "s-recon", Sequence: 1,
-		Kind: metering.FactKindDelta, Perspective: metering.PerspectiveCustomer,
+		Kind: metering.FactKindDelta, Perspective: metering.PerspectiveOperator,
 		Boundary: metering.BoundaryBackendEgress, Lifecycle: metering.LifecycleBackendAttempt,
 		Source: metering.SourceObserved, Authority: metering.AuthorityAuthoritative,
 		Presence: metering.PresencePresent, RecordedAt: time.Unix(1, 0).UTC(),

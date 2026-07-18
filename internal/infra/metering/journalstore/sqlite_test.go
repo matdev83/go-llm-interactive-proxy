@@ -49,6 +49,9 @@ func TestSQLiteStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 	store := newSQLiteJournal(t)
 	ctx := context.Background()
 	f := validFact("fact-sql-content", "stream-sql-content", 1)
+	f.IdentityVersion = 1
+	f.SourceEventKind = "usage-event"
+	f.SourceID = f.FactID
 	if err := store.Append(ctx, f); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +59,7 @@ func TestSQLiteStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 	diffKind := f
 	diffKind.Kind = metering.FactKindDelta
 	if err := store.Append(ctx, diffKind); !errors.Is(err, journalstore.ErrIdentityCollision) {
-		t.Fatalf("different Kind collision got %v", err)
+		t.Fatalf("same SourceEventKey different Kind collision got %v", err)
 	}
 
 	diffPayload := f

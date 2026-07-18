@@ -400,7 +400,17 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
-	beOut, _ := checkpoint.QuantityComponentValue(rec.facts[0].Quantities, metering.ComponentOutputToken)
+	var beEgress *metering.Fact
+	for i := range rec.facts {
+		if rec.facts[i].Boundary == metering.BoundaryBackendEgress {
+			beEgress = &rec.facts[i]
+			break
+		}
+	}
+	if beEgress == nil {
+		t.Fatalf("missing BE egress fact among %d facts", len(rec.facts))
+	}
+	beOut, _ := checkpoint.QuantityComponentValue(beEgress.Quantities, metering.ComponentOutputToken)
 	if beOut != providerOut {
 		t.Fatalf("precondition: operator BE egress output=%d want provider %d", beOut, providerOut)
 	}

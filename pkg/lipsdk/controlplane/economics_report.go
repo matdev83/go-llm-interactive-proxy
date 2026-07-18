@@ -85,13 +85,34 @@ type CalculatedAmount struct {
 	Quantity    TokenQuantityInput    `json:"quantity,omitempty"`
 }
 
+// ReportCompleteness classifies whether reconstructed report inputs have the
+// ingress facts required for a complete dual-plane view (task 3.5 / design
+// migration note: historical rows without ingress are incomplete).
+type ReportCompleteness string
+
+const (
+	ReportCompletenessComplete   ReportCompleteness = "complete"
+	ReportCompletenessIncomplete ReportCompleteness = "incomplete"
+)
+
+// ReportLegacyProvenance names how reconstructed inputs relate to legacy
+// historical metering without silent reinterpretation.
+type ReportLegacyProvenance string
+
+const (
+	ReportLegacyProvenanceNone                     ReportLegacyProvenance = ""
+	ReportLegacyProvenanceHistoricalWithoutIngress ReportLegacyProvenance = "historical_without_ingress"
+)
+
 // DualPlaneReportInputs groups independent source inputs for query/report
 // consumers. It intentionally omits any merged total field (14.7).
 type DualPlaneReportInputs struct {
-	Customer        CustomerChargeInput    `json:"customer"`
-	Operator        OperatorCostInput      `json:"operator"`
-	Compression     CompressionReportInput `json:"compression,omitzero"`
-	RoutingOverhead RoutingOverheadInput   `json:"routing_overhead,omitzero"`
+	Customer         CustomerChargeInput    `json:"customer"`
+	Operator         OperatorCostInput      `json:"operator"`
+	Compression      CompressionReportInput `json:"compression,omitzero"`
+	RoutingOverhead  RoutingOverheadInput   `json:"routing_overhead,omitzero"`
+	Completeness     ReportCompleteness     `json:"completeness,omitempty"`
+	LegacyProvenance ReportLegacyProvenance `json:"legacy_provenance,omitempty"`
 }
 
 // ValidateCalculatedAmount rejects amounts that omit an explicit calculation
@@ -147,6 +168,26 @@ func CalculateCompressionTokenSavings(in CompressionReportInput) (CalculatedAmou
 			Value:     in.FrontendInput.Value - in.BackendInput.Value,
 			Present:   true,
 		},
+	}
+	return out, ValidateCalculatedAmount(out)
+}
+
+// CalculateRoutingOverheadTotal returns non-surfaced attempt overhead cost via
+// an explicit routing_overhead_total calculation (5.7, 14.7).
+func CalculateRoutingOverheadTotal(in RoutingOverheadInput) (CalculatedAmount, error) {
+	if !in.OverheadCost.Present {
+		return CalculatedAmount{}, fmt.Errorf("controlplane: routing overhead requires present overhead cost")
+	}
+	out := CalculatedAmount{
+		Calculation: ReportCalculationRoutingOverhead,
+		Money: MoneyAmountInput{
+			NanoUnits: in.OverheadCost.NanoUnits,
+			Currency:  in.OverheadCost.Currency,
+			Present:   true,
+		},
+	}
+	if in.NonSurfacedAttempts.Present {
+		out.Quantity = in.NonSurfacedAttempts
 	}
 	return out, ValidateCalculatedAmount(out)
 }
