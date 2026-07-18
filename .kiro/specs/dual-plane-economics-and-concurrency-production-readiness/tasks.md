@@ -237,7 +237,7 @@
   - _Depends: Phase 4_
   - _Validation: focused snapshot generation and end-to-end behavior tests_
 
-- [ ] 5.2 Add public executable generation contributions and static compilation
+- [x] 5.2 Add public executable generation contributions and static compilation
   - Add public generation contribution/source contracts carrying descriptor-bound authorities and customer/operator raters.
   - Compile static YAML authority, concurrency, and reference rating configuration into the same immutable contribution shape.
   - Validate all registrations, versions, readiness, and required components before publication.
