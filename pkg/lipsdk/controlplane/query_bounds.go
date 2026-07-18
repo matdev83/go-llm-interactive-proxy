@@ -17,13 +17,14 @@ const (
 	QueryClassActiveLease         QueryClass = "active_lease"
 	QueryClassRemainingAuthority  QueryClass = "remaining_authority"
 	QueryClassFinancialProjection QueryClass = "financial_projection"
+	QueryClassPendingTerminalWork QueryClass = "pending_terminal_work"
 )
 
 // IsKnown reports whether c is a documented query class.
 func (c QueryClass) IsKnown() bool {
 	switch c {
 	case QueryClassHistoricalMetering, QueryClassLiveReservation, QueryClassActiveLease,
-		QueryClassRemainingAuthority, QueryClassFinancialProjection:
+		QueryClassRemainingAuthority, QueryClassFinancialProjection, QueryClassPendingTerminalWork:
 		return true
 	default:
 		return false

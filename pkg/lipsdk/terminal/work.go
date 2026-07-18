@@ -31,6 +31,9 @@ func AllWorkKinds() []WorkKind {
 	}
 }
 
+// String returns the stable wire/token form of the work kind.
+func (k WorkKind) String() string { return string(k) }
+
 // IsKnown reports whether k is a documented work kind.
 func (k WorkKind) IsKnown() bool {
 	switch k {

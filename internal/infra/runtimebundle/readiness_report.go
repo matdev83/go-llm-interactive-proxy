@@ -24,6 +24,7 @@ type readinessReportBuildInput struct {
 	SnapshotGeneration *snapshotgen.Publisher
 	Executor           *runtime.Executor
 	Production         ProductionOptions
+	TerminalWork       *terminalWorkRuntime
 }
 
 func buildReadinessReportService(in readinessReportBuildInput) *corecp.ReadinessReportService {
@@ -141,6 +142,10 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 		}
 	}
 	src.CustomerRaterAttached = len(src.CustomerRaterIDs) > 0
+	if in.TerminalWork != nil {
+		tw := in.TerminalWork
+		src.TerminalRecovery = tw.readinessComponent
+	}
 	return corecp.NewReadinessReportService(src)
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	coreterm "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
@@ -105,7 +106,8 @@ func (t *streamTerminal) Terminalize(
 	t.effectErr = effectErr
 	t.mu.Unlock()
 
-	if panicked || effectErr != nil || cmd == sdk.CommandPanic {
+	durablePending := errors.Is(effectErr, terminalworkapp.ErrDurablePending)
+	if panicked || (effectErr != nil && !durablePending) || cmd == sdk.CommandPanic {
 		_ = t.owner.Advance(sdk.StateFailed)
 		r.State = t.owner.State()
 		if effectErr != nil {
@@ -113,6 +115,17 @@ func (t *streamTerminal) Terminalize(
 		} else if panicked {
 			r.Err = errors.New("runtime: stream terminal effect panic")
 		}
+		return r
+	}
+
+	if durablePending {
+		// Durable intent accepted: keep output commitment and stop at work_pending
+		// (requirements 7.7, 8.3; design D8/D9).
+		if err := t.owner.Advance(sdk.StateWorkPending); err != nil {
+			_ = t.owner.Advance(sdk.StateFailed)
+		}
+		r.State = t.owner.State()
+		r.Err = effectErr
 		return r
 	}
 

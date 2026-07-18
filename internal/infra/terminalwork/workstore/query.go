@@ -8,26 +8,11 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-type Query struct {
-	WorkID        string
-	SourceKey     terminalwork.SourceKey
-	State         sdk.WorkState
-	States        []sdk.WorkState
-	ProviderID    string
-	Kind          sdk.WorkKind
-	RequestID     string
-	AttemptID     string
-	DueBefore     time.Time
-	UpdatedAfter  time.Time
-	UpdatedBefore time.Time
-	Limit         int
-	Cursor        string
-}
-
-type Page struct {
-	Records []terminalwork.WorkRecord
-	Cursor  string
-}
+// Query/Page and bounds are owned by the core terminalwork package (hexagonal port).
+type (
+	Query = terminalwork.ListQuery
+	Page  = terminalwork.ListPage
+)
 
 // Command types are owned by the core terminalwork package (hexagonal port).
 type (
@@ -40,43 +25,11 @@ type (
 )
 
 func ValidateQuery(q Query) error {
-	if !HasSelectiveBound(q) {
-		return ErrQueryTooBroad
-	}
-	if q.Limit > MaxQueryLimit {
-		return ErrQueryLimitExceeded
-	}
-	return nil
+	return terminalwork.ValidateListQuery(q)
 }
 
 func HasSelectiveBound(q Query) bool {
-	if strings.TrimSpace(q.WorkID) != "" {
-		return true
-	}
-	if err := q.SourceKey.Validate(); err == nil {
-		return true
-	}
-	if strings.TrimSpace(q.RequestID) != "" ||
-		strings.TrimSpace(q.AttemptID) != "" ||
-		strings.TrimSpace(q.ProviderID) != "" {
-		return true
-	}
-	if q.Kind != "" && q.Kind.IsKnown() {
-		return true
-	}
-	if q.State != "" && q.State.IsKnown() {
-		return true
-	}
-	if len(q.States) > 0 {
-		return true
-	}
-	if !q.DueBefore.IsZero() {
-		return true
-	}
-	if !q.UpdatedAfter.IsZero() || !q.UpdatedBefore.IsZero() {
-		return true
-	}
-	return false
+	return terminalwork.HasSelectiveBound(q)
 }
 
 func recordMatchesQuery(r terminalwork.WorkRecord, q Query) bool {

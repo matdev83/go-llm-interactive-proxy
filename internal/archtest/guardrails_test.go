@@ -136,7 +136,9 @@ var lineBudgets = []struct {
 	// Raised from 60400 to 60650 for Phase 4.4 remediation (owned tick/renew,
 	// unresolved-provider readiness, ProcessDue serialize, renew-fail cancel).
 	// Measured ~60495; cap keeps ~155 lines of headroom.
-	{"internal/core", 60650},
+	// Raised from 61400 to 61600 for Phase 4.5 correctness (metrics pagination,
+	// AttemptID identity, AuthorityRequestEffectProvider).
+	{"internal/core", 61600},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -159,7 +161,12 @@ var lineBudgets = []struct {
 	// cap keeps ~54 lines of headroom.
 	// Raised from 5750 to 5850 for Phase 4.4 remediation (tick/renew defaults,
 	// TerminalWorkReadiness). Measured ~5801; cap keeps ~49 lines of headroom.
-	{"internal/infra/runtimebundle", 5850},
+	// Raised from 5850 to 6000 for Phase 4.5 (IntentService injection before
+	// executor, query/metrics ownership, terminal_recovery readiness source).
+	// Raised from 6000 to 6100 for Phase 4.5 composition
+	// (RequestRegistrations → AuthorityRequestEffectProvider merge). Measured ~6052.
+	// Raised from 6100 to 6150 for ProcessDue metrics observer adapter. Measured ~6105.
+	{"internal/infra/runtimebundle", 6150},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

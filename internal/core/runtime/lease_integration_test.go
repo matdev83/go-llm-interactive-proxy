@@ -151,11 +151,11 @@ func TestPhase83_settleReleasesConcurrencyLease(t *testing.T) {
 	if st == nil || st.LeaseID == "" {
 		t.Fatalf("state=%+v", st)
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if conc.released.Load() != 1 {
 		t.Fatalf("released=%d want 1 (settle must ReleaseLease; Settle alone does not)", conc.released.Load())
 	}
-	ex.settleRequestAuthority(ctx, nil) // idempotent
+	_ = ex.settleRequestAuthority(ctx, nil) // idempotent
 	if conc.released.Load() != 1 {
 		t.Fatalf("idempotent settle released=%d", conc.released.Load())
 	}
@@ -193,11 +193,11 @@ func TestPhase83_settleReleasesAllMultiLeases(t *testing.T) {
 	if len(st.LeaseIDs) != 2 {
 		t.Fatalf("LeaseIDs=%v want 2", st.LeaseIDs)
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if conc.released.Load() != 2 {
 		t.Fatalf("released=%d want 2", conc.released.Load())
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if conc.released.Load() != 2 {
 		t.Fatalf("idempotent settle released=%d", conc.released.Load())
 	}
@@ -238,7 +238,7 @@ func TestPhase83_heartbeatRenewsAllMultiLeases(t *testing.T) {
 	if conc.renewed.Load() < 2 {
 		t.Fatalf("renewed=%d want >=2 (both leases)", conc.renewed.Load())
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if conc.released.Load() != 2 {
 		t.Fatalf("released=%d want 2", conc.released.Load())
 	}
@@ -264,7 +264,7 @@ func TestPhase83_releaseStopsHeartbeatAndReleasesLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 	if conc.released.Load() != 1 {
 		t.Fatalf("released=%d want 1", conc.released.Load())
 	}
@@ -299,7 +299,7 @@ func TestPhase83_heartbeatRenewsBeforeExpiry(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected lease renew before expiry")
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 	if conc.released.Load() != 1 {
 		t.Fatalf("released=%d", conc.released.Load())
 	}
@@ -341,7 +341,7 @@ func TestPhase83_renewFailureMarksDegradedWithoutRelease(t *testing.T) {
 	if conc.released.Load() != 0 {
 		t.Fatalf("renew failure must not release lease; released=%d", conc.released.Load())
 	}
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 }
 
 func TestPhase83_renewFailClosedStopsRetrying(t *testing.T) {
@@ -380,7 +380,7 @@ func TestPhase83_renewFailClosedStopsRetrying(t *testing.T) {
 	if n := conc.renewed.Load(); n != 0 {
 		t.Fatalf("fail_closed must not succeed renews; renewed=%d", n)
 	}
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 }
 
 func TestPhase83_renewFailOpenRetries(t *testing.T) {
@@ -417,7 +417,7 @@ func TestPhase83_renewFailOpenRetries(t *testing.T) {
 	if renewAttempts.Load() < 2 {
 		t.Fatalf("fail_open must retry renew; attempts=%d", renewAttempts.Load())
 	}
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 }
 
 type countingRenewConcurrency struct {
@@ -469,8 +469,8 @@ func TestPhase83_auxiliaryAcquireOwnAdmitsSecondLease(t *testing.T) {
 	if last == nil || last.AuxPolicy != "acquire_own" {
 		t.Fatalf("last admit=%+v", last)
 	}
-	ex.releaseRequestAuthority(childCtx)
-	ex.releaseRequestAuthority(parentCtx)
+	_ = ex.releaseRequestAuthority(childCtx)
+	_ = ex.releaseRequestAuthority(parentCtx)
 }
 
 func TestPhase83_auxiliaryInheritSkipsSecondAdmit(t *testing.T) {
@@ -500,7 +500,7 @@ func TestPhase83_auxiliaryInheritSkipsSecondAdmit(t *testing.T) {
 	if requestAuthorityFrom(childCtx) != requestAuthorityFrom(parentCtx) {
 		t.Fatal("inherit must reuse parent authority state")
 	}
-	ex.releaseRequestAuthority(parentCtx)
+	_ = ex.releaseRequestAuthority(parentCtx)
 }
 
 func TestPhase83_uncommittedReleaseFreesLease(t *testing.T) {
@@ -519,7 +519,7 @@ func TestPhase83_uncommittedReleaseFreesLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Mirrors prepare cleanup / uncommitted cancel: release without settle.
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 	if conc.released.Load() != 1 {
 		t.Fatalf("released=%d want 1", conc.released.Load())
 	}

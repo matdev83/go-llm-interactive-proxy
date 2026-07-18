@@ -156,6 +156,8 @@
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/stream",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminal",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork",
+        "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger",
         "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability",

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
+	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
-// Config configures the bounded terminal-work processor.
 type Config struct {
 	OwnerID        string
 	ClaimTTL       time.Duration
@@ -20,16 +20,12 @@ type Config struct {
 	PerProviderMax int
 	RetrySchedule  terminalwork.RetrySchedule
 	Clock          Clock
-	// TickInterval, when >0 and TickC is nil, makes Start own a continuous ticker.
-	TickInterval time.Duration
-	// RenewInterval, when >0 and RenewPulse is nil, renews claims during invoke.
-	RenewInterval time.Duration
-	// TickC drives Run when set (external ownership; runtimebundle may create it).
-	TickC <-chan struct{}
-	// RenewPulse triggers claim renewal while an invoke is in flight.
-	RenewPulse <-chan struct{}
-	// NewTicker overrides ticker construction (deterministic tests).
-	NewTicker func(time.Duration) Ticker
+	TickInterval   time.Duration
+	RenewInterval  time.Duration
+	TickC          <-chan struct{}
+	RenewPulse     <-chan struct{}
+	NewTicker      func(time.Duration) Ticker
+	Metrics        ProcessMetrics
 }
 
 // Processor claims due work, invokes providers once per claim, and completes/retries/quarantines.
@@ -105,8 +101,6 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
-// ProcessDue claims a bounded batch and processes each claimed record once.
-// Concurrent callers serialize so ClaimLimit/GlobalMax stay coherent.
 func (p *Processor) ProcessDue(ctx context.Context) error {
 	if p == nil {
 		return ErrNotRunning
@@ -116,6 +110,7 @@ func (p *Processor) ProcessDue(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	defer p.refreshMetrics(ctx)
 	now := p.cfg.Clock.Now().UTC()
 	claimed, err := p.store.ClaimDue(ctx, terminalwork.ClaimDueCommand{
 		OwnerID: p.cfg.OwnerID,
@@ -124,6 +119,7 @@ func (p *Processor) ProcessDue(ctx context.Context) error {
 		Now:     now,
 	})
 	if err != nil {
+		p.observeTransition(TransitionClaimFailed, "unknown", "")
 		return err
 	}
 	if len(claimed) == 0 {
@@ -151,8 +147,25 @@ func (p *Processor) ProcessDue(ctx context.Context) error {
 	return joined
 }
 
+func (p *Processor) observeTransition(state, kind, providerID string) {
+	if p == nil || p.cfg.Metrics == nil {
+		return
+	}
+	p.cfg.Metrics.ObserveTransition(state, kind, providerID)
+}
+
+func (p *Processor) refreshMetrics(ctx context.Context) {
+	if p == nil || p.cfg.Metrics == nil {
+		return
+	}
+	p.cfg.Metrics.RefreshAfterBatch(ctx)
+}
+
 func (p *Processor) processOne(ctx context.Context, rec terminalwork.WorkRecord) error {
+	kind := string(rec.Kind)
+	providerID := strings.TrimSpace(rec.ProviderID)
 	if err := p.acquire(ctx, rec.ProviderID); err != nil {
+		p.observeTransition(TransitionAcquireFailed, kind, providerID)
 		return err
 	}
 	defer p.release(rec.ProviderID)
@@ -198,34 +211,50 @@ func (p *Processor) processOne(ctx context.Context, rec terminalwork.WorkRecord)
 	storeCtx := context.WithoutCancel(ctx)
 	now := p.cfg.Clock.Now().UTC()
 	if invokeErr == nil {
-		return p.store.Complete(storeCtx, terminalwork.CompleteCommand{
+		if err := p.store.Complete(storeCtx, terminalwork.CompleteCommand{
 			WorkID:          rec.WorkID,
 			ExpectedOwnerID: p.cfg.OwnerID,
 			Now:             now,
-		})
+		}); err != nil {
+			p.observeTransition(TransitionValidationFailed, kind, providerID)
+			return err
+		}
+		p.observeTransition(string(sdk.WorkStateCompleted), kind, providerID)
+		return nil
 	}
 	if IsPermanent(invokeErr) {
-		return p.store.Quarantine(storeCtx, terminalwork.QuarantineCommand{
+		if err := p.store.Quarantine(storeCtx, terminalwork.QuarantineCommand{
 			WorkID: rec.WorkID,
 			Err: terminalwork.BoundedError{
 				Code:      errorCode(invokeErr),
 				Permanent: true,
-				Message:   truncateMsg(invokeErr.Error()),
+				Message:   safeErrorMessage(invokeErr),
 			},
 			Now: now,
-		})
+		}); err != nil {
+			p.observeTransition(TransitionValidationFailed, kind, providerID)
+			return err
+		}
+		p.observeTransition(TransitionValidationFailed, kind, providerID)
+		p.observeTransition(string(sdk.WorkStateQuarantined), kind, providerID)
+		return nil
 	}
-	return p.store.ScheduleRetry(storeCtx, terminalwork.ScheduleRetryCommand{
+	if err := p.store.ScheduleRetry(storeCtx, terminalwork.ScheduleRetryCommand{
 		WorkID:          rec.WorkID,
 		ExpectedOwnerID: p.cfg.OwnerID,
 		Schedule:        p.cfg.RetrySchedule,
 		Err: terminalwork.BoundedError{
 			Code:      errorCode(invokeErr),
 			Permanent: false,
-			Message:   truncateMsg(invokeErr.Error()),
+			Message:   safeErrorMessage(invokeErr),
 		},
 		Now: now,
-	})
+	}); err != nil {
+		p.observeTransition(TransitionValidationFailed, kind, providerID)
+		return err
+	}
+	p.observeTransition(string(sdk.WorkStateRetry), kind, providerID)
+	return nil
 }
 
 func (p *Processor) renewSource(ctx context.Context) (<-chan struct{}, func()) {
@@ -555,12 +584,4 @@ func (p *Processor) Readiness() Readiness {
 		Running:               p.Running(),
 		UnresolvedProviderIDs: p.UnresolvedProviderIDs(),
 	}
-}
-
-func truncateMsg(s string) string {
-	const max = 240
-	if len(s) <= max {
-		return s
-	}
-	return s[:max]
 }

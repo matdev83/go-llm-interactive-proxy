@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
@@ -129,6 +130,13 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	if opts.Testing.Clock != nil {
 		nowFn = opts.Testing.Clock
 	}
+	twRT, twClosers, err := buildTerminalWorkFromProduction(opts.Production, opts.Testing.Clock, obs.Bundle)
+	if err != nil {
+		return nil, withDisposedClosers(err, closers)
+	}
+	if twClosers != nil {
+		closers = append(closers, twClosers...)
+	}
 	snapGen, snapCtrl := buildSnapshotGeneration(cfg, opts.Testing, opts.Production)
 	var exec *runtime.Executor
 	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, controlPlane, policyObs, sg)
@@ -144,6 +152,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		UsageAuthority:     usageAuthorityHandle,
 		Concurrency:        concurrencyRT,
 		SnapshotGeneration: snapGen,
+		TerminalWork:       twRT,
 	}, closers)
 	if err != nil {
 		return nil, withDisposedClosers(err, closers)
@@ -157,12 +166,14 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		})
 	}
 	exec = execRun.Exec
-	twProc, twReg, twReady, twClosers, err := buildTerminalWorkFromProduction(opts.Production, opts.Testing.Clock)
-	if err != nil {
-		return nil, withDisposedClosers(err, closers)
-	}
-	if twClosers != nil {
-		closers = append(closers, twClosers...)
+	var twReady func(context.Context) error
+	var twProc *terminalworkapp.Processor
+	var twReg *terminalworkapp.Registry
+	var twQueries *terminalworkapp.QueryService
+	var twMetrics *terminalworkapp.MetricsObserver
+	if twRT != nil {
+		twProc, twReg, twReady = twRT.Processor, twRT.Registry, twRT.checkReady
+		twQueries, twMetrics = twRT.Queries, twRT.Metrics
 	}
 	buildSucceeded = true
 	return &Built{
@@ -198,6 +209,9 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		SecretGuardInventory:  sg.Inventory,
 		TerminalWorkProcessor: twProc,
 		TerminalWorkRegistry:  twReg,
+		TerminalWorkQueries:   twQueries,
+		TerminalWorkMetrics:   twMetrics,
 		terminalWorkReady:     twReady,
+		terminalWorkRT:        twRT,
 	}, nil
 }

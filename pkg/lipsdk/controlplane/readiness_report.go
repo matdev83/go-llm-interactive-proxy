@@ -65,6 +65,7 @@ const (
 	ReadinessComponentCustomerRater         ReadinessComponentID = "customer_rater"
 	ReadinessComponentOperatorRater         ReadinessComponentID = "operator_rater"
 	ReadinessComponentSecretGuardQuarantine ReadinessComponentID = "secret_guard_quarantine"
+	ReadinessComponentTerminalRecovery      ReadinessComponentID = "terminal_recovery"
 )
 
 // ReadinessComponentStatus is one independent authority/journal readiness row

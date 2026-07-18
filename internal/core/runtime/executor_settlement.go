@@ -3,12 +3,14 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
@@ -41,9 +43,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
 		if s.isCommitted() {
-			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
+			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
-			s.executor.releaseRequestAuthority(ctx)
+			_ = s.executor.releaseRequestAuthority(ctx)
 		}
 		return
 	}
@@ -51,9 +53,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
 		if s.isCommitted() {
-			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
+			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
-			s.executor.releaseRequestAuthority(ctx)
+			_ = s.executor.releaseRequestAuthority(ctx)
 		}
 		return
 	}
@@ -61,9 +63,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	s.settleCancellationAuthority(ctx)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
 	if s.isCommitted() {
-		s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
+		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	} else if s.executor != nil {
-		s.executor.releaseRequestAuthority(ctx)
+		_ = s.executor.releaseRequestAuthority(ctx)
 	}
 }
 
@@ -300,8 +302,7 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
 		// Customer settlement derives quantities from released accumulator evidence via
 		// StreamUsage; authorityEv must not import provider counters into the customer plane.
-		s.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv)
-		return nil
+		return s.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv)
 	})
 	if !r.Won {
 		// Another exit path already terminalized; surface cancel/error consistently.
@@ -317,12 +318,14 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 // delivered/committed customer usage and passes that fact into request settlement (4.2).
 // When EconomicsRater is attached, customer FE-egress quantities are rated and
 // forwarded on RequestSettlement.Rated (requirements 6.1, 4.2).
-func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) {
+// Durable-pending and durable-intent-rejected errors are returned so stream
+// terminal effects fail truthfully (Phase 4.5 / D9).
+func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) error {
 	if s == nil {
-		return
+		return nil
 	}
 	if s.customer != nil && !s.customer.MarkSettled() {
-		return
+		return nil
 	}
 	customerEv := s.resolveCustomerUsage(ctx, usageEv)
 	var facts []metering.Fact
@@ -337,7 +340,7 @@ func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.C
 		// Required settlement evidence was not persisted. Keep request authority
 		// open so a later terminal/reconciliation attempt can retry the append.
 		s.customer.unmarkSettled()
-		return
+		return fmt.Errorf("%w: frontend egress fact not persisted", terminalworkapp.ErrDurableIntentRejected)
 	}
 	var rated []economics.RatingResult
 	if s.executor != nil && s.executor.EconomicsRater != nil {
@@ -355,15 +358,17 @@ func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.C
 		// Rating failure after committed output must not erase the fact or block
 		// settle; settle still runs with facts (15.5).
 	}
-	if s.executor != nil {
-		s.executor.settleRequestAuthority(ctx, facts, rated...)
-		if s.executor.RequestCoordinator != nil {
-			if st := requestAuthorityFrom(ctx); st != nil && !st.Settled {
-				// Provider settlement failed: keep customer once-only open for retry.
-				s.customer.unmarkSettled()
-			}
+	if s.executor == nil {
+		return nil
+	}
+	err := s.executor.settleRequestAuthority(ctx, facts, rated...)
+	if s.executor.RequestCoordinator != nil {
+		if st := requestAuthorityFrom(ctx); st != nil && !st.Settled {
+			// Provider settlement failed: keep customer once-only open for retry.
+			s.customer.unmarkSettled()
 		}
 	}
+	return err
 }
 
 // resolveCustomerUsage builds customer FE quantities from released accumulator

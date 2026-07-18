@@ -19,6 +19,19 @@ var (
 	ErrClaimRenewFailed  = errors.New("terminalwork: claim renew failed")
 	ErrNotRunning        = errors.New("terminalwork: processor not running")
 	ErrAlreadyStarted    = errors.New("terminalwork: processor already started")
+	// ErrDurablePending signals that required terminal effects were not completed
+	// live but durable intent was accepted (requirements 7.7, 8.3; design D9).
+	ErrDurablePending = errors.New("terminalwork: durable pending")
+	// ErrDurableIntentRejected signals settle/release failed and durable intent
+	// could not be accepted — live state must stay incomplete (design D9).
+	ErrDurableIntentRejected = errors.New("terminalwork: durable intent rejected")
+	// ErrQueryTooBroad / ErrQueryUnsupported are operator query rejections (8.9, 12.6).
+	ErrQueryTooBroad    = errors.New("terminalwork: query too broad")
+	ErrQueryUnsupported = errors.New("terminalwork: query unsupported")
+	ErrNilIntentStore   = errors.New("terminalwork: nil intent store")
+	// ErrMetricsCursorFault / ErrMetricsBoundExceeded protect Snapshot pagination.
+	ErrMetricsCursorFault   = errors.New("terminalwork: metrics cursor fault")
+	ErrMetricsBoundExceeded = errors.New("terminalwork: metrics scan bound exceeded")
 )
 
 // IsPermanent reports whether err must quarantine rather than retry.
@@ -56,5 +69,32 @@ func errorCode(err error) string {
 		return "canceled"
 	default:
 		return "invoke_error"
+	}
+}
+
+func safeErrorMessage(err error) string {
+	switch errorCode(err) {
+	case "":
+		return ""
+	case "invalid_payload":
+		return "invalid payload"
+	case "missing_provider":
+		return "missing provider"
+	case "unsupported_kind":
+		return "unsupported work kind"
+	case "malformed_provider":
+		return "malformed provider"
+	case "claim_renew_failed":
+		return "claim renew failed"
+	case "timeout":
+		return "provider timeout"
+	case "outage":
+		return "provider outage"
+	case "ambiguous_commit":
+		return "ambiguous commit"
+	case "canceled":
+		return "canceled"
+	default:
+		return "provider invoke failed"
 	}
 }

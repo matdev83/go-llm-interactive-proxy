@@ -66,12 +66,11 @@ func TestBuild_TerminalWorkOwnershipFromProductionOptions(t *testing.T) {
 	if !ready.Configured || !ready.StoreReady {
 		t.Fatalf("readiness=%+v", ready)
 	}
-	if err := built.TerminalWorkProcessor.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	ready = built.TerminalWorkReadiness(context.Background())
 	if !ready.Running {
-		t.Fatal("expected running after Start")
+		t.Fatal("expected running after Build (composition-root owns Start)")
+	}
+	if built.TerminalWorkQueries == nil || built.TerminalWorkMetrics == nil {
+		t.Fatal("expected QueryService and MetricsObserver ownership")
 	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

@@ -22,6 +22,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
@@ -112,6 +113,9 @@ type AccountingRuntime struct {
 	// SnapshotGeneration is the atomic policy/rating generation publisher (Phase 9.3).
 	// Admit binds Current() usage/concurrency/rating refs when present.
 	SnapshotGeneration *snapshotgen.Publisher
+	// TerminalWork accepts durable settle/release intents on post-output failures
+	// (Phase 4.5; requirements 7.7, 8.3; design D9).
+	TerminalWork *terminalworkapp.IntentService
 }
 
 // UsageAuthorityService is the runtime-owned boundary for accounting authority

@@ -23,6 +23,14 @@ type WorkStore interface {
 	Quarantine(ctx context.Context, cmd terminalwork.QuarantineCommand) error
 }
 
+// RecoveryStore is the composition-root terminal-work backing used for processor
+// claims, durable intent accept, and bounded operator queries (task 4.5).
+type RecoveryStore interface {
+	WorkStore
+	IntentStore
+	QueryStore
+}
+
 // EffectProvider is a provider-neutral terminal-effect handler routed by stable ID.
 type EffectProvider interface {
 	ProviderID() string

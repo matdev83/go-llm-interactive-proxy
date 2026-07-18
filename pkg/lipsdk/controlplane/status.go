@@ -28,22 +28,24 @@ func (s CapabilityState) IsKnown() bool {
 type ReasonCode string
 
 const (
-	ReasonNone               ReasonCode = ""
-	ReasonDisabled           ReasonCode = "disabled"
-	ReasonUnsupported        ReasonCode = "unsupported"
-	ReasonStoreNotReady      ReasonCode = "store_not_ready"
-	ReasonBackingUnavailable ReasonCode = "backing_unavailable"
-	ReasonRecordingFailure   ReasonCode = "recording_failure"
-	ReasonQueryFailure       ReasonCode = "query_failure"
-	ReasonRetentionFailure   ReasonCode = "retention_failure"
-	ReasonRedactionFailure   ReasonCode = "redaction_failure"
+	ReasonNone                ReasonCode = ""
+	ReasonDisabled            ReasonCode = "disabled"
+	ReasonUnsupported         ReasonCode = "unsupported"
+	ReasonStoreNotReady       ReasonCode = "store_not_ready"
+	ReasonBackingUnavailable  ReasonCode = "backing_unavailable"
+	ReasonRecordingFailure    ReasonCode = "recording_failure"
+	ReasonQueryFailure        ReasonCode = "query_failure"
+	ReasonRetentionFailure    ReasonCode = "retention_failure"
+	ReasonRedactionFailure    ReasonCode = "redaction_failure"
+	ReasonPendingTerminalWork ReasonCode = "pending_terminal_work"
 )
 
 // IsKnown reports whether r is one of the documented non-empty reason codes.
 func (r ReasonCode) IsKnown() bool {
 	switch r {
 	case ReasonDisabled, ReasonUnsupported, ReasonStoreNotReady, ReasonBackingUnavailable,
-		ReasonRecordingFailure, ReasonQueryFailure, ReasonRetentionFailure, ReasonRedactionFailure:
+		ReasonRecordingFailure, ReasonQueryFailure, ReasonRetentionFailure, ReasonRedactionFailure,
+		ReasonPendingTerminalWork:
 		return true
 	}
 	return false

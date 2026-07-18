@@ -99,10 +99,16 @@ type Built struct {
 	// SecretGuardInventory carries safe secrets-guard inventory metadata for diagnostics.
 	SecretGuardInventory *diag.InventoryExtras
 	// TerminalWorkProcessor is non-nil when ProductionOptions injects a terminal-work
-	// store (task 4.4). Callers own Start; Closers invoke Shutdown.
+	// store (tasks 4.4–4.5). Build starts it; Closers invoke Shutdown.
 	TerminalWorkProcessor *terminalworkapp.Processor
 	// TerminalWorkRegistry is the provider router paired with TerminalWorkProcessor.
 	TerminalWorkRegistry *terminalworkapp.Registry
+	// TerminalWorkQueries is the bounded operator query surface (task 4.5).
+	TerminalWorkQueries *terminalworkapp.QueryService
+	// TerminalWorkMetrics is the backlog/oldest-age snapshotter (task 4.5).
+	TerminalWorkMetrics *terminalworkapp.MetricsObserver
 	// terminalWorkReady optionally checks store readiness for TerminalWorkReadiness.
 	terminalWorkReady func(context.Context) error
+	// terminalWorkRT retains composition-root ownership for readiness/metrics publish.
+	terminalWorkRT *terminalWorkRuntime
 }

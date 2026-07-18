@@ -90,7 +90,7 @@ func TestDualPlaneTerminalInvariants_ProviderUsageMustNotEnterCustomerSettlement
 		baseline: lipapi.Call{ID: "req-cust-usage"},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "cust-delivered"})
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
+	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("customer SettleRequest calls=%d want 1", prov.settleCalls.Load())
@@ -398,7 +398,7 @@ func TestDualPlaneTerminalInvariants_ResponseFilteringCustomerOutputFromDelivere
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "filtered-out"})
 	stream.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
+	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
 
 	var beEgress *metering.Fact
 	for i := range rec.facts {
@@ -545,7 +545,7 @@ func TestDualPlaneTerminalInvariants_SequentialFailoverOperatorSettlePerIncurred
 	if !winLife.Settle(ctx, authorityapp.SettlementKindFinal, usage, false) {
 		t.Fatal("winner settle must apply")
 	}
-	ex.settleRequestAuthority(ctx, nil)
+	_ = ex.settleRequestAuthority(ctx, nil)
 
 	if reqProv.settleCalls.Load() != 1 {
 		t.Fatalf("customer SettleRequest=%d want 1", reqProv.settleCalls.Load())
@@ -641,7 +641,7 @@ func TestDualPlaneTerminalInvariants_ParallelLoserOperatorSettlePerIncurredAttem
 		t.Fatal("winner settle must apply")
 	}
 	stream := &retryRecvStream{executor: ex, traceID: "trace-parallel", bleg: b2bua.BLegRecord{BLegID: "b-winner"}}
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
+	_ = stream.settleRequestAuthorityWithFrontendEgress(ctx, usage)
 
 	if reqProv.settleCalls.Load() != 1 {
 		t.Fatalf("customer settlements=%d want 1", reqProv.settleCalls.Load())

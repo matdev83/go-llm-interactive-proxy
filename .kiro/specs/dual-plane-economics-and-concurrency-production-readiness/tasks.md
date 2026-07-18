@@ -214,7 +214,7 @@
   - _Depends: 2.2–2.4, 4.3_
   - _Validation: fault injection for timeout, panic, outage, crash, partial completion, restart, missing provider, and shutdown_
 
-- [ ] 4.5 Integrate truthful live state, queries, readiness, and fault recovery
+- [x] 4.5 Integrate truthful live state, queries, readiness, and fault recovery
   - Mark holds/leases complete only after successful action or accepted durable intent; retain pending/quarantine state instead of ignoring errors.
   - Add bounded terminal-work queries, backlog/oldest-age metrics, readiness degradation, and operator-safe error codes.
   - Prove post-output failures preserve output and eventually converge after restart.

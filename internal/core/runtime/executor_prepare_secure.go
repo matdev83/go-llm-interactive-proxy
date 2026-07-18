@@ -273,7 +273,7 @@ func (e *Executor) prepareSubmitAndALegSecure(
 	// Release request-stage holds if prepare fails after a successful admit
 	// (settlement only runs once output is committed).
 	failAfterRequestAdmit := func(err error) (string, lipapi.Call, b2bua.ALegRecord, context.Context, error) {
-		e.releaseRequestAuthority(outCtx)
+		_ = e.releaseRequestAuthority(outCtx)
 		return "", lipapi.Call{}, b2bua.ALegRecord{}, outCtx, err
 	}
 

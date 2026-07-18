@@ -34,10 +34,14 @@ type ProductionOptions struct {
 	UsageObservers            []usage.Observer
 	PolicyObservers           []policydecision.Observer
 
-	// Terminal-work processor ownership (task 4.4). When TerminalWorkStore is set,
-	// Build constructs the processor/registry; live terminal-owner integration is
-	// deferred to task 4.5.
-	TerminalWorkStore          terminalworkapp.WorkStore
+	// Terminal-work processor ownership (tasks 4.4–4.5). When TerminalWorkStore is
+	// set, Build constructs processor/registry/intents, starts the processor, and
+	// injects IntentService into the executor.
+	//
+	// EffectProviders are composed as: RequestRegistrations → AuthorityRequestEffectProvider
+	// adapters (by descriptor ID), then TerminalWorkProviders merged by ProviderID with
+	// explicit entries overriding derived adapters for the same ID.
+	TerminalWorkStore          terminalworkapp.RecoveryStore
 	TerminalWorkProviders      []terminalworkapp.EffectProvider
 	TerminalWorkOwnerID        string
 	TerminalWorkClaimTTL       time.Duration
