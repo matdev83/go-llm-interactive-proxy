@@ -75,6 +75,7 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 	}
 

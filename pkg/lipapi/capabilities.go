@@ -76,6 +76,9 @@ func RequiredCapabilities(c Call) []Capability {
 				if p.Kind == PartFileRef {
 					add(CapabilityDocuments)
 				}
+				if p.Kind == PartReasoning {
+					add(CapabilityReasoningReplay)
+				}
 			}
 		}
 	}

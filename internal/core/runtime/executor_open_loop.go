@@ -39,6 +39,7 @@ func (e *Executor) openInitialAttempt(prep *preparedRequest, plan *routePlanStat
 			affinityKey:              plan.affinityKey,
 			affinitySet:              plan.affinitySet,
 			isContextLimitExhaustion: &plan.contextLimitExhaustion,
+			transformExcludes:        &plan.transformExcludes,
 			interleaved:              plan.interleaved,
 		})
 		if err != nil {

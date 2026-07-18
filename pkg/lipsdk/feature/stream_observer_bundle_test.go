@@ -44,6 +44,17 @@ func TestFeatureBundle_StreamObserverFactories_requiresSchemaV1(t *testing.T) {
 	}
 }
 
+func TestFeatureBundle_StreamObserverFactories_rejectsNilEntry(t *testing.T) {
+	t.Parallel()
+	b := feature.FeatureBundle{
+		SchemaVersion:           feature.SchemaVersionV1,
+		StreamObserverFactories: []response.StreamObserverFactory{nil},
+	}
+	if err := b.Validate(); err == nil {
+		t.Fatal("nil StreamObserverFactories entry must fail Validate")
+	}
+}
+
 func TestFeatureBundle_StreamObserverFactories_omittedRemainsNoOp(t *testing.T) {
 	t.Parallel()
 	var b feature.FeatureBundle

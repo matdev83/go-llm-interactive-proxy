@@ -108,5 +108,15 @@ func (b FeatureBundle) Validate() error {
 	if b.SchemaVersion != SchemaVersionV1 {
 		return fmt.Errorf("feature: FeatureBundle: schema version want %d got %d", SchemaVersionV1, b.SchemaVersion)
 	}
+	for i, at := range b.AttemptTransforms {
+		if at == nil {
+			return fmt.Errorf("feature: FeatureBundle: AttemptTransforms[%d] must not be nil", i)
+		}
+	}
+	for i, f := range b.StreamObserverFactories {
+		if f == nil {
+			return fmt.Errorf("feature: FeatureBundle: StreamObserverFactories[%d] must not be nil", i)
+		}
+	}
 	return nil
 }

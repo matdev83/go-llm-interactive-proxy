@@ -298,7 +298,13 @@
           "completion_gate": false
         }
       }
-    ]
+    ],
+    "generic_ports": {
+      "attempt_transform_occupied": false,
+      "attempt_transform_handlers": 0,
+      "final_stream_observation_occupied": false,
+      "final_stream_observation_handlers": 0
+    }
   },
   "server_limits": {
     "max_request_body_bytes": 8388608,

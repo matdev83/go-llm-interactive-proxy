@@ -35,7 +35,7 @@ func TestCompletionGate_replaceWhenAuxWired(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "upstream"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{g},
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{g},
 		completion.Meta{TraceID: "tr1"}, orig, false, completion.Services{
 			State: state.DisabledStore{},
 			Aux:   aux,
@@ -46,8 +46,8 @@ func TestCompletionGate_replaceWhenAuxWired(t *testing.T) {
 	if aux.calls != 1 {
 		t.Fatalf("aux calls %d", aux.calls)
 	}
-	if len(out) < 1 || out[len(out)-2].Delta != "pivot" {
-		t.Fatalf("out %#v", out)
+	if len(result.Events) < 1 || result.Events[len(result.Events)-2].Delta != "pivot" {
+		t.Fatalf("out %#v", result.Events)
 	}
 }
 
@@ -58,7 +58,7 @@ func TestCompletionGate_passesWhenAuxDisabled(t *testing.T) {
 		{Kind: lipapi.EventTextDelta, Delta: "u"},
 		{Kind: lipapi.EventResponseFinished},
 	}
-	out, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{g},
+	result, err := extensions.ApplyCompletionGateChain(context.Background(), []completion.Gate{g},
 		completion.Meta{TraceID: "tr1"}, orig, false, completion.Services{
 			State: state.DisabledStore{},
 			Aux:   auxiliary.DisabledClient{},
@@ -66,7 +66,7 @@ func TestCompletionGate_passesWhenAuxDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 2 || out[0].Delta != "u" {
-		t.Fatalf("out %#v", out)
+	if len(result.Events) != 2 || result.Events[0].Delta != "u" {
+		t.Fatalf("out %#v", result.Events)
 	}
 }

@@ -159,8 +159,7 @@ func contributeStreamObserverBundle(t *testing.T, factory response.StreamObserve
 	return b
 }
 
-// wireMergedObserverSurface mirrors bootstrap: MergeBundles + snapshot.
-// StreamObserverFactories are dropped until Phase 2.2 Append/snapshot wiring.
+// wireMergedObserverSurface mirrors bootstrap: MergeBundles + SnapshotOptions contribution.
 func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*hooks.Bus, *extensions.RequestRuntimeSnapshot) {
 	t.Helper()
 	merged := featurebundle.MergeBundles(bundle)
@@ -168,8 +167,12 @@ func wireMergedObserverSurface(t *testing.T, bundle lipfeature.FeatureBundle) (*
 		ResponsePartHooks: merged.ResponsePartHooks,
 	})
 	snap := extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		CompletionGates: merged.CompletionGates,
+		CompletionGates:         merged.CompletionGates,
+		StreamObserverFactories: merged.StreamObserverFactories,
 	})
+	if want, got := len(merged.StreamObserverFactories), len(snap.StreamObserverFactories()); want != got {
+		t.Fatalf("precondition: snapshot StreamObserverFactories len=%d want %d", got, want)
+	}
 	return bus, snap
 }
 
@@ -238,7 +241,7 @@ func TestFinalStreamObserver_postHookMutatedEventObserved(t *testing.T) {
 	}
 
 	if factory.opens.Load() == 0 {
-		t.Fatal("RED: StreamObserverFactory contributed via FeatureBundle must Open for the active B-leg (merge/snapshot/runner wiring absent)")
+		t.Fatal("RED: StreamObserverFactory contributed via FeatureBundle must Open for the active B-leg (runner absent)")
 	}
 	obs := factory.snapshotObservers()
 	if len(obs) == 0 {
@@ -599,7 +602,7 @@ func TestFinalStreamObserver_lifecycleOutcomesTable(t *testing.T) {
 				_ = stream.Close()
 			}
 			if factory.opens.Load() == 0 {
-				t.Fatalf("RED: StreamObserverFactory must Open so Finish(%s) can run (runner/wiring absent)", tc.want)
+				t.Fatalf("RED: StreamObserverFactory must Open so Finish(%s) can run (runner absent)", tc.want)
 			}
 			if tc.require != nil {
 				tc.require(t, factory)
@@ -634,11 +637,15 @@ func TestFinalStreamObserver_parallelOpensWinnerOnly(t *testing.T) {
 	bus, snap := wireMergedObserverSurface(t, bundle)
 
 	var openBackends atomic.Int64
+	var openStarted sync.WaitGroup
+	openStarted.Add(2)
 	tracking := func(name string) execbackend.Backend {
 		return execbackend.Backend{
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 				openBackends.Add(1)
+				openStarted.Done()
+				openStarted.Wait() // both parallel arms must reach Open before either returns
 				return lipapi.NewFixedEventStream([]lipapi.Event{
 					{Kind: lipapi.EventResponseStarted},
 					{Kind: lipapi.EventMessageStarted},

@@ -2,7 +2,6 @@ package featurebundle_test
 
 import (
 	"context"
-	"reflect"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -33,15 +32,8 @@ func (s mergeStubStreamObserverFactory) Open(context.Context, response.StreamMet
 	return nil, nil
 }
 
-func TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers_RED(t *testing.T) {
+func TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(featurebundle.MergedFeatureSurface{})
-	for _, name := range []string{"AttemptTransforms", "StreamObserverFactories"} {
-		if _, ok := typ.FieldByName(name); !ok {
-			t.Fatalf("RED: MergedFeatureSurface must expose field %s (Phase 2.2 merge wiring)", name)
-		}
-	}
-
 	bundle := lipfeature.FeatureBundle{
 		SchemaVersion:           lipfeature.SchemaVersionV1,
 		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
@@ -51,48 +43,45 @@ func TestMergedFeatureSurface_carriesAttemptTransformsAndStreamObservers_RED(t *
 		t.Fatal(err)
 	}
 	merged := featurebundle.MergeBundles(bundle)
-	mv := reflect.ValueOf(merged)
-	at := mv.FieldByName("AttemptTransforms")
-	so := mv.FieldByName("StreamObserverFactories")
-	if !at.IsValid() || !so.IsValid() {
-		t.Fatal("RED: MergedFeatureSurface fields missing at runtime")
+	if len(merged.AttemptTransforms) != 1 || merged.AttemptTransforms[0].ID() != "at" {
+		t.Fatalf("AttemptTransforms=%v", merged.AttemptTransforms)
 	}
-	if at.Len() != 1 || so.Len() != 1 {
-		t.Fatalf("RED: MergeBundles must preserve AttemptTransforms/StreamObserverFactories; got at=%d obs=%d", at.Len(), so.Len())
+	if len(merged.StreamObserverFactories) != 1 || merged.StreamObserverFactories[0].ID() != "obs" {
+		t.Fatalf("StreamObserverFactories=%v", merged.StreamObserverFactories)
 	}
 }
 
-func TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers_RED(t *testing.T) {
+func TestSnapshotOptions_carriesAttemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
-	typ := reflect.TypeOf(extensions.SnapshotOptions{})
-	for _, name := range []string{"AttemptTransforms", "StreamObserverFactories"} {
-		if _, ok := typ.FieldByName(name); !ok {
-			t.Fatalf("RED: SnapshotOptions must expose field %s (Phase 2.2 snapshot wiring)", name)
-		}
+	opts := extensions.SnapshotOptions{
+		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
+		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+	}
+	if len(opts.AttemptTransforms) != 1 || len(opts.StreamObserverFactories) != 1 {
+		t.Fatalf("SnapshotOptions fields missing: %+v", opts)
 	}
 }
 
-func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers_RED(t *testing.T) {
+func TestRequestRuntimeSnapshot_exposesAttemptTransformsAndStreamObservers(t *testing.T) {
 	t.Parallel()
-	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{})
-	typ := reflect.TypeOf(snap)
-	if typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
+	snap := extensions.NewRequestRuntimeSnapshot(hooks.New(hooks.Config{}), extensions.SnapshotOptions{
+		AttemptTransforms:       []request.AttemptTransform{mergeStubAttemptTransform{id: "at"}},
+		StreamObserverFactories: []response.StreamObserverFactory{mergeStubStreamObserverFactory{id: "obs"}},
+	})
+	gotAT := snap.AttemptTransforms()
+	gotSO := snap.StreamObserverFactories()
+	if len(gotAT) != 1 || gotAT[0].ID() != "at" {
+		t.Fatalf("AttemptTransforms()=%v", gotAT)
 	}
-	methods := map[string]bool{}
-	for i := 0; i < typ.NumMethod(); i++ {
-		methods[typ.Method(i).Name] = true
+	if len(gotSO) != 1 || gotSO[0].ID() != "obs" {
+		t.Fatalf("StreamObserverFactories()=%v", gotSO)
 	}
-	ptrMethods := map[string]bool{}
-	ptrType := reflect.TypeOf(snap)
-	for i := 0; i < ptrType.NumMethod(); i++ {
-		ptrMethods[ptrType.Method(i).Name] = true
+	gotAT[0] = nil
+	gotSO[0] = nil
+	if len(snap.AttemptTransforms()) != 1 || snap.AttemptTransforms()[0] == nil {
+		t.Fatal("AttemptTransforms must return a defensive copy")
 	}
-	for _, name := range []string{"AttemptTransforms", "StreamObserverFactories"} {
-		if !methods[name] && !ptrMethods[name] {
-			if _, ok := typ.FieldByName(name); !ok {
-				t.Fatalf("RED: RequestRuntimeSnapshot must expose accessor or field %s (Phase 2.2)", name)
-			}
-		}
+	if len(snap.StreamObserverFactories()) != 1 || snap.StreamObserverFactories()[0] == nil {
+		t.Fatal("StreamObserverFactories must return a defensive copy")
 	}
 }

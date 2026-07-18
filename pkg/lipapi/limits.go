@@ -175,6 +175,21 @@ func validatePartSizes(field string, p Part) error {
 		if len(p.Content) > MaxPartJSONBytes {
 			return &ValidationError{Field: field + ".Content", Message: fmt.Sprintf("content exceeds %d bytes", MaxPartJSONBytes)}
 		}
+	case PartReasoning:
+		if p.Reasoning != nil {
+			if len(p.Reasoning.Dialect) > MaxReasoningDialectBytes {
+				return &ValidationError{Field: field + ".Reasoning.Dialect", Message: fmt.Sprintf("dialect exceeds %d bytes", MaxReasoningDialectBytes)}
+			}
+			if len(p.Reasoning.Text) > MaxReasoningTextBytes {
+				return &ValidationError{Field: field + ".Reasoning.Text", Message: fmt.Sprintf("text exceeds %d bytes", MaxReasoningTextBytes)}
+			}
+			if len(p.Reasoning.Signature) > MaxReasoningSignatureBytes {
+				return &ValidationError{Field: field + ".Reasoning.Signature", Message: fmt.Sprintf("signature exceeds %d bytes", MaxReasoningSignatureBytes)}
+			}
+			if len(p.Reasoning.Opaque) > MaxReasoningOpaqueBytes {
+				return &ValidationError{Field: field + ".Reasoning.Opaque", Message: fmt.Sprintf("opaque exceeds %d bytes", MaxReasoningOpaqueBytes)}
+			}
+		}
 	case "":
 		// validated in validate()
 	default:

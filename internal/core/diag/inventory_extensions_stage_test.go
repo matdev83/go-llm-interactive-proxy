@@ -10,6 +10,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -177,6 +179,122 @@ func (g invSecretGuard) Order() int                         { return g.ord }
 func (invSecretGuard) FailureMode() secretguard.FailureMode { return secretguard.FailClosed }
 func (invSecretGuard) Evaluate(context.Context, *lipapi.Call, secretguard.Meta, secretguard.Services) (secretguard.Decision, error) {
 	return secretguard.Decision{Outcome: secretguard.OutcomePass}, nil
+}
+
+type invAttemptTransform struct {
+	id  string
+	ord int
+}
+
+func (t invAttemptTransform) ID() string                      { return t.id }
+func (t invAttemptTransform) Order() int                      { return t.ord }
+func (invAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (invAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
+	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+}
+
+type invStreamObserverFactory struct {
+	id  string
+	ord int
+}
+
+func (f invStreamObserverFactory) ID() string                      { return f.id }
+func (f invStreamObserverFactory) Order() int                      { return f.ord }
+func (invStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (invStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return nil, nil
+}
+
+func TestStageOccupancyFromBundle_nilAttemptAndStreamEntriesSkippedWithoutPanic(t *testing.T) {
+	t.Parallel()
+	b := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{
+			nil,
+			invAttemptTransform{id: "keep", ord: 1},
+			nil,
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			nil,
+			invStreamObserverFactory{id: "keep", ord: 1},
+			nil,
+		},
+	}
+	occ := stageOccupancyFromBundle(b)
+	var atOcc, soOcc *InventoryStageOccupancy
+	for i := range occ {
+		switch occ[i].StageID {
+		case extensions.StageCandidateAttemptTransform:
+			atOcc = &occ[i]
+		case extensions.StageFinalStreamObservation:
+			soOcc = &occ[i]
+		}
+	}
+	if atOcc == nil || len(atOcc.HandlerIDs) != 1 || atOcc.HandlerIDs[0] != "attempt_transform:keep" {
+		t.Fatalf("attempt occupancy=%#v", atOcc)
+	}
+	if soOcc == nil || len(soOcc.HandlerIDs) != 1 || soOcc.HandlerIDs[0] != "stream_observer:keep" {
+		t.Fatalf("stream occupancy=%#v", soOcc)
+	}
+}
+
+func TestStageOccupancyFromBundle_attemptTransformsAndStreamObservers(t *testing.T) {
+	t.Parallel()
+	b := lipfeature.FeatureBundle{
+		SchemaVersion: lipfeature.SchemaVersionV1,
+		AttemptTransforms: []request.AttemptTransform{
+			invAttemptTransform{id: "z", ord: 2},
+			invAttemptTransform{id: "a", ord: 1},
+		},
+		StreamObserverFactories: []response.StreamObserverFactory{
+			invStreamObserverFactory{id: "z", ord: 2},
+			invStreamObserverFactory{id: "a", ord: 1},
+		},
+	}
+	occ := stageOccupancyFromBundle(b)
+	var atOcc, soOcc *InventoryStageOccupancy
+	for i := range occ {
+		switch occ[i].StageID {
+		case extensions.StageCandidateAttemptTransform:
+			atOcc = &occ[i]
+		case extensions.StageFinalStreamObservation:
+			soOcc = &occ[i]
+		}
+	}
+	if atOcc == nil {
+		t.Fatal("missing candidate_attempt_transform occupancy")
+	}
+	wantAT := []string{"attempt_transform:a", "attempt_transform:z"}
+	if len(atOcc.HandlerIDs) != len(wantAT) {
+		t.Fatalf("attempt HandlerIDs=%#v", atOcc.HandlerIDs)
+	}
+	for i := range wantAT {
+		if atOcc.HandlerIDs[i] != wantAT[i] {
+			t.Fatalf("attempt idx %d want %q got %#v", i, wantAT[i], atOcc.HandlerIDs)
+		}
+	}
+	if soOcc == nil {
+		t.Fatal("missing final_stream_observation occupancy")
+	}
+	wantSO := []string{"stream_observer:a", "stream_observer:z"}
+	if len(soOcc.HandlerIDs) != len(wantSO) {
+		t.Fatalf("observer HandlerIDs=%#v", soOcc.HandlerIDs)
+	}
+	for i := range wantSO {
+		if soOcc.HandlerIDs[i] != wantSO[i] {
+			t.Fatalf("observer idx %d want %q got %#v", i, wantSO[i], soOcc.HandlerIDs)
+		}
+	}
+	snap := extensions.NewRequestRuntimeSnapshot(nil, extensions.SnapshotOptions{
+		AttemptTransforms:       b.AttemptTransforms,
+		StreamObserverFactories: b.StreamObserverFactories,
+	})
+	if got := snap.AttemptTransforms(); len(got) != 2 || got[0].ID() != "a" || got[1].ID() != "z" {
+		t.Fatalf("snapshot AttemptTransforms sort mismatch: %#v", got)
+	}
+	if got := snap.StreamObserverFactories(); len(got) != 2 || got[0].ID() != "a" || got[1].ID() != "z" {
+		t.Fatalf("snapshot StreamObserverFactories sort mismatch: %#v", got)
+	}
 }
 
 func TestStageOccupancyFromBundle_secretGuardsSortedWithPrefix(t *testing.T) {

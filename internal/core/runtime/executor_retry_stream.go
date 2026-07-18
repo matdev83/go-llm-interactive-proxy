@@ -37,6 +37,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -68,6 +69,7 @@ type retryRecvStream struct {
 	lastHardReject           lipapi.NegotiationResult
 	lastHardTransportReject  lipapi.TransportNegotiationResult
 	isContextLimitExhaustion bool
+	transformExcludes        transformExcludeTracker
 
 	innerMu            sync.Mutex
 	inner              lipapi.ManagedEventStream
@@ -132,6 +134,8 @@ type retryRecvStream struct {
 
 	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
 	toolFinal *toolCallAssembler
+
+	finalStreamObs *extensions.FinalStreamObservationSession
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -440,6 +444,7 @@ func (s *retryRecvStream) Close() error {
 	c := s.takeAndNilInner()
 	if c == nil {
 		if !s.isFinished() {
+			s.finishFinalStreamObservation(context.Background(), response.OutcomeClosed)
 			s.persistCancellationBilling(context.Background(), "client closed")
 			s.markFinished()
 		}
@@ -448,6 +453,7 @@ func (s *retryRecvStream) Close() error {
 	}
 	if !s.isFinished() {
 		ctx := context.Background()
+		s.finishFinalStreamObservation(ctx, response.OutcomeClosed)
 		if s.aScope != nil {
 			_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		} else {
@@ -715,7 +721,7 @@ func (s *retryRecvStream) completionGatedEmit(
 		}
 		committed := s.isCommitted()
 		committedForPanic := committed || gateBufHasCommittedOutput(s.gateBuf)
-		out, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() ([]lipapi.Event, error) {
+		gateResult, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() (extensions.CompletionGateChainResult, error) {
 			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, committed, svc, stageLog)
 		})
 		if err != nil {
@@ -729,9 +735,15 @@ func (s *retryRecvStream) completionGatedEmit(
 			s.gateBuf = nil
 			return lipapi.Event{}, err
 		}
+		out := gateResult.Events
 		s.gateBuf = nil
 		if len(out) == 0 {
 			return lipapi.Event{}, errors.New("runtime: completion gate produced empty stream")
+		}
+		if gateResult.Replaced {
+			if err := s.cycleFinalStreamObservation(ctx, response.OutcomeGateReplaced); err != nil {
+				return lipapi.Event{}, err
+			}
 		}
 		s.gateDrain = out[1:]
 		return out[0], nil
