@@ -120,5 +120,6 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Compatibility when disabled (17.1) | Default dogfood path with metering/authority off remains functional | `go run ./cmd/lipstd check-config --config config/examples/dogfood-local-stub.yaml` + `testdata/enterprise_module` |
 | Explicit non-goals (17.8) | No web GUI, payments, invoices, tax, SSO/SAML/SCIM, CSP, or compression algorithms in this feature | design / requirements exclusions |
 | Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
+| Migration / rollout / rollback (11.x, 7.4) | Ordering, local vs distributed posture, terminal-work drain, open-core | [dual-plane-migration-rollout.md](dual-plane-migration-rollout.md); `go test ./internal/qa/ -run TestPhase74_` |
 
 Do **not** claim Windows race-green without Linux evidence (local or nightly CI). Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.

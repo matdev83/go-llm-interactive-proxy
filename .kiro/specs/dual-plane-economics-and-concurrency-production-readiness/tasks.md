@@ -366,7 +366,7 @@
   - _Depends: Phases 1–6_
   - _Validation: focused metrics/readiness tests and repeated benchmarks suitable for `benchstat`_
 
-- [ ] 7.4 Complete migration, rollout, rollback, and open-core verification
+- [x] 7.4 Complete migration, rollout, rollback, and open-core verification
   - Add direct/admin migrations, pooled runtime schema verification, identity-version compatibility, legacy projections, provider-drain checks, and rollback that continues terminal-work draining.
   - Update examples and operator documentation for `EconomicControlReady`, local versus distributed posture, migration ordering, stop conditions, and non-goals.
   - Re-run the separate enterprise module using public contracts only and verify no proprietary financial logic enters OSS.
