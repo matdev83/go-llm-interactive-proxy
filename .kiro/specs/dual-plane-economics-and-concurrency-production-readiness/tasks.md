@@ -183,7 +183,7 @@
   - _Depends: Phase 3_
   - _Validation: focused state-machine/model tests and concurrent terminal race reproducer_
 
-- [ ] 4.2 Implement one request/stream terminal owner
+- [x] 4.2 Implement one request/stream terminal owner
   - Add one CAS-owned terminal result per logical request and per attempt; delegate existing lifecycle settlement/release to the owner.
   - Make `Recv`, `Close`, cancellation, errors, encoder failure, and panic paths signal or await terminalization rather than execute competing accounting.
   - Snapshot accumulators once and preserve per-provider partial completion and no-retry-after-output.

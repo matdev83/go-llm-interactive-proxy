@@ -7,10 +7,12 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 // cancellationAttemptReason returns a low-cardinality bucket for attempt records when
@@ -147,8 +149,14 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				)
 			}
 		}
-		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
-		s.markFinished()
+		s.runStreamTerminal(ctx, sdkterminal.CommandTimeout, func(cctx context.Context) error {
+			s.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		s.finishALegScope()
 		return lipapi.Event{}, false, lipapi.ErrTTFTTimeout
 	}
@@ -176,8 +184,18 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
 			}
 		}
-		s.persistCancellationBilling(ctx, reason)
-		s.markFinished()
+		cmd := sdkterminal.CommandCancel
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			cmd = sdkterminal.CommandTimeout
+		}
+		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			s.persistCancellationBilling(cctx, reason)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		s.finishALegScope()
 		return lipapi.Event{}, false, err
 	}
@@ -199,7 +217,19 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			Reason:    attemptReasonDetail(surfErr),
 			DetailErr: surfErr,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(surfErr), surfErr)
+		cmd := sdkterminal.CommandPartialError
+		var pe *safety.PanicError
+		if errors.As(err, &pe) {
+			cmd = sdkterminal.CommandPanic
+		}
+		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			s.recordPartialTokenAccounting(cctx, attemptReasonDetail(surfErr), surfErr)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		return lipapi.Event{}, false, surfErr
 	}
 	var log *slog.Logger
@@ -220,13 +250,17 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		Reason:    "recoverable pre-output (recv)",
 		DetailErr: err,
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-	s.recordPartialTokenAccountingLedger(ctx, "recoverable pre-output (recv)", err)
-	// A swallowed pre-output attempt must release its strict reservation for
-	// failover, but any advisory/unreserved rules still need the observed usage
-	// fact. Apply only the unreserved projection here; do not settle the
-	// reservation before the replacement decision.
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, s.operatorUsageForFinalize())
+	// Recoverable pre-output failover terminalizes only the attempt plane for
+	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
+	// owns the reservation release via a fresh attempt terminal.
+	s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
+		s.recordPartialTokenAccountingLedger(cctx, "recoverable pre-output (recv)", err)
+		// Do not settle the reservation before the replacement decision.
+		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, authorityUsageEvent(s.usageEventsSnapshot()))
+		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, s.operatorUsageForFinalize())
+		return nil
+	})
+	s.resetAttemptTerminal()
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 			s.executor.Log.DebugContext(

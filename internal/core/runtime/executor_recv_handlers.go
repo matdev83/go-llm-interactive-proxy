@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	completion "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
 )
 
@@ -73,7 +74,7 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 
 	evp := ev
 	if herr := s.bus.RunResponsePartHooks(ctx, &evp, pm); herr != nil {
-		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(herr), herr)
+		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(herr), herr)
 		return lipapi.Event{}, false, herr
 	}
 	ev = evp
@@ -94,9 +95,7 @@ func (s *retryRecvStream) dispatchClientFacingEvent(ctx context.Context, ev lipa
 	}
 	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
 		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
-			}
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
 			return lipapi.Event{}, false, err
 		}
 		if s.executor != nil && s.executor.Log != nil {
@@ -126,12 +125,12 @@ func (s *retryRecvStream) handleToolEventPath(ctx context.Context, te lipapi.Too
 			Reason:    attemptReasonDetail(err),
 			DetailErr: err,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
+		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 		return lipapi.Event{}, false, err
 	}
 	res := s.bus.ApplyToolReactors(ctx, te, tm)
 	if res.Err != nil {
-		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(res.Err), res.Err)
+		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(res.Err), res.Err)
 		return lipapi.Event{}, false, res.Err
 	}
 	if !res.Emit {
@@ -152,14 +151,19 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 		return lipapi.Event{}, true, nil
 	}
 	if gerr != nil {
-		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(gerr), gerr)
+		s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(gerr), gerr)
 		return lipapi.Event{}, false, gerr
 	}
 	// A gated completion that drains a response_finished finalizes authority through the single
 	// finalizeResponseFinishedAuthority chokepoint (settle, with a losing release fallback when the
 	// settle did not mark the reservation settled), matching the no-gates handleResponseFinishedPath.
 	// Without this the reservation stays locked until the accounting window resets.
+	finishPreflighted := false
 	if out.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+		if err := s.mandatoryClientFacingPreflight(ctx, out); err != nil {
+			return lipapi.Event{}, false, err
+		}
+		finishPreflighted = true
 		usageEv, ok, err := s.finalizeResponseFinishedAuthority(ctx, out)
 		if err != nil {
 			return lipapi.Event{}, false, err
@@ -176,15 +180,15 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(out, s.now())
 	}
-	if err := s.beforeEmitClientFacing(ctx, out); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
+	if !finishPreflighted {
+		if err := s.beforeEmitClientFacing(ctx, out); err != nil {
+			if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+				s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
+				return lipapi.Event{}, false, err
 			}
-			return lipapi.Event{}, false, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+			if s.executor != nil && s.executor.Log != nil {
+				s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+			}
 		}
 	}
 	s.rememberClientEvent(out)
@@ -195,12 +199,17 @@ func (s *retryRecvStream) handleGatedPath(ctx context.Context, gates []completio
 
 // handleResponseFinishedPath finalizes the response_finished branch: token
 // accounting finalization, drain queuing for the synthesized usage event,
-// and attempt success recording. The non-synthesized path falls through to
-// the same default client-event emit used by the dispatcher's non-finished
-// branch.
+// and attempt success recording. Mandatory encoder/evidence preflight competes
+// before NormalFinish settlement so encoder failure can own the terminal.
 func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lipapi.Event, pm sdk.PartMeta) (lipapi.Event, bool, error) {
+	if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
+		return lipapi.Event{}, false, err
+	}
 	usageEv, ok, err := s.finalizeResponseFinishedAuthority(ctx, ev)
 	if err != nil {
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		return lipapi.Event{}, false, err
 	}
 	if ok {
@@ -217,21 +226,44 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 	s.markFinished()
 	s.finishALegScope()
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
-			}
-			return lipapi.Event{}, false, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
+	// Evidence already recorded in mandatoryClientFacingPreflight.
 	s.rememberClientEvent(ev)
 	s.commitAffinityIfOutput(ctx, ev)
 	s.emitTrafficPTC(ctx, ev, pm)
 	return ev, false, nil
+}
+
+// mandatoryClientFacingPreflight runs beforeEmitClientFacing before NormalFinish.
+// On mandatory failure it claims FrontendEncoderFailure (competing with Close/cancel)
+// and settles partial accounting when the attempt is not yet settled.
+func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev lipapi.Event) error {
+	err := s.beforeEmitClientFacing(ctx, ev)
+	if err == nil {
+		return nil
+	}
+	if s.executor == nil || !s.executor.SecureSessionRecordingMandatory {
+		if s.executor != nil && s.executor.Log != nil {
+			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
+		}
+		return nil
+	}
+	s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
+	return err
+}
+
+// terminalizePartialFailure routes mid-stream / finish-adjacent failures through the
+// request terminal so settle/release/facts run once under the owner.
+func (s *retryRecvStream) terminalizePartialFailure(ctx context.Context, cmd sdkterminal.Command, reason string, cause error) {
+	_ = s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+		if !s.authority.Settled() {
+			s.recordPartialTokenAccounting(cctx, reason, cause)
+		}
+		s.markFinished()
+		return nil
+	})
+	if !s.isFinished() {
+		s.markFinished()
+	}
 }
 
 func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, error) {
@@ -274,7 +306,6 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 			return ev, nil
 		}
 	}
-	s.recordPartialTokenAccounting(ctx, "stream ended without response_finished", io.EOF)
 	if !s.isFinished() {
 		s.executor.recordAttemptLogged(ctx, recordAttemptParams{
 			ALegID:    s.aLegID,
@@ -285,7 +316,14 @@ func (s *retryRecvStream) handleRecvEOF(ctx context.Context) (lipapi.Event, erro
 			DetailErr: io.EOF,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 	}
-	s.markFinished()
+	s.runStreamTerminal(ctx, sdkterminal.CommandEOF, func(cctx context.Context) error {
+		s.recordPartialTokenAccounting(cctx, "stream ended without response_finished", io.EOF)
+		s.markFinished()
+		return nil
+	})
+	if !s.isFinished() {
+		s.markFinished()
+	}
 	s.finishALegScope()
 	return lipapi.Event{}, io.EOF
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -449,7 +450,10 @@ func (e *Executor) openPlannedCandidate(
 		if authState.admissionResult.Reserved {
 			cleanup := e.newAttemptAuthorityLifecycle(authState, c)
 			cleanup.backendAttempted.Store(false)
-			cleanup.Release(p.ctx, authorityapp.ReleaseKindAdmissionFailure)
+			_ = terminalizeAttemptEphemeral(p.ctx, sdkterminal.CommandPreBackendDenial, false, func(cctx context.Context) error {
+				cleanup.Release(cctx, authorityapp.ReleaseKindAdmissionFailure)
+				return nil
+			})
 		}
 		// The estimate-only precheck passed and consumed a routing attempt slot, but
 		// the authoritative admit failed (e.g. strict store ErrReservationConflict when
@@ -469,7 +473,14 @@ func (e *Executor) openPlannedCandidate(
 	cleanupAuthority.backendAttempted.Store(false)
 	defer func() {
 		if !opened {
-			cleanupAuthority.finalizeIncurredOrRelease(p.ctx, releaseKind, emptyOperatorUsageShell())
+			cmd := sdkterminal.CommandBackendOpenFailure
+			if cleanupAuthority.backendAttempted == nil || !cleanupAuthority.backendAttempted.Load() {
+				cmd = sdkterminal.CommandPreBackendDenial
+			}
+			_ = terminalizeAttemptEphemeral(p.ctx, cmd, false, func(cctx context.Context) error {
+				cleanupAuthority.finalizeIncurredOrRelease(cctx, releaseKind, emptyOperatorUsageShell())
+				return nil
+			})
 		}
 	}()
 	if err := e.enforcePostAdmitClamps(p.ctx, &openCall, authorizedFreeze, previewedClamps, previewRan, authState, c, int64(admitDecision.Count.InputTokens)); err != nil {

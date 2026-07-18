@@ -23,6 +23,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 const cancelLosersTimeout = 5 * time.Second
@@ -72,11 +73,15 @@ func (e *Executor) releaseLosers(ctx context.Context, aScope *leglifecycle.ALeg,
 		if usage.Kind == "" {
 			usage = emptyOperatorUsageShell()
 		}
-		leg.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, usage)
-		// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
-		if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
-			e.emitBackendEgressMeteringFact(ctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
-		}
+		committed := leg.authority.outputCommitted != nil && leg.authority.outputCommitted.Load()
+		_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
+			leg.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
+			// Backend-egress for parallel losers when an ingress freeze exists (req 2.3 / 5.3).
+			if leg.authority.backendAttempted != nil && leg.authority.backendAttempted.Load() {
+				e.emitBackendEgressMeteringFact(cctx, leg.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
+			}
+			return nil
+		})
 	}
 	releaseBLegs(aScope, legs)
 	return err
@@ -260,10 +265,13 @@ func (e *Executor) tryOpenParallelGroup(
 					// the incurred terminal stays correlated (req 2.3 / 5.3).
 					l := e.newAttemptAuthorityLifecycle(out.authority, entry.cand)
 					usage := emptyOperatorUsageShell()
-					l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindLosing, usage)
-					if l.backendAttempted != nil && l.backendAttempted.Load() {
-						e.emitBackendEgressMeteringFact(ctx, out.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
-					}
+					_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandParallelLoser, false, func(cctx context.Context) error {
+						l.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
+						if l.backendAttempted != nil && l.backendAttempted.Load() {
+							e.emitBackendEgressMeteringFact(cctx, out.bleg.BLegID, metering.AttemptOutcomeLoser, metering.SurfacedNo, usage)
+						}
+						return nil
+					})
 					return
 				}
 			}
@@ -400,7 +408,11 @@ func (e *Executor) tryOpenParallelGroup(
 				if usage.Kind == "" {
 					usage = emptyOperatorUsageShell()
 				}
-				legs[i].authority.finalizeIncurredOrRelease(cleanupCtx, authorityapp.ReleaseKindLosing, usage)
+				committed := legs[i].authority.outputCommitted != nil && legs[i].authority.outputCommitted.Load()
+				_ = terminalizeAttemptEphemeral(cleanupCtx, sdkterminal.CommandParallelLoser, committed, func(cctx context.Context) error {
+					legs[i].authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, usage)
+					return nil
+				})
 			}
 		}
 		return zero, fmt.Errorf("executor: parallel race aborted: %w", fatal)

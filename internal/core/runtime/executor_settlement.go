@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
@@ -38,7 +39,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	}
 	if s.accounting.usageObserved {
 		s.reconcileOrSettleCancellationAuthority(ctx)
-		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
 		if s.isCommitted() {
 			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
@@ -48,7 +49,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	}
 	if s.finalizeBillingAfterCancel(ctx, reason) {
 		s.reconcileOrSettleCancellationAuthority(ctx)
-		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
 		if s.isCommitted() {
 			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
@@ -58,7 +59,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	}
 	s.recordCancellationBillingMarker(ctx, reason)
 	s.settleCancellationAuthority(ctx)
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
 	if s.isCommitted() {
 		s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	} else if s.executor != nil {
@@ -74,7 +75,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 // it falls back to settleCancellationAuthority which settles as a Cancellation.
 func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Context) {
 	if s.authority.Settled() {
-		usageEv := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+		usageEv := authorityUsageEvent(s.usageEventsSnapshot())
 		s.authority.ReconcileAuthoritative(ctx, usageEv)
 		return
 	}
@@ -93,7 +94,7 @@ func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
 	if s == nil || s.authority.Settled() {
 		return
 	}
-	usageEv := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+	usageEv := authorityUsageEvent(s.usageEventsSnapshot())
 	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
 }
@@ -227,8 +228,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		return lipapi.Event{}, false, nil
 	}
 	started := s.now()
-	events := append([]lipapi.Event(nil), s.seenEvents...)
-	events = append(events, finish)
+	events := append(s.seenEventsCopy(), finish)
 	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
 		Backend:    strings.TrimSpace(s.cand.Primary.Backend),
 		Model:      strings.TrimSpace(s.cand.Primary.Model),
@@ -245,7 +245,7 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		return lipapi.Event{}, false, nil
 	}
 	authorityEv := authorityUsageEvent(result.Events)
-	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEvents))
+	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEventsCopy()))
 	s.lastAuthorityUsage = authorityEv
 	s.lastCustomerUsage = customerPlaneUsageEvent(clientUsageEv)
 	duration := s.now().Sub(started)
@@ -280,21 +280,37 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	if s.tokenAccountingFinalized {
 		return lipapi.Event{}, false, nil
 	}
-	usageEv, ok, err := s.finalizeTokenAccounting(ctx, ev)
-	if err != nil {
-		return lipapi.Event{}, false, err
+	var usageEv lipapi.Event
+	var ok bool
+	var err error
+	r := s.runStreamTerminal(ctx, sdkterminal.CommandNormalFinish, func(cctx context.Context) error {
+		if s.tokenAccountingFinalized {
+			return nil
+		}
+		usageEv, ok, err = s.finalizeTokenAccounting(cctx, ev)
+		if err != nil {
+			return err
+		}
+		s.tokenAccountingFinalized = true
+		authorityEv := s.lastAuthorityUsage
+		if authorityEv.Kind == "" {
+			authorityEv = usageEv
+		}
+		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
+		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
+		// Customer settlement derives quantities from released accumulator evidence via
+		// StreamUsage; authorityEv must not import provider counters into the customer plane.
+		s.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv)
+		return nil
+	})
+	if !r.Won {
+		// Another exit path already terminalized; surface cancel/error consistently.
+		return lipapi.Event{}, false, terminalLossError(r)
 	}
-	s.tokenAccountingFinalized = true
-	authorityEv := s.lastAuthorityUsage
-	if authorityEv.Kind == "" {
-		authorityEv = usageEv
+	if r.Err != nil {
+		return usageEv, ok, r.Err
 	}
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, authorityEv)
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-	// Customer settlement derives quantities from released accumulator evidence via
-	// StreamUsage; authorityEv must not import provider counters into the customer plane.
-	s.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
-	return usageEv, ok, nil
+	return usageEv, ok, err
 }
 
 // settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
@@ -678,7 +694,7 @@ func (s *retryRecvStream) recordTokenAccountingLedger(ctx context.Context, event
 
 func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reason string, err error) {
 	s.recordPartialTokenAccountingLedger(ctx, reason, err)
-	events := tokenAccountingUsageEvents(s.seenEvents)
+	events := s.usageEventsSnapshot()
 	usageEv := authorityUsageEvent(events)
 	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
@@ -692,7 +708,7 @@ func (s *retryRecvStream) recordPartialTokenAccountingLedger(ctx context.Context
 	if s == nil || s.executor == nil || s.executor.Ledger == nil {
 		return
 	}
-	events := tokenAccountingUsageEvents(s.seenEvents)
+	events := s.usageEventsSnapshot()
 	if len(events) == 0 {
 		return
 	}
@@ -751,6 +767,8 @@ func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
 	if s == nil {
 		return
 	}
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
 	if ev.Kind == lipapi.EventResponseFinished {
 		for _, seen := range s.seenEvents {
 			if seen.Kind == lipapi.EventResponseFinished {
@@ -764,4 +782,13 @@ func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
 		s.visibleText.WriteString(ev.Delta)
 	}
 	s.seenEvents = append(s.seenEvents, ev)
+}
+
+func (s *retryRecvStream) usageEventsSnapshot() []lipapi.Event {
+	if s == nil {
+		return nil
+	}
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	return tokenAccountingUsageEvents(append([]lipapi.Event(nil), s.seenEvents...))
 }
