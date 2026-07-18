@@ -405,6 +405,25 @@ func (c *RequestCoordinator) ReleaseLease(parent context.Context, leaseID, reque
 	})
 }
 
+// ReleaseLeaseSet releases a complete atomic lease set using a fresh cleanup context.
+func (c *RequestCoordinator) ReleaseLeaseSet(parent context.Context, setID, leaseID, requestID, reason string) error {
+	if c == nil || c.Concurrency == nil || strings.TrimSpace(setID) == "" {
+		return nil
+	}
+	timeout := defaultCleanupTimeout
+	if c.CleanupTimeout > 0 {
+		timeout = c.CleanupTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	return c.Concurrency.ReleaseLease(ctx, authority.LeaseRelease{
+		SetID:     setID,
+		LeaseID:   leaseID,
+		RequestID: requestID,
+		Reason:    reason,
+	})
+}
+
 // ReleaseLeases releases each lease ID with a fresh cleanup context (idempotent per ID).
 func (c *RequestCoordinator) ReleaseLeases(parent context.Context, leaseIDs []string, requestID, reason string) error {
 	var first error
