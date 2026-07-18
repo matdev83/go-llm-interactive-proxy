@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -18,7 +18,7 @@ type ReservationKey struct {
 }
 
 func (k ReservationKey) String() string {
-	base := fmt.Sprintf("%s|%s|%s|%s|%s|%d", k.LogicalRequestID, k.ALegID, k.BLegID, k.AttemptID, k.RuleID, k.Sequence)
+	base := k.LogicalRequestID + "|" + k.ALegID + "|" + k.BLegID + "|" + k.AttemptID + "|" + k.RuleID + "|" + strconv.Itoa(k.Sequence)
 	if ns := strings.TrimSpace(k.Namespace); ns != "" {
 		return ns + "|" + base
 	}
@@ -31,7 +31,7 @@ type SettlementKey struct {
 }
 
 func (k SettlementKey) String() string {
-	return fmt.Sprintf("%s|settle|%d", k.ReservationKey.String(), k.Sequence)
+	return k.ReservationKey.String() + "|settle|" + strconv.Itoa(k.Sequence)
 }
 
 type ReleaseKey struct {
@@ -40,7 +40,7 @@ type ReleaseKey struct {
 }
 
 func (k ReleaseKey) String() string {
-	return fmt.Sprintf("%s|release|%d", k.ReservationKey.String(), k.Sequence)
+	return k.ReservationKey.String() + "|release|" + strconv.Itoa(k.Sequence)
 }
 
 type SettlementResult struct {
