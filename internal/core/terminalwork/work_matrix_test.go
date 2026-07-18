@@ -44,6 +44,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "intent",
 			state: sdk.WorkStateIntent,
 			prep: func(t *testing.T, _ *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				return newIntent(t, "mx-intent", "wi", "p", sdk.WorkKindSettleRequestProvider)
 			},
 			legal: map[workOp]error{
@@ -59,6 +60,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "pending",
 			state: sdk.WorkStatePending,
 			prep: func(t *testing.T, _ *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "mx-pending", "wp", "p", sdk.WorkKindSettleRequestProvider)
 				if err := w.MarkPending(); err != nil {
 					t.Fatal(err)
@@ -78,6 +80,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "claimed",
 			state: sdk.WorkStateClaimed,
 			prep: func(t *testing.T, clock *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "mx-claimed", "wc", "p", sdk.WorkKindSettleAttemptProvider)
 				_ = w.MarkPending()
 				if err := w.Claim("owner-a", time.Minute, clock); err != nil {
@@ -98,6 +101,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "retry_not_due",
 			state: sdk.WorkStateRetry,
 			prep: func(t *testing.T, clock *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "mx-retry-nd", "wrnd", "p", sdk.WorkKindReleaseAttemptProvider)
 				_ = w.MarkPending()
 				_ = w.Claim("o", time.Minute, clock)
@@ -119,6 +123,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "retry_due",
 			state: sdk.WorkStateRetry,
 			prep: func(t *testing.T, clock *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "mx-retry-due", "wrd", "p", sdk.WorkKindCompensateProvider)
 				_ = w.MarkPending()
 				_ = w.Claim("o", time.Minute, clock)
@@ -139,6 +144,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "completed",
 			state: sdk.WorkStateCompleted,
 			prep: func(t *testing.T, clock *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "mx-done", "wd", "p", sdk.WorkKindAppendFact)
 				_ = w.MarkPending()
 				_ = w.Claim("o", time.Minute, clock)
@@ -158,6 +164,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 			name:  "quarantined",
 			state: sdk.WorkStateQuarantined,
 			prep: func(t *testing.T, clock *manualClock) *terminalwork.WorkItem {
+				t.Helper()
 				w := newIntent(t, "mx-q", "wq", "p", sdk.WorkKindAuthoritativeCorrection)
 				_ = w.MarkPending()
 				_ = w.Quarantine(terminalwork.BoundedError{Code: "bad", Permanent: true})
@@ -175,9 +182,7 @@ func TestWorkItem_ExhaustiveStateOperationMatrix(t *testing.T) {
 	}
 
 	for _, fx := range fixtures {
-		fx := fx
 		for _, op := range allWorkOps() {
-			op := op
 			wantErr, ok := fx.legal[op]
 			if !ok {
 				t.Fatalf("fixture %s missing op %s", fx.name, op)

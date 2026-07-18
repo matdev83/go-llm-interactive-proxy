@@ -622,7 +622,7 @@ func TestProcessor_ProcessDueSerializesOverlap(t *testing.T) {
 		t.Fatalf("overlapping ClaimDue max=%d", store.max.Load())
 	}
 	close(release)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case err := <-errCh:
 			if err != nil {
@@ -822,6 +822,7 @@ func (m *manualTicker) Stop() {
 }
 
 func TestProcessor_LifecycleNoGoroutineLeak(t *testing.T) {
+	t.Parallel()
 	clock := &manualClock{t: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}
 	store := openStore(t, clock)
 	prov := &fakeProvider{

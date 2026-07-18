@@ -78,9 +78,11 @@ type releaseFailProvider struct {
 func (p *releaseFailProvider) AdmitRequest(ctx context.Context, in authority.RequestAdmission) (authority.Decision, error) {
 	return p.inner.AdmitRequest(ctx, in)
 }
+
 func (p *releaseFailProvider) SettleRequest(ctx context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	return p.inner.SettleRequest(ctx, in)
 }
+
 func (p *releaseFailProvider) ReleaseRequest(context.Context, authority.RequestRelease) error {
 	return p.releaseErr
 }

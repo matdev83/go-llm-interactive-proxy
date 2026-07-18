@@ -1,6 +1,7 @@
 package workstore
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -42,17 +43,8 @@ func recordMatchesQuery(r terminalwork.WorkRecord, q Query) bool {
 	if q.State != "" && r.State != q.State {
 		return false
 	}
-	if len(q.States) > 0 {
-		match := false
-		for _, st := range q.States {
-			if r.State == st {
-				match = true
-				break
-			}
-		}
-		if !match {
-			return false
-		}
+	if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
+		return false
 	}
 	if provider := strings.TrimSpace(q.ProviderID); provider != "" && r.ProviderID != provider {
 		return false

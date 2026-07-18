@@ -152,7 +152,9 @@ func TestCustomerSettlement_AccumulatorDrivesOutputWhenSettleInputIsProviderAuth
 		baseline: lipapi.Call{ID: "req-acc-auth"},
 	}
 	stream.customer.ObserveReleased(lipapi.Event{Kind: lipapi.EventTextDelta, Delta: "released-body"})
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
+	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
 
 	if counter.outputCalls < 1 || counter.lastText != "released-body" {
 		t.Fatalf("CountOutput must see accumulator text; calls=%d text=%q", counter.outputCalls, counter.lastText)
@@ -230,8 +232,12 @@ func TestCustomerSettlement_UsesAccumulatorOrderingAndOnceOnly(t *testing.T) {
 			Plane: lipapi.UsagePlaneProviderBillable, Source: lipapi.UsageSourceProviderReported, Authority: lipapi.UsageAuthorityAuthoritative,
 		},
 	}
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
-	stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
+	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	if err := stream.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv); err != nil {
+		t.Fatalf("settle again: %v", err)
+	}
 
 	if prov.settleCalls.Load() != 1 {
 		t.Fatalf("SettleRequest calls=%d want 1", prov.settleCalls.Load())

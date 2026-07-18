@@ -26,7 +26,7 @@ func TestPhase45_MetricsSnapshotPaginatesBeyondOnePage(t *testing.T) {
 		t.Fatal(err)
 	}
 	const n = 300
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rec := terminalwork.WorkRecord{
 			WorkID:         fmt.Sprintf("tw_page_%04d", i),
 			SourceKey:      terminalwork.SourceKey{IdentityVersion: 1, Key: fmt.Sprintf("sk_page_%04d", i)},

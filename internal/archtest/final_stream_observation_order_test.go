@@ -179,7 +179,7 @@ func TestHandleResponseFinishedPath_finalStreamObservationBeforeEmit(t *testing.
 	if rememberAfterObs == 0 {
 		t.Fatal("handleResponseFinishedPath must call rememberClientEvent after observation")
 	}
-	if !(preflightPos < finalizePos && finalizePos < obsPos && obsPos < rememberAfterObs) {
+	if preflightPos >= finalizePos || finalizePos >= obsPos || obsPos >= rememberAfterObs {
 		t.Fatalf("want preflight < finalize < observation < remember; positions preflight=%d finalize=%d obs=%d remember=%d",
 			preflightPos, finalizePos, obsPos, rememberAfterObs)
 	}

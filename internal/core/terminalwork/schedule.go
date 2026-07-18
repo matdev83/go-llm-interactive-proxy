@@ -37,10 +37,7 @@ func (s RetrySchedule) Delay(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
-	mult := s.Multiplier
-	if mult < 1 {
-		mult = 1
-	}
+	mult := max(s.Multiplier, 1)
 	d := s.Initial
 	for i := 1; i < attempt; i++ {
 		next := d * time.Duration(mult)

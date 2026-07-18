@@ -76,7 +76,7 @@ func (o *MetricsObserver) Snapshot(ctx context.Context) (MetricsSnapshot, error)
 	prev := ""
 	var oldest time.Time
 	scanned := 0
-	for pageNum := 0; pageNum < maxMetricsCursorPages; pageNum++ {
+	for range maxMetricsCursorPages {
 		if err := ctx.Err(); err != nil {
 			return MetricsSnapshot{}, err
 		}

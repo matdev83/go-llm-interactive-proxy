@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -48,14 +49,7 @@ func TestPhase45_TerminalWorkPromBoundedLabels(t *testing.T) {
 		"lip_terminal_work_transitions_total",
 	}
 	for _, n := range want {
-		found := false
-		for _, got := range names {
-			if got == n {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(names, n) {
 			t.Fatalf("missing metric %s in %v", n, names)
 		}
 	}
