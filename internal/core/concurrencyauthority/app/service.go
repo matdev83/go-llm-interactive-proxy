@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -31,9 +32,8 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-// Admit acquires or replays one lease per matching rule for a logical request.
-// On multi-rule allow, scalar fields reflect the lastAllow primary; Leases lists all.
-// On strict deny, prior acquires from this Admit are released before return.
+// Admit acquires or replays occupancy for matching rules. Strict multi-rule
+// matches use one atomic lease set; advisory rules still use per-lease Acquire.
 func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error) {
 	if s == nil || s.store == nil || s.rules == nil {
 		return AdmitResult{}, WrapError("admit", ErrUnavailable)
@@ -74,19 +74,104 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 		return AdmitResult{Kind: domain.DecisionAllow, Readiness: ready}, nil
 	}
 
-	var (
-		best           AdmitResult
-		haveBest       bool
-		sawDeny        bool
-		sawAdvise      bool
-		lastAllow      AdmitResult
-		haveAllow      bool
-		rollbackIDs    []string
-		acquiredLeases []AdmittedLease
-	)
-	best = AdmitResult{Kind: domain.DecisionAllow, Readiness: ready}
-
+	strict := make([]domain.Rule, 0, len(matched))
+	advisory := make([]domain.Rule, 0, len(matched))
 	for _, rule := range matched {
+		if err := rule.ValidateTiming(); err != nil {
+			return AdmitResult{}, WrapError("admit", err)
+		}
+		if rule.Mode == domain.RuleModeAdvisory {
+			advisory = append(advisory, rule)
+			continue
+		}
+		strict = append(strict, rule)
+	}
+
+	var acquiredLeases []AdmittedLease
+	var lastAllow AdmitResult
+	haveAllow := false
+	bound := snap.PolicyRef()
+	if in.BoundVersion.Version != "" {
+		bound = in.BoundVersion
+	}
+
+	if len(strict) > 0 {
+		ttl := strict[0].EffectiveTTL()
+		if in.TTL > 0 {
+			ttl = in.TTL
+		}
+		renewBefore := strict[0].EffectiveRenewBefore()
+		for _, rule := range strict[1:] {
+			if rb := rule.EffectiveRenewBefore(); rb < renewBefore {
+				renewBefore = rb
+			}
+			if t := rule.EffectiveTTL(); t < ttl {
+				ttl = t
+			}
+		}
+		ruleIDs := make([]string, 0, len(strict))
+		members := make([]AcquireSetMember, 0, len(strict))
+		for _, rule := range strict {
+			ns := rule.Namespace
+			if ns == "" {
+				ns = namespace
+			}
+			ruleIDs = append(ruleIDs, rule.ID)
+			leaseID := domain.StableLeaseID(ns, rule.ID, rule.Version, requestID, dims)
+			proposed := domain.NewLease(domain.NewLeaseParams{
+				LeaseID: leaseID, RuleID: rule.ID, RuleVersion: rule.Version,
+				LogicalID: requestID, Namespace: ns, Dimensions: dims, Now: now, TTL: ttl,
+			})
+			members = append(members, AcquireSetMember{
+				Lease: proposed, RuleID: rule.ID, Dimensions: dims, Limit: rule.Limit, Mode: rule.Mode,
+			})
+		}
+		setID := domain.StableSetID(namespace, requestID, ruleIDs)
+		acq, err := s.store.AcquireSet(ctx, AcquireSetCommand{
+			SetID: setID, RequestID: requestID, Members: members,
+			TTL: ttl, RenewBefore: renewBefore, Now: now,
+		})
+		if err != nil {
+			return AdmitResult{}, WrapError("admit", err)
+		}
+		if acq.CapacityExceeded {
+			denyRule := strings.TrimSpace(acq.DenyingRuleID)
+			if denyRule == "" {
+				denyRule = strict[0].ID
+			}
+			return AdmitResult{
+				Kind: domain.DecisionDeny, RemainingSlots: 0, Readiness: ready,
+				Evidence: domain.DenialEvidence(denyRule, 0), RuleID: denyRule, BoundVersion: bound,
+			}, nil
+		}
+		byRule := map[string]domain.Rule{}
+		for _, rule := range strict {
+			byRule[rule.ID] = rule
+		}
+		for _, member := range acq.Set.Members {
+			rule := byRule[member.RuleID]
+			acquiredLeases = append(acquiredLeases, AdmittedLease{
+				LeaseID: member.LeaseID, RuleID: member.RuleID, Generation: member.Generation,
+				ExpiresAt: member.ExpiresAt, RenewBefore: rule.EffectiveRenewBefore(), TTL: ttl,
+				FailureBehavior: rule.FailureBehavior, Acquired: !acq.Replayed, Replayed: acq.Replayed,
+			})
+		}
+		primary := acq.Set.Members[len(acq.Set.Members)-1]
+		lastAllow = AdmitResult{
+			Kind: domain.DecisionAllow, LeaseID: primary.LeaseID, Generation: acq.Set.Generation,
+			ExpiresAt: acq.Set.ExpiresAt, RemainingSlots: acq.RemainingSlots, Readiness: ready,
+			BoundVersion: bound, Acquired: !acq.Replayed, Replayed: acq.Replayed,
+			RuleID: primary.RuleID, RenewBefore: renewBefore, TTL: ttl,
+			FailureBehavior: byRule[primary.RuleID].FailureBehavior,
+			Leases:          append([]AdmittedLease(nil), acquiredLeases...),
+			SetID:           acq.Set.SetID,
+		}
+		haveAllow = true
+	}
+
+	sawAdvise := false
+	var advise AdmitResult
+	for _, rule := range advisory {
 		ttl := rule.EffectiveTTL()
 		if in.TTL > 0 {
 			ttl = in.TTL
@@ -97,123 +182,48 @@ func (s *Service) Admit(ctx context.Context, in AdmitInput) (AdmitResult, error)
 		}
 		leaseID := domain.StableLeaseID(ns, rule.ID, rule.Version, requestID, dims)
 		proposed := domain.NewLease(domain.NewLeaseParams{
-			LeaseID:     leaseID,
-			RuleID:      rule.ID,
-			RuleVersion: rule.Version,
-			LogicalID:   requestID,
-			Namespace:   ns,
-			Dimensions:  dims,
-			Now:         now,
-			TTL:         ttl,
+			LeaseID: leaseID, RuleID: rule.ID, RuleVersion: rule.Version,
+			LogicalID: requestID, Namespace: ns, Dimensions: dims, Now: now, TTL: ttl,
 		})
-		acq, acqErr := s.store.Acquire(ctx, AcquireCommand{
-			Lease:      proposed,
-			RuleID:     rule.ID,
-			Dimensions: dims,
-			Limit:      rule.Limit,
-			Mode:       rule.Mode,
-			Now:        now,
+		acq, err := s.store.Acquire(ctx, AcquireCommand{
+			Lease: proposed, RuleID: rule.ID, Dimensions: dims, Limit: rule.Limit, Mode: rule.Mode, Now: now,
 		})
-		if acqErr != nil {
-			s.rollbackAcquired(ctx, rollbackIDs, requestID, now)
-			return AdmitResult{}, WrapError("admit", acqErr)
+		if err != nil {
+			return AdmitResult{}, WrapError("admit", err)
 		}
-
 		if acq.CapacityExceeded {
-			if rule.Mode == domain.RuleModeAdvisory {
-				sawAdvise = true
-				best = AdmitResult{
-					Kind:           domain.DecisionAdvisory,
-					RemainingSlots: 0,
-					Readiness:      ready,
-					Evidence:       domain.DenialEvidence(rule.ID, 0),
-					RuleID:         rule.ID,
-					BoundVersion:   in.BoundVersion,
-				}
-				haveBest = true
-				continue
+			sawAdvise = true
+			advise = AdmitResult{
+				Kind: domain.DecisionAdvisory, RemainingSlots: 0, Readiness: ready,
+				Evidence: domain.DenialEvidence(rule.ID, 0), RuleID: rule.ID, BoundVersion: bound,
 			}
-			sawDeny = true
-			best = AdmitResult{
-				Kind:           domain.DecisionDeny,
-				RemainingSlots: 0,
-				Readiness:      ready,
-				Evidence:       domain.DenialEvidence(rule.ID, 0),
-				RuleID:         rule.ID,
-				BoundVersion:   in.BoundVersion,
-			}
-			haveBest = true
-			// Stop matching further rules; prior acquires are rolled back below.
-			break
+			continue
 		}
 		if acq.Rejected {
 			continue
 		}
-
-		occ := AdmittedLease{
-			LeaseID:         acq.Lease.LeaseID,
-			RuleID:          rule.ID,
-			Generation:      acq.Lease.Generation,
-			ExpiresAt:       acq.Lease.ExpiresAt,
-			RenewBefore:     rule.EffectiveRenewBefore(),
-			TTL:             ttl,
-			FailureBehavior: rule.FailureBehavior,
-			Acquired:        !acq.Replayed,
-			Replayed:        acq.Replayed,
-		}
-		if occ.Acquired {
-			rollbackIDs = append(rollbackIDs, occ.LeaseID)
-		}
-		acquiredLeases = append(acquiredLeases, occ)
-
-		out := AdmitResult{
-			Kind:            domain.DecisionAllow,
-			LeaseID:         acq.Lease.LeaseID,
-			Generation:      acq.Lease.Generation,
-			ExpiresAt:       acq.Lease.ExpiresAt,
-			RemainingSlots:  acq.RemainingSlots,
-			Readiness:       ready,
-			BoundVersion:    snap.PolicyRef(),
-			Acquired:        !acq.Replayed,
-			Replayed:        acq.Replayed,
-			RuleID:          rule.ID,
-			RenewBefore:     rule.EffectiveRenewBefore(),
-			TTL:             ttl,
+		acquiredLeases = append(acquiredLeases, AdmittedLease{
+			LeaseID: acq.Lease.LeaseID, RuleID: rule.ID, Generation: acq.Lease.Generation,
+			ExpiresAt: acq.Lease.ExpiresAt, RenewBefore: rule.EffectiveRenewBefore(), TTL: ttl,
+			FailureBehavior: rule.FailureBehavior, Acquired: !acq.Replayed, Replayed: acq.Replayed,
+		})
+		lastAllow = AdmitResult{
+			Kind: domain.DecisionAllow, LeaseID: acq.Lease.LeaseID, Generation: acq.Lease.Generation,
+			ExpiresAt: acq.Lease.ExpiresAt, RemainingSlots: acq.RemainingSlots, Readiness: ready,
+			BoundVersion: bound, Acquired: !acq.Replayed, Replayed: acq.Replayed,
+			RuleID: rule.ID, RenewBefore: rule.EffectiveRenewBefore(), TTL: ttl,
 			FailureBehavior: rule.FailureBehavior,
 			Leases:          append([]AdmittedLease(nil), acquiredLeases...),
 		}
-		if in.BoundVersion.Version != "" {
-			out.BoundVersion = in.BoundVersion
-		}
-		lastAllow = out
 		haveAllow = true
-		if !haveBest || best.Kind == domain.DecisionAllow {
-			best = out
-			haveBest = true
-		}
 	}
 
-	if sawDeny {
-		// Strict capacity deny: release every occupancy acquired in this Admit
-		// so prior rules do not leave orphans (multi-rule mid-loop deny).
-		s.rollbackAcquired(ctx, rollbackIDs, requestID, now)
-		best.Leases = nil
-		best.LeaseID = ""
-		best.Generation = 0
-		best.ExpiresAt = time.Time{}
-		best.Acquired = false
-		best.Replayed = false
-		return best, nil
-	}
-	if sawAdvise && !haveAllow {
-		return best, nil
-	}
 	if haveAllow {
 		lastAllow.Leases = append([]AdmittedLease(nil), acquiredLeases...)
 		return lastAllow, nil
 	}
-	if haveBest {
-		return best, nil
+	if sawAdvise {
+		return advise, nil
 	}
 	return AdmitResult{Kind: domain.DecisionAllow, Readiness: ready}, nil
 }
@@ -295,7 +305,7 @@ func worseReadiness(a, b domain.Readiness) domain.Readiness {
 	return a
 }
 
-// Renew extends an active lease with generation CAS.
+// Renew extends an active lease or lease set with generation CAS.
 func (s *Service) Renew(ctx context.Context, in RenewInput) (AdmitResult, error) {
 	if s == nil || s.store == nil {
 		return AdmitResult{}, WrapError("renew", ErrUnavailable)
@@ -303,10 +313,51 @@ func (s *Service) Renew(ctx context.Context, in RenewInput) (AdmitResult, error)
 	if err := ctx.Err(); err != nil {
 		return AdmitResult{}, err
 	}
+	ready, _ := s.ReadinessDomain(ctx)
+	if setID := strings.TrimSpace(in.SetID); setID != "" {
+		ttl := in.TTL
+		if ttl <= 0 {
+			ttl = time.Minute
+		}
+		renewBefore := in.RenewBefore
+		if renewBefore <= 0 {
+			renewBefore = 15 * time.Second
+		}
+		if err := domain.ValidateTiming(ttl, renewBefore); err != nil {
+			return AdmitResult{}, WrapError("renew", err)
+		}
+		res, err := s.store.RenewSet(ctx, RenewSetCommand{
+			SetID: setID, RequestID: in.RequestID, ExpectedGeneration: in.ExpectedGeneration,
+			TTL: ttl, RenewBefore: renewBefore, Now: s.now(),
+		})
+		if err != nil {
+			if IsAmbiguousRenewError(err) {
+				if markErr := s.store.MarkSetUncertain(ctx, setID, s.now()); markErr != nil {
+					return AdmitResult{}, errors.Join(WrapError("renew", err), WrapError("mark_uncertain", markErr))
+				}
+			}
+			return AdmitResult{}, WrapError("renew", err)
+		}
+		primaryID := in.LeaseID
+		if primaryID == "" && len(res.Set.Members) > 0 {
+			primaryID = res.Set.Members[len(res.Set.Members)-1].LeaseID
+		}
+		out := AdmitResult{
+			Kind: domain.DecisionAllow, LeaseID: primaryID, Generation: res.Set.Generation,
+			ExpiresAt: res.Set.ExpiresAt, Readiness: ready, SetID: res.Set.SetID,
+			TTL: ttl, RenewBefore: renewBefore,
+		}
+		for _, m := range res.Set.Members {
+			out.Leases = append(out.Leases, AdmittedLease{
+				LeaseID: m.LeaseID, RuleID: m.RuleID, Generation: m.Generation,
+				ExpiresAt: m.ExpiresAt, RenewBefore: renewBefore, TTL: ttl,
+			})
+		}
+		return out, nil
+	}
 	if strings.TrimSpace(in.LeaseID) == "" {
 		return AdmitResult{}, WrapError("renew", ErrInvalidInput)
 	}
-	ready, _ := s.ReadinessDomain(ctx)
 	res, err := s.store.Renew(ctx, RenewCommand{
 		LeaseID:            in.LeaseID,
 		RequestID:          in.RequestID,
@@ -326,13 +377,22 @@ func (s *Service) Renew(ctx context.Context, in RenewInput) (AdmitResult, error)
 	}, nil
 }
 
-// Release releases a lease idempotently.
+// Release releases a lease or lease set idempotently.
 func (s *Service) Release(ctx context.Context, in ReleaseInput) error {
 	if s == nil || s.store == nil {
 		return WrapError("release", ErrUnavailable)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if setID := strings.TrimSpace(in.SetID); setID != "" {
+		_, err := s.store.ReleaseSet(ctx, ReleaseSetCommand{
+			SetID: setID, RequestID: in.RequestID, Reason: in.Reason, Now: s.now(),
+		})
+		if err != nil {
+			return WrapError("release", err)
+		}
+		return nil
 	}
 	if strings.TrimSpace(in.LeaseID) == "" {
 		return WrapError("release", ErrInvalidInput)
@@ -373,6 +433,7 @@ func (s *Service) Query(ctx context.Context, q QueryCommand) (QueryResult, error
 }
 
 // ReadinessDomain returns domain readiness from store (and optional snapshot).
+// Uncertain or failed lease-set occupancy degrades readiness (task 6.4 remediation).
 func (s *Service) ReadinessDomain(ctx context.Context) (domain.Readiness, error) {
 	if s == nil || s.store == nil {
 		return domain.Readiness{State: domain.ReadinessStateUnavailable}, WrapError("readiness", ErrUnavailable)
@@ -389,7 +450,66 @@ func (s *Service) ReadinessDomain(ctx context.Context) (domain.Readiness, error)
 	if ready.State == "" {
 		ready.State = domain.ReadinessStateReady
 	}
+	counts, countErr := s.LeaseSetOccupancyCounts(ctx)
+	if countErr == nil && (counts.Uncertain > 0 || counts.Failed > 0 || counts.Expiring > 0) {
+		ready = mergeReadiness(ready, &domain.Readiness{
+			State:  domain.ReadinessStateDegraded,
+			Reason: "lease_set_uncertain_failed_or_expiring",
+		})
+	}
 	return ready, nil
+}
+
+// LeaseSetOccupancyCounts returns bounded occupancy counts by set state.
+func (s *Service) LeaseSetOccupancyCounts(ctx context.Context) (LeaseSetOccupancyCounts, error) {
+	if s == nil || s.store == nil {
+		return LeaseSetOccupancyCounts{}, WrapError("query_sets", ErrUnavailable)
+	}
+	res, err := s.store.QuerySets(ctx, QuerySetsCommand{Now: s.now(), Limit: 500})
+	if err != nil {
+		return LeaseSetOccupancyCounts{}, WrapError("query_sets", err)
+	}
+	var out LeaseSetOccupancyCounts
+	for _, set := range res.Sets {
+		switch set.State {
+		case domain.LeaseSetStateActive:
+			out.Active++
+		case domain.LeaseSetStateUncertain:
+			out.Uncertain++
+		case domain.LeaseSetStateExpiring:
+			out.Expiring++
+		case domain.LeaseSetStateReleased:
+			out.Released++
+		case domain.LeaseSetStateFailed:
+			out.Failed++
+		}
+	}
+	return out, nil
+}
+
+// ReconcileUncertainSets conservatively keeps uncertain sets occupied and returns
+// their IDs for durable release-work resumption (startup reconciliation).
+func (s *Service) ReconcileUncertainSets(ctx context.Context) ([]string, error) {
+	if s == nil || s.store == nil {
+		return nil, WrapError("reconcile", ErrUnavailable)
+	}
+	res, err := s.store.QuerySets(ctx, QuerySetsCommand{
+		State: domain.LeaseSetStateUncertain, Now: s.now(), Limit: 500,
+	})
+	if err != nil {
+		return nil, WrapError("reconcile", err)
+	}
+	ids := make([]string, 0, len(res.Sets))
+	for _, set := range res.Sets {
+		if set.SetID == "" {
+			continue
+		}
+		if err := s.store.MarkSetUncertain(ctx, set.SetID, s.now()); err != nil {
+			return ids, WrapError("reconcile", err)
+		}
+		ids = append(ids, set.SetID)
+	}
+	return ids, nil
 }
 
 // Readiness maps domain readiness onto the public authority readiness enum.

@@ -23,22 +23,26 @@ type requestAuthorityKey struct{}
 
 // requestAuthorityState holds the once-per-request coordinator result for settle/release.
 type requestAuthorityState struct {
-	Decision        authoritycoord.CompositeDecision
-	RequestID       string
-	AttemptID       string
-	TraceID         string
-	Settled         bool
-	Released        bool
-	LeaseID         string // primary lease (backward compat / aux parent)
-	LeaseIDs        []string
-	LeaseTargets    []leaseRenewTarget
-	LeaseGeneration int64
-	LeaseExpiresAt  time.Time
-	RenewBefore     time.Duration
-	LeaseTTL        time.Duration
-	FailureBehavior authority.FailureBehavior
-	heartbeat       *leaseHeartbeat
-	ExecutableGen   *snapshotgen.ExecutableGeneration
+	Decision                 authoritycoord.CompositeDecision
+	RequestID                string
+	AttemptID                string
+	TraceID                  string
+	Settled                  bool
+	Released                 bool
+	LeaseID                  string // primary lease (backward compat / aux parent)
+	LeaseSetID               string
+	LeaseIDs                 []string
+	LeaseTargets             []leaseRenewTarget
+	LeaseGeneration          int64
+	LeaseExpiresAt           time.Time
+	RenewBefore              time.Duration
+	LeaseTTL                 time.Duration
+	FailureBehavior          authority.FailureBehavior
+	heartbeat                *leaseHeartbeat
+	ExecutableGen            *snapshotgen.ExecutableGeneration
+	cancelRequest            context.CancelFunc
+	LeaseSetReleaseAcceptErr error
+	LeaseSetUncertainErr     error
 }
 
 // leaseRenewTarget is one occupancy the heartbeat renews until settle/release.
@@ -198,12 +202,14 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		primaryGen = targets[0].Generation
 		primaryExp = targets[0].ExpiresAt
 	}
+	hbCtx, hbCancel := context.WithCancel(ctx)
 	st := &requestAuthorityState{
 		Decision:        d,
 		RequestID:       in.RequestID,
 		AttemptID:       strings.TrimSpace(aLegID),
 		TraceID:         strings.TrimSpace(traceID),
 		LeaseID:         primaryID,
+		LeaseSetID:      strings.TrimSpace(d.Lease.SetID),
 		LeaseIDs:        leaseIDs,
 		LeaseTargets:    targets,
 		LeaseGeneration: primaryGen,
@@ -212,8 +218,9 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 		LeaseTTL:        d.Lease.TTL,
 		FailureBehavior: d.Lease.FailureBehavior,
 		ExecutableGen:   boundGen,
+		cancelRequest:   hbCancel,
 	}
-	outCtx := withRequestAuthority(ctx, st)
+	outCtx := withRequestAuthority(hbCtx, st)
 	e.startLeaseHeartbeat(outCtx, st)
 	return outCtx, nil
 }
@@ -301,11 +308,23 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 	}
 	// RequestCoordinator.Settle does not release concurrency occupancy (10.5).
 	e.stopLeaseHeartbeat(st)
-	ids := st.LeaseIDs
-	if len(ids) == 0 && st.LeaseID != "" {
-		ids = []string{st.LeaseID}
+	if setID := strings.TrimSpace(st.LeaseSetID); setID != "" {
+		if err := coord.ReleaseLeaseSet(ctx, setID, st.LeaseID, st.RequestID, "settled"); err != nil {
+			acceptErr := e.acceptLeaseSetReleaseIntent(ctx, st, "settle_release_failure")
+			if acceptErr != nil {
+				return errors.Join(err, acceptErr)
+			}
+			return errors.Join(err, terminalworkapp.ErrDurablePending)
+		}
+	} else {
+		ids := st.LeaseIDs
+		if len(ids) == 0 && st.LeaseID != "" {
+			ids = []string{st.LeaseID}
+		}
+		if err := coord.ReleaseLeases(ctx, ids, st.RequestID, "settled"); err != nil {
+			return err
+		}
 	}
-	_ = coord.ReleaseLeases(ctx, ids, st.RequestID, "settled")
 	st.Settled = true
 	st.Released = true
 	if st.ExecutableGen != nil {
@@ -328,6 +347,15 @@ func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 		return nil
 	}
 	e.stopLeaseHeartbeat(st)
+	if setID := strings.TrimSpace(st.LeaseSetID); setID != "" {
+		if err := coord.ReleaseLeaseSet(ctx, setID, st.LeaseID, st.RequestID, "released"); err != nil {
+			acceptErr := e.acceptLeaseSetReleaseIntent(ctx, st, "release_failure")
+			if acceptErr != nil {
+				return errors.Join(err, acceptErr)
+			}
+			return errors.Join(err, terminalworkapp.ErrDurablePending)
+		}
+	}
 	fails := coord.Release(ctx, st.Decision.Stack, st.RequestID)
 	if len(fails) > 0 {
 		// Live release incomplete: keep Released=false and accept durable intents.
@@ -402,6 +430,71 @@ func (e *Executor) acceptSettleDurableIntents(ctx context.Context, st *requestAu
 		)
 	}
 	return terminalworkapp.ErrDurablePending
+}
+
+func (e *Executor) acceptLeaseSetReleaseIntent(ctx context.Context, st *requestAuthorityState, reason string) error {
+	if st == nil {
+		return fmt.Errorf("%w: missing request authority state", terminalworkapp.ErrDurableIntentRejected)
+	}
+	setID := strings.TrimSpace(st.LeaseSetID)
+	if setID == "" {
+		return fmt.Errorf("%w: missing lease set id", terminalworkapp.ErrDurableIntentRejected)
+	}
+	if e == nil || e.TerminalWork == nil {
+		err := fmt.Errorf("%w: terminal work not configured", terminalworkapp.ErrDurableIntentRejected)
+		st.LeaseSetReleaseAcceptErr = err
+		return err
+	}
+	timeout := 2 * time.Second
+	if coord := e.requestCoordinatorFor(st); coord != nil && coord.CleanupTimeout > 0 {
+		timeout = coord.CleanupTimeout
+	}
+	base := ctx
+	if base == nil {
+		base = context.Background()
+	}
+	actx, cancel := context.WithTimeout(context.WithoutCancel(base), timeout)
+	defer cancel()
+	err := e.TerminalWork.AcceptLeaseSetRelease(actx, terminalworkapp.LeaseSetReleaseInput{
+		RequestID:  st.RequestID,
+		AttemptID:  st.AttemptID,
+		TraceID:    st.TraceID,
+		LeaseSetID: setID,
+		Reason:     reason,
+		Versions:   boundVersionsForProvider(st, "concurrency"),
+	})
+	if err != nil {
+		st.LeaseSetReleaseAcceptErr = err
+	}
+	return err
+}
+
+type leaseSetUncertainMarker interface {
+	MarkLeaseSetUncertain(ctx context.Context, setID string) error
+}
+
+func (e *Executor) markLeaseSetUncertain(ctx context.Context, st *requestAuthorityState) error {
+	if st == nil {
+		return nil
+	}
+	setID := strings.TrimSpace(st.LeaseSetID)
+	if setID == "" {
+		return nil
+	}
+	coord := e.requestCoordinatorFor(st)
+	if coord == nil || coord.Concurrency == nil {
+		return nil
+	}
+	if m, ok := coord.Concurrency.(leaseSetUncertainMarker); ok {
+		base := ctx
+		if base == nil {
+			base = context.Background()
+		}
+		mctx, cancel := context.WithTimeout(context.WithoutCancel(base), 2*time.Second)
+		defer cancel()
+		return m.MarkLeaseSetUncertain(mctx, setID)
+	}
+	return nil
 }
 
 func (e *Executor) acceptReleaseDurableIntents(ctx context.Context, st *requestAuthorityState, fails []authoritycoord.CompensateFailed) error {

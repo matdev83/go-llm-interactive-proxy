@@ -110,6 +110,63 @@ func (s *IntentService) AcceptSettleFailure(ctx context.Context, in SettleFailur
 	return s.accept(ctx, rec)
 }
 
+// LeaseSetReleaseInput describes durable lease-set release/rollback work.
+type LeaseSetReleaseInput struct {
+	RequestID  string
+	AttemptID  string
+	TraceID    string
+	LeaseSetID string
+	Reason     string
+	Versions   terminalwork.BoundVersions
+}
+
+// AcceptLeaseSetRelease appends and promotes a release-lease-set intent.
+func (s *IntentService) AcceptLeaseSetRelease(ctx context.Context, in LeaseSetReleaseInput) error {
+	if s == nil || s.store == nil {
+		return ErrNilIntentStore
+	}
+	requestID := strings.TrimSpace(in.RequestID)
+	setID := strings.TrimSpace(in.LeaseSetID)
+	if requestID == "" || setID == "" {
+		return fmt.Errorf("%w: lease set release identity", sdk.ErrInvalid)
+	}
+	attemptID := strings.TrimSpace(in.AttemptID)
+	traceID := strings.TrimSpace(in.TraceID)
+	workID, sourceKey := durableWorkIdentity(sdk.WorkKindReleaseLeaseSet, requestID, attemptID, "concurrency", []string{setID})
+	payload, err := json.Marshal(struct {
+		SetID  string `json:"set_id"`
+		Reason string `json:"reason,omitempty"`
+	}{SetID: setID, Reason: strings.TrimSpace(in.Reason)})
+	if err != nil {
+		return err
+	}
+	versions := in.Versions
+	if strings.TrimSpace(versions.ProviderID) == "" {
+		versions.ProviderID = "concurrency"
+	}
+	rec := terminalwork.WorkRecord{
+		WorkID:         workID,
+		SourceKey:      sourceKey,
+		PayloadVersion: 1,
+		Kind:           sdk.WorkKindReleaseLeaseSet,
+		State:          sdk.WorkStateIntent,
+		ProviderID:     "concurrency",
+		Lifecycle: terminalwork.LifecycleCorrelation{
+			RequestID: requestID,
+			AttemptID: attemptID,
+			TraceID:   traceID,
+		},
+		Versions:   versions,
+		LeaseSetID: setID,
+		Payload:    payload,
+		Error: terminalwork.BoundedError{
+			Code:    "lease_set_release",
+			Message: "lease set release required",
+		},
+	}
+	return s.accept(ctx, rec)
+}
+
 // AcceptReleaseFailure appends and promotes a release-request-provider intent.
 func (s *IntentService) AcceptReleaseFailure(ctx context.Context, in ReleaseFailureInput) error {
 	if s == nil || s.store == nil {

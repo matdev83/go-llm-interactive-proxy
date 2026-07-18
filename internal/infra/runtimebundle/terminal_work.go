@@ -115,8 +115,8 @@ func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.T
 }
 
 func composeTerminalWorkProviders(prod ProductionOptions) ([]terminalworkapp.EffectProvider, error) {
-	byID := make(map[string]terminalworkapp.EffectProvider, len(prod.RequestRegistrations)+len(prod.TerminalWorkProviders))
-	order := make([]string, 0, len(prod.RequestRegistrations)+len(prod.TerminalWorkProviders))
+	byID := make(map[string]terminalworkapp.EffectProvider, len(prod.RequestRegistrations)+len(prod.TerminalWorkProviders)+1)
+	order := make([]string, 0, len(prod.RequestRegistrations)+len(prod.TerminalWorkProviders)+1)
 	for _, reg := range prod.RequestRegistrations {
 		id := strings.TrimSpace(reg.Descriptor.ID)
 		if id == "" || reg.Provider == nil {
@@ -130,6 +130,21 @@ func composeTerminalWorkProviders(prod ProductionOptions) ([]terminalworkapp.Eff
 		if err != nil {
 			return nil, fmt.Errorf("runtimebundle: derive terminal work provider %q: %w", id, err)
 		}
+		if _, exists := byID[id]; !exists {
+			order = append(order, id)
+		}
+		byID[id] = effect
+	}
+	if conc := concurrencyProviderFromProd(prod); conc != nil {
+		effect, err := terminalworkapp.NewLeaseSetEffectProvider(terminalworkapp.LeaseSetEffectConfig{
+			ProviderID: "concurrency",
+			Provider:   conc,
+			Version:    "1",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("runtimebundle: derive lease-set terminal work provider: %w", err)
+		}
+		id := effect.ProviderID()
 		if _, exists := byID[id]; !exists {
 			order = append(order, id)
 		}
@@ -153,6 +168,13 @@ func composeTerminalWorkProviders(prod ProductionOptions) ([]terminalworkapp.Eff
 		out = append(out, byID[id])
 	}
 	return out, nil
+}
+
+func concurrencyProviderFromProd(prod ProductionOptions) authority.ConcurrencyProvider {
+	if prod.ConcurrencyRegistration != nil && prod.ConcurrencyRegistration.Provider != nil {
+		return prod.ConcurrencyRegistration.Provider
+	}
+	return prod.ConcurrencyProvider
 }
 
 func requestRegistrationEffectVersion(reg authority.RequestRegistration) string {

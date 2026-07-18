@@ -150,8 +150,12 @@ var lineBudgets = []struct {
 	// RequestCoordinator/AttemptCoordinator/max-active limiter + rater binding,
 	// control-plane executable readiness) merged onto main Phase 1–4 + reasoning.
 	// Post-merge measured non-test total is 63659; cap keeps ~91 lines of headroom.
-	// Prefer further decomposition over another raise.
-	{"internal/core", 63750},
+	// Raised from 63750 to 64550 for dual-plane Phase 6 atomic lease-set concurrency
+	// (AcquireSet/RenewSet/ReleaseSet, heartbeat fail-closed cancel, durable
+	// ReleaseLeaseSet terminal work, QuerySets readiness) merged onto main
+	// Phase 1–5 + reasoning. Post-merge measured non-test total is 64452;
+	// cap keeps ~98 lines of headroom. Prefer further decomposition over another raise.
+	{"internal/core", 64550},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -181,7 +185,11 @@ var lineBudgets = []struct {
 	// readiness plus Phase 5 remediation (provider-removal validation + terminal
 	// pending-drain binding at composition root). Post-merge measured non-test
 	// total is 6353; cap keeps ~47 lines of headroom.
-	{"internal/infra/runtimebundle", 6400},
+	// Raised from 6400 to 6525 for Phase 6 lease-set QuerySets readiness, startup
+	// uncertain-set reconcile, and settle-release pending counts at composition
+	// root. Post-merge measured non-test total is 6477; cap keeps ~48 lines of
+	// headroom.
+	{"internal/infra/runtimebundle", 6525},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

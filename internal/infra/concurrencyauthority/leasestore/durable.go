@@ -225,21 +225,25 @@ func (s *DurableStore) CheckReadiness(ctx context.Context) (domain.Readiness, er
 }
 
 type leaseRow struct {
-	StoreID        string `bun:"store_id"`
-	LeaseID        string `bun:"lease_id"`
-	RuleID         string `bun:"rule_id"`
-	RuleVersion    string `bun:"rule_version"`
-	Namespace      string `bun:"namespace"`
-	DimensionKey   string `bun:"dimension_key"`
-	LogicalID      string `bun:"logical_id"`
-	HolderID       string `bun:"holder_id"`
-	AcquiredAtUnix int64  `bun:"acquired_at_unix"`
-	RenewedAtUnix  int64  `bun:"renewed_at_unix"`
-	ExpiresAtUnix  int64  `bun:"expires_at_unix"`
-	ReleasedAtUnix int64  `bun:"released_at_unix"`
-	Generation     int64  `bun:"generation"`
-	State          string `bun:"state"`
-	DimensionsJSON string `bun:"dimensions_json"`
+	StoreID         string `bun:"store_id"`
+	LeaseID         string `bun:"lease_id"`
+	RuleID          string `bun:"rule_id"`
+	RuleVersion     string `bun:"rule_version"`
+	Namespace       string `bun:"namespace"`
+	DimensionKey    string `bun:"dimension_key"`
+	LogicalID       string `bun:"logical_id"`
+	HolderID        string `bun:"holder_id"`
+	AcquiredAtUnix  int64  `bun:"acquired_at_unix"`
+	RenewedAtUnix   int64  `bun:"renewed_at_unix"`
+	ExpiresAtUnix   int64  `bun:"expires_at_unix"`
+	ReleasedAtUnix  int64  `bun:"released_at_unix"`
+	Generation      int64  `bun:"generation"`
+	State           string `bun:"state"`
+	DimensionsJSON  string `bun:"dimensions_json"`
+	IdentityVersion int    `bun:"identity_version"`
+	SetID           string `bun:"set_id"`
+	SetGeneration   int64  `bun:"set_generation"`
+	SetState        string `bun:"set_state"`
 }
 
 func leaseToRow(storeID string, lease domain.Lease, dimKey string) (leaseRow, error) {
@@ -250,22 +254,30 @@ func leaseToRow(storeID string, lease domain.Lease, dimKey string) (leaseRow, er
 	if dimKey == "" {
 		dimKey = string(lease.Dimensions.Key())
 	}
+	identityVersion := lease.IdentityVersion
+	if identityVersion == 0 {
+		identityVersion = 1
+	}
 	return leaseRow{
-		StoreID:        storeID,
-		LeaseID:        lease.LeaseID,
-		RuleID:         lease.RuleID,
-		RuleVersion:    lease.RuleVersion,
-		Namespace:      lease.Namespace,
-		DimensionKey:   dimKey,
-		LogicalID:      lease.LogicalID,
-		HolderID:       lease.HolderID,
-		AcquiredAtUnix: lease.AcquiredAt.UnixNano(),
-		RenewedAtUnix:  lease.RenewedAt.UnixNano(),
-		ExpiresAtUnix:  lease.ExpiresAt.UnixNano(),
-		ReleasedAtUnix: lease.ReleasedAt.UnixNano(),
-		Generation:     lease.Generation,
-		State:          string(lease.State),
-		DimensionsJSON: string(raw),
+		StoreID:         storeID,
+		LeaseID:         lease.LeaseID,
+		RuleID:          lease.RuleID,
+		RuleVersion:     lease.RuleVersion,
+		Namespace:       lease.Namespace,
+		DimensionKey:    dimKey,
+		LogicalID:       lease.LogicalID,
+		HolderID:        lease.HolderID,
+		AcquiredAtUnix:  lease.AcquiredAt.UnixNano(),
+		RenewedAtUnix:   lease.RenewedAt.UnixNano(),
+		ExpiresAtUnix:   lease.ExpiresAt.UnixNano(),
+		ReleasedAtUnix:  lease.ReleasedAt.UnixNano(),
+		Generation:      lease.Generation,
+		State:           string(lease.State),
+		DimensionsJSON:  string(raw),
+		IdentityVersion: identityVersion,
+		SetID:           lease.SetID,
+		SetGeneration:   lease.SetGeneration,
+		SetState:        string(lease.SetState),
 	}, nil
 }
 
@@ -277,21 +289,36 @@ func rowToLease(row leaseRow) (domain.Lease, error) {
 		}
 	}
 	lease := domain.Lease{
-		LeaseID:     row.LeaseID,
-		RuleID:      row.RuleID,
-		RuleVersion: row.RuleVersion,
-		Namespace:   row.Namespace,
-		Dimensions:  dims,
-		LogicalID:   row.LogicalID,
-		HolderID:    row.HolderID,
-		AcquiredAt:  time.Unix(0, row.AcquiredAtUnix).UTC(),
-		RenewedAt:   time.Unix(0, row.RenewedAtUnix).UTC(),
-		ExpiresAt:   time.Unix(0, row.ExpiresAtUnix).UTC(),
-		Generation:  row.Generation,
-		State:       domain.LeaseState(row.State),
+		LeaseID:         row.LeaseID,
+		RuleID:          row.RuleID,
+		RuleVersion:     row.RuleVersion,
+		Namespace:       row.Namespace,
+		Dimensions:      dims,
+		LogicalID:       row.LogicalID,
+		HolderID:        row.HolderID,
+		AcquiredAt:      time.Unix(0, row.AcquiredAtUnix).UTC(),
+		RenewedAt:       time.Unix(0, row.RenewedAtUnix).UTC(),
+		ExpiresAt:       time.Unix(0, row.ExpiresAtUnix).UTC(),
+		Generation:      row.Generation,
+		State:           domain.LeaseState(row.State),
+		IdentityVersion: row.IdentityVersion,
+		SetID:           row.SetID,
+		SetGeneration:   row.SetGeneration,
+		SetState:        domain.LeaseSetState(row.SetState),
 	}
 	if row.ReleasedAtUnix != 0 {
 		lease.ReleasedAt = time.Unix(0, row.ReleasedAtUnix).UTC()
+	}
+	if lease.IdentityVersion == 0 && lease.SetID == "" {
+		// Legacy one-member set compatibility (requirement 11.4).
+		lease.IdentityVersion = 1
+		lease.SetID = lease.LeaseID
+		lease.SetGeneration = lease.Generation
+		if lease.State == domain.LeaseStateReleased {
+			lease.SetState = domain.LeaseSetStateReleased
+		} else {
+			lease.SetState = domain.LeaseSetStateActive
+		}
 	}
 	return lease, nil
 }
@@ -430,11 +457,13 @@ SET state=?
 WHERE store_id=? AND rule_id=? AND dimension_key=?
   AND state IN (?, ?)
   AND expires_at_unix <= ?
+  AND COALESCE(set_state, '') != ?
 `,
 		string(domain.LeaseStateExpired),
 		s.cfg.StoreID, ruleID, dimKey,
 		string(domain.LeaseStateActive), string(domain.LeaseStateExpiring),
 		nowUnix,
+		string(domain.LeaseSetStateUncertain),
 	).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("leasestore: reclaim: %w", err)
@@ -443,17 +472,37 @@ WHERE store_id=? AND rule_id=? AND dimension_key=?
 }
 
 func (s *DurableStore) countLiveTx(ctx context.Context, tx bun.Tx, ruleID, dimKey string, nowUnix int64) (int, error) {
+	return s.countLiveTxExcluding(ctx, tx, ruleID, dimKey, nowUnix, nil)
+}
+
+func (s *DurableStore) countLiveTxExcluding(ctx context.Context, tx bun.Tx, ruleID, dimKey string, nowUnix int64, exclude []string) (int, error) {
 	var n int
-	err := tx.NewRaw(`
+	q := `
 SELECT COUNT(*) FROM concurrency_leases
 WHERE store_id=? AND rule_id=? AND dimension_key=?
   AND state IN (?, ?)
-  AND expires_at_unix > ?
-`,
+  AND (expires_at_unix > ? OR COALESCE(set_state, '') = ?)
+`
+	args := []any{
 		s.cfg.StoreID, ruleID, dimKey,
 		string(domain.LeaseStateActive), string(domain.LeaseStateExpiring),
 		nowUnix,
-	).Scan(ctx, &n)
+		string(domain.LeaseSetStateUncertain),
+	}
+	if len(exclude) > 0 {
+		var b strings.Builder
+		b.WriteString(` AND lease_id NOT IN (`)
+		for i, id := range exclude {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteByte('?')
+			args = append(args, id)
+		}
+		b.WriteByte(')')
+		q += b.String()
+	}
+	err := tx.NewRaw(q, args...).Scan(ctx, &n)
 	if err != nil {
 		return 0, fmt.Errorf("leasestore: count live: %w", err)
 	}
