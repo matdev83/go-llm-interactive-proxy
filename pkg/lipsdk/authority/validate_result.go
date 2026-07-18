@@ -227,13 +227,12 @@ func (d LeaseDecision) ValidateFor(in LeaseAdmission, reg ProviderDescriptor) er
 	return nil
 }
 
-// ValidateRenewalFor checks LeaseDecision against a single-target renew request
-// and registration (design External Result Validation; requirements 4.1, 10.2).
-// Occupancy entries in Leases must all match the renew LeaseID (no foreign or
-// duplicate IDs); atomic multi-lease set renew is not modeled on LeaseRenew yet.
-// Generation may equal ExpectedGeneration for TTL-only expiry extension.
-// Expiry relative to wall/evaluation clock is enforced by the coordinator Now
-// seam, not here — public ValidateRenewalFor stays deterministic.
+// ValidateRenewalFor checks LeaseDecision against a renew request and registration
+// (design External Result Validation; requirements 4.1, 10.2). Single-lease renew
+// requires occupancy IDs to match LeaseID. When SetID is set, the complete set
+// shape is validated and member lease IDs may differ. Generation may equal
+// ExpectedGeneration for TTL-only expiry extension. Expiry relative to wall clock
+// is enforced by the coordinator Now seam, not here.
 func (d LeaseDecision) ValidateRenewalFor(in LeaseRenew, reg ProviderDescriptor) error {
 	if err := reg.Validate(); err != nil {
 		return fmt.Errorf("authority: registration: %w", err)
@@ -244,14 +243,39 @@ func (d LeaseDecision) ValidateRenewalFor(in LeaseRenew, reg ProviderDescriptor)
 	if _, ok := AdmitPosture(reg, StageLeaseAdmit); !ok {
 		return fmt.Errorf("authority: stage %q not declared on provider %q", StageLeaseAdmit, strings.TrimSpace(reg.ID))
 	}
+	wantSet := strings.TrimSpace(in.SetID)
 	wantID := strings.TrimSpace(in.LeaseID)
-	if wantID == "" {
-		return fmt.Errorf("authority: renew lease_id required")
+	if wantSet == "" && wantID == "" {
+		return fmt.Errorf("authority: renew lease_id or set_id required")
 	}
 	switch d.Kind {
 	case LeaseDeny:
 		return nil
 	case LeaseAllow, LeaseAdvisory, "":
+		if wantSet != "" {
+			gotSet := strings.TrimSpace(d.SetID)
+			if gotSet != "" && gotSet != wantSet {
+				return fmt.Errorf("authority: renewal set_id %q does not match %q", gotSet, wantSet)
+			}
+			if len(d.Leases) == 0 && strings.TrimSpace(d.LeaseID) == "" {
+				return fmt.Errorf("authority: set renewal missing members")
+			}
+			seen := make(map[string]struct{}, len(d.Leases))
+			for i, occ := range d.Leases {
+				occID := strings.TrimSpace(occ.LeaseID)
+				if occID == "" {
+					return fmt.Errorf("authority: leases[%d]: empty lease_id", i)
+				}
+				if _, dup := seen[occID]; dup {
+					return fmt.Errorf("authority: leases[%d]: duplicate lease_id %q", i, occID)
+				}
+				seen[occID] = struct{}{}
+			}
+			if d.Kind == LeaseAllow && in.ExpectedGeneration > 0 && d.Generation > 0 && d.Generation < in.ExpectedGeneration {
+				return fmt.Errorf("authority: renewal generation %d is stale for expected %d", d.Generation, in.ExpectedGeneration)
+			}
+			break
+		}
 		gotID := strings.TrimSpace(d.LeaseID)
 		if gotID != "" && gotID != wantID {
 			return fmt.Errorf("authority: renewal lease_id %q does not match %q", gotID, wantID)

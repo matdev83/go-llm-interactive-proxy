@@ -53,6 +53,8 @@ func (p *Provider) RenewLease(ctx context.Context, in authority.LeaseRenew) (aut
 		RequestID:          in.RequestID,
 		ExpectedGeneration: in.ExpectedGeneration,
 		TTL:                in.TTL,
+		SetID:              in.SetID,
+		RenewBefore:        in.RenewBefore,
 	})
 	if err != nil {
 		return authority.LeaseDecision{}, err
@@ -69,6 +71,7 @@ func (p *Provider) ReleaseLease(ctx context.Context, in authority.LeaseRelease) 
 		LeaseID:   in.LeaseID,
 		RequestID: in.RequestID,
 		Reason:    in.Reason,
+		SetID:     in.SetID,
 	})
 }
 
@@ -118,6 +121,7 @@ func mapAdmitDecision(res AdmitResult) authority.LeaseDecision {
 		RenewBefore:     res.RenewBefore,
 		TTL:             res.TTL,
 		FailureBehavior: authority.FailureBehavior(res.FailureBehavior),
+		SetID:           res.SetID,
 		Evidence: authority.SafeEvidence{
 			Category: res.Evidence.Category,
 			Code:     res.Evidence.Code,

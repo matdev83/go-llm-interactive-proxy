@@ -86,13 +86,17 @@ type LeaseDecision struct {
 	FailureBehavior FailureBehavior `json:"failure_behavior,omitempty"`
 	// Leases lists all rule occupancies from multi-rule Admit (omitempty for single-lease).
 	Leases []LeaseOccupancy `json:"leases,omitempty"`
+	// SetID is the atomic multi-rule lease-set identity when Admit used AcquireSet.
+	SetID string `json:"set_id,omitempty"`
 }
 
-// LeaseRelease releases a previously acquired lease.
+// LeaseRelease releases a previously acquired lease or lease set.
 type LeaseRelease struct {
 	LeaseID   string `json:"lease_id"`
 	RequestID string `json:"request_id,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	// SetID, when set, releases the complete lease set atomically (Phase 6).
+	SetID string `json:"set_id,omitempty"`
 }
 
 // LeaseRenew extends an active lease before expiry using generation CAS.
@@ -106,6 +110,10 @@ type LeaseRenew struct {
 	TTL                time.Duration `json:"ttl,omitempty"`
 	// RuleID, when set, constrains occupancy rule identity on the renewal result.
 	RuleID string `json:"rule_id,omitempty"`
+	// SetID, when set, renews the complete lease set atomically (Phase 6).
+	SetID string `json:"set_id,omitempty"`
+	// RenewBefore is required for set renew timing validation when SetID is set.
+	RenewBefore time.Duration `json:"renew_before,omitempty"`
 }
 
 // LeaseQuery is a bounded filter for active/history lease queries.
