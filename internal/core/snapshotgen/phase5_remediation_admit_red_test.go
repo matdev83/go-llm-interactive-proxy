@@ -53,7 +53,7 @@ func TestPhase5Remediation_FiveToTwoAdmitUsesLiveCoordinators(t *testing.T) {
 	pub1.Retain()
 	held := p.LookupExecutable(pub1.ID)
 	var leases []authoritycoord.CompositeDecision
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		d, err := held.RequestCoord.Admit(context.Background(), remediationAdmit(fmt.Sprintf("old-%d", i)))
 		if err != nil {
 			t.Fatalf("g1 admit %d: %v", i, err)
@@ -87,7 +87,7 @@ func TestPhase5Remediation_FiveToTwoAdmitUsesLiveCoordinators(t *testing.T) {
 	if cur.RequestCoord == nil || cur.EnforcementMaxActive() != 2 {
 		t.Fatalf("current must enforce max=2 via live coordinator, got %+v", cur)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := cur.RequestCoord.Admit(context.Background(), remediationAdmit(fmt.Sprintf("new-%d", i))); err != nil {
 			t.Fatalf("g2 admit %d: %v", i, err)
 		}

@@ -91,6 +91,7 @@ func TestPhase55_DocDistinguishesExecutableFromMetadataPublication(t *testing.T)
 func assertLipruntimeImportsPublicOnly(t *testing.T) {
 	t.Helper()
 	fset := token.NewFileSet()
+	//nolint:staticcheck // SA1019: intentional lightweight AST scan of one package dir
 	pkgs, err := parser.ParseDir(fset, ".", func(info os.FileInfo) bool {
 		return !strings.HasSuffix(info.Name(), "_test.go")
 	}, 0)
@@ -120,12 +121,15 @@ func (facadePhase55Req) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (facadePhase55Req) AdmitRequest(context.Context, authority.RequestAdmission) (authority.Decision, error) {
 	return authority.Decision{Kind: authority.DecisionAllow}, nil
 }
+
 func (facadePhase55Req) SettleRequest(context.Context, authority.RequestSettlement) (authority.Settlement, error) {
 	return authority.Settlement{}, nil
 }
+
 func (facadePhase55Req) ReleaseRequest(context.Context, authority.RequestRelease) error { return nil }
 
 type facadePhase55Rater struct{}

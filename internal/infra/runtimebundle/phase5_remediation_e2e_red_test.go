@@ -65,7 +65,7 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 	if g1 == nil || g1.RequestCoord == nil || g1.EnforcementMaxActive() != 5 {
 		t.Fatalf("build executable must enforce max=5 via live coordinator: %+v", g1)
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if _, err := g1.RequestCoord.Admit(context.Background(), phase5E2EAdmit(fmt.Sprintf("e2e-old-%d", i))); err != nil {
 			t.Fatalf("admit %d under five: %v", i, err)
 		}
@@ -88,7 +88,7 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 		t.Fatalf("refresh must change admit limit and rating evidence: %+v", g2)
 	}
 	cur := built.SnapshotGeneration.CurrentExecutable()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := cur.RequestCoord.Admit(context.Background(), phase5E2EAdmit(fmt.Sprintf("e2e-new-%d", i))); err != nil {
 			t.Fatalf("admit %d under two: %v", i, err)
 		}
@@ -211,9 +211,11 @@ func (s phase53Conc) Describe() authority.ProviderDescriptor {
 		}},
 	}
 }
+
 func (s phase53Conc) AdmitLease(context.Context, authority.LeaseAdmission) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L1", Generation: 1}, nil
 }
+
 func (s phase53Conc) RenewLease(context.Context, authority.LeaseRenew) (authority.LeaseDecision, error) {
 	return authority.LeaseDecision{Kind: authority.LeaseAllow, LeaseID: "L1", Generation: 2}, nil
 }
