@@ -37,6 +37,17 @@ func (p *Publisher) PublishExecutable(gen *ExecutableGeneration) (*ExecutableGen
 		Concurrency: gen.Concurrency,
 		Rating:      gen.Rating,
 	}
+	if prior := p.active.Load(); prior != nil {
+		if meta.Usage.Version == "" && meta.Usage.State == "" {
+			meta.Usage = prior.Usage
+		}
+		if meta.Concurrency.Version == "" && meta.Concurrency.State == "" {
+			meta.Concurrency = prior.Concurrency
+		}
+		if meta.Rating.Version == "" && meta.Rating.State == "" {
+			meta.Rating = prior.Rating
+		}
+	}
 	p.active.Store(&meta)
 	return gen, nil
 }

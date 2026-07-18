@@ -85,21 +85,23 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 			if cur == nil {
 				return controlplane.CapabilityDisabled, controlplane.CapabilityDisabled, controlplane.CapabilityDisabled
 			}
-			mapState := func(s economics.SnapshotState) controlplane.CapabilityState {
-				switch s {
-				case economics.SnapshotReady, economics.SnapshotStale:
-					return controlplane.CapabilityReady
-				case economics.SnapshotDegraded:
-					return controlplane.CapabilityDegraded
-				case economics.SnapshotUnavailable:
-					return controlplane.CapabilityUnavailable
-				case economics.SnapshotDisabled:
-					return controlplane.CapabilityDisabled
-				default:
-					return controlplane.CapabilityUnavailable
+			return mapSnapshotState(cur.Usage.State), mapSnapshotState(cur.Concurrency.State), mapSnapshotState(cur.Rating.State)
+		}
+		src.ExecutableGeneration = func() controlplane.ExecutableGenerationStatus {
+			exec := gen.CurrentExecutable()
+			if exec == nil {
+				return controlplane.ExecutableGenerationStatus{
+					State:  controlplane.CapabilityDisabled,
+					Reason: controlplane.ReasonDisabled,
 				}
 			}
-			return mapState(cur.Usage.State), mapState(cur.Concurrency.State), mapState(cur.Rating.State)
+			return controlplane.ExecutableGenerationStatus{
+				ID:               exec.ID,
+				Version:          exec.Version,
+				State:            mapSnapshotState(exec.State),
+				EvidenceObjectID: exec.EvidenceObjectID(),
+				SourceID:         exec.SourceID,
+			}
 		}
 	}
 	src.OperatorRaterIDs = raterIDsByPerspective(in.Production, metering.PerspectiveOperator)
@@ -147,6 +149,21 @@ func buildReadinessReportService(in readinessReportBuildInput) *corecp.Readiness
 		src.TerminalRecovery = tw.readinessComponent
 	}
 	return corecp.NewReadinessReportService(src)
+}
+
+func mapSnapshotState(s economics.SnapshotState) controlplane.CapabilityState {
+	switch s {
+	case economics.SnapshotReady, economics.SnapshotStale:
+		return controlplane.CapabilityReady
+	case economics.SnapshotDegraded:
+		return controlplane.CapabilityDegraded
+	case economics.SnapshotUnavailable:
+		return controlplane.CapabilityUnavailable
+	case economics.SnapshotDisabled:
+		return controlplane.CapabilityDisabled
+	default:
+		return controlplane.CapabilityUnavailable
+	}
 }
 
 func readinessStoreBackings(cfg *config.Config, prod ProductionOptions) corecp.ReadinessStoreBackings {

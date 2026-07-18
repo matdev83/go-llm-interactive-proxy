@@ -163,6 +163,9 @@ func run(ctx context.Context) error {
 	if rt.SnapshotGenerationID() == 0 {
 		return fmt.Errorf("expected published generation")
 	}
+	if rt.ExecutableGenerationID() == 0 || rt.ExecutableEvidenceObjectID() == "" {
+		return fmt.Errorf("expected executable generation evidence object id")
+	}
 	if !rt.HasProductionEvidenceSink() || !rt.HasProductionRater() || !rt.HasProductionMeteringQuerier() {
 		return fmt.Errorf("production evidence/rater/query mounts not wired")
 	}

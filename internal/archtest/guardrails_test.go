@@ -167,8 +167,8 @@ var lineBudgets = []struct {
 	// Raised from 6000 to 6100 for Phase 4.5 composition
 	// (RequestRegistrations → AuthorityRequestEffectProvider merge). Measured ~6052.
 	// Raised from 6100 to 6150 for ProcessDue metrics observer adapter. Measured ~6105.
-	// Raised from 6150 to 6250 for Phase 5 executable generation compile/publish.
-	{"internal/infra/runtimebundle", 6250},
+	// Raised from 6250 to 6300 for Phase 5.5 executable readiness wiring.
+	{"internal/infra/runtimebundle", 6300},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

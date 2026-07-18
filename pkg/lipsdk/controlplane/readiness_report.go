@@ -62,11 +62,25 @@ const (
 	ReadinessComponentUsageSnapshot         ReadinessComponentID = "usage_snapshot"
 	ReadinessComponentConcurrencySnapshot   ReadinessComponentID = "concurrency_snapshot"
 	ReadinessComponentRatingSnapshot        ReadinessComponentID = "rating_snapshot"
+	ReadinessComponentExecutableGeneration  ReadinessComponentID = "executable_generation"
 	ReadinessComponentCustomerRater         ReadinessComponentID = "customer_rater"
 	ReadinessComponentOperatorRater         ReadinessComponentID = "operator_rater"
 	ReadinessComponentSecretGuardQuarantine ReadinessComponentID = "secret_guard_quarantine"
 	ReadinessComponentTerminalRecovery      ReadinessComponentID = "terminal_recovery"
 )
+
+// ExecutableGenerationStatus is the operator-visible executable generation
+// readiness (requirements 9.6, 9.9, 12.1). It names evaluator object identity
+// separately from source-fetch snapshot planes and terminal provider resolution.
+type ExecutableGenerationStatus struct {
+	ID               int64           `json:"id,omitempty"`
+	Version          string          `json:"version,omitempty"`
+	State            CapabilityState `json:"state"`
+	Reason           ReasonCode      `json:"reason,omitempty"`
+	EvidenceObjectID string          `json:"evidence_object_id,omitempty"`
+	SourceID         string          `json:"source_id,omitempty"`
+	LastUpdatedAt    time.Time       `json:"last_updated_at,omitzero"`
+}
 
 // ReadinessComponentStatus is one independent authority/journal readiness row
 // (15.7).
@@ -78,8 +92,14 @@ type ReadinessComponentStatus struct {
 	StoreBacking     string               `json:"store_backing,omitempty"`
 	// ProviderIDs lists configured descriptor-bound provider or rater identities
 	// for coordinator/rater components (requirement 3.7, 3.9).
-	ProviderIDs   []string  `json:"provider_ids,omitempty"`
-	LastUpdatedAt time.Time `json:"last_updated_at,omitzero"`
+	ProviderIDs []string `json:"provider_ids,omitempty"`
+	// GenerationID/Version and EvidenceObjectID apply to executable_generation
+	// rows (requirements 9.9, 12.1). They must not carry terminal unresolved
+	// provider IDs or metadata-only catalog labels.
+	GenerationID      int64     `json:"generation_id,omitempty"`
+	GenerationVersion string    `json:"generation_version,omitempty"`
+	EvidenceObjectID  string    `json:"evidence_object_id,omitempty"`
+	LastUpdatedAt     time.Time `json:"last_updated_at,omitzero"`
 }
 
 // ProtectedTrafficPosture aggregates whether required protected traffic may be
@@ -94,8 +114,9 @@ type ProtectedTrafficPosture struct {
 // ReadinessReport is the full independent plus aggregate readiness snapshot
 // (15.7).
 type ReadinessReport struct {
-	Components []ReadinessComponentStatus `json:"components"`
-	Posture    ProtectedTrafficPosture    `json:"posture"`
+	Components           []ReadinessComponentStatus `json:"components"`
+	ExecutableGeneration ExecutableGenerationStatus `json:"executable_generation"`
+	Posture              ProtectedTrafficPosture    `json:"posture"`
 }
 
 // AggregateProtectedTrafficPosture derives aggregate posture from independent

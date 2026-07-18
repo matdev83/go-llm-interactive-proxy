@@ -270,7 +270,7 @@
   - _Depends: 4.4, 5.3_
   - _Validation: old-provider drain, incompatible replacement, restart, missing provider, and readiness tests_
 
-- [ ] 5.5 Migrate snapshot APIs and expose accurate generation readiness
+- [x] 5.5 Migrate snapshot APIs and expose accurate generation readiness
   - Deprecate metadata-only policy publication as an enforcement path while preserving additive compatibility views.
   - Report executable generation ID/version/state separately from source fetch state and terminal provider-resolution state.
   - Update public facade/docs/examples without exposing internal coordinator types.

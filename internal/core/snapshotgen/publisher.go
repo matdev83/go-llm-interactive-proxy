@@ -42,8 +42,12 @@ func (p *Publisher) Current() *RuntimeGeneration {
 	return p.active.Load()
 }
 
-// Publish stores gen as the active generation with a new monotonic ID.
-// Callers must treat returned generations as immutable.
+// Publish stores gen as the active metadata compatibility view with a new
+// monotonic ID. Callers must treat returned generations as immutable.
+//
+// Deprecated: metadata-only publication is not an enforcement path (D10).
+// Use PublishExecutable for admission/settlement evaluator objects. Publish
+// remains for additive source-fetch compatibility views (requirement 11.2).
 func (p *Publisher) Publish(gen RuntimeGeneration) *RuntimeGeneration {
 	if p == nil {
 		return nil

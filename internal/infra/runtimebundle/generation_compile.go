@@ -83,13 +83,11 @@ func PublishExecutableFromProduction(pub *snapshotgen.Publisher, cfg *config.Con
 		return pub.CurrentExecutable(), err
 	}
 	if prior := pub.Current(); prior != nil {
+		// Copy source-fetch metadata planes for compatibility views only.
+		// Executable State remains the contribution/enforcement posture (9.6, 12.1).
 		gen.Usage = prior.Usage
 		gen.Concurrency = prior.Concurrency
 		gen.Rating = prior.Rating
-		if prior.State != "" {
-			gen.State = prior.State
-		}
-		gen.Reason = prior.Reason
 	}
 	return pub.PublishExecutable(gen)
 }
