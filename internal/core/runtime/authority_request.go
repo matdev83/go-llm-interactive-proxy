@@ -9,6 +9,8 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/authoritycoord"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -22,6 +24,8 @@ type requestAuthorityKey struct{}
 type requestAuthorityState struct {
 	Decision        authoritycoord.CompositeDecision
 	RequestID       string
+	AttemptID       string
+	TraceID         string
 	Settled         bool
 	Released        bool
 	LeaseID         string // primary lease (backward compat / aux parent)
@@ -166,6 +170,8 @@ func (e *Executor) admitRequestAuthorityOnce(ctx context.Context, requestID, aLe
 	st := &requestAuthorityState{
 		Decision:        d,
 		RequestID:       in.RequestID,
+		AttemptID:       strings.TrimSpace(aLegID),
+		TraceID:         strings.TrimSpace(traceID),
 		LeaseID:         primaryID,
 		LeaseIDs:        leaseIDs,
 		LeaseTargets:    targets,
@@ -236,13 +242,13 @@ func leaseTargetsFromDecision(ld authority.LeaseDecision) []leaseRenewTarget {
 	return nil
 }
 
-func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.Fact, rated ...economics.RatingResult) {
+func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.Fact, rated ...economics.RatingResult) error {
 	if e == nil || e.RequestCoordinator == nil {
-		return
+		return nil
 	}
 	st := requestAuthorityFrom(ctx)
 	if st == nil || st.Settled || st.Released {
-		return
+		return nil
 	}
 	err := e.RequestCoordinator.Settle(ctx, st.Decision.Stack, authority.RequestSettlement{
 		RequestID:     st.RequestID,
@@ -254,7 +260,8 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 	if err != nil {
 		// Post-output settlement failure must retain reservation evidence and stay
 		// retryable; do not mark settled/released or release the lease (15.5).
-		return
+		// Accept durable intents for each unfinished provider (Phase 4.5 / D9).
+		return e.acceptSettleDurableIntents(ctx, st)
 	}
 	// RequestCoordinator.Settle does not release concurrency occupancy (10.5).
 	e.stopLeaseHeartbeat(st)
@@ -265,19 +272,149 @@ func (e *Executor) settleRequestAuthority(ctx context.Context, facts []metering.
 	_ = e.RequestCoordinator.ReleaseLeases(ctx, ids, st.RequestID, "settled")
 	st.Settled = true
 	st.Released = true
+	return nil
 }
 
-func (e *Executor) releaseRequestAuthority(ctx context.Context) {
+func (e *Executor) releaseRequestAuthority(ctx context.Context) error {
 	if e == nil || e.RequestCoordinator == nil {
-		return
+		return nil
 	}
 	st := requestAuthorityFrom(ctx)
 	if st == nil || st.Settled || st.Released {
-		return
+		return nil
 	}
 	e.stopLeaseHeartbeat(st)
-	_ = e.RequestCoordinator.Release(ctx, st.Decision.Stack, st.RequestID)
+	fails := e.RequestCoordinator.Release(ctx, st.Decision.Stack, st.RequestID)
+	if len(fails) > 0 {
+		// Live release incomplete: keep Released=false and accept durable intents.
+		return e.acceptReleaseDurableIntents(ctx, st, fails)
+	}
 	st.Released = true
+	return nil
+}
+
+func (e *Executor) acceptSettleDurableIntents(ctx context.Context, st *requestAuthorityState) error {
+	if st == nil {
+		return fmt.Errorf("%w: missing request authority state", terminalworkapp.ErrDurableIntentRejected)
+	}
+	if e == nil || e.TerminalWork == nil {
+		return fmt.Errorf("%w: terminal work not configured", terminalworkapp.ErrDurableIntentRejected)
+	}
+	handlesByProvider := handlesByProviderFromStack(st.Decision.Stack)
+	providers := st.Decision.Stack.UnfinishedSettleProviders()
+	if len(providers) == 0 {
+		// Fall back to every provider with handles when tracker has no unfinished set.
+		for id := range handlesByProvider {
+			providers = append(providers, id)
+		}
+	}
+	if len(providers) == 0 {
+		return fmt.Errorf("%w: no unfinished settle providers", terminalworkapp.ErrDurableIntentRejected)
+	}
+	var acceptErrs []error
+	accepted := 0
+	for _, providerID := range providers {
+		providerID = strings.TrimSpace(providerID)
+		if providerID == "" {
+			continue
+		}
+		if err := e.TerminalWork.AcceptSettleFailure(ctx, terminalworkapp.SettleFailureInput{
+			RequestID:  st.RequestID,
+			AttemptID:  st.AttemptID,
+			TraceID:    st.TraceID,
+			ProviderID: providerID,
+			Handles:    handlesByProvider[providerID],
+			Versions:   boundVersionsForProvider(st, providerID),
+		}); err != nil {
+			acceptErrs = append(acceptErrs, err)
+			continue
+		}
+		accepted++
+	}
+	if accepted == 0 {
+		return terminalworkapp.ErrDurableIntentRejected
+	}
+	if len(acceptErrs) > 0 {
+		return errors.Join(
+			terminalworkapp.ErrDurablePending,
+			fmt.Errorf("%w: partial durable intent acceptance", terminalworkapp.ErrDurableIntentRejected),
+		)
+	}
+	return terminalworkapp.ErrDurablePending
+}
+
+func (e *Executor) acceptReleaseDurableIntents(ctx context.Context, st *requestAuthorityState, fails []authoritycoord.CompensateFailed) error {
+	if st == nil {
+		return fmt.Errorf("%w: missing request authority state", terminalworkapp.ErrDurableIntentRejected)
+	}
+	if e == nil || e.TerminalWork == nil {
+		return fmt.Errorf("%w: terminal work not configured", terminalworkapp.ErrDurableIntentRejected)
+	}
+	var acceptErrs []error
+	accepted := 0
+	for _, fail := range fails {
+		providerID := strings.TrimSpace(fail.ProviderID)
+		if providerID == "" || providerID == "concurrency" {
+			continue
+		}
+		if err := e.TerminalWork.AcceptReleaseFailure(ctx, terminalworkapp.ReleaseFailureInput{
+			RequestID:  st.RequestID,
+			AttemptID:  st.AttemptID,
+			TraceID:    st.TraceID,
+			ProviderID: providerID,
+			Handle:     fail.Handle,
+			Versions:   boundVersionsForProvider(st, providerID),
+		}); err != nil {
+			acceptErrs = append(acceptErrs, err)
+			continue
+		}
+		accepted++
+	}
+	if accepted == 0 {
+		return terminalworkapp.ErrDurableIntentRejected
+	}
+	if len(acceptErrs) > 0 {
+		return errors.Join(
+			terminalworkapp.ErrDurablePending,
+			fmt.Errorf("%w: partial durable intent acceptance", terminalworkapp.ErrDurableIntentRejected),
+		)
+	}
+	return terminalworkapp.ErrDurablePending
+}
+
+func handlesByProviderFromStack(stack authoritycoord.CompensationStack) map[string][]string {
+	out := make(map[string][]string)
+	for _, e := range stack.Entries() {
+		id := strings.TrimSpace(e.ProviderID)
+		h := strings.TrimSpace(e.Handle)
+		if id == "" || h == "" || id == "concurrency" {
+			continue
+		}
+		out[id] = append(out[id], h)
+	}
+	return out
+}
+
+func boundVersionsForProvider(st *requestAuthorityState, providerID string) terminalwork.BoundVersions {
+	ver := terminalwork.BoundVersions{ProviderID: providerID}
+	if st == nil {
+		return ver
+	}
+	for _, ref := range st.Decision.BoundVersions {
+		id := strings.TrimSpace(ref.ID)
+		if id == "" {
+			id = strings.TrimSpace(ref.PolicyID)
+		}
+		if id == "" {
+			continue
+		}
+		ver.GenerationID = id
+		if v := strings.TrimSpace(ref.Version); v != "" {
+			ver.RatingID = v
+		}
+		break
+	}
+	return ver
 }
 
 // mapRequestAuthorityError converts coordinator denials into client-safe policy

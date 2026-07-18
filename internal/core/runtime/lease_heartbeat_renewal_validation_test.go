@@ -154,7 +154,7 @@ func TestPhase2_Heartbeat_RejectsHostileRenewalBeforeMutatingState(t *testing.T)
 			if conc.released.Load() != 0 {
 				t.Fatalf("hostile renew must not release; released=%d", conc.released.Load())
 			}
-			ex.releaseRequestAuthority(ctx)
+			_ = ex.releaseRequestAuthority(ctx)
 		})
 	}
 }
@@ -199,7 +199,7 @@ func TestPhase2_Heartbeat_AdvisoryRenewalDoesNotMutateState(t *testing.T) {
 	if st.LeaseGeneration != genBefore || !st.LeaseExpiresAt.Equal(expBefore) {
 		t.Fatal("advisory renew must not silently mutate lease state (D5)")
 	}
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 }
 
 func TestPhase2_Heartbeat_RenewPanicIsSafeWithoutPayload(t *testing.T) {
@@ -248,7 +248,7 @@ func TestPhase2_Heartbeat_RenewPanicIsSafeWithoutPayload(t *testing.T) {
 	if st.LeaseGeneration != genBefore {
 		t.Fatal("panic renew must not mutate generation")
 	}
-	ex.releaseRequestAuthority(ctx)
+	_ = ex.releaseRequestAuthority(ctx)
 }
 
 func TestPhase2_Heartbeat_MultiLeaseTickIsAtomicOnSecondFailure(t *testing.T) {
@@ -310,7 +310,7 @@ func TestPhase2_Heartbeat_MultiLeaseTickIsAtomicOnSecondFailure(t *testing.T) {
 					t.Fatalf("partial tick mutated target[%d]: before=%+v after=%+v", i, before[i], st.LeaseTargets[i])
 				}
 			}
-			ex.releaseRequestAuthority(ctx)
+			_ = ex.releaseRequestAuthority(ctx)
 		})
 	}
 }

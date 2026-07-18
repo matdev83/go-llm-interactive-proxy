@@ -34,6 +34,7 @@ type ReadinessReportSources struct {
 	CustomerRaterIDs          []string
 	OperatorRaterIDs          []string
 	SecretGuardQuarantine     func(context.Context) (cp.ReadinessComponentStatus, error)
+	TerminalRecovery          func(context.Context) (cp.ReadinessComponentStatus, error)
 	StoreBackings             ReadinessStoreBackings
 }
 
@@ -143,6 +144,16 @@ func (s *ReadinessReportService) Report(ctx context.Context) (cp.ReadinessReport
 		}
 	} else {
 		components = append(components, disabledComponent(cp.ReadinessComponentSecretGuardQuarantine, now))
+	}
+	if src.TerminalRecovery != nil {
+		if row, err := src.TerminalRecovery(ctx); err == nil {
+			row.LastUpdatedAt = now
+			components = append(components, row)
+		} else {
+			components = append(components, unavailableComponent(cp.ReadinessComponentTerminalRecovery, "", now))
+		}
+	} else {
+		components = append(components, disabledComponent(cp.ReadinessComponentTerminalRecovery, now))
 	}
 	return cp.ReadinessReport{
 		Components: components,

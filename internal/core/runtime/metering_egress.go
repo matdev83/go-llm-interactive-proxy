@@ -121,7 +121,7 @@ func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {
 	if s == nil {
 		return lipapi.Event{}
 	}
-	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEventsCopy()))
 	if ev.Kind != "" {
 		return ev
 	}

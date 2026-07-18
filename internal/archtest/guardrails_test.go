@@ -139,7 +139,13 @@ var lineBudgets = []struct {
 	// and reconstruction seams (retarget onto main Phase 1+2 + reasoning; measured
 	// 59629). Cap keeps ~171 lines of headroom. Prefer further decomposition over
 	// another raise.
-	{"internal/core", 59800},
+	// Raised for dual-plane Phase 4 terminal ownership and terminal-work domain:
+	// stream terminal session wiring, terminal owner CAS, WorkRecord/SameIntentReplay,
+	// claim-lease transitions, Phase 4.4 processor app, and Phase 4.5 durable
+	// settle/release recovery + query/metrics/readiness. Combined with main
+	// reasoning-output-preservation on merge into Phase 4: measured 62647;
+	// cap 62750 keeps ~103 lines of headroom. Prefer further decomposition over another raise.
+	{"internal/core", 62750},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -159,7 +165,13 @@ var lineBudgets = []struct {
 	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
 	// Raised from 5580 to 5690 after merging reasoning-output-preservation into
 	// Phase 2 (post-merge measured 5586; ~100 lines headroom).
-	{"internal/infra/runtimebundle", 5690},
+	// Raised for dual-plane Phase 4.4–4.5 terminal-work processor ownership
+	// (ProductionOptions + Built + buildTerminalWorkRuntime, tick/renew defaults,
+	// TerminalWorkReadiness, IntentService injection, RequestRegistrations →
+	// AuthorityRequestEffectProvider merge, ProcessDue metrics observer). Combined
+	// with main reasoning wiring on merge into Phase 4: measured 6121;
+	// cap 6170 keeps ~49 lines of headroom.
+	{"internal/infra/runtimebundle", 6170},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

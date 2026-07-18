@@ -19,6 +19,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 // errGateContinueInner signals Recv to pull another inner event without returning to the client yet.
@@ -60,9 +61,19 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				DetailErr: err,
 			}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 		}
-		s.persistCancellationBilling(ctx, reason)
-		s.finishFinalStreamObservation(ctx, response.OutcomeCancelled)
-		s.markFinished()
+		cmd := sdkterminal.CommandCancel
+		if errors.Is(err, context.DeadlineExceeded) {
+			cmd = sdkterminal.CommandTimeout
+		}
+		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			s.persistCancellationBilling(cctx, reason)
+			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		s.finishALegScope()
 		return lipapi.Event{}, err
 	}
@@ -70,8 +81,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 		ev := s.recoverDrain[0]
 		s.recoverDrain = s.recoverDrain[1:]
 		if ev.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+			if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
+				return lipapi.Event{}, err
+			}
 			usageEv, ok, err := s.finalizeResponseFinishedAuthority(ctx, ev)
 			if err != nil {
+				if !s.isFinished() {
+					s.markFinished()
+				}
 				return lipapi.Event{}, err
 			}
 			if ok {
@@ -103,8 +120,14 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			// gate-drain site leaked its reserved authority (it had no finalization at all before
 			// centralization).
 			if ev.Kind == lipapi.EventResponseFinished && !s.tokenAccountingFinalized {
+				if err := s.mandatoryClientFacingPreflight(ctx, ev); err != nil {
+					return lipapi.Event{}, err
+				}
 				usageEv, usageOk, err := s.finalizeResponseFinishedAuthority(ctx, ev)
 				if err != nil {
+					if !s.isFinished() {
+						s.markFinished()
+					}
 					return lipapi.Event{}, err
 				}
 				if usageOk {
@@ -133,10 +156,20 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 				// that release, so release it here when it has not already been
 				// settled, then tear down the stream like the other terminal recv exits.
 				if !s.authority.Settled() {
-					s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
+					s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
+						s.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
+						return nil
+					})
+					s.resetAttemptTerminal()
 				}
-				s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-				s.markFinished()
+				s.runStreamTerminal(ctx, sdkterminal.CommandPartialError, func(cctx context.Context) error {
+					s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
+					s.markFinished()
+					return nil
+				})
+				if !s.isFinished() {
+					s.markFinished()
+				}
 				s.finishALegScope()
 				return lipapi.Event{}, err
 			}
@@ -155,6 +188,16 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 			return inner.Recv(recvCtx)
 		})
 		cancelRecv()
+		// Close/cancel may have terminalized while we were blocked. Do not run
+		// NormalFinish (or surface bare context.Canceled) after that owner won.
+		if s.isFinished() {
+			if s.aScope != nil {
+				if scopeErr := s.aScope.Err(); errors.Is(scopeErr, leglifecycle.ErrALegCanceled) {
+					return lipapi.Event{}, scopeErr
+				}
+			}
+			return lipapi.Event{}, io.EOF
+		}
 		if err != nil {
 			var pe *safety.PanicError
 			if errors.As(err, &pe) {
@@ -172,9 +215,15 @@ func (s *retryRecvStream) Recv(ctx context.Context) (lipapi.Event, error) {
 					DetailErr: scopeErr,
 				}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
 				_ = s.takeAndNilInner()
-				s.persistCancellationBilling(ctx, "a-leg canceled")
-				s.finishFinalStreamObservation(ctx, response.OutcomeCancelled)
-				s.markFinished()
+				s.runStreamTerminal(ctx, sdkterminal.CommandCancel, func(cctx context.Context) error {
+					s.persistCancellationBilling(cctx, "a-leg canceled")
+					s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
+					s.markFinished()
+					return nil
+				})
+				if !s.isFinished() {
+					s.markFinished()
+				}
 				s.finishALegScope()
 				return lipapi.Event{}, scopeErr
 			}
@@ -206,6 +255,8 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 		return false, err
 	}
 	if s.isCommitted() && s.secureRecvRecordingHardStop && s.executor != nil && s.executor.SecureSessionRecordingMandatory {
+		// Output committed: compete for gate-replacement rejection evidence (D13) without effects.
+		_ = s.runStreamTerminal(ctx, sdkterminal.CommandGateReplacement, nil)
 		return false, &lipapi.UpstreamFailure{
 			Phase:        lipapi.PhasePostOutput,
 			Recoverable:  false,
@@ -227,7 +278,11 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	// (e.g. after a failed partial settle's losing-release) is a no-op. Reset
 	// below swaps in the freshly opened reservation and clears the settled guard.
 	if !s.authority.Settled() {
-		s.authority.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
+		s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
+			s.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, s.operatorUsageForFinalize())
+			return nil
+		})
+		s.resetAttemptTerminal()
 	}
 	out, err := s.executor.tryPlanOpenOnce(attemptOpenParams{
 		ctx:                      ctx,
@@ -276,7 +331,10 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 			// path below), so release it here to avoid leaking the reservation. The
 			// prior swallowed s.authority was already released before tryPlanOpenOnce.
 			l := s.executor.newAttemptAuthorityLifecycle(out.authority, out.cand)
-			l.finalizeIncurredOrRelease(ctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+			_ = terminalizeAttemptEphemeral(ctx, sdkterminal.CommandSwallowedAttempt, false, func(cctx context.Context) error {
+				l.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindSwallowed, emptyOperatorUsageShell())
+				return nil
+			})
 			return false, err
 		}
 	}
@@ -284,8 +342,7 @@ func (s *retryRecvStream) tryReplacementIteration(ctx context.Context) (opened b
 	s.storeInner(out.stream)
 	s.bleg = out.bleg
 	s.cand = out.cand
-	s.seenEvents = nil
-	s.visibleText.Reset()
+	s.clearClientAccumulators()
 	if s.customer != nil {
 		s.customer.resetContent()
 	}

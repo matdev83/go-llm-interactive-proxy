@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 func (s *retryRecvStream) streamObserverMeta(ctx context.Context) response.StreamMeta {
@@ -56,13 +57,10 @@ func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipap
 	if s.executor != nil {
 		if err := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, ev, s.isCommitted()); err != nil {
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(err), err)
 			if !s.isCommitted() {
-				if !s.authority.Settled() {
-					s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
-				}
 				s.finishALegScope()
 			}
-			s.markFinished()
 			return lipapi.Event{}, err
 		}
 	}
@@ -72,8 +70,9 @@ func (s *retryRecvStream) emitClientFacingObserved(ctx context.Context, ev lipap
 	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
 		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
-			if !s.authority.Settled() {
-				s.recordPartialTokenAccounting(ctx, attemptReasonDetail(err), err)
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
+			if !s.isCommitted() {
+				s.finishALegScope()
 			}
 			return lipapi.Event{}, err
 		}

@@ -172,7 +172,7 @@
 
 ## Phase 4 — Centralize Terminal Ownership and Durable Economic Recovery
 
-- [ ] 4.1 Define red terminal and terminal-work state-machine contracts
+- [x] 4.1 Define red terminal and terminal-work state-machine contracts
   - Model request and attempt terminal states plus commands for normal finish, partial/error, cancellation, close, timeout, gate replacement, parallel loser, frontend encoder failure, pre-backend denial, and panic.
   - Model one durable action per fact/provider/lease operation, stable source keys, retries, claims, completion, and quarantine.
   - Add interleaving/model tests before changing stream behavior or schemas.
@@ -183,7 +183,7 @@
   - _Depends: Phase 3_
   - _Validation: focused state-machine/model tests and concurrent terminal race reproducer_
 
-- [ ] 4.2 Implement one request/stream terminal owner
+- [x] 4.2 Implement one request/stream terminal owner
   - Add one CAS-owned terminal result per logical request and per attempt; delegate existing lifecycle settlement/release to the owner.
   - Make `Recv`, `Close`, cancellation, errors, encoder failure, and panic paths signal or await terminalization rather than execute competing accounting.
   - Snapshot accumulators once and preserve per-provider partial completion and no-retry-after-output.
@@ -194,7 +194,7 @@
   - _Depends: 4.1_
   - _Validation: focused `Recv`/`Close` race, cancel, encoder, gate, failover, parallel, and panic tests under `-race`_
 
-- [ ] 4.3 Implement terminal-work domain and durable stores
+- [x] 4.3 Implement terminal-work domain and durable stores
   - Add versioned per-action work identity/payload/state, durable intent, provider/fact/lease correlation, claim leases, retry schedule, and quarantine.
   - Implement memory, SQLite, direct PostgreSQL, and transaction-pool-safe PostgreSQL stores with additive migrations and bounded queries.
   - **Deliverable:** required terminal intent survives process exit and is idempotent under replay or ambiguous commit.
@@ -204,7 +204,7 @@
   - _Depends: 4.1, 3.4_
   - _Validation: store contracts, migration, claim contention, ambiguous commit, restart, and pooled PostgreSQL tests_
 
-- [ ] 4.4 Implement the bounded terminal-work processor and provider router
+- [x] 4.4 Implement the bounded terminal-work processor and provider router
   - Create durable intent before required external/separately durable effects, invoke with the same idempotency key, and mark completion independently per action/provider.
   - Resolve stable provider IDs, bound global/per-provider concurrency, renew claims, back off retries, quarantine permanent invalid work, and own startup/shutdown.
   - **Deliverable:** facts, settlements, releases, compensation, lease release, and corrections recover without repeating completed providers.
@@ -214,7 +214,7 @@
   - _Depends: 2.2–2.4, 4.3_
   - _Validation: fault injection for timeout, panic, outage, crash, partial completion, restart, missing provider, and shutdown_
 
-- [ ] 4.5 Integrate truthful live state, queries, readiness, and fault recovery
+- [x] 4.5 Integrate truthful live state, queries, readiness, and fault recovery
   - Mark holds/leases complete only after successful action or accepted durable intent; retain pending/quarantine state instead of ignoring errors.
   - Add bounded terminal-work queries, backlog/oldest-age metrics, readiness degradation, and operator-safe error codes.
   - Prove post-output failures preserve output and eventually converge after restart.

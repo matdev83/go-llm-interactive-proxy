@@ -1,6 +1,9 @@
 package runtimebundle
 
 import (
+	"time"
+
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -30,6 +33,23 @@ type ProductionOptions struct {
 	TrafficObservers          []traffic.Observer
 	UsageObservers            []usage.Observer
 	PolicyObservers           []policydecision.Observer
+
+	// Terminal-work processor ownership (tasks 4.4–4.5). When TerminalWorkStore is
+	// set, Build constructs processor/registry/intents, starts the processor, and
+	// injects IntentService into the executor.
+	//
+	// EffectProviders are composed as: RequestRegistrations → AuthorityRequestEffectProvider
+	// adapters (by descriptor ID), then TerminalWorkProviders merged by ProviderID with
+	// explicit entries overriding derived adapters for the same ID.
+	TerminalWorkStore          terminalworkapp.RecoveryStore
+	TerminalWorkProviders      []terminalworkapp.EffectProvider
+	TerminalWorkOwnerID        string
+	TerminalWorkClaimTTL       time.Duration
+	TerminalWorkClaimLimit     int
+	TerminalWorkGlobalMax      int
+	TerminalWorkPerProviderMax int
+	TerminalWorkTickInterval   time.Duration
+	TerminalWorkRenewInterval  time.Duration
 }
 
 // HasAuthorityOverrides reports whether production authority providers are set.

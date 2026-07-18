@@ -39,6 +39,7 @@ import (
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -147,6 +148,13 @@ type retryRecvStream struct {
 
 	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
 	toolFinal *toolCallAssembler
+
+	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
+	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
+	requestTerm *streamTerminal
+	attemptTerm *streamTerminal
+	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
+	eventsMu sync.Mutex
 
 	finalStreamObs *extensions.FinalStreamObservationSession
 }
@@ -461,25 +469,37 @@ func (s *retryRecvStream) Close() error {
 	}
 	s.resetToolFinal()
 	c := s.takeAndNilInner()
+	ctx := context.Background()
 	if c == nil {
 		if !s.isFinished() {
-			s.finishFinalStreamObservation(context.Background(), response.OutcomeClosed)
-			s.persistCancellationBilling(context.Background(), "client closed")
-			s.markFinished()
+			s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+				s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
+				s.persistCancellationBilling(cctx, "client closed")
+				s.markFinished()
+				return nil
+			})
+			if !s.isFinished() {
+				s.markFinished()
+			}
 		}
 		s.finishALegScope()
 		return nil
 	}
 	if !s.isFinished() {
-		ctx := context.Background()
-		s.finishFinalStreamObservation(ctx, response.OutcomeClosed)
 		if s.aScope != nil {
 			_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		} else {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
-		s.persistCancellationBilling(ctx, "client closed")
-		s.markFinished()
+		s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+			s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
+			s.persistCancellationBilling(cctx, "client closed")
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		if s.aScope != nil {
 			s.finishALegScope()
 			return nil
@@ -494,6 +514,7 @@ func (s *retryRecvStream) Close() error {
 	}
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
+		s.runStreamTerminal(ctx, sdkterminal.CommandPanic, func(context.Context) error { return nil })
 		if s.executor != nil && s.executor.Log != nil {
 			// lipapi.EventStream.Close has no context; use Background plus call/leg ids from EnsureCallDiag so
 			// isolated-panic logs still correlate by trace_id / b_leg. Request-scoped trace fields are omitted here.

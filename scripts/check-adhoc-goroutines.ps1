@@ -8,6 +8,9 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
     exit 0
 }
 
+# Exact-path allowlist for intentional owned workers / stream pumps only.
+# internal/core/terminalwork/app/processor.go: Start/Run/Shutdown owner, ProcessDue
+# claim fan-out, per-claim renew loop, and tick/renew ticker pumps (Phase 4.4).
 $allowed = @(
     "internal/stdhttp/server.go"
     "internal/core/stream/keepalive.go"
@@ -17,6 +20,7 @@ $allowed = @(
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
     "internal/plugins/backends/acp/transport_stdio.go"
+    "internal/core/terminalwork/app/processor.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)

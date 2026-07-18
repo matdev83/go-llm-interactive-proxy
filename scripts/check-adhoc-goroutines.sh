@@ -13,10 +13,13 @@ mapfile -t hits < <(
 	rg --files-with-matches --glob '!*_test.go' '^\s+go\s' internal pkg cmd 2>/dev/null | sed 's#\\#/#g' | sort -u || true
 )
 
+# Exact-path allowlist for intentional owned workers / stream pumps only.
+# internal/core/terminalwork/app/processor.go: Start/Run/Shutdown owner, ProcessDue
+# claim fan-out, per-claim renew loop, and tick/renew ticker pumps (Phase 4.4).
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
-	internal/stdhttp/server.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | internal/plugins/backends/acp/transport_stdio.go) ;;
+	internal/stdhttp/server.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | internal/plugins/backends/acp/transport_stdio.go | internal/core/terminalwork/app/processor.go) ;;
 	*) bad+=("$f") ;;
 	esac
 done
