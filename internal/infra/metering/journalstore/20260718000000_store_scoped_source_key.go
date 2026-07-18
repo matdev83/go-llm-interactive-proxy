@@ -10,6 +10,10 @@ import (
 
 const StoreScopedSourceKeyMigrationName = "20260718000000"
 
+func registerStoreScopedSourceKeyMigration() {
+	migrations.MustRegister(storeScopedSourceKeyUp, func(context.Context, *bun.DB) error { return nil })
+}
+
 func storeScopedSourceKeyUp(ctx context.Context, db *bun.DB) error {
 	switch db.Dialect().Name() {
 	case dialect.PG:

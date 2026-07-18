@@ -9,7 +9,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
-	"github.com/uptrace/bun/migrate"
 )
 
 const SchemaV2MigrationName = "20260719000000"
@@ -24,8 +23,8 @@ var V2BoundedIndexNames = []string{
 	"idx_metering_fact_supersessions_to",
 }
 
-func registerSchemaV2Migration(m *migrate.Migrations) {
-	m.MustRegister(schemaV2Up, func(context.Context, *bun.DB) error { return nil })
+func registerSchemaV2Migration() {
+	migrations.MustRegister(schemaV2Up, func(context.Context, *bun.DB) error { return nil })
 }
 
 func schemaV2Up(ctx context.Context, db *bun.DB) error {

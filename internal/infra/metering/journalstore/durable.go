@@ -46,6 +46,15 @@ func Migrate(ctx context.Context, db *bun.DB) error {
 	return runSchemaMigrate(ctx, db)
 }
 
+// RequiredMigrationNames are bun history names that must be present after a
+// successful Migrate. Collapsed legacy histories may retain extra baseline rows.
+var RequiredMigrationNames = []string{
+	BaselineMigrationName,
+	StoreScopedSourceKeyMigrationName,
+	StoreScopedFiltersMigrationName,
+	SchemaV2MigrationName,
+}
+
 // VerifySchema checks required runtime relations without applying migrations.
 func VerifySchema(ctx context.Context, db *bun.DB) error {
 	if ctx == nil {
@@ -57,12 +66,21 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 	if db.Dialect().Name() != dialect.PG {
 		for _, probe := range []string{
 			`SELECT identity_version, source_revision, source_event_kind, source_id FROM metering_facts WHERE 1 = 0`,
-			`SELECT 1 FROM metering_fact_filters WHERE 1 = 0`,
+			`SELECT store_id FROM metering_fact_filters WHERE 1 = 0`,
 			`SELECT 1 FROM metering_fact_supersessions WHERE 1 = 0`,
 		} {
 			if _, err := db.ExecContext(ctx, probe); err != nil {
 				return fmt.Errorf("metering/journalstore: schema verification failed: %w", err)
 			}
+		}
+		var filtersStoreID int
+		if err := db.NewRaw(
+			`SELECT COUNT(1) FROM pragma_table_info('metering_fact_filters') WHERE name = 'store_id'`,
+		).Scan(ctx, &filtersStoreID); err != nil {
+			return fmt.Errorf("metering/journalstore: schema verification failed: metering_fact_filters.store_id: %w", err)
+		}
+		if filtersStoreID != 1 {
+			return fmt.Errorf("metering/journalstore: schema verification failed: missing column metering_fact_filters.store_id")
 		}
 		for _, name := range V2BoundedIndexNames {
 			var n int
@@ -74,6 +92,18 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 			}
 			if n != 1 {
 				return fmt.Errorf("metering/journalstore: schema verification failed: missing index %s", name)
+			}
+		}
+		for _, name := range RequiredMigrationNames {
+			var n int
+			if err := db.NewRaw(
+				`SELECT COUNT(1) FROM bun_metering_journal_migrations WHERE name = ?`,
+				name,
+			).Scan(ctx, &n); err != nil {
+				return fmt.Errorf("metering/journalstore: schema verification failed: migration %s: %w", name, err)
+			}
+			if n < 1 {
+				return fmt.Errorf("metering/journalstore: schema verification failed: missing migration %s", name)
 			}
 		}
 		return nil
@@ -98,6 +128,18 @@ func VerifySchema(ctx context.Context, db *bun.DB) error {
 			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
 			args:        []any{BaselineMigrationName},
 			fragments:   []string{BaselineMigrationName},
+		},
+		{
+			description: StoreScopedSourceKeyMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{StoreScopedSourceKeyMigrationName},
+			fragments:   []string{StoreScopedSourceKeyMigrationName},
+		},
+		{
+			description: StoreScopedFiltersMigrationName + " migration history",
+			query:       `SELECT name FROM bun_metering_journal_migrations WHERE name = ? LIMIT 1`,
+			args:        []any{StoreScopedFiltersMigrationName},
+			fragments:   []string{StoreScopedFiltersMigrationName},
 		},
 		{
 			description: "metering_facts store-scoped source_event_key unique constraint",

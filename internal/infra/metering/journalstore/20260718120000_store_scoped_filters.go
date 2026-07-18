@@ -11,6 +11,10 @@ import (
 
 const StoreScopedFiltersMigrationName = "20260718120000"
 
+func registerStoreScopedFiltersMigration() {
+	migrations.MustRegister(storeScopedFiltersUp, func(context.Context, *bun.DB) error { return nil })
+}
+
 func storeScopedFiltersUp(ctx context.Context, db *bun.DB) error {
 	switch db.Dialect().Name() {
 	case dialect.PG:

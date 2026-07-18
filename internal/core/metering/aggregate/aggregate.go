@@ -151,9 +151,6 @@ func applyMoneyDelta(snap *Snapshot, m *metering.MoneyObservation, sign int64) e
 
 func applyMoneyReplace(snap *Snapshot, m *metering.MoneyObservation) error {
 	if m == nil || !m.Present {
-		snap.MoneyPresent = false
-		snap.MoneyNano = 0
-		snap.MoneyCurrency = ""
 		return nil
 	}
 	if err := acceptMoneyCurrency(snap, m.Currency); err != nil {

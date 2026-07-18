@@ -264,26 +264,42 @@ func UsageRowFromMeteringFact(f metering.Fact) cp.UsageRow {
 	})
 }
 
-// UsageRowsFromMeteringFacts projects a fact set onto usage rows. When the set
-// contains egress without any ingress fact, rows are marked EvidencePartial
-// (incomplete historical view) and quantities are not invented.
+// UsageRowsFromMeteringFacts projects a fact set onto usage rows. Customer
+// facts without frontend ingress and operator facts without backend ingress
+// are marked EvidencePartial; quantities are not invented.
 func UsageRowsFromMeteringFacts(facts []metering.Fact) []cp.UsageRow {
-	seenIngress := false
-	seenEgress := false
+	seenFEIngress := false
+	seenBEIngress := false
+	seenCustomer := false
+	seenOperator := false
 	for _, f := range facts {
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			seenCustomer = true
+		case metering.PerspectiveOperator:
+			seenOperator = true
+		}
 		switch f.Boundary {
-		case metering.BoundaryFrontendIngress, metering.BoundaryBackendIngress:
-			seenIngress = true
-		case metering.BoundaryFrontendEgress, metering.BoundaryBackendEgress:
-			seenEgress = true
+		case metering.BoundaryFrontendIngress:
+			seenFEIngress = true
+		case metering.BoundaryBackendIngress:
+			seenBEIngress = true
 		}
 	}
-	incomplete := seenEgress && !seenIngress
+	customerIncomplete := seenCustomer && !seenFEIngress
+	operatorIncomplete := seenOperator && !seenBEIngress
 	out := make([]cp.UsageRow, 0, len(facts))
 	for _, f := range facts {
 		row := UsageRowFromMeteringFact(f)
-		if incomplete {
-			row.EvidenceState = cp.EvidencePartial
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			if customerIncomplete {
+				row.EvidenceState = cp.EvidencePartial
+			}
+		case metering.PerspectiveOperator:
+			if operatorIncomplete {
+				row.EvidenceState = cp.EvidencePartial
+			}
 		}
 		out = append(out, row)
 	}

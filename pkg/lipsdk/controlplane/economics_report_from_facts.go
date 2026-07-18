@@ -12,8 +12,10 @@ import (
 // is classified incomplete; quantities are never invented.
 func DualPlaneReportInputsFromFacts(facts []metering.Fact) (DualPlaneReportInputs, error) {
 	var out DualPlaneReportInputs
-	seenIngress := false
-	seenEgress := false
+	seenFEIngress := false
+	seenBEIngress := false
+	seenCustomer := false
+	seenOperator := false
 
 	type attemptAcc struct {
 		surfacedNo bool
@@ -65,11 +67,17 @@ func DualPlaneReportInputsFromFacts(facts []metering.Fact) (DualPlaneReportInput
 	}
 
 	for _, f := range facts {
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			seenCustomer = true
+		case metering.PerspectiveOperator:
+			seenOperator = true
+		}
 		switch f.Boundary {
-		case metering.BoundaryFrontendIngress, metering.BoundaryBackendIngress:
-			seenIngress = true
-		case metering.BoundaryFrontendEgress, metering.BoundaryBackendEgress:
-			seenEgress = true
+		case metering.BoundaryFrontendIngress:
+			seenFEIngress = true
+		case metering.BoundaryBackendIngress:
+			seenBEIngress = true
 		}
 
 		switch {
@@ -174,7 +182,9 @@ func DualPlaneReportInputsFromFacts(facts []metering.Fact) (DualPlaneReportInput
 		out.Completeness = ReportCompletenessIncomplete
 		return out, nil
 	}
-	if seenEgress && !seenIngress {
+	customerMissing := seenCustomer && !seenFEIngress
+	operatorMissing := seenOperator && !seenBEIngress
+	if customerMissing || operatorMissing {
 		out.Completeness = ReportCompletenessIncomplete
 		out.LegacyProvenance = ReportLegacyProvenanceHistoricalWithoutIngress
 	} else {
