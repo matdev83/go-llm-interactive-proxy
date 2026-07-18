@@ -141,7 +141,8 @@ var lineBudgets = []struct {
 	// Raised from 61600 to 62000 for Phase 5 executable generations.
 	// Raised from 62000 to 63000 for Phase 5 remediation: generation-owned
 	// RequestCoordinator/AttemptCoordinator/max-active limiter + rater binding.
-	{"internal/core", 63000},
+	// Raised to 64000 for Phase 6 atomic lease-set concurrency.
+	{"internal/core", 64000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

@@ -283,7 +283,7 @@
 
 ## Phase 6 — Finalize Strict Distributed Concurrency
 
-- [ ] 6.1 Add red lease-set, timing, and renewal-loss contracts
+- [x] 6.1 Add red lease-set, timing, and renewal-loss contracts
   - Define store/service tests for atomic multi-rule acquire/renew/release, replay, deterministic lock order, `renew_before < lease_ttl`, external result validation, uncertain occupancy, strict cancellation before expiry, rollback failure, and auxiliary inheritance.
   - **Deliverable:** existing sequential/per-lease behavior fails the new strict contracts.
   - _Requirements: 10.1–10.10, 13.1, 13.6–13.8_
@@ -292,7 +292,7 @@
   - _Depends: Phase 5_
   - _Validation: focused concurrency service/store/heartbeat tests and deterministic-clock state models_
 
-- [ ] 6.2 Implement atomic lease-set acquire, renew, and release
+- [x] 6.2 Implement atomic lease-set acquire, renew, and release
   - Add one set identity/generation/state and complete-set commands.
   - Implement targeted atomic mutations for memory, SQLite, direct PostgreSQL, and transaction-pooled PostgreSQL with deterministic key ordering and bounded expiry cleanup.
   - Migrate legacy rows as one-member sets without reinterpreting history.
@@ -303,7 +303,7 @@
   - _Depends: 6.1_
   - _Validation: store contracts, migration, contention, replay, direct/pooled PostgreSQL tests_
 
-- [ ] 6.3 Enforce strict heartbeat and ambiguous-renewal behavior
+- [x] 6.3 Enforce strict heartbeat and ambiguous-renewal behavior
   - Validate timing and returned set shape, renew the complete set atomically, and conservatively count ambiguous occupancy.
   - For fail-closed strict rules, cancel and terminalize early enough to avoid continuing beyond unproven expiry; keep fail-open explicit and degraded.
   - **Deliverable:** a live strict request cannot become invisible to capacity accounting after renewal failure.
@@ -313,7 +313,7 @@
   - _Depends: 4.2, 6.2_
   - _Validation: fake-clock renewal, ambiguous commit, partition, cancellation-before-expiry, and race tests_
 
-- [ ] 6.4 Route lease-set release and rollback through terminal work
+- [x] 6.4 Route lease-set release and rollback through terminal work
   - Create one durable set-release/rollback action; do not mark capacity released until the store confirms it.
   - Reconcile pending/uncertain sets after restart and expose active, uncertain, expiring, released, and failed state through bounded queries.
   - **Deliverable:** lease cleanup failure cannot be ignored or permanently leak/over-admit capacity.
@@ -323,7 +323,7 @@
   - _Depends: 4.3–4.5, 6.2, 6.3_
   - _Validation: release outage, restart, uncertain occupancy, bounded query, and readiness tests_
 
-- [ ] 6.5 Prove five-slot behavior across instances and failures
+- [x] 6.5 Prove five-slot behavior across instances and failures
   - Run high-contention admission across at least two proxy/service instances with five slots and multiple matching rules.
   - Cover process crash, database outage, pooler operation, renewal loss, terminal release failure, auxiliary calls, retries, and parallel B-legs.
   - **Deliverable:** no execution admits more than five proven top-level logical requests, and capacity recovers only through valid release/reconciliation.
