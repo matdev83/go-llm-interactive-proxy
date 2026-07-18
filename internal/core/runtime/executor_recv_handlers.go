@@ -220,6 +220,7 @@ func (s *retryRecvStream) handleResponseFinishedPath(ctx context.Context, ev lip
 	if s.executor != nil {
 		if obsErr := extensions.RunFinalStreamObservationStage(ctx, s.executor.Log, s.executor.ExtensionMetrics, s.finalStreamObs, ev, s.isCommitted()); obsErr != nil {
 			s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
+			s.terminalizePartialFailure(ctx, sdkterminal.CommandPartialError, attemptReasonDetail(obsErr), obsErr)
 			return lipapi.Event{}, false, obsErr
 		}
 	}
@@ -244,6 +245,7 @@ func (s *retryRecvStream) mandatoryClientFacingPreflight(ctx context.Context, ev
 		}
 		return nil
 	}
+	s.finishFinalStreamObservation(ctx, response.OutcomeFailed)
 	s.terminalizePartialFailure(ctx, sdkterminal.CommandFrontendEncoderFailure, attemptReasonDetail(err), err)
 	return err
 }

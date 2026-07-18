@@ -118,16 +118,73 @@ func TestHandleResponseFinishedPath_finalStreamObservationBeforeEmit(t *testing.
 		t.Fatal("handleResponseFinishedPath not found")
 	}
 
-	obsPos, emitPos := firstObservationEmitPos(fn.Body)
-	if emitPos == 0 {
-		t.Fatal("handleResponseFinishedPath must call beforeEmitClientFacing or emitClientFacingObserved")
+	// Phase 4 finish path: mandatoryClientFacingPreflight (beforeEmit) → NormalFinish
+	// settle → RunFinalStreamObservationStage → rememberClientEvent. Do not require
+	// emitClientFacingObserved / bare beforeEmitClientFacing here: those would re-run
+	// beforeEmit after NormalFinish and break terminal ownership.
+	preflightPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == "mandatoryClientFacingPreflight"
+	})
+	finalizePos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == "finalizeResponseFinishedAuthority"
+	})
+	obsPos := firstCallPos(fn.Body, func(_, name string, _ *ast.CallExpr) bool {
+		return name == runFinalStreamObservationStage
+	})
+	var rememberAfterObs token.Pos
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		_, name := qualifiedCall(call.Fun)
+		if name != "rememberClientEvent" {
+			return true
+		}
+		if obsPos != 0 && call.Pos() > obsPos && rememberAfterObs == 0 {
+			rememberAfterObs = call.Pos()
+		}
+		return true
+	})
+	terminalizeOnObsFail := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		ifStmt, ok := n.(*ast.IfStmt)
+		if !ok {
+			return true
+		}
+		hasObs := firstCallPos(&ast.BlockStmt{List: []ast.Stmt{ifStmt}}, func(_, name string, _ *ast.CallExpr) bool {
+			return name == runFinalStreamObservationStage
+		}) != 0
+		if !hasObs || ifStmt.Body == nil {
+			return true
+		}
+		if firstCallPos(ifStmt.Body, func(_, name string, _ *ast.CallExpr) bool {
+			return name == "terminalizePartialFailure"
+		}) != 0 {
+			terminalizeOnObsFail = true
+		}
+		return true
+	})
+
+	if preflightPos == 0 {
+		t.Fatal("handleResponseFinishedPath must call mandatoryClientFacingPreflight before NormalFinish")
+	}
+	if finalizePos == 0 {
+		t.Fatal("handleResponseFinishedPath must call finalizeResponseFinishedAuthority")
 	}
 	if obsPos == 0 {
-		t.Fatalf("RED: handleResponseFinishedPath must call %s or %s before client emit so success_released observes released response_finished",
-			runFinalStreamObservationStage, emitClientFacingObserved)
+		t.Fatalf("RED: handleResponseFinishedPath must call %s after settle so success_released observes released response_finished",
+			runFinalStreamObservationStage)
 	}
-	if obsPos > emitPos {
-		t.Fatalf("want observation/emit before client release; obs=%d emit=%d", obsPos, emitPos)
+	if rememberAfterObs == 0 {
+		t.Fatal("handleResponseFinishedPath must call rememberClientEvent after observation")
+	}
+	if !(preflightPos < finalizePos && finalizePos < obsPos && obsPos < rememberAfterObs) {
+		t.Fatalf("want preflight < finalize < observation < remember; positions preflight=%d finalize=%d obs=%d remember=%d",
+			preflightPos, finalizePos, obsPos, rememberAfterObs)
+	}
+	if !terminalizeOnObsFail {
+		t.Fatal("RED: observation failure on finish path must call terminalizePartialFailure")
 	}
 }
 
