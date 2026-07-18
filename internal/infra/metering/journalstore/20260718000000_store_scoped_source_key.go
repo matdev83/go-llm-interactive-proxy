@@ -17,17 +17,7 @@ func registerStoreScopedSourceKeyMigration() {
 func storeScopedSourceKeyUp(ctx context.Context, db *bun.DB) error {
 	switch db.Dialect().Name() {
 	case dialect.PG:
-		stmts := []string{
-			`ALTER TABLE metering_facts DROP CONSTRAINT IF EXISTS metering_facts_source_event_key_key`,
-			`DO $$ BEGIN
-				ALTER TABLE metering_facts
-					ADD CONSTRAINT metering_facts_store_source_event_key_key UNIQUE (store_id, source_event_key);
-			EXCEPTION
-				WHEN duplicate_object THEN NULL;
-				WHEN unique_violation THEN NULL;
-			END $$`,
-		}
-		for _, stmt := range stmts {
+		for _, stmt := range postgresStoreScopedSourceKeyStmts() {
 			if _, err := db.ExecContext(ctx, stmt); err != nil {
 				return fmt.Errorf("store-scoped source key migration: %w", err)
 			}
@@ -37,6 +27,20 @@ func storeScopedSourceKeyUp(ctx context.Context, db *bun.DB) error {
 		return rebuildSQLiteStoreScopedUnique(ctx, db)
 	default:
 		return fmt.Errorf("unsupported bun dialect %s", db.Dialect().Name().String())
+	}
+}
+
+func postgresStoreScopedSourceKeyStmts() []string {
+	return []string{
+		`ALTER TABLE metering_facts DROP CONSTRAINT IF EXISTS metering_facts_source_event_key_key`,
+		`DO $$ BEGIN
+				ALTER TABLE metering_facts
+					ADD CONSTRAINT metering_facts_store_source_event_key_key UNIQUE (store_id, source_event_key);
+			EXCEPTION
+				WHEN duplicate_object THEN NULL;
+				WHEN duplicate_table THEN NULL;
+				WHEN unique_violation THEN NULL;
+			END $$`,
 	}
 }
 

@@ -43,7 +43,7 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
 | PG migrations | `make test-postgres-migrations` | **PASS** | EXIT=0, ~2.0s |
 | PG direct | `make test-authority-postgres-direct` | **PASS** | EXIT=0, ~31.8s; includes `workstore` (~7.0s) with `-skip 'Pooled'` |
 | PG pooled (local) | `make test-authority-postgres-pooled` | **FAIL-CLOSED** (expected) | EXIT≠0; throws without `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`; **not** a pooled PASS |
-| PG pooled (CI-required) | `make test-authority-postgres` in PR `qa.yml` with PgBouncer + attestation | **configured; pending for this branch** | see CI section; no PR yet |
+| PG pooled (CI-required) | `make test-authority-postgres` in PR `qa.yml` with PgBouncer + attestation | **FAIL then remediate in flight** | PR #181 run `29634914224` failed on fresh migrate `20260718000000` (`42P07`); fix pushed — re-check pending |
 | Fuzz smoke | `FUZZTIME=200ms make test-fuzz` | **PASS** | EXIT=0, ~70.5s (includes dual-plane fuzz targets) |
 | Extra fuzz | `go test -fuzz=FuzzLeaseSet_OccupiesCapacity -fuzztime=5s -run '^$' ./internal/infra/concurrencyauthority/leasestore/` | **PASS** | EXIT=0 |
 | Enterprise archtest | `go test -count=1 ./internal/archtest/ -run EnterpriseModule` | **PASS** | EXIT=0 |
@@ -55,6 +55,7 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
 
 | Issue | Remediation |
 |-------|-------------|
+| PR #181 QA `make test-authority-postgres`: `lipstd migrate` failed at metering `20260718000000` with `relation "metering_facts_store_source_event_key_key" already exists (SQLSTATE=42P07)` | Root cause: baseline DDL already creates that UNIQUE constraint; Up only caught `duplicate_object`/`unique_violation`, but PostgreSQL raises `duplicate_table` (`42P07`) for the existing index/relation. Fix: catch `duplicate_table` in the DO block. RED: unit SQL guard + Postgres integration idempotency re-run of Up after Migrate. Local proof: unit + `make test-postgres-migrations` + journalstore collision integration + `make quality-checks` + `make qa` PASS. Task 7.5 left unchecked pending green PR QA pooled run. |
 | Independent review: workstore missing from Makefile PG gates | Added `./internal/infra/terminalwork/workstore` to `test-authority-postgres-direct` and `test-authority-postgres-pooled` (Windows + Unix); contract tests enforce inclusion; direct keeps `-skip 'Pooled'`, pooled keeps `-run 'Pooled'` |
 | Independent review: metadata-only bound-version fallback untested | Added `TestApplyGenerationBoundVersion_MetadataOnlyPublishMetadataFallback` using `PublishMetadata` only |
 | Independent review: evidence claimed readiness while gates `_pending_` | This document rewritten with actual EXIT codes; unconditional `EconomicControlReady` withdrawn |
@@ -74,7 +75,7 @@ Local host has **no** transaction-pooler endpoint. Attestation must not be set t
   - `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`
   - runs `make test-authority-postgres` (migrations + direct + pooled, including workstore under `-run 'Pooled'`)
 
-**This branch:** no open PR → **no CI pooled PASS recorded**. Treat pooler proof as **CI-required / pending before submission**.
+**This branch:** PR #181 open. First QA pooled proof run `https://github.com/matdev83/go-llm-interactive-proxy/actions/runs/29634914224` **FAIL**ed (see remediations). Post-fix re-run pending.
 
 ### Linux strict race + fuzz (nightly)
 
