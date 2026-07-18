@@ -1,0 +1,182 @@
+package runtime
+
+import (
+	"fmt"
+	"log/slog"
+	"maps"
+	"slices"
+	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
+	lipworkspace "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/workspace"
+)
+
+func (e *Executor) candidateAttemptMeta(p attemptOpenParams, attempt lipapi.Call, c routing.AttemptCandidate, be execbackend.Backend) request.AttemptMeta {
+	meta := request.AttemptMeta{
+		TraceID:         p.traceID,
+		ALegID:          p.aLegID,
+		CandidateKey:    c.Key,
+		BackendID:       strings.TrimSpace(c.Primary.Backend),
+		BackendPrefixes: execbackend.CloneBackendPrefixes(be),
+		Model:           strings.TrimSpace(c.Primary.Model),
+		ReplaySupport:   execbackend.EffectiveReplaySupport(p.ctx, be, attempt, c),
+		Scope:           scopeFromCtx(p.ctx),
+		Session: session.SessionView{
+			AuthoritativeSessionID: strings.TrimSpace(attempt.Session.AuthoritativeSessionID),
+			ClientSessionHint:      strings.TrimSpace(attempt.Session.ClientSessionID),
+			ALegID:                 p.aLegID,
+		},
+		Workspace: lipworkspace.WorkspaceView{},
+	}
+	if v, ok := execctx.FromContext(p.ctx); ok {
+		meta.Workspace = cloneWorkspaceView(v.Workspace)
+		meta.Scope = v.Scope
+		if v.Session.AuthoritativeSessionID != "" || v.Session.ClientSessionHint != "" {
+			meta.Session = cloneSessionView(v.Session)
+			meta.Session.ALegID = p.aLegID
+		}
+	}
+	return meta
+}
+
+func cloneSessionView(in session.SessionView) session.SessionView {
+	out := in
+	out.Labels = maps.Clone(in.Labels)
+	return out
+}
+
+func cloneWorkspaceView(in lipworkspace.WorkspaceView) lipworkspace.WorkspaceView {
+	out := in
+	out.Markers = slices.Clone(in.Markers)
+	out.Labels = maps.Clone(in.Labels)
+	return out
+}
+
+func (e *Executor) noteAttemptTransformExclude(p attemptOpenParams, c routing.AttemptCandidate, res extensions.AttemptTransformStageResult) {
+	diag.LogDecision(p.ctx, e.Log, "attempt_transform_exclude", diag.AttrOpts{CallID: p.traceID},
+		slog.String("decision", "exclude_candidate"), slog.String("candidate_key", c.Key),
+		slog.String("backend", c.Primary.Backend), slog.String("reason_code", res.ReasonCode),
+		slog.String("provider_id", res.ProviderID))
+	e.notePlanCandidate(p.ctx, p.traceID, c.Key, nil)
+	if p.transformExcludes != nil {
+		p.transformExcludes.noteTransform(res.ReasonCode)
+	}
+}
+
+func pinCandidateRouteIdentity(attempt *lipapi.Call, baseline lipapi.Call) {
+	if attempt != nil {
+		attempt.Route = baseline.Route
+	}
+}
+
+type postHookRederiveResult struct {
+	excluded    bool
+	facts       modelcatalog.EffectiveFacts
+	preflight   accountingpreflight.Decision
+	preflightOK bool
+}
+
+func (e *Executor) rederiveAfterRequestHooks(
+	p attemptOpenParams,
+	attempt *lipapi.Call,
+	c routing.AttemptCandidate,
+	be execbackend.Backend,
+	stickyBackendID string,
+	stickyBinding bool,
+) (postHookRederiveResult, error) {
+	var out postHookRederiveResult
+	if attempt == nil {
+		return out, fmt.Errorf("executor: nil attempt after hooks")
+	}
+	pinCandidateRouteIdentity(attempt, p.baseline)
+	if vErr := attempt.Validate(); vErr != nil {
+		return out, fmt.Errorf("executor: post-hook validate: %w", vErr)
+	}
+	facts := e.effectiveFactsForAttempt(p.ctx, be, *attempt, c)
+	out.facts = facts
+	res := lipapi.Negotiate(lipapi.RequiredCapabilities(*attempt), facts.EffectiveCaps)
+	if res.Kind == lipapi.NegotiationReject {
+		if stickyBinding && c.Primary.Backend == stickyBackendID {
+			e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "capability_reject")
+		}
+		if p.lastReject != nil {
+			*p.lastReject = res
+		}
+		diag.LogDecision(p.ctx, e.Log, "capability_reject", diag.AttrOpts{CallID: p.traceID},
+			slog.String("decision", "exclude_candidate"), slog.String("candidate_key", c.Key),
+			slog.String("backend", c.Primary.Backend), slog.String("phase", "post_request_hooks"))
+		if p.transformExcludes != nil {
+			p.transformExcludes.noteOther()
+		}
+		out.excluded = true
+		return out, nil
+	}
+	if res.Kind == lipapi.NegotiationDowngrade {
+		lipapi.ApplyNegotiatedDowngrades(attempt, res)
+	}
+	transportCaps := e.transportCapsForAttempt(p.ctx, be, *attempt, c)
+	transportRes := lipapi.NegotiateTransport(attempt.Invocation, transportCaps, e.effectiveTransportFallbackPolicy())
+	if transportRes.Kind == lipapi.NegotiationReject {
+		e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Mode, "reject")
+		if stickyBinding && c.Primary.Backend == stickyBackendID {
+			e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, "transport_reject")
+		}
+		if p.lastTransportReject != nil {
+			*p.lastTransportReject = transportRes
+		}
+		diag.LogDecision(p.ctx, e.Log, "transport_reject", diag.AttrOpts{CallID: p.traceID},
+			slog.String("decision", "exclude_candidate"), slog.String("candidate_key", c.Key),
+			slog.String("backend", c.Primary.Backend), slog.String("phase", "post_request_hooks"))
+		if p.transformExcludes != nil {
+			p.transformExcludes.noteOther()
+		}
+		out.excluded = true
+		return out, nil
+	}
+	e.recordTransportNegotiation(attempt.Invocation.Operation, transportRes.Selected, "accept")
+	if p.lastTransportReject != nil {
+		*p.lastTransportReject = lipapi.TransportNegotiationResult{}
+	}
+	attempt.Invocation.TransportMode = transportRes.Selected
+	if e != nil && e.EligibilityResolver != nil {
+		facts = e.effectiveFactsForAttempt(p.ctx, be, *attempt, c)
+		out.facts = facts
+		d := e.EligibilityResolver.Check(p.ctx, c, *attempt, facts)
+		if !d.IsEligible {
+			if stickyBinding && c.Primary.Backend == stickyBackendID {
+				e.clearAffinityBinding(p.ctx, p.traceID, p.affinityKey, p.affinitySet, string(d.Reason))
+			}
+			if p.isContextLimitExhaustion != nil && d.Reason == modelcatalog.EligibilityContextLimitExceeded {
+				*p.isContextLimitExhaustion = true
+			}
+			diag.LogDecision(p.ctx, e.Log, "context_limit_exclude", diag.AttrOpts{CallID: p.traceID},
+				slog.String("candidate_key", c.Key), slog.String("backend", c.Primary.Backend),
+				slog.String("phase", "post_request_hooks"))
+			if p.transformExcludes != nil {
+				p.transformExcludes.noteOther()
+			}
+			out.excluded = true
+			return out, nil
+		}
+	}
+	if decision, ok := e.runPreflight(p.ctx, p.traceID, *attempt, c, facts.Facts); ok {
+		out.preflight, out.preflightOK = decision, true
+		if !decision.Allowed {
+			return out, fmt.Errorf("executor: token accounting preflight: %w", decision.Err)
+		}
+		if decision.AdjustedMaxOutputTokens != nil {
+			adjusted := *decision.AdjustedMaxOutputTokens
+			attempt.Options.MaxOutputTokens = &adjusted
+		}
+	}
+	return out, nil
+}

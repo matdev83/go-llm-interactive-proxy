@@ -149,6 +149,8 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
 
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...

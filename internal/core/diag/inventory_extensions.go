@@ -16,6 +16,7 @@ import (
 	lipfeature "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/feature"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -47,6 +48,17 @@ type InventoryExtensions struct {
 	LegalPipeline []string                     `json:"legal_pipeline"`
 	Stages        []InventoryExtensionStage    `json:"stages"`
 	Features      []InventoryFeatureExtensions `json:"features"`
+	// GenericPorts aggregates attempt-transform / final-stream observer occupancy
+	// across features (counts/flags only; no payloads or session partitions).
+	GenericPorts InventoryGenericPorts `json:"generic_ports"`
+}
+
+// InventoryGenericPorts is process-local aggregate posture for generic extension ports.
+type InventoryGenericPorts struct {
+	AttemptTransformOccupied       bool `json:"attempt_transform_occupied"`
+	AttemptTransformHandlers       int  `json:"attempt_transform_handlers"`
+	FinalStreamObservationOccupied bool `json:"final_stream_observation_occupied"`
+	FinalStreamObservationHandlers int  `json:"final_stream_observation_handlers"`
 }
 
 type InventoryExtensionStage struct {
@@ -95,6 +107,7 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 			LegalPipeline: pipeline,
 			Stages:        stages,
 			Features:      []InventoryFeatureExtensions{},
+			GenericPorts:  InventoryGenericPorts{},
 		}
 	}
 
@@ -168,7 +181,7 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 					)
 				} else {
 					entry.StageOccupancy = stageOccupancyFromBundle(b)
-					if len(b.RequestTransforms) > 0 || len(b.PreRequestHandlers) > 0 || len(b.ToolCatalogFilters) > 0 || len(b.CompletionGates) > 0 {
+					if len(b.RequestTransforms) > 0 || len(b.PreRequestHandlers) > 0 || len(b.ToolCatalogFilters) > 0 || len(b.CompletionGates) > 0 || len(b.AttemptTransforms) > 0 {
 						entry.Privileges.AuxiliaryRequests = true
 					}
 					if len(b.CompletionGates) > 0 {
@@ -182,11 +195,20 @@ func buildInventoryExtensions(ctx context.Context, cfg *config.Config, extras *I
 		}
 		feats = append(feats, entry)
 	}
-	return InventoryExtensions{
-		LegalPipeline: pipeline,
-		Stages:        stages,
-		Features:      feats,
+	var ports InventoryGenericPorts
+	for _, f := range feats {
+		for _, occ := range f.StageOccupancy {
+			switch occ.StageID {
+			case extensions.StageCandidateAttemptTransform:
+				ports.AttemptTransformHandlers += occ.Count
+			case extensions.StageFinalStreamObservation:
+				ports.FinalStreamObservationHandlers += occ.Count
+			}
+		}
 	}
+	ports.AttemptTransformOccupied = ports.AttemptTransformHandlers > 0
+	ports.FinalStreamObservationOccupied = ports.FinalStreamObservationHandlers > 0
+	return InventoryExtensions{LegalPipeline: pipeline, Stages: stages, Features: feats, GenericPorts: ports}
 }
 
 func findFeatureRegistration(regs []lipsdk.Registration, instanceID string) (lipsdk.Registration, bool) {
@@ -384,6 +406,30 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 			})
 		}
 	}
+	if attemptTransforms := inventoryNonNilAttemptTransforms(b.AttemptTransforms); len(attemptTransforms) > 0 {
+		sorted := request.MaterializeAttemptsSorted(attemptTransforms)
+		ids := make([]string, 0, len(sorted))
+		for _, tr := range sorted {
+			ids = append(ids, "attempt_transform:"+tr.ID())
+		}
+		out = append(out, InventoryStageOccupancy{
+			StageID:    extensions.StageCandidateAttemptTransform,
+			HandlerIDs: ids,
+			Count:      len(ids),
+		})
+	}
+	if streamObservers := inventoryNonNilStreamObserverFactories(b.StreamObserverFactories); len(streamObservers) > 0 {
+		sorted := response.MaterializeSorted(streamObservers)
+		ids := make([]string, 0, len(sorted))
+		for _, f := range sorted {
+			ids = append(ids, "stream_observer:"+f.ID())
+		}
+		out = append(out, InventoryStageOccupancy{
+			StageID:    extensions.StageFinalStreamObservation,
+			HandlerIDs: ids,
+			Count:      len(ids),
+		})
+	}
 	trafficIDs := make([]string, 0, len(b.TrafficObservers)+len(b.UsageObservers)+len(b.RawCaptureSinks)+len(b.TrafficRedactors))
 	for i, o := range b.TrafficObservers {
 		if o == nil {
@@ -415,6 +461,40 @@ func stageOccupancyFromBundle(b lipfeature.FeatureBundle) []InventoryStageOccupa
 			HandlerIDs: trafficIDs,
 			Count:      len(trafficIDs),
 		})
+	}
+	return out
+}
+
+// inventoryNonNilAttemptTransforms drops nil entries before sort so occupancy
+// never panics on an invalid bundle; validated bundles already reject nils.
+func inventoryNonNilAttemptTransforms(in []request.AttemptTransform) []request.AttemptTransform {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]request.AttemptTransform, 0, len(in))
+	for _, tr := range in {
+		if tr != nil {
+			out = append(out, tr)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func inventoryNonNilStreamObserverFactories(in []response.StreamObserverFactory) []response.StreamObserverFactory {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]response.StreamObserverFactory, 0, len(in))
+	for _, f := range in {
+		if f != nil {
+			out = append(out, f)
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -45,13 +45,11 @@ func TestRequestCoordinator_ConcurrentSettle_InvokesEachProviderOnce(t *testing.
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	start := make(chan struct{})
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 2 {
+		wg.Go(func() {
 			<-start
 			errs <- coord.Settle(context.Background(), d.Stack, settleIn)
-		}()
+		})
 	}
 	close(start)
 	<-entered
@@ -111,7 +109,7 @@ func TestRequestCoordinator_ConcurrentSettle_WaiterObservesFailureThenRetry(t *t
 	}
 	close(release)
 	var sawFail int
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := <-errCh; err == nil {
 			t.Fatal("concurrent callers must observe the in-flight failure")
 		} else {

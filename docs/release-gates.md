@@ -69,6 +69,8 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzCompleteJSONSuffix` | `internal/core/toolcallrepair` | Append-only JSON suffix completion (ADR 0007) |
 | `FuzzSchemaPreScanCompile` | `internal/core/toolcallrepair` | Offline schema pre-scan/compile bounds |
 | `FuzzEngineRepair` | `internal/core/toolcallrepair` | Deterministic tool-call repair engine |
+| `FuzzComputeAnchor` | `internal/plugins/features/reasoningpreservation` | Exact non-reasoning anchor hash stability (issue #157) |
+| `FuzzDecodeConfig` | `internal/plugins/features/reasoningpreservation` | Feature YAML decode/validation bounds (issue #157) |
 
 ## Time budget
 

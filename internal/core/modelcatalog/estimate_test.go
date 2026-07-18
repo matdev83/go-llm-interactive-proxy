@@ -143,3 +143,37 @@ func TestDefaultSizeEstimator_jsonPart_bytes(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestDefaultSizeEstimator_countsReasoningParts(t *testing.T) {
+	t.Parallel()
+	est := modelcatalog.DefaultSizeEstimator{}
+	opaque := json.RawMessage(`{"data":"x"}`)
+	if !json.Valid(opaque) {
+		t.Fatal("opaque must be valid JSON")
+	}
+	call := lipapi.Call{
+		Messages: []lipapi.Message{{
+			Role: lipapi.RoleAssistant,
+			Parts: []lipapi.Part{
+				{
+					Kind: lipapi.PartReasoning,
+					Reasoning: &lipapi.ReasoningPart{
+						Dialect:   lipapi.ReasoningDialectOpenAIChatTextV1,
+						Text:      "abcd",
+						Signature: "sig",
+						Opaque:    opaque,
+					},
+				},
+				lipapi.TextPart("xy"),
+			},
+		}},
+	}
+	got := est.Estimate(context.Background(), call)
+	if !got.Available {
+		t.Fatalf("expected available estimate, got %+v", got)
+	}
+	want := int64(len("abcd") + len("sig") + len(opaque) + len("xy"))
+	if got.Input != want {
+		t.Fatalf("Input=%d want %d (reasoning text+signature+opaque must participate in request sizing)", got.Input, want)
+	}
+}

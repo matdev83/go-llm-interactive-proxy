@@ -17,6 +17,8 @@ import (
 type ExtensionStageProm struct {
 	stageDur    *prometheus.HistogramVec
 	failOpenSkp *prometheus.CounterVec
+	stageRuns   *prometheus.CounterVec
+	stageBytes  *prometheus.CounterVec
 }
 
 var extensionStageBuckets = []float64{
@@ -43,8 +45,24 @@ func RegisterExtensionStageProm(reg prometheus.Registerer) *ExtensionStageProm {
 			},
 			[]string{"stage"},
 		),
+		stageRuns: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "extension_stage_runs_total",
+				Help:      "Generic-port stage runs via RecordStageObservation (attempt_transform, final_stream_observation; labels: stage + outcome; bounded).",
+			},
+			[]string{"stage", "outcome"},
+		),
+		stageBytes: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "extension_stage_bytes_total",
+				Help:      "Content-safe byte totals for generic-port stages via RecordStageObservation (labels: stage + outcome; bounded).",
+			},
+			[]string{"stage", "outcome"},
+		),
 	}
-	reg.MustRegister(m.stageDur, m.failOpenSkp)
+	reg.MustRegister(m.stageDur, m.failOpenSkp, m.stageRuns, m.stageBytes)
 	return m
 }
 
@@ -64,12 +82,7 @@ func (s *extensionStageSink) ObserveStage(stage, outcome string, seconds float64
 	if s == nil || s.p == nil {
 		return
 	}
-	if stage == "" {
-		stage = "unknown"
-	}
-	if outcome == "" {
-		outcome = "unknown"
-	}
+	stage, outcome = extensions.CanonicalStageMetricLabels(stage, outcome)
 	s.p.stageDur.WithLabelValues(stage, outcome).Observe(seconds)
 }
 
@@ -77,8 +90,22 @@ func (s *extensionStageSink) IncFailOpenSkip(stage string) {
 	if s == nil || s.p == nil {
 		return
 	}
-	if stage == "" {
-		stage = "unknown"
-	}
+	stage, _ = extensions.CanonicalStageMetricLabels(stage, extensions.StageOutcomeOK)
 	s.p.failOpenSkp.WithLabelValues(stage).Inc()
+}
+
+func (s *extensionStageSink) AddStageCount(stage, outcome string, n int64) {
+	if s == nil || s.p == nil || n <= 0 {
+		return
+	}
+	stage, outcome = extensions.CanonicalStageMetricLabels(stage, outcome)
+	s.p.stageRuns.WithLabelValues(stage, outcome).Add(float64(n))
+}
+
+func (s *extensionStageSink) ObserveStageBytes(stage, outcome string, n int64) {
+	if s == nil || s.p == nil || n <= 0 {
+		return
+	}
+	stage, outcome = extensions.CanonicalStageMetricLabels(stage, outcome)
+	s.p.stageBytes.WithLabelValues(stage, outcome).Add(float64(n))
 }

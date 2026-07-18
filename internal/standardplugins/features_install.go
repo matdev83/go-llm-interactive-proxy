@@ -5,6 +5,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refparts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refsubmit"
@@ -197,6 +198,10 @@ func featureSecretsGuard(n yaml.Node) (lipfeature.FeatureBundle, error) {
 		return lipfeature.FeatureBundle{}, err
 	}
 	return secretsguard.FeatureBundle(cfg), nil
+}
+
+func featureReasoningOutputPreservation(n yaml.Node) (lipfeature.FeatureBundle, error) {
+	return reasoningpreservation.BuildFeatureBundle(n)
 }
 
 func featureToolCallRepair(n yaml.Node) (lipfeature.FeatureBundle, error) {

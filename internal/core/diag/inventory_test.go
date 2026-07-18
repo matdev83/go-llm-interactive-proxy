@@ -51,11 +51,11 @@ func TestInventoryHandler_returnsPluginRows(t *testing.T) {
 	if len(snap.Frontends) != 1 || snap.Frontends[0].ID != "openai-responses" {
 		t.Fatalf("frontends: %+v", snap.Frontends)
 	}
-	if len(snap.Extensions.LegalPipeline) != 14 {
-		t.Fatalf("extensions.legal_pipeline: want 14 got %d", len(snap.Extensions.LegalPipeline))
+	if len(snap.Extensions.LegalPipeline) != 16 {
+		t.Fatalf("extensions.legal_pipeline: want 16 got %d", len(snap.Extensions.LegalPipeline))
 	}
-	if len(snap.Extensions.Stages) != 14 {
-		t.Fatalf("extensions.stages: want 14 got %d", len(snap.Extensions.Stages))
+	if len(snap.Extensions.Stages) != 16 {
+		t.Fatalf("extensions.stages: want 16 got %d", len(snap.Extensions.Stages))
 	}
 	for _, st := range snap.Extensions.Stages {
 		if strings.TrimSpace(st.ID) == "" || strings.TrimSpace(st.DefaultFailure) == "" {

@@ -121,12 +121,25 @@ var lineBudgets = []struct {
 	// Raised from 57650 to 58300 for dual-plane Phase 2.3 authority coordinator
 	// posture/compensation, settlement concurrency state, and req 4.3 hold
 	// validation (measured ~58197 non-test lines).
-	// Raised from 58300 to 58650 for dual-plane Phase 3 durable metering journal:
+	// Raised from 56400 (main lineage) for reasoning-output-preservation Phase 2.3:
+	// RunCandidateAttemptTransformStage + openPlannedCandidate wiring / post-hook rederive.
+	// Raised from 56900 for Phase 2.4 final_stream_observation runner + recv/gate lifecycle.
+	// Raised from 57200 for Phase 2.4 repair: race-safe session claim, CompletionGateChainResult,
+	// central emitClientFacingObserved (recoverDrain/synthesized usage), parallel excluded nil-guard.
+	// Raised from 57250 to 57380 for Phase 2.5 safe generic stage telemetry
+	// (bounded label collapse, count/byte helpers, generic-port inventory posture).
+	// Raised to 57400 for early Recv ctx-cancel remediation (nil-inner Cancelled
+	// taxonomy + swallowed release; nil-executor-safe cancel path).
+	// Combined dual-plane Phase 1 + reasoning-preservation on merge into main.
+	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
+	// Phase 2 + reasoning-preservation combined after merge into main: 59500
+	// (main 58850 + Phase 2 +650); post-merge measured 59256.
+	// Raised from 59500 to 59800 for dual-plane Phase 3 durable metering journal:
 	// ingress checkpoint producers, control-plane metering usage bridge/projection,
-	// and reconstruction seams (+373 non-test lines across checkpoint/runtime/
-	// controlplane since Phase 2 base; measured 58539). Cap keeps ~111 lines of
-	// headroom. Prefer further decomposition over another raise.
-	{"internal/core", 58650},
+	// and reconstruction seams (retarget onto main Phase 1+2 + reasoning; measured
+	// 59629). Cap keeps ~171 lines of headroom. Prefer further decomposition over
+	// another raise.
+	{"internal/core", 59800},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -144,7 +157,9 @@ var lineBudgets = []struct {
 	// production authority_coord consumes Request/Attempt/Concurrency/Rater
 	// registrations with stable IDs (no production-request-%d generation).
 	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
-	{"internal/infra/runtimebundle", 5580},
+	// Raised from 5580 to 5690 after merging reasoning-output-preservation into
+	// Phase 2 (post-merge measured 5586; ~100 lines headroom).
+	{"internal/infra/runtimebundle", 5690},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

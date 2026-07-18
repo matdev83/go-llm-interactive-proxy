@@ -64,12 +64,25 @@ func writeMessages(b *strings.Builder, tag string, msgs []lipapi.Message) {
 			b.WriteString(string(p.Kind))
 			b.WriteByte(':')
 			b.WriteString(p.Text)
+			if p.Kind == lipapi.PartReasoning && p.Reasoning != nil {
+				b.WriteString(":R")
+				writeLenFrame(b, string(p.Reasoning.Dialect))
+				writeLenFrame(b, p.Reasoning.Text)
+				writeLenFrame(b, p.Reasoning.Signature)
+				writeLenFrame(b, string(p.Reasoning.Opaque))
+			}
 			if len(p.Content) > 0 {
 				b.WriteByte(':')
 				b.Write(p.Content)
 			}
 		}
 	}
+}
+
+func writeLenFrame(b *strings.Builder, s string) {
+	b.WriteString(strconv.Itoa(len(s)))
+	b.WriteByte(':')
+	b.WriteString(s)
 }
 
 // BillableWidened reports whether current has billable content beyond authorized.
