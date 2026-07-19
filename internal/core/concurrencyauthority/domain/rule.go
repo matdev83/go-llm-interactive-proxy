@@ -85,3 +85,8 @@ func (r Rule) EffectiveRenewBefore() time.Duration {
 	}
 	return 15 * time.Second
 }
+
+// ValidateTiming checks configured lease_ttl and renew_before (requirement 10.1).
+func (r Rule) ValidateTiming() error {
+	return ValidateTiming(r.EffectiveTTL(), r.EffectiveRenewBefore())
+}

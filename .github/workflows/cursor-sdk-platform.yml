@@ -10,6 +10,9 @@ on:
       - "Makefile"
       - ".github/workflows/cursor-sdk-platform.yml"
 
+permissions:
+  contents: read
+
 jobs:
   platform-smoke:
     name: platform-smoke (${{ matrix.os }})

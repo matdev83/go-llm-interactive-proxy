@@ -52,9 +52,11 @@ func New(cfg Config) execbackend.Backend {
 	if err != nil {
 		return newConfigErrorBackend(fmt.Errorf("%s: credentials: %w", ID, err))
 	}
+	prefixes := []string{ID}
 	return execbackend.Backend{
 		Caps:            openaicaps.HostedFull,
-		BackendPrefixes: []string{ID},
+		ReplaySupport:   lipapi.ReasoningReplaySupport{},
+		BackendPrefixes: prefixes,
 		ModelInventory: modeldiscover.OpenAICompatibleModelsProvider{
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,
@@ -65,7 +67,10 @@ func New(cfg Config) execbackend.Backend {
 		},
 		EnforcesMaxOutputTokens: true,
 		ResolveCaps: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.BackendCaps {
-			return openaicaps.ForHostedModel(resolveModel(cand, call))
+			return openaicaps.ForHostedModelCompatibleReplay(resolveModel(cand, call), prefixes)
+		},
+		ResolveReplaySupport: func(_ context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.ReasoningReplaySupport {
+			return openaicaps.ResolveCompatibleReplaySupport(openaicaps.FlavorChat, resolveModel(cand, call), prefixes)
 		},
 		Open: func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 			if ctx == nil {

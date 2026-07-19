@@ -20,6 +20,7 @@ var (
 func registerMigrations() {
 	registerMigrationsOnce.Do(func() {
 		migrations.MustRegister(baselineUp, func(context.Context, *bun.DB) error { return nil })
+		registerLeaseSetMigration()
 	})
 }
 

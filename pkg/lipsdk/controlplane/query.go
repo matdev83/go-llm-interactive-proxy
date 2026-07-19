@@ -193,7 +193,9 @@ type UsageRow struct {
 	CacheWriteTokens int                 `json:"cache_write_tokens,omitempty"`
 	ReasoningTokens  int                 `json:"reasoning_tokens,omitempty"`
 	TotalTokens      int                 `json:"total_tokens,omitempty"`
+	TokenPresence    UsageTokenPresence  `json:"token_presence,omitzero"`
 	CostNanoUnits    int64               `json:"cost_nano_units,omitempty"`
+	CostPresent      bool                `json:"cost_present"`
 	Currency         string              `json:"currency,omitempty"`
 	EvidenceState    EvidenceState       `json:"evidence_state"`
 	RedactionState   RedactionState      `json:"redaction_state"`

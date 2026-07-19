@@ -32,11 +32,19 @@ func TestMakefile_AuthorityPostgresPooledUsesNormalParallelism(t *testing.T) {
 		if !strings.Contains(rest, `GetEnvironmentVariable('LIP_TEST_POSTGRES_RUNTIME_IS_POOLER','Process') -ne '1'`) {
 			t.Fatal("must require exact =1 attestation on the Windows branch")
 		}
-		if !strings.Contains(rest, `-run '^TestPostgresPooled_'`) && !strings.Contains(rest, `-run "^TestPostgresPooled_"`) {
-			t.Fatal("must select only TestPostgresPooled_ via fail-closed -run regex")
+		// Must cover TestPostgresPooled_* plus Phase*_PostgresPooled_* / DirectPooled_*
+		// (exact ^TestPostgresPooled_ alone orphans Phase3/Phase34 pooled contracts).
+		hasBroad := strings.Contains(rest, `-run 'Pooled'`) || strings.Contains(rest, `-run "Pooled"`)
+		hasExact := strings.Contains(rest, `-run '^TestPostgresPooled_'`) || strings.Contains(rest, `-run "^TestPostgresPooled_"`)
+		hasPhaseOrDirect := strings.Contains(rest, "Phase3") || strings.Contains(rest, "Phase34") || strings.Contains(rest, "DirectPooled")
+		if !hasBroad && (!hasExact || !hasPhaseOrDirect) {
+			t.Fatal("pooled gate must select TestPostgresPooled_* and Phase*_PostgresPooled_* (use -run 'Pooled' or equivalent)")
 		}
 		if !strings.Contains(rest, "./internal/infra/runtimebundle") {
 			t.Fatal("must include runtimebundle composition proof in pooled gate")
+		}
+		if !strings.Contains(rest, "./internal/infra/terminalwork/workstore") {
+			t.Fatal("must include terminalwork/workstore pooled contracts in pooled gate")
 		}
 	})
 }
@@ -52,11 +60,18 @@ func TestMakefile_AuthorityPostgresDirectSkipsPooled(t *testing.T) {
 		if !strings.Contains(rest, "$(GO_TEST_FLAGS)") {
 			t.Fatalf("must use $$(GO_TEST_FLAGS) for normal -parallel=8")
 		}
-		if !strings.Contains(rest, `-skip '^TestPostgresPooled_'`) && !strings.Contains(rest, `-skip "^TestPostgresPooled_"`) {
-			t.Fatal("must skip TestPostgresPooled_ so direct and pooled gates stay separate")
+		// Broad -skip 'Pooled' also excludes Phase*_PostgresPooled_* helpers that
+		// do not match the TestPostgresPooled_ prefix.
+		hasExact := strings.Contains(rest, `-skip '^TestPostgresPooled_'`) || strings.Contains(rest, `-skip "^TestPostgresPooled_"`)
+		hasBroad := strings.Contains(rest, `-skip 'Pooled'`) || strings.Contains(rest, `-skip "Pooled"`)
+		if !hasExact && !hasBroad {
+			t.Fatal("must skip TestPostgresPooled_ (or broader Pooled) so direct and pooled gates stay separate")
 		}
 		if strings.Contains(rest, `-run '^TestPostgresPooled_'`) || strings.Contains(rest, `-run "^TestPostgresPooled_"`) {
 			t.Fatal("direct gate must not select only pooled tests")
+		}
+		if !strings.Contains(rest, "./internal/infra/terminalwork/workstore") {
+			t.Fatal("must include terminalwork/workstore direct contracts in direct gate")
 		}
 	})
 }

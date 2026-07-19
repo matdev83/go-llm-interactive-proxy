@@ -60,6 +60,7 @@ type ExposureBasis struct {
 	Quantities  []metering.Quantity          `json:"quantities,omitempty"`
 	Money       Money                        `json:"money,omitzero"`
 	Output      ConservativeOutputAssumption `json:"output,omitzero"`
+	FactRefs    []metering.FactRef           `json:"fact_refs,omitempty"`
 }
 
 // Validate checks perspective/boundary/lifecycle and optional output assumption.
@@ -76,6 +77,11 @@ func (e ExposureBasis) Validate() error {
 	for i, q := range e.Quantities {
 		if err := q.Validate(); err != nil {
 			return fmt.Errorf("economics: quantities[%d]: %w", i, err)
+		}
+	}
+	for i, ref := range e.FactRefs {
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("economics: fact_refs[%d]: %w", i, err)
 		}
 	}
 	return e.Output.Validate()

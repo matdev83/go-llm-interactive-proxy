@@ -261,6 +261,8 @@ func countPartTokens(codec tiktokenlib.Codec, imageEstimator imageestimator.Esti
 			return 0, fmt.Errorf("%w: %s image estimate unavailable: %v", app.ErrLocalUnavailable, path, err)
 		}
 		return tokens, nil
+	case lipapi.PartReasoning:
+		return countReasoningPartTokens(codec, part, path)
 	case lipapi.PartFileRef, lipapi.PartToolResult:
 		return 0, fmt.Errorf("%w: %s contains unsupported %s part for local call counting", app.ErrLocalUnavailable, path, part.Kind)
 	case "":
@@ -268,6 +270,34 @@ func countPartTokens(codec tiktokenlib.Codec, imageEstimator imageestimator.Esti
 	default:
 		return 0, fmt.Errorf("%w: %s contains unsupported %s part for local call counting", app.ErrLocalUnavailable, path, part.Kind)
 	}
+}
+
+// countReasoningPartTokens includes text and signature via the text encoder and opaque JSON
+// as raw UTF-8 bytes through the same encoder (opaque is not treated as natural language).
+func countReasoningPartTokens(codec tiktokenlib.Codec, part lipapi.Part, path string) (int, error) {
+	if part.Reasoning == nil {
+		return 0, fmt.Errorf("%w: %s reasoning part requires Reasoning payload", app.ErrLocalUnavailable, path)
+	}
+	tokens := 0
+	n, err := countText(codec, part.Reasoning.Text)
+	if err != nil {
+		return 0, err
+	}
+	tokens += n
+	n, err = countText(codec, part.Reasoning.Signature)
+	if err != nil {
+		return 0, err
+	}
+	tokens += n
+	if len(part.Reasoning.Opaque) > 0 {
+		// Byte-faithful tokenization of opaque JSON bytes; do not canonical-rewrite provider blobs.
+		n, err = countText(codec, string(part.Reasoning.Opaque))
+		if err != nil {
+			return 0, err
+		}
+		tokens += n
+	}
+	return tokens, nil
 }
 
 func imageDetail(raw json.RawMessage) string {

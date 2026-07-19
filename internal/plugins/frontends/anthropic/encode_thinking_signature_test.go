@@ -12,6 +12,36 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
+func TestWriteStreamSSE_redactedThinkingFromOpaqueDelta(t *testing.T) {
+	t.Parallel()
+	opaque, _ := json.Marshal(map[string]string{"type": "redacted_thinking", "data": "opaque-a"})
+	es := lipapi.NewFixedEventStream([]lipapi.Event{
+		{Kind: lipapi.EventResponseStarted},
+		{Kind: lipapi.EventMessageStarted},
+		{Kind: lipapi.EventReasoningDelta, Delta: "plan"},
+		{Kind: lipapi.EventReasoningSignatureDelta, Signature: "sig-a"},
+		{Kind: lipapi.EventReasoningOpaqueDelta, Opaque: opaque},
+		{Kind: lipapi.EventTextDelta, Delta: "ans"},
+		{Kind: lipapi.EventResponseFinished},
+	})
+	call := &lipapi.Call{
+		Route:      lipapi.RouteIntent{Selector: "x:y"},
+		Messages:   []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{lipapi.TextPart("p")}}},
+		Extensions: mustModelExt(t, "claude-3-5-haiku-20241022"),
+	}
+	rec := httptest.NewRecorder()
+	if err := anthropic.WriteStreamSSE(context.Background(), rec, call, es, anthropic.EncodeOptions{MessageID: "msg_redacted"}); err != nil {
+		t.Fatal(err)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"type":"redacted_thinking"`) || !strings.Contains(body, `"data":"opaque-a"`) {
+		t.Fatalf("RED: frontend must emit redacted_thinking; body_bytes=%d", len(body))
+	}
+	if !strings.Contains(body, `"type":"thinking"`) || !strings.Contains(body, `"text":"ans"`) {
+		t.Fatalf("thinking/text structural miss; body_bytes=%d", len(body))
+	}
+}
+
 func TestWriteStreamSSE_thinkingSignatureEmitted(t *testing.T) {
 	t.Parallel()
 	es := lipapi.NewFixedEventStream([]lipapi.Event{

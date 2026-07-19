@@ -92,7 +92,7 @@ func TestLeaseQuery_ProjectsExpiringAndRuleVersion(t *testing.T) {
 	store := leasestore.NewMemory(leasestore.MemoryConfig{StoreID: "q"})
 	rule := domain.Rule{
 		ID: "max-active", Namespace: "default", Version: "v9", Mode: domain.RuleModeStrict, Limit: 3,
-		LeaseTTL: 10 * time.Second, RenewBefore: 15 * time.Second,
+		LeaseTTL: 20 * time.Second, RenewBefore: 5 * time.Second,
 		Match: domain.DimensionsMatcher{Principal: domain.DimensionMatcher{Value: scope.Known("alice")}},
 	}
 	svc := concurrencyapp.NewService(staticRules{rules: []domain.Rule{rule}}, store, fixedClock{t: now})

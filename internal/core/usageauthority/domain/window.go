@@ -34,7 +34,7 @@ type WindowKey struct {
 }
 
 func (k WindowKey) String() string {
-	return fmt.Sprintf("%s|%s|%s|%s", k.RuleID, k.DimensionKey, k.Start.UTC().Format(time.RFC3339Nano), k.End.UTC().Format(time.RFC3339Nano))
+	return k.RuleID + "|" + string(k.DimensionKey) + "|" + k.Start.UTC().Format(time.RFC3339Nano) + "|" + k.End.UTC().Format(time.RFC3339Nano)
 }
 
 func (s WindowSpec) configured() bool {

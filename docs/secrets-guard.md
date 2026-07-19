@@ -203,7 +203,7 @@ Metrics may use only bounded labels: `action`, `outcome`, `source_category`.
 
 - In **`multi_user`**, the catalog contains **only the current request authentication credential**. Composition makes **zero calls** to the process environment reader for this feature.
 - YAML key `single_user` is **rejected at startup** when `access.mode: multi_user` is effective, even if the nested fields are empty.
-- In **`single_user`**, startup loads proxy credential env vars (bare + sparse numbered forms), the curated popular-env registry (when `include_popular_env: true`), plus `include_env` minus `exclude_env`. This inventory is **not** `internal/standardplugins/keys.go` (that helper drops variable names and gap-stops numbered scans).
+- In **`single_user`**, startup loads proxy credential env vars (bare + sparse numbered forms), popular-env names when `include_popular_env: true` (exact `PopularSecretEnvNames` plus uppercase names ending in `_API_KEY` / `_TOKEN`, excluding frontend public prefixes such as `NEXT_PUBLIC_` / `VITE_` / `REACT_APP_` and underscore-delimited anti-CSRF segments `CSRF` / `XSRF` / `CRSF`), plus `include_env` minus `exclude_env`. This inventory is **not** `internal/standardplugins/keys.go` (that helper drops variable names and gap-stops numbered scans).
 - The inventory is a startup snapshot; secret rotation means restart all replicas and verify the refreshed catalog after restart. There is no reload hook in v1.
 
 ### Incident response

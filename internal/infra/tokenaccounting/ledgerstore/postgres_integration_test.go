@@ -34,13 +34,25 @@ func TestPostgresLedgerStore_recordsRoundTrip(t *testing.T) {
 		_ = bunDB.Close()
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+	// Unique request/attempt IDs keep the shared Postgres fixture repeatable;
+	// fixed IDs accumulate across runs and break ListByAttempt len==1.
+	requestID := testkit.UniquePostgresStoreID("ta-req")
+	attemptID := testkit.UniquePostgresStoreID("ta-attempt")
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), db.DefaultPostgresOpenMigrateTimeout)
+		defer cleanupCancel()
+		_, _ = bunDB.NewRaw(
+			`DELETE FROM token_accounting_ledger_records WHERE request_id = ? AND attempt_id = ?`,
+			requestID, attemptID,
+		).Exec(cleanupCtx)
+		_ = store.Close()
+	})
 
-	record := testRecord("pg-req", "pg-attempt", lipapi.UsagePlaneProviderBillable, 10, 20)
+	record := testRecord(requestID, attemptID, lipapi.UsagePlaneProviderBillable, 10, 20)
 	if err := store.Record(ctx, record); err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
-	got, err := store.ListByAttempt(ctx, "pg-req", "pg-attempt")
+	got, err := store.ListByAttempt(ctx, requestID, attemptID)
 	if err != nil {
 		t.Fatalf("ListByAttempt() error = %v", err)
 	}

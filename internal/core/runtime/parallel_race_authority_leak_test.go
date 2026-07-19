@@ -82,6 +82,38 @@ func (s *signalOnceBlockStream) Cancel(context.Context, lipapi.CancelCause) lipa
 
 func (s *signalOnceBlockStream) Close() error { return nil }
 
+// emitThenBlockStream yields observed events (including usage), signals opened,
+// then blocks until canceled — used so parallel losers retain operator evidence.
+type emitThenBlockStream struct {
+	openedCh chan<- struct{}
+	events   []lipapi.Event
+	idx      int
+	signaled bool
+}
+
+func (s *emitThenBlockStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.idx < len(s.events) {
+		ev := s.events[s.idx]
+		s.idx++
+		return ev, nil
+	}
+	if !s.signaled {
+		s.signaled = true
+		select {
+		case s.openedCh <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return lipapi.Event{}, ctx.Err()
+}
+
+func (s *emitThenBlockStream) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
+	return lipapi.CancelResult{}
+}
+
+func (s *emitThenBlockStream) Close() error { return nil }
+
 // waitThenWinStream blocks its first Recv until waitCh is closed, then yields the supplied
 // events. Used by L5 so the winner cannot win until the loser has already opened.
 type waitThenWinStream struct {
@@ -196,15 +228,18 @@ func TestParallelRaceAuthorityLeak_L2_RegisterBLegFailureReleasesAuthority(t *te
 		t.Fatal("expected parallel race error from RegisterBLeg failure")
 	}
 
-	if got := auth.releaseCalls.Load(); got != 1 {
-		t.Fatalf("release calls = %d, want 1 (out.authority must be released on RegisterBLeg failure)", got)
+	if got := auth.releaseCalls.Load(); got != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred RegisterBLeg failure must settle)", got)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "res-l2" {
-		t.Fatalf("release reservation ID = %q, want res-l2", release.ReservationID)
+	if got := auth.settleCalls.Load(); got != 1 {
+		t.Fatalf("settle calls = %d, want 1", got)
 	}
-	if release.Kind != authorityapp.ReleaseKindLosing {
-		t.Fatalf("release kind = %q, want losing", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "res-l2" {
+		t.Fatalf("settle reservation ID = %q, want res-l2", settle.ReservationID)
+	}
+	if settle.Kind != authorityapp.SettlementKindLosing {
+		t.Fatalf("settle kind = %q, want losing", settle.Kind)
 	}
 }
 
@@ -242,15 +277,18 @@ func TestParallelRaceAuthorityLeak_L3_FatalLegErrorReleasesOpenedLegs(t *testing
 		t.Fatalf("error = %v, want ErrTTFTTimeout", err)
 	}
 
-	if got := auth.releaseCalls.Load(); got != 1 {
-		t.Fatalf("release calls = %d, want 1 (opened leg authority must be released on fatal abort)", got)
+	if got := auth.releaseCalls.Load(); got != 0 {
+		t.Fatalf("release calls = %d, want 0 (opened leg must settle on fatal abort)", got)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "res-l3" {
-		t.Fatalf("release reservation ID = %q, want res-l3", release.ReservationID)
+	if got := auth.settleCalls.Load(); got != 1 {
+		t.Fatalf("settle calls = %d, want 1", got)
 	}
-	if release.Kind != authorityapp.ReleaseKindLosing {
-		t.Fatalf("release kind = %q, want losing", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "res-l3" {
+		t.Fatalf("settle reservation ID = %q, want res-l3", settle.ReservationID)
+	}
+	if settle.Kind != authorityapp.SettlementKindLosing {
+		t.Fatalf("settle kind = %q, want losing", settle.Kind)
 	}
 }
 
@@ -305,15 +343,18 @@ func TestParallelRaceAuthorityLeak_L4_CtxDoneReleasesOpenedLegs(t *testing.T) {
 		t.Fatal("tryOpenParallelGroup did not return after ctx cancel")
 	}
 
-	if got := auth.releaseCalls.Load(); got != 1 {
-		t.Fatalf("release calls = %d, want 1 (opened leg authority must be released on ctx.Done)", got)
+	if got := auth.releaseCalls.Load(); got != 0 {
+		t.Fatalf("release calls = %d, want 0 (opened leg must settle on ctx.Done)", got)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "res-l4" {
-		t.Fatalf("release reservation ID = %q, want res-l4", release.ReservationID)
+	if got := auth.settleCalls.Load(); got != 1 {
+		t.Fatalf("settle calls = %d, want 1", got)
 	}
-	if release.Kind != authorityapp.ReleaseKindLosing {
-		t.Fatalf("release kind = %q, want losing", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "res-l4" {
+		t.Fatalf("settle reservation ID = %q, want res-l4", settle.ReservationID)
+	}
+	if settle.Kind != authorityapp.SettlementKindLosing {
+		t.Fatalf("settle kind = %q, want losing", settle.Kind)
 	}
 }
 
@@ -404,16 +445,19 @@ func TestParallelRaceAuthorityLeak_L5_CommitMemoInjectionFailureReleasesAuthorit
 		t.Fatal("memo Update was never called; commit path not exercised")
 	}
 
-	// Winner + the opened loser must both be released.
-	if got := auth.releaseCalls.Load(); got != 2 {
-		t.Fatalf("release calls = %d, want 2 (winner + opened loser)", got)
+	// Winner + the opened loser must both settle (incurred work).
+	if got := auth.releaseCalls.Load(); got != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred legs must settle)", got)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "res-l5" {
-		t.Fatalf("release reservation ID = %q, want res-l5", release.ReservationID)
+	if got := auth.settleCalls.Load(); got != 2 {
+		t.Fatalf("settle calls = %d, want 2 (winner + opened loser)", got)
 	}
-	if release.Kind != authorityapp.ReleaseKindLosing {
-		t.Fatalf("release kind = %q, want losing", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "res-l5" {
+		t.Fatalf("settle reservation ID = %q, want res-l5", settle.ReservationID)
+	}
+	if settle.Kind != authorityapp.SettlementKindLosing {
+		t.Fatalf("settle kind = %q, want losing", settle.Kind)
 	}
 }
 

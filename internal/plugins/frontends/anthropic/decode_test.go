@@ -94,6 +94,9 @@ func TestDecodeMessage_stream(t *testing.T) {
 	if !d.Stream {
 		t.Fatal("expected stream true")
 	}
+	if d.Call.Invocation.DeliveryMode != lipapi.DeliveryModeStreaming {
+		t.Fatalf("delivery mode = %q, want %q", d.Call.Invocation.DeliveryMode, lipapi.DeliveryModeStreaming)
+	}
 }
 
 func TestDecodeMessage_invalidJSON(t *testing.T) {

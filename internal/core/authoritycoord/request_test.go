@@ -28,11 +28,8 @@ func (f *fakeRequestProvider) AdmitRequest(ctx context.Context, in authority.Req
 		return f.admit(ctx, in)
 	}
 	return authority.Decision{
-		Kind: authority.DecisionAllow,
-		Reservations: []authority.Reservation{{
-			Handle: f.id + "-h",
-			Kind:   authority.ReservationQuota,
-		}},
+		Kind:         authority.DecisionAllow,
+		Reservations: []authority.Reservation{quotaReservation(f.id + "-h")},
 	}, nil
 }
 
@@ -43,7 +40,7 @@ func (f *fakeRequestProvider) SettleRequest(ctx context.Context, in authority.Re
 	if f.settle != nil {
 		return f.settle(ctx, in)
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (f *fakeRequestProvider) ReleaseRequest(ctx context.Context, in authority.RequestRelease) error {

@@ -15,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolcall"
@@ -131,6 +132,14 @@ func buildRuntimeSnapshot(
 	if len(opts.Extensions.CompletionGates) > 0 {
 		compGates = slices.Clone(opts.Extensions.CompletionGates)
 	}
+	var attemptXforms []request.AttemptTransform
+	if len(opts.Extensions.AttemptTransforms) > 0 {
+		attemptXforms = slices.Clone(opts.Extensions.AttemptTransforms)
+	}
+	var streamObs []response.StreamObserverFactory
+	if len(opts.Extensions.StreamObserverFactories) > 0 {
+		streamObs = slices.Clone(opts.Extensions.StreamObserverFactories)
+	}
 	var trafficObs traffic.Observer = traffic.NoopObserver{}
 	if len(opts.Extensions.TrafficObservers) > 0 {
 		trafficObs = traffic.ChainObservers(opts.Extensions.TrafficObservers...)
@@ -160,23 +169,25 @@ func buildRuntimeSnapshot(
 		budgetSrc = opts.Policy.PolicyTimeoutBudgetSource
 	}
 	return extensions.NewRequestRuntimeSnapshot(bus, extensions.SnapshotOptions{
-		State:               corestate.NewMem(nowFn),
-		Aux:                 auxreq.NewClient(execRunnerProvider),
-		Workspace:           ws,
-		SessionOpeners:      openers,
-		ToolCatalogFilters:  catalogFilters,
-		ToolCallPolicies:    toolPolicies,
-		ToolCallFinalizers:  toolFinalizers,
-		RequestTransforms:   reqTransforms,
-		PreRequestHandlers:  preReqs,
-		RouteHintProviders:  routeHints,
-		CompletionGates:     compGates,
-		TrafficObserver:     trafficObs,
-		UsageObserver:       usageObs,
-		RawCapture:          trafficRaw,
-		TrafficRedactors:    trafficRedactors,
-		SecretGuardPlane:    sgPlane,
-		PolicyObserver:      policyObs,
-		TimeoutBudgetSource: budgetSrc,
+		State:                   corestate.NewMem(nowFn),
+		Aux:                     auxreq.NewClient(execRunnerProvider),
+		Workspace:               ws,
+		SessionOpeners:          openers,
+		ToolCatalogFilters:      catalogFilters,
+		ToolCallPolicies:        toolPolicies,
+		ToolCallFinalizers:      toolFinalizers,
+		RequestTransforms:       reqTransforms,
+		PreRequestHandlers:      preReqs,
+		RouteHintProviders:      routeHints,
+		CompletionGates:         compGates,
+		AttemptTransforms:       attemptXforms,
+		StreamObserverFactories: streamObs,
+		TrafficObserver:         trafficObs,
+		UsageObserver:           usageObs,
+		RawCapture:              trafficRaw,
+		TrafficRedactors:        trafficRedactors,
+		SecretGuardPlane:        sgPlane,
+		PolicyObserver:          policyObs,
+		TimeoutBudgetSource:     budgetSrc,
 	})
 }

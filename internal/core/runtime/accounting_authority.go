@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/bits"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -33,6 +33,7 @@ type attemptAuthorityState struct {
 	viaCoordinator bool
 	stack          authoritycoord.CompensationStack
 	boundVersions  []economics.PolicySnapshotRef
+	admitClamps    []authority.Clamp
 	requestID      string
 	attemptID      string
 	bLegID         string
@@ -60,14 +61,33 @@ func (e *Executor) admitAttemptAuthority(
 	estimateOnly bool,
 ) (attemptAuthorityState, error) {
 	// External AttemptProviders must run even when built-in UsageAuthority is disabled.
-	if !estimateOnly && e != nil && e.AttemptCoordinator != nil {
-		return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
+	if !estimateOnly && e != nil {
+		bound := requestAuthorityFrom(ctx)
+		if e.AttemptCoordinator != nil || (bound != nil && bound.ExecutableGen != nil && bound.ExecutableGen.AttemptCoord != nil) {
+			return e.admitAttemptViaCoordinator(ctx, traceID, aLegID, bleg, call, c, decision)
+		}
 	}
 	svc := e.authorityService()
 	if svc == nil {
 		return attemptAuthorityState{}, nil
 	}
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision)
+	quantities := attemptRatingQuantities(decision)
+	factIDs := []string(nil)
+	factRefs := []metering.FactRef(nil)
+	if !estimateOnly {
+		quantities = finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
+		if holder := meteringHolderFrom(ctx); holder != nil {
+			if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
+				factIDs = []string{id}
+				streamID := "operator-attempt:" + strings.TrimSpace(bleg.BLegID)
+				if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+					streamID = be.Public.StreamID
+				}
+				factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
+			}
+		}
+	}
+	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision, quantities, factIDs, factRefs)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -77,9 +97,10 @@ func (e *Executor) admitAttemptAuthority(
 			rateErr,
 		)
 	}
+	admitScope := trustedFrontendIngressScope(ctx, scopeFromCtx(ctx))
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
-		Scope:          scopeFromCtx(ctx),
+		Scope:          admitScope,
 		Dimensions:     attemptAuthorityDimensions(ctx, call, c),
 		Request:        attemptAuthorityRequestAmount(decision),
 		RequestCount:   domain.Amount{Unit: domain.AmountUnitRequests, Value: 1},
@@ -89,21 +110,15 @@ func (e *Executor) admitAttemptAuthority(
 		ReservationKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c),
 		EstimateOnly:   estimateOnly,
 	}
-	quantities := attemptRatingQuantities(decision)
-	if !estimateOnly {
-		if holder := meteringHolderFrom(ctx); holder != nil {
-			if be := holder.BackendIngressFor(bleg.BLegID); be != nil && len(be.Public.Quantities) > 0 {
-				quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
-			}
-		}
-	}
-	if rated.Money.Present || len(quantities) > 0 {
+	if rated.Money.Present || len(quantities) > 0 || len(factRefs) > 0 {
 		admissionInput.Exposure = economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
 			Boundary:    metering.BoundaryBackendIngress,
 			Lifecycle:   metering.LifecycleBackendAttempt,
 			Quantities:  quantities,
 			Money:       rated.Money,
+			Output:      conservativeOutputAssumption(decision, quantities),
+			FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		}
 	}
 	// When request coordinator already reserved request-count, avoid double-charging
@@ -131,7 +146,11 @@ func (e *Executor) admitAttemptAuthority(
 	if result.ReservedAmount.Unit != "" {
 		admissionInput.Request = result.ReservedAmount
 	}
-	e.applyGenerationBoundVersion(&result)
+	var boundGen *snapshotgen.ExecutableGeneration
+	if st := requestAuthorityFrom(ctx); st != nil {
+		boundGen = st.ExecutableGen
+	}
+	e.applyGenerationBoundVersionFrom(boundGen, &result)
 	bindAdmissionRatingVersion(&result, rated)
 	state := attemptAuthorityState{
 		admissionInput:  admissionInput,
@@ -153,7 +172,24 @@ func (e *Executor) admitAttemptViaCoordinator(
 	c routing.AttemptCandidate,
 	decision accountingpreflight.Decision,
 ) (attemptAuthorityState, error) {
-	spend, rated, rateErr := e.rateOperatorAttemptSpend(ctx, c, decision)
+	quantities := finalOperatorAttemptQuantities(ctx, bleg.BLegID, decision)
+	factIDs := []string(nil)
+	factRefs := []metering.FactRef(nil)
+	if holder := meteringHolderFrom(ctx); holder != nil {
+		if id := strings.TrimSpace(holder.BackendIngressFactID(bleg.BLegID)); id != "" {
+			factIDs = []string{id}
+			streamID := "operator-attempt:" + strings.TrimSpace(bleg.BLegID)
+			if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
+				streamID = be.Public.StreamID
+			}
+			factRefs = []metering.FactRef{{StreamID: streamID, FactID: id}}
+		}
+	}
+	boundGen := (*snapshotgen.ExecutableGeneration)(nil)
+	if st := requestAuthorityFrom(ctx); st != nil {
+		boundGen = st.ExecutableGen
+	}
+	spend, rated, rateErr := e.rateOperatorAttemptSpendWithGen(ctx, boundGen, c, decision, quantities, factIDs, factRefs)
 	if rateErr != nil {
 		if errors.Is(rateErr, context.Canceled) {
 			return attemptAuthorityState{}, rateErr
@@ -163,7 +199,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 			rateErr,
 		)
 	}
-	quantities := attemptRatingQuantities(decision)
+	admitScope := trustedFrontendIngressScope(ctx, scopeFromCtx(ctx))
 	in := authority.AttemptAdmission{
 		RequestID:      strings.TrimSpace(call.ID),
 		AttemptID:      strings.TrimSpace(bleg.BLegID),
@@ -173,7 +209,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 		Model:          strings.TrimSpace(c.Primary.Model),
 		Perspective:    metering.PerspectiveOperator,
 		Lifecycle:      metering.LifecycleBackendAttempt,
-		Scope:          scopeFromCtx(ctx),
+		Scope:          admitScope,
 		IdempotencyKey: attemptAuthorityReservationKey(call.ID, traceID, aLegID, bleg, c).String(),
 		Exposure: economics.ExposureBasis{
 			Perspective: metering.PerspectiveOperator,
@@ -181,21 +217,24 @@ func (e *Executor) admitAttemptViaCoordinator(
 			Lifecycle:   metering.LifecycleBackendAttempt,
 			Quantities:  quantities,
 			Money:       rated.Money,
+			Output:      conservativeOutputAssumption(decision, quantities),
+			FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		},
 	}
 	if rated.Money.Present {
 		in.RatingVersions = []economics.RatingSnapshotRef{ratingSnapshotRef(rated)}
 	}
-	if holder := meteringHolderFrom(ctx); holder != nil {
-		if be := holder.BackendIngressFor(bleg.BLegID); be != nil {
-			in.Exposure.Quantities = append([]metering.Quantity(nil), be.Public.Quantities...)
-			// Keep rated money; re-rate is not performed after backend-ingress merge.
-			if !in.Exposure.Money.Present && rated.Money.Present {
-				in.Exposure.Money = rated.Money
-			}
-		}
+	attemptCoord := e.AttemptCoordinator
+	if boundGen != nil && boundGen.AttemptCoord != nil {
+		attemptCoord = boundGen.AttemptCoord
 	}
-	d, err := e.AttemptCoordinator.Admit(ctx, in)
+	if attemptCoord == nil {
+		return attemptAuthorityState{}, attemptAuthorityAdmissionError(
+			authorityapp.AdmissionResult{Outcome: domain.DecisionOutcomeUnavailable},
+			errors.New("attempt coordinator unavailable"),
+		)
+	}
+	d, err := attemptCoord.Admit(ctx, in)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return attemptAuthorityState{}, err
@@ -235,7 +274,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 	if len(d.BoundVersions) > 0 {
 		res.BoundVersion = d.BoundVersions[0]
 	}
-	e.applyGenerationBoundVersion(&res)
+	e.applyGenerationBoundVersionFrom(boundGen, &res)
 	bindAdmissionRatingVersion(&res, rated)
 	admissionInput := authorityapp.AdmissionInput{
 		Correlation:    attemptAuthorityCorrelation(traceID, call.ID, aLegID, call, bleg, c),
@@ -258,6 +297,7 @@ func (e *Executor) admitAttemptViaCoordinator(
 		viaCoordinator:  true,
 		stack:           d.Stack,
 		boundVersions:   append([]economics.PolicySnapshotRef(nil), d.BoundVersions...),
+		admitClamps:     append([]authority.Clamp(nil), d.Clamps...),
 		requestID:       in.RequestID,
 		attemptID:       in.AttemptID,
 		bLegID:          in.BLegID,
@@ -423,23 +463,15 @@ func authorityClampMaxOutputTokens(catalog accounting.PriceCatalog, c routing.At
 	if sample.Unavailable || sample.NanoUnits <= 0 {
 		return 0, authorityClampPricingUnavailable
 	}
-	// Use a 128-bit intermediate so a large money cap cannot overflow before
-	// conversion to output tokens. The quotient is capped before conversion
-	// to int because call options use the platform's native int width.
-	productHigh, productLow := bits.Mul64(uint64(remainingNano), 1_000_000)
-	if productHigh >= uint64(sample.NanoUnits) {
-		return int64(^uint64(0) >> 1), authorityClampApplied
+	tokens, err := economics.TokensFromMoneyPer1M(remainingNano, sample.NanoUnits, economics.RoundingTowardZero)
+	if err != nil {
+		return 0, authorityClampPricingUnavailable
 	}
-	quotient, _ := bits.Div64(productHigh, productLow, uint64(sample.NanoUnits))
-	maxInt64 := uint64(^uint64(0) >> 1)
-	if quotient > maxInt64 {
-		quotient = maxInt64
+	maxInt := int64(^uint(0) >> 1)
+	if tokens > maxInt {
+		tokens = maxInt
 	}
-	maxInt := uint64(^uint(0) >> 1)
-	if quotient > maxInt {
-		quotient = maxInt
-	}
-	return int64(quotient), authorityClampApplied
+	return tokens, authorityClampApplied
 }
 
 // applyAuthorityClamp mutates the call's requested max output so the backend
@@ -795,10 +827,42 @@ func attemptAuthorityAdmissionError(result authorityapp.AdmissionResult, err err
 	}
 }
 
-// applyGenerationBoundVersion prefers the published runtime generation's usage
-// snapshot identity when SnapshotGeneration is wired (design: Publication).
+// applyGenerationBoundVersion prefers the request-bound executable generation's
+// evaluator object identity (requirements 9.3, 9.5, 9.9; design D10).
 func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult) {
-	if e == nil || res == nil || e.SnapshotGeneration == nil {
+	e.applyGenerationBoundVersionFrom(nil, res)
+}
+
+func (e *Executor) applyGenerationBoundVersionFrom(bound *snapshotgen.ExecutableGeneration, res *authorityapp.AdmissionResult) {
+	if e == nil || res == nil {
+		return
+	}
+	exec := bound
+	if exec == nil && e.SnapshotGeneration != nil {
+		// Compatibility only when no request binding exists yet.
+		exec = e.SnapshotGeneration.CurrentExecutable()
+	}
+	if exec != nil {
+		obj := exec.EvidenceObjectID()
+		if obj != "" {
+			res.BoundVersion = economics.PolicySnapshotRef{
+				VersionRef: economics.VersionRef{
+					ID: obj, Version: exec.Version, EffectiveAt: exec.PublishedAt,
+				},
+				PolicyID: obj,
+			}
+		}
+		if rid := strings.TrimSpace(exec.RatingObjectID); rid != "" {
+			res.BoundRatingVersion = economics.RatingSnapshotRef{
+				VersionRef: economics.VersionRef{
+					ID: rid, Version: exec.Version, EffectiveAt: exec.PublishedAt,
+				},
+				RaterID: rid,
+			}
+		}
+		return
+	}
+	if e.SnapshotGeneration == nil {
 		return
 	}
 	gen := e.SnapshotGeneration.Current()
@@ -821,10 +885,29 @@ func (e *Executor) applyGenerationBoundVersion(res *authorityapp.AdmissionResult
 	}
 }
 
-// mergeGenerationBoundVersions appends Current() usage/concurrency refs onto a
-// request-stage composite decision when SnapshotGeneration is wired.
-func (e *Executor) mergeGenerationBoundVersions(d *authoritycoord.CompositeDecision) {
-	if e == nil || d == nil || e.SnapshotGeneration == nil {
+// mergeGenerationBoundVersionsFrom appends bound executable generation evidence.
+func (e *Executor) mergeGenerationBoundVersionsFrom(bound *snapshotgen.ExecutableGeneration, d *authoritycoord.CompositeDecision) {
+	if e == nil || d == nil {
+		return
+	}
+	if bound != nil {
+		obj := bound.EvidenceObjectID()
+		if obj != "" {
+			ref := economics.PolicySnapshotRef{
+				VersionRef: economics.VersionRef{
+					ID: obj, Version: bound.Version, EffectiveAt: bound.PublishedAt,
+				},
+				PolicyID: obj,
+			}
+			d.BoundVersions = prependPolicyRef(d.BoundVersions, ref)
+		}
+		return
+	}
+	if e.SnapshotGeneration == nil {
+		return
+	}
+	if exec := e.SnapshotGeneration.CurrentExecutable(); exec != nil {
+		e.mergeGenerationBoundVersionsFrom(exec, d)
 		return
 	}
 	gen := e.SnapshotGeneration.Current()

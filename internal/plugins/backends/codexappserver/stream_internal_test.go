@@ -256,7 +256,6 @@ func TestMapNotification_itemCompletedUnknownTypeEmitsNothing(t *testing.T) {
 // nil params, unknown method) to keep mapNotification coverage stable.
 func TestMapNotification_dispatch(t *testing.T) {
 	t.Parallel()
-	s := &codexStream{}
 
 	cases := []struct {
 		name              string
@@ -328,6 +327,9 @@ func TestMapNotification_dispatch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			// Per-subtest stream: mapNotification mutates SummarySanitizer (Reset on
+			// terminals), so parallel cases must not share one sanitizer.
+			s := &codexStream{}
 			evs, err := s.mapNotification(tc.probe)
 			if err != nil {
 				t.Fatalf("mapNotification: %v", err)

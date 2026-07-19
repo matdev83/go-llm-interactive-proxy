@@ -43,6 +43,15 @@ func (s *acquireErrorStore) Acquire(ctx context.Context, cmd app.AcquireCommand)
 	return s.memoryStore.Acquire(ctx, cmd)
 }
 
+func (s *acquireErrorStore) AcquireSet(ctx context.Context, cmd app.AcquireSetCommand) (app.AcquireSetResult, error) {
+	for _, m := range cmd.Members {
+		if m.RuleID == s.ruleID {
+			return app.AcquireSetResult{}, s.err
+		}
+	}
+	return s.memoryStore.AcquireSet(ctx, cmd)
+}
+
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		leases: make(map[string]domain.Lease),
@@ -158,6 +167,204 @@ func (s *memoryStore) CheckReadiness(context.Context) (domain.Readiness, error) 
 	return s.ready, nil
 }
 
+func (s *memoryStore) AcquireSet(_ context.Context, cmd app.AcquireSetCommand) (app.AcquireSetResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := domain.ValidateTiming(cmd.TTL, cmd.RenewBefore); err != nil {
+		return app.AcquireSetResult{}, err
+	}
+	lockOrder := domain.SortedRuleIDs(func() []string {
+		ids := make([]string, 0, len(cmd.Members))
+		for _, m := range cmd.Members {
+			ids = append(ids, m.RuleID)
+		}
+		return ids
+	}())
+	for _, l := range s.leases {
+		if l.SetID == cmd.SetID && l.IsLive(cmd.Now) {
+			members := make([]domain.Lease, 0)
+			for _, x := range s.leases {
+				if x.SetID == cmd.SetID {
+					members = append(members, x)
+				}
+			}
+			return app.AcquireSetResult{
+				Set: domain.LeaseSet{
+					SetID: cmd.SetID, RequestID: cmd.RequestID, Generation: l.SetGeneration,
+					State: l.SetState, Members: members, ExpiresAt: l.ExpiresAt,
+				},
+				Replayed: true, LockOrder: lockOrder,
+			}, nil
+		}
+	}
+	selfIDs := map[string]struct{}{}
+	for _, m := range cmd.Members {
+		selfIDs[m.Lease.LeaseID] = struct{}{}
+	}
+	for _, ruleID := range lockOrder {
+		var m app.AcquireSetMember
+		for _, cand := range cmd.Members {
+			if cand.RuleID == ruleID {
+				m = cand
+				break
+			}
+		}
+		live := 0
+		for _, l := range s.leases {
+			if _, skip := selfIDs[l.LeaseID]; skip {
+				continue
+			}
+			if l.RuleID == m.RuleID && l.Dimensions.Key() == m.Dimensions.Key() && l.IsLive(cmd.Now) {
+				live++
+			}
+		}
+		if live >= m.Limit && m.Mode != domain.RuleModeAdvisory {
+			return app.AcquireSetResult{CapacityExceeded: true, LockOrder: lockOrder, DenyingRuleID: ruleID}, nil
+		}
+	}
+	exp := cmd.Now.Add(cmd.TTL)
+	members := make([]domain.Lease, 0, len(cmd.Members))
+	for _, ruleID := range lockOrder {
+		var m app.AcquireSetMember
+		for _, cand := range cmd.Members {
+			if cand.RuleID == ruleID {
+				m = cand
+				break
+			}
+		}
+		lease := m.Lease
+		lease.IdentityVersion = domain.IdentityVersionLeaseSet
+		lease.SetID = cmd.SetID
+		lease.SetGeneration = 1
+		lease.SetState = domain.LeaseSetStateActive
+		lease.State = domain.LeaseStateActive
+		lease.ExpiresAt = exp
+		lease.AcquiredAt = cmd.Now
+		lease.RenewedAt = cmd.Now
+		lease.Generation = 1
+		lease.LogicalID = cmd.RequestID
+		s.leases[lease.LeaseID] = lease
+		members = append(members, lease)
+	}
+	return app.AcquireSetResult{
+		Set: domain.LeaseSet{
+			SetID: cmd.SetID, RequestID: cmd.RequestID, Generation: 1,
+			State: domain.LeaseSetStateActive, Members: members,
+			AcquiredAt: cmd.Now, RenewedAt: cmd.Now, ExpiresAt: exp,
+			TTL: cmd.TTL, RenewBefore: cmd.RenewBefore,
+		},
+		LockOrder: lockOrder,
+	}, nil
+}
+
+func (s *memoryStore) RenewSet(_ context.Context, cmd app.RenewSetCommand) (app.RenewSetResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var members []domain.Lease
+	var gen int64
+	for _, l := range s.leases {
+		if l.SetID != cmd.SetID {
+			continue
+		}
+		if gen == 0 {
+			gen = l.SetGeneration
+		}
+		members = append(members, l)
+	}
+	if len(members) == 0 {
+		return app.RenewSetResult{}, app.ErrNotFound
+	}
+	if gen != cmd.ExpectedGeneration {
+		return app.RenewSetResult{}, domain.ErrGenerationMismatch
+	}
+	exp := cmd.Now.Add(cmd.TTL)
+	next := gen + 1
+	for i := range members {
+		m := members[i]
+		m.ExpiresAt = exp
+		m.RenewedAt = cmd.Now
+		m.Generation++
+		m.SetGeneration = next
+		m.SetState = domain.LeaseSetStateActive
+		m.State = domain.LeaseStateActive
+		s.leases[m.LeaseID] = m
+		members[i] = m
+	}
+	return app.RenewSetResult{Set: domain.LeaseSet{
+		SetID: cmd.SetID, RequestID: cmd.RequestID, Generation: next,
+		State: domain.LeaseSetStateActive, Members: members, ExpiresAt: exp,
+	}}, nil
+}
+
+func (s *memoryStore) ReleaseSet(_ context.Context, cmd app.ReleaseSetCommand) (app.ReleaseSetResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var members []domain.Lease
+	for _, l := range s.leases {
+		if l.SetID == cmd.SetID {
+			members = append(members, l)
+		}
+	}
+	if len(members) == 0 {
+		return app.ReleaseSetResult{Applied: false}, nil
+	}
+	for i := range members {
+		m := members[i]
+		m.Release(cmd.Now)
+		m.SetState = domain.LeaseSetStateReleased
+		s.leases[m.LeaseID] = m
+		members[i] = m
+	}
+	return app.ReleaseSetResult{Applied: true, Set: domain.LeaseSet{
+		SetID: cmd.SetID, RequestID: cmd.RequestID, State: domain.LeaseSetStateReleased, Members: members,
+	}}, nil
+}
+
+func (s *memoryStore) QuerySets(_ context.Context, q app.QuerySetsCommand) (app.QuerySetsResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	by := map[string]*domain.LeaseSet{}
+	for _, l := range s.leases {
+		if l.SetID == "" {
+			continue
+		}
+		if q.SetID != "" && l.SetID != q.SetID {
+			continue
+		}
+		if q.RequestID != "" && l.LogicalID != q.RequestID {
+			continue
+		}
+		set := by[l.SetID]
+		if set == nil {
+			set = &domain.LeaseSet{SetID: l.SetID, RequestID: l.LogicalID, Generation: l.SetGeneration, State: l.SetState}
+			by[l.SetID] = set
+		}
+		set.Members = append(set.Members, l)
+	}
+	out := make([]domain.LeaseSet, 0, len(by))
+	for _, set := range by {
+		if q.State != "" && set.State != q.State {
+			continue
+		}
+		out = append(out, *set)
+	}
+	return app.QuerySetsResult{Sets: out}, nil
+}
+
+func (s *memoryStore) MarkSetUncertain(_ context.Context, setID string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, l := range s.leases {
+		if l.SetID != setID {
+			continue
+		}
+		l.SetState = domain.LeaseSetStateUncertain
+		l.RenewedAt = now
+		s.leases[id] = l
+	}
+	return nil
+}
+
 func principalScope(id string) scope.PrincipalScopeView {
 	return scope.PrincipalScopeView{PrincipalID: scope.Known(id), Origin: scope.OriginClient}
 }
@@ -183,7 +390,7 @@ func advisoryRule(limit int) domain.Rule {
 	return r
 }
 
-func newService(t *testing.T, rules []domain.Rule, store *memoryStore, now time.Time) *app.Service {
+func newService(t *testing.T, rules []domain.Rule, store app.LeaseStore, now time.Time) *app.Service {
 	t.Helper()
 	return app.NewService(staticRules{snap: app.RuleSnapshot{
 		Readiness: domain.Readiness{State: domain.ReadinessStateReady},
@@ -503,12 +710,15 @@ func TestAdmit_MultiRuleReplayThenAcquireReportsOwnership(t *testing.T) {
 	ruleB.ID = "rule-b"
 
 	store := newMemoryStore()
-	serviceA := newService(t, []domain.Rule{ruleA}, store, now)
 	serviceBoth := newService(t, []domain.Rule{ruleA, ruleB}, store, now)
-	if _, err := serviceA.Admit(ctx, app.AdmitInput{
+	first, err := serviceBoth.Admit(ctx, app.AdmitInput{
 		RequestID: "req-mixed", Scope: principalScope("alice"), Namespace: "default",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if first.Kind != domain.DecisionAllow || first.Replayed || !first.Acquired || len(first.Leases) != 2 {
+		t.Fatalf("first set acquire=%+v", first)
 	}
 
 	got, err := serviceBoth.Admit(ctx, app.AdmitInput{
@@ -520,14 +730,13 @@ func TestAdmit_MultiRuleReplayThenAcquireReportsOwnership(t *testing.T) {
 	if got.Kind != domain.DecisionAllow || len(got.Leases) != 2 {
 		t.Fatalf("admit=%+v", got)
 	}
-	if !got.Leases[0].Replayed || got.Leases[0].Acquired {
-		t.Fatalf("first occupancy ownership=%+v want replayed", got.Leases[0])
+	if !got.Replayed || got.Acquired {
+		t.Fatalf("set replay scalar ownership=%+v", got)
 	}
-	if got.Leases[1].Replayed || !got.Leases[1].Acquired {
-		t.Fatalf("second occupancy ownership=%+v want newly acquired", got.Leases[1])
-	}
-	if got.LeaseID != got.Leases[1].LeaseID || !got.Acquired || got.Replayed {
-		t.Fatalf("primary scalar ownership=%+v leases=%+v", got, got.Leases)
+	for _, l := range got.Leases {
+		if !l.Replayed || l.Acquired {
+			t.Fatalf("set replay member ownership=%+v", l)
+		}
 	}
 }
 

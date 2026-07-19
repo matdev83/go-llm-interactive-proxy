@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openaiwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/openrouterwire"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/protocols/openairesponsesitem"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
 
@@ -275,11 +276,63 @@ func parseInputItem(raw json.RawMessage) (lipapi.Message, error) {
 		return parseFunctionCallOutputItem(raw)
 	case "function_call":
 		return parseFunctionCallInputItem(raw)
+	case "reasoning":
+		return parseReasoningInputItem(raw)
 	case "", "message":
 		return parseMessageInputItem(raw)
 	default:
 		return lipapi.Message{}, fmt.Errorf("openairesponses: unsupported input item type %q", probe.Type)
 	}
+}
+
+func parseReasoningInputItem(raw json.RawMessage) (lipapi.Message, error) {
+	if err := frontendlimits.Bytes("reasoning", len(raw), lipapi.MaxReasoningOpaqueBytes); err != nil {
+		return lipapi.Message{}, err
+	}
+	canon, err := openairesponsesitem.CanonizeReasoningItemOpaque(raw)
+	if err != nil {
+		return lipapi.Message{}, err
+	}
+	var wire struct {
+		Summary json.RawMessage `json:"summary"`
+	}
+	if err := json.Unmarshal(canon, &wire); err != nil {
+		return lipapi.Message{}, fmt.Errorf("openairesponses: invalid reasoning item")
+	}
+	return lipapi.Message{
+		Role: lipapi.RoleAssistant,
+		Parts: []lipapi.Part{{
+			Kind: lipapi.PartReasoning,
+			Reasoning: &lipapi.ReasoningPart{
+				Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
+				Text:    reasoningSummaryText(wire.Summary),
+				Opaque:  append(json.RawMessage(nil), canon...),
+			},
+		}},
+	}, nil
+}
+
+func reasoningSummaryText(summary json.RawMessage) string {
+	if !jsonpresence.IsPresentNonNullJSON(summary) {
+		return ""
+	}
+	var items []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(summary, &items); err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, it := range items {
+		if strings.TrimSpace(it.Type) != "" && it.Type != "summary_text" {
+			continue
+		}
+		if t := strings.TrimSpace(it.Text); t != "" {
+			b.WriteString(t)
+		}
+	}
+	return b.String()
 }
 
 func parseMessageInputItem(raw json.RawMessage) (lipapi.Message, error) {

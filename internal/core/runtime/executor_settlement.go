@@ -3,11 +3,14 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	accountingobs "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/observability"
 	accountingstream "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/streamusage"
@@ -15,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
@@ -39,9 +43,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 		if s.isCommitted() {
-			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
+			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
-			s.executor.releaseRequestAuthority(ctx)
+			_ = s.executor.releaseRequestAuthority(ctx)
 		}
 		return
 	}
@@ -49,9 +53,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 		s.reconcileOrSettleCancellationAuthority(ctx)
 		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 		if s.isCommitted() {
-			s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
+			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
-			s.executor.releaseRequestAuthority(ctx)
+			_ = s.executor.releaseRequestAuthority(ctx)
 		}
 		return
 	}
@@ -59,9 +63,9 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	s.settleCancellationAuthority(ctx)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 	if s.isCommitted() {
-		s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
+		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	} else if s.executor != nil {
-		s.executor.releaseRequestAuthority(ctx)
+		_ = s.executor.releaseRequestAuthority(ctx)
 	}
 }
 
@@ -200,19 +204,13 @@ func (s *retryRecvStream) emitSynthesizedUsage(ctx context.Context, ev lipapi.Ev
 	if s.recoverPolicy != nil {
 		s.recoverPolicy.ObserveClientEvent(ev, s.now())
 	}
-	s.rememberClientEvent(ev)
-	if err := s.beforeEmitClientFacing(ctx, ev); err != nil {
-		if s.executor != nil && s.executor.SecureSessionRecordingMandatory {
-			return lipapi.Event{}, err
-		}
-		if s.executor != nil && s.executor.Log != nil {
-			s.executor.Log.DebugContext(ctx, "secure_session recorder stream", "error", err)
-		}
-	}
 	pm, _ := s.recvHookMeta()
-	s.emitTrafficPTC(ctx, ev, pm)
-	s.emitUsage(ctx, ev)
-	return ev, nil
+	out, err := s.emitClientFacingObserved(ctx, ev, pm)
+	if err != nil {
+		return lipapi.Event{}, err
+	}
+	s.emitUsage(ctx, out)
+	return out, nil
 }
 
 func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish lipapi.Event) (lipapi.Event, bool, error) {
@@ -225,13 +223,12 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		return lipapi.Event{}, false, nil
 	}
 	started := s.now()
-	events := append([]lipapi.Event(nil), s.seenEvents...)
-	events = append(events, finish)
+	events := append(s.seenEventsCopy(), finish)
 	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
 		Backend:    strings.TrimSpace(s.cand.Primary.Backend),
 		Model:      strings.TrimSpace(s.cand.Primary.Model),
 		Call:       s.baseline,
-		OutputText: s.visibleText.String(),
+		OutputText: s.releasedOutputText(),
 		Events:     events,
 	})
 	if err != nil && s.executor.Log != nil {
@@ -243,8 +240,9 @@ func (s *retryRecvStream) finalizeTokenAccounting(ctx context.Context, finish li
 		return lipapi.Event{}, false, nil
 	}
 	authorityEv := authorityUsageEvent(result.Events)
-	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEvents))
+	clientUsageEv := mergeUsageEventsForClient(result.Events, tokenAccountingHasProviderUsage(s.seenEventsCopy()))
 	s.lastAuthorityUsage = authorityEv
+	s.lastCustomerUsage = customerPlaneUsageEvent(clientUsageEv)
 	duration := s.now().Sub(started)
 	if duration <= 0 {
 		duration = time.Nanosecond
@@ -277,41 +275,69 @@ func (s *retryRecvStream) finalizeResponseFinishedAuthority(ctx context.Context,
 	if s.tokenAccountingFinalized {
 		return lipapi.Event{}, false, nil
 	}
-	usageEv, ok, err := s.finalizeTokenAccounting(ctx, ev)
-	if err != nil {
-		return lipapi.Event{}, false, err
+	var usageEv lipapi.Event
+	var ok bool
+	var err error
+	r := s.runStreamTerminal(ctx, sdkterminal.CommandNormalFinish, func(cctx context.Context) error {
+		if s.tokenAccountingFinalized {
+			return nil
+		}
+		usageEv, ok, err = s.finalizeTokenAccounting(cctx, ev)
+		if err != nil {
+			return err
+		}
+		s.tokenAccountingFinalized = true
+		authorityEv := s.lastAuthorityUsage
+		if authorityEv.Kind == "" {
+			authorityEv = usageEv
+		}
+		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindFinal, authorityEv)
+		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
+		// Customer settlement derives quantities from released accumulator evidence via
+		// StreamUsage; authorityEv must not import provider counters into the customer plane.
+		return s.settleRequestAuthorityWithFrontendEgress(cctx, authorityEv)
+	})
+	if !r.Won {
+		// Another exit path already terminalized; surface cancel/error consistently.
+		return lipapi.Event{}, false, terminalLossError(r)
 	}
-	s.tokenAccountingFinalized = true
-	authorityEv := s.lastAuthorityUsage
-	if authorityEv.Kind == "" {
-		authorityEv = usageEv
+	if r.Err != nil {
+		return usageEv, ok, r.Err
 	}
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindFinal, authorityEv)
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeWinner, metering.SurfacedYes, authorityEv)
-	s.settleRequestAuthorityWithFrontendEgress(ctx, authorityEv)
-	return usageEv, ok, nil
+	return usageEv, ok, err
 }
 
 // settleRequestAuthorityWithFrontendEgress emits the frontend-egress fact for the
-// delivered/committed usage and passes that fact into request settlement (4.2).
+// delivered/committed customer usage and passes that fact into request settlement (4.2).
 // When EconomicsRater is attached, customer FE-egress quantities are rated and
 // forwarded on RequestSettlement.Rated (requirements 6.1, 4.2).
-func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) {
+// Durable-pending and durable-intent-rejected errors are returned so stream
+// terminal effects fail truthfully (Phase 4.5 / D9).
+func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.Context, usageEv lipapi.Event) error {
 	if s == nil {
-		return
+		return nil
 	}
+	if s.customer != nil && !s.customer.MarkSettled() {
+		return nil
+	}
+	customerEv := s.resolveCustomerUsage(ctx, usageEv)
 	var facts []metering.Fact
-	fact, persisted := s.emitFrontendEgressMeteringFact(ctx, usageEv)
+	var fact metering.Fact
+	var persisted bool
+	if s.executor != nil {
+		fact, persisted = s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, customerEv)
+	}
 	if persisted {
 		facts = []metering.Fact{fact}
 	} else if s.executor != nil && s.executor.MeteringRecorder != nil {
 		// Required settlement evidence was not persisted. Keep request authority
 		// open so a later terminal/reconciliation attempt can retry the append.
-		return
+		s.customer.unmarkSettled()
+		return fmt.Errorf("%w: frontend egress fact not persisted", terminalworkapp.ErrDurableIntentRejected)
 	}
 	var rated []economics.RatingResult
 	if s.executor != nil && s.executor.EconomicsRater != nil {
-		qs := usageEventRatingQuantities(usageEv)
+		qs := usageEventRatingQuantities(customerEv)
 		if len(facts) > 0 && len(facts[0].Quantities) > 0 {
 			qs = facts[0].Quantities
 		}
@@ -323,11 +349,111 @@ func (s *retryRecvStream) settleRequestAuthorityWithFrontendEgress(ctx context.C
 			rated = []economics.RatingResult{res}
 		}
 		// Rating failure after committed output must not erase the fact or block
-		// settle retry; settle still runs with facts (15.5).
+		// settle; settle still runs with facts (15.5).
 	}
-	if s.executor != nil {
-		s.executor.settleRequestAuthority(ctx, facts, rated...)
+	if s.executor == nil {
+		return nil
 	}
+	err := s.executor.settleRequestAuthority(ctx, facts, rated...)
+	if s.executor.RequestCoordinator != nil {
+		if st := requestAuthorityFrom(ctx); st != nil && !st.Settled {
+			// Provider settlement failed: keep customer once-only open for retry.
+			s.customer.unmarkSettled()
+		}
+	}
+	return err
+}
+
+// resolveCustomerUsage builds customer FE quantities from released accumulator
+// content through StreamUsage.Reconstruct / CountOutput. Provider-preferring
+// usageEv scopes are never imported; they only seed an empty shell when no
+// customer evidence can be reconstructed.
+func (s *retryRecvStream) resolveCustomerUsage(ctx context.Context, usageEv lipapi.Event) lipapi.Event {
+	if s == nil {
+		return customerPlaneUsageEvent(usageEv)
+	}
+	if ev := s.customerUsageFromReleased(ctx); ev.Kind != "" {
+		return ev
+	}
+	if s.lastCustomerUsage.Kind != "" {
+		return s.lastCustomerUsage
+	}
+	out := customerPlaneUsageEvent(usageEv)
+	if out.Kind == "" && usageEv.Kind != "" {
+		return lipapi.Event{Kind: lipapi.EventUsageDelta}
+	}
+	return out
+}
+
+// customerUsageFromReleased reconstructs client-visible usage from FE-ingress
+// call evidence and accumulator OutputText via the existing StreamUsage seam.
+func (s *retryRecvStream) customerUsageFromReleased(ctx context.Context) lipapi.Event {
+	if s == nil || s.executor == nil || s.executor.StreamUsage == nil {
+		return lipapi.Event{}
+	}
+	call := s.baseline
+	backend := strings.TrimSpace(s.cand.Primary.Backend)
+	model := strings.TrimSpace(s.cand.Primary.Model)
+	if holder := meteringHolderFrom(ctx); holder != nil && holder.FrontendIngress != nil {
+		if holder.FrontendIngress.Call.ID != "" {
+			call = holder.FrontendIngress.Call
+		}
+	}
+	text := s.releasedOutputText()
+	var events []lipapi.Event
+	if s.customer != nil {
+		events = s.customer.contentEvents()
+	}
+	result, err := s.executor.StreamUsage.Reconstruct(ctx, accountingstream.Input{
+		Backend:    backend,
+		Model:      model,
+		Call:       call,
+		OutputText: text,
+		Events:     events,
+	})
+	if err != nil && s.executor.Log != nil {
+		s.executor.Log.DebugContext(ctx, "customer stream usage reconstruction", "error", err)
+	}
+	out := customerPlaneUsageEvent(mergeUsageEventsForClient(result.Events, true))
+	if out.Kind == "" {
+		return lipapi.Event{}
+	}
+	return applyFrontendIngressInput(ctx, out)
+}
+
+func applyFrontendIngressInput(ctx context.Context, ev lipapi.Event) lipapi.Event {
+	holder := meteringHolderFrom(ctx)
+	if holder == nil || holder.FrontendIngress == nil {
+		return ev
+	}
+	in, ok := checkpoint.QuantityComponentValue(holder.FrontendIngress.Public.Quantities, metering.ComponentInputToken)
+	if !ok {
+		return ev
+	}
+	ev.InputTokens = int(in)
+	if len(ev.UsageScopes) > 0 {
+		scopes := append([]lipapi.ScopedUsageDelta(nil), ev.UsageScopes...)
+		for i := range scopes {
+			if scopes[i].Accounting.Plane == lipapi.UsagePlaneClientVisible || scopes[i].Accounting.Plane == "" {
+				scopes[i].InputTokens = int(in)
+				scopes[i].TotalTokens = scopes[i].InputTokens + scopes[i].OutputTokens
+			}
+		}
+		ev.UsageScopes = scopes
+	}
+	ev.TotalTokens = ev.InputTokens + ev.OutputTokens
+	return ev
+}
+
+func (s *retryRecvStream) releasedOutputText() string {
+	if s == nil {
+		return ""
+	}
+	if s.customer != nil {
+		text, _, _, _ := s.customer.Snapshot()
+		return text
+	}
+	return s.visibleText.String()
 }
 
 func mergeUsageEvents(events []lipapi.Event) lipapi.Event {
@@ -579,7 +705,7 @@ func (s *retryRecvStream) recordPartialTokenAccountingLedger(ctx context.Context
 	if s == nil || s.executor == nil || s.executor.Ledger == nil {
 		return
 	}
-	events := tokenAccountingUsageEvents(s.seenEvents)
+	events := s.usageEventsSnapshot()
 	if len(events) == 0 {
 		return
 	}
@@ -638,6 +764,8 @@ func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
 	if s == nil {
 		return
 	}
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
 	if ev.Kind == lipapi.EventResponseFinished {
 		for _, seen := range s.seenEvents {
 			if seen.Kind == lipapi.EventResponseFinished {
@@ -645,8 +773,19 @@ func (s *retryRecvStream) rememberClientEvent(ev lipapi.Event) {
 			}
 		}
 	}
-	if ev.Kind == lipapi.EventTextDelta {
+	if s.customer != nil {
+		s.customer.ObserveReleased(ev)
+	} else if ev.Kind == lipapi.EventTextDelta {
 		s.visibleText.WriteString(ev.Delta)
 	}
 	s.seenEvents = append(s.seenEvents, ev)
+}
+
+func (s *retryRecvStream) usageEventsSnapshot() []lipapi.Event {
+	if s == nil {
+		return nil
+	}
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	return tokenAccountingUsageEvents(append([]lipapi.Event(nil), s.seenEvents...))
 }

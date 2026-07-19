@@ -1,0 +1,23 @@
+{
+  "feature_name": "dual-plane-economics-and-concurrency-production-readiness",
+  "created_at": "2026-07-17T10:16:22+02:00",
+  "updated_at": "2026-07-18T10:15:00+02:00",
+  "language": "en",
+  "phase": "completed",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": false,
+  "completed": true
+}

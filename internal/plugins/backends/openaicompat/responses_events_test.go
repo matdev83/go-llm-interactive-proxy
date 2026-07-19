@@ -1,10 +1,12 @@
 package openaicompat
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/openai/openai-go/v3/responses"
@@ -53,6 +55,44 @@ func TestResponsesStreamFinishOnEOF_afterResponseStarted(t *testing.T) {
 	events := stream.DrainPending(&s.pending)
 	if len(events) != 2 || events[0].Kind != lipapi.EventResponseStarted || events[1].Kind != lipapi.EventResponseFinished {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestResponsesStreamFinishOnEOF_unresolvedReasoningDraft_errors(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+	var item responses.ResponseOutputItemUnion
+	if err := json.Unmarshal([]byte(`{"type":"reasoning","id":"rs_1","summary":[]}`), &item); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.mapper.ReasoningOutputItemAdded(0, item); err != nil {
+		t.Fatal(err)
+	}
+	err := s.finishOnEOF()
+	if err == nil {
+		t.Fatal("expected unresolved reasoning assembly error on clean EOF")
+	}
+	if strings.Contains(err.Error(), "rs_1") {
+		t.Fatalf("error must not leak id: %v", err)
+	}
+	if !s.closed {
+		t.Fatal("expected stream closed after EOF assembly error")
+	}
+}
+
+func TestResponsesStreamCancel_abortsUnresolvedReasoningDrafts(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+	var item responses.ResponseOutputItemUnion
+	if err := json.Unmarshal([]byte(`{"type":"reasoning","id":"rs_open","summary":[]}`), &item); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.mapper.ReasoningOutputItemAdded(0, item); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Cancel(context.Background(), leglifecycle.CancelCause{})
+	if err := s.mapper.FinalizeOnEOF(); err != nil {
+		t.Fatalf("Cancel/Close must abort drafts so FinalizeOnEOF is nil: %v", err)
 	}
 }
 
@@ -322,5 +362,69 @@ func TestResponseEvents_textAndUsage(t *testing.T) {
 	}
 	if events[3].ReasoningTokens != 4 || events[3].TotalTokens != 3 {
 		t.Fatalf("usage event: %+v", events[3])
+	}
+}
+
+func TestHandleUnion_reasoningOutputItemDone_exactPart(t *testing.T) {
+	t.Parallel()
+	raw := `{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[],"status":"completed"}}`
+	var u responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		t.Fatal(err)
+	}
+	s := newUnitResponsesStream()
+	if err := s.handleUnion(u); err != nil {
+		t.Fatal(err)
+	}
+	var parts int
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventReasoningDelta {
+			t.Fatal("no EventReasoningDelta")
+		}
+		if ev.Kind == lipapi.EventReasoningPart {
+			parts++
+			if ev.Reasoning == nil || ev.Reasoning.Dialect != lipapi.ReasoningDialectOpenAIResponsesItemV1 {
+				t.Fatalf("bad part: %+v", ev.Reasoning)
+			}
+			if !strings.Contains(string(ev.Reasoning.Opaque), `"rs_1"`) {
+				t.Fatalf("opaque=%s", ev.Reasoning.Opaque)
+			}
+		}
+	}
+	if parts != 1 {
+		t.Fatalf("parts=%d", parts)
+	}
+}
+
+func TestHandleUnion_reasoningDoneUnknownField_noExactPart(t *testing.T) {
+	t.Parallel()
+	s := newUnitResponsesStream()
+	for _, raw := range []string{
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}`,
+		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"SECRET_SUM"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"SECRET_SUM"}],"extra":1,"status":"completed"}}`,
+	} {
+		var u responses.ResponseStreamEventUnion
+		if err := json.Unmarshal([]byte(raw), &u); err != nil {
+			t.Fatal(err)
+		}
+		err := s.handleUnion(u)
+		if strings.Contains(raw, `"extra"`) {
+			if err == nil {
+				t.Fatal("expected unknown field error")
+			}
+			if strings.Contains(err.Error(), "SECRET_SUM") || strings.Contains(err.Error(), "rs_1") {
+				t.Fatalf("content-safe error required: %v", err)
+			}
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ev := range stream.DrainPending(&s.pending) {
+		if ev.Kind == lipapi.EventReasoningPart {
+			t.Fatal("unknown done field must not emit EventReasoningPart")
+		}
 	}
 }

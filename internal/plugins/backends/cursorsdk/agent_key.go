@@ -1,6 +1,7 @@
 package cursorsdk
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
+
+// agentKeyFingerprintMACKey domain-separates deterministic identity fingerprints.
+// This is not password hashing: values are cache/pool identity digests, never
+// stored credentials or authentication verifiers.
+var agentKeyFingerprintMACKey = []byte("lip/cursorsdk/agent-key-fingerprint/v1")
 
 type AgentKey struct {
 	SessionID              string
@@ -54,9 +60,13 @@ func buildAgentKey(cfg Config, call *lipapi.Call, native, workspace string, mode
 	}
 }
 
+// FingerprintSecret returns a deterministic HMAC-SHA256 hex digest for agent
+// pool / diagnostic identity. It must not be used as a password hash or as a
+// credential verifier.
 func FingerprintSecret(secret string) string {
-	sum := sha256.Sum256([]byte(secret))
-	return hex.EncodeToString(sum[:])
+	mac := hmac.New(sha256.New, agentKeyFingerprintMACKey)
+	_, _ = mac.Write([]byte(secret))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func FingerprintJSON(raw json.RawMessage) string {

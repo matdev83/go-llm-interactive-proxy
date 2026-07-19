@@ -68,6 +68,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"codex-client-compat",
 		"parts-noop",
 		"pre-request-policy",
+		"reasoning-output-preservation",
 		"ref-autoappend-file",
 		"ref-request-suffix",
 		"ref-submit-annotate",

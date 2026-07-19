@@ -27,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -37,6 +38,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/toolpolicy"
 	sdktraffic "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 )
@@ -68,6 +71,7 @@ type retryRecvStream struct {
 	lastHardReject           lipapi.NegotiationResult
 	lastHardTransportReject  lipapi.TransportNegotiationResult
 	isContextLimitExhaustion bool
+	transformExcludes        transformExcludeTracker
 
 	innerMu            sync.Mutex
 	inner              lipapi.ManagedEventStream
@@ -88,6 +92,15 @@ type retryRecvStream struct {
 	cachedCtxMu sync.Mutex
 	lastParent  context.Context
 	cachedCtx   context.Context
+
+	// metering retains the prepare-time RequestHolder so Recv/terminal paths can
+	// reattach it when callers pass a bare context (auxiliary child streams).
+	metering *checkpoint.RequestHolder
+	// requestAuth retains prepare-time request-authority state so Recv/settle paths
+	// can reattach it when callers pass a bare context (mirrors metering).
+	requestAuth *requestAuthorityState
+	// customer records released client-visible content for FE egress settlement.
+	customer *customerEvidenceAccumulator
 
 	// secureTurn preserves validated secure-session ids for attempt trace/outcome on recv paths.
 	secureTurn   execctx.SecureSessionTurn
@@ -111,7 +124,10 @@ type retryRecvStream struct {
 	// intentionally omit provider-billable scopes, so keep the two views
 	// separate.
 	lastAuthorityUsage lipapi.Event
-	aScope             *leglifecycle.ALeg
+	// lastCustomerUsage caches client-visible reconstruction from finalize for
+	// settle/FE egress when StreamUsage is unavailable on a later path.
+	lastCustomerUsage lipapi.Event
+	aScope            *leglifecycle.ALeg
 
 	// interleaved is the current interleaved-thinking state (cycle cursor + memo reference)
 	// for the A-leg, threaded across recv-phase failover iterations so retry continues from
@@ -132,6 +148,15 @@ type retryRecvStream struct {
 
 	// toolFinal is the per-B-leg completed-tool-call assembler (nil when inactive).
 	toolFinal *toolCallAssembler
+
+	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
+	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
+	requestTerm *streamTerminal
+	attemptTerm *streamTerminal
+	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
+	eventsMu sync.Mutex
+
+	finalStreamObs *extensions.FinalStreamObservationSession
 }
 
 var _ lipapi.EventStream = (*retryRecvStream)(nil)
@@ -275,6 +300,12 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	}
 
 	ctx := diag.EnsureCallDiag(parent, s.traceID, s.aLegID)
+	if s.metering != nil {
+		ctx = withMeteringHolder(ctx, s.metering)
+	}
+	if s.requestAuth != nil {
+		ctx = withRequestAuthority(ctx, s.requestAuth)
+	}
 	if s.recvViewsOK {
 		ctx = execctx.WithViews(ctx, s.recvViews)
 	}
@@ -438,23 +469,37 @@ func (s *retryRecvStream) Close() error {
 	}
 	s.resetToolFinal()
 	c := s.takeAndNilInner()
+	ctx := context.Background()
 	if c == nil {
 		if !s.isFinished() {
-			s.persistCancellationBilling(context.Background(), "client closed")
-			s.markFinished()
+			s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+				s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
+				s.persistCancellationBilling(cctx, "client closed")
+				s.markFinished()
+				return nil
+			})
+			if !s.isFinished() {
+				s.markFinished()
+			}
 		}
 		s.finishALegScope()
 		return nil
 	}
 	if !s.isFinished() {
-		ctx := context.Background()
 		if s.aScope != nil {
 			_ = s.aScope.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		} else {
 			_ = c.Cancel(ctx, leglifecycle.CancelCause{Kind: leglifecycle.CancelClientGone})
 		}
-		s.persistCancellationBilling(ctx, "client closed")
-		s.markFinished()
+		s.runStreamTerminal(ctx, sdkterminal.CommandClose, func(cctx context.Context) error {
+			s.finishFinalStreamObservation(cctx, response.OutcomeClosed)
+			s.persistCancellationBilling(cctx, "client closed")
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		if s.aScope != nil {
 			s.finishALegScope()
 			return nil
@@ -469,6 +514,7 @@ func (s *retryRecvStream) Close() error {
 	}
 	var pe *safety.PanicError
 	if errors.As(err, &pe) {
+		s.runStreamTerminal(ctx, sdkterminal.CommandPanic, func(context.Context) error { return nil })
 		if s.executor != nil && s.executor.Log != nil {
 			// lipapi.EventStream.Close has no context; use Background plus call/leg ids from EnsureCallDiag so
 			// isolated-panic logs still correlate by trace_id / b_leg. Request-scoped trace fields are omitted here.
@@ -715,7 +761,7 @@ func (s *retryRecvStream) completionGatedEmit(
 		}
 		committed := s.isCommitted()
 		committedForPanic := committed || gateBufHasCommittedOutput(s.gateBuf)
-		out, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() ([]lipapi.Event, error) {
+		gateResult, err := safety.CallValue(safety.BoundaryStream, "completion_gate_chain", func() (extensions.CompletionGateChainResult, error) {
 			return extensions.ApplyCompletionGateChain(ctx, gates, meta, s.gateBuf, committed, svc, stageLog)
 		})
 		if err != nil {
@@ -729,9 +775,15 @@ func (s *retryRecvStream) completionGatedEmit(
 			s.gateBuf = nil
 			return lipapi.Event{}, err
 		}
+		out := gateResult.Events
 		s.gateBuf = nil
 		if len(out) == 0 {
 			return lipapi.Event{}, errors.New("runtime: completion gate produced empty stream")
+		}
+		if gateResult.Replaced {
+			if err := s.cycleFinalStreamObservation(ctx, response.OutcomeGateReplaced); err != nil {
+				return lipapi.Event{}, err
+			}
 		}
 		s.gateDrain = out[1:]
 		return out[0], nil

@@ -109,18 +109,59 @@ var lineBudgets = []struct {
 	// Raised for issue #151 secretsguard catalog/matcher/source + quarantine
 	// adapters + runtime barrier (merged with #152/#jsonshape on main).
 	// Measured post-merge non-test total is 56295; cap keeps ~105 lines of headroom.
-	// Raised from 56400 to 56600 for cursor-sdk / dual-plane readiness follow-up:
-	// metering/plane pure helpers (wired from runtime egress), operator usage
-	// evidence helpers, AttemptClampPreviewer PreviewAttempt + SkipEvidence, and
-	// execbackend.Backend.Close. Accidental duplication in metering_egress was
-	// removed first.
-	// Raised from 56600 to 57000 after wiring operator usage evidence into
-	// operator settle/egress (lastAuthorityUsage → seenEvents → empty UsageDelta
-	// shell; req 1.5 / 2.9), AttemptCoordinator.Preview + runtime bounded clamp
-	// preview loop before freeze (V-15), and concurrent cursor-sdk dual-plane
-	// readiness growth. Measured non-test total is 56820; cap keeps ~180 lines
-	// of headroom.
-	{"internal/core", 57000},
+	// Raised from 56400 to 57550 for dual-plane-economics production-readiness
+	// Phase 1: customer evidence accumulator, final-backend clamp preview,
+	// correlation/presence ingress facts, and control-plane metering projection.
+	// Accidental duplication was removed first (~148 lines); remaining growth is
+	// approved core orchestration. Measured post-simplify non-test total is
+	// 57447; cap keeps ~103 lines of headroom.
+	// Raised from 57550 to 57650 for Phase 1 follow-up: operator usage retention on
+	// incurred loser/swallowed paths plus metering/plane extraction of pure
+	// dual-plane helpers.
+	// Raised from 57650 to 58300 for dual-plane Phase 2.3 authority coordinator
+	// posture/compensation, settlement concurrency state, and req 4.3 hold
+	// validation (measured ~58197 non-test lines).
+	// Raised from 56400 (main lineage) for reasoning-output-preservation Phase 2.3:
+	// RunCandidateAttemptTransformStage + openPlannedCandidate wiring / post-hook rederive.
+	// Raised from 56900 for Phase 2.4 final_stream_observation runner + recv/gate lifecycle.
+	// Raised from 57200 for Phase 2.4 repair: race-safe session claim, CompletionGateChainResult,
+	// central emitClientFacingObserved (recoverDrain/synthesized usage), parallel excluded nil-guard.
+	// Raised from 57250 to 57380 for Phase 2.5 safe generic stage telemetry
+	// (bounded label collapse, count/byte helpers, generic-port inventory posture).
+	// Raised to 57400 for early Recv ctx-cancel remediation (nil-inner Cancelled
+	// taxonomy + swallowed release; nil-executor-safe cancel path).
+	// Combined dual-plane Phase 1 + reasoning-preservation on merge into main.
+	// Measured post-merge non-test total is 58740; cap keeps ~110 lines of headroom.
+	// Phase 2 + reasoning-preservation combined after merge into main: 59500
+	// (main 58850 + Phase 2 +650); post-merge measured 59256.
+	// Raised from 59500 to 59800 for dual-plane Phase 3 durable metering journal:
+	// ingress checkpoint producers, control-plane metering usage bridge/projection,
+	// and reconstruction seams (retarget onto main Phase 1+2 + reasoning; measured
+	// 59629). Cap keeps ~171 lines of headroom. Prefer further decomposition over
+	// another raise.
+	// Raised for dual-plane Phase 4 terminal ownership and terminal-work domain:
+	// stream terminal session wiring, terminal owner CAS, WorkRecord/SameIntentReplay,
+	// claim-lease transitions, Phase 4.4 processor app, and Phase 4.5 durable
+	// settle/release recovery + query/metrics/readiness. Combined with main
+	// reasoning-output-preservation on merge into Phase 4: measured 62647;
+	// cap 62750 keeps ~103 lines of headroom.
+	// Raised from 62750 to 63750 for dual-plane Phase 5 executable generations
+	// (contribution compile/publish/bind/lifetime, generation-owned
+	// RequestCoordinator/AttemptCoordinator/max-active limiter + rater binding,
+	// control-plane executable readiness) merged onto main Phase 1–4 + reasoning.
+	// Post-merge measured non-test total is 63659; cap keeps ~91 lines of headroom.
+	// Raised from 63750 to 64550 for dual-plane Phase 6 atomic lease-set concurrency
+	// (AcquireSet/RenewSet/ReleaseSet, heartbeat fail-closed cancel, durable
+	// ReleaseLeaseSet terminal work, QuerySets readiness) merged onto main
+	// Phase 1–5 + reasoning. Post-merge measured non-test total is 64452;
+	// cap keeps ~98 lines of headroom. Prefer further decomposition over another raise.
+	// Raised from 64550 to 64800 for the cursor-sdk backend follow-up merged onto
+	// the above: operator usage evidence wiring into operator settle/egress
+	// (lastAuthorityUsage → seenEvents → empty UsageDelta shell precedence;
+	// req 1.5 / 2.9), AttemptCoordinator.Preview clamp-preview fallback for
+	// nil-coordinator UsageAuthority-only deployments, and execbackend.Backend.Close.
+	// Post-merge measured non-test total is 64713; cap keeps ~87 lines of headroom.
+	{"internal/core", 64800},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -134,7 +175,27 @@ var lineBudgets = []struct {
 	// Raised from 5300 for issue #151 composition collapse + bootstrap uniqueness.
 	// Raised from 5350 after merging main (tool-call repair + secrets-guard wiring).
 	// Measured post-merge non-test total is 5365; cap keeps ~85 lines of headroom.
-	{"internal/infra/runtimebundle", 5450},
+	// Raised from 5450 for dual-plane Phase 2.2 descriptor-bound registrations:
+	// production authority_coord consumes Request/Attempt/Concurrency/Rater
+	// registrations with stable IDs (no production-request-%d generation).
+	// Measured non-test total is 5562; cap 5580 keeps ~18 lines of headroom.
+	// Raised from 5580 to 5690 after merging reasoning-output-preservation into
+	// Phase 2 (post-merge measured 5586; ~100 lines headroom).
+	// Raised for dual-plane Phase 4.4–4.5 terminal-work processor ownership
+	// (ProductionOptions + Built + buildTerminalWorkRuntime, tick/renew defaults,
+	// TerminalWorkReadiness, IntentService injection, RequestRegistrations →
+	// AuthorityRequestEffectProvider merge, ProcessDue metrics observer). Combined
+	// with main reasoning wiring on merge into Phase 4: measured 6121;
+	// cap 6170 keeps ~49 lines of headroom.
+	// Raised from 6170 to 6400 for Phase 5 executable generation compile/publish/
+	// readiness plus Phase 5 remediation (provider-removal validation + terminal
+	// pending-drain binding at composition root). Post-merge measured non-test
+	// total is 6353; cap keeps ~47 lines of headroom.
+	// Raised from 6400 to 6525 for Phase 6 lease-set QuerySets readiness, startup
+	// uncertain-set reconcile, and settle-release pending counts at composition
+	// root. Post-merge measured non-test total is 6477; cap keeps ~48 lines of
+	// headroom.
+	{"internal/infra/runtimebundle", 6525},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

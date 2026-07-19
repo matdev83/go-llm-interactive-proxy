@@ -27,7 +27,7 @@ func TestPostgresDSNEnvContract(t *testing.T) {
 			wantLookupErr: true, errMustContain: LIPTestPostgresAdminDSN, errMustNotContain: "postgres://",
 		},
 		{
-			name: "missing_admin", runtime: "postgres://runtime/x",
+			name: "missing_admin", runtime: "postgres://runtime/x", runtimeIsPooler: "1",
 			wantAdminOK: true, wantAdmin: "postgres://runtime/x",
 			wantRuntimeOK: true, wantRuntime: "postgres://runtime/x",
 		},
@@ -37,22 +37,31 @@ func TestPostgresDSNEnvContract(t *testing.T) {
 			wantLookupErr: true, errMustContain: LIPTestPostgresDSN, errMustNotContain: "postgres://",
 		},
 		{
-			name: "both_present", admin: " postgres://admin/x ", runtime: " postgres://runtime/x ",
+			name: "both_present_with_attestation", admin: " postgres://admin/x ", runtime: " postgres://runtime/x ", runtimeIsPooler: "1",
 			wantAdminOK: true, wantAdmin: "postgres://admin/x",
 			wantRuntimeOK: true, wantRuntime: "postgres://runtime/x",
 		},
 		{
-			name: "runtime_prefers_new_over_legacy", runtime: "postgres://a/a", legacy: "postgres://b/b",
+			// Ambient direct DSNs (make qa / local developer env) must not enter
+			// pooled-only helpers without explicit topology attestation.
+			name:  "ambient_dsns_without_attestation_skips_not_fail_closed",
+			admin: "postgres://admin/x", runtime: "postgres://runtime/x",
+			wantAdminOK: true, wantAdmin: "postgres://admin/x",
+			wantRuntimeOK: true, wantRuntime: "postgres://runtime/x",
+			wantLookupErr: true, wantFailClosed: false, errMustContain: LIPTestPostgresRuntimeIsPooler,
+		},
+		{
+			name: "runtime_prefers_new_over_legacy", runtime: "postgres://a/a", legacy: "postgres://b/b", runtimeIsPooler: "1",
 			wantAdminOK: true, wantAdmin: "postgres://a/a",
 			wantRuntimeOK: true, wantRuntime: "postgres://a/a",
 		},
 		{
-			name: "legacy_runtime_alias", legacy: " postgres://legacy/x ",
+			name: "legacy_runtime_alias", legacy: " postgres://legacy/x ", runtimeIsPooler: "1",
 			wantAdminOK: true, wantAdmin: "postgres://legacy/x",
 			wantRuntimeOK: true, wantRuntime: "postgres://legacy/x",
 		},
 		{
-			name: "admin_falls_back_to_preferred_runtime", runtime: "postgres://runtime/x", legacy: "postgres://legacy/x",
+			name: "admin_falls_back_to_preferred_runtime", runtime: "postgres://runtime/x", legacy: "postgres://legacy/x", runtimeIsPooler: "1",
 			wantAdminOK: true, wantAdmin: "postgres://runtime/x",
 			wantRuntimeOK: true, wantRuntime: "postgres://runtime/x",
 		},

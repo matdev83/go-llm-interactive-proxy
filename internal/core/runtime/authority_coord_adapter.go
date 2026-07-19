@@ -56,12 +56,12 @@ func (a *usageAuthorityProviderAdapter) AdmitRequest(ctx context.Context, in aut
 	if err != nil {
 		return authority.Decision{}, err
 	}
-	return mapAdmissionDecision(res, "request-ua", authority.StageRequestAdmit), nil
+	return mapAdmissionDecision(res, usageAuthorityRequestProviderID, authority.StageRequestAdmit), nil
 }
 
 func (a *usageAuthorityProviderAdapter) SettleRequest(ctx context.Context, in authority.RequestSettlement) (authority.Settlement, error) {
 	if a == nil || a.svc == nil {
-		return authority.Settlement{Kind: authority.SettlementFinal}, nil
+		return authority.OwnedFinalSettlement(in.Handles), nil
 	}
 	for _, h := range in.Handles {
 		settleIn := authorityapp.SettleInput{
@@ -83,7 +83,7 @@ func (a *usageAuthorityProviderAdapter) SettleRequest(ctx context.Context, in au
 			return authority.Settlement{}, err
 		}
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (a *usageAuthorityProviderAdapter) ReleaseRequest(ctx context.Context, in authority.RequestRelease) error {
@@ -155,7 +155,7 @@ func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in aut
 	if err != nil {
 		return authority.Decision{}, err
 	}
-	return mapAdmissionDecision(res, "attempt-ua", authority.StageAttemptAdmit), nil
+	return mapAdmissionDecision(res, usageAuthorityAttemptProviderID, authority.StageAttemptAdmit), nil
 }
 
 func (a *usageAuthorityProviderAdapter) PreviewAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
@@ -171,7 +171,7 @@ func (a *usageAuthorityProviderAdapter) PreviewAttempt(ctx context.Context, in a
 	if err != nil {
 		return authority.Decision{}, err
 	}
-	d := mapAdmissionDecision(res, "attempt-ua", authority.StageAttemptAdmit)
+	d := mapAdmissionDecision(res, usageAuthorityAttemptProviderID, authority.StageAttemptAdmit)
 	d.Reservations = nil
 	d.CompensationHandle = ""
 	return d, nil
@@ -179,7 +179,7 @@ func (a *usageAuthorityProviderAdapter) PreviewAttempt(ctx context.Context, in a
 
 func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	if a == nil || a.svc == nil {
-		return authority.Settlement{Kind: authority.SettlementFinal}, nil
+		return authority.OwnedFinalSettlement(in.Handles), nil
 	}
 	for _, h := range in.Handles {
 		settleIn := authorityapp.SettleInput{
@@ -204,7 +204,7 @@ func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in au
 			return authority.Settlement{}, err
 		}
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (a *usageAuthorityProviderAdapter) ReleaseAttempt(ctx context.Context, in authority.AttemptRelease) error {
@@ -370,7 +370,7 @@ func buildDefaultCoordinators(svc UsageAuthorityService, concurrency authority.C
 	}
 	if adapter != nil {
 		req.Slots = []authoritycoord.RequestSlot{{
-			ID:       "usage-authority-request",
+			ID:       usageAuthorityRequestProviderID,
 			Class:    authoritycoord.PriorityQuotaBudgetRate,
 			Provider: adapter,
 			Strength: authority.StrengthRequired,
@@ -380,7 +380,7 @@ func buildDefaultCoordinators(svc UsageAuthorityService, concurrency authority.C
 	if adapter != nil {
 		att = &authoritycoord.AttemptCoordinator{
 			Slots: []authoritycoord.AttemptSlot{{
-				ID:       "usage-authority-attempt",
+				ID:       usageAuthorityAttemptProviderID,
 				Class:    authoritycoord.AttemptPriorityHardSpend,
 				Provider: adapter,
 				Strength: authority.StrengthRequired,

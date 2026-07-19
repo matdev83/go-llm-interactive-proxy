@@ -3,6 +3,7 @@ package controlplane
 import (
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
@@ -17,6 +18,7 @@ type ObservedStreamUsageInput struct {
 	ReasoningTokens  int
 	TotalTokens      int
 	CostNanoUnits    int64
+	CostPresent      bool
 	Currency         string
 	CostSource       string
 }
@@ -40,6 +42,7 @@ func ProjectObservedStreamUsage(in ObservedStreamUsageInput) cp.UsageDetail {
 		ReasoningTokens:     in.ReasoningTokens,
 		TotalTokens:         in.TotalTokens,
 		CostNanoUnits:       in.CostNanoUnits,
+		CostPresent:         in.CostPresent,
 		Currency:            in.Currency,
 		AccountingAuthority: in.CostSource,
 		CostSource:          in.CostSource,
@@ -120,7 +123,9 @@ func UsageRowFromEvent(ev cp.Event) cp.UsageRow {
 		CacheWriteTokens: u.CacheWriteTokens,
 		ReasoningTokens:  u.ReasoningTokens,
 		TotalTokens:      u.TotalTokens,
+		TokenPresence:    u.TokenPresence,
 		CostNanoUnits:    u.CostNanoUnits,
+		CostPresent:      u.CostPresent,
 		Currency:         u.Currency,
 		EvidenceState:    ev.EvidenceState,
 		RedactionState:   ev.RedactionState,
@@ -157,7 +162,8 @@ func VersionRefFromRating(ref economics.RatingSnapshotRef) cp.VersionRef {
 }
 
 // ObservedStreamInputFromUsageEvent extracts token/cost fields from a usage
-// observer event.
+// observer event. CostPresent stays false until the observer event carries an
+// explicit presence bit; nonzero cost alone is not treated as present.
 func ObservedStreamInputFromUsageEvent(ev usage.Event) ObservedStreamUsageInput {
 	return ObservedStreamUsageInput{
 		InputTokens:      ev.InputTokens,
@@ -169,6 +175,174 @@ func ObservedStreamInputFromUsageEvent(ev usage.Event) ObservedStreamUsageInput 
 		CostNanoUnits:    ev.CostNanoUnits,
 		Currency:         ev.Currency,
 		CostSource:       ev.CostSource,
+	}
+}
+
+// ProjectMeteringFact projects a metering journal fact onto UsageDetail while
+// preserving explicit token/cost presence (requirements 2.9, 5.5-5.7).
+func ProjectMeteringFact(f metering.Fact) cp.UsageDetail {
+	var presence cp.UsageTokenPresence
+	var in, out, cacheRead, cacheWrite, reasoning, total int
+	for _, q := range f.Quantities {
+		if !q.Present {
+			continue
+		}
+		switch q.Component {
+		case metering.ComponentInputToken:
+			presence.InputTokens = true
+			in = int(q.Value)
+		case metering.ComponentOutputToken:
+			presence.OutputTokens = true
+			out = int(q.Value)
+		case metering.ComponentCacheReadInputToken:
+			presence.CacheReadTokens = true
+			cacheRead = int(q.Value)
+		case metering.ComponentCacheWriteInputToken:
+			presence.CacheWriteTokens = true
+			cacheWrite = int(q.Value)
+		case metering.ComponentReasoningOutputToken:
+			presence.ReasoningTokens = true
+			reasoning = int(q.Value)
+		case metering.ComponentTotalToken:
+			presence.TotalTokens = true
+			total = int(q.Value)
+		}
+	}
+	costPresent := false
+	var costNano int64
+	currency := ""
+	costSource := ""
+	if f.Money != nil && f.Money.Present {
+		costPresent = true
+		costNano = f.Money.NanoUnits
+		currency = f.Money.Currency
+		costSource = string(f.Money.Source)
+	}
+	plane, availability := planeAvailabilityFromMetering(f)
+	return cp.UsageDetail{
+		Plane:               plane,
+		Availability:        availability,
+		Perspective:         cp.UsagePerspective(f.Perspective),
+		Boundary:            cp.UsageBoundary(f.Boundary),
+		LifecycleScope:      cp.UsageLifecycleScope(f.Lifecycle),
+		Provenance:          provenanceFromMetering(f),
+		FactKind:            cp.UsageFactKind(f.Kind),
+		Surfaced:            cp.UsageSurfaced(f.Surfaced),
+		InputTokens:         in,
+		OutputTokens:        out,
+		CacheReadTokens:     cacheRead,
+		CacheWriteTokens:    cacheWrite,
+		ReasoningTokens:     reasoning,
+		TotalTokens:         total,
+		TokenPresence:       presence,
+		CostNanoUnits:       costNano,
+		CostPresent:         costPresent,
+		Currency:            currency,
+		AccountingAuthority: costSource,
+		CostSource:          costSource,
+	}
+}
+
+// UsageRowFromMeteringFact projects metering fact correlation and usage detail
+// onto a query row without inventing missing identifiers.
+func UsageRowFromMeteringFact(f metering.Fact) cp.UsageRow {
+	u := ProjectMeteringFact(f)
+	return UsageRowFromEvent(cp.Event{
+		Correlation: cp.Correlation{
+			TraceID:    f.Correlation.TraceID,
+			RequestID:  f.Correlation.RequestID,
+			SessionID:  f.Correlation.SessionID,
+			ALegID:     f.Correlation.ALegID,
+			BLegID:     f.Correlation.BLegID,
+			FrontendID: f.FrontendID,
+			BackendID:  f.BackendID,
+			Model:      f.Model,
+		},
+		Usage:          &u,
+		EvidenceState:  cp.EvidenceRecorded,
+		RedactionState: cp.RedactionNone,
+	})
+}
+
+// UsageRowsFromMeteringFacts projects a fact set onto usage rows. Customer
+// facts without frontend ingress and operator facts without backend ingress
+// are marked EvidencePartial; quantities are not invented.
+func UsageRowsFromMeteringFacts(facts []metering.Fact) []cp.UsageRow {
+	seenFEIngress := false
+	seenBEIngress := false
+	seenCustomer := false
+	seenOperator := false
+	for _, f := range facts {
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			seenCustomer = true
+		case metering.PerspectiveOperator:
+			seenOperator = true
+		}
+		switch f.Boundary {
+		case metering.BoundaryFrontendIngress:
+			seenFEIngress = true
+		case metering.BoundaryBackendIngress:
+			seenBEIngress = true
+		}
+	}
+	customerIncomplete := seenCustomer && !seenFEIngress
+	operatorIncomplete := seenOperator && !seenBEIngress
+	out := make([]cp.UsageRow, 0, len(facts))
+	for _, f := range facts {
+		row := UsageRowFromMeteringFact(f)
+		switch f.Perspective {
+		case metering.PerspectiveCustomer:
+			if customerIncomplete {
+				row.EvidenceState = cp.EvidencePartial
+			}
+		case metering.PerspectiveOperator:
+			if operatorIncomplete {
+				row.EvidenceState = cp.EvidencePartial
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func provenanceFromMetering(f metering.Fact) cp.UsageProvenance {
+	switch f.Authority {
+	case metering.AuthorityAuthoritative:
+		return cp.UsageProvenanceAuthoritative
+	case metering.AuthorityEstimated:
+		return cp.UsageProvenanceEstimated
+	case metering.AuthorityAdvisory:
+		return cp.UsageProvenanceAdvisory
+	case metering.AuthorityUnavailable:
+		return cp.UsageProvenanceUnavailable
+	case metering.AuthorityDelegated:
+		return cp.UsageProvenanceDelegated
+	default:
+		return cp.UsageProvenanceDelegated
+	}
+}
+
+func planeAvailabilityFromMetering(f metering.Fact) (cp.UsagePlane, cp.UsageAvailability) {
+	observedSource := f.Source == metering.SourceObserved || f.Source == metering.SourceEstimated
+	switch f.Authority {
+	case metering.AuthorityUnavailable:
+		if observedSource {
+			return cp.UsagePlaneObserved, cp.UsageAvailabilityUnavailable
+		}
+		return cp.UsagePlaneAccounting, cp.UsageAvailabilityUnavailable
+	case metering.AuthorityEstimated, metering.AuthorityAdvisory, metering.AuthorityDelegated:
+		return cp.UsagePlaneObserved, cp.UsageAvailabilityObserved
+	case metering.AuthorityAuthoritative:
+		if observedSource {
+			return cp.UsagePlaneObserved, cp.UsageAvailabilityObserved
+		}
+		return cp.UsagePlaneAccounting, cp.UsageAvailabilityAccountingAuth
+	default:
+		if observedSource {
+			return cp.UsagePlaneObserved, cp.UsageAvailabilityObserved
+		}
+		return cp.UsagePlaneAccounting, cp.UsageAvailabilityAccountingAuth
 	}
 }
 

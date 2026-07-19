@@ -7,10 +7,13 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 // cancellationAttemptReason returns a low-cardinality bucket for attempt records when
@@ -55,7 +58,7 @@ func cancellationAttemptReason(ctx context.Context, recvErr error) string {
 // or return the (event, err) pair to the client (false).
 func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err error, idleDeadline idleContextDeadline, ttftDeadline ttftContextDeadline) (lipapi.Event, bool, error) {
 	s.resetToolFinal()
-	if idleDeadline.expired(recvCtx, err) {
+	if idleDeadline.expired(recvCtx, err) && s.recoverPolicy != nil {
 		dec := s.recoverPolicy.DecideIdle(s.now())
 		if dec.Kind == streamrecovery.DecisionFinishPostOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
@@ -75,19 +78,21 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			s.recoverDrain = append(s.recoverDrain, dec.Finish)
 			// Defer response_finished authority finalization to the recoverDrain drain path on the
 			// next Recv call, matching handleRecvEOF's single-owner invariant. Surface the head
-			// event (the warning when present) and keep the finish in recoverDrain; when the head is
-			// the finish itself, re-queue it and return a zero event so the next Recv call's drain
-			// path finalizes via finalizeResponseFinishedAuthority and emits the synthesized
-			// usage_delta (the client-reporting consistency fix). Return cont=false so Recv returns
-			// to the caller and re-enters at the recoverDrain drain check; a continue would skip
-			// that check and wrongly drive a replacement iteration.
+			// event (the warning when present) via emitClientFacingObserved and keep the finish in
+			// recoverDrain; when the head is the finish itself, re-queue it and return a zero event
+			// so the next Recv call's drain path finalizes via finalizeResponseFinishedAuthority and
+			// emits the synthesized usage_delta (the client-reporting consistency fix). Return
+			// cont=false so Recv returns to the caller and re-enters at the recoverDrain drain check;
+			// a continue would skip that check and wrongly drive a replacement iteration.
 			ev := s.recoverDrain[0]
 			s.recoverDrain = s.recoverDrain[1:]
 			if ev.Kind == lipapi.EventResponseFinished {
 				s.recoverDrain = append([]lipapi.Event{ev}, s.recoverDrain...)
 				return lipapi.Event{}, false, nil
 			}
-			return ev, false, nil
+			pm, _ := s.recvHookMeta()
+			out, emitErr := s.emitClientFacingObserved(ctx, ev, pm)
+			return out, false, emitErr
 		}
 		if dec.Kind == streamrecovery.DecisionRecoverPreOutput {
 			s.executor.recordAttemptLogged(ctx, recordAttemptParams{
@@ -147,8 +152,15 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				)
 			}
 		}
-		s.authority.Release(ctx, authorityapp.ReleaseKindLosing)
-		s.markFinished()
+		s.runStreamTerminal(ctx, sdkterminal.CommandTimeout, func(cctx context.Context) error {
+			s.authority.finalizeIncurredOrRelease(cctx, authorityapp.ReleaseKindLosing, s.operatorUsageForFinalize())
+			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		s.finishALegScope()
 		return lipapi.Event{}, false, lipapi.ErrTTFTTimeout
 	}
@@ -176,8 +188,19 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 				s.cancelAndCloseInner(ctx, c, leglifecycle.CancelCause{Kind: leglifecycle.CancelContextDone})
 			}
 		}
-		s.persistCancellationBilling(ctx, reason)
-		s.markFinished()
+		cmd := sdkterminal.CommandCancel
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			cmd = sdkterminal.CommandTimeout
+		}
+		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			s.persistCancellationBilling(cctx, reason)
+			s.finishFinalStreamObservation(cctx, response.OutcomeCancelled)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		s.finishALegScope()
 		return lipapi.Event{}, false, err
 	}
@@ -199,7 +222,20 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 			Reason:    attemptReasonDetail(surfErr),
 			DetailErr: surfErr,
 		}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-		s.recordPartialTokenAccounting(ctx, attemptReasonDetail(surfErr), surfErr)
+		cmd := sdkterminal.CommandPartialError
+		var pe *safety.PanicError
+		if errors.As(err, &pe) {
+			cmd = sdkterminal.CommandPanic
+		}
+		s.runStreamTerminal(ctx, cmd, func(cctx context.Context) error {
+			s.recordPartialTokenAccounting(cctx, attemptReasonDetail(surfErr), surfErr)
+			s.finishFinalStreamObservation(cctx, response.OutcomeFailed)
+			s.markFinished()
+			return nil
+		})
+		if !s.isFinished() {
+			s.markFinished()
+		}
 		return lipapi.Event{}, false, surfErr
 	}
 	var log *slog.Logger
@@ -220,14 +256,21 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 		Reason:    "recoverable pre-output (recv)",
 		DetailErr: err,
 	}, diag.AttrOpts{CallID: s.traceID, BLegID: s.bleg.BLegID})
-	s.recordPartialTokenAccountingLedger(ctx, "recoverable pre-output (recv)", err)
-	// A swallowed pre-output attempt must release its strict reservation for
-	// failover, but any advisory/unreserved rules still need the observed usage
-	// fact. Apply only the unreserved projection here; do not settle the
-	// reservation before the replacement decision.
-	usageEv := s.operatorUsageForFinalize()
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
+	// Recoverable pre-output failover terminalizes only the attempt plane for
+	// ledger/unreserved evidence, then resets. Request stays open; tryReplacement
+	// owns the reservation release via a fresh attempt terminal.
+	s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
+		s.recordPartialTokenAccountingLedger(cctx, "recoverable pre-output (recv)", err)
+		// A swallowed pre-output attempt must release its strict reservation for
+		// failover, but any advisory/unreserved rules still need the observed usage
+		// fact. Apply only the unreserved projection here; do not settle the
+		// reservation before the replacement decision.
+		usageEv := s.operatorUsageForFinalize()
+		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, usageEv)
+		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
+		return nil
+	})
+	s.resetAttemptTerminal()
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 			s.executor.Log.DebugContext(

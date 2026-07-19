@@ -135,6 +135,9 @@ func (s *MemoryStore) reclaimLocked(ruleID, dimKey string, now time.Time) {
 		if lease.State == domain.LeaseStateReleased || lease.State == domain.LeaseStateExpired {
 			continue
 		}
+		if lease.SetState == domain.LeaseSetStateUncertain {
+			continue
+		}
 		if !lease.ExpiresAt.IsZero() && !now.Before(lease.ExpiresAt) {
 			lease.Expire(now)
 			s.state.leases[k] = lease
@@ -143,6 +146,10 @@ func (s *MemoryStore) reclaimLocked(ruleID, dimKey string, now time.Time) {
 }
 
 func countLiveLocked(s *MemoryStore, ruleID, dimKey string, now time.Time) int {
+	return countLiveExcludingLocked(s, ruleID, dimKey, now, nil)
+}
+
+func countLiveExcludingLocked(s *MemoryStore, ruleID, dimKey string, now time.Time, exclude map[string]struct{}) int {
 	prefix := s.cfg.StoreID + "\x00"
 	n := 0
 	for k, lease := range s.state.leases {
@@ -154,6 +161,11 @@ func countLiveLocked(s *MemoryStore, ruleID, dimKey string, now time.Time) int {
 		}
 		if string(lease.Dimensions.Key()) != dimKey {
 			continue
+		}
+		if exclude != nil {
+			if _, skip := exclude[strings.TrimSpace(lease.LeaseID)]; skip {
+				continue
+			}
 		}
 		if lease.IsLive(now) {
 			n++

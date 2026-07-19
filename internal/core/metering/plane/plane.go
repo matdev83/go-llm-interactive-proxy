@@ -64,6 +64,9 @@ func MoneyFromUsageEvent(ev lipapi.Event) *metering.MoneyObservation {
 
 // CustomerPlaneUsageEvent projects client-visible usage and strips all provider
 // billable scopes and provider money (design D1/D2, req 1.6).
+// The result is a fresh UsageDelta built from retained scopes: lipapi.Event has
+// no correlation/trace/model identity fields, and provider envelope fields such
+// as RawUsageJSON must not leak onto the customer plane.
 func CustomerPlaneUsageEvent(ev lipapi.Event) lipapi.Event {
 	if ev.Kind == "" {
 		return lipapi.Event{}

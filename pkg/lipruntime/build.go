@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
@@ -36,15 +37,15 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	if path == "" {
 		return nil, fmt.Errorf("lipruntime: empty config path")
 	}
-	for i, d := range opts.ProviderDescriptors {
-		if err := d.Validate(); err != nil {
-			return nil, fmt.Errorf("lipruntime: provider_descriptors[%d]: %w", i, err)
-		}
+	norm, err := normalizeOptions(opts)
+	if err != nil {
+		return nil, err
 	}
 	logOut := opts.LogWriter
 	if logOut == nil {
 		logOut = io.Discard
 	}
+	raterAttached := len(norm.RaterRegistrations) > 0
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: path,
 		Mode:       runtimebundle.BootstrapServe,
@@ -52,13 +53,13 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		LogWriter:  logOut,
 		Production: runtimebundle.ProductionOptions{
 			MeteringRecorder:          opts.MeteringRecorder,
-			RequestProviders:          opts.RequestProviders,
-			AttemptProviders:          opts.AttemptProviders,
-			ConcurrencyProvider:       opts.ConcurrencyProvider,
+			RequestRegistrations:      norm.RequestRegistrations,
+			AttemptRegistrations:      norm.AttemptRegistrations,
+			ConcurrencyRegistration:   norm.ConcurrencyRegistration,
+			RaterRegistrations:        norm.RaterRegistrations,
 			UsageSnapshotSource:       opts.UsageSnapshotSource,
 			ConcurrencySnapshotSource: opts.ConcurrencySnapshotSource,
 			RatingSnapshotSource:      opts.RatingSnapshotSource,
-			Rater:                     opts.Rater,
 			EvidenceSink:              opts.EvidenceSink,
 			MeteringQuerier:           opts.MeteringQuerier,
 			TrafficObservers:          opts.TrafficObservers,
@@ -82,7 +83,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		trafficObserversAttached: len(opts.TrafficObservers) > 0,
 		usageObserversAttached:   len(opts.UsageObservers) > 0,
 		evidenceSinkAttached:     opts.EvidenceSink != nil,
-		raterAttached:            opts.Rater != nil,
+		raterAttached:            raterAttached,
 		meteringQuerierAttached:  opts.MeteringQuerier != nil,
 	}, nil
 }
@@ -156,7 +157,8 @@ func (r *Runtime) ReadinessReport() controlplane.ReadinessReportReader {
 	return r.built.ReadinessReport
 }
 
-// SnapshotGenerationID returns the published generation id, or 0 when absent.
+// SnapshotGenerationID returns the published metadata compatibility generation
+// id, or 0 when absent. Prefer [ExecutableGenerationID] for enforcement identity.
 func (r *Runtime) SnapshotGenerationID() int64 {
 	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
 		return 0
@@ -168,7 +170,8 @@ func (r *Runtime) SnapshotGenerationID() int64 {
 	return cur.ID
 }
 
-// SnapshotUsageVersion returns the active usage-authority snapshot version, or "".
+// SnapshotUsageVersion returns the active usage-authority source-fetch metadata
+// version, or "".
 func (r *Runtime) SnapshotUsageVersion() string {
 	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
 		return ""
@@ -180,11 +183,73 @@ func (r *Runtime) SnapshotUsageVersion() string {
 	return cur.Usage.Version
 }
 
-// RefreshSnapshots re-reads injectable snapshot sources and atomically publishes
-// a new immutable generation for subsequent admissions (requirements 11.3, 11.6).
-// In-flight requests keep their previously bound generation pointers.
-// Source failures expose degraded/unavailable posture without substituting an
-// unrelated policy version (requirement 11.7).
+// ExecutableGenerationID returns the active executable generation id, or 0.
+func (r *Runtime) ExecutableGenerationID() int64 {
+	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+		return 0
+	}
+	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	if exec == nil {
+		return 0
+	}
+	return exec.ID
+}
+
+// ExecutableGenerationVersion returns the active executable generation version.
+func (r *Runtime) ExecutableGenerationVersion() string {
+	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+		return ""
+	}
+	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	if exec == nil {
+		return ""
+	}
+	return exec.Version
+}
+
+// ExecutableGenerationState returns executable generation readiness as a public
+// capability state (separate from source-fetch metadata planes).
+func (r *Runtime) ExecutableGenerationState() controlplane.CapabilityState {
+	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+		return controlplane.CapabilityDisabled
+	}
+	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	if exec == nil {
+		return controlplane.CapabilityDisabled
+	}
+	switch exec.State {
+	case economics.SnapshotReady, economics.SnapshotStale, "":
+		return controlplane.CapabilityReady
+	case economics.SnapshotDegraded:
+		return controlplane.CapabilityDegraded
+	case economics.SnapshotUnavailable:
+		return controlplane.CapabilityUnavailable
+	case economics.SnapshotDisabled:
+		return controlplane.CapabilityDisabled
+	default:
+		return controlplane.CapabilityUnavailable
+	}
+}
+
+// ExecutableEvidenceObjectID returns the evaluator object identity used in
+// settlement/admission evidence (requirement 9.9), not a metadata-only label.
+func (r *Runtime) ExecutableEvidenceObjectID() string {
+	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+		return ""
+	}
+	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	if exec == nil {
+		return ""
+	}
+	return exec.EvidenceObjectID()
+}
+
+// RefreshSnapshots re-reads injectable source-fetch metadata views and, when
+// sources succeed, republishes an executable generation for subsequent
+// admissions (requirements 9.6–9.9, 11.3, 11.6). In-flight requests keep their
+// previously bound generation pointers. Source failures expose
+// degraded/unavailable metadata posture without replacing the prior executable
+// generation or substituting an unrelated policy version (requirement 11.7).
 func (r *Runtime) RefreshSnapshots(ctx context.Context) error {
 	if r == nil || r.built == nil || r.built.SnapshotController == nil {
 		return fmt.Errorf("lipruntime: snapshot refresh not available")

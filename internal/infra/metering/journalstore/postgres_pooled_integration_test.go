@@ -110,8 +110,7 @@ func TestPostgresPooled_AppendRejectsSameIdentityDifferentContent(t *testing.T) 
 
 func TestPostgresPooled_VerifySchemaFailsWhenRequiredIndexMissing(t *testing.T) {
 	adminDSN, runtimeDSN := testkit.SkipUnlessPostgresPooled(t)
-	pooledJournalTestMu.Lock()
-	t.Cleanup(pooledJournalTestMu.Unlock)
+	pooledJournalTestMu.Lock(t)
 
 	ensurePooledJournalSchema(t, adminDSN)
 	runtime := sharedPooledJournalRuntime(t, runtimeDSN)

@@ -61,7 +61,9 @@ func TestParallelRaceWinnerPropagatesAuthority(t *testing.T) {
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: []lipapi.Message{{Role: lipapi.RoleUser, Parts: []lipapi.Part{{Kind: lipapi.PartText, Text: "hi"}}}},
 		},
+		excluded: map[string]struct{}{},
 	}
 	candidates := []routing.AttemptCandidate{
 		{Primary: routing.Primary{Backend: "backend-1", Model: "model-1"}, Key: "backend-1:model-1"},

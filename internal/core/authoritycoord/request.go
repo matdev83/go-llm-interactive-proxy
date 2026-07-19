@@ -18,14 +18,32 @@ type RequestSlot struct {
 	Provider        authority.RequestProvider
 	Strength        authority.Strength
 	FailureBehavior authority.FailureBehavior
+	// Descriptor, when set, is the registration descriptor for Decision.ValidateFor.
+	// Nil uses a synthetic descriptor from ID/strength/failure and Stage.
+	Descriptor *authority.ProviderDescriptor
+	// Stage defaults to StageRequestAdmit when empty.
+	Stage authority.Stage
 }
 
 // RequestCoordinator evaluates concurrency (optional) then classified request
 // providers in deterministic priority-class order (requirements 4.5, 8.1, 15.1–15.4).
 type RequestCoordinator struct {
-	Concurrency    authority.ConcurrencyProvider // nil skips lease admit (Phase 8)
-	Slots          []RequestSlot
-	CleanupTimeout time.Duration
+	Concurrency authority.ConcurrencyProvider // nil skips lease admit (Phase 8)
+	// ConcurrencyDescriptor, when set, is used for lease ValidateFor/ValidateRenewalFor.
+	// When nil, concurrencyRegistration synthesizes a StageLeaseAdmit descriptor.
+	ConcurrencyDescriptor *authority.ProviderDescriptor
+	Slots                 []RequestSlot
+	CleanupTimeout        time.Duration
+	// Now, when set, supplies the single evaluation time for lease validation on Admit.
+	// Nil defaults to time.Now (UTC) captured once per public call.
+	Now func() time.Time
+}
+
+func (c *RequestCoordinator) nowUTC() time.Time {
+	if c != nil && c.Now != nil {
+		return c.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // Admit runs request-stage admission and returns a composite decision.
@@ -37,11 +55,15 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 	if c == nil {
 		return CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessDisabled}, nil
 	}
+	if err := validateRequestSlots(c.Slots); err != nil {
+		return CompositeDecision{}, err
+	}
 	out := CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessReady}
 	timeout := c.CleanupTimeout
 	if timeout <= 0 {
 		timeout = defaultCleanupTimeout
 	}
+	now := c.nowUTC()
 
 	if c.Concurrency != nil {
 		leaseIn := authority.LeaseAdmission{
@@ -52,7 +74,11 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			ParentLeaseID:  in.ParentLeaseID,
 			AuxPolicy:      in.AuxPolicy,
 		}
-		ld, err := invokeAdmitLease(ctx, c.Concurrency, leaseIn)
+		reg, regErr := c.concurrencyRegistration()
+		if regErr != nil {
+			return CompositeDecision{}, regErr
+		}
+		ld, err := invokeAdmitLease(ctx, c.Concurrency, leaseIn, now, reg)
 		if err != nil {
 			var claimed CompensationStack
 			pushLeaseDecisionHolds(&claimed, c.Concurrency, in.RequestID, ld)
@@ -90,62 +116,156 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 			continue
 		}
 		id := strings.TrimSpace(slot.ID)
-		if id == "" {
-			id = fmt.Sprintf("class-%d", slot.Class)
-		}
-		strength := slot.Strength
-		if strength == "" {
-			if slot.Class == PriorityAdvisory {
-				strength = authority.StrengthAdvisory
-			} else {
-				strength = authority.StrengthRequired
-			}
-		}
-		failBeh := slot.FailureBehavior
-		if failBeh == "" {
-			if strength == authority.StrengthAdvisory {
-				failBeh = authority.FailureFailOpen
-			} else {
-				failBeh = authority.FailureFailClosed
-			}
-		}
+		strength, failBeh := resolveRequestPosture(slot)
 
 		d, err := invokeAdmitRequest(ctx, slot.Provider, in)
 		if err != nil {
-			var claimed CompensationStack
-			pushRequestDecisionHolds(&claimed, id, slot.Provider, in.RequestID, d)
-			claimedFails := claimed.ReverseCompensate(ctx, timeout)
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				pushRequestDecisionHolds(claimed, id, slot.Provider, in.RequestID, d)
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
 			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
-				out.CompensateFailures = append(out.CompensateFailures, claimedFails...)
 				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
 				continue
 			}
-			// Capacity-style denials wrapped as ErrDenied must not fail-open (15.4).
-			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = append(claimedFails, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, &ErrUnavailable{ProviderID: id, Err: err}
 		}
+
+		reg, stage := requestSlotRegistration(slot)
+		if vErr := validateCoordinatorDecision(d, reg, stage); vErr != nil {
+			ownsHolds := decisionHasHolds(d)
+			if errors.Is(vErr, errNonAllowWithHolds) && d.Kind == authority.DecisionDeny && strength == authority.StrengthAdvisory {
+				fails := compensateCurrentOnly(ctx, timeout, func(claimed *CompensationStack) {
+					pushRequestDecisionHolds(claimed, id, slot.Provider, in.RequestID, d)
+				})
+				out.CompensateFailures = append(out.CompensateFailures, fails...)
+				d.Kind = authority.DecisionAdvisory
+				d.Evidence = advisoryEvidenceFrom(d)
+				out.ProviderDecisions = append(out.ProviderDecisions, d)
+				out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			// Advisory malformed degrades after compensating own holds; required malformed
+			// always fails closed even when FailureFailOpen (req 3.6 / D5).
+			if strength == authority.StrengthAdvisory {
+				fails := compensateCurrentOnly(ctx, timeout, func(claimed *CompensationStack) {
+					if ownsHolds {
+						pushRequestDecisionHolds(claimed, id, slot.Provider, in.RequestID, d)
+					}
+				})
+				out.CompensateFailures = append(out.CompensateFailures, fails...)
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				if ownsHolds {
+					pushRequestDecisionHolds(claimed, id, slot.Provider, in.RequestID, d)
+				}
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = id
+			if errors.Is(vErr, errNonAllowWithHolds) && d.Kind == authority.DecisionDeny {
+				return out, &ErrDenied{ProviderID: id, Decision: d}
+			}
+			return out, &ErrUnavailable{ProviderID: id, Err: vErr}
+		}
+
 		out.ProviderDecisions = append(out.ProviderDecisions, d)
 		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
-		out.Clamps = mergeClampsNonWidening(out.Clamps, d.Clamps)
+		merged, merr := mergeClampsNonWidening(out.Clamps, d.Clamps)
+		if merr != nil {
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				pushRequestDecisionHolds(claimed, id, slot.Provider, in.RequestID, d)
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = id
+			return out, fmt.Errorf("authoritycoord: request %s: %w", id, merr)
+		}
+		out.Clamps = merged
 		if len(d.BoundVersions) > 0 {
 			out.BoundVersions = append(out.BoundVersions, d.BoundVersions...)
 		}
 
 		switch d.Kind {
 		case authority.DecisionDeny:
-			fails := out.Stack.ReverseCompensate(ctx, timeout)
-			out.CompensateFailures = fails
+			if strength == authority.StrengthAdvisory {
+				d.Kind = authority.DecisionAdvisory
+				d.Evidence = advisoryEvidenceFrom(d)
+				out.ProviderDecisions[len(out.ProviderDecisions)-1] = d
+				out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			// Required deterministic deny always fails closed, even fail-open (req 3.6).
+			fails := compensateCurrentThenPrior(ctx, timeout, &out.Stack, func(claimed *CompensationStack) {
+				if decisionHasHolds(d) {
+					pushRequestDecisionHolds(claimed, id, slot.Provider, in.RequestID, d)
+				}
+			})
+			out.CompensateFailures = append(out.CompensateFailures, fails...)
 			out.Kind = authority.DecisionDeny
 			out.DeniedBy = id
 			return out, &ErrDenied{ProviderID: id, Decision: d}
 		case authority.DecisionAllow, authority.DecisionAdvisory, "":
 			pushRequestDecisionHolds(&out.Stack, id, slot.Provider, in.RequestID, d)
+			if d.Kind == authority.DecisionAdvisory {
+				out.Evidence = mergeAdvisoryEvidence(out.Evidence, d.Evidence)
+			}
 		}
 	}
 	return out, nil
+}
+
+func resolveRequestPosture(slot RequestSlot) (authority.Strength, authority.FailureBehavior) {
+	strength := slot.Strength
+	if strength == "" {
+		if slot.Class == PriorityAdvisory {
+			strength = authority.StrengthAdvisory
+		} else {
+			strength = authority.StrengthRequired
+		}
+	}
+	failBeh := slot.FailureBehavior
+	if failBeh == "" {
+		if strength == authority.StrengthAdvisory {
+			failBeh = authority.FailureFailOpen
+		} else {
+			failBeh = authority.FailureFailClosed
+		}
+	}
+	return strength, failBeh
+}
+
+func compensateCurrentOnly(ctx context.Context, timeout time.Duration, claim func(*CompensationStack)) []CompensateFailed {
+	var claimed CompensationStack
+	if claim != nil {
+		claim(&claimed)
+	}
+	return claimed.ReverseCompensate(ctx, timeout)
+}
+
+func compensateCurrentThenPrior(ctx context.Context, timeout time.Duration, prior *CompensationStack, claim func(*CompensationStack)) []CompensateFailed {
+	claimedFails := compensateCurrentOnly(ctx, timeout, claim)
+	var priorFails []CompensateFailed
+	if prior != nil {
+		priorFails = prior.ReverseCompensate(ctx, timeout)
+	}
+	return append(claimedFails, priorFails...)
+}
+
+func mergeAdvisoryEvidence(dst, add authority.SafeEvidence) authority.SafeEvidence {
+	if strings.TrimSpace(dst.Category) == "" {
+		return add
+	}
+	if strings.TrimSpace(add.Category) == "" {
+		return dst
+	}
+	return add
 }
 
 // Settle settles request reservations through their owning providers using the
@@ -155,10 +275,14 @@ func (c *RequestCoordinator) Admit(ctx context.Context, in authority.RequestAdmi
 // cancellation (requirements 8.7, 15.3). Handles are never broadcast: each slot
 // receives only its own stack handles. Settlement failures remain observable for
 // retry regardless of admission-time fail-open/advisory posture (requirement 15.5).
+// Successful providers are not re-settled on retry (requirements 7.7, 8.6).
 // An empty stack is a no-op.
 func (c *RequestCoordinator) Settle(parent context.Context, stack CompensationStack, in authority.RequestSettlement) error {
 	if c == nil {
 		return nil
+	}
+	if err := validateRequestSlots(c.Slots); err != nil {
+		return err
 	}
 	timeout := defaultCleanupTimeout
 	if c.CleanupTimeout > 0 {
@@ -173,32 +297,94 @@ func (c *RequestCoordinator) Settle(parent context.Context, stack CompensationSt
 		}
 		handlesByProvider[id] = append(handlesByProvider[id], h)
 	}
+	tracker := stack.settlement()
 	var first error
 	for _, slot := range c.Slots {
 		if slot.Provider == nil {
 			continue
 		}
 		id := strings.TrimSpace(slot.ID)
-		if id == "" {
-			id = fmt.Sprintf("class-%d", slot.Class)
-		}
 		handles := handlesByProvider[id]
 		if len(handles) == 0 {
+			continue
+		}
+		skip, wait, finish := tracker.beginSettle(id)
+		if skip {
+			continue
+		}
+		if wait != nil {
+			<-wait
+			if err := tracker.waitResult(id); err != nil && first == nil {
+				first = &ErrUnavailable{ProviderID: id, Err: err}
+			}
 			continue
 		}
 		settlement := in
 		settlement.Handles = append([]string(nil), handles...)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
-		_, err := invokeSettleRequest(ctx, slot.Provider, settlement)
+		result, err := invokeSettleRequest(ctx, slot.Provider, settlement)
 		cancel()
 		if err == nil {
-			continue
+			if vErr := validateSettlement(result, handles); vErr != nil {
+				err = vErr
+			}
 		}
-		if first == nil {
+		finish(err)
+		if err != nil && first == nil {
 			first = &ErrUnavailable{ProviderID: id, Err: err}
 		}
 	}
 	return first
+}
+
+// RenewLease validates a concurrency renew result using concurrencyRegistration
+// and Now before returning it to callers (requirements 4.1, 10.2).
+func (c *RequestCoordinator) RenewLease(ctx context.Context, in authority.LeaseRenew) (authority.LeaseDecision, error) {
+	if c == nil || c.Concurrency == nil {
+		return authority.LeaseDecision{}, fmt.Errorf("authoritycoord: concurrency provider not configured")
+	}
+	reg, err := c.concurrencyRegistration()
+	if err != nil {
+		return authority.LeaseDecision{}, err
+	}
+	return invokeRenewLease(ctx, c.Concurrency, in, c.nowUTC(), reg)
+}
+
+// concurrencyRegistration returns the descriptor used for lease ValidateFor /
+// ValidateRenewalFor. Explicit ConcurrencyDescriptor wins; otherwise a Describer
+// or a synthetic StageLeaseAdmit registration with a non-empty ID is used.
+func (c *RequestCoordinator) concurrencyRegistration() (authority.ProviderDescriptor, error) {
+	if c == nil {
+		return authority.ProviderDescriptor{}, fmt.Errorf("authoritycoord: nil coordinator")
+	}
+	if c.ConcurrencyDescriptor != nil {
+		if strings.TrimSpace(c.ConcurrencyDescriptor.ID) == "" {
+			return authority.ProviderDescriptor{}, fmt.Errorf("authoritycoord: concurrency descriptor id required")
+		}
+		return *c.ConcurrencyDescriptor, nil
+	}
+	if d, ok := c.Concurrency.(authority.Describer); ok {
+		desc := d.Describe()
+		if strings.TrimSpace(desc.ID) == "" {
+			return authority.ProviderDescriptor{}, fmt.Errorf("authoritycoord: concurrency describer id required")
+		}
+		if _, ok := authority.AdmitPosture(desc, authority.StageLeaseAdmit); !ok {
+			desc.Postures = append(append([]authority.StagePosture(nil), desc.Postures...), authority.StagePosture{
+				Stage:           authority.StageLeaseAdmit,
+				Strength:        authority.StrengthRequired,
+				FailureBehavior: authority.FailureFailClosed,
+			})
+		}
+		return desc, nil
+	}
+	return authority.ProviderDescriptor{
+		ID: "concurrency",
+		Postures: []authority.StagePosture{{
+			Stage:           authority.StageLeaseAdmit,
+			Strength:        authority.StrengthRequired,
+			FailureBehavior: authority.FailureFailClosed,
+		}},
+	}, nil
 }
 
 // ReleaseLease releases a concurrency occupancy using a fresh cleanup context (15.3).
@@ -213,6 +399,25 @@ func (c *RequestCoordinator) ReleaseLease(parent context.Context, leaseID, reque
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
 	defer cancel()
 	return c.Concurrency.ReleaseLease(ctx, authority.LeaseRelease{
+		LeaseID:   leaseID,
+		RequestID: requestID,
+		Reason:    reason,
+	})
+}
+
+// ReleaseLeaseSet releases a complete atomic lease set using a fresh cleanup context.
+func (c *RequestCoordinator) ReleaseLeaseSet(parent context.Context, setID, leaseID, requestID, reason string) error {
+	if c == nil || c.Concurrency == nil || strings.TrimSpace(setID) == "" {
+		return nil
+	}
+	timeout := defaultCleanupTimeout
+	if c.CleanupTimeout > 0 {
+		timeout = c.CleanupTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	return c.Concurrency.ReleaseLease(ctx, authority.LeaseRelease{
+		SetID:     setID,
 		LeaseID:   leaseID,
 		RequestID: requestID,
 		Reason:    reason,

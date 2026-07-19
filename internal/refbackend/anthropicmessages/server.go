@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
@@ -29,6 +30,9 @@ type Config struct {
 	// OnRequestBody is invoked with the full request body after a successful route/auth
 	// check and before the response is written.
 	OnRequestBody func(body []byte)
+	// Responder, when non-nil and ForcedHTTPStatus is zero, builds the HTTP response
+	// per request. Must be safe for concurrent use.
+	Responder Responder
 	// NonStreamJSON overrides the JSON body for non-streaming responses. When empty, a
 	// minimal completed message is returned.
 	NonStreamJSON string
@@ -39,6 +43,7 @@ type Config struct {
 
 // NewHandler returns an http.Handler that emulates POST …/v1/messages for the official SDK.
 func NewHandler(cfg Config) http.Handler {
+	var seq atomic.Int64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/v1/messages") {
 			http.NotFound(w, r)
@@ -67,7 +72,17 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 
-		stream := strings.Contains(string(body), `"stream":true`)
+		stream := streamFlag(body)
+		if cfg.Responder != nil {
+			cloned := append([]byte(nil), body...)
+			req := Request{
+				Sequence: seq.Add(1),
+				Body:     cloned,
+				Stream:   stream,
+			}
+			writeResponder(w, req, cfg.Responder(req))
+			return
+		}
 		if stream {
 			writeStream(w, cfg)
 			return

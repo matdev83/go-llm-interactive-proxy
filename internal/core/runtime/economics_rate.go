@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
@@ -30,11 +32,8 @@ func (e *Executor) rateMonetaryExposure(ctx context.Context, req economics.Ratin
 	if err != nil {
 		return economics.RatingResult{}, err
 	}
-	if !res.Money.Present {
-		return res, fmt.Errorf("runtime: economics rater returned absent money (distinct from authoritative zero)")
-	}
-	if res.Perspective == "" {
-		res.Perspective = req.Perspective
+	if vErr := res.ValidateFor(req); vErr != nil {
+		return economics.RatingResult{}, fmt.Errorf("runtime: economics rater result: %w", vErr)
 	}
 	return res, nil
 }
@@ -62,21 +61,15 @@ func ratingResultToSpend(res economics.RatingResult) domain.Amount {
 }
 
 func attemptRatingQuantities(decision accountingpreflight.Decision) []metering.Quantity {
-	outputTokens := max(int64(decision.Count.OutputTokens), 0)
-	if outputTokens == 0 && decision.AdjustedMaxOutputTokens != nil && *decision.AdjustedMaxOutputTokens > 0 {
-		outputTokens = int64(*decision.AdjustedMaxOutputTokens)
-	}
 	qs := []metering.Quantity{{
 		Component: metering.ComponentInputToken,
 		Unit:      metering.UnitToken,
 		Value:     int64(decision.Count.InputTokens),
 		Present:   true,
-	}, {
-		Component: metering.ComponentOutputToken,
-		Unit:      metering.UnitToken,
-		Value:     outputTokens,
-		Present:   true,
 	}}
+	if out, ok := explicitOutputQuantity(decision); ok {
+		qs = append(qs, out)
+	}
 	if decision.Count.CacheReadTokens > 0 {
 		qs = append(qs, metering.Quantity{
 			Component: metering.ComponentCacheReadInputToken,
@@ -104,29 +97,125 @@ func attemptRatingQuantities(decision accountingpreflight.Decision) []metering.Q
 	return qs
 }
 
-func usageEventRatingQuantities(ev lipapi.Event) []metering.Quantity {
-	return []metering.Quantity{
-		{Component: metering.ComponentInputToken, Unit: metering.UnitToken, Value: int64(ev.InputTokens), Present: true},
-		{Component: metering.ComponentOutputToken, Unit: metering.UnitToken, Value: int64(ev.OutputTokens), Present: true},
-		{Component: metering.ComponentCacheReadInputToken, Unit: metering.UnitToken, Value: int64(ev.CacheReadTokens), Present: ev.CacheReadTokens > 0},
-		{Component: metering.ComponentCacheWriteInputToken, Unit: metering.UnitToken, Value: int64(ev.CacheWriteTokens), Present: ev.CacheWriteTokens > 0},
-		{Component: metering.ComponentReasoningOutputToken, Unit: metering.UnitToken, Value: int64(ev.ReasoningTokens), Present: ev.ReasoningTokens > 0},
+// explicitOutputQuantity returns Present output only when an authoritative bound
+// exists (AdjustedMax or positive counted output). Unknown output is omitted
+// (requirement 2.7); never Present:true Value:0 without an explicit bound.
+func explicitOutputQuantity(decision accountingpreflight.Decision) (metering.Quantity, bool) {
+	if decision.AdjustedMaxOutputTokens != nil {
+		v := int64(*decision.AdjustedMaxOutputTokens)
+		if v < 0 {
+			return metering.Quantity{}, false
+		}
+		return metering.Quantity{
+			Component: metering.ComponentOutputToken,
+			Unit:      metering.UnitToken,
+			Value:     v,
+			Present:   true,
+		}, true
 	}
+	if decision.Count.OutputTokens > 0 {
+		return metering.Quantity{
+			Component: metering.ComponentOutputToken,
+			Unit:      metering.UnitToken,
+			Value:     int64(decision.Count.OutputTokens),
+			Present:   true,
+		}, true
+	}
+	return metering.Quantity{}, false
 }
 
-func (e *Executor) rateOperatorAttemptSpend(ctx context.Context, c routing.AttemptCandidate, decision accountingpreflight.Decision) (domain.Amount, economics.RatingResult, error) {
+// finalOperatorAttemptQuantities prefers frozen backend-ingress checkpoint
+// quantities over a stale preflight Decision (requirements 2.1–2.2, design D3).
+// When BE ingress lacks an output component, the conservative output from
+// decision/AdjustedMax is retained.
+func finalOperatorAttemptQuantities(ctx context.Context, blegID string, decision accountingpreflight.Decision) []metering.Quantity {
+	fallback := attemptRatingQuantities(decision)
+	holder := meteringHolderFrom(ctx)
+	if holder == nil {
+		return fallback
+	}
+	be := holder.BackendIngressFor(blegID)
+	if be == nil || len(be.Public.Quantities) == 0 {
+		return fallback
+	}
+	merged := append([]metering.Quantity(nil), be.Public.Quantities...)
+	if !quantityComponentPresent(merged, metering.ComponentOutputToken) {
+		for _, q := range fallback {
+			if q.Component == metering.ComponentOutputToken {
+				merged = append(merged, q)
+				break
+			}
+		}
+	}
+	return merged
+}
+
+func quantityComponentPresent(qs []metering.Quantity, component string) bool {
+	for _, q := range qs {
+		if q.Component == component && q.Present {
+			return true
+		}
+	}
+	return false
+}
+
+func conservativeOutputAssumption(decision accountingpreflight.Decision, quantities []metering.Quantity) economics.ConservativeOutputAssumption {
+	for _, q := range quantities {
+		if q.Component == metering.ComponentOutputToken && q.Present {
+			kind := economics.OutputBoundClientProvided
+			if decision.AdjustedMaxOutputTokens != nil && int64(*decision.AdjustedMaxOutputTokens) == q.Value {
+				kind = economics.OutputBoundClamp
+			}
+			return economics.ConservativeOutputAssumption{
+				BoundKind: kind, TokenCount: q.Value, Present: true,
+			}
+		}
+	}
+	if decision.AdjustedMaxOutputTokens != nil {
+		v := int64(*decision.AdjustedMaxOutputTokens)
+		if v < 0 {
+			return economics.ConservativeOutputAssumption{}
+		}
+		return economics.ConservativeOutputAssumption{
+			BoundKind:  economics.OutputBoundClamp,
+			TokenCount: v,
+			Present:    true,
+		}
+	}
+	return economics.ConservativeOutputAssumption{}
+}
+
+func usageEventRatingQuantities(ev lipapi.Event) []metering.Quantity {
+	return plane.QuantitiesFromUsageEvent(ev)
+}
+
+func (e *Executor) rateOperatorAttemptSpend(
+	ctx context.Context,
+	c routing.AttemptCandidate,
+	decision accountingpreflight.Decision,
+	quantities []metering.Quantity,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (domain.Amount, economics.RatingResult, error) {
+	qs := quantities
+	if len(qs) == 0 {
+		qs = attemptRatingQuantities(decision)
+	}
 	if e == nil || e.EconomicsRater == nil {
 		catalog := accounting.PriceCatalog{}
 		if e != nil {
 			catalog = e.AccountingPriceCatalog
 		}
-		return attemptAuthoritySpendAmount(catalog, c, decision), economics.RatingResult{}, nil
+		return attemptAuthoritySpendAmountFromQuantities(catalog, c, qs), economics.RatingResult{}, nil
 	}
 	res, err := e.rateMonetaryExposure(ctx, economics.RatingRequest{
 		Perspective: metering.PerspectiveOperator,
 		BackendID:   strings.TrimSpace(c.Primary.Backend),
 		Model:       strings.TrimSpace(c.Primary.Model),
-		Quantities:  attemptRatingQuantities(decision),
+		Quantities:  qs,
+		Output:      conservativeOutputAssumption(decision, qs),
+		FactIDs:     append([]string(nil), factIDs...),
+		FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		At:          e.now(),
 	})
 	if err != nil {
@@ -135,20 +224,142 @@ func (e *Executor) rateOperatorAttemptSpend(ctx context.Context, c routing.Attem
 	return ratingResultToSpend(res), res, nil
 }
 
-func (e *Executor) rateCustomerRequestExposure(ctx context.Context, quantities []metering.Quantity, at time.Time) (economics.Money, economics.RatingResult, error) {
-	if e == nil || e.EconomicsRater == nil {
+func attemptAuthoritySpendAmountFromQuantities(catalog accounting.PriceCatalog, c routing.AttemptCandidate, quantities []metering.Quantity) domain.Amount {
+	var usage accounting.TokenUsage
+	for _, q := range quantities {
+		if !q.Present {
+			continue
+		}
+		switch q.Component {
+		case metering.ComponentInputToken:
+			usage.InputTokens = q.Value
+		case metering.ComponentOutputToken:
+			usage.OutputTokens = q.Value
+		case metering.ComponentCacheReadInputToken:
+			usage.CacheReadTokens = q.Value
+		case metering.ComponentCacheWriteInputToken:
+			usage.CacheWriteTokens = q.Value
+		case metering.ComponentReasoningOutputToken:
+			usage.ReasoningTokens = q.Value
+		}
+	}
+	cost := accounting.EstimateCost(accounting.CostInput{
+		Backend: strings.TrimSpace(c.Primary.Backend),
+		Model:   strings.TrimSpace(c.Primary.Model),
+		Usage:   usage,
+	}, catalog)
+	if cost.Unavailable {
+		return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: 0, Currency: "unknown"}
+	}
+	return domain.Amount{Unit: domain.AmountUnitMoneyNano, Value: cost.NanoUnits, Currency: cost.Currency}
+}
+
+func (e *Executor) rateCustomerRequestExposure(
+	ctx context.Context,
+	quantities []metering.Quantity,
+	at time.Time,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (economics.Money, economics.RatingResult, error) {
+	return e.rateCustomerRequestExposureWithGen(ctx, nil, quantities, at, factIDs, factRefs)
+}
+
+func (e *Executor) rateCustomerRequestExposureWithGen(
+	ctx context.Context,
+	bound *snapshotgen.ExecutableGeneration,
+	quantities []metering.Quantity,
+	at time.Time,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (economics.Money, economics.RatingResult, error) {
+	rater := e.economicsRaterFor(bound, metering.PerspectiveCustomer)
+	if e == nil || rater == nil {
 		return economics.Money{}, economics.RatingResult{}, nil
 	}
-	// Empty quantities are still legal (fixed fees / request-count offers; req 6.9).
-	res, err := e.rateMonetaryExposure(ctx, economics.RatingRequest{
+	res, err := e.rateMonetaryExposureWith(ctx, rater, economics.RatingRequest{
 		Perspective: metering.PerspectiveCustomer,
 		Quantities:  append([]metering.Quantity(nil), quantities...),
+		FactIDs:     append([]string(nil), factIDs...),
+		FactRefs:    append([]metering.FactRef(nil), factRefs...),
 		At:          at,
 	})
 	if err != nil {
 		return economics.Money{}, res, err
 	}
 	return res.Money, res, nil
+}
+
+func (e *Executor) rateOperatorAttemptSpendWithGen(
+	ctx context.Context,
+	bound *snapshotgen.ExecutableGeneration,
+	c routing.AttemptCandidate,
+	decision accountingpreflight.Decision,
+	quantities []metering.Quantity,
+	factIDs []string,
+	factRefs []metering.FactRef,
+) (domain.Amount, economics.RatingResult, error) {
+	qs := quantities
+	if len(qs) == 0 {
+		qs = attemptRatingQuantities(decision)
+	}
+	rater := e.economicsRaterFor(bound, metering.PerspectiveOperator)
+	if e == nil || rater == nil {
+		catalog := accounting.PriceCatalog{}
+		if e != nil {
+			catalog = e.AccountingPriceCatalog
+		}
+		return attemptAuthoritySpendAmountFromQuantities(catalog, c, qs), economics.RatingResult{}, nil
+	}
+	res, err := e.rateMonetaryExposureWith(ctx, rater, economics.RatingRequest{
+		Perspective: metering.PerspectiveOperator,
+		BackendID:   strings.TrimSpace(c.Primary.Backend),
+		Model:       strings.TrimSpace(c.Primary.Model),
+		Quantities:  qs,
+		Output:      conservativeOutputAssumption(decision, qs),
+		FactIDs:     append([]string(nil), factIDs...),
+		FactRefs:    append([]metering.FactRef(nil), factRefs...),
+		At:          e.now(),
+	})
+	if err != nil {
+		return domain.Amount{}, res, err
+	}
+	return ratingResultToSpend(res), res, nil
+}
+
+func (e *Executor) economicsRaterFor(bound *snapshotgen.ExecutableGeneration, perspective metering.EconomicPerspective) economics.Rater {
+	if bound != nil {
+		switch perspective {
+		case metering.PerspectiveCustomer:
+			if bound.CustomerRater != nil {
+				return bound.CustomerRater
+			}
+		case metering.PerspectiveOperator:
+			if bound.OperatorRater != nil {
+				return bound.OperatorRater
+			}
+		}
+	}
+	if e != nil {
+		return e.EconomicsRater
+	}
+	return nil
+}
+
+func (e *Executor) rateMonetaryExposureWith(ctx context.Context, rater economics.Rater, req economics.RatingRequest) (economics.RatingResult, error) {
+	if rater == nil {
+		return economics.RatingResult{}, fmt.Errorf("runtime: economics rater not configured")
+	}
+	if req.At.IsZero() && e != nil {
+		req.At = e.now()
+	}
+	res, err := rater.Rate(ctx, req)
+	if err != nil {
+		return economics.RatingResult{}, err
+	}
+	if vErr := res.ValidateFor(req); vErr != nil {
+		return economics.RatingResult{}, fmt.Errorf("runtime: economics rater result: %w", vErr)
+	}
+	return res, nil
 }
 
 func bindAdmissionRatingVersion(res *authorityapp.AdmissionResult, rated economics.RatingResult) {

@@ -73,13 +73,19 @@ func (e *Executor) emitFrontendEgressMeteringFact(ctx context.Context, traceID s
 	if holder == nil || holder.FrontendIngress == nil {
 		return metering.Fact{}, false
 	}
+	customerEv := customerPlaneUsageEvent(usageEv)
+	if customerEv.Kind == "" && usageEv.Kind == lipapi.EventUsageDelta {
+		// Provider-only evidence still requires a customer FE terminal fact with
+		// quantities omitted rather than importing provider counters/money.
+		customerEv = lipapi.Event{Kind: lipapi.EventUsageDelta}
+	}
 	seq := holder.NextSequence()
 	fact, err := checkpoint.FactFromEgress(checkpoint.EgressFactInput{
 		Checkpoint: checkpoint.FrontendEgressCheckpoint(*holder.FrontendIngress),
 		FactID:     fmt.Sprintf("fe-egress:%s:%d", strings.TrimSpace(traceID), seq),
 		Sequence:   seq,
-		Quantities: quantitiesFromUsageEvent(usageEv),
-		Money:      moneyFromUsageEvent(usageEv),
+		Quantities: quantitiesFromUsageEvent(customerEv),
+		Money:      nil,
 		Now:        e.now(),
 	})
 	if err != nil {
@@ -108,14 +114,14 @@ func (s *retryRecvStream) emitFrontendEgressMeteringFact(ctx context.Context, us
 	if s == nil || s.executor == nil {
 		return metering.Fact{}, false
 	}
-	return s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, usageEv)
+	return s.executor.emitFrontendEgressMeteringFact(ctx, s.traceID, s.resolveCustomerUsage(ctx, usageEv))
 }
 
 func (s *retryRecvStream) usageEvidenceOrEmpty() lipapi.Event {
 	if s == nil {
 		return lipapi.Event{}
 	}
-	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents))
+	ev := authorityUsageEvent(tokenAccountingUsageEvents(s.seenEventsCopy()))
 	if ev.Kind != "" {
 		return ev
 	}

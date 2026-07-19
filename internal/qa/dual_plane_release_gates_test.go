@@ -28,6 +28,8 @@ func TestDualPlaneReleaseGateEvidencePresent(t *testing.T) {
 		"LIP_TEST_POSTGRES_DSN",
 		"SharedCheckpointAcrossFrontend",
 		"BenchmarkParallelRaceLegsAuthority",
+		"FuzzLeaseSet_OccupiesCapacity",
+		"TestPhase72_",
 		"15.9",
 	} {
 		if !strings.Contains(body, needle) {
@@ -39,6 +41,9 @@ func TestDualPlaneReleaseGateEvidencePresent(t *testing.T) {
 		"internal/core/authoritycoord/provider_isolation_test.go",
 		"internal/core/runtime/dual_plane_cross_frontend_checkpoint_test.go",
 		"internal/core/runtime/parallel_race_legs_bench_test.go",
+		"internal/core/runtime/phase72_fault_campaign_red_test.go",
+		"internal/core/concurrencyauthority/domain/phase72_lease_set_fuzz_test.go",
+		"internal/core/concurrencyauthority/app/phase72_renew_classify_fuzz_test.go",
 		"internal/core/usageauthority/app/privacy_test.go",
 		"internal/core/usageauthority/app/stage_metrics_observation_test.go",
 		"internal/core/metering/reconcile/reconcile_test.go",

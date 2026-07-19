@@ -27,6 +27,13 @@ type LeaseStore interface {
 	Release(ctx context.Context, cmd ReleaseCommand) (ReleaseResult, error)
 	Query(ctx context.Context, q QueryCommand) (QueryResult, error)
 	CheckReadiness(ctx context.Context) (domain.Readiness, error)
+
+	// Atomic lease-set operations (Phase 6 / requirements 10.3–10.9).
+	AcquireSet(ctx context.Context, cmd AcquireSetCommand) (AcquireSetResult, error)
+	RenewSet(ctx context.Context, cmd RenewSetCommand) (RenewSetResult, error)
+	ReleaseSet(ctx context.Context, cmd ReleaseSetCommand) (ReleaseSetResult, error)
+	QuerySets(ctx context.Context, q QuerySetsCommand) (QuerySetsResult, error)
+	MarkSetUncertain(ctx context.Context, setID string, now time.Time) error
 }
 
 // RuleSnapshot is the immutable rule set consumed by admit orchestration.
@@ -187,6 +194,7 @@ type AdmitResult struct {
 	FailureBehavior domain.FailureBehavior
 	// Leases holds all rule occupancies from this Admit (empty on deny after rollback).
 	Leases []AdmittedLease
+	SetID  string
 }
 
 // RenewInput is application-level lease renewal input.
@@ -195,6 +203,8 @@ type RenewInput struct {
 	RequestID          string
 	ExpectedGeneration int64
 	TTL                time.Duration
+	SetID              string
+	RenewBefore        time.Duration
 }
 
 // ReleaseInput is application-level lease release input.
@@ -202,4 +212,88 @@ type ReleaseInput struct {
 	LeaseID   string
 	RequestID string
 	Reason    string
+	SetID     string
+}
+
+// AcquireSetMember is one rule occupancy proposed for an atomic set acquire.
+type AcquireSetMember struct {
+	Lease      domain.Lease
+	RuleID     string
+	Dimensions domain.Dimensions
+	Limit      int
+	Mode       domain.RuleMode
+}
+
+// AcquireSetCommand requests atomic multi-rule occupancy for one logical request.
+type AcquireSetCommand struct {
+	SetID       string
+	RequestID   string
+	Members     []AcquireSetMember
+	TTL         time.Duration
+	RenewBefore time.Duration
+	Now         time.Time
+}
+
+// AcquireSetResult is the store outcome for one set acquire/replay.
+type AcquireSetResult struct {
+	Set              domain.LeaseSet
+	Replayed         bool
+	RemainingSlots   int
+	CapacityExceeded bool
+	Rejected         bool
+	LockOrder        []string
+	DenyingRuleID    string
+}
+
+// RenewSetCommand renews every member of a lease set under one generation CAS.
+type RenewSetCommand struct {
+	SetID              string
+	RequestID          string
+	ExpectedGeneration int64
+	TTL                time.Duration
+	RenewBefore        time.Duration
+	Now                time.Time
+}
+
+// RenewSetResult is the store outcome for set renew.
+type RenewSetResult struct {
+	Set       domain.LeaseSet
+	Uncertain bool
+}
+
+// ReleaseSetCommand releases an entire lease set idempotently.
+type ReleaseSetCommand struct {
+	SetID     string
+	RequestID string
+	Reason    string
+	Now       time.Time
+}
+
+// ReleaseSetResult is the store outcome for set release.
+type ReleaseSetResult struct {
+	Applied bool
+	Set     domain.LeaseSet
+}
+
+// QuerySetsCommand is a bounded lease-set query.
+type QuerySetsCommand struct {
+	SetID     string
+	RequestID string
+	State     domain.LeaseSetState
+	Now       time.Time
+	Limit     int
+}
+
+// LeaseSetOccupancyCounts is a bounded control-plane projection of set states.
+type LeaseSetOccupancyCounts struct {
+	Active    int
+	Uncertain int
+	Expiring  int
+	Released  int
+	Failed    int
+}
+
+// QuerySetsResult is a bounded page of lease sets.
+type QuerySetsResult struct {
+	Sets []domain.LeaseSet
 }

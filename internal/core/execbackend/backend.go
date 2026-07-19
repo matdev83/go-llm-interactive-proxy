@@ -6,6 +6,7 @@ package execbackend
 
 import (
 	"context"
+	"slices"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
@@ -28,6 +29,11 @@ type Backend struct {
 	// shared by instances of the same backend kind, but different backend kinds must not claim the
 	// same prefix. Canonical model IDs must not use the qualifier form "<prefix>:<canonical-id>".
 	BackendPrefixes []string
+	// ReplaySupport is the static historical-reasoning dialect profile for this backend.
+	// Prefer ResolveReplaySupport when support depends on candidate/model.
+	ReplaySupport lipapi.ReasoningReplaySupport
+	// ResolveReplaySupport, when set, supplies candidate/model-aware replay support; otherwise ReplaySupport is used.
+	ResolveReplaySupport func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) lipapi.ReasoningReplaySupport
 
 	BillingFinalizationSupported bool
 	FinalizeBilling              func(ctx context.Context, in BillingFinalizationInput) (lipapi.Event, error)
@@ -82,4 +88,22 @@ func EffectiveTransportCaps(
 		return be.ResolveTransportCaps(ctx, call, cand)
 	}
 	return be.TransportCaps
+}
+
+func EffectiveReplaySupport(
+	ctx context.Context,
+	be Backend,
+	call lipapi.Call,
+	cand routing.AttemptCandidate,
+) lipapi.ReasoningReplaySupport {
+	support := be.ReplaySupport
+	if be.ResolveReplaySupport != nil {
+		support = be.ResolveReplaySupport(ctx, call, cand)
+	}
+	support.Dialects = lipapi.NormalizeReasoningDialects(support.Dialects)
+	return support
+}
+
+func CloneBackendPrefixes(be Backend) []string {
+	return slices.Clone(be.BackendPrefixes)
 }

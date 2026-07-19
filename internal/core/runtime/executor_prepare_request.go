@@ -97,7 +97,7 @@ func (e *Executor) prepareRequest(ctx context.Context, call *lipapi.Call) (*prep
 		}
 		// Release logical-request concurrency occupancy on post-admit prepare/
 		// route/open failures before a stream is returned (requirement 10.5).
-		e.releaseRequestAuthority(prep.ctx)
+		_ = e.releaseRequestAuthority(prep.ctx)
 		if prep.aScope == nil {
 			return
 		}

@@ -2,6 +2,7 @@ package openailegacy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -158,6 +159,18 @@ func (s *chatStream) handleChunk(ch openai.ChatCompletionChunk) error {
 			}
 		}
 
+		if reason := chatDeltaReasoningContent(d); reason != "" {
+			if !s.sawMsg {
+				s.sawMsg = true
+				if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventMessageStarted}); err != nil {
+					return err
+				}
+			}
+			if err := s.pending.Push(lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: reason}); err != nil {
+				return err
+			}
+		}
+
 		if d.Content != "" {
 			if !s.sawMsg {
 				s.sawMsg = true
@@ -214,4 +227,40 @@ func (s *chatStream) Close() error {
 func (s *chatStream) Cancel(_ context.Context, _ leglifecycle.CancelCause) leglifecycle.CancelResult {
 	err := s.Close()
 	return leglifecycle.CancelResult{Mode: leglifecycle.CancelModeTransport, Err: err}
+}
+
+// chatDeltaReasoningContent reads OpenAI-compatible reasoning_content / reasoning
+// extras that the official SDK leaves in delta ExtraFields / RawJSON.
+func chatDeltaReasoningContent(d openai.ChatCompletionChunkChoiceDelta) string {
+	if f, ok := d.JSON.ExtraFields["reasoning_content"]; ok {
+		if raw := f.Raw(); raw != "" && raw != "null" {
+			var s string
+			if err := json.Unmarshal([]byte(raw), &s); err == nil && s != "" {
+				return s
+			}
+		}
+	}
+	if f, ok := d.JSON.ExtraFields["reasoning"]; ok {
+		if raw := f.Raw(); raw != "" && raw != "null" {
+			var s string
+			if err := json.Unmarshal([]byte(raw), &s); err == nil && s != "" {
+				return s
+			}
+		}
+	}
+	raw := d.RawJSON()
+	if raw == "" {
+		return ""
+	}
+	var probe struct {
+		ReasoningContent string `json:"reasoning_content"`
+		Reasoning        string `json:"reasoning"`
+	}
+	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
+		return ""
+	}
+	if probe.ReasoningContent != "" {
+		return probe.ReasoningContent
+	}
+	return probe.Reasoning
 }

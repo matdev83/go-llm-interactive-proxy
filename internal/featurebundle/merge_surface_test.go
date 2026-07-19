@@ -10,6 +10,7 @@ import (
 	sdkhooks "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/response"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/routehint"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/secretguard"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/session"
@@ -133,6 +134,24 @@ func (testCompGate) Handle(_ context.Context, _ completion.Meta, _ completion.Bu
 	return completion.PassOriginalOutcome(), nil
 }
 
+type testAttemptTransform struct{ tag string }
+
+func (h testAttemptTransform) ID() string                      { return h.tag }
+func (testAttemptTransform) Order() int                        { return 0 }
+func (testAttemptTransform) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailClosed }
+func (testAttemptTransform) HandleAttempt(context.Context, *lipapi.Call, request.AttemptMeta, request.Services) (request.AttemptDecision, error) {
+	return request.AttemptDecision{Kind: request.AttemptContinue}, nil
+}
+
+type testStreamObserverFactory struct{ tag string }
+
+func (h testStreamObserverFactory) ID() string                      { return h.tag }
+func (testStreamObserverFactory) Order() int                        { return 0 }
+func (testStreamObserverFactory) FailureMode() sdkhooks.FailureMode { return sdkhooks.FailOpen }
+func (testStreamObserverFactory) Open(context.Context, response.StreamMeta, response.Services) (response.StreamObserver, error) {
+	return nil, nil
+}
+
 type testTrafficObs struct{ tag string }
 
 func (testTrafficObs) OnObservation(_ context.Context, _ traffic.Observation) error { return nil }
@@ -176,46 +195,50 @@ func TestMergeBundles_empty(t *testing.T) {
 func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 	t.Parallel()
 	b1 := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		SubmitHooks:        []sdkhooks.SubmitHook{testSubmitHook{tag: "s1"}},
-		RequestPartHooks:   []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r1"}},
-		ResponsePartHooks:  []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp1"}},
-		ToolReactors:       []sdkhooks.ToolReactor{testToolReactor{tag: "tr1"}},
-		SessionOpeners:     []session.Opener{testOpener{tag: "o1"}},
-		WorkspaceResolvers: []lipworkspace.Resolver{testResolver{tag: "w1"}},
-		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "c1"}},
-		ToolCallPolicies:   []toolpolicy.Policy{testPolicy{tag: "p1"}},
-		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "f1"}},
-		RequestTransforms:  []request.Transform{testTransform{tag: "rt1"}},
-		PreRequestHandlers: []prerequest.Handler{testPreReq{tag: "pr1"}},
-		RouteHintProviders: []routehint.Provider{testRouteHint{tag: "rh1"}},
-		CompletionGates:    []completion.Gate{testCompGate{tag: "cg1"}},
-		TrafficObservers:   []traffic.Observer{testTrafficObs{tag: "to1"}},
-		UsageObservers:     []usage.Observer{testUsageObs{tag: "uo1"}},
-		RawCaptureSinks:    []traffic.RawCaptureSink{testRawSink{tag: "rs1"}},
-		TrafficRedactors:   []traffic.Redactor{testRedactor{tag: "red1"}},
-		SecretGuards:       []secretguard.Guard{testSecretGuard{tag: "sg1"}},
+		SchemaVersion:           lipfeature.SchemaVersionV1,
+		SubmitHooks:             []sdkhooks.SubmitHook{testSubmitHook{tag: "s1"}},
+		RequestPartHooks:        []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r1"}},
+		ResponsePartHooks:       []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp1"}},
+		ToolReactors:            []sdkhooks.ToolReactor{testToolReactor{tag: "tr1"}},
+		SessionOpeners:          []session.Opener{testOpener{tag: "o1"}},
+		WorkspaceResolvers:      []lipworkspace.Resolver{testResolver{tag: "w1"}},
+		ToolCatalogFilters:      []toolcatalog.Filter{testCatalogFilter{tag: "c1"}},
+		ToolCallPolicies:        []toolpolicy.Policy{testPolicy{tag: "p1"}},
+		ToolCallFinalizers:      []toolcall.Finalizer{testFinalizer{tag: "f1"}},
+		RequestTransforms:       []request.Transform{testTransform{tag: "rt1"}},
+		PreRequestHandlers:      []prerequest.Handler{testPreReq{tag: "pr1"}},
+		RouteHintProviders:      []routehint.Provider{testRouteHint{tag: "rh1"}},
+		CompletionGates:         []completion.Gate{testCompGate{tag: "cg1"}},
+		AttemptTransforms:       []request.AttemptTransform{testAttemptTransform{tag: "at1"}},
+		StreamObserverFactories: []response.StreamObserverFactory{testStreamObserverFactory{tag: "so1"}},
+		TrafficObservers:        []traffic.Observer{testTrafficObs{tag: "to1"}},
+		UsageObservers:          []usage.Observer{testUsageObs{tag: "uo1"}},
+		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs1"}},
+		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red1"}},
+		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg1"}},
 	}
 	b2 := lipfeature.FeatureBundle{
-		SchemaVersion:      lipfeature.SchemaVersionV1,
-		SubmitHooks:        []sdkhooks.SubmitHook{testSubmitHook{tag: "s2"}},
-		RequestPartHooks:   []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r2"}},
-		ResponsePartHooks:  []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp2"}},
-		ToolReactors:       []sdkhooks.ToolReactor{testToolReactor{tag: "tr2"}},
-		SessionOpeners:     []session.Opener{testOpener{tag: "o2"}},
-		WorkspaceResolvers: []lipworkspace.Resolver{testResolver{tag: "w2"}},
-		ToolCatalogFilters: []toolcatalog.Filter{testCatalogFilter{tag: "c2"}},
-		ToolCallPolicies:   []toolpolicy.Policy{testPolicy{tag: "p2"}},
-		ToolCallFinalizers: []toolcall.Finalizer{testFinalizer{tag: "f2"}},
-		RequestTransforms:  []request.Transform{testTransform{tag: "rt2"}},
-		PreRequestHandlers: []prerequest.Handler{testPreReq{tag: "pr2"}},
-		RouteHintProviders: []routehint.Provider{testRouteHint{tag: "rh2"}},
-		CompletionGates:    []completion.Gate{testCompGate{tag: "cg2"}},
-		TrafficObservers:   []traffic.Observer{testTrafficObs{tag: "to2"}},
-		UsageObservers:     []usage.Observer{testUsageObs{tag: "uo2"}},
-		RawCaptureSinks:    []traffic.RawCaptureSink{testRawSink{tag: "rs2"}},
-		TrafficRedactors:   []traffic.Redactor{testRedactor{tag: "red2"}},
-		SecretGuards:       []secretguard.Guard{testSecretGuard{tag: "sg2"}},
+		SchemaVersion:           lipfeature.SchemaVersionV1,
+		SubmitHooks:             []sdkhooks.SubmitHook{testSubmitHook{tag: "s2"}},
+		RequestPartHooks:        []sdkhooks.RequestPartHook{testRequestPartHook{tag: "r2"}},
+		ResponsePartHooks:       []sdkhooks.ResponsePartHook{testResponsePartHook{tag: "rp2"}},
+		ToolReactors:            []sdkhooks.ToolReactor{testToolReactor{tag: "tr2"}},
+		SessionOpeners:          []session.Opener{testOpener{tag: "o2"}},
+		WorkspaceResolvers:      []lipworkspace.Resolver{testResolver{tag: "w2"}},
+		ToolCatalogFilters:      []toolcatalog.Filter{testCatalogFilter{tag: "c2"}},
+		ToolCallPolicies:        []toolpolicy.Policy{testPolicy{tag: "p2"}},
+		ToolCallFinalizers:      []toolcall.Finalizer{testFinalizer{tag: "f2"}},
+		RequestTransforms:       []request.Transform{testTransform{tag: "rt2"}},
+		PreRequestHandlers:      []prerequest.Handler{testPreReq{tag: "pr2"}},
+		RouteHintProviders:      []routehint.Provider{testRouteHint{tag: "rh2"}},
+		CompletionGates:         []completion.Gate{testCompGate{tag: "cg2"}},
+		AttemptTransforms:       []request.AttemptTransform{testAttemptTransform{tag: "at2"}},
+		StreamObserverFactories: []response.StreamObserverFactory{testStreamObserverFactory{tag: "so2"}},
+		TrafficObservers:        []traffic.Observer{testTrafficObs{tag: "to2"}},
+		UsageObservers:          []usage.Observer{testUsageObs{tag: "uo2"}},
+		RawCaptureSinks:         []traffic.RawCaptureSink{testRawSink{tag: "rs2"}},
+		TrafficRedactors:        []traffic.Redactor{testRedactor{tag: "red2"}},
+		SecretGuards:            []secretguard.Guard{testSecretGuard{tag: "sg2"}},
 	}
 	m := MergeBundles(b1, b2)
 
@@ -236,6 +259,8 @@ func TestMergedFeatureSurfaceAppend_concatenatesAllFields(t *testing.T) {
 		{"PreRequestHandlers", len(m.PreRequestHandlers)},
 		{"RouteHintProviders", len(m.RouteHintProviders)},
 		{"CompletionGates", len(m.CompletionGates)},
+		{"AttemptTransforms", len(m.AttemptTransforms)},
+		{"StreamObserverFactories", len(m.StreamObserverFactories)},
 		{"TrafficObservers", len(m.TrafficObservers)},
 		{"UsageObservers", len(m.UsageObservers)},
 		{"RawCaptureSinks", len(m.RawCaptureSinks)},

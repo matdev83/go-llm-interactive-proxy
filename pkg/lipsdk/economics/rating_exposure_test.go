@@ -25,6 +25,7 @@ func (f *fakeRater) Rate(ctx context.Context, req economics.RatingRequest) (econ
 		LineID:         "line-1",
 		RoundingPolicy: economics.RoundingHalfAwayFromZero,
 		Perspective:    req.Perspective,
+		RaterID:        "catalog",
 	}, nil
 }
 

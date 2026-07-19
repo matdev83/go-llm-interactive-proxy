@@ -7,8 +7,8 @@ Normative criteria for merge-to-main and local pre-push checks. Commands assume 
 | Gate | Criterion | Command |
 |------|-----------|---------|
 | Conformance | 100% of matrix tests in `internal/testkit/conformance` pass | `make parity-checks` (same as `go test -parallel=8 -tags=integration ./internal/testkit/conformance/...`; see [conformance-matrix-evidence.md](conformance-matrix-evidence.md)) |
-| Race (Req. 14.6) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); on Windows `make test-race` is a no-op (race disabled locally) |
-| Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` (see budgets) |
+| Race (Req. 14.6) | Full suite under race on Linux | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); on Windows `make test-race` is a no-op (race disabled locally). Not part of PR `qa.yml`. |
+| Critical fuzz (Req. 15.4 + design) | Bounded smoke for each listed `Fuzz*` below | `make test-fuzz` or `make release-gates` locally; nightly CI via `.github/workflows/race-fuzz-nightly.yml`. Not part of PR `qa.yml`. |
 | Migration fixtures (Req. 15.13) | Exactly **3** golden JSON files under `testdata/migration/` with fixed names | Enforced by `TestMigrationGoldenFixtureInventory` in conformance; see [testdata/migration/README.md](../testdata/migration/README.md) |
 
 ## API parity (LLM surfaces)
@@ -29,7 +29,7 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 
 ## Fuzz tiers
 
-**Tier 1 (release / CI):** explicit targets below (`make test-fuzz`). Each `go test -fuzz=...` uses a trailing `$` on the fuzz name regex so only one fuzz runs per package when multiple `Fuzz*` exist. CI runs each with the same `FUZZTIME` (default `500ms` locally; override e.g. `FUZZTIME=3s make release-gates`).
+**Tier 1 (release / nightly CI):** explicit targets below (`make test-fuzz`). Each `go test -fuzz=...` uses a trailing `$` on the fuzz name regex so only one fuzz runs per package when multiple `Fuzz*` exist. Nightly CI runs each with the same `FUZZTIME` (default `500ms` locally; override e.g. `FUZZTIME=3s make release-gates`).
 
 | Fuzz function | Package | Role |
 |---------------|---------|------|
@@ -69,11 +69,21 @@ Normative matrices and row IDs: [.kiro/specs/llm-api-parity/design.md](../.kiro/
 | `FuzzCompleteJSONSuffix` | `internal/core/toolcallrepair` | Append-only JSON suffix completion (ADR 0007) |
 | `FuzzSchemaPreScanCompile` | `internal/core/toolcallrepair` | Offline schema pre-scan/compile bounds |
 | `FuzzEngineRepair` | `internal/core/toolcallrepair` | Deterministic tool-call repair engine |
+| `FuzzComputeAnchor` | `internal/plugins/features/reasoningpreservation` | Exact non-reasoning anchor hash stability (issue #157) |
+| `FuzzDecodeConfig` | `internal/plugins/features/reasoningpreservation` | Feature YAML decode/validation bounds (issue #157) |
+| `FuzzLeaseSet_OccupiesCapacity` | `internal/core/concurrencyauthority/domain` | Lease-set state occupancy model |
+| `FuzzIsAmbiguousRenewError` | `internal/core/concurrencyauthority/app` | Renew ambiguity classification |
+| `FuzzWorkItem_TransitionSequence` | `internal/core/terminalwork` | Terminal-work state machine |
+| `FuzzOwner_CommandSequences` | `internal/core/terminal` | Terminal owner command sequences |
+| `FuzzParseDecimalToNano` | `pkg/lipsdk/economics` | Money decimal parse bounds |
+| `FuzzPhase32_SourceEventKey_DelimiterSafety` | `pkg/lipsdk/metering` | Fact source-key delimiter safety |
+| `FuzzPhase32_MoneyPresentCurrency` | `pkg/lipsdk/metering` | Money present/currency invariants |
 
 ## Time budget
 
 - Local default: `FUZZTIME=500ms` per target (wall time scales with the number of rows in the table above).
-- CI: `.github/workflows/qa.yml` sets `FUZZTIME=6s` per target for `make test-fuzz` (raise over ad-hoc local smoke when validating merges).
+- Nightly CI: `.github/workflows/race-fuzz-nightly.yml` sets `FUZZTIME=6s` per target for `make test-fuzz` (raise over ad-hoc local smoke when validating releases).
+- PR CI (`.github/workflows/qa.yml`) does **not** run race or Tier-1 fuzz; it keeps merge feedback fast (quality, postgres authority, unit/integration, lint, vuln). PRs that change no `*.go` files skip the suite; the required `qa` gate still succeeds.
 
 ## Fuzz seed corpus (committed)
 
@@ -84,8 +94,8 @@ Native fuzz loads extra seeds from **`testdata/fuzz/FuzzFunctionName/`** next to
 
 ## Single entry point
 
-- `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on CI (`bash scripts/race-check.sh --strict`; Windows skips race via `scripts/race-check.ps1`).
-- Full QA remains `make qa` (quality + unit tests + lint + vuln). CI also runs race, lint, and vuln as separate steps (see `.github/workflows/qa.yml`).
+- `make release-gates` — conformance package tests (with **`-tags=integration`** for full matrix/parity), then `make test-fuzz` (all Tier 1 targets). This target does **not** run the race detector; use `make test-race` locally on Linux/macOS or rely on nightly CI (`bash scripts/race-check.sh --strict` in `.github/workflows/race-fuzz-nightly.yml`; Windows skips race via `scripts/race-check.ps1`).
+- Full local QA remains `make qa` (quality + unit tests + lint + vuln). PR CI runs quality, postgres authority, tagged unit tests, lint, and vuln (see `.github/workflows/qa.yml`). Race and Tier-1 fuzz run on the nightly workflow (and via `workflow_dispatch`).
 
 ## Dual-plane economics and concurrency (feature gates)
 
@@ -96,12 +106,15 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Cross-protocol baseline (17.1, 17.3) | OpenAI Responses/legacy, Anthropic, Gemini FE×BE matrix remains green (dual-plane features default-off compatible) | `make parity-checks` |
 | Shared checkpoint contract | Supported frontend `Operation` values share the same executor frontend-ingress checkpoint boundary/lifecycle | `go test ./internal/core/runtime/ -run SharedCheckpointAcrossFrontend` |
 | Parallel race benches (16.6) | Parallel routing under authority with 2/4/8 legs | `go test ./internal/core/runtime/ -run '^$' -bench BenchmarkParallelRaceLegsAuthority` |
-| Critical fuzz | Existing Tier-1 protocol/decode fuzz smoke (not dual-plane fact/correction fuzz) | `make test-fuzz` or `make release-gates` |
-| Race (17.9) | Full suite under race on Linux CI | `bash scripts/race-check.sh --strict` (CI); Windows `make test-race` is a documented no-op |
-| PostgreSQL direct runtime (9.9, 17.9) | Cross-instance durable authority, lease, and journal proofs through a direct/admin-capable endpoint | `make test-authority-postgres-direct` with `LIP_TEST_POSTGRES_DSN` |
+| Critical fuzz | Tier-1 protocol/decode fuzz plus Phase 7.2 dual-plane fuzz (`FuzzLeaseSet_OccupiesCapacity`, `FuzzIsAmbiguousRenewError`, `FuzzWorkItem_TransitionSequence`, `FuzzOwner_CommandSequences`, money/fact seeds) | `make test-fuzz` or `make release-gates` |
+| Fault campaign (13.3–13.4, 13.7–13.8) | Deterministic panic/timeout/malformed/outage/ambiguous/partial/restart campaign + concurrent terminal race suite | `go test ./internal/core/runtime/ -run 'TestPhase72_'` |
+| EconomicControlReady + alerts (12.x, 13.10) | Named OSS technical posture + operator alert/budget doc (not commercial billing) | `go test ./pkg/lipsdk/controlplane/ -run TestPhase73_`; [dual-plane-readiness-alerts.md](dual-plane-readiness-alerts.md) |
+| Five-slot lease-set bench | Atomic AcquireSet five-slot contention suitable for benchstat | `go test ./internal/infra/concurrencyauthority/leasestore/ -run '^$' -bench BenchmarkMemoryAcquireSetFiveSlotHundredContenders` |
+| Race (17.9) | Full suite under race on Linux (includes Phase 7.2 race suite) | `bash scripts/race-check.sh --strict` (local Linux / nightly CI); Windows `make test-race` is a documented no-op |
+| PostgreSQL direct runtime (9.9, 17.9) | Cross-instance durable authority, lease, journal, and terminal-work proofs through a direct/admin-capable endpoint | `make test-authority-postgres-direct` with `LIP_TEST_POSTGRES_DSN` |
 | PostgreSQL migrations (18.9-18.10) | Explicit admin migration followed by read-only schema verification | `make test-postgres-migrations`; prefers `LIP_MIGRATION_POSTGRES_DSN`, then test admin/runtime DSNs |
 | PostgreSQL aggregate | Migration, direct runtime, and pooled runtime gates all pass | `make test-authority-postgres` |
-| PostgreSQL pooled runtime (18.14–18.16) | Dual-endpoint pooled contracts (`LIP_TEST_POSTGRES_ADMIN_DSN` + transaction-pooled `LIP_TEST_POSTGRES_DSN` with `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`). Proves migrate/open split and pooler-safe DML. | `make test-authority-postgres-pooled` (`LIP_REQUIRE_POSTGRES_POOLER=1` fails closed). |
+| PostgreSQL pooled runtime (18.14–18.16) | Dual-endpoint pooled contracts for authority, lease, journal, terminal-work, and runtimebundle (`LIP_TEST_POSTGRES_ADMIN_DSN` + transaction-pooled `LIP_TEST_POSTGRES_DSN` with `LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1`). Proves migrate/open split and pooler-safe DML. | `make test-authority-postgres-pooled` (`LIP_REQUIRE_POSTGRES_POOLER=1` fails closed). |
 | Migration fixtures (15.13 / 17.2) | Golden inventory under `testdata/migration/` | conformance `TestMigrationGoldenFixtureInventory` via `make parity-checks` |
 | Enterprise panic / malformed isolation (15.9) | Injected request/attempt/concurrency providers map panic and unknown decision/lease kinds through fail-closed `ErrUnavailable` (advisory may degrade); release compensate panics are isolated | `go test ./internal/core/authoritycoord/ -run Isolates` |
 | Privacy (17.5–17.6) | No raw bearer/API-key/header leakage in default authority evidence | `go test ./internal/core/usageauthority/app/ -run ProjectAuthorityEvidence` |
@@ -109,5 +122,6 @@ Normative completion gates for dual-plane metering / authority / concurrency (re
 | Compatibility when disabled (17.1) | Default dogfood path with metering/authority off remains functional | `go run ./cmd/lipstd check-config --config config/examples/dogfood-local-stub.yaml` + `testdata/enterprise_module` |
 | Explicit non-goals (17.8) | No web GUI, payments, invoices, tax, SSO/SAML/SCIM, CSP, or compression algorithms in this feature | design / requirements exclusions |
 | Architecture | Enterprise module stays public-only | `go test ./internal/archtest/ -run EnterpriseModule` |
+| Migration / rollout / rollback (11.x, 7.4) | Ordering, local vs distributed posture, terminal-work drain, open-core | [dual-plane-migration-rollout.md](dual-plane-migration-rollout.md); `go test ./internal/qa/ -run TestPhase74_` |
 
-Do **not** claim Windows race-green without Linux/CI evidence. Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.
+Do **not** claim Windows race-green without Linux evidence (local or nightly CI). Do **not** claim PostgreSQL green without a recorded `LIP_TEST_POSTGRES_DSN` run. Do **not** treat `make parity-checks` as dual-plane checkpoint proof; that proof is the shared executor checkpoint test above.

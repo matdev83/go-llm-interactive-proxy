@@ -4,20 +4,16 @@ package accounting
 import (
 	"fmt"
 	"math"
-	"math/big"
 	"math/bits"
 	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 const (
 	CostSourceProviderReported = "provider_reported"
 	CostSourceEstimated        = "estimated"
 	CostSourceUnavailable      = "unavailable"
-)
-
-const (
-	nanosPerUnit     = int64(1_000_000_000)
-	tokensPerMillion = int64(1_000_000)
 )
 
 type TokenUsage struct {
@@ -81,11 +77,9 @@ type PriceCatalog struct {
 }
 
 // OptionalNanoRate is a catalog rate that may be unspecified (absent) or
-// explicitly present, including an authoritative zero.
-type OptionalNanoRate struct {
-	NanoUnits int64
-	Present   bool
-}
+// explicitly present, including an authoritative zero. It aliases the public
+// economics NanoRate contract so OSS catalog and injected raters share one shape.
+type OptionalNanoRate = economics.NanoRate
 
 type ModelPrice struct {
 	InputPer1M           int64
@@ -238,48 +232,24 @@ func parseModelPrice(row ModelPriceConfig) (ModelPrice, error) {
 }
 
 func parseRequiredNanoPrice(raw string) (int64, error) {
-	rate, err := parseOptionalNanoPrice(raw)
+	rate, err := economics.ParseRequiredNanoRate(raw)
 	if err != nil {
 		return 0, err
 	}
-	// Empty required rate remains 0 (absent treated as free/zero for base rates).
 	return rate.NanoUnits, nil
 }
 
 func parseOptionalNanoPrice(raw string) (OptionalNanoRate, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return OptionalNanoRate{}, nil
-	}
-	rat, ok := new(big.Rat).SetString(raw)
-	if !ok {
-		return OptionalNanoRate{}, fmt.Errorf("invalid decimal %q", raw)
-	}
-	if rat.Sign() < 0 {
-		return OptionalNanoRate{}, fmt.Errorf("must be non-negative")
-	}
-	rat.Mul(rat, big.NewRat(nanosPerUnit, 1))
-	if !rat.IsInt() {
-		return OptionalNanoRate{}, fmt.Errorf("has more than 9 decimal places")
-	}
-	return OptionalNanoRate{NanoUnits: rat.Num().Int64(), Present: true}, nil
+	return economics.ParseOptionalNanoRate(raw)
 }
 
 // costForTokensChecked multiplies tokens by a per-1M nano rate with overflow detection.
 func costForTokensChecked(tokens, pricePer1M int64) (int64, bool) {
-	if tokens <= 0 || pricePer1M <= 0 {
-		return 0, true
-	}
-	hi, lo := bits.Mul64(uint64(tokens), uint64(pricePer1M))
-	div := uint64(tokensPerMillion)
-	if hi >= div {
+	m, err := economics.MulTokensByRatePer1M(tokens, pricePer1M)
+	if err != nil {
 		return 0, false
 	}
-	q, _ := bits.Div64(hi, lo, div)
-	if q > math.MaxInt64 {
-		return 0, false
-	}
-	return int64(q), true
+	return m.NanoUnits, true
 }
 
 func addMoneyChecked(a, b int64) (int64, bool) {

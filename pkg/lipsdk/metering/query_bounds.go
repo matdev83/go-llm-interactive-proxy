@@ -16,6 +16,9 @@ func ValidateQuery(q Query) error {
 	if !HasSelectiveBound(q) {
 		return ErrQueryTooBroad
 	}
+	if q.Limit > MaxQueryLimit {
+		return ErrQueryLimitExceeded
+	}
 	return nil
 }
 
@@ -127,6 +130,15 @@ func FactMatchesQuery(f Fact, q Query) bool {
 		return false
 	}
 	if q.Lifecycle != "" && f.Lifecycle != q.Lifecycle {
+		return false
+	}
+	if q.Source != "" && f.Source != q.Source {
+		return false
+	}
+	if q.Authority != "" && f.Authority != q.Authority {
+		return false
+	}
+	if q.IdentityVersion != 0 && f.EffectiveIdentityVersion() != q.IdentityVersion {
 		return false
 	}
 	if !scopeFiltersMatch(q.Scope, f.Scope) {

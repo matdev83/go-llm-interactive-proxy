@@ -455,9 +455,12 @@ func (l *authorityLifecycle) Settle(ctx context.Context, kind authorityapp.Settl
 	return false
 }
 
-// usageAuthorityAttemptProviderID is the stable AttemptCoordinator slot ID used
-// by BuildAuthorityCoordinators for the built-in usage-authority adapter.
-const usageAuthorityAttemptProviderID = "usage-authority-attempt"
+// Stable BuildAuthorityCoordinators slot / Decision.ProviderID identities for the
+// built-in usage-authority adapter (must match registration descriptor IDs).
+const (
+	usageAuthorityRequestProviderID = "usage-authority-request"
+	usageAuthorityAttemptProviderID = "usage-authority-attempt"
+)
 
 func (l *authorityLifecycle) settleViaCoordinatorLocked(ctx context.Context, kind authorityapp.SettlementKind, usageEv lipapi.Event, clientCanceled bool) bool {
 	if l.attemptCoord == nil {
@@ -713,6 +716,34 @@ func filterReservationsByHandles(reservations []authorityReservationState, handl
 		}
 	}
 	return out
+}
+
+// settlementKindForIncurredRelease maps losing/swallowed release postures to
+// settlement kinds used when backend work was already incurred.
+func settlementKindForIncurredRelease(kind authorityapp.ReleaseKind) (authorityapp.SettlementKind, bool) {
+	switch kind {
+	case authorityapp.ReleaseKindLosing:
+		return authorityapp.SettlementKindLosing, true
+	case authorityapp.ReleaseKindSwallowed:
+		return authorityapp.SettlementKindSwallowed, true
+	default:
+		return "", false
+	}
+}
+
+// finalizeIncurredOrRelease settles operator liability when backend Open (or
+// equivalent incurred work) already started; otherwise it releases the pre-work
+// admission. AdmissionFailure and never-opened candidates stay on Release.
+func (l *authorityLifecycle) finalizeIncurredOrRelease(ctx context.Context, kind authorityapp.ReleaseKind, usageEv lipapi.Event) {
+	if l == nil {
+		return
+	}
+	incurred := l.backendAttempted != nil && l.backendAttempted.Load()
+	if settleKind, ok := settlementKindForIncurredRelease(kind); ok && incurred {
+		_ = l.Settle(ctx, settleKind, usageEv, false)
+		return
+	}
+	l.Release(ctx, kind)
 }
 
 // Release releases every reservation in the admission result once with the

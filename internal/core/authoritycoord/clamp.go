@@ -1,10 +1,15 @@
 package authoritycoord
 
-import "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+)
 
 // mergeClampsNonWidening merges provider clamps so max_output_tokens and max_spend
-// only tighten (never increase) existing limits.
-func mergeClampsNonWidening(dst []authority.Clamp, add []authority.Clamp) []authority.Clamp {
+// only tighten (never increase) existing limits. Mixed-currency spend clamps are rejected.
+func mergeClampsNonWidening(dst []authority.Clamp, add []authority.Clamp) ([]authority.Clamp, error) {
 	out := append([]authority.Clamp(nil), dst...)
 	for _, c := range add {
 		idx := clampIndex(out, c.Kind)
@@ -18,14 +23,35 @@ func mergeClampsNonWidening(dst []authority.Clamp, add []authority.Clamp) []auth
 				out[idx] = c
 			}
 		case authority.ClampMaxSpend:
+			if err := assertSameSpendCurrency(out[idx], c); err != nil {
+				return nil, err
+			}
 			if !out[idx].Money.Present || (c.Money.Present && c.Money.NanoUnits < out[idx].Money.NanoUnits) {
 				out[idx] = c
 			}
 		default:
-			out = append(out, c)
+			return nil, fmt.Errorf("unknown or unapplicable clamp kind %q", c.Kind)
 		}
 	}
-	return out
+	return out, nil
+}
+
+func assertSameSpendCurrency(existing, incoming authority.Clamp) error {
+	if existing.Kind != authority.ClampMaxSpend || incoming.Kind != authority.ClampMaxSpend {
+		return nil
+	}
+	if !existing.Money.Present || !incoming.Money.Present {
+		return nil
+	}
+	a := strings.TrimSpace(existing.Money.Currency)
+	b := strings.TrimSpace(incoming.Money.Currency)
+	if a == "" || b == "" {
+		return fmt.Errorf("max_spend clamp requires currency")
+	}
+	if !strings.EqualFold(a, b) {
+		return fmt.Errorf("mixed-currency max_spend clamps %q and %q", a, b)
+	}
+	return nil
 }
 
 func clampIndex(clamps []authority.Clamp, kind authority.ClampKind) int {

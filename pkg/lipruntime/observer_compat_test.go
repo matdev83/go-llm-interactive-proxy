@@ -74,16 +74,19 @@ func TestBuild_AuthorityDescriptorAllowed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rt, err := lipruntime.Build(ctx, lipruntime.Options{
-		ConfigPath:       repoConfigPath(t),
-		RequestProviders: []authority.RequestProvider{allowRequestProvider{}},
-		ProviderDescriptors: []authority.ProviderDescriptor{{
-			ID:   "enterprise-authority",
-			Kind: authority.ProviderKindAuthority,
-			Postures: []authority.StagePosture{{
-				Stage:           authority.StageRequestAdmit,
-				Strength:        authority.StrengthRequired,
-				FailureBehavior: authority.FailureFailClosed,
-			}},
+		ConfigPath: repoConfigPath(t),
+		RequestRegistrations: []authority.RequestRegistration{{
+			Descriptor: authority.ProviderDescriptor{
+				ID:   "enterprise-authority",
+				Kind: authority.ProviderKindAuthority,
+				Postures: []authority.StagePosture{{
+					Stage:           authority.StageRequestAdmit,
+					Strength:        authority.StrengthRequired,
+					FailureBehavior: authority.FailureFailClosed,
+				}},
+			},
+			Priority: authority.RequestPriorityQuotaBudgetRate,
+			Provider: allowRequestProvider{},
 		}},
 	})
 	if err != nil {

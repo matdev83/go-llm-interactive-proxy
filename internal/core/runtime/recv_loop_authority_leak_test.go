@@ -80,6 +80,7 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:    &attemptBudget{max: 3, used: 0},
 		aLegID:    aLegID,
@@ -102,19 +103,19 @@ func TestRetryRecvStreamRegisterBLegFailureReleasesNewAuthority(t *testing.T) {
 		t.Fatalf("tryReplacementIteration error = %v, want ErrALegCanceled", err)
 	}
 
-	// The prior swallowed reservation is released before the replacement is opened,
-	// and the NEW out.authority is released on RegisterBLeg failure: 2 releases.
-	if got, want := auth.releaseCalls.Load(), int64(2); got != want {
-		t.Fatalf("release calls = %d, want %d (prior released before admit + NEW out.authority released on RegisterBLeg failure)", got, want)
+	// The prior swallowed reservation is settled before the replacement is opened,
+	// and the NEW out.authority is settled on RegisterBLeg failure: 2 settles.
+	if got, want := auth.releaseCalls.Load(), int64(0); got != want {
+		t.Fatalf("release calls = %d, want %d (incurred attempts must settle)", got, want)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "reservation-new" {
-		t.Fatalf("released reservation ID = %q, want reservation-new (the NEW out.authority, released last on RegisterBLeg failure)", release.ReservationID)
+	if got, want := auth.settleCalls.Load(), int64(2); got != want {
+		t.Fatalf("settle calls = %d, want %d (prior settled before admit + NEW out.authority settled on RegisterBLeg failure)", got, want)
 	}
-	if release.Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind = %q, want swallowed", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "reservation-new" {
+		t.Fatalf("settled reservation ID = %q, want reservation-new (the NEW out.authority, settled last on RegisterBLeg failure)", settle.ReservationID)
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls = %d, want 0 (no usage was produced from the failed replacement)", auth.settleCalls.Load())
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
 }

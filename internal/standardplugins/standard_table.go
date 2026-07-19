@@ -31,6 +31,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/codexclientcompat"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/partsnoop"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/prerequestpolicy"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refautoappend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refparts"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/refsubmit"
@@ -163,6 +164,7 @@ func StandardBundle() Bundle {
 			{ID: prerequestpolicy.ID, Factory: featurePreRequestPolicy},
 			{ID: codexclientcompat.ID, Factory: featureCodexClientCompat},
 			{ID: secretsguard.ID, Factory: featureSecretsGuard},
+			{ID: reasoningpreservation.ID, Factory: featureReasoningOutputPreservation},
 		},
 	}
 }

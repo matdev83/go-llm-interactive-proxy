@@ -48,6 +48,10 @@ Authoring and extension rules:
 
 Operator configuration and examples: [`docs/secrets-guard.md`](secrets-guard.md), [`config/config.yaml`](../config/config.yaml), and [`config/examples/`](../config/examples/).
 
+## Standard feature: reasoning-output-preservation
+
+`reasoning-output-preservation` is a bundled standard feature (plugin id `reasoning-output-preservation`, issue #157) registered in `internal/standardplugins/`. On the standard `lipstd` bootstrap path it is injected enabled (`action: restore`, `use_builtin_catalog: true` / `compatible-auto.v2`) when no matching features row exists; explicit matching `enabled: false` (or omitted enabled) opts out and constructs no participants. It is not a mandatory `StandardDistributionRequirements` entry. Installed/enabled does not mean universally active — capture and restore require catalog/rule eligibility; unmatched candidates are inert. When active it contributes an attempt transform and a final-stream observer factory for bounded process-local reasoning capture/restore. Feature code lives in `internal/plugins/features/reasoningpreservation/` and must not import runtime, frontends, or backends. Shared matcher: `internal/reasoningreplay`. Operator configuration and examples: [`docs/reasoning-output-preservation.md`](reasoning-output-preservation.md), [`config/config.yaml`](../config/config.yaml), [`config/examples/reasoning-preservation-observe.yaml`](../config/examples/reasoning-preservation-observe.yaml), [`config/examples/reasoning-preservation-restore.yaml`](../config/examples/reasoning-preservation-restore.yaml), and the [release checklist](reasoning-output-preservation-release-checklist.md).
+
 ## Authoring rules
 
 - Keep handlers small, deterministic, and context-aware.

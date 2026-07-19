@@ -75,6 +75,7 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 	}
 
@@ -85,17 +86,17 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 	if auth.admitCalls.Load() != 3 {
 		t.Fatalf("admit calls = %d, want 3 (estimate-only precheck + clamp preview + authoritative admit)", auth.admitCalls.Load())
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls = %d, want 1 (out.authority must be released when RegisterBLeg fails)", auth.releaseCalls.Load())
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls = %d, want 0 (incurred out.authority must settle when RegisterBLeg fails)", auth.releaseCalls.Load())
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != reservationID {
-		t.Fatalf("release reservation ID = %q, want %q", release.ReservationID, reservationID)
+	if auth.settleCalls.Load() != 1 {
+		t.Fatalf("settle calls = %d, want 1 (out.authority must settle when RegisterBLeg fails)", auth.settleCalls.Load())
 	}
-	if release.Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind = %q, want swallowed", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != reservationID {
+		t.Fatalf("settle reservation ID = %q, want %q", settle.ReservationID, reservationID)
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls = %d, want 0 (no usage was produced before RegisterBLeg failure)", auth.settleCalls.Load())
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
 }

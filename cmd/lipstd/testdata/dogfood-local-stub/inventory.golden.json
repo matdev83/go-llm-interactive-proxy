@@ -123,6 +123,11 @@
       "id": "tool-call-repair",
       "factory_kind": "tool-call-repair",
       "enabled": true
+    },
+    {
+      "id": "reasoning-output-preservation",
+      "factory_kind": "reasoning-output-preservation",
+      "enabled": true
     }
   ],
   "extensions": {
@@ -135,10 +140,12 @@
       "request_wide_shaping",
       "pre_request_admission",
       "route_hinting",
+      "candidate_attempt_transform",
       "attempt_lifecycle",
       "stream_event_mutation",
       "tool_event_reaction",
       "completion_gating",
+      "final_stream_observation",
       "traffic_observation",
       "egress_encoding"
     ],
@@ -176,6 +183,10 @@
         "default_failure": "fail_open"
       },
       {
+        "id": "candidate_attempt_transform",
+        "default_failure": "fail_open"
+      },
+      {
         "id": "attempt_lifecycle",
         "default_failure": "fail_open"
       },
@@ -189,6 +200,10 @@
       },
       {
         "id": "completion_gating",
+        "default_failure": "fail_open"
+      },
+      {
+        "id": "final_stream_observation",
         "default_failure": "fail_open"
       },
       {
@@ -287,8 +302,41 @@
           "auth_provider": false,
           "completion_gate": false
         }
+      },
+      {
+        "instance_id": "reasoning-output-preservation",
+        "factory_kind": "reasoning-output-preservation",
+        "enabled": true,
+        "stage_occupancy": [
+          {
+            "stage_id": "candidate_attempt_transform",
+            "handler_ids": [
+              "attempt_transform:reasoning-output-preservation-transform"
+            ],
+            "count": 1
+          },
+          {
+            "stage_id": "final_stream_observation",
+            "handler_ids": [
+              "stream_observer:reasoning-output-preservation-observer"
+            ],
+            "count": 1
+          }
+        ],
+        "privileges": {
+          "raw_capture": false,
+          "auxiliary_requests": true,
+          "auth_provider": false,
+          "completion_gate": false
+        }
       }
-    ]
+    ],
+    "generic_ports": {
+      "attempt_transform_occupied": true,
+      "attempt_transform_handlers": 1,
+      "final_stream_observation_occupied": true,
+      "final_stream_observation_handlers": 1
+    }
   },
   "server_limits": {
     "max_request_body_bytes": 8388608,

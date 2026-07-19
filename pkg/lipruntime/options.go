@@ -12,6 +12,10 @@ import (
 )
 
 // Options configures public production composition (requirement 12.3, 12.4).
+//
+// Prefer descriptor-bound registrations (RequestRegistrations,
+// AttemptRegistrations, ConcurrencyRegistration, RaterRegistrations). Legacy
+// parallel slices remain for deterministic migration only; see field docs.
 type Options struct {
 	// ConfigPath is the YAML runtime config path (required).
 	ConfigPath string
@@ -20,22 +24,40 @@ type Options struct {
 
 	// MeteringRecorder overrides the config-built metering journal recorder.
 	MeteringRecorder metering.Recorder
-	// RequestProviders are injected logical-request authority providers.
+
+	// RequestRegistrations bind descriptor, priority, and request authority.
+	RequestRegistrations []authority.RequestRegistration
+	// AttemptRegistrations bind descriptor, priority, and attempt authority.
+	AttemptRegistrations []authority.AttemptRegistration
+	// ConcurrencyRegistration binds descriptor and concurrency authority.
+	ConcurrencyRegistration *authority.ConcurrencyRegistration
+	// RaterRegistrations bind rater identity, perspective, and rater instance.
+	RaterRegistrations []economics.RaterRegistration
+
+	// RequestProviders is deprecated. Use RequestRegistrations. Accepted only
+	// with matching request-stage ProviderDescriptors (exact cardinality,
+	// index-paired); never invents production-request-%d identities.
 	RequestProviders []authority.RequestProvider
-	// AttemptProviders are injected attempt authority providers.
+	// AttemptProviders is deprecated. Use AttemptRegistrations. Accepted only
+	// with matching attempt-stage ProviderDescriptors (exact cardinality,
+	// index-paired); never invents production-attempt-%d identities.
 	AttemptProviders []authority.AttemptProvider
-	// ConcurrencyProvider overrides the config-built concurrency lease provider.
+	// ConcurrencyProvider is deprecated. Use ConcurrencyRegistration. Accepted
+	// only with exactly one lease-stage ProviderDescriptor when the registration
+	// pointer is nil.
 	ConcurrencyProvider authority.ConcurrencyProvider
-	// UsageSnapshotSource supplies the usage-authority snapshot for publication
-	// and RefreshSnapshots.
+	// UsageSnapshotSource supplies the usage-authority source-fetch metadata
+	// view for publication and RefreshSnapshots. It is not enforcement evidence;
+	// executable generations bind descriptor-bound registrations instead.
 	UsageSnapshotSource economics.RuleSnapshotSource
-	// ConcurrencySnapshotSource supplies the concurrency snapshot for publication
-	// and RefreshSnapshots.
+	// ConcurrencySnapshotSource supplies the concurrency source-fetch metadata
+	// view for publication and RefreshSnapshots.
 	ConcurrencySnapshotSource economics.RuleSnapshotSource
-	// RatingSnapshotSource supplies the rating/catalog snapshot for publication
-	// and RefreshSnapshots.
+	// RatingSnapshotSource supplies the rating/catalog source-fetch metadata
+	// view for publication and RefreshSnapshots.
 	RatingSnapshotSource economics.RatingSnapshotSource
-	// Rater is the enterprise rating provider injected onto the accounting runtime.
+	// Rater is deprecated. Use RaterRegistrations. When set alone, it maps to a
+	// deterministic operator registration with ID "legacy-production-rater".
 	Rater economics.Rater
 	// EvidenceSink projects authority decisions into policy and control-plane evidence.
 	EvidenceSink authority.EvidenceSink
@@ -48,7 +70,8 @@ type Options struct {
 	UsageObservers []usage.Observer
 	// PolicyObservers are chained into policy-decision evidence (additive to EvidenceSink).
 	PolicyObservers []policydecision.Observer
-	// ProviderDescriptors declare authority vs observer postures for injected
-	// providers. Observers cannot use StrengthRequired (requirement 12.7).
+	// ProviderDescriptors is deprecated for authority binding. Prefer embedding
+	// descriptors on registrations. Legacy authority slices require matching
+	// stage descriptors here; observer-only descriptors remain validated at Build.
 	ProviderDescriptors []authority.ProviderDescriptor
 }

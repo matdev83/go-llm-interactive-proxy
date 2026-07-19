@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -16,7 +16,8 @@ help:
 	@echo "  make test-authority-postgres - aggregate direct + pooled proof"
 	@echo "  make test-precommit-extra - hygiene + executor matrices (-tags=precommit; also in pre-commit hook + CI)"
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
-	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; CI uses 6s per target in .github/workflows/qa.yml)"
+	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 6s per target in .github/workflows/race-fuzz-nightly.yml)"
+	@echo "  make test-reasoning-e2e-soak - opt-in reasoning preservation full-HTTP soak (sets LIP_REASONING_E2E_SOAK=1; not a PR/default gate; see docs/reasoning-output-preservation.md)"
 	@echo "  make test-cursor-sdk-live     - opt-in live Cursor SDK Node scenarios (CURSOR_SDK_LIVE=1 + CURSOR_API_KEY)"
 	@echo "  make test-cursor-sdk-live-bridge - opt-in Go→Node live bridge lifecycle (-tags=cursorsdk_live_bridge; CURSOR_SDK_LIVE=1 + key)"
 	@echo "  make test-cursor-sdk-platform - current-OS bridge platform smoke (fake bridge; no API key)"
@@ -67,9 +68,9 @@ test-unit:
 # invoked without a configured DSN.
 test-authority-postgres-direct:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -skip '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process')) { [Environment]::SetEnvironmentVariable('LIP_TEST_POSTGRES_DSN',[Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_ADMIN_DSN','Process'),'Process') }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -skip 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore"
 else
-	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) test $(GO_TEST_FLAGS) -tags=integration -skip '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore
+	@LIP_REQUIRE_POSTGRES=1 LIP_TEST_POSTGRES_DSN="$${LIP_TEST_POSTGRES_ADMIN_DSN:-$$LIP_TEST_POSTGRES_DSN}" $(GO) test $(GO_TEST_FLAGS) -tags=integration -skip 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore
 endif
 
 test-postgres-migrations:
@@ -84,10 +85,10 @@ endif
 # Uses normal parallelism (-parallel=8 by default); do not force -parallel=1.
 test-authority-postgres-pooled:
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES_POOLER','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_RUNTIME_IS_POOLER','Process') -ne '1') { throw 'set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint' }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -run '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/runtimebundle"
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REQUIRE_POSTGRES_POOLER','1','Process'); if ([Environment]::GetEnvironmentVariable('LIP_TEST_POSTGRES_RUNTIME_IS_POOLER','Process') -ne '1') { throw 'set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint' }; & '$(GO)' test $(GO_TEST_FLAGS) -tags=integration -run 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore ./internal/infra/runtimebundle"
 else
 	@test "$${LIP_TEST_POSTGRES_RUNTIME_IS_POOLER:-}" = "1" || { echo "set LIP_TEST_POSTGRES_RUNTIME_IS_POOLER=1 only when LIP_TEST_POSTGRES_DSN is a transaction-pooler endpoint" >&2; exit 1; }
-	@LIP_REQUIRE_POSTGRES_POOLER=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration -run '^TestPostgresPooled_' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/runtimebundle
+	@LIP_REQUIRE_POSTGRES_POOLER=1 $(GO) test $(GO_TEST_FLAGS) -tags=integration -run 'Pooled' ./internal/infra/usageauthority/authoritystore ./internal/infra/concurrencyauthority/leasestore ./internal/infra/metering/journalstore ./internal/infra/terminalwork/workstore ./internal/infra/runtimebundle
 endif
 
 test-authority-postgres: test-postgres-migrations test-authority-postgres-direct test-authority-postgres-pooled
@@ -113,6 +114,18 @@ FUZZ_WRAPPER := $(GO) test
 else
 FUZZ_WRAPPER := bash scripts/fuzz-run.sh
 endif
+# Opt-in reasoning-preservation full HTTP soak (1000×100 default). Not part of
+# make test / test-unit / qa / PR gates. Overrides: LIP_REASONING_E2E_SEEDS,
+# LIP_REASONING_E2E_TURNS, LIP_REASONING_E2E_WORKERS. Single-seed replay:
+# LIP_REASONING_E2E_MODE + LIP_REASONING_E2E_SEED.
+REASONING_E2E_SOAK_TIMEOUT ?= 6h
+test-reasoning-e2e-soak:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable('LIP_REASONING_E2E_SOAK','1','Process'); & '$(GO)' test -parallel=8 -timeout=$(REASONING_E2E_SOAK_TIMEOUT) -tags=precommit -run '^TestReasoningPreservationHTTP_Soak$$' -count=1 ./internal/stdhttp/"
+else
+	@LIP_REASONING_E2E_SOAK=1 $(GO) test -parallel=8 -timeout=$(REASONING_E2E_SOAK_TIMEOUT) -tags=precommit -run '^TestReasoningPreservationHTTP_Soak$$' -count=1 ./internal/stdhttp/
+endif
+
 test-fuzz:
 	@echo "Fuzz smoke (FUZZTIME=$(FUZZTIME)) one target per line"
 	$(FUZZ_WRAPPER) -fuzz=FuzzJSONRoundTrip$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/testkit
@@ -155,6 +168,16 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzCompleteJSONSuffix$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzSchemaPreScanCompile$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
 	$(FUZZ_WRAPPER) -fuzz=FuzzEngineRepair$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/toolcallrepair
+	$(FUZZ_WRAPPER) -fuzz=FuzzComputeAnchor$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeConfig$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/features/reasoningpreservation
+	# Dual-plane Phase 7.2 state-machine / renew / work / owner / money / fact fuzz
+	$(FUZZ_WRAPPER) -fuzz=FuzzLeaseSet_OccupiesCapacity$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/domain
+	$(FUZZ_WRAPPER) -fuzz=FuzzIsAmbiguousRenewError$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/concurrencyauthority/app
+	$(FUZZ_WRAPPER) -fuzz=FuzzWorkItem_TransitionSequence$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminalwork
+	$(FUZZ_WRAPPER) -fuzz=FuzzOwner_CommandSequences$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/terminal
+	$(FUZZ_WRAPPER) -fuzz=FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
+	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
 
 test-cursor-sdk-live:
 ifeq ($(OS),Windows_NT)
@@ -196,6 +219,9 @@ bench:
 		./internal/core/securesession/... \
 		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
 		./internal/core/toolcallrepair/... \
+		./internal/infra/concurrencyauthority/leasestore/... \
+		./internal/infra/metering/journalstore/... \
+		./internal/infra/usageauthority/authoritystore/... \
 		./internal/plugins/frontends/openailegacy/... \
 		./internal/plugins/frontends/gemini/... \
 		./internal/plugins/frontends/openairesponses/... \

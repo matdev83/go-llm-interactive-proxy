@@ -44,6 +44,16 @@ func (s ConcurrencyLeaseState) IsKnown() bool {
 	}
 }
 
+// LeaseSetOccupancyCounts is a bounded projection of lease-set states (Phase 6).
+type LeaseSetOccupancyCounts struct {
+	Active         int `json:"active"`
+	Uncertain      int `json:"uncertain"`
+	Expiring       int `json:"expiring"`
+	Released       int `json:"released"`
+	Failed         int `json:"failed"`
+	PendingRelease int `json:"pending_release,omitempty"`
+}
+
 // ConcurrencyAuthorityStatus is the safe readiness snapshot for lease authority.
 type ConcurrencyAuthorityStatus struct {
 	State          ConcurrencyAuthorityState `json:"state"`
@@ -51,6 +61,8 @@ type ConcurrencyAuthorityStatus struct {
 	EvidenceState  EvidenceState             `json:"evidence_state,omitempty"`
 	RedactionState RedactionState            `json:"redaction_state,omitempty"`
 	LastUpdatedAt  time.Time                 `json:"last_updated_at,omitzero"`
+	// LeaseSets exposes bounded active/uncertain/expiring/released/failed counts.
+	LeaseSets LeaseSetOccupancyCounts `json:"lease_sets,omitzero"`
 }
 
 // ConcurrencyLeaseQuery requests a bounded page of lease rows.

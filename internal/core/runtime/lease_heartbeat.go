@@ -37,7 +37,8 @@ func (h *leaseHeartbeat) Degraded() bool {
 }
 
 func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthorityState) {
-	if e == nil || st == nil || e.RequestCoordinator == nil || e.RequestCoordinator.Concurrency == nil {
+	coord := e.requestCoordinatorFor(st)
+	if e == nil || st == nil || coord == nil || coord.Concurrency == nil {
 		return
 	}
 	targets := append([]leaseRenewTarget(nil), st.LeaseTargets...)
@@ -46,7 +47,7 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 		if leaseID == "" {
 			leaseID = st.Decision.Lease.LeaseID
 		}
-		if leaseID == "" {
+		if leaseID == "" && st.LeaseSetID == "" {
 			return
 		}
 		gen := st.LeaseGeneration
@@ -112,8 +113,7 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 	for _, t := range targets {
 		st.LeaseIDs = append(st.LeaseIDs, t.LeaseID)
 	}
-	// Keep scalar primary as set by admit (lastAllow); only fill when empty.
-	if st.LeaseID == "" {
+	if st.LeaseID == "" && len(targets) > 0 {
 		st.LeaseID = targets[0].LeaseID
 		st.LeaseGeneration = targets[0].Generation
 		st.LeaseExpiresAt = targets[0].ExpiresAt
@@ -130,9 +130,9 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 	hb := newLeaseHeartbeat()
 	st.heartbeat = hb
-	prov := e.RequestCoordinator.Concurrency
 	reqID := st.RequestID
-	cleanupTimeout := e.RequestCoordinator.CleanupTimeout
+	setID := st.LeaseSetID
+	cleanupTimeout := coord.CleanupTimeout
 	if cleanupTimeout <= 0 {
 		cleanupTimeout = 2 * time.Second
 	}
@@ -140,6 +140,7 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 	go func() {
 		defer close(hb.doneCh)
 		live := append([]leaseRenewTarget(nil), targets...)
+		setGen := st.LeaseGeneration
 		for {
 			wait := nextRenewWait(live)
 			timer := time.NewTimer(wait)
@@ -160,50 +161,106 @@ func (e *Executor) startLeaseHeartbeat(parent context.Context, st *requestAuthor
 
 			failClosed := false
 			anyFailOpenRetry := false
-			for i := range live {
-				t := &live[i]
-				rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
-				dec, err := prov.RenewLease(rctx, authority.LeaseRenew{
-					LeaseID:            t.LeaseID,
+			rctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
+			if setID != "" {
+				primary := live[0]
+				ttl := primary.TTL
+				if ttl <= 0 {
+					ttl = defaultTTL
+				}
+				rb := primary.RenewBefore
+				if rb <= 0 {
+					rb = defaultRenewBefore
+				}
+				dec, err := coord.RenewLease(rctx, authority.LeaseRenew{
+					SetID:              setID,
+					LeaseID:            st.LeaseID,
 					RequestID:          reqID,
-					ExpectedGeneration: t.Generation,
-					TTL:                t.TTL,
+					ExpectedGeneration: setGen,
+					TTL:                ttl,
+					RenewBefore:        rb,
 				})
 				cancel()
-				if err != nil {
-					// Renewal storage failure must not corrupt active count (10.8):
-					// leave the lease live until expiry/terminal release.
+				behavior := primary.FailureBehavior
+				if behavior == "" {
+					behavior = defaultFB
+				}
+				if err != nil || dec.Kind != authority.LeaseAllow {
 					hb.degraded.Store(true)
-					behavior := t.FailureBehavior
+					if behavior == authority.FailureFailClosed {
+						failClosed = true
+					} else {
+						anyFailOpenRetry = true
+					}
+				} else {
+					if dec.Generation > 0 {
+						setGen = dec.Generation
+						st.LeaseGeneration = dec.Generation
+					}
+					if !dec.ExpiresAt.IsZero() {
+						st.LeaseExpiresAt = dec.ExpiresAt
+						for i := range live {
+							live[i].ExpiresAt = dec.ExpiresAt
+							live[i].Generation = setGen
+						}
+					}
+					st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
+				}
+			} else {
+				tickOK := true
+				pending := append([]leaseRenewTarget(nil), live...)
+				for i := range pending {
+					src := live[i]
+					t := &pending[i]
+					dec, err := coord.RenewLease(rctx, authority.LeaseRenew{
+						LeaseID:            src.LeaseID,
+						RequestID:          reqID,
+						ExpectedGeneration: src.Generation,
+						TTL:                src.TTL,
+						RuleID:             src.RuleID,
+					})
+					behavior := src.FailureBehavior
 					if behavior == "" {
 						behavior = defaultFB
 					}
-					if behavior == authority.FailureFailClosed {
-						failClosed = true
+					if err != nil || dec.Kind != authority.LeaseAllow {
+						tickOK = false
+						hb.degraded.Store(true)
+						if behavior == authority.FailureFailClosed {
+							failClosed = true
+						} else {
+							anyFailOpenRetry = true
+						}
 						continue
 					}
-					anyFailOpenRetry = true
-					continue
+					if dec.Generation > 0 {
+						t.Generation = dec.Generation
+					}
+					if !dec.ExpiresAt.IsZero() {
+						t.ExpiresAt = dec.ExpiresAt
+					}
 				}
-				if dec.Generation > 0 {
-					t.Generation = dec.Generation
-				}
-				if !dec.ExpiresAt.IsZero() {
-					t.ExpiresAt = dec.ExpiresAt
+				cancel()
+				if tickOK {
+					live = pending
+					if primary := findTarget(live, st.LeaseID); primary != nil {
+						st.LeaseGeneration = primary.Generation
+						st.LeaseExpiresAt = primary.ExpiresAt
+					} else if len(live) > 0 {
+						st.LeaseGeneration = live[0].Generation
+						st.LeaseExpiresAt = live[0].ExpiresAt
+					}
+					st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
 				}
 			}
-			// Mirror primary generation/expiry from the primary lease when present.
-			if primary := findTarget(live, st.LeaseID); primary != nil {
-				st.LeaseGeneration = primary.Generation
-				st.LeaseExpiresAt = primary.ExpiresAt
-			} else if len(live) > 0 {
-				st.LeaseGeneration = live[0].Generation
-				st.LeaseExpiresAt = live[0].ExpiresAt
-			}
-			st.LeaseTargets = append([]leaseRenewTarget(nil), live...)
 			if failClosed {
-				// Fail-closed: stop renewing; occupancy remains until expiry
-				// or terminal release without mutating the active count.
+				if err := e.markLeaseSetUncertain(parent, st); err != nil {
+					st.LeaseSetUncertainErr = err
+				}
+				_ = e.acceptLeaseSetReleaseIntent(parent, st, "renew_fail_closed")
+				if st.cancelRequest != nil {
+					st.cancelRequest()
+				}
 				return
 			}
 			if anyFailOpenRetry {

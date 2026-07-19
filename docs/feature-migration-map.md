@@ -39,6 +39,7 @@ States:
 | ProxyMem / long-term memory | needs seam | `state.Store`, `request.Transform`, `completion.Gate`, `auxiliary.Client` | Needs concrete state binding and auxiliary execution policy before porting. |
 | Quality verifier calls | needs seam | `completion.Gate` + `auxiliary.Client`; reference `ref-verifier-stub` | Stub exists; real model sub-calls need auxiliary routing policy. |
 | Auxiliary routing | needs seam | `auxiliary.Client`, `routehint.Provider`, route roles | Do not let plugins directly call backends. |
+| Reasoning output preservation (multi-turn historical reasoning replay) | ready | `request.AttemptTransform` + `response.StreamObserverFactory`; feature `reasoning-output-preservation` | Standard lipstd default-on inject (`restore` + `compatible-auto.v2`); catalog/rule-gated activation (unmatched inert); explicit `enabled: false` opt-out; process-local v1; operator docs [reasoning-output-preservation.md](reasoning-output-preservation.md); issue #157. |
 | Completion replacement / rejection | ready | `completion.Gate` | Watch buffering limits and stream legality. |
 | Request/response redaction | ready | request/response hooks and `traffic.Redactor` | Distinguish mutation from observation redaction. |
 | Secret redaction before storage | ready | `traffic.Redactor` + capture sinks | No persistence before redaction. |

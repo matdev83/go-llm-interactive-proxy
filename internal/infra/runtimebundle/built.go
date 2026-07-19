@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
@@ -14,6 +15,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -96,4 +98,17 @@ type Built struct {
 	ReadinessReport *controlplane.ReadinessReportService
 	// SecretGuardInventory carries safe secrets-guard inventory metadata for diagnostics.
 	SecretGuardInventory *diag.InventoryExtras
+	// TerminalWorkProcessor is non-nil when ProductionOptions injects a terminal-work
+	// store (tasks 4.4–4.5). Build starts it; Closers invoke Shutdown.
+	TerminalWorkProcessor *terminalworkapp.Processor
+	// TerminalWorkRegistry is the provider router paired with TerminalWorkProcessor.
+	TerminalWorkRegistry *terminalworkapp.Registry
+	// TerminalWorkQueries is the bounded operator query surface (task 4.5).
+	TerminalWorkQueries *terminalworkapp.QueryService
+	// TerminalWorkMetrics is the backlog/oldest-age snapshotter (task 4.5).
+	TerminalWorkMetrics *terminalworkapp.MetricsObserver
+	// terminalWorkReady optionally checks store readiness for TerminalWorkReadiness.
+	terminalWorkReady func(context.Context) error
+	// terminalWorkRT retains composition-root ownership for readiness/metrics publish.
+	terminalWorkRT *terminalWorkRuntime
 }

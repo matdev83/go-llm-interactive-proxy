@@ -31,12 +31,7 @@ func TestQuantitiesFromUsageEvent_EmptyUnmarkedUsageDeltaOmits(t *testing.T) {
 func TestQuantitiesFromUsageEvent_LegacyUnmarkedNonzeroOnly(t *testing.T) {
 	t.Parallel()
 	qs := plane.QuantitiesFromUsageEvent(lipapi.Event{
-		Kind:            lipapi.EventUsageDelta,
-		InputTokens:     3,
-		OutputTokens:    0,
-		CacheReadTokens: 0,
-		ReasoningTokens: 0,
-		TotalTokens:     0,
+		Kind: lipapi.EventUsageDelta, InputTokens: 3,
 	})
 	if len(qs) != 2 {
 		t.Fatalf("want input + derived total only; got %+v", qs)
@@ -58,7 +53,6 @@ func TestQuantitiesFromUsageEvent_ExplicitZeroPresenceRetained(t *testing.T) {
 		UsagePresence: lipapi.UsagePresence{
 			InputTokens: true, OutputTokens: true, TotalTokens: true,
 		},
-		InputTokens: 0, OutputTokens: 0, TotalTokens: 0,
 	})
 	in, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentInputToken)
 	if !ok || in != 0 {
@@ -74,6 +68,8 @@ func TestCustomerPlaneUsageEvent_StripsProviderScopesAndMoney(t *testing.T) {
 		Currency:      "USD",
 		CostPresent:   true,
 		CostSource:    string(lipapi.UsageSourceProviderReported),
+		MessageIndex:  3,
+		RawUsageJSON:  `{"provider":"x"}`,
 		UsageScopes: []lipapi.ScopedUsageDelta{
 			{
 				InputTokens: 40, OutputTokens: 12, TotalTokens: 52,
@@ -95,5 +91,10 @@ func TestCustomerPlaneUsageEvent_StripsProviderScopesAndMoney(t *testing.T) {
 	}
 	if got.CostPresent || got.CostNanoUnits != 0 || got.Currency != "" {
 		t.Fatalf("customer plane must strip money; got %+v", got)
+	}
+	// Projection is a fresh UsageDelta: lipapi.Event has no trace/model identity fields,
+	// and provider RawUsageJSON must not leak onto the customer plane.
+	if got.MessageIndex != 0 || got.RawUsageJSON != "" {
+		t.Fatalf("customer projection must not carry provider envelope fields: %+v", got)
 	}
 }

@@ -28,7 +28,8 @@ func ValidateEventAfterResponseHook(hookID string, ev *lipapi.Event) error {
 	}
 	switch ev.Kind {
 	case lipapi.EventResponseStarted, lipapi.EventMessageStarted,
-		lipapi.EventTextDelta, lipapi.EventReasoningDelta,
+		lipapi.EventTextDelta, lipapi.EventReasoningDelta, lipapi.EventReasoningSignatureDelta, lipapi.EventReasoningOpaqueDelta,
+		lipapi.EventReasoningPart,
 		lipapi.EventToolCallStarted, lipapi.EventToolCallArgsDelta, lipapi.EventToolCallFinished,
 		lipapi.EventAssistantImageRef, lipapi.EventAssistantFileRef,
 		lipapi.EventUsageDelta, lipapi.EventWarning, lipapi.EventError, lipapi.EventResponseFinished:

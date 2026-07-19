@@ -13,6 +13,7 @@ import (
 func FuzzCallValidateJSON(f *testing.F) {
 	f.Add([]byte(`{}`))
 	f.Add([]byte(`{"Messages":[{"Role":"user","Parts":[{"Kind":"text","Text":"x"}]}]}`))
+	f.Add([]byte(`{"Messages":[{"Role":"assistant","Parts":[{"Kind":"reasoning","Reasoning":{"Dialect":"openai.chat.reasoning_text.v1","Text":"think"}},{"Kind":"text","Text":"hi"}]}]}`))
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		raw = testkit.CapBytes(raw, 512<<10)
@@ -40,6 +41,7 @@ func FuzzMergeRouteQueryGenerationOptions(f *testing.F) {
 
 func FuzzCollectWithLimitsProgram(f *testing.F) {
 	f.Add([]byte{1, 2, 3})
+	f.Add([]byte{0, 1, 2, 3, 4, 5})
 
 	f.Fuzz(func(t *testing.T, b []byte) {
 		b = testkit.CapBytes(b, 4096)
@@ -65,11 +67,25 @@ func collectFuzzEvents(b []byte) []lipapi.Event {
 		if i >= j {
 			break
 		}
-		kind := lipapi.EventTextDelta
-		if b[i]%2 == 0 {
-			kind = lipapi.EventReasoningDelta
+		switch b[i] % 3 {
+		case 0:
+			evs = append(evs, lipapi.Event{Kind: lipapi.EventTextDelta, Delta: string(b[i:j])})
+		case 1:
+			evs = append(evs, lipapi.Event{Kind: lipapi.EventReasoningDelta, Delta: string(b[i:j])})
+		default:
+			// Always emit a structurally valid exact part inside a legal sequence.
+			opaque := json.RawMessage(`{"v":1}`)
+			if alt, err := json.Marshal(map[string]any{"v": 1, "n": len(b[i:j])}); err == nil {
+				opaque = alt
+			}
+			evs = append(evs, lipapi.Event{
+				Kind: lipapi.EventReasoningPart,
+				Reasoning: &lipapi.ReasoningPart{
+					Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
+					Opaque:  opaque,
+				},
+			})
 		}
-		evs = append(evs, lipapi.Event{Kind: kind, Delta: string(b[i:j])})
 	}
 	evs = append(evs, lipapi.Event{Kind: lipapi.EventResponseFinished})
 	return evs

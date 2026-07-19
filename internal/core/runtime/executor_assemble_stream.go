@@ -3,6 +3,7 @@ package runtime
 import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 // assembleExecutorStream builds the retry-capable recv stream and applies
@@ -32,13 +33,24 @@ func (e *Executor) assembleExecutorStream(prep *preparedRequest, plan *routePlan
 		routePrefs:    prep.routePrefs,
 		secureTurn:    prep.secureTurn,
 		secureTurnOK:  prep.secureTurnOK,
+		metering:      prep.metering,
+		requestAuth:   requestAuthorityFrom(prep.ctx),
+		customer:      newCustomerEvidenceAccumulator(),
 		accounting:    newAttemptAccountingTracker(e.now()),
 		recoverPolicy: streamrecovery.NewPolicy(e.StreamRecovery, e.now()),
 		aScope:        prep.aScope,
 		interleaved:   out.interleaved,
 		toolFinal:     newToolCallAssembler(fs, maxArgs, prep.baseline.Tools),
+		requestTerm:   newStreamTerminal(sdkterminal.ScopeRequest),
+		attemptTerm:   newStreamTerminal(sdkterminal.ScopeAttempt),
 	}
 	rs.storeInner(out.stream)
+	if err := rs.openFinalStreamObservation(prep.ctx); err != nil {
+		if out.stream != nil {
+			_ = out.stream.Close()
+		}
+		return nil, err
+	}
 	if e.shouldWrapHiddenInterleavedThinker(out.cand) {
 		rs.holdALegEnd = true
 		rec := e.newThinkerRecorder(out.cand, prep.baseline)

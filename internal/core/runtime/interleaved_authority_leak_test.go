@@ -51,6 +51,7 @@ func setupInterleavedAuthorityContinuation(t *testing.T, auth *recordingAuthorit
 				Operation:    lipapi.OperationOpenAIChatCompletions,
 				DeliveryMode: lipapi.DeliveryModeStreaming,
 			},
+			Messages: testMinimalUserMessages(),
 		},
 		budget:   &attemptBudget{max: 3, used: 0},
 		aLegID:   aLegID,
@@ -152,10 +153,8 @@ func TestOpenInterleavedExecutorContinuation_SettlesExecutorLegAuthority(t *test
 // A-leg is canceled mid-flight during backend.Open, after out.authority was admitted),
 // the error branch returned without releasing the freshly admitted local out.authority.
 // After L1's fix rs.authority is populated only in the rs literal AFTER this branch, so
-// here the LOCAL out.authority must be released (not rs.authority). The release kind
-// mirrors the sibling RegisterBLeg-failure site in tryReplacementIteration
-// (executor_recv_loop.go): ReleaseKindSwallowed, since the opened attempt produced no
-// client-facing output and is being discarded.
+// here the LOCAL out.authority must be settled (not rs.authority). Incurred Open work
+// settles with SettlementKindSwallowed; mirrors sibling RegisterBLeg-failure sites.
 func TestOpenInterleavedExecutorContinuation_RegisterBLegFailureReleasesLocalAuthority(t *testing.T) {
 	t.Parallel()
 
@@ -193,18 +192,17 @@ func TestOpenInterleavedExecutorContinuation_RegisterBLegFailureReleasesLocalAut
 		t.Fatalf("openInterleavedExecutorContinuation error = %v, want ErrALegCanceled", err)
 	}
 
-	// The local out.authority (reservation-executor) must be released exactly once.
-	if got, want := auth.releaseCalls.Load(), int64(1); got != want {
-		t.Fatalf("release calls = %d, want %d (local out.authority must be released on RegisterBLeg failure)", got, want)
+	if got, want := auth.releaseCalls.Load(), int64(0); got != want {
+		t.Fatalf("release calls = %d, want %d (incurred Open must settle, not release)", got, want)
 	}
-	release := auth.lastRelease()
-	if release.ReservationID != "reservation-executor" {
-		t.Fatalf("released reservation ID = %q, want reservation-executor (the local out.authority)", release.ReservationID)
+	if got, want := auth.settleCalls.Load(), int64(1); got != want {
+		t.Fatalf("settle calls = %d, want %d (local out.authority must settle on RegisterBLeg failure)", got, want)
 	}
-	if release.Kind != authorityapp.ReleaseKindSwallowed {
-		t.Fatalf("release kind = %q, want swallowed", release.Kind)
+	settle := auth.lastSettle()
+	if settle.ReservationID != "reservation-executor" {
+		t.Fatalf("settled reservation ID = %q, want reservation-executor (the local out.authority)", settle.ReservationID)
 	}
-	if auth.settleCalls.Load() != 0 {
-		t.Fatalf("settle calls = %d, want 0 (no usage was produced from the failed registration)", auth.settleCalls.Load())
+	if settle.Kind != authorityapp.SettlementKindSwallowed {
+		t.Fatalf("settle kind = %q, want swallowed", settle.Kind)
 	}
 }

@@ -45,13 +45,22 @@ const (
 	// is canonical. Mirrors the EventReasoningDelta precedent of carrying provider
 	// reasoning text through the canonical stream.
 	EventReasoningSignatureDelta EventKind = "reasoning_signature_delta"
-	EventToolCallStarted         EventKind = "tool_call_started"
-	EventToolCallArgsDelta       EventKind = "tool_call_args_delta"
-	EventToolCallFinished        EventKind = "tool_call_finished"
-	EventUsageDelta              EventKind = "usage_delta"
-	EventWarning                 EventKind = "warning"
-	EventError                   EventKind = "error"
-	EventResponseFinished        EventKind = "response_finished"
+	// EventReasoningOpaqueDelta carries a provider opaque reasoning payload
+	// (Anthropic redacted_thinking envelope bytes). Non-Anthropic frontends ignore
+	// it via their default switch case; the carrier is canonical.
+	EventReasoningOpaqueDelta EventKind = "reasoning_opaque_delta"
+	// EventReasoningPart carries one complete dialect-tagged historical reasoning
+	// part (see Event.Reasoning). Distinct from EventReasoningOpaqueDelta (Anthropic
+	// redacted_thinking byte stream) and from progressive EventReasoningDelta text.
+	// Dialect must already be normalized; provider envelope schema is adapter-owned.
+	EventReasoningPart     EventKind = "reasoning_part"
+	EventToolCallStarted   EventKind = "tool_call_started"
+	EventToolCallArgsDelta EventKind = "tool_call_args_delta"
+	EventToolCallFinished  EventKind = "tool_call_finished"
+	EventUsageDelta        EventKind = "usage_delta"
+	EventWarning           EventKind = "warning"
+	EventError             EventKind = "error"
+	EventResponseFinished  EventKind = "response_finished"
 
 	// Assistant-side multimodal references (streaming). Adapters emit these instead of
 	// overloading text_delta when the vendor returns image/file output items.
@@ -64,7 +73,8 @@ const (
 // content-class group in the sequence validators below.
 func isContentClassKind(k EventKind) bool {
 	switch k {
-	case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta,
+	case EventTextDelta, EventReasoningDelta, EventReasoningSignatureDelta, EventReasoningOpaqueDelta,
+		EventReasoningPart,
 		EventToolCallStarted, EventToolCallArgsDelta, EventToolCallFinished,
 		EventAssistantImageRef, EventAssistantFileRef:
 		return true
@@ -80,7 +90,14 @@ type Event struct {
 	Delta        string
 	// Signature carries the Anthropic thinking-block signature on
 	// EventReasoningSignatureDelta; it is empty for other kinds.
-	Signature  string
+	Signature string
+	// Opaque carries provider opaque reasoning bytes on EventReasoningOpaqueDelta
+	// (Anthropic redacted_thinking JSON envelope). Empty for other kinds.
+	Opaque []byte
+	// Reasoning carries one complete dialect-tagged reasoning part on
+	// EventReasoningPart. Nil for other kinds. Callers must not mutate Opaque
+	// bytes after the event is handed to streams/collectors; receivers deep-copy.
+	Reasoning  *ReasoningPart
 	ToolCallID string
 	ToolName   string
 
@@ -132,8 +149,9 @@ type Event struct {
 	AssistantName string
 }
 
-// ValidateEventEnvelope applies maximum sizes to canonical event string fields (codec output,
-// backend mapping, or hook mutations) so one stream chunk cannot force unbounded allocations.
+// ValidateEventEnvelope applies maximum sizes and kind-specific structural checks to
+// canonical event fields (codec output, backend mapping, or hook mutations) so one
+// stream chunk cannot force unbounded allocations. It does not mutate ev.
 func ValidateEventEnvelope(ev *Event) error {
 	if ev == nil {
 		return &ValidationError{Field: "Event", Message: "nil event"}
@@ -174,13 +192,29 @@ func ValidateEventEnvelope(ev *Event) error {
 	if err := validateStringField("Signature", ev.Signature, MaxRefStringBytes); err != nil {
 		return err
 	}
+	if len(ev.Opaque) > MaxReasoningOpaqueBytes {
+		return &ValidationError{Field: "Opaque", Message: fmt.Sprintf("exceeds %d bytes", MaxReasoningOpaqueBytes)}
+	}
 	if err := ev.Accounting.validate("Accounting"); err != nil {
 		return err
 	}
 	if err := validateScopedUsage(ev.UsageScopes); err != nil {
 		return err
 	}
+	if ev.Kind != EventReasoningPart && ev.Reasoning != nil {
+		return &ValidationError{Field: "Reasoning", Message: "only allowed on reasoning_part"}
+	}
 	switch ev.Kind {
+	case EventReasoningPart:
+		if ev.Reasoning == nil {
+			return &ValidationError{Field: "Reasoning", Message: "required for reasoning_part"}
+		}
+		if err := validateReasoningPart(ev.Reasoning); err != nil {
+			return &ValidationError{Field: "Reasoning", Message: err.Error()}
+		}
+		if err := validateReasoningPartExclusiveFields(ev); err != nil {
+			return err
+		}
 	case EventAssistantImageRef, EventAssistantFileRef:
 		if strings.TrimSpace(ev.AssistantRef) == "" {
 			return &ValidationError{Field: "AssistantRef", Message: "required for assistant media ref events"}
@@ -189,6 +223,33 @@ func ValidateEventEnvelope(ev *Event) error {
 		// FinishReason optional
 	default:
 		// Other kinds ignore assistant/finish fields at envelope validation time.
+	}
+	return nil
+}
+
+// validateReasoningPartExclusiveFields rejects event-level carriers that belong to
+// other EventKinds. Exact reasoning payload lives only on Event.Reasoning.
+func validateReasoningPartExclusiveFields(ev *Event) error {
+	if ev == nil {
+		return nil
+	}
+	switch {
+	case ev.Delta != "":
+		return &ValidationError{Field: "Delta", Message: "not allowed on reasoning_part"}
+	case ev.Signature != "":
+		return &ValidationError{Field: "Signature", Message: "not allowed on reasoning_part"}
+	case len(ev.Opaque) > 0:
+		return &ValidationError{Field: "Opaque", Message: "not allowed on reasoning_part"}
+	case ev.ToolCallID != "":
+		return &ValidationError{Field: "ToolCallID", Message: "not allowed on reasoning_part"}
+	case ev.ToolName != "":
+		return &ValidationError{Field: "ToolName", Message: "not allowed on reasoning_part"}
+	case strings.TrimSpace(ev.AssistantRef) != "":
+		return &ValidationError{Field: "AssistantRef", Message: "not allowed on reasoning_part"}
+	case strings.TrimSpace(ev.AssistantMIME) != "":
+		return &ValidationError{Field: "AssistantMIME", Message: "not allowed on reasoning_part"}
+	case strings.TrimSpace(ev.AssistantName) != "":
+		return &ValidationError{Field: "AssistantName", Message: "not allowed on reasoning_part"}
 	}
 	return nil
 }
@@ -281,6 +342,11 @@ type Collected struct {
 	FinishReason string
 	// AssistantMedia collects EventAssistantImageRef / EventAssistantFileRef in order.
 	AssistantMedia []Part
+	// ReasoningParts collects EventReasoningPart payloads in stream emission order.
+	// It does not encode placement among text/tool parts; feature observers own
+	// cross-part positioning for restore. Distinct from Reasoning, which aggregates
+	// progressive EventReasoningDelta text only.
+	ReasoningParts []ReasoningPart
 }
 
 // ToolCallSummary is one completed tool invocation aggregated from the stream.
@@ -367,6 +433,7 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 	out.ToolNames = make(map[string]string)
 	seenTool := make(map[string]struct{})
 	var toolArgBytes int
+	var exactReasoningBytes int
 
 	var sawResponseStarted bool
 	var sawMessage bool
@@ -436,10 +503,24 @@ func CollectWithLimits(ctx context.Context, s EventStream, limits CollectLimits)
 			}
 			out.Text.WriteString(ev.Delta)
 		case EventReasoningDelta:
-			if limits.MaxReasoningBytes > 0 && out.Reasoning.Len()+len(ev.Delta) > limits.MaxReasoningBytes {
+			if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, len(ev.Delta), limits.MaxReasoningBytes) {
 				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
 			}
 			out.Reasoning.WriteString(ev.Delta)
+		case EventReasoningPart:
+			if ev.Reasoning == nil {
+				return out, fmt.Errorf("%s without reasoning payload", EventReasoningPart)
+			}
+			cloned := cloneReasoningPart(ev.Reasoning)
+			if err := validateReasoningPart(cloned); err != nil {
+				return out, fmt.Errorf("%s: %w", EventReasoningPart, err)
+			}
+			add := ReasoningPayloadBytes(cloned)
+			if reasoningAggregateWouldExceed(out.Reasoning.Len(), exactReasoningBytes, add, limits.MaxReasoningBytes) {
+				return out, fmt.Errorf("%w: reasoning aggregate would exceed %d bytes", ErrCollectLimitExceeded, limits.MaxReasoningBytes)
+			}
+			exactReasoningBytes += add
+			out.ReasoningParts = append(out.ReasoningParts, *cloned)
 		case EventToolCallStarted:
 			if strings.TrimSpace(ev.ToolCallID) == "" {
 				return out, fmt.Errorf("%s without tool_call_id", EventToolCallStarted)
@@ -556,6 +637,25 @@ func mergeTotalTokens(cur, next int) int {
 
 func terminalError(ev Event) error {
 	return NewStreamError(ev.ErrorCode, ev.ErrorMessage)
+}
+
+// reasoningAggregateWouldExceed reports whether adding add bytes to text+exact
+// reasoning aggregates would exceed max. max<=0 means unlimited. Overflow-safe.
+func reasoningAggregateWouldExceed(textLen, exactLen, add, max int) bool {
+	if max <= 0 {
+		return false
+	}
+	if textLen < 0 || exactLen < 0 || add < 0 {
+		return true
+	}
+	used := textLen + exactLen
+	if used < textLen {
+		return true
+	}
+	if add > max-used {
+		return true
+	}
+	return false
 }
 
 // ValidateEventSequence checks ordering rules for a replayed event slice.

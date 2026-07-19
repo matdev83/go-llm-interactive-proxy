@@ -11,6 +11,7 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
 type recordingAttemptProvider struct {
@@ -19,20 +20,26 @@ type recordingAttemptProvider struct {
 	settleCalls  atomic.Int32
 	releaseCalls atomic.Int32
 	lastSettle   atomic.Value // []string
+	lastSettleIn atomic.Value // authority.AttemptSettlement
 }
 
 func (p *recordingAttemptProvider) AdmitAttempt(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
 	p.admitCalls.Add(1)
 	return authority.Decision{
-		Kind:         authority.DecisionAllow,
-		Reservations: []authority.Reservation{{Handle: p.id + "-h", Kind: authority.ReservationSpend}},
+		Kind: authority.DecisionAllow,
+		Reservations: []authority.Reservation{{
+			Handle: p.id + "-h",
+			Kind:   authority.ReservationSpend,
+			Money:  &economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		}},
 	}, nil
 }
 
 func (p *recordingAttemptProvider) SettleAttempt(_ context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
 	p.settleCalls.Add(1)
 	p.lastSettle.Store(append([]string(nil), in.Handles...))
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	p.lastSettleIn.Store(in)
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (p *recordingAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {

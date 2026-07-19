@@ -27,7 +27,7 @@ func (f *fakeAttemptProvider) AdmitAttempt(ctx context.Context, in authority.Att
 	}
 	return authority.Decision{
 		Kind:         authority.DecisionAllow,
-		Reservations: []authority.Reservation{{Handle: f.id + "-h", Kind: authority.ReservationSpend}},
+		Reservations: []authority.Reservation{spendReservation(f.id + "-h")},
 	}, nil
 }
 
@@ -38,7 +38,7 @@ func (f *fakeAttemptProvider) SettleAttempt(ctx context.Context, in authority.At
 	if f.settle != nil {
 		return f.settle(ctx, in)
 	}
-	return authority.Settlement{Kind: authority.SettlementFinal}, nil
+	return authority.OwnedFinalSettlement(in.Handles), nil
 }
 
 func (f *fakeAttemptProvider) ReleaseAttempt(context.Context, authority.AttemptRelease) error {
@@ -90,7 +90,7 @@ func TestAttemptCoordinator_AggregatesBoundVersions(t *testing.T) {
 				VersionRef: economics.VersionRef{ID: "usage_authority", Version: "v1"},
 				PolicyID:   "usage_authority",
 			}},
-			Reservations: []authority.Reservation{{Handle: "h1", Kind: authority.ReservationSpend}},
+			Reservations: []authority.Reservation{spendReservation("h1")},
 		}, nil
 	}
 	coord := &authoritycoord.AttemptCoordinator{
@@ -104,6 +104,49 @@ func TestAttemptCoordinator_AggregatesBoundVersions(t *testing.T) {
 	}
 	if len(d.BoundVersions) != 1 || d.BoundVersions[0].Version != "v1" {
 		t.Fatalf("bound versions = %+v", d.BoundVersions)
+	}
+}
+
+func TestAttemptCoordinator_MixedCurrencyClampReleasesCurrentHolds(t *testing.T) {
+	t.Parallel()
+	usd := &fakeAttemptProvider{id: "usd"}
+	usd.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+		return authority.Decision{
+			Kind:         authority.DecisionAllow,
+			Reservations: []authority.Reservation{spendReservation("usd-h")},
+			Clamps: []authority.Clamp{{
+				Kind:  authority.ClampMaxSpend,
+				Money: economics.Money{NanoUnits: 100, Currency: "USD", Present: true},
+			}},
+		}, nil
+	}
+	eur := &fakeAttemptProvider{id: "eur"}
+	eur.admit = func(context.Context, authority.AttemptAdmission) (authority.Decision, error) {
+		return authority.Decision{
+			Kind:         authority.DecisionAllow,
+			Reservations: []authority.Reservation{spendReservation("eur-h")},
+			Clamps: []authority.Clamp{{
+				Kind:  authority.ClampMaxSpend,
+				Money: economics.Money{NanoUnits: 50, Currency: "EUR", Present: true},
+			}},
+		}, nil
+	}
+	coord := &authoritycoord.AttemptCoordinator{
+		Slots: []authoritycoord.AttemptSlot{
+			{ID: "usd", Class: authoritycoord.AttemptPriorityHardSpend, Provider: usd, Strength: authority.StrengthRequired},
+			{ID: "eur", Class: authoritycoord.AttemptPriorityHardSpend, Provider: eur, Strength: authority.StrengthRequired},
+		},
+		CleanupTimeout: time.Second,
+	}
+	_, err := coord.Admit(context.Background(), validAttemptAdmission("b-mixed"))
+	if err == nil {
+		t.Fatal("expected mixed-currency clamp merge failure")
+	}
+	if usd.released.Load() != 1 {
+		t.Fatalf("prior usd hold released=%d want 1", usd.released.Load())
+	}
+	if eur.released.Load() != 1 {
+		t.Fatalf("current eur hold released=%d want 1 (must not leak on clamp merge failure)", eur.released.Load())
 	}
 }
 

@@ -141,4 +141,4 @@ make quality-checks
 go test -parallel=8 ./cmd/lipstd ./internal/core/config/... ./internal/core/diag/... ./internal/plugins/backends/localstub/... ./internal/plugins/features/... ./internal/stdhttp/... ./internal/core/runtime ./internal/pluginreg/... ./internal/archtest/...
 ```
 
-**Environment notes:** `make test-race` is skipped on Windows (see `Makefile`); CI runs strict race on Linux. Optional Postgres-backed tests skip unless `LIP_TEST_POSTGRES_DSN` / `LIP_MANAGED_POSTGRES_DSN` are set (see CI workflow). These are normal skips, not failures.
+**Environment notes:** `make test-race` is skipped on Windows (see `Makefile`); nightly CI runs strict race on Linux (`.github/workflows/race-fuzz-nightly.yml`). Optional Postgres-backed tests skip unless `LIP_TEST_POSTGRES_DSN` / `LIP_MANAGED_POSTGRES_DSN` are set (see PR CI workflow). These are normal skips, not failures.

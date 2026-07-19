@@ -73,7 +73,7 @@ make test-precommit-extra  # precommit-tagged hygiene + executor matrices
 make test-fast             # quality-checks + staged-package tests, or all when none staged
 make parity-checks         # conformance package with -tags=precommit,integration
 make test-fuzz             # short fuzz smoke over release-gate fuzz targets
-make test-race             # skipped on Windows; strict race runs in CI on Linux
+make test-race             # skipped on Windows; strict race runs in nightly CI on Linux
 make bench                 # benchmark smoke for hot packages
 make pgo-profile           # collect default.pgo from core benches (optional; move under cmd/lipstd)
 make pgo-build             # build cmd/lipstd (auto-applies cmd/lipstd/default.pgo when present)
@@ -81,7 +81,7 @@ make qa                    # quality-checks + one full tagged test pass + lint +
 make hooks-install         # install optional pre-commit hooks
 ```
 
-CI (`.github/workflows/qa.yml`) runs `make quality-checks`, `go test -parallel=8 -tags=precommit,integration ./...`, fuzz smoke, strict Linux race, golangci-lint v2, and `go tool govulncheck ./...`. Locally, `make lint` prefers `go tool golangci-lint` (pinned in `go.mod` `tool`) and falls back to a PATH install. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
+PR CI (`.github/workflows/qa.yml`) runs when the PR changes any `*.go` file: `make quality-checks`, PostgreSQL authority proofs, `go test -parallel=8 -tags=precommit,integration ./...`, golangci-lint v2, and `go tool govulncheck ./...`. PRs with no `*.go` changes skip the suite; the required `qa` gate still reports success. Nightly CI (`.github/workflows/race-fuzz-nightly.yml`, also `workflow_dispatch`) runs strict Linux race and Tier-1 fuzz smoke (`FUZZTIME=6s`). Locally, `make lint` prefers `go tool golangci-lint` (pinned in `go.mod` `tool`) and falls back to a PATH install. A monthly modernization workflow (`.github/workflows/modernize-monthly.yml`) re-runs the `modernize` linter suite and govulncheck. Linter config lives in [`.golangci.yml`](.golangci.yml).
 
 Recoverability is defined by the specification bundle: tests, `testdata/` goldens, stable `pkg/lipapi` / `pkg/lipsdk` contracts, steering, and parity/scenario docs. Start at [`docs/spec-bundle-index.md`](docs/spec-bundle-index.md), [`docs/conformance-golden-coverage.md`](docs/conformance-golden-coverage.md), and [`docs/conformance-matrix-evidence.md`](docs/conformance-matrix-evidence.md).
 

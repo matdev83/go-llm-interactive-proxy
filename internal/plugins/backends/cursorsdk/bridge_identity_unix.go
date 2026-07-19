@@ -3,6 +3,7 @@
 package cursorsdk
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -100,7 +101,7 @@ func readBootTime() time.Time {
 		line = strings.TrimRight(line, "\r")
 		if len(line) > 6 && line[:6] == "btime " {
 			secs, ok := parseUint(line[6:])
-			if ok {
+			if ok && secs <= math.MaxInt64 {
 				return time.Unix(int64(secs), 0)
 			}
 			break

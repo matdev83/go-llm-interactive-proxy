@@ -551,6 +551,38 @@ func TestSettlementKeyRejectsDuplicateEmptyInputs(t *testing.T) {
 	}
 }
 
+func TestWindowKeyStringFormat(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 7, 18, 12, 0, 0, 123456789, time.UTC)
+	end := start.Add(time.Hour)
+	key := WindowKey{
+		RuleID:       "quota-strict",
+		DimensionKey: DimensionKey("principal=p1"),
+		Start:        start,
+		End:          end,
+	}
+	want := "quota-strict|principal=p1|" + start.Format(time.RFC3339Nano) + "|" + end.Format(time.RFC3339Nano)
+	if got := key.String(); got != want {
+		t.Fatalf("window key = %q, want %q", got, want)
+	}
+}
+
+func TestReservationKeyStringNamespace(t *testing.T) {
+	t.Parallel()
+
+	key := ReservationKey{
+		LogicalRequestID: "req-1",
+		RuleID:           "quota-strict",
+		Sequence:         2,
+		Namespace:        " " + NamespaceDefault + " ",
+	}
+	want := NamespaceDefault + "|req-1||||quota-strict|2"
+	if got := key.String(); got != want {
+		t.Fatalf("namespaced reservation key = %q, want %q", got, want)
+	}
+}
+
 func TestRuleValidationRejectsUnsupportedAlgorithm(t *testing.T) {
 	t.Parallel()
 

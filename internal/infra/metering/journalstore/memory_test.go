@@ -54,6 +54,9 @@ func TestMemoryStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 	}
 	ctx := context.Background()
 	f := validFact("fact-content-1", "stream-content", 1)
+	f.IdentityVersion = 1
+	f.SourceEventKind = "usage-event"
+	f.SourceID = f.FactID
 	if err := s.Append(ctx, f); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +64,7 @@ func TestMemoryStore_AppendRejectsSameIdentityDifferentContent(t *testing.T) {
 	diffKind := f
 	diffKind.Kind = metering.FactKindDelta
 	if err := s.Append(ctx, diffKind); !errors.Is(err, journalstore.ErrIdentityCollision) {
-		t.Fatalf("different Kind collision got %v", err)
+		t.Fatalf("same SourceEventKey different Kind collision got %v", err)
 	}
 
 	diffPayload := f
@@ -180,7 +183,7 @@ func validFact(factID, streamID string, seq int64) metering.Fact {
 		StreamID:    streamID,
 		Sequence:    seq,
 		Kind:        metering.FactKindCumulative,
-		Perspective: metering.PerspectiveCustomer,
+		Perspective: metering.PerspectiveOperator,
 		Boundary:    metering.BoundaryBackendEgress,
 		Lifecycle:   metering.LifecycleBackendAttempt,
 		Correlation: metering.Correlation{RequestID: "req-1", ALegID: "a-1", BLegID: "b-1"},

@@ -19,3 +19,39 @@ func TestValidateEventAfterResponseHook_rejectsOversizedDelta(t *testing.T) {
 		t.Fatal("expected HookMutationError for oversized delta")
 	}
 }
+
+func TestValidateEventAfterResponseHook_acceptsReasoningSignatureDelta(t *testing.T) {
+	t.Parallel()
+	ev := &lipapi.Event{
+		Kind:      lipapi.EventReasoningSignatureDelta,
+		Signature: "sig-plan",
+	}
+	if err := corehooks.ValidateEventAfterResponseHook("test-hook", ev); err != nil {
+		t.Fatalf("RED: SignatureDelta must be a known post-hook event kind: %v", err)
+	}
+}
+
+func TestValidateEventAfterResponseHook_acceptsReasoningOpaqueDelta(t *testing.T) {
+	t.Parallel()
+	ev := &lipapi.Event{
+		Kind:   lipapi.EventReasoningOpaqueDelta,
+		Opaque: []byte(`{"type":"redacted_thinking","data":"x"}`),
+	}
+	if err := corehooks.ValidateEventAfterResponseHook("test-hook", ev); err != nil {
+		t.Fatalf("RED: OpaqueDelta must be a known post-hook event kind: %v", err)
+	}
+}
+
+func TestValidateEventAfterResponseHook_acceptsReasoningPart(t *testing.T) {
+	t.Parallel()
+	ev := &lipapi.Event{
+		Kind: lipapi.EventReasoningPart,
+		Reasoning: &lipapi.ReasoningPart{
+			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
+			Opaque:  []byte(`{"id":"rs_1","type":"reasoning","summary":[]}`),
+		},
+	}
+	if err := corehooks.ValidateEventAfterResponseHook("parts-noop", ev); err != nil {
+		t.Fatalf("reasoning_part must be a known post-hook event kind: %v", err)
+	}
+}

@@ -153,6 +153,12 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		shutdownTracing(ctx, traceRes.Shutdown)
 		return out, fmt.Errorf("runtimebundle: tool-call-repair defaults: %w", err)
 	}
+	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, standardplugins.ReasoningOutputPreservationInjectOpts{
+		StandardDistribution: true,
+	}); err != nil {
+		shutdownTracing(ctx, traceRes.Shutdown)
+		return out, fmt.Errorf("runtimebundle: reasoning-output-preservation defaults: %w", err)
+	}
 	regs := config.RegistrationsFromConfig(cfg)
 	// Secrets-guard uniqueness is owned by the feature package; enforce it at the
 	// composition root so inspect and serve both fail closed before merge/build.
@@ -203,6 +209,8 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 				PreRequestHandlers:               merged.PreRequestHandlers,
 				RouteHintProviders:               merged.RouteHintProviders,
 				CompletionGates:                  merged.CompletionGates,
+				AttemptTransforms:                merged.AttemptTransforms,
+				StreamObserverFactories:          merged.StreamObserverFactories,
 				TrafficObservers:                 append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
 				UsageObservers:                   append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
 				RawCaptureSinks:                  merged.RawCaptureSinks,

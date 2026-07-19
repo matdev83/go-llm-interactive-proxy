@@ -144,13 +144,7 @@ func messageToChatParam(m lipapi.Message) (openai.ChatCompletionMessageParamUnio
 		return openai.ToolMessage(toolResultString(p), p.ToolCallID), nil
 
 	case lipapi.RoleAssistant:
-		if err := assertAssistantPartsSupported(m.Parts); err != nil {
-			return openai.ChatCompletionMessageParamUnion{}, err
-		}
-		if len(m.Parts) == 1 && m.Parts[0].Kind == lipapi.PartText {
-			return openai.AssistantMessage(m.Parts[0].Text), nil
-		}
-		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message must be plain text for this adapter")
+		return assistantChatMessage(m)
 
 	case lipapi.RoleUser, lipapi.RoleSystem:
 		return userOrSystemChatMessage(m)
@@ -160,13 +154,113 @@ func messageToChatParam(m lipapi.Message) (openai.ChatCompletionMessageParamUnio
 	}
 }
 
-func assertAssistantPartsSupported(parts []lipapi.Part) error {
-	for _, p := range parts {
-		if p.Kind != lipapi.PartText {
-			return fmt.Errorf("openailegacy: assistant message part kind %q not supported", p.Kind)
+func assistantChatMessage(m lipapi.Message) (openai.ChatCompletionMessageParamUnion, error) {
+	var textParts []string
+	var reasoningText string
+	var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
+	for _, p := range m.Parts {
+		switch p.Kind {
+		case lipapi.PartText:
+			if strings.TrimSpace(p.Text) == "" {
+				continue
+			}
+			textParts = append(textParts, p.Text)
+		case lipapi.PartReasoning:
+			if p.Reasoning == nil {
+				return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: reasoning part missing payload")
+			}
+			d := lipapi.NormalizeReasoningDialect(p.Reasoning.Dialect)
+			if d != lipapi.ReasoningDialectOpenAIChatTextV1 {
+				return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: reasoning dialect %q not supported for chat replay (want %s)", d, lipapi.ReasoningDialectOpenAIChatTextV1)
+			}
+			if t := strings.TrimSpace(p.Reasoning.Text); t != "" {
+				if reasoningText != "" {
+					reasoningText += t
+				} else {
+					reasoningText = t
+				}
+			}
+		case lipapi.PartJSON:
+			tc, err := assistantPartJSONToToolCall(p)
+			if err != nil {
+				return openai.ChatCompletionMessageParamUnion{}, err
+			}
+			toolCalls = append(toolCalls, tc)
+		default:
+			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message part kind %q not supported", p.Kind)
 		}
 	}
-	return nil
+	if len(textParts) == 0 && reasoningText == "" && len(toolCalls) == 0 {
+		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message is empty after trimming")
+	}
+	u := openai.AssistantMessage(strings.Join(textParts, ""))
+	if u.OfAssistant == nil {
+		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("openailegacy: assistant message param missing")
+	}
+	if len(toolCalls) > 0 {
+		u.OfAssistant.ToolCalls = toolCalls
+	}
+	if reasoningText != "" {
+		u.OfAssistant.SetExtraFields(map[string]any{
+			"reasoning_content": reasoningText,
+		})
+	}
+	return u, nil
+}
+
+func assistantPartJSONToToolCall(p lipapi.Part) (openai.ChatCompletionMessageToolCallUnionParam, error) {
+	id := strings.TrimSpace(p.ToolCallID)
+	name := strings.TrimSpace(p.ToolName)
+	args := "{}"
+	if len(p.Content) > 0 {
+		var wire struct {
+			ID       string `json:"id"`
+			Type     string `json:"type"`
+			Function struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			} `json:"function"`
+		}
+		if err := json.Unmarshal(p.Content, &wire); err == nil && (wire.ID != "" || wire.Function.Name != "" || len(wire.Function.Arguments) > 0) {
+			if id == "" {
+				id = strings.TrimSpace(wire.ID)
+			}
+			if name == "" {
+				name = strings.TrimSpace(wire.Function.Name)
+			}
+			if len(wire.Function.Arguments) > 0 {
+				switch wire.Function.Arguments[0] {
+				case '"':
+					var s string
+					if err := json.Unmarshal(wire.Function.Arguments, &s); err != nil {
+						return openai.ChatCompletionMessageToolCallUnionParam{}, fmt.Errorf("openailegacy: tool_calls.arguments: %w", err)
+					}
+					args = s
+				default:
+					if !json.Valid(wire.Function.Arguments) {
+						return openai.ChatCompletionMessageToolCallUnionParam{}, fmt.Errorf("openailegacy: tool_calls.arguments invalid json")
+					}
+					args = string(wire.Function.Arguments)
+				}
+			}
+		} else if json.Valid(p.Content) {
+			args = string(p.Content)
+		} else {
+			return openai.ChatCompletionMessageToolCallUnionParam{}, fmt.Errorf("openailegacy: assistant tool part content invalid")
+		}
+	}
+	if id == "" || name == "" {
+		return openai.ChatCompletionMessageToolCallUnionParam{}, fmt.Errorf("openailegacy: assistant tool_call requires id and name")
+	}
+	return openai.ChatCompletionMessageToolCallUnionParam{
+		OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+			ID: id,
+			Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+				Name:      name,
+				Arguments: args,
+			},
+		},
+	}, nil
 }
 
 func userOrSystemChatMessage(m lipapi.Message) (openai.ChatCompletionMessageParamUnion, error) {
@@ -219,6 +313,10 @@ func userPartsToContentUnion(parts []lipapi.Part) ([]openai.ChatCompletionConten
 func toolResultString(p lipapi.Part) string {
 	if len(p.Content) == 0 {
 		return ""
+	}
+	var s string
+	if err := json.Unmarshal(p.Content, &s); err == nil {
+		return s
 	}
 	return string(p.Content)
 }

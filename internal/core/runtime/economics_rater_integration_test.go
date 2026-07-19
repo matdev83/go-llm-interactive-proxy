@@ -23,11 +23,12 @@ import (
 )
 
 type injectedRater struct {
-	nano     int64
-	currency string
-	err      error
-	calls    atomic.Int32
-	last     atomic.Value // economics.RatingRequest
+	nano        int64
+	currency    string
+	err         error
+	absentMoney bool
+	calls       atomic.Int32
+	last        atomic.Value // economics.RatingRequest
 
 	quoteMax    int64
 	quoteStatus economics.OutputLimitStatus
@@ -46,8 +47,9 @@ func (r *injectedRater) Rate(_ context.Context, req economics.RatingRequest) (ec
 	if cur == "" {
 		cur = "USD"
 	}
+	present := !r.absentMoney
 	return economics.RatingResult{
-		Money:       economics.Money{NanoUnits: r.nano, Currency: cur, Present: true},
+		Money:       economics.Money{NanoUnits: r.nano, Currency: cur, Present: present},
 		Source:      "injected-test-rater",
 		Authority:   "estimated",
 		Version:     economics.VersionRef{ID: "injected-rater", Version: "rate-v9"},
@@ -90,6 +92,17 @@ func (r *rateOnlyRater) Rate(_ context.Context, req economics.RatingRequest) (ec
 		Money:       economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
 		Perspective: req.Perspective,
 		RaterID:     "rate-only",
+		Version:     economics.VersionRef{ID: "rate-only", Version: "v1"},
+	}, nil
+}
+
+type emptyPerspectiveRater struct{}
+
+func (emptyPerspectiveRater) Rate(_ context.Context, _ economics.RatingRequest) (economics.RatingResult, error) {
+	return economics.RatingResult{
+		Money:   economics.Money{NanoUnits: 1, Currency: "USD", Present: true},
+		RaterID: "hostile",
+		Version: economics.VersionRef{ID: "hostile", Version: "v1"},
 	}, nil
 }
 
