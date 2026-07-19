@@ -1,13 +1,14 @@
 # Current-State Review, Requirements Gap Analysis, Architecture Research, and Design Validation
 
 Generated: 2026-07-19T01:03:15+02:00
+Updated after review hardening: 2026-07-19T12:40:34+02:00
 
 ## Status
 
 - Repository: `matdev83/go-llm-interactive-proxy`
 - Reviewed ref: `main` at `22d6009713ce01fe7c4e1d65b92b8655d27af67d`
 - Feature: `backend-connector-plugin-architecture`
-- Workflow completed: initialization, requirements generation, mandatory brownfield gap analysis, requirements remediation, design generation, design validation, design correction, and task generation
+- Workflow completed: initialization, requirements generation, mandatory brownfield gap analysis, requirements remediation, design generation, design validation, design correction, task generation, and reviewer hardening
 - Change scope: Kiro specification artifacts only
 - Implementation readiness: design validated; requirements, design, and tasks remain unapproved in `spec.json`
 
@@ -19,13 +20,15 @@ The selected direction is a hybrid distribution:
 
 1. OpenAI Responses, OpenAI legacy, Anthropic, Gemini, and Bedrock remain statically linked at the composition root—not in core.
 2. Every provider/local-agent backend outside that set becomes an executable process plugin.
-3. Trusted manifests are discovered without executing binaries.
+3. Closed, versioned manifests are discovered without executing binaries.
 4. A versioned gRPC ABI and public authoring kit isolate connectors from `internal/...`.
 5. A host anti-corruption layer adapts plugin RPC into the existing internal backend port.
-6. Plugin processes start lazily only for enabled backend instances.
-7. First-party external connectors use independent Go modules or repositories, so their SDKs and language runtimes never enter the root dependency graph.
+6. Plugin processes start lazily only for enabled backend instances and follow an explicitly declared shared-artifact or per-instance process model.
+7. Artifact digest verification is atomically bound to the exact executable bytes launched rather than a rechecked pathname.
+8. Configuration and credentials cross only an approved confidential, peer-authenticated local IPC channel.
+9. First-party external connectors use independent Go modules or repositories, so their SDKs and language runtimes never enter the root dependency graph.
 
-HashiCorp `go-plugin` over gRPC is the preferred process substrate, not the public domain contract. It supplies mature launch, protocol negotiation, checksum/TLS hooks, lifecycle control, and local RPC. Go-LIP still owns its manifest, backend service, DTOs, security policy, canonical adapter, and conformance suite.
+HashiCorp `go-plugin` over gRPC remains the preferred process substrate, not the public domain contract. Its exact suitability is conditional on Task 1 proving that it can satisfy Go-LIP's closed manifest, exact-byte launch, secure local IPC, lifecycle, and cross-platform requirements. Where it cannot, the same public ABI is hosted by a narrow project-owned process implementation. Go-LIP owns its manifest, backend service, DTOs, security policy, canonical adapter, and conformance suite either way.
 
 ## Reviewed Repository Assets
 
@@ -82,7 +85,7 @@ HashiCorp `go-plugin` over gRPC is the preferred process substrate, not the publ
 5. `execbackend.Backend` appropriately uses internal candidate/accounting types, making it unsuitable as an external ABI.
 6. `internal/core/codexcatalog` exists in core only because two optional connectors share it.
 7. Every in-tree connector shares the root `go.mod`; a Node-backed Cursor SDK implementation would turn Node packaging into a root concern.
-8. No manifest, compatibility, artifact-trust, discovery, or plugin-process lifecycle exists.
+8. No manifest, compatibility, artifact-trust, discovery, secure local IPC, or plugin-process lifecycle exists.
 9. Backend construction does not immediately return generic resource ownership.
 10. Current steering and ADR 0001 intentionally describe static-only plugin composition.
 
@@ -98,7 +101,7 @@ HashiCorp `go-plugin` over gRPC is the preferred process substrate, not the publ
 | G-06 | P0 | Root module owns all connector dependency graphs. | Missing capability | Use independent connector modules/repositories and prohibit root imports/requires/replaces. |
 | G-07 | P0 | Cursor SDK would introduce Node under the root connector tree. | Imminent risk | Rebase the active Cursor spec to an external connector artifact. |
 | G-08 | P0 | No generic process/instance lifecycle result. | Missing capability | Add idempotent close, rollback, kill, and reap ownership. |
-| G-09 | P0 | No artifact trust or child-environment policy. | Security gap | Trusted dirs, digest verification, constrained environment, local authenticated RPC, no runtime install. |
+| G-09 | P0 | No closed manifest, atomic executable-identity binding, child-environment policy, or confidential peer-authenticated local configure channel. | Security gap | Reject unknown v1 fields, bind digest verification to exact launched bytes, constrain the environment, require approved OS-specific secure IPC, and prohibit runtime installation. |
 | G-10 | P1 | Shared `*http.Client` cannot cross a process boundary. | Constraint | Pass a stable host runtime-policy projection; plugin owns SDK transport. |
 | G-11 | P0 | Streaming/cancellation must cross RPC without weakening commitment rules. | Missing capability | Bounded incremental stream, cancellation outcome, terminal, and classified error contracts. |
 | G-12 | P1 | Caps, inventory, counting, and billing span the internal seam. | Partial | Cover them as negotiated optional plugin operations. |
@@ -108,7 +111,7 @@ HashiCorp `go-plugin` over gRPC is the preferred process substrate, not the publ
 | G-16 | P1 | CI assumes one root module and a fixed bundle. | Missing capability | Add `GOWORK=off` root proof and dynamically discovered plugin-module matrix. |
 | G-17 | P1 | Inspect lacks discovered/process states. | Partial | Add bounded discovered/configured/active/incompatible/failed diagnostics. |
 | G-18 | P1 | Steering rejects runtime binary plugins as primary extensions. | Constraint | Add a superseding backend-plugin ADR and steering updates. |
-| G-19 | P1 | Discovery can become arbitrary code execution. | Security risk | Discovery is non-executing; trust/digest policy precedes launch. |
+| G-19 | P1 | Discovery can become arbitrary code execution. | Security risk | Discovery is non-executing; closed schema, trust, digest, exact-byte launch, and secure-channel policy precede configuration. |
 | G-20 | P1 | One hundred connectors could create a startup process storm. | Scale risk | O(manifests) discovery and lazy process activation. |
 
 ## Requirement-to-Asset Map
@@ -118,35 +121,39 @@ HashiCorp `go-plugin` over gRPC is the preferred process substrate, not the publ
 | 1 Dependency boundaries | Core package zones and archtest | Core is clean; standard binary/root module are not. |
 | 2 Public ABI | `lipapi`, `lipsdk`, internal backend port | No out-of-module backend service contract. |
 | 3 Discovery | Explicit registry and opaque config | No manifest source or generic host factory. |
-| 4 Lazy activation | Enabled-row construction | No process layer; all code is linked. |
+| 4 Lazy activation | Enabled-row construction | No process layer or declared shared/per-instance process model; all code is linked. |
 | 5 Host/lifecycle | backend port, runtimebundle closers | DTO adaptation and resource ownership missing. |
 | 6 Streaming | managed streams and commitment rules | Bounded RPC mapping absent. |
-| 7 Security | access profiles and config validation | Executable trust and child process policy absent. |
+| 7 Security | access profiles and config validation | Closed manifests, exact-byte launch binding, child process policy, and secure local IPC absent. |
 | 8 Compatibility | `kind`, `id`, `enabled`, opaque config | Strong base; add generic discovery config. |
 | 9 Auxiliary operations | inventory, caps, counter, finalizer | Public negotiated methods absent. |
 | 10 Migration | concrete packages and shared helpers | Package/module direction is wrong. |
 | 11 Release topology | Go modules and CI | No independent connector artifacts. |
-| 12 Evidence | conformance, archtest, race/leak gates | Extend to process, discovery, absence, and scale. |
+| 12 Evidence | conformance, archtest, race/leak gates | Extend to process, discovery, absence, adversarial local clients, substitution, and scale. |
 
 ## Requirements Remediation Performed
 
-The requirements were corrected after gap analysis to:
+The requirements were corrected after gap analysis and review to:
 
 - distinguish core-owned from standard-distribution built-in connectors;
 - classify OpenRouter as external while preserving dependency-free generic protocol aliases;
 - require the ABI to cover caps, inventory, counting, billing, replay support, and max-output enforcement;
 - forbid use of the current internal factory as the external ABI;
 - add process/instance lifecycle and rollback ownership;
+- declare shared-artifact and per-instance process models without contradiction;
 - add a host runtime-policy projection instead of a cross-process HTTP client;
 - make discovery non-executing and activation lazy;
-- add trusted path, digest, minimal environment, local RPC, and no-runtime-install rules;
+- close manifest v1 by rejecting every unknown field and reserve explicit versioned extension mechanisms;
+- require digest verification to remain atomically bound to the exact executable bytes launched;
+- require confidential expected-peer-authenticated local IPC before configuration or credential delivery;
+- keep child environment allowlists non-secret and prohibit runtime installation;
 - remove Codex/OpenCode-specific helpers from generic core/factory dependencies;
 - make ACP support reusable without keeping concrete ACP products in root composition;
 - preserve existing factory kinds and YAML rows;
 - require independent modules and `GOWORK=off` root isolation;
 - require revalidation of `cursor-sdk-backend`;
 - define optionality across compile, install, startup, process, and runtime presence;
-- add a one-hundred-manifest scale test.
+- add a one-hundred-manifest scale test plus adversarial manifest, substitution, and unauthorized-peer tests.
 
 ## Architecture Options
 
@@ -162,11 +169,11 @@ Source: https://pkg.go.dev/plugin
 
 ### C. Project-owned executable RPC/process framework
 
-Architecturally viable and retained as fallback, but it would require Go-LIP to implement and secure process negotiation, lifecycle, cleanup, compatibility, TLS, logging, and testing infrastructure.
+Architecturally viable and retained as fallback, but it would require Go-LIP to implement and secure process negotiation, exact-byte launch, local peer authentication, lifecycle, cleanup, compatibility, encryption, logging, and testing infrastructure.
 
 ### D. HashiCorp `go-plugin` gRPC runtime plus Go-LIP ABI and manifests
 
-Selected. It provides mature local process isolation, protocol versions, gRPC streaming, checksums/TLS hooks, environment controls, and lifecycle APIs. Go-LIP retains control of its domain contract, security policy, manifests, and canonical adaptation.
+Selected provisionally. It provides mature local process isolation, protocol versions, gRPC streaming, checksum/TLS hooks, environment controls, and lifecycle APIs. Go-LIP retains control of its domain contract, security policy, manifests, and canonical adaptation. Adoption remains conditional on the Task 1 spike proving every mandatory launch and local-channel control on each supported platform; otherwise Option C is selected without weakening the requirements.
 
 Primary sources:
 
@@ -188,44 +195,49 @@ Sources:
 1. Retain `execbackend.Backend` as the consumer-owned internal port.
 2. Add public `backendplugin/v1` contracts and conformance with no internal imports.
 3. Add an infrastructure/composition-owned plugin host.
-4. Use `go-plugin` v1.8.x gRPC mode subject to implementation-time license/security/API revalidation.
-5. Discover trusted manifests without executing binaries.
+4. Use `go-plugin` v1.8.x gRPC mode only if implementation-time license, API, exact-launch, secure-IPC, and lifecycle revalidation passes; otherwise use a narrow project-owned host.
+5. Discover closed, trusted manifests without executing binaries.
 6. Register exported backend kinds dynamically.
-7. Launch one supervised process per required artifact lazily.
-8. Adapt plugin DTOs/streams in one anti-corruption layer.
-9. Preserve core ownership of routing, failover, commitment, continuity, and accounting policy.
-10. Keep only five essential backend families statically composed.
-11. Move OpenRouter and every current non-essential connector to external modules.
-12. Extract dependency-light ACP support and move concrete ACP products out.
-13. Move Codex catalog and OpenCode vendor resolution out of generic core/factory dependencies.
-14. Prove the path with external local-stub, then migrate by connector family.
-15. Preserve current `kind` values and opaque YAML.
-16. Revalidate active connector specs before implementation.
+7. Start processes lazily according to an explicitly declared shared-artifact or per-instance process model.
+8. Atomically bind the accepted digest to the exact executable bytes launched using a verified handle or private immutable staging strategy.
+9. Require approved confidential peer-authenticated local IPC before sending configuration or credentials.
+10. Adapt plugin DTOs/streams in one anti-corruption layer.
+11. Preserve core ownership of routing, failover, commitment, continuity, and accounting policy.
+12. Keep only five essential backend families statically composed.
+13. Move OpenRouter and every current non-essential connector to external modules.
+14. Extract dependency-light ACP support and move concrete ACP products out.
+15. Move Codex catalog and OpenCode vendor resolution out of generic core/factory dependencies.
+16. Prove the path with external local-stub, then migrate by connector family.
+17. Preserve current `kind` values and opaque YAML.
+18. Revalidate active connector specs before implementation.
 
 ## Feasibility and Risk
 
 - Feasibility: high. The canonical port, explicit registry, opaque config, inventory, and composition root are suitable insertion points.
 - Effort: XL. This is a platform boundary plus migration of heterogeneous adapters.
-- Initial risk: high due executable trust, stream correctness, lifecycle, compatibility, and broad migration.
-- Residual risk: medium after versioned contracts, process isolation, digest validation, lazy launch, conformance, and phased cutover.
-- Primary complexity: lifecycle and compatibility—not provider mapping algorithms.
+- Initial risk: high due executable trust, secure local IPC, stream correctness, lifecycle, compatibility, and broad migration.
+- Residual risk: medium only after closed schemas, atomic exact-byte launch, peer-authenticated confidential channels, versioned contracts, process isolation, lazy launch, conformance, and phased cutover.
+- Primary complexity: security-sensitive lifecycle and compatibility—not provider mapping algorithms.
 
 ## Implementation Research Still Required
 
 Task 1 must revalidate:
 
 1. exact `go-plugin` v1.8.x APIs for versioned plugins, streaming, checksum, TLS/AutoMTLS, Unix sockets, child environment, runners, and Windows cleanup;
-2. MPL-2.0 obligations;
-3. gRPC message/window bounds for event streams;
-4. protobuf presence needed for `lipapi` null/omitted semantics;
-5. secret-bearing opaque config transport;
-6. cross-platform executable replacement/rollback;
-7. exact current backend seam coverage;
-8. multi-kind process sharing constraints;
-9. nested-module tag automation;
-10. installer-owned plugin paths per operating system.
+2. whether the selected substrate supports Unix peer credentials, macOS `getpeereid` or equivalent, Windows named-pipe DACL and client-token/process verification, or process-generation-bound ephemeral mutual TLS;
+3. OS-specific verified executable handle or identity-preserving launch primitives and private digest-addressed staging semantics;
+4. unauthorized, wrong-process, and stale-generation local-client rejection;
+5. MPL-2.0 obligations;
+6. gRPC message/window bounds for event streams;
+7. protobuf presence needed for `lipapi` null/omitted semantics;
+8. secret-bearing opaque config transport after peer and protocol authentication;
+9. cross-platform executable replacement, staged-copy cleanup, upgrade, and rollback;
+10. exact current backend seam coverage;
+11. shared-artifact versus per-instance process and multi-kind sharing constraints;
+12. nested-module tag automation;
+13. installer-owned plugin paths per operating system.
 
-A failed probe may replace `go-plugin` with a narrow project-owned gRPC host, but it does not authorize Go native plugins, internal-type leakage, or static optional imports.
+A failed probe may replace `go-plugin` with a narrow project-owned gRPC host or mark an unsupported plugin/platform pair, but it does not authorize weaker local transport, pathname-only digest checks, Go native plugins, internal-type leakage, or static optional imports.
 
 ## Design Validation Stage
 
@@ -239,11 +251,11 @@ A failed probe may replace `go-plugin` with a narrow project-owned gRPC host, bu
 
 ### Critical Issue 2: Discovery trust was incomplete
 
-**Concern:** Directory scanning plus handshake cookies did not establish artifact trust, path containment, minimal environment, or secret transport.
+**Concern:** Directory scanning plus handshake cookies did not establish artifact trust, path containment, minimal environment, secure peer binding, or secret transport.
 
-**Correction:** The final design restricts discovery to configured/installer-owned directories, verifies SHA-256 immediately before launch, avoids CWD/PATH search, launches without a shell, constrains environment, delivers secrets after negotiated local connection, bounds logs, and prohibits runtime installation. Cookies are not treated as security controls.
+**Correction:** The final design restricts discovery to configured/installer-owned directories, closes manifest v1, binds SHA-256 verification atomically to the exact executable bytes launched, avoids CWD/PATH search, launches without a shell, constrains the environment, requires an approved confidential expected-peer-authenticated local channel, delivers secrets only after peer and protocol negotiation, bounds logs, and prohibits runtime installation. Cookies are explicitly not security controls.
 
-**Traceability:** 3.1-3.8, 4.1-4.8, 7.1-7.10.
+**Traceability:** 3.1-3.8, 4.1-4.8, 7.1-7.10, 12.2.
 
 ### Critical Issue 3: Migration compatibility was underspecified
 
@@ -253,6 +265,17 @@ A failed probe may replace `go-plugin` with a narrow project-owned gRPC host, bu
 
 **Traceability:** 8.1-8.8, 10.1-10.9, 11.1-11.10, 12.5-12.9.
 
+## Reviewer Hardening Cross-Check
+
+Four unresolved CodeRabbit findings were independently cross-checked against the requirements and selected process architecture. All four were accepted as technically correct and worthwhile:
+
+1. **Unknown manifest fields**: valid. A security-sensitive installation manifest cannot silently accept unrecognized metadata. Manifest v1 is now closed, and future growth requires an explicit schema version or standardized versioned extension block.
+2. **Digest/launch TOCTOU**: valid. Rehashing a pathname immediately before process creation does not guarantee the launched bytes are the verified bytes. The design now requires a verified-handle or private immutable staging strategy and fails closed where no binding can be proved.
+3. **Local configure channel**: valid with refinement. Confidentiality and peer authentication are mandatory, but TLS is not the only acceptable mechanism. Approved profiles use Unix-domain-socket peer credentials, Windows named-pipe ACL/token verification, or ephemeral mutual TLS for loopback fallback. Cookie-only and plaintext channels are prohibited.
+4. **Process cardinality contradiction**: valid. The requirements now distinguish explicitly declared shared-artifact processes from per-instance processes; neither is implied by a universal at-most-one rule.
+
+The hardening changes were propagated through requirements, design, implementation tasks, cross-platform tests, threat modeling, downstream Cursor SDK revalidation, and final evidence gates.
+
 ## Validation Checklist
 
 - Complete requirements/design/task traceability.
@@ -261,20 +284,23 @@ A failed probe may replace `go-plugin` with a narrow project-owned gRPC host, bu
 - OpenRouter external; generic compatible codecs remain provider-neutral.
 - Public versioned ABI with no internal/provider types.
 - Automated non-executing discovery with no fixed optional list.
-- Lazy configuration-driven process activation.
+- Closed manifest v1 with explicit versioned evolution only.
+- Lazy configuration-driven activation honoring shared-artifact or per-instance process declarations.
+- Exact executable bytes are atomically bound to the accepted digest.
+- Approved confidential peer-authenticated local IPC precedes configuration and credential delivery.
 - Incremental bounded ordered streaming and one terminal.
 - No plugin-owned retry/failover or hidden replay after output.
 - Composition-owned close, rollback, invalidation, and later-operation restart.
-- Trusted paths, digest, minimal environment, local authenticated RPC, no runtime install.
+- Trusted paths, minimal non-secret environment, no runtime install.
 - Complete caps/inventory/accounting method coverage.
 - All current non-essential connectors and ACP/Codex helpers included in migration.
 - Root module isolation and independent connector releases.
 - Cursor SDK spec explicitly revalidated.
-- Fake executable, conformance, race/leak, fuzz, absence, scale, and cross-platform gates.
+- Fake executable, conformance, unauthorized-peer, substitution, race/leak, fuzz, absence, scale, and cross-platform gates.
 - ADR/steering and operator/author documentation included.
 
 ## Final Validation Verdict
 
-**PASS after corrections.**
+**PASS after reviewer hardening.**
 
-The design is suitable for task generation. It adds a Go-canonical process-isolated extension boundary without moving provider policy into core, covers the full backend seam, treats discovery as a security boundary, preserves existing configuration identities, and defines a staged migration that proves dependency isolation before deleting the fixed optional connector table.
+The design is suitable for task generation. It adds a Go-canonical process-isolated extension boundary without moving provider policy into core, covers the full backend seam, treats discovery, exact executable identity, and local IPC as security boundaries, preserves existing configuration identities, and defines a staged migration that proves dependency isolation before deleting the fixed optional connector table.
