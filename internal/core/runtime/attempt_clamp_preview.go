@@ -75,7 +75,6 @@ func (e *Executor) previewAndApplyAttemptClamps(
 	if preview == nil {
 		return nil, false, nil
 	}
-	previewRan = true
 
 	var converged []authority.Clamp
 	working := lipapi.CloneCall(*call)
