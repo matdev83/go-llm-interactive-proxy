@@ -20,9 +20,11 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 ## Requirements
 
 ### Requirement 1: Dependency and Ownership Boundaries
+
 **Objective:** As a Go-LIP maintainer, I want enforceable module and import boundaries, so that connector growth cannot increase core coupling or silently add optional SDK runtimes to the proxy.
 
 #### Acceptance Criteria
+
 1. The `internal/core` package tree shall not import any concrete backend connector package, provider SDK, plugin host implementation, or executable-plugin transport library.
 2. The Go-LIP root module shall compile, test, and produce the standard binary without requiring source code, generated code, package-manager files, or runtime installations from any non-essential connector module.
 3. The standard binary shall statically include only the essential backend connector families: OpenAI Responses, OpenAI legacy, Anthropic, Gemini, and Bedrock, plus dependency-free protocol-compatible aliases implemented by those same codec families.
@@ -32,9 +34,11 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 7. The architecture test suite shall fail when a forbidden connector import, root-module dependency, or fixed non-essential registration is introduced.
 
 ### Requirement 2: Versioned Public Backend Plugin Contract
+
 **Objective:** As a connector author, I want a stable public contract that contains no Go-LIP internal types, so that a connector can be developed and released independently from the root module.
 
 #### Acceptance Criteria
+
 1. The system shall define a versioned backend plugin protocol and Go authoring API under public, documented packages that do not expose `internal/...` types.
 2. The plugin contract shall use protocol-neutral DTOs for backend identity, instance configuration, canonical invocation, attempt context, capability profiles, model inventory, usage/accounting evidence, errors, cancellation, and lifecycle.
 3. The plugin contract shall preserve canonical optional-value and event-order semantics without exposing provider SDK or provider wire types.
@@ -45,35 +49,41 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The SDK shall include a conformance harness and a minimal reference executable plugin that third-party authors can run without importing Go-LIP internals.
 
 ### Requirement 3: Trusted Manifest Discovery and Dynamic Registration
+
 **Objective:** As an operator, I want installed backend plugins to be discovered automatically, so that the core and standard bundle never maintain a fixed list of optional connectors.
 
 #### Acceptance Criteria
+
 1. When Go-LIP starts, the backend plugin discovery layer shall enumerate versioned manifests from operator-configured paths and installation-owned default plugin directories.
 2. The discovery layer shall not search the current working directory, execute arbitrary `PATH` matches, contact a network service, or download software by default.
 3. The plugin manifest shall declare the plugin identity, executable, protocol compatibility, exported backend factory kinds, build/version metadata, platform constraints, security posture, and artifact digest.
-4. When a manifest is considered for registration, the discovery layer shall validate manifest schema, path containment, executable file type, digest, uniqueness of plugin identity, uniqueness of exported factory ownership, and compatibility with the host.
+4. When a manifest is considered for registration, the discovery layer shall strictly validate the manifest schema, reject every unknown v1 field, require future metadata to use an explicit versioned extension mechanism, and validate path containment, executable file type, digest, uniqueness of plugin identity, uniqueness of exported factory ownership, and compatibility with the host.
 5. When a valid manifest exports a backend factory kind, the integration layer shall register a host-backed factory dynamically without adding a connector-specific branch or table entry.
 6. If two manifests claim the same factory kind, then startup shall fail deterministically and identify both conflicting manifests.
 7. If an invalid or incompatible plugin is not referenced by any enabled backend configuration, then inspect/diagnostic output shall report it without preventing unrelated built-in or external backends from operating, unless strict discovery mode is configured.
 8. If an enabled backend references a missing, invalid, incompatible, or untrusted plugin, then startup shall fail for that configuration with an actionable error before serving traffic.
 
 ### Requirement 4: Lazy Activation and Optional Presence
+
 **Objective:** As an operator, I want external connector processes and runtimes activated only when configured, so that installed or absent plugins do not impose unrelated startup or runtime costs.
 
 #### Acceptance Criteria
+
 1. The discovery layer shall read and validate manifests without starting plugin executables.
 2. When no enabled backend instance uses an external factory kind, the system shall not start, health-check, initialize, or require that plugin executable or its language runtime.
-3. When the first enabled backend instance for a plugin is constructed, the plugin host shall start at most one supervised process for that plugin artifact within the runtime build and configure the requested instance.
-4. Where one plugin exports multiple enabled backend instances, the plugin host shall share its supervised process only when the plugin contract declares instance isolation and concurrency support.
+3. When the first enabled backend instance for a plugin is constructed, the plugin host shall lazily start the supervised process required by the plugin’s declared process model and configure the requested instance; later instances shall reuse that process only when process sharing is declared, otherwise each instance shall receive its own supervised process.
+4. Where one plugin exports multiple enabled backend instances, the plugin host shall share a supervised process only when the plugin contract declares instance isolation and concurrency support.
 5. If a configured plugin runtime is unavailable, then the failure shall affect only startup of configurations that require that plugin and shall not turn plugin presence into a prerequisite for compiling the root module.
 6. The minimal distribution shall remain fully functional with only built-in backends and no external plugin directory.
 7. Where a curated full distribution installs optional plugins by default, the installed plugins shall remain inactive until referenced by enabled backend configuration.
 8. The host shall not perform runtime package-manager installation, dependency resolution, or self-update for a plugin.
 
 ### Requirement 5: Host Integration and Lifecycle Ownership
+
 **Objective:** As a runtime maintainer, I want one explicit integration layer between external plugins and the internal backend port, so that process mechanics and provider behavior remain outside core orchestration.
 
 #### Acceptance Criteria
+
 1. The backend plugin host shall adapt a configured plugin instance to the existing internal backend execution seam without changing routing ownership.
 2. The integration layer shall map public plugin DTOs to and from `lipapi` and the internal attempt view while preventing plugin access to mutable routing, secure-session, database, registry, or executor state.
 3. The composition root shall own plugin process creation, instance configuration, health state, shutdown, and rollback when later runtime assembly fails.
@@ -84,9 +94,11 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The plugin process shall own provider SDK clients, provider transport plumbing, and provider-specific retries that comply with the advertised contract and core output-commitment rules.
 
 ### Requirement 6: Canonical Streaming, Cancellation, and Error Semantics
+
 **Objective:** As a client and routing maintainer, I want external connectors to behave like built-in connectors at the canonical seam, so that plugin isolation does not weaken streaming or failover correctness.
 
 #### Acceptance Criteria
+
 1. The execution protocol shall be streaming-first and shall carry ordered canonical events incrementally without buffering a complete provider response.
 2. The host shall enforce bounded frame sizes, bounded pending events, one terminal outcome, and no event delivery after terminal completion.
 3. The plugin shall not emit frontend wire shapes, provider SDK objects, or provider-specific retry/failover decisions across the ABI.
@@ -97,24 +109,28 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The external plugin path shall preserve the same canonical conformance expectations as built-in connectors for text, reasoning, tools, multimodal content, usage, errors, and terminal ordering where those capabilities are advertised.
 
 ### Requirement 7: Security, Trust, and Secret Handling
+
 **Objective:** As a security-conscious operator, I want executable plugins treated as explicit trusted code with constrained launch behavior, so that automated discovery does not become arbitrary code execution or secret leakage.
 
 #### Acceptance Criteria
+
 1. The system shall document that an installed executable plugin has operating-system-level trust equivalent to other code executed by the proxy account.
-2. The host shall launch only executables referenced by validated manifests from trusted directories and matching the expected cryptographic digest, unless an explicit development-mode override is enabled.
-3. The host shall use process-isolated RPC over a local-only endpoint with protocol authentication and encrypted transport where supported by the selected plugin runtime.
+2. The host shall launch only executables referenced by validated manifests from trusted directories and matching the expected cryptographic digest, and shall bind that verification atomically to the exact executable bytes launched through an approved platform strategy, unless an explicit development-mode override is enabled.
+3. The host shall use an approved OS-specific local IPC profile that provides confidentiality and peer authentication; if no approved profile is available, the host shall fail before plugin configuration or secret delivery, and shall not use unauthenticated, cookie-only, or plaintext loopback transport.
 4. The host shall construct a minimal child environment and shall not inherit the complete proxy environment by default.
 5. The system shall ensure secrets are not placed in command-line arguments, manifest files, discovery diagnostics, process titles, metric labels, or normal logs.
-6. The plugin host shall deliver plugin configuration and credential material through the authenticated local protocol or an explicit environment allowlist after compatibility negotiation.
+6. The plugin host shall deliver plugin configuration and credential material only through the authenticated confidential local protocol after peer authentication and compatibility negotiation; an environment allowlist may contain non-secret bootstrap values only.
 7. The host shall bound plugin stdout/stderr capture and sanitize plugin-originated errors and diagnostics before exposing them to operators.
 8. The startup validator shall continue to enforce each backend’s declared credential mode and access scope, including local-only restrictions.
 9. The core shall not auto-download, auto-update, or execute installation hooks from plugin manifests.
 10. When a security-sensitive manifest or launch-policy change is proposed, the system shall require dedicated threat-model and startup-security revalidation.
 
 ### Requirement 8: Configuration and Operator Compatibility
+
 **Objective:** As an existing operator, I want connector externalization to preserve backend IDs and configuration intent, so that migration does not require redesigning routing and model aliases.
 
 #### Acceptance Criteria
+
 1. The system shall preserve existing `plugins.backends` rows that continue to use `kind`, runtime `id`, `enabled`, and opaque connector configuration.
 2. When an existing connector is externalized, the system shall preserve its factory kind and runtime instance semantics unless a connector-specific migration explicitly documents a breaking change.
 3. The system shall add generic backend plugin discovery/trust configuration without adding provider-specific fields to core configuration.
@@ -125,9 +141,11 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The active `cursor-sdk-backend` specification and any other unimplemented connector spec shall be updated or explicitly blocked until it conforms to this plugin architecture.
 
 ### Requirement 9: Capabilities, Inventory, Accounting, and Auxiliary Contracts
+
 **Objective:** As a routing and accounting maintainer, I want the external ABI to cover the complete backend seam, so that connector extraction does not reduce model discovery or economic correctness.
 
 #### Acceptance Criteria
+
 1. The plugin shall describe static and model-aware canonical capabilities, transport capabilities, reasoning replay support, backend route prefixes, and max-output enforcement posture.
 2. The plugin shall expose bounded model inventory with canonical IDs, native IDs, backend provenance, display metadata, capability evidence, source, freshness, and refresh behavior.
 3. The host shall retain backend instance identity and plugin factory kind when publishing inventory rows and resolving routes.
@@ -138,9 +156,11 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 8. The generic plugin metadata shall not contain connector-specific model catalogs, vendor resolvers, credential logic, or provider SDK objects.
 
 ### Requirement 10: Migration of Existing Non-Essential Connectors
+
 **Objective:** As a maintainer, I want every current non-essential connector moved behind the external ABI, so that the architecture is proven on the existing heterogeneous connector set.
 
 #### Acceptance Criteria
+
 1. The final standard registration bundle shall contain no fixed registrations for ACP, Cursor CLI ACP, Gemini CLI ACP, Agy CLI ACP, Codex App Server, OpenAI Codex, OpenRouter, NVIDIA, Hugging Face, OpenCode Go, OpenCode Zen, Ollama, Ollama Cloud, llama.cpp, LM Studio, vLLM, or future Cursor SDK connectors.
 2. The migration shall preserve for each migrated connector its existing factory kind, security profile, route-prefix behavior, canonical conformance, and documented configuration unless a separately approved migration states otherwise.
 3. The migration shall move provider-specific helpers used only by non-essential connectors, including the Codex model catalog and OpenCode vendor-resolution wiring, out of generic core/factory dependencies and into the owning plugin module or a connector-support module.
@@ -152,9 +172,11 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 9. When the final migration is complete, deleting all optional connector module directories from a checkout shall not prevent `GOWORK=off go build ./cmd/lipstd` or root-module tests from succeeding.
 
 ### Requirement 11: Independent Modules, Packaging, and Release Topology
+
 **Objective:** As a release maintainer, I want connectors versioned and shipped independently, so that optional dependencies and release cadence do not contaminate the proxy root module.
 
 #### Acceptance Criteria
+
 1. The first-party external connectors shall be separate Go modules or separate repositories with their own dependency graphs, tests, lockfiles, generated artifacts, and release metadata.
 2. The root `go.mod` shall not require or replace first-party external connector modules.
 3. Where local multi-module development uses a generated or developer-only Go workspace, the root CI and release builds shall run with `GOWORK=off` to prove isolation.
@@ -167,11 +189,13 @@ OpenRouter is deliberately classified as non-essential. Although it uses OpenAI-
 10. The architecture decision records and steering documentation shall be updated to supersede the current static-only backend plugin model while preserving explicit construction and rejecting Go native shared-object plugins.
 
 ### Requirement 12: Diagnostics, Testing, and Scale Readiness
+
 **Objective:** As a maintainer and operator, I want deterministic evidence for plugin discovery, lifecycle, and connector parity, so that the architecture can safely scale beyond the current connector count.
 
 #### Acceptance Criteria
+
 1. The system shall expose bounded, low-cardinality diagnostics for plugin discovery state, negotiated protocol, process generation, configured instances, health, restarts, and last safe error code without exposing secrets or full config.
-2. The test suite shall include manifest parser fuzzing, duplicate/conflict tests, digest/path tests, compatibility negotiation tests, fake process tests, stream contract tests, cancellation tests, crash/restart tests, shutdown/rollback tests, and race/leak checks.
+2. The test suite shall include manifest parser fuzzing, unknown-field and extension-version tests, duplicate/conflict tests, digest/path and launch-substitution tests, unauthorized-local-client and peer-authentication tests, compatibility negotiation tests, fake process tests, stream contract tests, cancellation tests, crash/restart tests, shutdown/rollback tests, and race/leak checks.
 3. The SDK conformance suite shall be runnable by every connector module and shall validate only capabilities the connector advertises.
 4. The architecture tests shall prove core import isolation, root module graph isolation, absence tolerance, no fixed optional registration list, and no connector-specific fields in generic plugin contracts.
 5. The CI system shall build the root module independently and run a dynamically discovered matrix of first-party plugin modules on supported platforms.
