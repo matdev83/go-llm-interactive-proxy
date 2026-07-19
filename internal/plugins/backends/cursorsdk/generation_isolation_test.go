@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk/protocol"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -278,10 +277,11 @@ func TestBridgeProcess_RunIDReuseAcrossGenerationsUsesFreshSubscription(t *testi
 	require.NoError(t, <-killErr)
 	_ = peer.Close()
 
-	ev, err := restart.Recv(ctx)
+	// Drain the full stream: a prior Recv would consume the only text delta and
+	// make drainCanonicalStream fail with "expected content and single terminal".
+	text, terminals, err := drainCanonicalStream(ctx, restart)
 	require.NoError(t, err)
-	assert.NotEqual(t, lipapi.EventError, ev.Kind)
-	_, _, err = drainCanonicalStream(ctx, restart)
-	require.NoError(t, err)
+	assert.Equal(t, 1, terminals)
+	assert.NotEmpty(t, text)
 	_ = restart.Close()
 }
