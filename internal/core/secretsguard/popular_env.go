@@ -1,6 +1,9 @@
 package secretsguard
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // PopularSecretEnvNames is the curated exact-name registry of common non-proxy
 // credential environment variables loaded when SingleUserOptions.IncludePopularEnv
@@ -63,10 +66,8 @@ func isPopularSecretEnvName(name string) bool {
 	if name == "" {
 		return false
 	}
-	for _, exact := range PopularSecretEnvNames {
-		if name == exact {
-			return true
-		}
+	if slices.Contains(PopularSecretEnvNames, name) {
+		return true
 	}
 	if !isUpperSnakeEnvName(name) {
 		return false
@@ -83,11 +84,9 @@ func isPopularSecretEnvName(name string) bool {
 }
 
 func hasAntiCSRFEnvSegment(name string) bool {
-	for _, part := range strings.Split(name, "_") {
-		for _, seg := range antiCSRFEnvSegments {
-			if part == seg {
-				return true
-			}
+	for part := range strings.SplitSeq(name, "_") {
+		if slices.Contains(antiCSRFEnvSegments, part) {
+			return true
 		}
 	}
 	return false
