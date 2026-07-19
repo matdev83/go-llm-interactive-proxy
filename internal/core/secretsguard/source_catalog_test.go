@@ -264,3 +264,310 @@ func TestPopularSecretEnvNames_excludesIDsAndPaths(t *testing.T) {
 		t.Fatal("PopularSecretEnvNames must include AWS_SECRET_ACCESS_KEY")
 	}
 }
+
+func TestPopularSecretEnvNames_uniqueNonEmpty(t *testing.T) {
+	t.Parallel()
+	if len(secretsguard.PopularSecretEnvNames) == 0 {
+		t.Fatal("PopularSecretEnvNames must be non-empty")
+	}
+	seen := make(map[string]struct{}, len(secretsguard.PopularSecretEnvNames))
+	for _, name := range secretsguard.PopularSecretEnvNames {
+		if name == "" {
+			t.Fatal("PopularSecretEnvNames must not contain empty names")
+		}
+		if _, dup := seen[name]; dup {
+			t.Fatalf("PopularSecretEnvNames duplicate %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+}
+
+func TestNewSingleUserSource_genericPopularAPIKeyAndToken(t *testing.T) {
+	t.Parallel()
+	env := &countingEnvironment{vals: map[string]string{
+		"CONTEXT7_API_KEY": testkit.SyntheticOpenAIAPIKey,
+		"APIFY_TOKEN":      testkit.SyntheticOpenRouterAPIKey,
+		"TAVILY_API_KEY":   testkit.SyntheticGeminiAPIKey,
+		"FOO_SECRET":       testkit.SyntheticAnthropicSecretGuardKey,
+		"MY_PASSWORD":      testkit.SyntheticBearerCredential,
+		"BAR_KEY":          testkit.SyntheticDuplicateValueAliasA,
+	}}
+	src, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.EntryCount() != 3 {
+		t.Fatalf("EntryCount=%d want 3 (generic _API_KEY/_TOKEN only)", src.EntryCount())
+	}
+	if !slices.Contains(src.SourceCategories(), string(secretguard.SourceCategoryPopularEnv)) {
+		t.Fatalf("categories=%v want popular_env", src.SourceCategories())
+	}
+
+	m, err := src.MatcherResolver().Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{
+		testkit.SyntheticOpenAIAPIKey,
+		testkit.SyntheticOpenRouterAPIKey,
+		testkit.SyntheticGeminiAPIKey,
+	} {
+		findings, scanErr := m.ScanString(t.Context(), value)
+		if scanErr != nil {
+			t.Fatal(scanErr)
+		}
+		if len(findings) != 1 {
+			t.Fatalf("findings=%d want 1", len(findings))
+		}
+		if findings[0].SourceCategory != secretguard.SourceCategoryPopularEnv {
+			t.Fatalf("category=%q want popular_env", findings[0].SourceCategory)
+		}
+	}
+	for _, value := range []string{
+		testkit.SyntheticAnthropicSecretGuardKey,
+		testkit.SyntheticBearerCredential,
+		testkit.SyntheticDuplicateValueAliasA,
+	} {
+		findings, scanErr := m.ScanString(t.Context(), value)
+		if scanErr != nil {
+			t.Fatal(scanErr)
+		}
+		if len(findings) != 0 {
+			t.Fatalf("unrelated suffix must not load; findings=%d", len(findings))
+		}
+	}
+}
+
+func TestNewSingleUserSource_includePopularEnvFalseDoesNotInfer(t *testing.T) {
+	t.Parallel()
+	env := &countingEnvironment{vals: map[string]string{
+		"OPENAI_API_KEY":   testkit.SyntheticOpenAIAPIKey,
+		"CONTEXT7_API_KEY": testkit.SyntheticGeminiAPIKey,
+		"APIFY_TOKEN":      testkit.SyntheticOpenRouterAPIKey,
+	}}
+	src, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: false,
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.EntryCount() != 1 {
+		t.Fatalf("EntryCount=%d want 1 (proxy only; no popular inference)", src.EntryCount())
+	}
+	if !slices.Contains(src.SourceCategories(), string(secretguard.SourceCategoryProxyEnv)) {
+		t.Fatalf("categories=%v want proxy_env", src.SourceCategories())
+	}
+	if slices.Contains(src.SourceCategories(), string(secretguard.SourceCategoryPopularEnv)) {
+		t.Fatalf("categories=%v must not include popular_env when IncludePopularEnv is false", src.SourceCategories())
+	}
+
+	m, err := src.MatcherResolver().Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyFindings, err := m.ScanString(t.Context(), testkit.SyntheticOpenAIAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proxyFindings) != 1 || proxyFindings[0].SourceCategory != secretguard.SourceCategoryProxyEnv {
+		t.Fatalf("OPENAI_API_KEY must remain proxy_env; findings=%d category=%q",
+			len(proxyFindings), categoryOrEmpty(proxyFindings))
+	}
+	for _, value := range []string{
+		testkit.SyntheticGeminiAPIKey,
+		testkit.SyntheticOpenRouterAPIKey,
+	} {
+		findings, scanErr := m.ScanString(t.Context(), value)
+		if scanErr != nil {
+			t.Fatal(scanErr)
+		}
+		if len(findings) != 0 {
+			t.Fatalf("IncludePopularEnv false must not infer popular secrets; findings=%d", len(findings))
+		}
+	}
+}
+
+func TestNewSingleUserSource_includeEnvOverridesPublicPrefixExclusion(t *testing.T) {
+	t.Parallel()
+	const name = "NEXT_PUBLIC_SERVICE_API_KEY"
+	env := &countingEnvironment{vals: map[string]string{
+		name: testkit.SyntheticOpenAIAPIKey,
+	}}
+	src, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		IncludeEnv:        []string{name},
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.EntryCount() != 1 {
+		t.Fatalf("IncludeEnv must load public-prefixed name; EntryCount=%d", src.EntryCount())
+	}
+	m, err := src.MatcherResolver().Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := m.ScanString(t.Context(), testkit.SyntheticOpenAIAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("findings=%d want 1", len(findings))
+	}
+	if findings[0].SourceCategory != secretguard.SourceCategoryOperatorEnv {
+		t.Fatalf("category=%q want operator_env", findings[0].SourceCategory)
+	}
+}
+
+func TestNewSingleUserSource_csrfTokenExcludedUnlessIncludeEnv(t *testing.T) {
+	t.Parallel()
+	const name = "CSRF_TOKEN"
+	env := &countingEnvironment{vals: map[string]string{
+		name: testkit.SyntheticOpenAIAPIKey,
+	}}
+
+	excluded, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded.EntryCount() != 0 {
+		t.Fatalf("CSRF_TOKEN must not load via popular inference; EntryCount=%d", excluded.EntryCount())
+	}
+
+	included, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		IncludeEnv:        []string{name},
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if included.EntryCount() != 1 {
+		t.Fatalf("IncludeEnv must load CSRF_TOKEN; EntryCount=%d", included.EntryCount())
+	}
+	m, err := included.MatcherResolver().Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := m.ScanString(t.Context(), testkit.SyntheticOpenAIAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("findings=%d want 1", len(findings))
+	}
+	if findings[0].SourceCategory != secretguard.SourceCategoryOperatorEnv {
+		t.Fatalf("category=%q want operator_env", findings[0].SourceCategory)
+	}
+}
+
+func TestNewSingleUserSource_excludeEnvWinsOverPopularInference(t *testing.T) {
+	t.Parallel()
+	env := &countingEnvironment{vals: map[string]string{
+		"CONTEXT7_API_KEY": testkit.SyntheticOpenAIAPIKey,
+		"APIFY_TOKEN":      testkit.SyntheticOpenRouterAPIKey,
+	}}
+	src, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		ExcludeEnv:        []string{"CONTEXT7_API_KEY", "APIFY_TOKEN"},
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.EntryCount() != 0 {
+		t.Fatalf("ExcludeEnv must win over popular inference; EntryCount=%d", src.EntryCount())
+	}
+}
+
+func TestNewSingleUserSource_proxyCredentialStaysProxyEnvWithPopularInference(t *testing.T) {
+	t.Parallel()
+	env := &countingEnvironment{vals: map[string]string{
+		"OPENAI_API_KEY":   testkit.SyntheticOpenAIAPIKey,
+		"CONTEXT7_API_KEY": testkit.SyntheticGeminiAPIKey,
+	}}
+	src, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.EntryCount() != 2 {
+		t.Fatalf("EntryCount=%d want 2", src.EntryCount())
+	}
+	cats := src.SourceCategories()
+	if !slices.Contains(cats, string(secretguard.SourceCategoryProxyEnv)) {
+		t.Fatalf("categories=%v want proxy_env", cats)
+	}
+	if !slices.Contains(cats, string(secretguard.SourceCategoryPopularEnv)) {
+		t.Fatalf("categories=%v want popular_env", cats)
+	}
+
+	m, err := src.MatcherResolver().Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyFindings, err := m.ScanString(t.Context(), testkit.SyntheticOpenAIAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proxyFindings) != 1 || proxyFindings[0].SourceCategory != secretguard.SourceCategoryProxyEnv {
+		t.Fatalf("OPENAI_API_KEY must remain proxy_env; findings=%d category=%q",
+			len(proxyFindings), categoryOrEmpty(proxyFindings))
+	}
+	popularFindings, err := m.ScanString(t.Context(), testkit.SyntheticGeminiAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(popularFindings) != 1 || popularFindings[0].SourceCategory != secretguard.SourceCategoryPopularEnv {
+		t.Fatalf("CONTEXT7_API_KEY must be popular_env; findings=%d category=%q",
+			len(popularFindings), categoryOrEmpty(popularFindings))
+	}
+}
+
+func TestNewSingleUserSource_exactPopularFallbackStillLoads(t *testing.T) {
+	t.Parallel()
+	env := &countingEnvironment{vals: map[string]string{
+		"STRIPE_SECRET_KEY":     testkit.SyntheticOpenAIAPIKey,
+		"AZURE_CLIENT_SECRET":   testkit.SyntheticOpenRouterAPIKey,
+		"AWS_SECRET_ACCESS_KEY": testkit.SyntheticGeminiAPIKey,
+	}}
+	src, err := secretsguard.NewSingleUserSource(env, secretsguard.SingleUserOptions{
+		IncludePopularEnv: true,
+		MinSecretBytes:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.EntryCount() != 3 {
+		t.Fatalf("exact PopularSecretEnvNames fallback EntryCount=%d want 3", src.EntryCount())
+	}
+	m, err := src.MatcherResolver().Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := m.ScanString(t.Context(), testkit.SyntheticOpenAIAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].SourceCategory != secretguard.SourceCategoryPopularEnv {
+		t.Fatalf("exact fallback must be popular_env; findings=%d category=%q",
+			len(findings), categoryOrEmpty(findings))
+	}
+}
+
+func categoryOrEmpty(findings []secretguard.Finding) secretguard.SourceCategory {
+	if len(findings) == 0 {
+		return ""
+	}
+	return findings[0].SourceCategory
+}

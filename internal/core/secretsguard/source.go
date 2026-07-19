@@ -77,7 +77,7 @@ func NewMultiUserSource(env Environment) (Source, error) {
 }
 
 // NewSingleUserSource loads the name-preserving environment catalog via Snapshot,
-// proxy credential matching, optional popular registry, and include/exclude lists.
+// proxy credential matching, optional popular exact/inferred names, and include/exclude lists.
 func NewSingleUserSource(env Environment, opts SingleUserOptions) (Source, error) {
 	inv := collectSingleUserInventory(env, opts)
 	cat, err := BuildCatalog(catalogInputsFromInventory(inv), opts.MinSecretBytes)
