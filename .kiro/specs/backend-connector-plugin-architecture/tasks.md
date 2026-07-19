@@ -7,9 +7,10 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 - [ ] 1. Establish the versioned backend plugin contract and proof harness
 
 - [ ] 1.1 Revalidate the executable-plugin process substrate before adopting it
-  - Write an isolated spike and tests for the exact pinned `go-plugin` gRPC release covering protocol-version negotiation, bidirectional streaming, approved Unix-domain-socket and Windows named-pipe profiles where available, ephemeral mutual TLS fallback, peer-credential binding, unauthorized local clients, checksum support, atomic verified-executable launch feasibility, child environment control, reattach prohibition, client kill, Windows process cleanup, and graceful shutdown.
-  - Record MPL-2.0 obligations, security posture, unsupported platforms, and any behavior that would force a narrow project-owned gRPC process host instead.
-  - Accept `go-plugin` only when the spike proves that Go-LIP owns the public ABI, can atomically bind the digest to the exact executable launched, can establish a confidential expected-peer-authenticated local channel before configuration, can constrain launch and secrets, and can reap child processes deterministically; otherwise retain the same design contracts with a project-owned transport implementation.
+  - Start from the proven limitations of stock `go-plugin` v1.8.0: pathname checksum followed by path execution, no Unix expected-peer credential enforcement, Windows loopback TCP rather than named pipes, environment-carried AutoMTLS bootstrap material, no Go-LIP process-model supervisor, and effectively unbounded default gRPC message ceilings.
+  - Write an isolated spike and tests for a customized `go-plugin` path and a narrow project-owned host covering protocol negotiation, bidirectional streaming, disabled transport retries, Linux descriptor-bound sealed execution, protected macOS and Windows staging, Unix expected-process peer credentials, Windows named-pipe DACL/token/PID/job verification, protected ephemeral mutual TLS bootstrap, child environment and handle control, reattach prohibition, process-tree cleanup, bounded logs/messages, and graceful shutdown.
+  - Record MPL-2.0 obligations, security posture, unsupported platforms, and the evidence for selecting one substrate.
+  - Accept customized `go-plugin` only when the spike proves every launch, peer, bootstrap, bounds, lifecycle, and cleanup contract; otherwise select the same public ABI on the project-owned host without weakening requirements.
   - Observable completion: a reviewed decision record and deterministic spike tests select one process substrate and one approved secure transport/launch profile per supported platform without changing requirements or leaking internal types.
   - _Requirements: 2.4, 2.5, 4.3, 5.3, 5.4, 7.2, 7.3, 7.4, 7.6, 7.10, 11.10, 12.2_
   - _Boundary: Infrastructure research and tests_
@@ -17,11 +18,11 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - _Validation: `go test ./internal/infra/backendplugins/processhost/...`_
 
 - [ ] 1.2 Define protobuf and public Go DTO contracts with tests first
-  - Write failing golden and round-trip tests for protocol negotiation, plugin descriptors, factory exports, opaque YAML, explicit presence, canonical invocation parts, capabilities, transport capabilities, reasoning replay, inventory, count evidence, billing finalization, errors, cancellation outcomes, and terminal events.
+  - Write failing golden and round-trip tests for protocol negotiation, plugin descriptors, factory exports, opaque YAML, absent-versus-zero and absent-versus-empty scalars, explicit `UsagePresence`, absent/`null`/empty raw JSON, canonical invocation parts, capabilities, transport capabilities, reasoning replay, inventory, count evidence, billing finalization, errors, cancellation outcomes, and terminal events.
   - Add `api/backendplugin/v1/backend.proto` and public `pkg/lipsdk/backendplugin` authoring types without aliasing or importing `internal/...` packages.
-  - Define compatibility rules for major versions, minor feature negotiation, unknown optional fields, unknown mandatory features, and bounded message sizes.
+  - Define compatibility rules for major versions, minor feature negotiation, retained unknown fields, fail-closed unknown enums/frame kinds/mandatory features, optional-versus-required operations, and bounded message sizes; prohibit transport-level automatic retries.
   - Observable completion: public packages compile independently, golden fixtures preserve canonical presence and ordering, and an incompatible major version is rejected before configuration.
-  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 9.1, 9.4, 9.5, 9.6, 9.7_
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.9, 2.10, 9.1, 9.4, 9.5, 9.6, 9.7_
   - _Boundary: SDK public contract_
   - _Depends: 1.1_
   - _Validation: `go test ./pkg/lipsdk/backendplugin/... ./api/backendplugin/v1/...`_
@@ -29,10 +30,10 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 - [ ] 1.3 Add executable architecture and module-isolation tests before implementation
   - Write failing tests proving `internal/core` cannot import concrete connectors, plugin host code, generated plugin RPC packages, gRPC, protobuf, or the process substrate.
   - Write failing tests proving the root `go.mod` cannot require or replace external connector modules, public ABI packages cannot import provider SDKs or `internal/...`, and generic factory dependencies cannot name Codex, OpenCode, ACP-product, or other provider-specific types.
-  - Add a test that fails when a fixed optional backend kind is added to the essential registration table or mandatory standard requirements.
-  - Add a `GOWORK=off` root-build proof that can run with connector module directories hidden or copied out of the checkout.
+  - Add a test that permits exactly the five essential families plus `custom-openai-responses-compatible`, `custom-openai-legacy-compatible`, and `custom-anthropic-compatible`, and fails when any other fixed backend kind enters the essential table or mandatory requirements.
+  - Add `GOWORK=off` root proofs for `go list ./...`, `go test ./...`, `go build ./cmd/lipstd`, and `go list -m all` that can run with connector module directories hidden or copied out of the checkout.
   - Observable completion: all target boundary violations are detected by focused tests before package movement begins.
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 10.9, 11.2, 11.3, 12.4, 12.5_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 10.9, 11.2, 11.3, 12.4, 12.5_
   - _Boundary: Architecture tests_
   - _Depends: 1.2_
   - _Validation: `go test ./internal/archtest && GOWORK=off go build ./cmd/lipstd`_
@@ -52,28 +53,28 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 - [ ] 2. Add manifest, trust, and discovery infrastructure
 
 - [ ] 2.1 Define manifest v1 and strict parser tests
-  - Write failing tests and fuzz targets for schema version, plugin ID, executable path, SHA-256, protocol range, exported kinds, security profiles, process-sharing declaration, platform matrix, every unknown v1 field, explicitly supported versioned extension blocks, duplicate exports, nesting, and file-size bounds.
+  - Write failing tests and fuzz targets for schema version, plugin ID, native executable path, SHA-256, protocol range, exported kinds, security profiles, process-sharing declaration, platform matrix, every unknown v1 field, explicitly supported versioned extension blocks, duplicate exports, nesting, and file-size bounds.
   - Implement a closed versioned public manifest model and strict decoder that rejects every unknown field by default and treats manifests as installation metadata only; future metadata must use a new schema version or an explicitly standardized versioned extension mechanism.
-  - Reject secret fields, arbitrary arguments, environment maps, install hooks, shell commands, download URLs, connector model catalogs, and arbitrary pass-through metadata.
+  - Reject secret fields, arbitrary arguments, environment maps, install hooks, shell commands, script or interpreter entrypoints, download URLs, connector model catalogs, and arbitrary pass-through metadata.
   - Observable completion: valid fixtures round-trip deterministically and malformed, unknown-field, unsupported-extension, or security-expanding manifests fail without executing files.
-  - _Requirements: 3.3, 3.4, 7.5, 7.9, 11.4, 12.2_
+  - _Requirements: 3.3, 3.4, 3.9, 7.5, 7.9, 11.4, 12.2_
   - _Boundary: SDK manifest contract and infrastructure parser_
   - _Depends: 1.2_
   - _Validation: `go test ./pkg/lipsdk/backendplugin/manifest/... ./internal/infra/backendplugins/manifest/... && go test -fuzz=FuzzManifest -fuzztime=30s ./internal/infra/backendplugins/manifest`_
 
 - [ ] 2.2 Implement deterministic trusted-directory discovery without process launch
-  - Write failing tests for configured paths, installer-owned defaults, development paths, stable ordering, duplicate manifest paths, no current-working-directory search, no ambient `PATH` lookup, no network access, and no executable invocation.
+  - Write failing tests for explicit paths; upstream defaults `/opt/go-lip/plugins`, `/Library/Application Support/Go-LIP/plugins`, and `%ProgramFiles%\Go-LIP\plugins`; packager-injected alternatives; development mode requiring explicit paths; stable ordering; duplicate manifest paths; no current-working-directory, implicit per-user, or ambient `PATH` search; no network access; and no executable invocation.
   - Implement discovery as an O(manifests plus bytes) scan that produces immutable artifact descriptors and safe status records.
   - Add a one-hundred-synthetic-manifest test proving bounded memory, file descriptors, goroutines, and zero child processes.
   - Observable completion: discovery registers valid metadata for one hundred manifests while process-spawn counters remain zero.
-  - _Requirements: 3.1, 3.2, 3.7, 4.1, 4.2, 4.6, 12.1, 12.7_
+  - _Requirements: 3.1, 3.2, 3.7, 3.10, 4.1, 4.2, 4.6, 12.1, 12.7_
   - _Boundary: Infrastructure discovery_
   - _Depends: 2.1_
   - _Validation: `go test ./internal/infra/backendplugins/discovery/... -run 'Discovery|Hundred|NoLaunch'`_
 
 - [ ] 2.3 Enforce path containment, artifact type, platform, and digest-bound launch trust
-  - Write failing tests for path traversal, absolute-path policy, symlink escape and replacement, directories, devices, sockets, non-executable files, unsupported platform, digest mismatch, replacement after discovery, replacement after final pathname check, verified-handle launch, private digest-addressed staging, staging substitution, and upgrade/rollback cleanup.
-  - Implement trusted-root containment and SHA-256 verification from an opened file identity, then atomically bind those verified bytes to launch through an OS-supported executable handle or a host-owned private immutable staging strategy; a pathname rehash immediately before process creation is not sufficient.
+  - Write failing tests for path traversal, absolute-path policy, symlink/junction escape and replacement, scripts/interpreter entrypoints, directories, devices, sockets, non-executable files, unsupported platform, digest mismatch, replacement after discovery, replacement after final pathname check, Linux sealed descriptor execution, protected macOS/Windows digest staging, staging substitution, and upgrade/rollback cleanup.
+  - Implement trusted-root containment and SHA-256 verification from an opened file identity, then atomically bind verified native bytes to Linux descriptor-bound execution or protected macOS/Windows digest-addressed staging; a pathname rehash immediately before process creation is not sufficient.
   - Fail closed on a platform where neither approved strategy preserves the verified identity, and keep signature verification as an additive future feature that cannot disable the digest and trusted-directory baseline.
   - Observable completion: the exact executable bytes launched are the bytes whose digest was accepted, and every substitution or unsupported-binding attempt returns a bounded stable reason code.
   - _Requirements: 3.4, 3.8, 7.1, 7.2, 7.10, 12.2_
@@ -96,22 +97,22 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 - [ ] 3. Add lazy process lifecycle and canonical stream adaptation
 
 - [ ] 3.1 Implement lazy supervised process activation and secure local channel establishment
-  - Write failing tests for no launch during discovery, first-configure launch, launch singleflight keyed by the declared process model, shared artifact processes, per-instance processes, declared multi-instance sharing, instance isolation, missing runtime, failed handshake, unauthorized local clients, wrong-process and stale-generation peers, plaintext/cookie-only fallback rejection, configuration attempted before peer authentication, and later-operation restart.
+  - Write failing tests for no launch during discovery, first-configure launch, launch singleflight keyed by the declared process model, shared artifact processes, per-instance processes, declared multi-instance sharing, instance and secret isolation, missing runtime, failed handshake, unauthorized and same-UID wrong-process clients, PID reuse and stale-generation peers, plaintext/cookie-only fallback rejection, environment bootstrap-key rejection, configuration attempted before both executable and peer identity gates, and later-operation restart.
   - Launch the exact verified executable directly without a shell, with an explicit working directory, process generation, minimal non-secret bootstrap environment, and an approved OS-specific confidential peer-authenticated local channel; refuse configuration when no approved profile is available.
   - Configure only the requested instance. Later instances reuse a process only when sharing, isolation, and concurrency are declared; otherwise they receive independent supervised processes.
   - Do not health-check or initialize an installed plugin until an enabled backend row requires its exported kind, and never deliver connector configuration or secrets before expected-peer authentication and protocol compatibility succeed.
   - Observable completion: an unconfigured installed plugin never starts; concurrent first configuration starts exactly the process generations permitted by the declared model; and unauthorized local peers receive no configure access or secret material.
-  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 4.8, 5.3, 5.7, 7.3, 7.4, 7.5, 7.6_
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 4.8, 5.3, 5.7, 7.3, 7.4, 7.5, 7.6, 7.11, 7.12, 7.13_
   - _Boundary: Infrastructure process host and local transport_
   - _Depends: 1.1, 2.3, 2.4_
   - _Validation: `go test -race ./internal/infra/backendplugins/processhost/... -run 'Lazy|ProcessModel|Instance|Peer|SecureChannel|Restart'`_
 
 - [ ] 3.2 Implement instance ownership, rollback, shutdown, and process reaping
   - Write failing tests for configure failure after process start, multiple instance closes, reverse-order build rollback, normal runtime close, rejected new work during shutdown, graceful timeout, hard termination, descendant cleanup, and exactly-once wait.
-  - Add generic idempotent close ownership to backend construction without exposing plugin-specific lifecycle to core.
+  - Introduce a composition-owned backend build result containing `execbackend.Backend` plus idempotent cleanup; do not add process lifecycle to the core-consumed backend struct.
   - Register instance and process closers immediately during runtime assembly so later inventory, accounting, or server startup failure cannot leak resources.
   - Observable completion: every partial-build and shutdown scenario leaves no process, goroutine, pipe, socket, staged executable, or unreaped child in race and leak tests.
-  - _Requirements: 5.3, 5.4, 5.5, 5.6, 8.8, 12.2_
+  - _Requirements: 5.3, 5.4, 5.5, 5.6, 5.9, 8.8, 12.2_
   - _Boundary: Internal backend lifecycle and composition root_
   - _Depends: 3.1_
   - _Validation: `go test -race ./internal/infra/backendplugins/processhost ./internal/infra/runtimebundle && go test ./internal/infra/backendplugins/processhost -run TestLeak`_
@@ -121,28 +122,28 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - Implement the host adapter so unadvertised optional methods remain nil or unsupported and strict accounting continues to fail closed.
   - Add independent deadlines and result bounds for metadata and auxiliary calls.
   - Observable completion: a fake plugin can populate every existing backend seam field, and omissions never fabricate support.
-  - _Requirements: 5.1, 5.2, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8_
+  - _Requirements: 5.1, 5.2, 6.7, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8_
   - _Boundary: Infrastructure anti-corruption adapter_
   - _Depends: 1.4, 3.1_
-  - _Validation: `go test ./internal/infra/backendplugins/adapter ./internal/core/modelregistry ./internal/core/execbackend`_
+  - _Validation: `go test ./internal/infra/backendplugins/adapter ./internal/core/modelregistry ./internal/core/execbackend -run 'Capability|Inventory|CountToken|FinalizeBilling'`_
 
 - [ ] 3.4 Implement bounded bidirectional execution streaming and cancellation
-  - Write failing tests for accepted, incremental events, sequence numbers, frame bounds, pending-event bounds, slow consumers, EOF, one terminal, duplicate terminal, events after terminal, malformed events, provider cancellation, transport cancellation, and cancellation timeout.
+  - Write failing tests for accepted, incremental events, sequence numbers, frame bounds, pending-event bounds, slow consumers, EOF, one terminal, duplicate terminal, events after terminal, malformed events, provider cancellation, transport cancellation, cancellation timeout, and disabled automatic gRPC retries.
   - Implement a managed stream that pulls RPC events incrementally and propagates backpressure instead of collecting a provider response.
   - Separate bounded stderr diagnostics from protocol transport and sanitize all plugin-originated errors.
   - Observable completion: streaming conformance passes under slow consumption with bounded memory and no post-terminal delivery.
-  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.7, 6.8, 7.3, 7.7, 12.8_
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.7, 6.8, 6.10, 7.3, 7.7, 12.8_
   - _Boundary: Infrastructure stream adapter_
   - _Depends: 1.4, 3.1_
   - _Validation: `go test -race ./internal/infra/backendplugins/adapter -run 'Stream|Cancel|Backpressure|Terminal'`_
 
 - [ ] 3.5 Enforce pre-output versus post-output failure ownership
-  - Write failing integration tests for process exit, protocol violation, provider error, and cancellation before and after the first client-visible event.
+  - Write failing integration tests for process exit, protocol violation, provider error, and cancellation before and after the first decoded event satisfying `lipapi.OutputCommitted`; prove that headers, handshake, `accepted`, diagnostics, and usage-only events do not commit output.
   - Return classified pre-output failures to the existing executor so core alone decides retry or failover.
   - After output commitment, terminate the current attempt without process restart, request replay, model switch, credential switch, or hidden fallback.
   - Invalidate every instance of a crashed generation and permit restart only for a later core-selected operation.
   - Observable completion: instrumentation proves the host opens one provider attempt per core attempt and never replays a committed attempt.
-  - _Requirements: 5.5, 5.6, 6.5, 6.6, 6.7, 7.7, 12.2_
+  - _Requirements: 5.5, 5.6, 6.5, 6.6, 6.9, 7.7, 12.2_
   - _Boundary: Core integration and infrastructure adapter_
   - _Depends: 3.4_
   - _Validation: `go test -race ./internal/core/runtime ./internal/infra/backendplugins/adapter -run 'PreOutput|PostOutput|NoReplay|Crash'`_
@@ -217,16 +218,16 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 
 - [ ] 5.2 Add dynamic multi-module CI discovery and root-isolation gates
   - Write a script test that discovers connector modules from repository structure or manifests rather than a maintained connector-name list.
-  - Run root module tests and builds with `GOWORK=off`, then run each discovered connector module independently with its own dependency graph.
+  - Run root `go list ./...`, `go test ./...`, `go build ./cmd/lipstd`, and `go list -m all` with `GOWORK=off`, then run list/test/build for each structurally discovered connector module independently with `GOWORK=off` and its own dependency graph.
   - Add checks that root `go list -m all` contains no external connector module and connector modules contain no Go-LIP internal import.
   - Observable completion: adding a synthetic connector module automatically adds it to CI without modifying a source or workflow connector list.
-  - _Requirements: 1.2, 1.5, 11.1, 11.2, 11.3, 11.5, 11.7, 12.4, 12.5_
+  - _Requirements: 1.2, 1.5, 11.1, 11.2, 11.3, 11.5, 11.7, 11.12, 12.4, 12.5_
   - _Boundary: Build and CI_
   - _Depends: 5.1_
   - _Validation: `make backend-plugin-module-checks && GOWORK=off make quality-checks`_
 
 - [ ] 5.3 Build minimal and curated-full package assembly from manifests
-  - Write packaging tests proving the minimal artifact includes no optional connector executable and the curated-full profile installs selected artifacts into an installation-owned directory.
+  - Write packaging tests proving the minimal artifact includes no optional connector executable and the curated-full profile installs selected artifacts into `/opt/go-lip/plugins`, `/Library/Application Support/Go-LIP/plugins`, or `%ProgramFiles%\Go-LIP\plugins` with installer/admin ownership and proxy read/execute access only.
   - Generate package indexes and install layouts from connector release metadata rather than Go registration code.
   - Ensure installed but unconfigured plugins remain inactive and private Node, Python, or native companions remain inside their connector package.
   - Observable completion: the same root binary runs both distribution profiles and full-package removal of one plugin does not affect unrelated backends.
@@ -251,7 +252,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 
 - [ ] 6.1 Extract dependency-light ACP connector support with contract tests
   - Write failing parity tests for JSON-RPC framing, initialize/authenticate, session creation, prompt streaming, server requests, cancellation, history divergence, subprocess pooling, idle reaping, and PID reuse protection through a public support boundary.
-  - Move only stable protocol and runtime support into an independently versioned `connector-support/acp` module or equivalent public package with no `internal/core`, registry, runtimebundle, or concrete product imports.
+  - Move only stable protocol and runtime support into an independently versioned `connector-support/acp` module or equivalent public package with no `internal/core`, registry, runtimebundle, or concrete product imports; replace internal lifecycle cancellation types with public DTOs, require caller-owned HTTP policy instead of `internal/infra/httpclient`, and make executable lookup caching instance-owned.
   - Where a helper cannot be made stable without internal leakage, keep it product-local rather than broadening the public API.
   - Observable completion: ACP support builds independently and its API contains no Cursor, Gemini, Agy, routing candidate, or internal backend types.
   - _Requirements: 1.6, 2.2, 10.3, 10.4, 10.5, 11.1, 12.6_
@@ -358,7 +359,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
 - [ ] 8. Remove the remaining connector-specific core and factory dependencies
 
 - [ ] 8.1 Move OpenCode Go and Zen with vendor-resolution ownership
-  - Write tests preserving both factory kinds, model vendor resolution, inventory, credentials, canonical behavior, and shared artifact process semantics.
+  - Write tests preserving both factory kinds, model vendor resolution, inventory, credentials, and canonical behavior; select shared-artifact process semantics only if module-local tests prove configuration, secret, concurrency, and failure isolation, otherwise declare per-instance processes.
   - Move vendor-resolution, provider metadata, caching, and fallback behavior into the OpenCode connector module.
   - Remove OpenCode-specific resolver fields and root key defaults after external cutover.
   - Observable completion: `opencode-go` and `opencode-zen` run from an external artifact and generic factory dependencies no longer know OpenCode concepts.
@@ -442,11 +443,11 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - _Validation: `make backend-plugin-security-checks test-fuzz test-race`_
 
 - [ ] 9.4 Validate cross-platform lifecycle, packaging, exact-executable launch, and secure IPC
-  - Run Linux, macOS, and Windows-native tests for discovery paths, strict manifests, verified-handle or private-staging launch, digest checks, unauthorized peer rejection, approved local transport, configuration secrecy, streaming, cancellation, process trees, hard kill, reaping, file replacement, upgrade, rollback, and uninstall.
+  - Run Linux-amd64/arm64, macOS-amd64/arm64, and Windows-amd64/arm64 native or architecture-appropriate compile/package gates, with native runtime tests for discovery paths, strict manifests, descriptor-bound or protected-staging launch, digest checks, unauthorized peer rejection, approved local transport, configuration secrecy, streaming, cancellation, process trees, hard kill, reaping, file replacement, upgrade, rollback, and uninstall wherever runners exist.
   - Validate each first-party artifact's declared platform matrix and reject false manifest claims or platforms that cannot satisfy the required launch and local-channel profiles.
   - Record unsupported connector-platform pairs without making the root binary depend on them.
   - Observable completion: supported platform matrices match release artifacts, the launched bytes are the accepted bytes, unauthorized local peers cannot configure plugins, and no process, channel, staged artifact, or locked source artifact survives tested shutdown and upgrade paths.
-  - _Requirements: 3.3, 3.4, 4.5, 5.4, 7.2, 7.3, 7.6, 11.4, 11.8, 11.9, 12.2, 12.5_
+  - _Requirements: 3.3, 3.4, 4.5, 5.4, 7.2, 7.3, 7.6, 11.4, 11.8, 11.9, 11.11, 12.2, 12.5, 12.11_
   - _Boundary: Cross-platform QA and packaging_
   - _Depends: 5.3, 6.5, 7.5, 8.5_
   - _Validation: `make backend-plugin-cross-platform-qa`_
@@ -456,7 +457,7 @@ Implementation follows TDD throughout: architecture gates, interfaces, protobuf 
   - Run root isolation, one-hundred-manifest discovery, unknown-field rejection, exact-executable substitution, unauthorized peer, mixed built-in/external routing, pre/post-output failure, strict accounting, model inventory refresh, race, leak, fuzz, security, package, upgrade, and rollback suites.
   - Confirm the PR or release contains no optional connector source or dependency in the root module and no fixed optional registration list.
   - Observable completion: `make qa` plus backend-plugin release gates pass, and the final traceability review maps every requirement to passing evidence.
-  - _Requirements: 1.7, 3.4, 4.3, 6.8, 7.2, 7.3, 7.6, 10.8, 10.9, 11.2, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10_
+  - _Requirements: 1.7, 3.4, 4.3, 6.8, 7.2, 7.3, 7.6, 10.8, 10.9, 11.2, 11.7, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.11_
   - _Boundary: Release validation_
   - _Depends: 9.1, 9.2, 9.3, 9.4_
   - _Validation: `make qa backend-plugin-release-gates`_
