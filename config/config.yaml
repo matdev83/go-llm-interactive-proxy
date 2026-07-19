@@ -559,7 +559,7 @@ plugins:
     #     min_secret_bytes: 8
     #     scan_max_bytes: 2097152        # default 2 MiB per scanned field; max 67108864 (64 MiB)
     #     single_user:                   # invalid under access.mode: multi_user (omit in multi-user)
-    #       include_popular_env: true    # curated non-proxy env vars (GitHub, Slack, Stripe, …)
+    #       include_popular_env: true    # exact popular names + uppercase *_API_KEY/*_TOKEN (excl. NEXT_PUBLIC_/VITE_/… and CSRF/XSRF/CRSF segments)
     #       include_env: []              # extra env var names to load at startup
     #       exclude_env: []              # names to drop from the single-user catalog
     #     redaction:

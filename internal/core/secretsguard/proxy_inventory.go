@@ -40,9 +40,11 @@ func collectSingleUserInventory(env Environment, opts SingleUserOptions) []inven
 	}
 
 	if opts.IncludePopularEnv {
-		for _, name := range PopularSecretEnvNames {
-			value, ok := byName[name]
-			if !ok || strings.TrimSpace(value) == "" {
+		for name, value := range byName {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			if !isPopularSecretEnvName(name) {
 				continue
 			}
 			if _, exists := selected[name]; exists {
