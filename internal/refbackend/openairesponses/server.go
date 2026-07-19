@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/utils"
 )
@@ -20,6 +21,12 @@ const maxBodyBytes = 10 << 20
 var jsonBodyMarkerStreamTrue = []byte(`"stream":true`)
 
 // Config tunes the emulator handler.
+//
+// Response precedence after route/auth succeed:
+//  1. ForcedHTTPStatus (when non-zero) — Responder is not invoked
+//  2. Responder (when non-nil) — overrides NonStreamJSON / StreamSSE / defaults
+//  3. NonStreamJSON / StreamSSE fixed overrides
+//  4. built-in default JSON / SSE bodies
 type Config struct {
 	// AllowMissingBearer, if true, skips the Authorization: Bearer check.
 	AllowMissingBearer bool
@@ -36,6 +43,9 @@ type Config struct {
 	// OnRequestBody is invoked with the full request body after a successful route/auth
 	// check and before the response is written.
 	OnRequestBody func(body []byte)
+	// Responder, when non-nil and ForcedHTTPStatus is zero, builds the HTTP response
+	// per request. Must be safe for concurrent use.
+	Responder Responder
 	// NonStreamJSON overrides the JSON body for non-streaming responses. When empty, a
 	// minimal completed response is returned.
 	NonStreamJSON string
@@ -46,6 +56,7 @@ type Config struct {
 
 // NewHandler returns an http.Handler that emulates POST …/responses for the official SDK.
 func NewHandler(cfg Config) http.Handler {
+	var seq atomic.Int64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/responses") {
 			http.NotFound(w, r)
@@ -63,7 +74,7 @@ func NewHandler(cfg Config) http.Handler {
 			return
 		}
 		if cfg.OnRequestBody != nil {
-			cfg.OnRequestBody(body)
+			cfg.OnRequestBody(append([]byte(nil), body...))
 		}
 
 		secret := strings.TrimPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer ")
@@ -76,6 +87,15 @@ func NewHandler(cfg Config) http.Handler {
 		}
 
 		stream := bytes.Contains(body, jsonBodyMarkerStreamTrue)
+		if cfg.Responder != nil {
+			req := Request{
+				Sequence: seq.Add(1),
+				Body:     append([]byte(nil), body...),
+				Stream:   stream,
+			}
+			writeResponder(r.Context(), w, req, cfg.Responder(req))
+			return
+		}
 		if stream {
 			writeStream(r.Context(), w, cfg)
 			return
@@ -92,6 +112,37 @@ func defaultForcedErrorJSON(status int) string {
 		return `{"error":{"message":"rate limit exceeded","type":"requests","code":"rate_limit_exceeded"}}`
 	default:
 		return `{"error":{"message":"error","type":"invalid_request_error"}}`
+	}
+}
+
+func writeResponder(ctx context.Context, w http.ResponseWriter, req Request, resp Response) {
+	status := resp.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if resp.Headers != nil {
+		for k, vals := range resp.Headers.Clone() {
+			for _, v := range vals {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+	if req.Stream {
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		}
+		w.WriteHeader(status)
+		if _, err := io.WriteString(w, resp.SSE); err != nil {
+			slog.ErrorContext(ctx, "refbackend openairesponses: write sse body", "error", err)
+		}
+		return
+	}
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(status)
+	if _, err := io.WriteString(w, resp.JSON); err != nil {
+		slog.ErrorContext(ctx, "refbackend openairesponses: write json body", "error", err)
 	}
 }
 

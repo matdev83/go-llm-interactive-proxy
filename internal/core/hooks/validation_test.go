@@ -41,3 +41,17 @@ func TestValidateEventAfterResponseHook_acceptsReasoningOpaqueDelta(t *testing.T
 		t.Fatalf("RED: OpaqueDelta must be a known post-hook event kind: %v", err)
 	}
 }
+
+func TestValidateEventAfterResponseHook_acceptsReasoningPart(t *testing.T) {
+	t.Parallel()
+	ev := &lipapi.Event{
+		Kind: lipapi.EventReasoningPart,
+		Reasoning: &lipapi.ReasoningPart{
+			Dialect: lipapi.ReasoningDialectOpenAIResponsesItemV1,
+			Opaque:  []byte(`{"id":"rs_1","type":"reasoning","summary":[]}`),
+		},
+	}
+	if err := corehooks.ValidateEventAfterResponseHook("parts-noop", ev); err != nil {
+		t.Fatalf("reasoning_part must be a known post-hook event kind: %v", err)
+	}
+}

@@ -3,25 +3,9 @@ package openaicaps
 import (
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/reasoningreplay"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
-
-var compatibleReplayPrefixes = []string{
-	"openrouter",
-	"openai-legacy",
-	"openai-responses",
-	"nvidia",
-	"huggingface",
-	"ollama",
-	"ollama-cloud",
-	"vllm",
-	"lmstudio",
-	"llamacpp",
-	"opencode-go",
-	"opencode-zen",
-}
-
-var compatibleReplayModelKeywords = []string{"kimi", "moonshot"}
 
 const (
 	FlavorChat      = "chat"
@@ -29,7 +13,7 @@ const (
 )
 
 func CompatibleReplayEligible(model string, backendPrefixes []string) bool {
-	return compatibleReplayPrefixMatch(backendPrefixes) && compatibleReplayModelMatch(model)
+	return reasoningreplay.Eligible(model, backendPrefixes)
 }
 
 func ForHostedModelCompatibleReplay(model string, backendPrefixes []string) lipapi.BackendCaps {
@@ -59,34 +43,4 @@ func ResolveCompatibleReplaySupport(flavor, model string, backendPrefixes []stri
 			Dialects: []lipapi.ReasoningDialect{lipapi.ReasoningDialectOpenAIChatTextV1},
 		}
 	}
-}
-
-func compatibleReplayModelMatch(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	if m == "" {
-		return false
-	}
-	for _, kw := range compatibleReplayModelKeywords {
-		if strings.Contains(m, kw) {
-			return true
-		}
-	}
-	return false
-}
-
-func compatibleReplayPrefixMatch(prefixes []string) bool {
-	if len(prefixes) == 0 {
-		return false
-	}
-	want := make(map[string]struct{}, len(compatibleReplayPrefixes))
-	for _, p := range compatibleReplayPrefixes {
-		want[p] = struct{}{}
-	}
-	for _, p := range prefixes {
-		p = strings.ToLower(strings.TrimSpace(p))
-		if _, ok := want[p]; ok {
-			return true
-		}
-	}
-	return false
 }

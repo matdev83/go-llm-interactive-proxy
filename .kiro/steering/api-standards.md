@@ -45,6 +45,11 @@ Canonical contracts in `pkg/lipapi` should be:
 Do not add a canonical concept just because one protocol happens to expose a feature.
 Prefer plugin-local handling, capability catalogs, model inventory, or extension fields until the feature is clearly part of the shared product contract.
 
+Reasoning carriers stay dialect-tagged on shared `ReasoningPart` shapes:
+- Chat-style text uses `EventReasoningDelta` / text fields.
+- Anthropic signed/redacted thinking uses opaque delta carriers.
+- OpenAI Responses exact items use terminal `EventReasoningPart` with dialect `openai.responses.reasoning_item.v1` and allowlisted Opaque JSON (id/type/summary/content/encrypted_content/status presence semantics). Exact wire schema helpers live in `internal/plugins/protocols/openairesponsesitem` (shared by FE and BE; no FE→BE imports). Never silently convert dialects.
+
 ## Frontend rules
 
 Driving adapters are responsible for:

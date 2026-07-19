@@ -84,7 +84,23 @@ func TestPhase5_telemetryRecordsClassifyOutcomes(t *testing.T) {
 		t.Fatalf("unrepresentable: %v", err)
 	}
 
-	observeCfg := decodeValidConfig(t, validObserveYAML)
+	// Observe classify outcomes require eligibility; unmatched candidates stay inert.
+	observeCfg := decodeValidConfig(t, `
+action: observe
+use_builtin_catalog: false
+rules:
+  - id: test-be
+    backend: be
+    enabled: true
+on_ambiguous: log_skip
+on_unrepresentable: reject
+on_state_error: reject
+state:
+  ttl: 1h
+  max_turns_per_session: 4
+  max_reasoning_bytes_per_turn: 4096
+  max_session_bytes: 32768
+`)
 	obsXform := reasoningpreservation.NewAttemptTransform(observeCfg, store, tel)
 	obsCall, _ := missingRestoreFixture(t)
 	if _, err := obsXform.HandleAttempt(context.Background(), &obsCall, meta, request.Services{}); err != nil {

@@ -742,10 +742,11 @@ func TestReasoningPreservationComposition_noRetryAfterFirstOutput_characterizati
 			t.Fatalf("unexpected recv error: %v", err)
 		}
 	}
-	if _, err := stream.Recv(t.Context()); err == nil {
+	_, recvErr := stream.Recv(t.Context())
+	if recvErr == nil {
 		t.Fatal("expected error after committed output")
 	}
-	if lipapi.IsRecoverablePreOutput(err) {
+	if lipapi.IsRecoverablePreOutput(recvErr) {
 		t.Fatal("post-output failure must not classify as recoverable pre-output for retry")
 	}
 	if opens.Load() != 1 {

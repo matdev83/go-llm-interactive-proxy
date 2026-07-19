@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,15 @@ func (f *StreamObserverFactory) recordOutcome(outcome SafeOutcome, counts map[st
 func (f *StreamObserverFactory) Open(_ context.Context, meta response.StreamMeta, _ response.Services) (response.StreamObserver, error) {
 	if f.store == nil {
 		return nil, fmt.Errorf("%s: store is required", ID)
+	}
+	meta.BackendPrefixes = slices.Clone(meta.BackendPrefixes)
+	match, err := ResolveMatch(f.cfg, CandidateIdentity{
+		BackendID:       meta.BackendID,
+		BackendPrefixes: meta.BackendPrefixes,
+		Model:           meta.Model,
+	})
+	if err != nil || !MatchEligible(match.Kind) {
+		return inertStreamObserver{}, nil
 	}
 	return &streamObserver{
 		factory: f,
@@ -149,6 +159,13 @@ func (o *streamObserver) Observe(_ context.Context, ev lipapi.Event) error {
 			},
 		})
 		o.reasoningBytes += len(opaque)
+	case lipapi.EventReasoningPart:
+		o.flushToolLocked()
+		o.flushTextLocked()
+		o.flushReasoningLocked()
+		if err := o.captureExactReasoningPartLocked(ev.Reasoning); err != nil {
+			return err
+		}
 	case lipapi.EventToolCallStarted:
 		o.flushTextLocked()
 		o.flushReasoningLocked()
@@ -197,7 +214,7 @@ func (o *streamObserver) Observe(_ context.Context, ev lipapi.Event) error {
 			FileName: ev.AssistantName,
 		})
 	}
-	if o.reasoningBytes > o.cfg.State.MaxReasoningBytesPerTurn {
+	if o.cfg.State.MaxReasoningBytesPerTurn > 0 && o.reasoningBytes > o.cfg.State.MaxReasoningBytesPerTurn {
 		o.markOversizeLocked()
 	}
 	return nil
@@ -211,6 +228,10 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	}
 	o.finished = true
 	if outcome != response.OutcomeSuccessReleased {
+		o.clearPendingLocked()
+		return nil
+	}
+	if !o.captureEligible() {
 		o.clearPendingLocked()
 		return nil
 	}
@@ -242,7 +263,7 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	}
 	reasoningBytes := 0
 	for _, p := range placed {
-		reasoningBytes += lipapi.ReasoningPayloadBytes(p.Part.Reasoning)
+		reasoningBytes = int(lipapi.SaturatingAddInt64(int64(reasoningBytes), int64(lipapi.ReasoningPayloadBytes(p.Part.Reasoning))))
 	}
 	if reasoningBytes <= 0 || reasoningBytes > o.cfg.State.MaxReasoningBytesPerTurn {
 		o.factory.recordOutcome(OutcomeOversize, map[string]int{"bytes": reasoningBytes})
@@ -275,6 +296,18 @@ func (o *streamObserver) Finish(ctx context.Context, outcome response.StreamOutc
 	return nil
 }
 
+func (o *streamObserver) captureEligible() bool {
+	match, err := ResolveMatch(o.cfg, CandidateIdentity{
+		BackendID:       o.meta.BackendID,
+		BackendPrefixes: o.meta.BackendPrefixes,
+		Model:           o.meta.Model,
+	})
+	if err != nil {
+		return false
+	}
+	return MatchEligible(match.Kind)
+}
+
 func (o *streamObserver) markOversizeLocked() {
 	o.oversized = true
 	o.clearPendingLocked()
@@ -288,6 +321,39 @@ func (o *streamObserver) clearPendingLocked() {
 	o.toolID = ""
 	o.toolName = ""
 	o.toolArgs.Reset()
+}
+
+func (o *streamObserver) captureExactReasoningPartLocked(src *lipapi.ReasoningPart) error {
+	if src == nil {
+		return nil
+	}
+	cloned := &lipapi.ReasoningPart{
+		Dialect:   src.Dialect,
+		Text:      src.Text,
+		Signature: src.Signature,
+	}
+	if src.Opaque != nil {
+		cloned.Opaque = append(json.RawMessage(nil), src.Opaque...)
+	}
+	probe := lipapi.Event{Kind: lipapi.EventReasoningPart, Reasoning: cloned}
+	if err := lipapi.ValidateEventEnvelope(&probe); err != nil {
+		return nil
+	}
+	add := lipapi.ReasoningPayloadBytes(cloned)
+	if add <= 0 {
+		return nil
+	}
+	next := int(lipapi.SaturatingAddInt64(int64(o.reasoningBytes), int64(add)))
+	o.reasoningBytes = next
+	if o.cfg.State.MaxReasoningBytesPerTurn > 0 && next > o.cfg.State.MaxReasoningBytesPerTurn {
+		o.markOversizeLocked()
+		return nil
+	}
+	o.parts = append(o.parts, lipapi.Part{
+		Kind:      lipapi.PartReasoning,
+		Reasoning: cloned,
+	})
+	return nil
 }
 
 func (o *streamObserver) flushTextLocked() {
@@ -306,10 +372,10 @@ func (o *streamObserver) flushReasoningLocked() {
 		o.curReason = nil
 		return
 	}
-	o.parts = append(o.parts, lipapi.Part{
+	o.parts = append(o.parts, clonePart(lipapi.Part{
 		Kind:      lipapi.PartReasoning,
 		Reasoning: o.curReason,
-	})
+	}))
 	o.curReason = nil
 }
 
