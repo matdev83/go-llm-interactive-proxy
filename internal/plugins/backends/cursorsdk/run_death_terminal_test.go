@@ -40,8 +40,10 @@ func TestBridgeProcess_ProcessExitBeforeFinishedStampsTypedBridgeExited(t *testi
 	script := fakebridge.DefaultScript()
 	script.OnAgentSend = [][]fakebridge.Action{{
 		{Type: fakebridge.ActionRespond, Result: json.RawMessage(`{"runId":"run-exit"}`)},
+		{Type: fakebridge.ActionSleep, Ms: 100},
 		{Type: fakebridge.ActionEvent, RunID: "run-exit", Seq: 1, Kind: protocol.KindTextDelta, Payload: json.RawMessage(`{"text":"partial"}`)},
 		{Type: fakebridge.ActionStderr, Text: "secret-api-key-value path=C:\\Users\\secret-user\\ws"},
+		{Type: fakebridge.ActionSleep, Ms: 100},
 		{Type: fakebridge.ActionExit, Code: 3},
 	}}
 	raw, err := json.Marshal(script)
