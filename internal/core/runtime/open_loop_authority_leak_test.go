@@ -83,8 +83,8 @@ func TestOpenInitialAttempt_RegisterBLegFailureReleasesAuthority(t *testing.T) {
 	if !errors.Is(err, leglifecycle.ErrALegCanceled) {
 		t.Fatalf("openInitialAttempt err = %v, want ErrALegCanceled", err)
 	}
-	if auth.admitCalls.Load() != 2 {
-		t.Fatalf("admit calls = %d, want 2 (estimate-only precheck + authoritative admit)", auth.admitCalls.Load())
+	if auth.admitCalls.Load() != 3 {
+		t.Fatalf("admit calls = %d, want 3 (estimate-only precheck + clamp preview + authoritative admit)", auth.admitCalls.Load())
 	}
 	if auth.releaseCalls.Load() != 0 {
 		t.Fatalf("release calls = %d, want 0 (incurred out.authority must settle when RegisterBLeg fails)", auth.releaseCalls.Load())

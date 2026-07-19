@@ -20,6 +20,8 @@ $allowed = @(
     "internal/plugins/frontends/holdalive/wait.go"
     "internal/infra/runtimebundle/modelcatalog_refresh_loop.go"
     "internal/plugins/backends/acp/transport_stdio.go"
+    "internal/plugins/backends/cursorsdk/bridge_process.go"
+    "internal/plugins/backends/cursorsdk/fakebridge/harness.go"
     "internal/core/terminalwork/app/processor.go"
 )
 

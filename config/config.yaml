@@ -25,7 +25,7 @@ server:
 # Omitted access.mode defaults to single_user. Omitted server.address defaults to explicit loopback (127.0.0.1:8080).
 # single_user allows only explicit loopback binds (127/8, ::1, or localhost). All-interfaces
 # (0.0.0.0, ::, or bare :port) requires access.mode: multi_user, strong auth, and `lipstd serve --multi-user`.
-# Multi-user disables local-only connectors: ACP/process-spawning backends, OpenAI Codex, and Codex App Server.
+# Multi-user disables local-only connectors: ACP/process-spawning backends (including experimental cursorsdk), OpenAI Codex, and Codex App Server.
 #
 # (A) Default OSS single-user (effective when access/auth are omitted): loopback + local_noop + structured auth/session events.
 # access:
@@ -412,6 +412,21 @@ plugins:
       # experimental_websocket: false
       # gpt55_downgrade_disabled: false
       # OPENAI_CODEX_ACCESS_TOKEN / OPENAI_CODEX_API_KEY (+ _N variants) env vars
+    # Experimental Cursor SDK (local-only). Operator guide: docs/cursor-sdk-backend.md
+    # Example: config/examples/cursor-sdk-experimental.yaml
+    # Install bridge manually (Node >=22.13, exact @cursor/sdk 1.0.23); Go-LIP never runs npm.
+    # Auth: api_key or bare CURSOR_API_KEY (not CLI/Desktop login). ACP remains as cursorcliacp.
+    # - kind: cursorsdk
+    #   id: cursor-sdk
+    #   enabled: false
+    #   config:
+    #     # api_key: ""
+    #     bridge_executable: lip-cursor-sdk-bridge
+    #     default_workspace: "/absolute/path/to/workspace"
+    #     setting_sources: []           # default none; trusted explicit sources only
+    #     sandbox_mode: required        # or explicit off (local-only; Windows when sandbox unavailable)
+    #     auto_review: false
+    #     mcp_servers: {}
     - id: ollama
       enabled: false
       config: {}

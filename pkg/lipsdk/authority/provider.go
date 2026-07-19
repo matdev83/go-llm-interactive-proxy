@@ -146,7 +146,8 @@ type AttemptProvider interface {
 }
 
 // AttemptClampPreviewer optionally previews non-widening clamps without holds
-// (design Clamp Preview; requirement 2.1). PreviewAttempt must not reserve.
+// (design Clamp Preview; requirement 2.1). PreviewAttempt must not reserve or
+// record durable admission evidence.
 type AttemptClampPreviewer interface {
 	PreviewAttempt(ctx context.Context, in AttemptAdmission) (Decision, error)
 }

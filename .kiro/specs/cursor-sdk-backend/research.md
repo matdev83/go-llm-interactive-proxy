@@ -302,3 +302,46 @@ The first design revision was reviewed against the final requirements, current r
 **PASS after corrections.**
 
 The final design is suitable for task generation. It preserves Go-LIP's canonical, routing, streaming, security, and lifecycle invariants; it accurately represents the SDK integration as a managed sidecar rather than an in-process replacement; and it leaves unsupported or insufficiently proven SDK surfaces outside the first delivery.
+
+## Exact-Version Revalidation and Live Evidence
+
+Task 1 research was revalidated against the published `@cursor/sdk` 1.0.23 package, official Cursor TypeScript SDK documentation, npm registry metadata, and bounded Windows-native live probes.
+
+### Package and platform evidence
+
+- `@cursor/sdk` 1.0.23 exists and was the npm `latest` release at validation time.
+- The package engine is Node `>=22.13`; the successful probe used Node 22.22.3.
+- The package publishes Linux x64/arm64, macOS x64/arm64, and Windows x64 optional binary packages. No Windows arm64 package exists for 1.0.23.
+- The main package has no executable `bin`, so Go-LIP must ship its own bridge executable package.
+- The exact package integrity observed was `sha512-VIh8oW89XXACUkQqB2N8TaU3A/y2jQieF++VC6QqIqKhKRKj7kd+pzeh43MXusuPpebtxtEzqvjaCLlc1xbYTQ==`.
+
+### API and model evidence
+
+- Published declarations confirm `Cursor.models.list`, `Agent.create`, `Agent.resume`, `SDKAgent.send`, `Run.stream`, `Run.wait`, `Run.cancel`, and `Symbol.asyncDispose`.
+- Structured discovery returned 34 account-visible model rows during the probe. Parameter identifiers vary by model: GPT-family rows commonly use `reasoning`, while Claude-family rows may use `thinking` plus `effort`.
+- Parameter value sets differ (`xhigh` and `extra-high` both occur), so reasoning mapping must be exact and catalog-driven rather than name-based.
+- The SDK exposes inline MCP definitions, explicit setting sources, sandbox options, auto-review, and per-agent/per-send custom tools. The first delivery uses MCP and explicit settings/safety only; custom tools remain disabled.
+
+### Streaming, usage, cancellation, and reuse evidence
+
+- A Windows local run with settings sources disabled, sandbox explicitly off, auto-review false, and SDK retries disabled emitted incremental assistant text and matching `text-delta` callbacks before a successful terminal result.
+- `turn-ended` supplied per-turn usage; `RunResult.usage` supplied cumulative usage. Both included input, output, cache read/write, total, and optional reasoning counters.
+- `Run.cancel()` transitioned a live stream to `CANCELLED`; `Run.wait()` resolved with `status: cancelled`.
+- Same-process reuse preserved conversation state. Local `Agent.resume` is persistence-dependent and is excluded by design; the bridge must use an in-memory store and canonical rebootstrap after restart.
+- `Symbol.asyncDispose()` completed and the probe process exited without retained handles.
+
+### Safety and orchestration corrections
+
+- SDK local `enableAgentRetries` defaults to true. The bridge must force it false so core routing and output commitment remain authoritative.
+- The default local store is on-disk SQLite. The bridge must inject an adapter-private in-memory `LocalAgentStore` so hidden SDK state cannot survive a bridge generation.
+- Windows x64 rejected `sandboxOptions.enabled: true` in the probe environment with a non-retryable configuration error. Required sandboxing therefore fails closed; only explicit local-only `sandbox_mode: off` permits operation on such a host.
+- The API key is passed explicitly to SDK methods and never placed in argv or the bridge environment.
+
+### Repository decisions resolved
+
+- `execbackend.Backend.Close` is the only new internal lifecycle seam. Runtimebundle already disposes closers in reverse order on build failure and normal stdhttp shutdown; backend closers join that ordering.
+- Model registry rows already permit duplicate `cursor/...` canonical IDs while preserving backend ID/kind. `cursorcliacp` and `cursorsdk` coexist because their backend prefixes differ.
+- The SDK backend is optional and experimental, so it is added to the standard backend table but not to `lipsdk.StandardDistributionRequirements`.
+- The SDK bridge uses its own process owner while following ACP's proven process-group, process-tree kill, PID-reuse, bounded-stderr, and exactly-once-wait patterns. It does not implement `acp.SubprocessConnectorSpec`.
+
+All temporary credential and probe files were removed after validation. The credential used for probing must be revoked because it was supplied through conversational input.

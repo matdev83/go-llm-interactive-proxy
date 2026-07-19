@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "maxFrameBytes": 16777216,
+  "methods": [
+    "bridge/initialize",
+    "bridge/health",
+    "models/list",
+    "agent/create",
+    "agent/send",
+    "run/cancel",
+    "agent/dispose",
+    "bridge/shutdown"
+  ],
+  "eventKinds": [
+    "text_delta",
+    "reasoning_delta",
+    "usage",
+    "warning",
+    "activity",
+    "finished",
+    "error"
+  ],
+  "terminalEventKinds": ["finished", "error"]
+}

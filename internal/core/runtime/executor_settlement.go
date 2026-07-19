@@ -41,7 +41,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	}
 	if s.accounting.usageObserved {
 		s.reconcileOrSettleCancellationAuthority(ctx)
-		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
+		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 		if s.isCommitted() {
 			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
@@ -51,7 +51,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	}
 	if s.finalizeBillingAfterCancel(ctx, reason) {
 		s.reconcileOrSettleCancellationAuthority(ctx)
-		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
+		s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 		if s.isCommitted() {
 			_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 		} else if s.executor != nil {
@@ -61,7 +61,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 	}
 	s.recordCancellationBillingMarker(ctx, reason)
 	s.settleCancellationAuthority(ctx)
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, authorityUsageEvent(s.usageEventsSnapshot()))
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindCancellation, s.operatorUsageForFinalize())
 	if s.isCommitted() {
 		_ = s.settleRequestAuthorityWithFrontendEgress(ctx, s.usageEvidenceOrEmpty())
 	} else if s.executor != nil {
@@ -77,8 +77,7 @@ func (s *retryRecvStream) persistCancellationBilling(ctx context.Context, reason
 // it falls back to settleCancellationAuthority which settles as a Cancellation.
 func (s *retryRecvStream) reconcileOrSettleCancellationAuthority(ctx context.Context) {
 	if s.authority.Settled() {
-		usageEv := authorityUsageEvent(s.usageEventsSnapshot())
-		s.authority.ReconcileAuthoritative(ctx, usageEv)
+		s.authority.ReconcileAuthoritative(ctx, s.operatorUsageForFinalize())
 		return
 	}
 	s.settleCancellationAuthority(ctx)
@@ -96,7 +95,7 @@ func (s *retryRecvStream) settleCancellationAuthority(ctx context.Context) {
 	if s == nil || s.authority.Settled() {
 		return
 	}
-	usageEv := authorityUsageEvent(s.usageEventsSnapshot())
+	usageEv := s.operatorUsageForFinalize()
 	s.authority.Settle(ctx, authorityapp.SettlementKindCancellation, usageEv, true)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeCanceled, metering.SurfacedNo, usageEv)
 }
@@ -693,13 +692,12 @@ func (s *retryRecvStream) recordTokenAccountingLedger(ctx context.Context, event
 
 func (s *retryRecvStream) recordPartialTokenAccounting(ctx context.Context, reason string, err error) {
 	s.recordPartialTokenAccountingLedger(ctx, reason, err)
-	events := s.usageEventsSnapshot()
-	usageEv := authorityUsageEvent(events)
+	usageEv := s.operatorUsageForFinalize()
 	s.authority.Settle(ctx, authorityapp.SettlementKindPartial, usageEv, false)
 	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
 	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedYes, usageEv)
 	if s.isCommitted() {
-		s.emitFrontendEgressMeteringFact(ctx, usageEv)
+		s.emitFrontendEgressMeteringFact(ctx, s.usageEvidenceOrEmpty())
 	}
 }
 

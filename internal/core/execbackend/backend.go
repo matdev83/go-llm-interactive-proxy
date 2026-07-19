@@ -47,6 +47,12 @@ type Backend struct {
 	EnforcesMaxOutputTokens bool
 
 	ProviderCounter accountingapp.ProviderCounter
+
+	// Close, when non-nil, releases backend-owned persistent runtime resources
+	// (for example a companion process). nil means the backend owns no such
+	// resources or cleans them through individual streams. Callers treat a
+	// non-nil callback as idempotent; it is not a request-cancellation API.
+	Close func() error
 }
 
 type BillingFinalizationInput struct {

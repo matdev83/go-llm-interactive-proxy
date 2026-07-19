@@ -446,6 +446,8 @@ func (e *Executor) openPlannedCandidate(
 		return zero, fmt.Errorf("executor: %w", err)
 	}
 
+	// Clamp preview (V-15): converge non-widening clamps without holds, then
+	// freeze/count/persist the final call and AdmitAttempt once.
 	previewedClamps, previewRan, perr := e.previewAndApplyAttemptClamps(p.ctx, &openCall, c, p.aLegID, bleg.BLegID)
 	if perr != nil {
 		p.budget.release()

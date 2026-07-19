@@ -261,9 +261,13 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// owns the reservation release via a fresh attempt terminal.
 	s.runAttemptTerminal(ctx, sdkterminal.CommandSwallowedAttempt, func(cctx context.Context) error {
 		s.recordPartialTokenAccountingLedger(cctx, "recoverable pre-output (recv)", err)
-		// Do not settle the reservation before the replacement decision.
-		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, authorityUsageEvent(s.usageEventsSnapshot()))
-		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, s.operatorUsageForFinalize())
+		// A swallowed pre-output attempt must release its strict reservation for
+		// failover, but any advisory/unreserved rules still need the observed usage
+		// fact. Apply only the unreserved projection here; do not settle the
+		// reservation before the replacement decision.
+		usageEv := s.operatorUsageForFinalize()
+		s.authority.ApplyUnreservedUsage(cctx, authorityapp.SettlementKindPartial, usageEv)
+		s.emitBackendEgressMeteringFact(cctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
 		return nil
 	})
 	s.resetAttemptTerminal()

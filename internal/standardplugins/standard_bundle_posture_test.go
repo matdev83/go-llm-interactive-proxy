@@ -8,6 +8,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/agycliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openaicodex"
 )
@@ -42,6 +43,7 @@ func TestStandardBackends_localOnlyConnectorsDeclareLocalOnlyScope(t *testing.T)
 	localOnly := []string{
 		acp.ID,
 		cursorcliacp.ID,
+		cursorsdk.ID,
 		geminicliacp.ID,
 		agycliacp.ID,
 		openaicodex.ID,

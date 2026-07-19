@@ -40,6 +40,10 @@ func TestQuantitiesFromUsageEvent_LegacyUnmarkedNonzeroOnly(t *testing.T) {
 	if !ok || in != 3 {
 		t.Fatalf("input=%d ok=%v", in, ok)
 	}
+	total, ok := checkpoint.QuantityComponentValue(qs, metering.ComponentTotalToken)
+	if !ok || total != 3 {
+		t.Fatalf("derived total=%d ok=%v", total, ok)
+	}
 }
 
 func TestQuantitiesFromUsageEvent_ExplicitZeroPresenceRetained(t *testing.T) {
@@ -59,8 +63,13 @@ func TestQuantitiesFromUsageEvent_ExplicitZeroPresenceRetained(t *testing.T) {
 func TestCustomerPlaneUsageEvent_StripsProviderScopesAndMoney(t *testing.T) {
 	t.Parallel()
 	ev := lipapi.Event{
-		Kind: lipapi.EventUsageDelta, CostNanoUnits: 999, Currency: "USD", CostPresent: true,
-		MessageIndex: 3, RawUsageJSON: `{"provider":"x"}`,
+		Kind:          lipapi.EventUsageDelta,
+		CostNanoUnits: 999,
+		Currency:      "USD",
+		CostPresent:   true,
+		CostSource:    string(lipapi.UsageSourceProviderReported),
+		MessageIndex:  3,
+		RawUsageJSON:  `{"provider":"x"}`,
 		UsageScopes: []lipapi.ScopedUsageDelta{
 			{
 				InputTokens: 40, OutputTokens: 12, TotalTokens: 52,

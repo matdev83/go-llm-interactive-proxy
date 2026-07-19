@@ -1,0 +1,67 @@
+{
+  "sdkVersion": "1.0.23",
+  "nodeEngine": ">=22.13",
+  "note": "Sanitized fixture derived from structured Cursor.models.list shapes. No account, workspace, or secret material.",
+  "models": [
+    {
+      "id": "gpt-5.3-codex",
+      "displayName": "GPT-5.3 Codex",
+      "parameters": [
+        {
+          "id": "reasoning",
+          "type": "string",
+          "values": ["low", "medium", "high", "xhigh"]
+        }
+      ],
+      "variants": [
+        {
+          "id": "reasoning-xhigh",
+          "params": { "reasoning": "xhigh" }
+        }
+      ]
+    },
+    {
+      "id": "claude-4.6-sonnet-thinking",
+      "displayName": "Claude 4.6 Sonnet Thinking",
+      "parameters": [
+        {
+          "id": "thinking",
+          "type": "boolean"
+        },
+        {
+          "id": "effort",
+          "type": "string",
+          "values": ["low", "medium", "high", "extra-high"]
+        }
+      ],
+      "variants": [
+        {
+          "id": "effort-high-thinking",
+          "params": { "effort": "high", "thinking": true }
+        },
+        {
+          "id": "effort-extra-high-thinking",
+          "params": { "effort": "extra-high", "thinking": true }
+        }
+      ]
+    },
+    {
+      "id": "composer-2-fast",
+      "displayName": "Composer 2 Fast",
+      "parameters": [
+        {
+          "id": "thinking",
+          "type": "boolean"
+        }
+      ],
+      "variants": []
+    }
+  ],
+  "distinctions": {
+    "reasoningParam": "gpt-5.3-codex",
+    "effortPlusThinking": "claude-4.6-sonnet-thinking",
+    "booleanThinkingOnly": "composer-2-fast",
+    "xhighValue": "xhigh",
+    "extraHighValue": "extra-high"
+  }
+}

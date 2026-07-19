@@ -1,4 +1,4 @@
-.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install
+.PHONY: help test test-fast test-unit test-precommit-extra test-postgres-migrations test-authority-postgres test-authority-postgres-direct test-authority-postgres-pooled qa-tests test-race test-fuzz test-reasoning-e2e-soak parity-checks release-gates bench pgo-profile pgo-build quality-checks regex-hotpath-check arch-report qa vet lint vuln run hooks-install test-cursor-sdk-live test-cursor-sdk-live-bridge test-cursor-sdk-platform test-cursor-sdk-comparison-report
 
 GO ?= go
 GO_TEST_FLAGS ?= -parallel=8 -timeout=10m
@@ -18,6 +18,10 @@ help:
 	@echo "  make test-race       - race scan (skipped on Windows; macOS/Linux: scripts/race-check.sh)"
 	@echo "  make test-fuzz       - short fuzz smoke (FUZZTIME=500ms locally; nightly CI uses 6s per target in .github/workflows/race-fuzz-nightly.yml)"
 	@echo "  make test-reasoning-e2e-soak - opt-in reasoning preservation full-HTTP soak (sets LIP_REASONING_E2E_SOAK=1; not a PR/default gate; see docs/reasoning-output-preservation.md)"
+	@echo "  make test-cursor-sdk-live     - opt-in live Cursor SDK Node scenarios (CURSOR_SDK_LIVE=1 + CURSOR_API_KEY)"
+	@echo "  make test-cursor-sdk-live-bridge - opt-in Go→Node live bridge lifecycle (-tags=cursorsdk_live_bridge; CURSOR_SDK_LIVE=1 + key)"
+	@echo "  make test-cursor-sdk-platform - current-OS bridge platform smoke (fake bridge; no API key)"
+	@echo "  make test-cursor-sdk-comparison-report - ACP vs SDK matrix report (synthetic/blocked offline; no credentials)"
 	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
 	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
@@ -152,6 +156,8 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseNDJSONLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
 	$(FUZZ_WRAPPER) -fuzz=FuzzMapSessionUpdateToEvents$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
 	$(FUZZ_WRAPPER) -fuzz=FuzzMergeHandshakeProfileExtensions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/acp
+	$(FUZZ_WRAPPER) -fuzz=FuzzDecodeLine$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/cursorsdk/protocol
+	$(FUZZ_WRAPPER) -fuzz=FuzzMapBridgeEvent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/plugins/backends/cursorsdk
 	$(FUZZ_WRAPPER) -fuzz=FuzzHookMutationValidators$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/hooks
 	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientUserAgent$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
 	$(FUZZ_WRAPPER) -fuzz=FuzzAcceptClientAppURL$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/identity
@@ -172,6 +178,34 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
 	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
 	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+
+test-cursor-sdk-live:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-cursor-sdk-live.ps1
+else
+	@bash scripts/test-cursor-sdk-live.sh
+endif
+
+test-cursor-sdk-live-bridge:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-cursor-sdk-live-bridge.ps1
+else
+	@bash scripts/test-cursor-sdk-live-bridge.sh
+endif
+
+test-cursor-sdk-platform:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-cursor-sdk-platform.ps1
+else
+	@bash scripts/test-cursor-sdk-platform.sh
+endif
+
+test-cursor-sdk-comparison-report:
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-cursor-sdk-comparison-report.ps1
+else
+	@bash scripts/test-cursor-sdk-comparison-report.sh
+endif
 
 parity-checks:
 	$(GO) test $(GO_TEST_FLAGS) -tags=precommit,integration ./internal/testkit/conformance/...

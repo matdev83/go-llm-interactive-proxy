@@ -1,6 +1,8 @@
 package standardplugins
 
 import (
+	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -106,6 +108,12 @@ func standardBackendBuildYAML(id string) string {
 		return "backend_prefix: custom-openai-responses\nbase_url: http://127.0.0.1:9/v1\n"
 	case CustomAnthropicCompatibleID:
 		return "backend_prefix: custom-anthropic\nbase_url: http://127.0.0.1:9\n"
+	case "cursorsdk":
+		exe, err := os.Executable()
+		if err != nil {
+			exe = os.Args[0]
+		}
+		return fmt.Sprintf("api_key: test\nbridge_executable: %q\n", exe)
 	default:
 		return ""
 	}

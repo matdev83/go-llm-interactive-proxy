@@ -1,0 +1,36 @@
+{
+  "name": "lip-cursor-sdk-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project-owned Cursor SDK NDJSON bridge for Go-LIP cursorsdk backend",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "lip-cursor-sdk-bridge": "bin/lip-cursor-sdk-bridge.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "bin/**",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/protocol.test.ts src/server.test.ts src/agents.test.ts src/sdk_runtime.test.ts src/sdkMock.test.ts src/models.test.ts src/liveProbe.test.ts src/liveScenarios.test.ts src/inMemoryLocalAgentStore.test.ts src/package.test.ts",
+    "live-probe": "tsx src/liveProbe.ts",
+    "live-scenarios": "tsx src/liveScenarios.ts"
+  },
+  "dependencies": {
+    "@cursor/sdk": "1.0.23"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

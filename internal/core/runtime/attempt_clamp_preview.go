@@ -16,7 +16,46 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
+// maxClampPreviewIterations bounds the strictly-narrowing clamp preview loop
+// (adapter PreviewAttempt comment; design Clamp Preview / V-15).
 const maxClampPreviewIterations = 4
+
+// attemptClampPreviewFunc previews non-widening clamps for one bounded-loop
+// iteration without recording durable admission evidence or reservations.
+type attemptClampPreviewFunc func(ctx context.Context, in authority.AttemptAdmission) ([]authority.Clamp, error)
+
+// resolveAttemptClampPreviewer selects the clamp-preview path: the full
+// AttemptCoordinator when at least one slot implements AttemptClampPreviewer,
+// otherwise a direct UsageAuthority adapter fallback (V-15) so single-provider
+// deployments without a multi-provider AttemptCoordinator still get bounded,
+// side-effect-free clamp preview.
+func (e *Executor) resolveAttemptClampPreviewer() attemptClampPreviewFunc {
+	if e == nil {
+		return nil
+	}
+	if e.AttemptCoordinator != nil {
+		for _, slot := range e.AttemptCoordinator.Slots {
+			if _, ok := slot.Provider.(authority.AttemptClampPreviewer); ok {
+				return e.AttemptCoordinator.PreviewClamps
+			}
+		}
+		return nil
+	}
+	adapter := newUsageAuthorityProviderAdapter(e.authorityService())
+	if adapter == nil {
+		return nil
+	}
+	return func(ctx context.Context, in authority.AttemptAdmission) ([]authority.Clamp, error) {
+		d, err := adapter.PreviewAttempt(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		if d.Kind == authority.DecisionDeny {
+			return nil, fmt.Errorf("executor: attempt clamp preview denied by usage authority")
+		}
+		return d.Clamps, nil
+	}
+}
 
 // previewAndApplyAttemptClamps runs side-effect-free bounded strictly-narrowing
 // clamp preview before backend-ingress freeze (design Final Attempt Sequence /
@@ -29,16 +68,11 @@ func (e *Executor) previewAndApplyAttemptClamps(
 	aLegID string,
 	blegID string,
 ) (previewed []authority.Clamp, previewRan bool, err error) {
-	if e == nil || e.AttemptCoordinator == nil || call == nil {
+	if e == nil || call == nil {
 		return nil, false, nil
 	}
-	for _, slot := range e.AttemptCoordinator.Slots {
-		if _, ok := slot.Provider.(authority.AttemptClampPreviewer); ok {
-			previewRan = true
-			break
-		}
-	}
-	if !previewRan {
+	preview := e.resolveAttemptClampPreviewer()
+	if preview == nil {
 		return nil, false, nil
 	}
 
@@ -64,7 +98,7 @@ func (e *Executor) previewAndApplyAttemptClamps(
 				Output:      previewOutputAssumption(working),
 			},
 		}
-		next, perr := e.AttemptCoordinator.PreviewClamps(ctx, in)
+		next, perr := preview(ctx, in)
 		if perr != nil {
 			return nil, true, fmt.Errorf("executor: attempt clamp preview: %w", perr)
 		}
@@ -136,12 +170,15 @@ func (e *Executor) applyPreviewClamps(ctx context.Context, call *lipapi.Call, c 
 			}
 			call.Options.MaxOutputTokens = &maxOut
 		case authority.ClampMaxSpend:
+			if !clamp.Money.Present {
+				return fmt.Errorf("executor: preview max_spend clamp missing money (rule %q)", clamp.RuleID)
+			}
 			adm := &authorityapp.AdmissionClamp{
 				RuleID: clamp.RuleID,
 				EffectiveMax: domain.Amount{
 					Unit:     domain.AmountUnitMoneyNano,
 					Value:    clamp.Money.NanoUnits,
-					Currency: clamp.Money.Currency,
+					Currency: strings.TrimSpace(clamp.Money.Currency),
 				},
 				FailureBehavior: domain.FailureBehaviorFailClosed,
 			}

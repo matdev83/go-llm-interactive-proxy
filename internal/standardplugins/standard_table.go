@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/bedrock"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/codexappserver"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/geminicliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/huggingface"
@@ -195,6 +196,9 @@ func StandardBackendBundle(keys UpstreamAPIKeys) Bundle {
 		{ID: cursorcliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendCursorCLIACP(n, nil)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},
+		{ID: cursorsdk.ID, Factory: func(n yaml.Node, upstream *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
+			return backendCursorSDK(n, upstream, keys)
+		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialStatic, AccessScope: pluginreg.BackendAccessLocalOnly}},
 		{ID: geminicliacp.ID, Factory: func(n yaml.Node, _ *http.Client, _ pluginreg.BackendFactoryDeps) (execbackend.Backend, error) {
 			return backendGeminiCLIACP(n, nil)
 		}, Profile: pluginreg.BackendSecurityProfile{CredentialMode: pluginreg.CredentialNone, AccessScope: pluginreg.BackendAccessLocalOnly}},

@@ -155,7 +155,13 @@ var lineBudgets = []struct {
 	// ReleaseLeaseSet terminal work, QuerySets readiness) merged onto main
 	// Phase 1–5 + reasoning. Post-merge measured non-test total is 64452;
 	// cap keeps ~98 lines of headroom. Prefer further decomposition over another raise.
-	{"internal/core", 64550},
+	// Raised from 64550 to 64800 for the cursor-sdk backend follow-up merged onto
+	// the above: operator usage evidence wiring into operator settle/egress
+	// (lastAuthorityUsage → seenEvents → empty UsageDelta shell precedence;
+	// req 1.5 / 2.9), AttemptCoordinator.Preview clamp-preview fallback for
+	// nil-coordinator UsageAuthority-only deployments, and execbackend.Backend.Close.
+	// Post-merge measured non-test total is 64713; cap keeps ~87 lines of headroom.
+	{"internal/core", 64800},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

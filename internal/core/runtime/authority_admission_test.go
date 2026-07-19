@@ -61,11 +61,10 @@ func TestExecutorAuthorityClampFailureReleasesBeforeBackendAttempt(t *testing.T)
 	if backend.openCalls.Load() != 0 {
 		t.Fatalf("backend open calls = %d, want 0", backend.openCalls.Load())
 	}
-	if auth.releaseCalls.Load() != 1 {
-		t.Fatalf("release calls = %d, want 1 after pre-open clamp failure", auth.releaseCalls.Load())
-	}
-	if auth.lastRelease().BackendAttempted {
-		t.Fatal("clamp conversion failure occurs before backend open")
+	// V-15: spend clamps are applied during side-effect-free preview before
+	// AdmitAttempt reserves, so fail-closed clamp conversion leaves no hold.
+	if auth.releaseCalls.Load() != 0 {
+		t.Fatalf("release calls = %d, want 0 (preview clamp failure creates no reservation)", auth.releaseCalls.Load())
 	}
 	if budget.usedNow() != 0 {
 		t.Fatalf("budget used = %d, want 0", budget.usedNow())
@@ -145,17 +144,21 @@ func TestExecutorAuthorityAdmitPopulatesRequestCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openAuthorityCandidate: %v", err)
 	}
-	if auth.admitCalls.Load() != 2 {
-		t.Fatalf("admit calls = %d, want 2", auth.admitCalls.Load())
+	if auth.admitCalls.Load() != 3 {
+		t.Fatalf("admit calls = %d, want 3 (precheck + clamp preview + authoritative)", auth.admitCalls.Load())
 	}
 	calls := auth.admitInputs()
-	if len(calls) != 2 {
-		t.Fatalf("admit inputs = %d, want 2", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("admit inputs = %d, want 3", len(calls))
 	}
 	if !calls[0].EstimateOnly {
 		t.Fatal("precheck admission must be estimate-only")
 	}
-	in := calls[1]
+	if !calls[1].EstimateOnly || !calls[1].SkipEvidence {
+		t.Fatalf("clamp preview must be EstimateOnly+SkipEvidence; got EstimateOnly=%v SkipEvidence=%v",
+			calls[1].EstimateOnly, calls[1].SkipEvidence)
+	}
+	in := calls[2]
 	if in.EstimateOnly {
 		t.Fatal("real admission must not be estimate-only")
 	}
@@ -391,8 +394,8 @@ func TestExecutorAuthorityRealAdmitFailureReleasesBudget(t *testing.T) {
 	if backend.openCalls.Load() != 0 {
 		t.Fatalf("backend open calls = %d, want 0 (backend must never open)", backend.openCalls.Load())
 	}
-	if got, want := auth.admitCalls.Load(), int64(2); got != want {
-		t.Fatalf("admit calls = %d, want %d (precheck + real)", got, want)
+	if got, want := auth.admitCalls.Load(), int64(3); got != want {
+		t.Fatalf("admit calls = %d, want %d (precheck + clamp preview + real)", got, want)
 	}
 	if budget.usedNow() != 0 {
 		t.Fatalf("budget used = %d, want 0 (slot must be released on real admit failure)", budget.usedNow())
