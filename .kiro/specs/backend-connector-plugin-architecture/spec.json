@@ -1,7 +1,7 @@
 {
   "feature_name": "backend-connector-plugin-architecture",
   "created_at": "2026-07-19T01:03:15+02:00",
-  "updated_at": "2026-07-19T01:03:15+02:00",
+  "updated_at": "2026-07-19T12:40:34+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
@@ -19,5 +19,5 @@
     }
   },
   "ready_for_implementation": false,
-  "project_description": "Decouple non-essential inference backend connectors from the Go-LIP root module and standard binary through a versioned executable-plugin ABI, trusted manifest discovery, lazy process activation, and independently buildable connector modules while preserving the canonical streaming core and a small built-in connector set."
+  "project_description": "Decouple non-essential inference backend connectors from the Go-LIP root module and standard binary through a versioned executable-plugin ABI, closed trusted manifest discovery, digest-bound launch, secure local IPC, lazy declared process activation, and independently buildable connector modules while preserving the canonical streaming core and a small built-in connector set."
 }
