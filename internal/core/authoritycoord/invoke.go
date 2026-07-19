@@ -41,6 +41,30 @@ func invokeAdmitAttempt(ctx context.Context, p authority.AttemptProvider, in aut
 	return d, nil
 }
 
+// invokePreviewAttempt calls AttemptClampPreviewer when implemented. Non-previewers
+// are a no-op allow. Preview decisions must not carry holds (design Clamp Preview).
+func invokePreviewAttempt(ctx context.Context, p authority.AttemptProvider, in authority.AttemptAdmission) (d authority.Decision, ok bool, err error) {
+	if p == nil {
+		return authority.Decision{Kind: authority.DecisionAllow}, false, nil
+	}
+	previewer, implements := p.(authority.AttemptClampPreviewer)
+	if !implements {
+		return authority.Decision{Kind: authority.DecisionAllow}, false, nil
+	}
+	defer isolateProviderPanic(&d, &err)
+	d, err = previewer.PreviewAttempt(ctx, in)
+	if err != nil {
+		return d, true, err
+	}
+	if vErr := d.Validate(); vErr != nil {
+		return d, true, vErr
+	}
+	// Enforce side-effect-free contract even if a provider misbehaves.
+	d.Reservations = nil
+	d.CompensationHandle = ""
+	return d, true, nil
+}
+
 func invokeSettleRequest(ctx context.Context, p authority.RequestProvider, in authority.RequestSettlement) (s authority.Settlement, err error) {
 	if p == nil {
 		return authority.Settlement{Kind: authority.SettlementFinal}, nil

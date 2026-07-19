@@ -6,37 +6,17 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/plane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 )
 
 func quantitiesFromUsageEvent(ev lipapi.Event) []metering.Quantity {
-	totalPresent := ev.TotalTokens > 0 || (ev.InputTokens+ev.OutputTokens) > 0 || ev.Kind == lipapi.EventUsageDelta
-	total := int64(ev.TotalTokens)
-	if total == 0 {
-		total = int64(ev.InputTokens + ev.OutputTokens)
-	}
-	return checkpoint.QuantitiesFromTokenCounts(
-		int64(ev.InputTokens),
-		int64(ev.OutputTokens),
-		int64(ev.CacheReadTokens),
-		int64(ev.CacheWriteTokens),
-		int64(ev.ReasoningTokens),
-		total,
-		totalPresent,
-	)
+	return plane.QuantitiesFromUsageEvent(ev)
 }
 
 func moneyFromUsageEvent(ev lipapi.Event) *metering.MoneyObservation {
-	if strings.TrimSpace(ev.Currency) == "" && ev.CostNanoUnits == 0 && strings.TrimSpace(ev.CostSource) == "" {
-		return nil
-	}
-	return &metering.MoneyObservation{
-		NanoUnits: ev.CostNanoUnits,
-		Currency:  strings.TrimSpace(ev.Currency),
-		Present:   true,
-		Source:    metering.SourceProviderReported,
-	}
+	return plane.MoneyFromUsageEvent(ev)
 }
 
 // emitBackendEgressMeteringFact appends a backend-egress fact when a freeze exists

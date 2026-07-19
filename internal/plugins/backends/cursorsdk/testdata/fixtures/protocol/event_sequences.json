@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "name": "happy_path",
+      "expect": "ok",
+      "events": [
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":1,"kind":"text_delta","payload":{"text":"A"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":2,"kind":"reasoning_delta","payload":{"text":"think"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":3,"kind":"activity","payload":{"name":"read_file"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":4,"kind":"warning","payload":{"message":"slow"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":5,"kind":"usage","payload":{"inputTokens":1,"outputTokens":1,"totalTokens":2}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":6,"kind":"finished","payload":{"status":"finished"}}
+      ]
+    },
+    {
+      "name": "sequence_regression",
+      "expect": "sequence_regression",
+      "events": [
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":1,"kind":"text_delta","payload":{"text":"A"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":1,"kind":"text_delta","payload":{"text":"B"}}
+      ]
+    },
+    {
+      "name": "duplicate_terminal",
+      "expect": "duplicate_terminal",
+      "events": [
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":1,"kind":"finished","payload":{"status":"finished"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":2,"kind":"error","payload":{"message":"late"}}
+      ]
+    },
+    {
+      "name": "event_after_terminal",
+      "expect": "duplicate_terminal",
+      "events": [
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":1,"kind":"error","payload":{"message":"boom"}},
+        {"schemaVersion":1,"type":"event","runId":"run-1","seq":2,"kind":"text_delta","payload":{"text":"late"}}
+      ]
+    }
+  ]
+}

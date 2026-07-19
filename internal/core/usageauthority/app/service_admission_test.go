@@ -181,10 +181,11 @@ func TestAdmissionService(t *testing.T) {
 		t.Parallel()
 
 		store := newFakeStateStore()
+		evidence := &fakeEvidenceSink{}
 		svc := NewService(&fakeRuleSource{snapshot: RuleSnapshot{
 			Status: domain.AuthorityStatus{State: domain.AuthorityStateReady, Reason: domain.StatusReasonNone},
 			Rules:  []domain.Rule{strictRule},
-		}}, store, &fakeEvidenceSink{}, fixedClock{now: time.Unix(100, 0).UTC()})
+		}}, store, evidence, fixedClock{now: time.Unix(100, 0).UTC()})
 
 		estimateOnlyInput := baseInput
 		estimateOnlyInput.EstimateOnly = true
@@ -198,6 +199,40 @@ func TestAdmissionService(t *testing.T) {
 		}
 		if len(store.reserveCalls) != 0 {
 			t.Fatalf("estimate-only admission must not mutate store: %#v", store.reserveCalls)
+		}
+		// Estimate-only precheck still records durable evidence (denial audit /
+		// advisory posture). Clamp preview must use SkipEvidence instead.
+		if len(evidence.policy) != 1 || len(evidence.accounting) != 1 {
+			t.Fatalf("estimate-only admit still records evidence: policy=%d accounting=%d", len(evidence.policy), len(evidence.accounting))
+		}
+	})
+
+	t.Run("skip-evidence-does-not-record", func(t *testing.T) {
+		t.Parallel()
+
+		store := newFakeStateStore()
+		evidence := &fakeEvidenceSink{}
+		svc := NewService(&fakeRuleSource{snapshot: RuleSnapshot{
+			Status: domain.AuthorityStatus{State: domain.AuthorityStateReady, Reason: domain.StatusReasonNone},
+			Rules:  []domain.Rule{strictRule},
+		}}, store, evidence, fixedClock{now: time.Unix(100, 0).UTC()})
+
+		previewInput := baseInput
+		previewInput.EstimateOnly = true
+		previewInput.SkipEvidence = true
+
+		got, err := svc.Admit(context.Background(), previewInput)
+		if err != nil {
+			t.Fatalf("admit: %v", err)
+		}
+		if !got.Allowed || got.ReservationID != "" || got.Reserved {
+			t.Fatalf("skip-evidence admission must not reserve: %#v", got)
+		}
+		if len(store.reserveCalls) != 0 {
+			t.Fatalf("skip-evidence admission must not mutate store: %#v", store.reserveCalls)
+		}
+		if len(evidence.policy) != 0 || len(evidence.accounting) != 0 {
+			t.Fatalf("skip-evidence admission must not record durable evidence: policy=%#v accounting=%#v", evidence.policy, evidence.accounting)
 		}
 	})
 

@@ -58,7 +58,7 @@ func standardBackendEnforcesMaxOutput(id string) (bool, bool) {
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		return true, true
 	case "openai-codex", "openai-codex-app-server",
-		"acp", "cursorcliacp", "geminicliacp", "agycliacp",
+		"acp", "cursorcliacp", "cursorsdk", "geminicliacp", "agycliacp",
 		"opencode-go", "opencode-zen", "local-stub":
 		return false, true
 	default:
@@ -74,7 +74,7 @@ func standardBackendEnforcementBuildYAML(id string) string {
 	base := standardBackendBuildYAML(id)
 	switch id {
 	case "anthropic", "openai-legacy", "openai-responses", "openrouter",
-		"nvidia", "huggingface", "opencode-go", "opencode-zen",
+		"nvidia", "huggingface", "opencode-go", "opencode-zen", "cursorsdk",
 		CustomOpenAILegacyCompatibleID, CustomOpenAIResponsesCompatibleID, CustomAnthropicCompatibleID:
 		if !strings.Contains(base, "api_key:") {
 			return base + "api_key: test\n"

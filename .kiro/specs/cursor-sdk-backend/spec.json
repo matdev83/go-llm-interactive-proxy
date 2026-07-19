@@ -1,23 +1,23 @@
 {
   "feature_name": "cursor-sdk-backend",
   "created_at": "2026-07-17T17:27:04+02:00",
-  "updated_at": "2026-07-17T17:44:00+02:00",
+  "updated_at": "2026-07-17T21:35:18+02:00",
   "language": "en",
   "phase": "tasks-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
+  "ready_for_implementation": true,
   "project_description": "Add an experimental Cursor SDK-backed backend alongside the existing Cursor CLI ACP backend, using a project-owned Node bridge while preserving Go-LIP streaming, routing, lifecycle, security, and canonical-contract boundaries."
 }

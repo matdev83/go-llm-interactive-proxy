@@ -144,3 +144,10 @@ type AttemptProvider interface {
 	SettleAttempt(ctx context.Context, in AttemptSettlement) (Settlement, error)
 	ReleaseAttempt(ctx context.Context, in AttemptRelease) error
 }
+
+// AttemptClampPreviewer optionally previews non-widening clamps without holds
+// (design Clamp Preview; requirement 2.1). PreviewAttempt must not reserve or
+// record durable admission evidence.
+type AttemptClampPreviewer interface {
+	PreviewAttempt(ctx context.Context, in AttemptAdmission) (Decision, error)
+}

@@ -35,6 +35,83 @@ type AttemptCoordinator struct {
 	CleanupTimeout time.Duration
 }
 
+// Preview runs side-effect-free clamp preview across AttemptClampPreviewer
+// providers (design Clamp Preview / V-15). Non-previewers are skipped. Holds
+// are never recorded; deny/unavailable posture matches Admit advisory/required.
+func (c *AttemptCoordinator) Preview(ctx context.Context, in authority.AttemptAdmission) (CompositeDecision, error) {
+	if err := in.Validate(); err != nil {
+		return CompositeDecision{}, err
+	}
+	if c == nil {
+		return CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessDisabled}, nil
+	}
+	out := CompositeDecision{Kind: authority.DecisionAllow, Readiness: authority.ReadinessReady}
+
+	slots := append([]AttemptSlot(nil), c.Slots...)
+	sort.SliceStable(slots, func(i, j int) bool {
+		if slots[i].Class != slots[j].Class {
+			return slots[i].Class < slots[j].Class
+		}
+		return slots[i].ID < slots[j].ID
+	})
+
+	for _, slot := range slots {
+		if slot.Provider == nil {
+			continue
+		}
+		id := strings.TrimSpace(slot.ID)
+		if id == "" {
+			id = fmt.Sprintf("attempt-class-%d", slot.Class)
+		}
+		strength := slot.Strength
+		if strength == "" {
+			if slot.Class == AttemptPriorityAdvisory {
+				strength = authority.StrengthAdvisory
+			} else {
+				strength = authority.StrengthRequired
+			}
+		}
+		failBeh := slot.FailureBehavior
+		if failBeh == "" {
+			if strength == authority.StrengthAdvisory {
+				failBeh = authority.FailureFailOpen
+			} else {
+				failBeh = authority.FailureFailClosed
+			}
+		}
+
+		d, called, err := invokePreviewAttempt(ctx, slot.Provider, in)
+		if !called {
+			continue
+		}
+		if err != nil {
+			if strength == authority.StrengthAdvisory || failBeh == authority.FailureFailOpen {
+				out.Readiness = AggregateReadiness(out.Readiness, authority.ReadinessDegraded)
+				continue
+			}
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = id
+			return out, &ErrUnavailable{ProviderID: id, Err: err}
+		}
+		out.ProviderDecisions = append(out.ProviderDecisions, d)
+		out.Readiness = AggregateReadiness(out.Readiness, d.Readiness)
+		out.Clamps = mergeClampsNonWidening(out.Clamps, d.Clamps)
+		if len(d.BoundVersions) > 0 {
+			out.BoundVersions = append(out.BoundVersions, d.BoundVersions...)
+		}
+
+		switch d.Kind {
+		case authority.DecisionDeny:
+			// Match Admit: deterministic DecisionDeny never fails open (advisory
+			// fail-open applies only to invoke errors / infrastructure faults).
+			out.Kind = authority.DecisionDeny
+			out.DeniedBy = id
+			return out, &ErrDenied{ProviderID: id, Decision: d}
+		}
+	}
+	return out, nil
+}
+
 // Admit runs attempt-stage admission for one B-leg.
 func (c *AttemptCoordinator) Admit(ctx context.Context, in authority.AttemptAdmission) (CompositeDecision, error) {
 	if err := in.Validate(); err != nil {

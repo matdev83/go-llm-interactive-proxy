@@ -64,6 +64,10 @@ func buildModelRuntime(bctx buildContext, upstream *http.Client, closers []func(
 	if err != nil {
 		return nil, closers, fmt.Errorf("runtimebundle: %w", err)
 	}
+	// Register backend closers before inventory/registry startup so later
+	// model-runtime failures dispose already-constructed backends via the
+	// existing reverse-order rollback path.
+	closers = appendBackendClosers(closers, cfg, backends)
 	modelRegistryRuntime, modelRegistry, modelRegistryClosers, err := startModelRegistryRuntime(parent, cfg, inventories, bctx.Log)
 	if err != nil {
 		return nil, closers, fmt.Errorf("runtimebundle: model registry: %w", err)
@@ -94,6 +98,7 @@ func buildBackends(
 	backends := make(map[string]execbackend.Backend, len(cfg.Plugins.Backends))
 	inventories := make([]modelregistry.BackendInventory, 0, len(cfg.Plugins.Backends))
 	rawPrefixes := make([]string, 0, len(cfg.Plugins.Backends))
+	constructedClosers := make([]func() error, 0, len(cfg.Plugins.Backends))
 	modelInventoryFetchTimeout := cfg.ModelInventory.FetchTimeoutDuration()
 	for _, p := range cfg.Plugins.Backends {
 		if !p.Enabled {
@@ -103,9 +108,15 @@ func buildBackends(
 		iid := p.InstanceID()
 		be, err := reg.BuildBackend(fid, p.Config, upstream, backendDeps)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err)
+			return nil, nil, nil, withDisposedClosers(
+				fmt.Errorf("backend instance %s (factory %s): %w", iid, fid, err),
+				constructedClosers,
+			)
 		}
 		backends[iid] = be
+		if be.Close != nil {
+			constructedClosers = append(constructedClosers, be.Close)
+		}
 		rawPrefixes = append(rawPrefixes, be.BackendPrefixes...)
 		inventories = append(inventories, modelregistry.BackendInventory{
 			BackendID:       iid,
@@ -117,6 +128,25 @@ func buildBackends(
 	}
 	routePrefixes := routing.FilterRoutePrefixes(rawPrefixes)
 	return backends, inventories, routePrefixes, nil
+}
+
+// appendBackendClosers appends non-nil backend Close callbacks in configuration
+// order. nil Close remains a no-op and is not registered.
+func appendBackendClosers(closers []func() error, cfg *config.Config, backends map[string]execbackend.Backend) []func() error {
+	if cfg == nil {
+		return closers
+	}
+	for _, p := range cfg.Plugins.Backends {
+		if !p.Enabled {
+			continue
+		}
+		be, ok := backends[p.InstanceID()]
+		if !ok || be.Close == nil {
+			continue
+		}
+		closers = append(closers, be.Close)
+	}
+	return closers
 }
 
 func startModelRegistryRuntime(

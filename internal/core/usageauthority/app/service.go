@@ -374,7 +374,7 @@ func (s *Service) projectAdmissionEvidence(ctx context.Context, in AdmissionInpu
 	if err != nil {
 		return policyAndControlPlane{}, err
 	}
-	if s != nil && s.evidence != nil {
+	if s != nil && s.evidence != nil && !in.SkipEvidence {
 		if err := s.evidence.RecordPolicyDecision(ctx, evidence.Policy); err != nil {
 			return policyAndControlPlane{}, WrapError(ErrUnavailable, "admission evidence", err)
 		}

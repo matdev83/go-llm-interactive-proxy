@@ -148,8 +148,8 @@ graph TB
 | Layer | Choice / Version | Role | Notes |
 | --- | --- | --- | --- |
 | Go runtime | Go 1.26.5 | Backend adapter, process manager, stream mapper | Existing repository toolchain |
-| Bridge runtime | Node 22.19 or newer within exact validated range | Executes companion bridge | No automatic installation |
-| Cursor SDK | Exact validated `@cursor/sdk` version, initially 1.0.23 subject to Task 1 revalidation | Local agent API | Bridge package only |
+| Bridge runtime | Node 22.13 or newer | Executes companion bridge | Matches the exact SDK package engine; no automatic installation |
+| Cursor SDK | Exact `@cursor/sdk` 1.0.23 | Local agent API | Bridge package only; lockfile pin required |
 | Bridge protocol | Versioned NDJSON RPC over stdio | Requests, responses, run events | Standard-library Go JSON |
 | Config | `gopkg.in/yaml.v3` v3.0.1 | Backend YAML decoding | Existing dependency |
 | Testing | Go `testing`, fake child process, `goleak`; Node test runner and mocked SDK | Deterministic contracts | Live network opt-in only |
@@ -280,7 +280,20 @@ YAML keys:
 | `agent_idle_timeout_seconds` | 900 | Zero disables idle eviction; otherwise bounded |
 | `models` | live discovery | Existing static inventory override shape |
 
-The exact numeric upper bounds live in adapter constants and tests. Operator values cannot disable frame limits, secret redaction, route ownership, or shutdown.
+The first-release bounds are frozen as follows:
+
+- bridge frame: 16 MiB;
+- canonical prompt: 8 MiB;
+- normalized MCP configuration: 256 KiB;
+- retained bridge stderr in an error: 8 KiB;
+- `max_agents`: 1-32;
+- `max_concurrent_runs`: 1-8 and no greater than `max_agents`;
+- bridge start timeout: 1-120 seconds;
+- cancellation timeout: 100 milliseconds-30 seconds;
+- shutdown timeout: 1-120 seconds;
+- idle timeout: zero disables; otherwise 1 second-24 hours.
+
+Operator values cannot disable frame limits, secret redaction, route ownership, or shutdown.
 
 ### Bridge Protocol
 
@@ -350,6 +363,18 @@ Rules:
 - `Wait` executes exactly once for each started process.
 
 ### Agent Pool Contract
+
+The bridge must configure local SDK agents explicitly rather than accepting SDK defaults:
+
+- pass `apiKey` as an SDK option and never through argv or child environment;
+- use an adapter-private in-memory `LocalAgentStore`, preventing the SDK's default on-disk SQLite state from surviving a bridge generation;
+- set `settingSources` from normalized config, defaulting to `[]`;
+- set `sandboxOptions.enabled` from `sandbox_mode`;
+- set `autoReview` explicitly, defaulting to false;
+- set `enableAgentRetries: false` so SDK-local transport or stall retry cannot bypass core attempt policy;
+- do not set `customTools`, do not call `Agent.resume`, and do not use `local.force`.
+
+The authoritative session component of an agent identity uses a proxy-owned authoritative session ID when one is available. A raw client session hint alone does not authorize cross-turn SDK-agent reuse; without proxy-owned authority the backend uses an attempt-scoped identity and canonical bootstrap.
 
 Agent identity contains:
 
@@ -439,6 +464,13 @@ First-release capability policy:
 
 Unexpected reasoning output may still be emitted as canonical reasoning deltas; capability declaration controls whether a client may require a reasoning parameter.
 
+Reasoning-option mapping is catalog-driven and exact:
+
+- a model parameter named `reasoning` accepts only values advertised for that model;
+- a model parameter named `effort` accepts only an advertised value and requires an exact catalog variant that also enables `thinking=true`;
+- a model exposing only boolean `thinking` does not advertise `CapabilityReasoning` because it cannot represent canonical effort losslessly;
+- `xhigh` and `extra-high` are distinct values and are never aliased implicitly.
+
 ### Prompt and SDK Option Mapping
 
 The Go prompt encoder accepts the supported canonical text subset and produces a bridge string. It does not expose JSON representations of canonical structs to the SDK.
@@ -491,6 +523,8 @@ Canonical event ordering:
 Error before the backend returns a managed stream is an `Open` error. Error after stream return is surfaced by `Recv`; the stream never manufactures a success terminal after an SDK error.
 
 Usage mapping is conservative. Full-agent or cumulative SDK counters are not used as per-turn usage. Only exact-version event fields proven to describe the current turn are mapped. Invalid or implausible counters are omitted with safe diagnostic evidence rather than poisoning accounting.
+
+For SDK 1.0.23, the bridge consumes incremental `onDelta` callbacks: `text-delta` and `thinking-delta` become bridge content deltas, and `turn-ended.usage` becomes the per-turn usage event. `run.usage` and `RunResult.usage` are cumulative and must not be emitted again. Every canonical event passes `lipapi.ValidateEventEnvelope` before release.
 
 ### Tool Surface Boundary
 
@@ -796,6 +830,10 @@ The exact client-facing classification uses existing frontend error rendering; t
 ### Local-Only Posture
 
 The backend is registered local-only because it launches a local process with workspace access and uses a user/API credential. Multi-user/non-loopback runtime assembly rejects it through existing security-profile enforcement.
+
+Sandbox-required mode is fail closed. Exact-version live validation showed that Windows x64 can report SDK sandboxing as unsupported. In that case the backend returns a non-retryable pre-send configuration/sandbox error. Successful Windows operation requires the explicit local-only `sandbox_mode: off`; the backend never silently downgrades required sandboxing.
+
+The bridge child environment is constructed from a platform-safe operational minimum plus explicitly allowed names. It never inherits the complete Go-LIP environment and never contains `CURSOR_API_KEY`. The Go process owner creates a distinct process group, uses process-tree termination only for the current captured generation, and waits exactly once before close returns.
 
 ## Observability
 

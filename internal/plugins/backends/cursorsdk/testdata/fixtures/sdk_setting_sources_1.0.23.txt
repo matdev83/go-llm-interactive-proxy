@@ -1,0 +1,9 @@
+# Exact SettingSource union from @cursor/sdk@1.0.23
+# Source: node_modules/@cursor/sdk/dist/cjs/options.d.ts
+# export type SettingSource = "project" | "user" | "team" | "mdm" | "plugins" | "all";
+project
+user
+team
+mdm
+plugins
+all

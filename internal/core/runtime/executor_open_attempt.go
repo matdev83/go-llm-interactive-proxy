@@ -397,6 +397,13 @@ func (e *Executor) openPlannedCandidate(
 		return zero, fmt.Errorf("executor: %w", err)
 	}
 
+	// Clamp preview (V-15): converge non-widening clamps without holds, then
+	// freeze/count/persist the final call and AdmitAttempt once.
+	if err := e.previewAndApplyAttemptClamps(p.ctx, p.traceID, p.aLegID, bleg, &openCall, c, preflightDecision); err != nil {
+		p.budget.release()
+		return zero, err
+	}
+
 	// Freeze/store BE ingress before authorization. Authority clamps may narrow
 	// MaxOutputTokens afterward; AssertNotWidened treats that as non-widening (7.5).
 	authorizedFreeze := lipapi.CloneCall(openCall)

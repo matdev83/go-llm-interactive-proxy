@@ -1,0 +1,145 @@
+# EXPERIMENTAL CURSOR SDK BACKEND — schema/example (local-only, non-default).
+# Operator guide: docs/cursor-sdk-backend.md
+# Bridge install (manual; Go-LIP never runs npm): internal/plugins/backends/cursorsdk/bridge/README.md
+#
+# This file keeps cursorsdk disabled so `check-config` / BootstrapInspect work without Node,
+# CURSOR_API_KEY, or an installed bridge. dogfood-local remains the runnable default route.
+#
+# To enable live SDK routing after installing the bridge (Node >=22.13, @cursor/sdk 1.0.23):
+#   1. Set CURSOR_API_KEY (or api_key below). Never reuse Cursor CLI/Desktop login for SDK auth.
+#   2. Put lip-cursor-sdk-bridge on PATH or set bridge_executable.
+#   3. Set cursorsdk enabled: true, supply default_workspace, set routing.default_route to
+#      cursorsdk:cursor/<model-from-inventory>.
+#   4. Keep cursorcliacp on a distinct selector when both are enabled (no silent model-only pick).
+#
+# Start (stub path): go run ./cmd/lipstd check-config --config ./config/examples/cursor-sdk-experimental.yaml
+server:
+  address: "127.0.0.1:18081"
+
+routing:
+  max_attempts: 3
+  default_route: "dogfood-local:stub-default"
+  # After enabling cursorsdk:
+  # default_route: "cursorsdk:cursor/<model-from-inventory>"
+
+continuity:
+  in_memory: true
+  store: memory
+
+logging:
+  level: info
+  format: text
+
+diagnostics:
+  enabled: false
+
+hooks:
+  tool_reactor_error_policy: fail_open
+
+plugins:
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+    - id: openai-legacy
+      enabled: true
+      config: {}
+    - id: anthropic
+      enabled: true
+      config: {}
+    - id: gemini
+      enabled: true
+      config: {}
+  backends:
+    - id: openai-responses
+      enabled: false
+      config: {}
+    - id: openai-legacy
+      enabled: false
+      config: {}
+    - id: anthropic
+      enabled: false
+      config: {}
+    - id: gemini
+      enabled: false
+      config: {}
+    - id: bedrock
+      enabled: false
+      config: {}
+    - id: acp
+      enabled: false
+      config: {}
+    - id: openrouter
+      enabled: false
+      config: {}
+    - id: nvidia
+      enabled: false
+      config: {}
+    - id: opencode-go
+      enabled: false
+      config: {}
+    - id: opencode-zen
+      enabled: false
+      config: {}
+    - id: ollama
+      enabled: false
+      config: {}
+    - id: ollama-cloud
+      enabled: false
+      config: {}
+    - id: llamacpp
+      enabled: false
+      config: {}
+    - id: lmstudio
+      enabled: false
+      config: {}
+    - id: vllm
+      enabled: false
+      config: {}
+    - kind: local-stub
+      id: dogfood-local
+      enabled: true
+      config:
+        text: "[cursor-sdk-example] local stub (enable cursorsdk for live)"
+        input_tokens: 3
+        output_tokens: 7
+    # Experimental Cursor SDK — local-only; rejected under access.mode: multi_user.
+    # ACP remains available as cursorcliacp (disabled here; enable with an explicit route).
+    - kind: cursorsdk
+      id: cursor-sdk
+      enabled: false
+      config:
+        # api_key: ""   # optional; else CURSOR_API_KEY (bare env only, no _N)
+        bridge_executable: lip-cursor-sdk-bridge
+        # model: ""     # optional; prefer inventory + route selector
+        default_workspace: "/absolute/path/to/workspace"
+        setting_sources: []
+        sandbox_mode: required
+        # Windows local-only when SDK sandbox unavailable:
+        # sandbox_mode: off
+        auto_review: false
+        mcp_servers: {}
+        # bridge_env_allowlist: []
+        max_agents: 32
+        max_concurrent_runs: 8
+        bridge_start_timeout_seconds: 30
+        cancel_timeout_seconds: 5
+        shutdown_timeout_seconds: 10
+        agent_idle_timeout_seconds: 900
+    - kind: cursorcliacp
+      id: cursor-acp
+      enabled: false
+      config: {}
+  features:
+    - id: submit-noop
+      enabled: true
+      config: {}
+    - id: parts-noop
+      enabled: true
+      config: {}
+    - id: tool-reactor-noop
+      enabled: true
+      config: {}
+    - id: tool-call-repair
+      enabled: true
+      config: {}

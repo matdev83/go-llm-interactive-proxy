@@ -33,6 +33,7 @@ func TestSpecBundle_standardBundleIDInventory(t *testing.T) {
 		"anthropic",
 		"bedrock",
 		"cursorcliacp",
+		"cursorsdk",
 		"custom-anthropic-compatible",
 		"custom-openai-legacy-compatible",
 		"custom-openai-responses-compatible",

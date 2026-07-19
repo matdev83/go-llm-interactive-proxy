@@ -109,7 +109,18 @@ var lineBudgets = []struct {
 	// Raised for issue #151 secretsguard catalog/matcher/source + quarantine
 	// adapters + runtime barrier (merged with #152/#jsonshape on main).
 	// Measured post-merge non-test total is 56295; cap keeps ~105 lines of headroom.
-	{"internal/core", 56400},
+	// Raised from 56400 to 56600 for cursor-sdk / dual-plane readiness follow-up:
+	// metering/plane pure helpers (wired from runtime egress), operator usage
+	// evidence helpers, AttemptClampPreviewer PreviewAttempt + SkipEvidence, and
+	// execbackend.Backend.Close. Accidental duplication in metering_egress was
+	// removed first.
+	// Raised from 56600 to 57000 after wiring operator usage evidence into
+	// operator settle/egress (lastAuthorityUsage → seenEvents → empty UsageDelta
+	// shell; req 1.5 / 2.9), AttemptCoordinator.Preview + runtime bounded clamp
+	// preview loop before freeze (V-15), and concurrent cursor-sdk dual-plane
+	// readiness growth. Measured non-test total is 56820; cap keeps ~180 lines
+	// of headroom.
+	{"internal/core", 57000},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

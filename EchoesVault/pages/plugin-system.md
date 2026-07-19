@@ -40,12 +40,14 @@ Translate canonical requests into upstream calls. Map upstream responses into ca
 |---|---|
 | Hosted/Provider | `openairesponses`, `openailegacy`, `anthropic`, `gemini`, `bedrock`, `acp`, `openrouter`, `nvidia`, `huggingface`, `openaicodex`, `opencodego`, `opencodezen` |
 | Local/Compatible | `ollama`, `ollama-cloud`, `llamacpp`, `lmstudio`, `vllm`, `localstub` |
-| Local-Agent (subprocess stdio) | `cursorcliacp`, `geminicliacp`, `agycliacp`, `codexappserver` |
+| Local-Agent (subprocess stdio) | `cursorcliacp`, experimental `cursorsdk`, `geminicliacp`, `agycliacp`, `codexappserver` |
 | Custom | `openaicompat` - operator-configured OpenAI/Anthropic-compatible rows |
 
 Shared helpers: `checkcfg/`, `credpool/`, `modeldiscover/`, `openaicaps/`, `openaicred/`, `openaifamily/`, `openaiusage/`, `opencodecommon/`, `protocols/`, `streampeek/`.
 
-Local-only standard backends currently include `acp`, `cursorcliacp`, `geminicliacp`, `agycliacp`, `openaicodex`, and `codexappserver` because they can involve local agent processes or private user OAuth/ChatGPT credentials.
+Local-only standard backends currently include `acp`, `cursorcliacp`, `cursorsdk`, `geminicliacp`, `agycliacp`, `openaicodex`, and `codexappserver` because they can involve local agent processes or private user OAuth/ChatGPT credentials.
+
+Experimental `cursorsdk` is a registered local-only standard backend (not in the mandatory distribution subset). It uses a project-owned Node bridge over exact `@cursor/sdk` 1.0.23, static API-key posture, and a distinct `cursorsdk` route prefix while sharing canonical `cursor/...` model IDs with `cursorcliacp`. Operator install/safety docs: [docs/cursor-sdk-backend.md](../../docs/cursor-sdk-backend.md). See [Cursor SDK Backend](cursor-sdk-backend.md).
 
 ## Feature Plugins (`internal/plugins/features/`)
 

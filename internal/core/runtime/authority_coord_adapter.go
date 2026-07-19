@@ -112,10 +112,7 @@ func (a *usageAuthorityProviderAdapter) ReleaseRequest(ctx context.Context, in a
 	return nil
 }
 
-func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
-	if a == nil || a.svc == nil {
-		return authority.Decision{Kind: authority.DecisionAllow}, nil
-	}
+func attemptAdmissionInput(in authority.AttemptAdmission, estimateOnly bool) authorityapp.AdmissionInput {
 	key := domain.ReservationKey{
 		LogicalRequestID: strings.TrimSpace(in.RequestID),
 		ALegID:           strings.TrimSpace(in.ALegID),
@@ -139,6 +136,7 @@ func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in aut
 		LifecycleScope: metering.LifecycleBackendAttempt,
 		Perspective:    in.Perspective,
 		Exposure:       in.Exposure,
+		EstimateOnly:   estimateOnly,
 	}
 	if be := strings.TrimSpace(in.BackendID); be != "" {
 		input.Dimensions.Backend = scope.Known(be)
@@ -146,11 +144,37 @@ func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in aut
 	if m := strings.TrimSpace(in.Model); m != "" {
 		input.Dimensions.Model = scope.Known(m)
 	}
-	res, err := a.svc.Admit(ctx, input)
+	return input
+}
+
+func (a *usageAuthorityProviderAdapter) AdmitAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
+	if a == nil || a.svc == nil {
+		return authority.Decision{Kind: authority.DecisionAllow}, nil
+	}
+	res, err := a.svc.Admit(ctx, attemptAdmissionInput(in, false))
 	if err != nil {
 		return authority.Decision{}, err
 	}
 	return mapAdmissionDecision(res, "attempt-ua", authority.StageAttemptAdmit), nil
+}
+
+func (a *usageAuthorityProviderAdapter) PreviewAttempt(ctx context.Context, in authority.AttemptAdmission) (authority.Decision, error) {
+	if a == nil || a.svc == nil {
+		return authority.Decision{Kind: authority.DecisionAllow}, nil
+	}
+	// Clamp preview is side-effect free: EstimateOnly skips holds; SkipEvidence
+	// skips durable policy/accounting projection (bounded loop may call this
+	// up to four times per backend open).
+	admitIn := attemptAdmissionInput(in, true)
+	admitIn.SkipEvidence = true
+	res, err := a.svc.Admit(ctx, admitIn)
+	if err != nil {
+		return authority.Decision{}, err
+	}
+	d := mapAdmissionDecision(res, "attempt-ua", authority.StageAttemptAdmit)
+	d.Reservations = nil
+	d.CompensationHandle = ""
+	return d, nil
 }
 
 func (a *usageAuthorityProviderAdapter) SettleAttempt(ctx context.Context, in authority.AttemptSettlement) (authority.Settlement, error) {
@@ -250,6 +274,11 @@ func mapAdmissionDecision(res authorityapp.AdmissionResult, providerID string, s
 		d.Clamps = append(d.Clamps, authority.Clamp{
 			Kind:   authority.ClampMaxSpend,
 			RuleID: res.Clamp.RuleID,
+			Money: economics.Money{
+				NanoUnits: res.Clamp.EffectiveMax.Value,
+				Currency:  strings.TrimSpace(res.Clamp.EffectiveMax.Currency),
+				Present:   true,
+			},
 		})
 	}
 	return d

@@ -225,8 +225,9 @@ func (s *retryRecvStream) handleRecvError(ctx, recvCtx context.Context, err erro
 	// failover, but any advisory/unreserved rules still need the observed usage
 	// fact. Apply only the unreserved projection here; do not settle the
 	// reservation before the replacement decision.
-	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
-	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, authorityUsageEvent(tokenAccountingUsageEvents(s.seenEvents)))
+	usageEv := s.operatorUsageForFinalize()
+	s.authority.ApplyUnreservedUsage(ctx, authorityapp.SettlementKindPartial, usageEv)
+	s.emitBackendEgressMeteringFact(ctx, metering.AttemptOutcomeFailed, metering.SurfacedNo, usageEv)
 	if c := s.takeAndNilInner(); c != nil {
 		if cerr := c.Close(); cerr != nil && s.executor != nil && s.executor.Log != nil {
 			s.executor.Log.DebugContext(

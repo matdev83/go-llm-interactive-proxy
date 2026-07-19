@@ -23,6 +23,9 @@ type UpstreamAPIKeys struct {
 	OpenCodeGo  []string
 	OpenCodeZen []string
 	OpenAICodex []string
+	// Cursor is the single composition-root default for cursorsdk (CURSOR_API_KEY).
+	// No numbered credential rotation in this phase.
+	Cursor string
 }
 
 // ResolveUpstreamAPIKeysFromEnv reads OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
@@ -30,7 +33,8 @@ type UpstreamAPIKeys struct {
 // missing or empty value. The bare env var fills the first slot. OpenAI, Anthropic, and Gemini read
 // suffixes starting at _2 (an explicit _1 is not read for them); OpenRouter, NVIDIA, and Hugging Face
 // use _1-indexed numbering for consistency with OPENROUTER_API_KEY_1, NVIDIA_API_KEY_1,
-// HUGGINGFACE_API_KEY_1, etc.
+// HUGGINGFACE_API_KEY_1, etc. CURSOR_API_KEY is a single non-numbered composition-root default for
+// the experimental cursorsdk backend.
 // Call from the composition root and pass the result to [InstallStandardBundleOn].
 func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 	return UpstreamAPIKeys{
@@ -43,6 +47,7 @@ func ResolveUpstreamAPIKeysFromEnv() UpstreamAPIKeys {
 		OpenCodeGo:  collectNumberedEnvKeys("OPENCODE_GO_API_KEY"),
 		OpenCodeZen: collectOpenCodeZenEnvKeys(),
 		OpenAICodex: collectOpenAICodexEnvKeys(),
+		Cursor:      strings.TrimSpace(os.Getenv("CURSOR_API_KEY")),
 	}
 }
 

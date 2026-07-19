@@ -1,0 +1,19 @@
+{"schemaVersion":1,"type":"request","id":"req-1","method":"bridge/initialize","params":{"implVersion":"1.0.0"}}
+{"schemaVersion":1,"type":"response","id":"req-1","method":"bridge/initialize","result":{"schemaVersion":1,"implVersion":"1.0.0","sdkVersion":"1.0.23","nodeVersion":"22.13.0","capabilities":["bridge/initialize","bridge/health","models/list","agent/create","agent/send","run/cancel","agent/dispose","bridge/shutdown"]}}
+{"schemaVersion":1,"type":"request","id":"req-2","method":"bridge/health","params":{}}
+{"schemaVersion":1,"type":"response","id":"req-2","method":"bridge/health","result":{"ok":true,"generation":1}}
+{"schemaVersion":1,"type":"request","id":"req-3","method":"models/list","params":{"apiKey":"REDACTED"}}
+{"schemaVersion":1,"type":"response","id":"req-3","method":"models/list","result":{"models":[{"id":"gpt-5.3-codex","displayName":"GPT-5.3 Codex"}]}}
+{"schemaVersion":1,"type":"request","id":"req-4","method":"agent/create","params":{"apiKey":"REDACTED","model":{"id":"gpt-5.3-codex"},"local":{"cwd":"/tmp/workspace"},"settingSources":[],"sandboxOptions":{"enabled":false},"autoReview":false,"enableAgentRetries":false}}
+{"schemaVersion":1,"type":"response","id":"req-4","method":"agent/create","result":{"agentId":"agent-1"}}
+{"schemaVersion":1,"type":"request","id":"req-5","method":"agent/send","params":{"agentId":"agent-1","prompt":"hello"}}
+{"schemaVersion":1,"type":"response","id":"req-5","method":"agent/send","result":{"runId":"run-1"}}
+{"schemaVersion":1,"type":"event","runId":"run-1","seq":1,"kind":"text_delta","payload":{"text":"Hi"}}
+{"schemaVersion":1,"type":"event","runId":"run-1","seq":2,"kind":"usage","payload":{"inputTokens":10,"outputTokens":2,"totalTokens":12}}
+{"schemaVersion":1,"type":"event","runId":"run-1","seq":3,"kind":"finished","payload":{"status":"finished"}}
+{"schemaVersion":1,"type":"request","id":"req-6","method":"run/cancel","params":{"runId":"run-1"}}
+{"schemaVersion":1,"type":"response","id":"req-6","method":"run/cancel","result":{"cancelled":true}}
+{"schemaVersion":1,"type":"request","id":"req-7","method":"agent/dispose","params":{"agentId":"agent-1"}}
+{"schemaVersion":1,"type":"response","id":"req-7","method":"agent/dispose","result":{"disposed":true}}
+{"schemaVersion":1,"type":"request","id":"req-8","method":"bridge/shutdown","params":{}}
+{"schemaVersion":1,"type":"response","id":"req-8","method":"bridge/shutdown","result":{"shutdown":true}}

@@ -1,0 +1,29 @@
+{
+  "sdkVersion": "1.0.23",
+  "nodeEngine": ">=22.13",
+  "platforms": ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"],
+  "unsupportedPlatforms": ["win32-arm64"],
+  "apis": [
+    "Cursor.models.list",
+    "Agent.create",
+    "Agent.resume",
+    "SDKAgent.send",
+    "Run.stream",
+    "Run.wait",
+    "Run.cancel",
+    "Symbol.asyncDispose"
+  ],
+  "deltaKinds": ["text-delta", "thinking-delta", "turn-ended"],
+  "usage": {
+    "perTurn": "turn-ended.usage",
+    "cumulative": "RunResult.usage",
+    "fields": ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens"]
+  },
+  "excluded": ["Agent.resume", "customTools", "local.force", "defaultOnDiskStore", "enableAgentRetries"],
+  "defaultsToOverride": {
+    "enableAgentRetries": false,
+    "settingSources": [],
+    "autoReview": false,
+    "localStore": "in-memory"
+  }
+}
