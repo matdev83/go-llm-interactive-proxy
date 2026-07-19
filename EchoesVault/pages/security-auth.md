@@ -48,7 +48,7 @@ Optional ingress feature (`plugins.features` id `secrets-guard`, disabled by def
 |---|---|
 | Stage | `secret_guard` after `BeginTurn`; see `docs/secrets-guard.md` |
 | Actions | `log` (audit only), `redact` (sanitize call), `block` (quarantine session) |
-| Single-user sources | Proxy env vars + popular registry + operator include/exclude at startup; this is a snapshot, so credential rotation requires restart + post-restart verification |
+| Single-user sources | Proxy env vars + popular env (exact names plus uppercase `*_API_KEY`/`*_TOKEN`, excluding frontend public prefixes and underscore-delimited `CSRF`/`XSRF`/`CRSF` segments) + operator include/exclude at startup; snapshot-only (rotation requires restart + post-restart verification) |
 | Multi-user sources | Current request credential only plus safe attribution identifiers; **zero** process env reads |
 | Audit | Dedicated `secretguard.DecisionEvent`; never raw secrets or prompt excerpts |
 | Peer IP | `RemoteAddr` host; forwarded headers ignored |
