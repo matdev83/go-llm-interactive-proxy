@@ -84,7 +84,7 @@ The first-party migration uses independently versioned connector modules in the 
 - Model registry inventory or provenance changes.
 - Provider counting, billing finalization, or strict-accounting changes.
 - Secure-session or access-scope changes that alter backend launch permission.
-- Manifest trust, digest, default directory, or child environment changes.
+- Manifest schema, trusted directory, digest-bound launch, local IPC peer-authentication, or child environment changes.
 - `go-plugin`, gRPC, or protobuf major upgrades.
 - Connector module and release topology changes.
 - Any proposal to support remote or untrusted plugins.
@@ -99,7 +99,7 @@ The first-party migration uses independently versioned connector modules in the 
 | 4.1-4.8 | Lazy activation | Process supervisor, plugin client cache | Acquire, configure, release | First-use activation |
 | 5.1-5.8 | Host integration and lifecycle | Backend adapter, supervisor, runtimebundle ownership | Internal backend adapter, host policy | Build, rollback, shutdown |
 | 6.1-6.8 | Streaming and failures | Execute stream adapter, commitment tracker | Bidirectional stream frames | Open, receive, cancel, terminal |
-| 7.1-7.10 | Security and secrets | Trust policy, launcher, redactor | Digest, local transport, secret envelope | Validate and launch |
+| 7.1-7.10 | Security and secrets | Trust policy, launcher, redactor | Digest-bound executable, secure local transport, secret envelope | Validate and launch |
 | 8.1-8.8 | Config compatibility | Config extension, inspect/doctor | Existing plugin rows, discovery config | Resolve configured kind |
 | 9.1-9.8 | Caps, inventory, accounting | Profile, inventory, counter, finalizer adapters | Resolve, ListModels, CountTokens, FinalizeBilling | Metadata and auxiliary calls |
 | 10.1-10.9 | Connector migration | Connector modules, ACP kit, Codex support | Existing factory kinds | Per-family parity cutover |
@@ -197,7 +197,7 @@ graph TB
 - **Streaming-first preserved?** Yes. The RPC execution service is streaming and the host exposes a managed canonical stream incrementally.
 - **Provider SDK leakage avoided?** Yes. Only built-in connector packages or independent plugin modules import provider SDKs.
 - **No retry after output preserved?** Yes. A process restart is allowed only for a later operation; the current attempt is never replayed by the host.
-- **Secure-session and startup security affected?** Secure-session authority is unchanged. Startup security gains executable trust validation and local process policy.
+- **Secure-session and startup security affected?** Secure-session authority is unchanged. Startup security gains executable trust validation, exact-byte launch binding, and authenticated confidential local IPC policy.
 - **Extension platform seam used?** The existing registry and backend seam is extended through generic host-backed factories; core feature stages are unchanged.
 
 ## Connector Classification
@@ -245,9 +245,9 @@ All other current and future provider or local-agent implementations are externa
 |---|---|---|---|
 | Root runtime | Go 1.26.x | Core, composition, host adapter | Existing toolchain |
 | Process substrate | `github.com/hashicorp/go-plugin` v1.8.x candidate | Local plugin launch, negotiation, lifecycle | Exact API, security, and license revalidated in Task 1 |
-| Wire | gRPC plus protobuf | Versioned local service and streaming | Go-LIP owns schemas and semantics |
-| Manifest | JSON v1 | Non-executing discovery metadata | Strict decoding, bounded file size |
-| Trust | SHA-256 plus trusted directories | Artifact identity and path policy | Signature support may be added later without weakening digest checks |
+| Wire | gRPC plus protobuf over approved OS-secured local IPC | Versioned service and streaming | UDS or named pipe with peer binding; loopback only with ephemeral mutual TLS |
+| Manifest | JSON v1 | Non-executing discovery metadata | Strict decoding; every unknown v1 field rejected; bounded file size |
+| Trust | SHA-256, trusted directories, and digest-bound launch | Artifact identity and exact executable-byte policy | Verified handle or private immutable staging; path rehash alone is insufficient |
 | Config | Existing YAML plus generic discovery subtree | Paths, strictness, development overrides | No provider-specific core fields |
 | Modules | Independent Go modules or repositories | Connector dependency isolation | Root builds with `GOWORK=off` |
 | Testing | Go testing, fuzzing, race, goleak, fake executables | Contracts and lifecycle | Network and live-provider tests remain opt-in |
@@ -306,7 +306,7 @@ The service contains:
 - bidirectional execution streaming;
 - health and graceful shutdown.
 
-The process substrate's handshake is transport plumbing, not the domain protocol. Compatibility is accepted only after the Go-LIP protocol negotiation succeeds.
+The process substrate's handshake is transport plumbing, not the domain protocol. Compatibility is accepted only after the Go-LIP protocol negotiation succeeds, and configuration is accepted only after the host authenticates the expected plugin peer on an approved confidential local channel.
 
 ## Public Data Contracts
 
@@ -349,7 +349,7 @@ type ConfigureRequest struct {
 }
 ```
 
-The opaque configuration remains connector-owned. The host validates size and generic security posture before sending it; the plugin strictly decodes its own schema.
+The opaque configuration remains connector-owned. The host validates size and generic security posture before sending it; the plugin strictly decodes its own schema. The configure request is never sent until the exact executable is verified, protocol compatibility is established, and the host has authenticated the expected child peer on an approved confidential channel.
 
 `RuntimePolicy` is a stable projection rather than an internal configuration object. It includes only connector-relevant policy such as:
 
@@ -499,6 +499,8 @@ Conceptual JSON:
 
 The manifest is installation metadata, not provider configuration. It cannot contain secrets, runtime arguments, arbitrary environment variables, shell commands, install hooks, URLs to download, or connector model catalogs.
 
+Manifest v1 is closed by default: every unknown field is rejected. Future metadata requires either a new `schema_version` or an explicitly standardized, versioned extension block whose keys and validation rules are defined by the host; arbitrary pass-through manifest metadata is not permitted.
+
 ### Search Locations
 
 Discovery merges paths in deterministic order:
@@ -515,16 +517,21 @@ For each manifest the loader:
 
 1. opens the file beneath an already trusted directory;
 2. enforces file-size and nesting limits;
-3. strictly decodes the schema and rejects unknown mandatory fields;
+3. strictly decodes the selected schema version and rejects every unknown field outside an explicitly supported versioned extension block;
 4. validates normalized plugin and factory identifiers;
 5. resolves the executable relative to the manifest directory;
 6. proves path containment after symlink evaluation under the selected policy;
 7. rejects directories, devices, sockets, and non-regular executable targets;
-8. verifies platform compatibility and SHA-256;
+8. verifies platform compatibility and SHA-256 from an opened file identity;
 9. checks protocol overlap;
 10. detects duplicate plugin IDs and factory-kind ownership.
 
-Digest verification is repeated immediately before launch to reduce time-of-check versus time-of-use risk.
+Discovery records the verified file identity and digest, but a pathname recheck is not sufficient for launch. The launcher must bind verification atomically to the exact executable bytes it starts through one of these approved strategies:
+
+- execute from an OS-supported verified open handle or equivalent identity-preserving primitive; or
+- copy bytes from the verified handle into a host-owned private digest-addressed staging directory using exclusive creation, restrictive permissions, and durable close, then verify and launch that staged identity while preventing substitution.
+
+The platform implementation must fail closed when it cannot preserve that binding. Tests retain launch-time substitution, symlink replacement, and upgrade/rollback cases; simply rehashing the original pathname immediately before `exec` does not satisfy the contract.
 
 ### Discovery States
 
@@ -572,7 +579,12 @@ stateDiagram-v2
     Stopping --> Stopped: Close and reap
 ```
 
-One process per plugin artifact is the default. Multiple instances share it only when the descriptor declares process sharing and the host can isolate instance handles. A connector requiring stronger isolation declares one process per instance.
+The manifest and negotiated descriptor declare one process model:
+
+- **shared artifact process**: at most one supervised process generation per artifact within a runtime build; multiple instances may share it only when instance isolation and concurrency are advertised and enforced; or
+- **per-instance process**: each configured backend instance owns a separate supervised process and lifecycle.
+
+The first instance starts only the process required by that declared model. Later instances never share implicitly, and process cardinality is derived from configured instances plus the declared isolation policy rather than a universal one-process-per-artifact rule.
 
 ## Process Host and Lifecycle
 
@@ -580,9 +592,11 @@ One process per plugin artifact is the default. Multiple instances share it only
 
 The supervisor owns:
 
-- launch singleflight;
+- launch singleflight within each declared process-ownership key;
 - direct executable invocation without a shell;
+- digest-bound executable identity and private staging cleanup where used;
 - process generation ID;
+- approved local IPC setup and expected-peer authentication;
 - protocol transport and compatibility negotiation;
 - instance handle registry;
 - health status;
@@ -625,29 +639,41 @@ Executable plugins are trusted code running with the proxy account's operating-s
 ### Launch Policy
 
 - only validated manifests from trusted directories can launch;
-- SHA-256 must match immediately before launch;
+- digest verification is atomically bound to the exact executable identity launched; pathname rehash alone is rejected;
 - production mode rejects development overrides;
 - no shell, command interpolation, or manifest-provided arbitrary arguments;
 - the executable working directory is explicit;
-- the child receives a minimal allowlisted environment;
+- the child receives a minimal allowlisted environment containing no connector credentials;
 - inherited file descriptors and handles are minimized;
 - process groups or job objects ensure descendant cleanup on supported platforms;
-- plugin protocol endpoints are local-only;
-- gRPC transport authentication and encryption are enabled where supported by the chosen process substrate;
-- handshake cookies are compatibility plumbing, not the trust boundary.
+- plugin protocol endpoints are local-only and use an approved confidential, peer-authenticated transport profile;
+- cookie or magic-cookie handshakes are compatibility plumbing, not the trust boundary;
+- configuration and secrets are withheld unless exact executable identity, expected peer, and protocol compatibility are all proven.
+
+### Approved Local Channel Profiles
+
+The host supports only local channel profiles with both confidentiality and peer binding:
+
+- **Linux and other supported Unix-like systems**: an AF_UNIX socket inside a host-created private runtime directory, restrictive directory/socket permissions, no symlink traversal, and kernel peer-credential verification that the client identity matches the expected spawned process or approved same-UID policy.
+- **macOS**: an AF_UNIX socket with the same private-path controls and platform peer-credential verification such as `getpeereid` or an equivalent supported mechanism.
+- **Windows**: a local named pipe with a DACL restricted to the proxy service or user SID, remote-client rejection, and server-side verification that the connecting token/process belongs to the expected child or job boundary.
+- **Loopback TCP fallback**: permitted only when the selected process substrate establishes ephemeral mutual TLS bound to the process generation and validates both peers; plaintext loopback, server-only TLS, and cookie-only authentication are prohibited.
+
+If the selected `go-plugin` mode cannot implement one of these profiles on a supported platform, the implementation must use the narrow project-owned process host fallback or mark that plugin/platform unsupported. It must not deliver opaque configuration or credentials over a weaker channel.
 
 ### Secret Delivery
 
-Secrets are absent from manifests, argv, process titles, discovery output, and routine logs. After the host validates the artifact and negotiates a compatible local channel, it sends the connector's opaque configuration and secret bundle in the configure request.
+Secrets are absent from manifests, argv, process titles, discovery output, routine logs, and the child environment. After the host validates the exact artifact identity, authenticates the expected child peer, and negotiates a compatible protocol over an approved confidential channel, it sends the connector's opaque configuration and secret bundle in the configure request.
 
-The child may receive only explicitly allowed bootstrap environment variables needed to establish the local protocol. A connector that needs a private Node, Python, or native companion owns that companion and decides how to pass its already received credentials without involving the root binary.
+The child may receive only explicitly allowed non-secret bootstrap environment variables needed to establish the local protocol. A connector that needs a private Node, Python, or native companion owns that companion and decides how to pass its already received credentials without involving the root binary.
 
 ### Diagnostics and Redaction
 
 The host maps plugin errors to stable categories:
 
 - manifest or trust failure;
-- launch failure;
+- launch identity or staging failure;
+- local channel or peer-authentication failure;
 - protocol incompatibility;
 - configuration or authentication failure;
 - unsupported capability;
@@ -735,7 +761,7 @@ Inspect remains non-executing by default and reports:
 - whether activation is required;
 - conflicts and missing configured kinds.
 
-A deliberate doctor operation may launch a selected configured plugin for version, handshake, and health checks. It never launches every discovered plugin implicitly.
+A deliberate doctor operation may launch a selected configured plugin for version, handshake, secure-channel, peer-authentication, and health checks. It never launches every discovered plugin implicitly and never sends connector credentials when channel authentication fails.
 
 ## File and Module Structure Plan
 
@@ -905,16 +931,16 @@ No distribution profile changes core behavior or inserts a hardcoded optional co
 
 The host accepts one protocol major and a range of minor feature sets. A plugin upgrade can add optional methods or fields through negotiated features. Breaking wire changes require a new protocol major and a compatibility window in the host or plugin artifact.
 
-The manifest's declared range is an early filter; the running plugin's negotiated descriptor is authoritative after launch.
+The manifest's declared range is an early filter; the running plugin's negotiated descriptor is authoritative after launch. Manifest schema evolution remains separate and closed: unknown fields are rejected until a new schema version or explicitly supported versioned extension is implemented.
 
 ## Error Handling
 
 ### Error Categories
 
 - **Configuration**: unknown kind, invalid plugin YAML, missing credential, local-only violation.
-- **Discovery and trust**: invalid manifest, path escape, digest mismatch, unsupported platform, factory conflict.
+- **Discovery and trust**: invalid manifest, unknown field, path escape, digest mismatch, executable identity substitution, unsupported platform, factory conflict.
 - **Compatibility**: no protocol-major overlap, required feature absent.
-- **Transport**: launch failure, RPC unavailable, process exit, malformed frame, receive bound exceeded.
+- **Transport**: launch failure, insecure local channel, peer mismatch, RPC unavailable, process exit, malformed frame, receive bound exceeded.
 - **Provider**: authentication, capability, rate limit, transient upstream, terminal upstream.
 - **Lifecycle**: cancellation timeout, shutdown timeout, leaked descendant, close failure.
 
@@ -924,6 +950,7 @@ The host translates known plugin error codes to stable internal error classes. U
 
 - unused invalid plugin: report, continue unless strict mode;
 - configured invalid plugin: fail startup before serving;
+- exact executable identity or secure-channel failure: fail before configure and deliver no secrets;
 - configure failure: close partially created instance and unused process;
 - inventory failure: follow existing fail-soft inventory behavior where startup policy allows;
 - pre-output execution failure: return classified error to core;
@@ -950,7 +977,7 @@ It excludes configuration content, secret material, full user paths, raw provide
 
 - Discovery is O(number of manifests plus total manifest bytes) and launches no process.
 - One hundred synthetic manifests must validate within a bounded test budget without goroutine or file-descriptor growth proportional to inactive plugins.
-- Active process count is proportional to configured required artifacts, not installed artifacts.
+- Active process count is proportional to configured instances and each artifact's declared shared or per-instance process model, not installed artifacts.
 - Multiple configured instances may share a process only through explicit capability.
 - Execution remains incremental and backpressured.
 - Inventory and profile calls have independent deadlines and result bounds.
@@ -974,18 +1001,21 @@ Implementation proceeds red to green to refactor. Public DTOs, protobuf fixtures
 
 ### Discovery and Security Tests
 
-- manifest strict decoding and fuzzing;
-- path traversal and symlink behavior;
+- manifest v1 strict decoding, rejection of every unknown field, explicit extension-version behavior, and fuzzing;
+- path traversal, symlink behavior, and trusted-directory permissions;
 - regular-file and executable validation;
-- digest mismatch and launch-time recheck;
+- digest mismatch and atomic exact-executable launch binding;
+- substitution between discovery and launch, including symlink and staged-copy races;
 - duplicate plugin and kind conflicts;
 - no CWD, `PATH`, network, or execution during discovery;
+- unauthorized local clients, wrong-process peers, stale-generation peers, and plaintext fallback rejection;
+- configuration and secret delivery blocked until peer authentication and compatibility negotiation complete;
 - child environment and argv secret absence;
 - bounded stderr and error redaction.
 
 ### Lifecycle and Streaming Tests
 
-- lazy singleflight launch;
+- lazy launch keyed by the declared shared or per-instance process model;
 - multiple instances and isolation declarations;
 - partial construction rollback;
 - unexpected exit invalidation;
@@ -1013,14 +1043,15 @@ Every connector runs existing golden, refbackend, and conformance evidence throu
 
 ### Cross-Platform Release Gates
 
-Linux, macOS, and Windows-native checks cover discovery, path handling, process launch, streaming, cancellation, descendant cleanup, upgrade, rollback, and shutdown for each supported connector artifact.
+Linux, macOS, and Windows-native checks cover manifest strictness, discovery, path handling, exact-byte launch binding, secure local IPC, unauthorized peer rejection, process launch, streaming, cancellation, descendant cleanup, upgrade, rollback, and shutdown for each supported connector artifact.
 
 ## Security Considerations
 
 - Process isolation is not a malicious-code sandbox; installation trust remains explicit.
-- Digest validation and trusted paths are mandatory production controls.
-- Local RPC endpoints require process-bound authentication and encryption where supported.
-- Secret transport occurs only after artifact and protocol validation.
+- Trusted paths, strict closed manifests, and digest-bound exact-executable launch are mandatory production controls.
+- Local RPC endpoints require an approved confidential and peer-authenticated OS-specific channel; cookie-only or plaintext fallback is prohibited.
+- Secret transport occurs only after artifact identity, expected peer, and protocol compatibility are validated.
+- Credentials are never passed through argv or the child environment; environment allowlists are non-secret bootstrap only.
 - Development overrides are rejected in production posture.
 - Manifest schema has no install hooks, commands, or download URLs.
 - Child environment is minimal and audited.
@@ -1047,7 +1078,14 @@ Implementation updates:
 The first design revision was reviewed against the final requirements, current registry/runtime assembly, canonical stream lifecycle, security posture, and Kiro design rules. Three critical issues were corrected:
 
 1. **Internal-type ABI leakage** — replaced by public versioned DTOs and a single anti-corruption adapter.
-2. **Incomplete discovery trust** — corrected with trusted directories, digest revalidation, constrained launch, post-negotiation secret delivery, and no runtime installation.
+2. **Incomplete discovery trust** — corrected with trusted directories, constrained launch, post-negotiation secret delivery, and no runtime installation.
 3. **Migration compatibility ambiguity** — corrected with preserved factory kinds, atomic per-kind cutover, minimal and curated-full distribution profiles, and mandatory downstream spec revalidation.
 
-**Final assessment: GO.** The design provides a clear implementation path with acceptable residual risk after the required contract, security, lifecycle, module-isolation, and migration gates.
+A subsequent reviewer hardening pass accepted four additional corrections:
+
+1. **Closed manifest v1** — every unknown field is rejected and future metadata requires an explicit versioned schema or extension mechanism.
+2. **Exact executable binding** — digest verification is atomically tied to the bytes launched rather than a pathname rehash.
+3. **Mandatory secure local IPC** — every configure channel provides confidentiality and expected-peer authentication, with no cookie-only or plaintext fallback.
+4. **Process-model consistency** — shared artifact processes and per-instance processes are both supported only as explicitly declared.
+
+**Final assessment: GO after hardening.** The design provides a clear implementation path with acceptable residual risk after the required contract, security, lifecycle, module-isolation, and migration gates.
