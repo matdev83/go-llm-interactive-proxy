@@ -1,6 +1,7 @@
 package openairesponses
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 
@@ -150,6 +151,14 @@ type streamOutputItemDoneReasoning struct {
 	Item           streamReasoningItem `json:"item"`
 }
 
+// streamOutputItemExactReasoning carries a presence-preserving reasoning item body.
+type streamOutputItemExactReasoning struct {
+	Type           string          `json:"type"`
+	SequenceNumber int             `json:"sequence_number"`
+	OutputIndex    int64           `json:"output_index"`
+	Item           json.RawMessage `json:"item"`
+}
+
 type streamReasoningSummaryPart struct {
 	Type string `json:"type"` // "summary_text"
 	Text string `json:"text"`
@@ -213,12 +222,12 @@ type streamCompletedEvent struct {
 	Type           string `json:"type"`
 	SequenceNumber int    `json:"sequence_number"`
 	Response       struct {
-		ID        string               `json:"id"`
-		Object    string               `json:"object"`
-		CreatedAt int64                `json:"created_at"`
-		Status    string               `json:"status"`
-		Model     string               `json:"model"`
-		Output    []streamCompletedOut `json:"output"`
-		Usage     *wireUsage           `json:"usage,omitempty"`
+		ID        string     `json:"id"`
+		Object    string     `json:"object"`
+		CreatedAt int64      `json:"created_at"`
+		Status    string     `json:"status"`
+		Model     string     `json:"model"`
+		Output    []any      `json:"output"`
+		Usage     *wireUsage `json:"usage,omitempty"`
 	} `json:"response"`
 }

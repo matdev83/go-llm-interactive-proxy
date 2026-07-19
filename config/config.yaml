@@ -508,6 +508,34 @@ plugins:
     # Opt out:
     # - id: tool-call-repair
     #   enabled: false
+    #
+    # Reasoning output preservation (issue #157): on standard lipstd /
+    # runtimebundle.BuildBootstrap, an enabled restore row is injected when no
+    # matching features row exists (same pattern as tool-call-repair). Explicit
+    # enabled row below documents the exact injected defaults. Set enabled: false
+    # (or omit enabled — plain bool defaults false) to opt out; any matching
+    # instance id or factory kind suppresses injection. Disabled constructs no
+    # participants/store/telemetry. Installed/enabled does not mean universally
+    # active: capture and restore require a compatible-auto.v2 catalog match or
+    # an explicit enabled rule; unmatched candidates are inert. Not a mandatory
+    # StandardDistributionRequirements entry (custom roots are not injected).
+    # Operator guide: docs/reasoning-output-preservation.md
+    - id: reasoning-output-preservation
+      enabled: true
+      config:
+        action: restore
+        use_builtin_catalog: true
+        on_ambiguous: log_skip
+        on_unrepresentable: reject
+        on_state_error: reject
+        state:
+          ttl: 24h
+          max_turns_per_session: 16
+          max_reasoning_bytes_per_turn: 65536
+          max_session_bytes: 262144
+    # Opt out:
+    # - id: reasoning-output-preservation
+    #   enabled: false
     # Reference (non-noop) examples — enable as needed:
     # - id: ref-submit-annotate
     #   enabled: true

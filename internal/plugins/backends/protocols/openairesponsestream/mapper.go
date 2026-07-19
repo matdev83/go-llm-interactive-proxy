@@ -23,6 +23,11 @@ type Mapper struct {
 	toolCallArgDeltas map[string]bool
 	toolCallFinished  map[string]bool
 	pendingToolArgs   map[string][]string
+
+	reasoningByID           map[string]*reasoningDraft
+	reasoningByIndex        map[int64]*reasoningDraft
+	reasoningAssemblyBytes  int
+	reasoningCompletedFinal bool
 }
 
 func New(pending *stream.PendingEventQueue) *Mapper {
@@ -128,6 +133,8 @@ func (m *Mapper) StreamError(code, message, defaultMessage string) error {
 	if message == "" {
 		message = defaultMessage
 	}
+	// Upstream stream error: discard unresolved drafts; do not convert into hole errors.
+	m.AbortReasoningAssembly()
 	return m.pending.Push(lipapi.Event{
 		Kind:         lipapi.EventError,
 		ErrorCode:    code,

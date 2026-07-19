@@ -29,6 +29,10 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 	if in.Call == nil {
 		return RestoreResult{}, fmt.Errorf("%s: call is required", ID)
 	}
+	// Unmatched / ineligible candidates stay fully inert: no restore and no outcomes.
+	if !in.Eligible {
+		return RestoreResult{}, nil
+	}
 	artifacts := cloneArtifacts(in.Artifacts)
 	if in.Action == ActionObserve {
 		if err := validateArtifacts(artifacts); err != nil {
@@ -46,9 +50,6 @@ func RestoreMissingReasoning(in RestoreInput) (RestoreResult, error) {
 	classified, err := ClassifyAssistantTurns(in.Call.Messages, artifacts)
 	if err != nil {
 		return applyStateErrorPolicy(in.OnStateError)
-	}
-	if !in.Eligible {
-		return RestoreResult{Outcomes: outcomesFromClassifications(classified, nil)}, nil
 	}
 	if in.Action != ActionRestore {
 		return RestoreResult{}, fmt.Errorf("%s: unknown action %q", ID, in.Action)

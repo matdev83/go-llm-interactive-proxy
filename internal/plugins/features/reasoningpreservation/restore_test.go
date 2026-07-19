@@ -86,6 +86,9 @@ func TestRestoreMissingReasoning_skipsIneligibleCandidate(t *testing.T) {
 	if got.Mutated || got.RestoredCount != 0 {
 		t.Fatalf("ineligible candidate must not restore, got=%+v", got)
 	}
+	if len(got.Outcomes) != 0 {
+		t.Fatalf("ineligible candidate must emit no feature outcomes, got %v", got.Outcomes)
+	}
 }
 
 func TestRestoreMissingReasoning_idempotent(t *testing.T) {

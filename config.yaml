@@ -242,6 +242,27 @@ plugins:
     - id: tool-reactor-noop
       enabled: true
       config: {}
+    # Reasoning output preservation (issue #157): standard lipstd injects this
+    # enabled restore row when absent. Explicit row documents defaults; set
+    # enabled: false to opt out. Installed ≠ active — capture/restore need a
+    # compatible-auto.v2 catalog match or an explicit enabled rule.
+    # Guide: docs/reasoning-output-preservation.md
+    - id: reasoning-output-preservation
+      enabled: true
+      config:
+        action: restore
+        use_builtin_catalog: true
+        on_ambiguous: log_skip
+        on_unrepresentable: reject
+        on_state_error: reject
+        state:
+          ttl: 24h
+          max_turns_per_session: 16
+          max_reasoning_bytes_per_turn: 65536
+          max_session_bytes: 262144
+    # Opt out:
+    # - id: reasoning-output-preservation
+    #   enabled: false
     # Reference (non-noop) examples — enable as needed:
     # - id: ref-submit-annotate
     #   enabled: true

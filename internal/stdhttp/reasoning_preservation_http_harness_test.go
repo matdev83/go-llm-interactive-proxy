@@ -11,12 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	refanth "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refchat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
+	refresponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit/reasoninge2e"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -29,18 +31,67 @@ const (
 	rpE2EAnthKey   = "sk-ant-test-reasoning-e2e"
 )
 
+// rpFeatureRowMode selects how the reasoning-output-preservation features row is written.
+type rpFeatureRowMode int
+
+const (
+	// rpFeatureRowExplicit writes an explicit observe/restore/disabled row
+	// (use_builtin_catalog: false) — existing deterministic / matrix semantics.
+	rpFeatureRowExplicit rpFeatureRowMode = iota
+	// rpFeatureRowOmit omits the feature row so BuildBootstrap injects standard defaults.
+	rpFeatureRowOmit
+)
+
+// rpChatStackOpts configures the full-HTTP BuildBootstrap + stdhttp chat stack.
+type rpChatStackOpts struct {
+	FeatureRow rpFeatureRowMode
+	Action     string // observe|restore|disabled when FeatureRow==rpFeatureRowExplicit
+	Model      string // empty -> rpE2EModel
+	// OnUnrepresentable overrides feature policy (reject|log_skip). Empty -> reject.
+	OnUnrepresentable string
+	// FeatureRuleBackends, when non-empty, emits one explicit rule per backend id.
+	// Empty -> single rule for the stack's primary backend.
+	FeatureRuleBackends []string
+	// MaxAttempts overrides routing.max_attempts (0 -> 1).
+	MaxAttempts int
+	// FailoverRoute, for dual stacks, writes primary|secondary default_route.
+	FailoverRoute bool
+}
+
 type rpHTTPStack struct {
-	proxyURL string
-	proxy    *httptest.Server
-	emulator *httptest.Server
-	ledger   *refchat.OracleLedger
-	oracleCh chan []byte // optional diagnostics for negative-control body inspection
-	cleanup  func()
+	proxyURL   string
+	proxy      *httptest.Server
+	emulator   *httptest.Server
+	ledger     *refchat.OracleLedger
+	respLedger *refresponses.OracleLedger
+	oracleCh   chan []byte // optional diagnostics for negative-control body inspection
+	cleanup    func()
+}
+
+// rpDualHTTPStack runs Chat + Responses backends under one proxy for route-switch cells.
+type rpDualHTTPStack struct {
+	proxyURL     string
+	proxy        *httptest.Server
+	chatEmu      *httptest.Server
+	respEmu      *httptest.Server
+	chatLedger   *refchat.OracleLedger
+	respLedger   *refresponses.OracleLedger
+	chatOracleCh chan []byte
+	respOracleCh chan []byte
+	cleanup      func()
 }
 
 func startReasoningPreservationChatStack(t *testing.T, action string, turns []refchat.ScriptedTurn, validators ...refchat.RequestValidator) *rpHTTPStack {
 	t.Helper()
-	stack, err := startReasoningPreservationChatStackErr(action, turns, validators...)
+	return startReasoningPreservationChatStackOpts(t, rpChatStackOpts{
+		FeatureRow: rpFeatureRowExplicit,
+		Action:     action,
+	}, turns, validators...)
+}
+
+func startReasoningPreservationChatStackOpts(t *testing.T, opts rpChatStackOpts, turns []refchat.ScriptedTurn, validators ...refchat.RequestValidator) *rpHTTPStack {
+	t.Helper()
+	stack, err := startReasoningPreservationChatStackOptsErr(opts, turns, validators...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +100,17 @@ func startReasoningPreservationChatStack(t *testing.T, action string, turns []re
 }
 
 func startReasoningPreservationChatStackErr(action string, turns []refchat.ScriptedTurn, validators ...refchat.RequestValidator) (*rpHTTPStack, error) {
+	return startReasoningPreservationChatStackOptsErr(rpChatStackOpts{
+		FeatureRow: rpFeatureRowExplicit,
+		Action:     action,
+	}, turns, validators...)
+}
+
+func startReasoningPreservationChatStackOptsErr(opts rpChatStackOpts, turns []refchat.ScriptedTurn, validators ...refchat.RequestValidator) (*rpHTTPStack, error) {
+	model := opts.Model
+	if model == "" {
+		model = rpE2EModel
+	}
 	var ledger *refchat.OracleLedger
 	if len(validators) > 0 {
 		ledger = refchat.NewOracleLedger(validators...)
@@ -68,7 +130,7 @@ func startReasoningPreservationChatStackErr(action string, turns []refchat.Scrip
 		},
 		Responder: refchat.ScriptedResponder(turns),
 	}))
-	cfgPath, err := writeReasoningPreservationConfigErr(action, "openai-legacy", emu.URL+"/v1", rpE2EFakeKey, rpE2EModel)
+	cfgPath, err := writeReasoningPreservationConfigOptsErr(opts, "openai-legacy", emu.URL+"/v1", rpE2EFakeKey, model)
 	if err != nil {
 		emu.Close()
 		return nil, err
@@ -92,6 +154,144 @@ func startReasoningPreservationChatStackErr(action string, turns []refchat.Scrip
 		},
 	}
 	return stack, nil
+}
+
+func startReasoningPreservationResponsesStack(t *testing.T, action string, turns []refresponses.ScriptedTurn, validators ...refresponses.RequestValidator) *rpHTTPStack {
+	t.Helper()
+	return startReasoningPreservationResponsesStackOpts(t, rpChatStackOpts{
+		FeatureRow: rpFeatureRowExplicit,
+		Action:     action,
+	}, turns, validators...)
+}
+
+func startReasoningPreservationResponsesStackOpts(t *testing.T, opts rpChatStackOpts, turns []refresponses.ScriptedTurn, validators ...refresponses.RequestValidator) *rpHTTPStack {
+	t.Helper()
+	stack, err := startReasoningPreservationResponsesStackOptsErr(opts, turns, validators...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stack.cleanup)
+	return stack
+}
+
+func startReasoningPreservationResponsesStackOptsErr(opts rpChatStackOpts, turns []refresponses.ScriptedTurn, validators ...refresponses.RequestValidator) (*rpHTTPStack, error) {
+	model := opts.Model
+	if model == "" {
+		model = rpE2EModel
+	}
+	var ledger *refresponses.OracleLedger
+	if len(validators) > 0 {
+		ledger = refresponses.NewOracleLedger(validators...)
+	}
+	oracleCh := make(chan []byte, len(turns)+4)
+	emu := httptest.NewServer(refresponses.NewHandler(refresponses.Config{
+		AllowMissingBearer: false,
+		OnRequestBody: func(body []byte) {
+			if ledger != nil {
+				ledger.Observe(body)
+			}
+			cloned := append([]byte(nil), body...)
+			select {
+			case oracleCh <- cloned:
+			default:
+			}
+		},
+		Responder: refresponses.ScriptedResponder(turns),
+	}))
+	cfgPath, err := writeReasoningPreservationConfigOptsErr(opts, "openai-responses", emu.URL+"/v1", rpE2EFakeKey, model)
+	if err != nil {
+		emu.Close()
+		return nil, err
+	}
+	proxy, proxyCleanup, err := startRPBootstrapProxyErr(cfgPath)
+	if err != nil {
+		emu.Close()
+		return nil, err
+	}
+	return &rpHTTPStack{
+		proxyURL:   proxy.URL,
+		proxy:      proxy,
+		emulator:   emu,
+		respLedger: ledger,
+		oracleCh:   oracleCh,
+		cleanup: func() {
+			proxy.Close()
+			emu.Close()
+			proxyCleanup()
+			_ = os.RemoveAll(filepath.Dir(cfgPath))
+		},
+	}, nil
+}
+
+func startReasoningPreservationDualStack(t *testing.T, opts rpChatStackOpts, primaryBackend string, chatTurns []refchat.ScriptedTurn, respTurns []refresponses.ScriptedTurn, chatValidators []refchat.RequestValidator, respValidators []refresponses.RequestValidator) *rpDualHTTPStack {
+	t.Helper()
+	model := opts.Model
+	if model == "" {
+		model = rpE2EModel
+	}
+	var chatLedger *refchat.OracleLedger
+	if len(chatValidators) > 0 {
+		chatLedger = refchat.NewOracleLedger(chatValidators...)
+	}
+	var respLedger *refresponses.OracleLedger
+	if len(respValidators) > 0 {
+		respLedger = refresponses.NewOracleLedger(respValidators...)
+	}
+	chatOracleCh := make(chan []byte, len(chatTurns)+4)
+	respOracleCh := make(chan []byte, len(respTurns)+4)
+	chatEmu := httptest.NewServer(refchat.NewHandler(refchat.Config{
+		AllowMissingBearer: false,
+		OnRequestBody: func(body []byte) {
+			if chatLedger != nil {
+				chatLedger.Observe(body)
+			}
+			cloned := append([]byte(nil), body...)
+			select {
+			case chatOracleCh <- cloned:
+			default:
+			}
+		},
+		Responder: refchat.ScriptedResponder(chatTurns),
+	}))
+	respEmu := httptest.NewServer(refresponses.NewHandler(refresponses.Config{
+		AllowMissingBearer: false,
+		OnRequestBody: func(body []byte) {
+			if respLedger != nil {
+				respLedger.Observe(body)
+			}
+			cloned := append([]byte(nil), body...)
+			select {
+			case respOracleCh <- cloned:
+			default:
+			}
+		},
+		Responder: refresponses.ScriptedResponder(respTurns),
+	}))
+	dir := t.TempDir()
+	cfgPath, err := writeReasoningPreservationDualConfigOptsTo(dir, opts, primaryBackend, model, chatEmu.URL+"/v1", rpE2EFakeKey, respEmu.URL+"/v1", rpE2EFakeKey)
+	if err != nil {
+		chatEmu.Close()
+		respEmu.Close()
+		t.Fatal(err)
+	}
+	proxy := startRPBootstrapProxy(t, cfgPath)
+	stack := &rpDualHTTPStack{
+		proxyURL:     proxy.URL,
+		proxy:        proxy,
+		chatEmu:      chatEmu,
+		respEmu:      respEmu,
+		chatLedger:   chatLedger,
+		respLedger:   respLedger,
+		chatOracleCh: chatOracleCh,
+		respOracleCh: respOracleCh,
+		cleanup: func() {
+			proxy.Close()
+			chatEmu.Close()
+			respEmu.Close()
+		},
+	}
+	t.Cleanup(stack.cleanup)
+	return stack
 }
 
 func startReasoningPreservationAnthropicStack(t *testing.T, action string, turns []refanth.ThinkingTurn) *rpHTTPStack {
@@ -165,7 +365,11 @@ func startRPBootstrapProxyErr(cfgPath string) (*httptest.Server, func(), error) 
 
 func writeReasoningPreservationConfig(t *testing.T, action, backendKind, baseURL, apiKey, model string) string {
 	t.Helper()
-	path, err := writeReasoningPreservationConfigTo(t.TempDir(), action, backendKind, baseURL, apiKey, model)
+	path, err := writeReasoningPreservationConfigOptsTo(t.TempDir(), rpChatStackOpts{
+		FeatureRow: rpFeatureRowExplicit,
+		Action:     action,
+		Model:      model,
+	}, backendKind, baseURL, apiKey, model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,11 +377,19 @@ func writeReasoningPreservationConfig(t *testing.T, action, backendKind, baseURL
 }
 
 func writeReasoningPreservationConfigErr(action, backendKind, baseURL, apiKey, model string) (string, error) {
+	return writeReasoningPreservationConfigOptsErr(rpChatStackOpts{
+		FeatureRow: rpFeatureRowExplicit,
+		Action:     action,
+		Model:      model,
+	}, backendKind, baseURL, apiKey, model)
+}
+
+func writeReasoningPreservationConfigOptsErr(opts rpChatStackOpts, backendKind, baseURL, apiKey, model string) (string, error) {
 	dir, err := os.MkdirTemp("", "rp-e2e-*")
 	if err != nil {
 		return "", err
 	}
-	path, err := writeReasoningPreservationConfigTo(dir, action, backendKind, baseURL, apiKey, model)
+	path, err := writeReasoningPreservationConfigOptsTo(dir, opts, backendKind, baseURL, apiKey, model)
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return "", err
@@ -185,49 +397,26 @@ func writeReasoningPreservationConfigErr(action, backendKind, baseURL, apiKey, m
 	return path, nil
 }
 
-func writeReasoningPreservationConfigTo(dir, action, backendKind, baseURL, apiKey, model string) (string, error) {
-	enabled := "true"
-	featureBlock := ""
-	switch action {
-	case "disabled":
-		enabled = "false"
-		featureBlock = `
-        action: observe
-        use_builtin_catalog: false
-        rules:
-          - id: e2e-rule
-            backend: ` + backendKind + `
-            enabled: true
-        on_ambiguous: log_skip
-        on_unrepresentable: reject
-        on_state_error: reject
-        state:
-          ttl: 1h
-          max_turns_per_session: 64
-          max_reasoning_bytes_per_turn: 65536
-          max_session_bytes: 1048576
-`
-	case "observe", "restore":
-		featureBlock = `
-        action: ` + action + `
-        use_builtin_catalog: false
-        rules:
-          - id: e2e-rule
-            backend: ` + backendKind + `
-            enabled: true
-        on_ambiguous: log_skip
-        on_unrepresentable: reject
-        on_state_error: reject
-        state:
-          ttl: 1h
-          max_turns_per_session: 64
-          max_reasoning_bytes_per_turn: 65536
-          max_session_bytes: 1048576
-`
-	default:
-		return "", fmt.Errorf("unknown action %q", action)
+func writeReasoningPreservationConfigOptsTo(dir string, opts rpChatStackOpts, backendKind, baseURL, apiKey, model string) (string, error) {
+	featureSection, err := reasoningPreservationFeatureYAML(opts, backendKind)
+	if err != nil {
+		return "", err
 	}
 	route := backendKind + ":" + model
+	enableResponses := backendKind == "openai-responses"
+	enableLegacy := backendKind == "openai-legacy"
+	enableAnth := backendKind == "anthropic"
+	respURL, respKey := "", ""
+	legacyURL, legacyKey := "", ""
+	anthURL, anthKey := "", ""
+	switch backendKind {
+	case "openai-responses":
+		respURL, respKey = baseURL, apiKey
+	case "openai-legacy":
+		legacyURL, legacyKey = baseURL, apiKey
+	case "anthropic":
+		anthURL, anthKey = baseURL, apiKey
+	}
 	yaml := fmt.Sprintf(`
 server:
   address: "127.0.0.1:0"
@@ -263,8 +452,10 @@ plugins:
       config: {}
   backends:
     - id: openai-responses
-      enabled: false
-      config: {}
+      enabled: %t
+      config:
+        base_url: %q
+        api_key: %q
     - id: openai-legacy
       enabled: %t
       config:
@@ -324,18 +515,260 @@ plugins:
     - id: tool-reactor-noop
       enabled: true
       config: {}
-    - id: reasoning-output-preservation
-      enabled: %s
-      config:%s
+%s
 `, route,
-		backendKind == "openai-legacy", baseURL, apiKey,
-		backendKind == "anthropic", baseURL, apiKey,
-		enabled, featureBlock)
+		enableResponses, respURL, respKey,
+		enableLegacy, legacyURL, legacyKey,
+		enableAnth, anthURL, anthKey,
+		featureSection)
 	path := filepath.Join(dir, "rp-e2e.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+func writeReasoningPreservationDualConfigOptsTo(dir string, opts rpChatStackOpts, primaryBackend, model, chatURL, chatKey, respURL, respKey string) (string, error) {
+	if opts.FeatureRuleBackends == nil {
+		opts.FeatureRuleBackends = []string{"openai-legacy", "openai-responses"}
+	}
+	featureSection, err := reasoningPreservationFeatureYAML(opts, primaryBackend)
+	if err != nil {
+		return "", err
+	}
+	route := primaryBackend + ":" + model
+	if opts.FailoverRoute {
+		secondary := "openai-legacy"
+		if primaryBackend == "openai-legacy" {
+			secondary = "openai-responses"
+		}
+		route = primaryBackend + ":" + model + "|" + secondary + ":" + model
+	}
+	maxAttempts := 1
+	if opts.MaxAttempts > 0 {
+		maxAttempts = opts.MaxAttempts
+	}
+	yaml := fmt.Sprintf(`
+server:
+  address: "127.0.0.1:0"
+routing:
+  max_attempts: %d
+  default_route: %q
+continuity:
+  in_memory: true
+  store: memory
+secure_session:
+  store: memory
+  non_durable_warning: silent
+logging:
+  level: error
+  format: text
+diagnostics:
+  enabled: false
+hooks:
+  tool_reactor_error_policy: fail_open
+plugins:
+  frontends:
+    - id: openai-responses
+      enabled: true
+      config: {}
+    - id: openai-legacy
+      enabled: true
+      config: {}
+    - id: anthropic
+      enabled: true
+      config: {}
+    - id: gemini
+      enabled: true
+      config: {}
+  backends:
+    - id: openai-responses
+      enabled: true
+      config:
+        base_url: %q
+        api_key: %q
+    - id: openai-legacy
+      enabled: true
+      config:
+        base_url: %q
+        api_key: %q
+    - id: anthropic
+      enabled: false
+      config: {}
+    - id: gemini
+      enabled: false
+      config: {}
+    - id: openai-codex
+      enabled: false
+      config: {}
+    - id: bedrock
+      enabled: false
+      config: {}
+    - id: acp
+      enabled: false
+      config: {}
+    - id: openrouter
+      enabled: false
+      config: {}
+    - id: nvidia
+      enabled: false
+      config: {}
+    - id: opencode-go
+      enabled: false
+      config: {}
+    - id: opencode-zen
+      enabled: false
+      config: {}
+    - id: ollama
+      enabled: false
+      config: {}
+    - id: ollama-cloud
+      enabled: false
+      config: {}
+    - id: llamacpp
+      enabled: false
+      config: {}
+    - id: lmstudio
+      enabled: false
+      config: {}
+    - id: vllm
+      enabled: false
+      config: {}
+  features:
+    - id: submit-noop
+      enabled: true
+      config: {}
+    - id: parts-noop
+      enabled: true
+      config: {}
+    - id: tool-reactor-noop
+      enabled: true
+      config: {}
+%s
+`, maxAttempts, route, respURL, respKey, chatURL, chatKey, featureSection)
+	path := filepath.Join(dir, "rp-e2e-dual.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// startReasoningPreservationFailoverStack wires Responses primary + Chat secondary with
+// failover route and max_attempts>=2 for HTTP failover/secondary-reachability controls
+// (429 pre-output positive control + malformed-after-visible-output terminal behavior).
+func startReasoningPreservationFailoverStack(
+	t *testing.T,
+	primaryResponder refresponses.Responder,
+	secondaryTurns []refchat.ScriptedTurn,
+) (*rpDualHTTPStack, *atomic.Int64) {
+	t.Helper()
+	secondaryHits := &atomic.Int64{}
+	chatEmu := httptest.NewServer(refchat.NewHandler(refchat.Config{
+		AllowMissingBearer: false,
+		OnRequestBody: func(body []byte) {
+			secondaryHits.Add(1)
+			_ = body
+		},
+		Responder: refchat.ScriptedResponder(secondaryTurns),
+	}))
+	respEmu := httptest.NewServer(refresponses.NewHandler(refresponses.Config{
+		AllowMissingBearer: false,
+		Responder:          primaryResponder,
+	}))
+	dir := t.TempDir()
+	opts := rpChatStackOpts{
+		FeatureRow:          rpFeatureRowExplicit,
+		Action:              "disabled",
+		MaxAttempts:         2,
+		FailoverRoute:       true,
+		FeatureRuleBackends: []string{"openai-legacy", "openai-responses"},
+	}
+	cfgPath, err := writeReasoningPreservationDualConfigOptsTo(
+		dir, opts, "openai-responses", rpE2EModel,
+		chatEmu.URL+"/v1", rpE2EFakeKey, respEmu.URL+"/v1", rpE2EFakeKey,
+	)
+	if err != nil {
+		chatEmu.Close()
+		respEmu.Close()
+		t.Fatal(err)
+	}
+	proxy := startRPBootstrapProxy(t, cfgPath)
+	stack := &rpDualHTTPStack{
+		proxyURL: proxy.URL,
+		proxy:    proxy,
+		chatEmu:  chatEmu,
+		respEmu:  respEmu,
+		cleanup: func() {
+			proxy.Close()
+			chatEmu.Close()
+			respEmu.Close()
+		},
+	}
+	t.Cleanup(stack.cleanup)
+	return stack, secondaryHits
+}
+
+func reasoningPreservationFeatureYAML(opts rpChatStackOpts, backendKind string) (string, error) {
+	switch opts.FeatureRow {
+	case rpFeatureRowOmit:
+		return "", nil
+	case rpFeatureRowExplicit:
+		enabled := "true"
+		onUnrep := opts.OnUnrepresentable
+		if onUnrep == "" {
+			onUnrep = "reject"
+		}
+		rules := opts.FeatureRuleBackends
+		if len(rules) == 0 {
+			rules = []string{backendKind}
+		}
+		var rulesYAML strings.Builder
+		for i, be := range rules {
+			fmt.Fprintf(&rulesYAML, `
+          - id: e2e-rule-%d
+            backend: %s
+            enabled: true`, i+1, be)
+		}
+		featureBlock := ""
+		switch opts.Action {
+		case "disabled":
+			enabled = "false"
+			featureBlock = `
+        action: observe
+        use_builtin_catalog: false
+        rules:` + rulesYAML.String() + `
+        on_ambiguous: log_skip
+        on_unrepresentable: ` + onUnrep + `
+        on_state_error: reject
+        state:
+          ttl: 1h
+          max_turns_per_session: 64
+          max_reasoning_bytes_per_turn: 65536
+          max_session_bytes: 1048576
+`
+		case "observe", "restore":
+			featureBlock = `
+        action: ` + opts.Action + `
+        use_builtin_catalog: false
+        rules:` + rulesYAML.String() + `
+        on_ambiguous: log_skip
+        on_unrepresentable: ` + onUnrep + `
+        on_state_error: reject
+        state:
+          ttl: 1h
+          max_turns_per_session: 64
+          max_reasoning_bytes_per_turn: 65536
+          max_session_bytes: 1048576
+`
+		default:
+			return "", fmt.Errorf("unknown action %q", opts.Action)
+		}
+		return fmt.Sprintf(`    - id: reasoning-output-preservation
+      enabled: %s
+      config:%s`, enabled, featureBlock), nil
+	default:
+		return "", fmt.Errorf("unknown feature row mode %d", opts.FeatureRow)
+	}
 }
 
 func chatReasoning(text string) []reasoninge2e.ReasoningBlock {
@@ -468,11 +901,79 @@ func drainOracleBodies(t *testing.T, ch <-chan []byte, n int) [][]byte {
 
 func requireLedgerOK(t *testing.T, stack *rpHTTPStack) {
 	t.Helper()
-	if stack.ledger == nil {
-		return
+	if stack.ledger != nil {
+		if err := stack.ledger.Err(); err != nil {
+			t.Fatalf("oracle ledger: %v", err)
+		}
 	}
-	if err := stack.ledger.Err(); err != nil {
-		t.Fatalf("oracle ledger: %v", err)
+	if stack.respLedger != nil {
+		if err := stack.respLedger.Err(); err != nil {
+			t.Fatalf("responses oracle ledger: %v", err)
+		}
+	}
+}
+
+func requireDualLedgerOK(t *testing.T, stack *rpDualHTTPStack) {
+	t.Helper()
+	if stack.chatLedger != nil {
+		if err := stack.chatLedger.Err(); err != nil {
+			t.Fatalf("chat oracle ledger: %v", err)
+		}
+	}
+	if stack.respLedger != nil {
+		if err := stack.respLedger.Err(); err != nil {
+			t.Fatalf("responses oracle ledger: %v", err)
+		}
+	}
+}
+
+// lipCarrierTransport injects/captures X-LIP session (+ optional route) headers for official SDK clients.
+type lipCarrierTransport struct {
+	base  http.RoundTripper
+	sid   *string
+	token *string
+	route string
+}
+
+func (t *lipCarrierTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+	if t.sid != nil && *t.sid != "" {
+		req.Header.Set("X-LIP-Session-Id", *t.sid)
+	}
+	if t.token != nil && *t.token != "" {
+		req.Header.Set("X-LIP-Resume-Token", *t.token)
+	}
+	if t.route != "" {
+		req.Header.Set("X-LIP-Route", t.route)
+	}
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	if t.sid != nil {
+		if v := strings.TrimSpace(resp.Header.Get("X-LIP-Session-Id")); v != "" {
+			*t.sid = v
+		}
+	}
+	if t.token != nil {
+		if v := strings.TrimSpace(resp.Header.Get("X-LIP-Resume-Token")); v != "" {
+			*t.token = v
+		}
+	}
+	return resp, nil
+}
+
+func newResponsesProxyClient(proxy *httptest.Server, sid, token *string, route string) *http.Client {
+	base := proxy.Client()
+	rt := base.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	return &http.Client{
+		Transport: &lipCarrierTransport{base: rt, sid: sid, token: token, route: route},
+		Timeout:   base.Timeout,
 	}
 }
 

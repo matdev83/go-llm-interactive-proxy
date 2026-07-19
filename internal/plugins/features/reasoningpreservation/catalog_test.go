@@ -1,6 +1,7 @@
 package reasoningpreservation_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -39,26 +40,54 @@ func TestBuiltinCatalogVersion_nonEmpty_contractLock(t *testing.T) {
 	}
 }
 
-func TestBuiltinCatalogEntries_kimiMoonshotCoverage(t *testing.T) {
+func TestBuiltinCatalogVersion_isV2Shared(t *testing.T) {
 	t.Parallel()
-	entries := builtinCatalogEntries(t)
-	if len(entries) == 0 {
-		t.Fatal("RED: BuiltinCatalogEntries must include conservative Kimi/Moonshot coverage")
+	if reasoningpreservation.BuiltinCatalogVersion == "kimi-moonshot.v1" {
+		t.Fatal("RED: BuiltinCatalogVersion must move to v2 shared catalog id")
 	}
-	var hasKimi, hasMoonshot bool
-	for _, e := range entries {
-		for _, kw := range e.ModelKeywords {
-			k := strings.ToLower(strings.TrimSpace(kw))
-			if k == "kimi" {
-				hasKimi = true
-			}
-			if k == "moonshot" {
-				hasMoonshot = true
-			}
+	if !strings.Contains(reasoningpreservation.BuiltinCatalogVersion, "v2") {
+		t.Fatalf("BuiltinCatalogVersion=%q must be v2", reasoningpreservation.BuiltinCatalogVersion)
+	}
+}
+
+func TestBuiltinCatalogEntries_v2FamilyCoverageViaResolveMatch(t *testing.T) {
+	t.Parallel()
+	cfg := decodeCatalogConfig(t, `
+action: restore
+use_builtin_catalog: true
+on_ambiguous: log_skip
+on_unrepresentable: reject
+on_state_error: log_skip
+state:
+  ttl: 1h
+  max_turns_per_session: 4
+  max_reasoning_bytes_per_turn: 1024
+  max_session_bytes: 4096
+`)
+	models := []string{
+		"deepseek-r1", "kimi-k2", "moonshot-v1", "glm-4", "mimo-v2",
+		"qwen2.5", "hy3-chat", "minimax-m1", "gpt-5.5",
+	}
+	for _, model := range models {
+		got := resolveMatch(t, cfg, reasoningpreservation.CandidateIdentity{
+			BackendID:       "inst",
+			BackendPrefixes: []string{"openrouter"},
+			Model:           model,
+		})
+		if got.Kind != reasoningpreservation.MatchBuiltin {
+			t.Fatalf("model=%q kind=%q want builtin", model, got.Kind)
 		}
 	}
-	if !hasKimi || !hasMoonshot {
-		t.Fatalf("builtin catalog missing kimi/moonshot keywords: len=%d", len(entries))
+	excluded := []string{"gpt-5.6", "gpt-4o", "glamour", "claude-3"}
+	for _, model := range excluded {
+		got := resolveMatch(t, cfg, reasoningpreservation.CandidateIdentity{
+			BackendID:       "inst",
+			BackendPrefixes: []string{"openrouter"},
+			Model:           model,
+		})
+		if got.Kind != reasoningpreservation.MatchNone {
+			t.Fatalf("model=%q kind=%q want none", model, got.Kind)
+		}
 	}
 }
 
@@ -89,6 +118,20 @@ func TestBuiltinCatalogEntries_openAICompatiblePrefixes(t *testing.T) {
 		if _, ok := prefixSet[want]; !ok {
 			t.Fatalf("missing required stable prefix %q across builtin catalog entries", want)
 		}
+	}
+}
+
+func TestBuiltinCatalogEntries_noMisleadingEmptyModelKeywords(t *testing.T) {
+	t.Parallel()
+	// Automatic matching is boundary/version aware in reasoningreplay; the catalog
+	// entry must not advertise a ModelKeywords field that is always empty.
+	entries := builtinCatalogEntries(t)
+	if len(entries) == 0 {
+		t.Fatal("expected catalog entries")
+	}
+	rt := reflect.TypeOf(entries[0])
+	if _, ok := rt.FieldByName("ModelKeywords"); ok {
+		t.Fatal("BuiltinCatalogEntry must not expose empty ModelKeywords; automatic families are not a keyword list")
 	}
 }
 

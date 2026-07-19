@@ -54,6 +54,11 @@ func TestStreamObserver_oversizeCountsReasoningBytesOnly(t *testing.T) {
 	t.Parallel()
 	cfg := decodeValidConfig(t, `
 action: observe
+use_builtin_catalog: false
+rules:
+  - id: be
+    backend: be
+    enabled: true
 on_ambiguous: log_skip
 on_unrepresentable: reject
 on_state_error: log_skip
@@ -162,7 +167,22 @@ func TestEmptyAuthoritativeSession_isStateMiss(t *testing.T) {
 
 func TestStreamObserver_toolCallArgsDeltaPreservedInAnchor(t *testing.T) {
 	t.Parallel()
-	cfg := decodeValidConfig(t, validObserveYAML)
+	cfg := decodeValidConfig(t, `
+action: observe
+use_builtin_catalog: false
+rules:
+  - id: be
+    backend: be
+    enabled: true
+on_ambiguous: log_skip
+on_unrepresentable: reject
+on_state_error: log_skip
+state:
+  ttl: 1h
+  max_turns_per_session: 4
+  max_reasoning_bytes_per_turn: 4096
+  max_session_bytes: 16384
+`)
 	store := newMemoryStore(t, reasoningpreservation.StoreOptions{
 		TTL: time.Hour, MaxTurnsPerSession: 4, MaxReasoningBytesPerTurn: 4096, MaxSessionBytes: 16384, Now: time.Now,
 	})
@@ -213,7 +233,22 @@ func (f failingStore) Append(ctx context.Context, p reasoningpreservation.Sessio
 
 func TestStreamObserver_appendFailureRecordsSafeDiagnostic(t *testing.T) {
 	t.Parallel()
-	cfg := decodeValidConfig(t, validObserveYAML)
+	cfg := decodeValidConfig(t, `
+action: observe
+use_builtin_catalog: false
+rules:
+  - id: be
+    backend: be
+    enabled: true
+on_ambiguous: log_skip
+on_unrepresentable: reject
+on_state_error: log_skip
+state:
+  ttl: 1h
+  max_turns_per_session: 4
+  max_reasoning_bytes_per_turn: 1024
+  max_session_bytes: 4096
+`)
 	base := newMemoryStore(t, reasoningpreservation.StoreOptions{
 		TTL: time.Hour, MaxTurnsPerSession: 4, MaxReasoningBytesPerTurn: 1024, MaxSessionBytes: 4096, Now: time.Now,
 	})

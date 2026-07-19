@@ -127,6 +127,11 @@ func validateArtifacts(artifacts []TurnArtifact) error {
 			if p.Part.Kind != lipapi.PartReasoning || p.Part.Reasoning == nil {
 				return fmt.Errorf("%s: artifact[%d].Reasoning[%d] invalid part", ID, i, j)
 			}
+			cloned := clonePart(p.Part)
+			probe := lipapi.Event{Kind: lipapi.EventReasoningPart, Reasoning: cloned.Reasoning}
+			if err := lipapi.ValidateEventEnvelope(&probe); err != nil {
+				return fmt.Errorf("%s: artifact[%d].Reasoning[%d] invalid envelope", ID, i, j)
+			}
 		}
 	}
 	return nil

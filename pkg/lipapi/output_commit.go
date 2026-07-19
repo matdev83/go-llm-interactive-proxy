@@ -12,9 +12,12 @@ package lipapi
 //
 // EventReasoningOpaqueDelta commits: redacted_thinking is a first-class content
 // block that can arrive without a preceding reasoning_delta.
+//
+// EventReasoningPart commits: a complete dialect-tagged reasoning part is
+// first-class content (exact historical reasoning) and must block retry/failover.
 func OutputCommitted(ev Event) bool {
 	switch ev.Kind {
-	case EventTextDelta, EventReasoningDelta, EventReasoningOpaqueDelta,
+	case EventTextDelta, EventReasoningDelta, EventReasoningOpaqueDelta, EventReasoningPart,
 		EventToolCallStarted, EventToolCallArgsDelta,
 		EventAssistantImageRef, EventAssistantFileRef:
 		return true

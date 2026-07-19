@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/hooks"
@@ -12,9 +13,16 @@ import (
 )
 
 func (s *retryRecvStream) streamObserverMeta(ctx context.Context) response.StreamMeta {
+	backendID := strings.TrimSpace(s.cand.Primary.Backend)
+	var prefixes []string
+	if s.executor != nil {
+		if be, ok := s.executor.Backends[backendID]; ok {
+			prefixes = execbackend.CloneBackendPrefixes(be)
+		}
+	}
 	meta := response.StreamMeta{
 		TraceID: s.traceID, ALegID: s.aLegID, BLegID: s.bleg.BLegID, CandidateKey: s.cand.Key,
-		BackendID: strings.TrimSpace(s.cand.Primary.Backend), Model: strings.TrimSpace(s.cand.Primary.Model),
+		BackendID: backendID, BackendPrefixes: prefixes, Model: strings.TrimSpace(s.cand.Primary.Model),
 		AttemptSeq: s.bleg.Seq,
 	}
 	if v, ok := s.viewsFor(ctx); ok {
