@@ -1,0 +1,23 @@
+{
+  "feature_name": "versioned-runtime-reloadable-proxy-configuration",
+  "created_at": "2026-07-19T23:15:51+02:00",
+  "updated_at": "2026-07-19T23:15:51+02:00",
+  "language": "en",
+  "phase": "initialized",
+  "approvals": {
+    "requirements": {
+      "generated": false,
+      "approved": false
+    },
+    "design": {
+      "generated": false,
+      "approved": false
+    },
+    "tasks": {
+      "generated": false,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false,
+  "project_description": "Add explicit SIGHUP- and authenticated-management-API-triggered runtime configuration reload through bounded strict loading, a field-level restart-required policy, immutable whole request-plane generations, atomic zero-drop publication, shared process-service continuity, request/model generation pinning, safe retired-generation drainage, and production-grade observability and release evidence, with no file watcher, implicit reload, proxy restart, or connection migration."
+}
