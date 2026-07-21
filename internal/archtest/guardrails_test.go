@@ -211,7 +211,11 @@ var lineBudgets = []struct {
 	// Raised from 3950 to 4000 for versioned-runtime-reload task 4.3: frontend/
 	// feature generation route-conflict isolation on ComposeRequestPlane mounts
 	// (measured non-test total 3970; ~30 lines headroom).
-	{"internal/stdhttp", 4000},
+	// Raised from 4000 to 4650 for versioned-runtime-reload task 5.3: process-owned
+	// management HTTP adapter (admin/configreload listener, auth, browser guard,
+	// DTOs, and lifecycle) outside the swappable request plane
+	// (measured non-test total 4587; ~63 lines headroom).
+	{"internal/stdhttp", 4650},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,

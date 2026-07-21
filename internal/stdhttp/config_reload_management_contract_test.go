@@ -9,6 +9,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	coreconfigreload "github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 )
 
 // Task 1.5 management goldens (req 1.7, 11.6, 12.1-12.11).
@@ -270,6 +273,91 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 	})
 }
 
-func TestProductionManagementConfigReload_IntegrationRED(t *testing.T) {
-	t.Skip("RED until process-owned management reload listener is wired in stdhttp")
+func TestProductionManagementConfigReload_Integration(t *testing.T) {
+	t.Parallel()
+	coord := NewRefReloadCoordinator("/fixed/startup/config.yaml", func(context.Context, ReloadTrigger) ReloadResult {
+		return ReloadResult{Category: ReloadCategoryPublished, ActiveGeneration: 2}
+	})
+	// Production adapter from internal/stdhttp/admin/configreload (task 5.3).
+	prod, err := mgmtreload.New(mgmtreload.Options{
+		Address:     "127.0.0.1:0",
+		AuthMode:    mgmtreload.AuthModeBearer,
+		BearerToken: "test-management-secret",
+	}, &prodCoordAdapter{coord: coord})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(prod.Handler())
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+mgmtreload.ReloadPath, strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-management-secret")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("production reload status=%d", res.StatusCode)
+	}
+	stReq, err := http.NewRequest(http.MethodGet, srv.URL+mgmtreload.StatusPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stReq.Header.Set("Authorization", "Bearer test-management-secret")
+	stRes, err := http.DefaultClient.Do(stReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stRes.Body.Close()
+	if stRes.StatusCode != http.StatusOK {
+		t.Fatalf("production status=%d", stRes.StatusCode)
+	}
+}
+
+// prodCoordAdapter adapts the stdhttp ref coordinator to the production
+// ReloadCoordinator seam without duplicating compile/publish logic.
+type prodCoordAdapter struct {
+	coord *RefReloadCoordinator
+}
+
+func (a *prodCoordAdapter) Reload(ctx context.Context, trigger coreconfigreload.ReloadTrigger) coreconfigreload.ReloadResult {
+	res := a.coord.Reload(ctx, ReloadTrigger{
+		Kind:       ReloadTriggerKind(trigger.Kind),
+		AcceptedAt: trigger.AcceptedAt,
+		SafeActor:  trigger.SafeActor,
+	})
+	return coreconfigreload.ReloadResult{
+		Category:           coreconfigreload.ResultCategory(res.Category),
+		AttemptID:          res.AttemptID,
+		ActiveGeneration:   res.ActiveGeneration,
+		PreviousGeneration: res.PreviousGeneration,
+		RestartFields:      res.RestartFields,
+		RestartFieldCount:  res.RestartFieldCount,
+		ReasonCategory:     res.ReasonCategory,
+		CoalescedSignals:   res.CoalescedSignals,
+	}
+}
+
+func (a *prodCoordAdapter) Status() coreconfigreload.ReloadStatus {
+	st := a.coord.Status()
+	return coreconfigreload.ReloadStatus{
+		ActiveGeneration: st.ActiveGeneration,
+		LastResult: coreconfigreload.ReloadResult{
+			Category:           coreconfigreload.ResultCategory(st.LastResult.Category),
+			AttemptID:          st.LastResult.AttemptID,
+			ActiveGeneration:   st.LastResult.ActiveGeneration,
+			PreviousGeneration: st.LastResult.PreviousGeneration,
+			RestartFields:      st.LastResult.RestartFields,
+			RestartFieldCount:  st.LastResult.RestartFieldCount,
+			ReasonCategory:     st.LastResult.ReasonCategory,
+			CoalescedSignals:   st.LastResult.CoalescedSignals,
+		},
+		Busy:            st.Busy,
+		FixedSourcePath: st.FixedSourcePath,
+	}
 }

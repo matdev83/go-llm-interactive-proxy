@@ -276,7 +276,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.5, 5.1_
   - _Validation: `go test -race ./cmd/lipstd/... -run 'SIGHUP|SignalReload|SignalShutdown|Platform'`_
 
-- [ ] 5.3 Implement the separate management server and authentication posture
+- [x] 5.3 Implement the separate management server and authentication posture
   - Add startup-fixed loopback-default listener, reload/status paths, authentication, method/content-type/body guards, and no-CORS posture.
   - Support existing local single-user trust only under explicit loopback conditions; require strong dedicated auth for multi-user/non-loopback.
   - Map terminal results to stable HTTP status/JSON and keep accepted reload running after client disconnect.
@@ -390,3 +390,4 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 - Phase 4.1–4.2: `internal/infra/backendplugin` does not exist yet; discovered-factory freeze/overlap/no-rescan lives in `pluginreg` + `runtimebundle.ClassifyBackendOverlap`. Coordinator (5.1) must populate `GenerationCompileInput.LiveFactoryKinds` from active/retained generations.
 - Shared-process exclusive kinds reject with `configreload.RestartRequiredError` wrapping `ErrUnsafeLifecycleOverlap` before candidate resource acquisition.
+- Task 5.3: management listen worker is allowlisted in `scripts/check-adhoc-goroutines.*`; `internal/stdhttp` line budget raised for `admin/configreload`. Host-wide management/data-plane shutdown ordering remains task 5.6.

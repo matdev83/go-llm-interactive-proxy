@@ -15,9 +15,12 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 # worker draining WorkID-keyed ambiguous append ownership (task 3.6 remediation B).
 # internal/infra/runtimehost/shutdown.go: bounded fan-out retiring retained
 # generations concurrently so one pinned generation cannot stall unrelated drains.
+# internal/stdhttp/admin/configreload/server.go: process-owned management HTTP
+# listen/serve worker (task 5.3; separate from data-plane generation host).
 $allowed = @(
     "internal/stdhttp/server.go"
     "internal/stdhttp/generation_host.go"
+    "internal/stdhttp/admin/configreload/server.go"
     "internal/infra/runtimehost/shutdown.go"
     "internal/core/stream/keepalive.go"
     "internal/core/runtime/parallel_race.go"
