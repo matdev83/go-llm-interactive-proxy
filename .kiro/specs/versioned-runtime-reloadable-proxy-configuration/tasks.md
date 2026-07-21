@@ -190,7 +190,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 - [ ] 4. Add safe runtime recomposition by field group
 
-- [ ] 4.1 Enable backend add, replace, disable, and removal
+- [x] 4.1 Enable backend add, replace, disable, and removal
   - Add tests and implementation for a backend absent at startup, same-ID changed configuration, disabled/removed backend, and candidate factory failure.
   - Cover all generic compatible kinds and at least one built-in hosted/local deterministic stub.
   - Preserve old backend instances for retired work and close new candidate instances on rollback.
@@ -200,7 +200,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 3.3, 3.6_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/core/runtime/... ./internal/plugins/backends/... -run 'Reload.*Backend|Add|Replace|Remove|Generic'`_
 
-- [ ] 4.2 Integrate already discovered executable plugin factory kinds
+- [x] 4.2 Integrate already discovered executable plugin factory kinds
   - Revalidate against the implemented backend connector plugin architecture.
   - Keep factory discovery/trust catalog process-owned and startup-fixed.
   - Support candidate activation of an already discovered kind and simultaneous old/new instance handles.
@@ -385,3 +385,8 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Boundary: Release certification_
   - _Depends: 6.1-6.5_
   - _Validation: `make quality-checks && make test-unit && make parity-checks && make qa && make test-race && make test-fuzz`_
+
+## Implementation Notes
+
+- Phase 4.1–4.2: `internal/infra/backendplugin` does not exist yet; discovered-factory freeze/overlap/no-rescan lives in `pluginreg` + `runtimebundle.ClassifyBackendOverlap`. Coordinator (5.1) must populate `GenerationCompileInput.LiveFactoryKinds` from active/retained generations.
+- Shared-process exclusive kinds reject with `configreload.RestartRequiredError` wrapping `ErrUnsafeLifecycleOverlap` before candidate resource acquisition.

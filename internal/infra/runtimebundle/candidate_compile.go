@@ -54,6 +54,9 @@ type GenerationCompileInput struct {
 	// Compose builds the request-plane http.Handler without binding a listener.
 	// Required by [CompileGeneration]; unused by [CompileCandidate].
 	Compose HandlerComposer
+	// LiveFactoryKinds counts factory kinds held by active/retained generations.
+	// Used to reject shared-process exclusive kinds before publication (req 8.8).
+	LiveFactoryKinds map[string]int
 	// FaultInject is test-only; production leaves it zero.
 	FaultInject CandidateFaultInject
 }
@@ -182,6 +185,11 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	// Reject unsafe feature lifecycles before any generation resource acquisition
 	// so unmarked plugins cannot escape cleanup (req 8.8, task 3.2).
 	if err := ClassifyFeatureLifecycles(opts.FeatureLifecycles); err != nil {
+		return nil, err
+	}
+	// Reject shared-process exclusive backend kinds that cannot overlap a live
+	// instance before constructing candidate resources (req 8.8, task 4.2).
+	if err := ClassifyBackendOverlap(opts.PluginRegistry, cfg, in.LiveFactoryKinds); err != nil {
 		return nil, err
 	}
 

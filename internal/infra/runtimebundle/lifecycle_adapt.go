@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 )
 
@@ -31,6 +34,35 @@ func ClassifyFeatureLifecycles(lifes []lipplugin.Lifecycle) error {
 		if !ok || !safe.SafeUnderCandidateOverlap() {
 			return fmt.Errorf("%w: index=%d type=%T", ErrUnsafeLifecycleOverlap, i, life)
 		}
+	}
+	return nil
+}
+
+// ClassifyBackendOverlap rejects enabled candidate backends whose factory kinds
+// disallow concurrent instance handles while a live generation still holds that
+// kind. Returns the typed restart-required classification before any candidate
+// resource acquisition (req 7.3, 8.8; task 4.2).
+func ClassifyBackendOverlap(reg *pluginreg.Registry, cfg *config.Config, liveFactoryKinds map[string]int) error {
+	if reg == nil || cfg == nil || len(liveFactoryKinds) == 0 {
+		return nil
+	}
+	for _, p := range cfg.Plugins.Backends {
+		if !p.Enabled {
+			continue
+		}
+		fid := p.FactoryID()
+		pol, ok := reg.BackendReloadPolicy(fid)
+		if !ok || pol.AllowsCandidateOverlap {
+			continue
+		}
+		if liveFactoryKinds[fid] <= 0 {
+			continue
+		}
+		rr := &configreload.RestartRequiredError{
+			RestartRequiredFields: []string{"plugins.backends"},
+			TotalBlocked:          1,
+		}
+		return fmt.Errorf("%w: %w: factory %q instance %q", rr, ErrUnsafeLifecycleOverlap, fid, p.InstanceID())
 	}
 	return nil
 }

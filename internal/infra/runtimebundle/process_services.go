@@ -143,6 +143,8 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		opts:           in.Opts,
 		parent:         parent,
 	}
+	// Discovery/trust catalog is process-owned and startup-fixed (req 7.3, 8.7).
+	ps.FactoryCatalog.FreezeDiscovery()
 	if ps.Tracing.Shutdown == nil {
 		ps.Tracing.Shutdown = func(context.Context) error { return nil }
 	}

@@ -76,7 +76,8 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 			Extensions:              ext,
 			ReplaceCandidateSurface: true,
 		},
-		FaultInject: in.FaultInject,
+		LiveFactoryKinds: in.LiveFactoryKinds,
+		FaultInject:      in.FaultInject,
 	})
 	if err != nil {
 		return nil, err
