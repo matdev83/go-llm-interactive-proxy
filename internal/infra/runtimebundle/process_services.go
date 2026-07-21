@@ -1,0 +1,300 @@
+package runtimebundle
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
+	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
+	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/decodeqos"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
+)
+
+// ProcessTracing holds process-owned tracing shutdown and outbound-propagation state.
+// Constructed once at process startup (typically via tracing.Init in bootstrap).
+type ProcessTracing struct {
+	Shutdown func(context.Context) error
+	Active   bool
+}
+
+// DeferredSharedMutableOwnership documents process-owned mutable continuity that
+// remains constructed inside each candidate executor until task 2.4 hoists it.
+// Task 2.3 does not fake sharing for these identities.
+type DeferredSharedMutableOwnership struct {
+	// OwnershipNote names the deferred resources and the owning follow-up task.
+	OwnershipNote string
+}
+
+// ProcessServices owns process-scoped resources constructed once per process.
+// Generation compilation receives a non-owning reference and must not Close it.
+type ProcessServices struct {
+	Logger                *slog.Logger
+	FactoryCatalog        *pluginreg.Registry
+	Tracing               ProcessTracing
+	Metrics               *metrics.Bundle
+	DatabasePools         *db.PoolRegistry
+	Continuity            b2bua.Store
+	SecureSessions        ssessionapp.Store
+	DecodeAdmission       lipsdk.DecodeAdmission
+	UsageAuthority        *authorityapp.Service
+	Concurrency           *concurrencyapp.Service
+	SnapshotGeneration    *snapshotgen.Publisher
+	SnapshotController    *SnapshotController
+	MeteringQuerier       metering.Querier
+	TerminalWorkProcessor *terminalworkapp.Processor
+	TerminalWorkRegistry  *terminalworkapp.Registry
+	TerminalWorkQueries   *terminalworkapp.QueryService
+	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
+
+	DeferredSharedMutable DeferredSharedMutableOwnership
+
+	// Internal handles required by candidate compilation (non-API).
+	persistence       *persistenceRuntime
+	controlPlane      *controlPlaneRuntime
+	usageRT           *usageAuthorityRuntime
+	concurrencyRT     *concurrencyAuthorityRuntime
+	terminalWorkRT    *terminalWorkRuntime
+	dualPlaneMigrator *dualPlaneMigrator
+	policyObs         policydecision.Observer
+	cfg               *config.Config
+	opts              *BuildOptions
+	parent            context.Context
+
+	closers   []func() error
+	closeOnce sync.Once
+	closeErr  error
+	closed    atomic.Bool
+
+	poolCloserRegistered bool
+}
+
+// ProcessServicesInput configures [NewProcessServices].
+type ProcessServicesInput struct {
+	Cfg     *config.Config
+	Log     *slog.Logger
+	Opts    *BuildOptions
+	Tracing ProcessTracing
+}
+
+// NewProcessServices constructs process-owned stores, pools, metrics, terminal-work,
+// limiters, and related dependencies once. Closers are registered immediately;
+// partial failures dispose acquired resources in reverse order.
+func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessServices, error) {
+	if in.Cfg == nil {
+		return nil, fmt.Errorf("runtimebundle: nil config")
+	}
+	if in.Log == nil {
+		return nil, fmt.Errorf("runtimebundle: nil logger")
+	}
+	if in.Opts == nil || in.Opts.PluginRegistry == nil {
+		return nil, fmt.Errorf("runtimebundle: nil PluginRegistry")
+	}
+	if err := validateRequiredAuthorityEvidenceWiring(in.Cfg); err != nil {
+		return nil, err
+	}
+
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	if in.Opts.Startup.StartupContext != nil {
+		parent = in.Opts.Startup.StartupContext
+	}
+
+	ps := &ProcessServices{
+		Logger:         in.Log,
+		FactoryCatalog: in.Opts.PluginRegistry,
+		Tracing:        in.Tracing,
+		cfg:            in.Cfg,
+		opts:           in.Opts,
+		parent:         parent,
+		DeferredSharedMutable: DeferredSharedMutableOwnership{
+			OwnershipNote: "A-leg lifecycle, affinity store, routing-health observation, and extension in-memory state remain constructed per candidate executor until task 2.4 hoists shared mutable continuity.",
+		},
+	}
+	if ps.Tracing.Shutdown == nil {
+		ps.Tracing.Shutdown = func(context.Context) error { return nil }
+	}
+
+	postgresPools := db.NewPoolRegistry(in.Opts.Testing.PostgresPoolOpener)
+	ps.DatabasePools = postgresPools
+	ps.dualPlaneMigrator = newDualPlaneMigrator(in.Cfg)
+	poolsClaimed := false
+	defer func() {
+		if !poolsClaimed && postgresPools != nil {
+			_ = postgresPools.Close(parent)
+		}
+	}()
+
+	register := func(c func() error) {
+		if c != nil {
+			ps.closers = append(ps.closers, c)
+		}
+	}
+	fail := func(err error) (*ProcessServices, error) {
+		return nil, withDisposedClosers(err, ps.closers)
+	}
+
+	controlPlane, err := buildControlPlaneRuntime(controlPlaneBuildInput{
+		StartupContext: parent,
+		Cfg:            in.Cfg,
+		Log:            in.Log,
+		Clock:          in.Opts.Testing.Clock,
+		StoreOverride:  in.Opts.Testing.ControlPlaneStoreOverride,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	ps.controlPlane = controlPlane
+	if controlPlane != nil && controlPlane.closer != nil {
+		register(controlPlane.closer)
+	}
+
+	policyObs := assemblePolicyObserverChain(in.Opts, controlPlane)
+	ps.policyObs = policyObs
+
+	usageAuthority, usageClosers, err := buildUsageAuthorityRuntime(parent, in.Cfg, in.Log, in.Opts, controlPlane, policyObs, postgresPools, ps.dualPlaneMigrator)
+	if err != nil {
+		return fail(err)
+	}
+	ps.usageRT = usageAuthority
+	for _, c := range usageClosers {
+		register(c)
+	}
+	if usageAuthority != nil {
+		ps.UsageAuthority = usageAuthority.Service
+	}
+
+	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, in.Cfg, in.Log, in.Opts.Testing, postgresPools, ps.dualPlaneMigrator)
+	if err != nil {
+		return fail(err)
+	}
+	ps.concurrencyRT = concurrencyRT
+	for _, c := range concurrencyClosers {
+		register(c)
+	}
+	if concurrencyRT != nil {
+		ps.Concurrency = concurrencyRT.Service
+	}
+
+	ps.Metrics = buildProcessMetricsBundle(in.Cfg, postgresPools.Stats)
+	if ps.UsageAuthority != nil && ps.Metrics != nil {
+		ps.UsageAuthority.SetStageMetrics(ps.Metrics.AuthorityStageSink())
+	}
+
+	bctx := buildContext{
+		Cfg:               in.Cfg,
+		Bus:               nil, // generation-owned; unused by persistence
+		Log:               in.Log,
+		Opts:              in.Opts,
+		Parent:            parent,
+		PostgresPools:     postgresPools,
+		DualPlaneMigrator: ps.dualPlaneMigrator,
+	}
+	persist, persistClosers, err := buildPersistenceRuntime(bctx, controlPlane, ps.Metrics, nil)
+	if err != nil {
+		return fail(err)
+	}
+	ps.persistence = persist
+	for _, c := range persistClosers {
+		register(c)
+	}
+	if persist != nil {
+		ps.Continuity = persist.Store
+		if persist.SecureSession != nil {
+			ps.SecureSessions = persist.SecureSession.appStore
+		}
+	}
+
+	nowFn := in.Opts.Testing.Clock
+	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency)
+	if err != nil {
+		return fail(err)
+	}
+	ps.terminalWorkRT = twRT
+	for _, c := range twClosers {
+		register(c)
+	}
+	if twRT != nil {
+		ps.TerminalWorkProcessor = twRT.Processor
+		ps.TerminalWorkRegistry = twRT.Registry
+		ps.TerminalWorkQueries = twRT.Queries
+		ps.TerminalWorkMetrics = twRT.Metrics
+	}
+
+	snapGen, snapCtrl := buildSnapshotGeneration(in.Cfg, in.Opts.Testing, in.Opts.Production)
+	ps.SnapshotGeneration = snapGen
+	ps.SnapshotController = snapCtrl
+	if twRT != nil {
+		twRT.bindSnapshotPublisher(snapGen)
+	}
+
+	ps.DecodeAdmission = decodeqos.New(
+		in.Cfg.Server.EffectiveMaxConcurrentDecodes(),
+		in.Cfg.Server.EffectiveMaxInflightDecodeBytes(),
+	)
+	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
+
+	// Pool registry closer is registered after candidate prune via ensurePoolCloser
+	// so empty in-memory builds retain historical zero-closer aggregate semantics.
+	poolsClaimed = true
+
+	// Tracing shutdown remains with the process host (BuildBootstrap.ShutdownTracing /
+	// stdhttp). ProcessServices retains the non-owning handle for identity reuse only.
+
+	return ps, nil
+}
+
+// ensurePoolCloser registers DatabasePools.Close once when the registry still
+// holds pools after prune. Safe to call from candidate compilation.
+func (ps *ProcessServices) ensurePoolCloser() {
+	if ps == nil || ps.poolCloserRegistered || ps.DatabasePools == nil {
+		return
+	}
+	if ps.DatabasePools.Len() == 0 {
+		return
+	}
+	ps.closers = append(ps.closers, func() error {
+		return ps.DatabasePools.Close(context.Background())
+	})
+	ps.poolCloserRegistered = true
+}
+
+// Close disposes process-owned resources in reverse acquisition order.
+// It is idempotent.
+func (ps *ProcessServices) Close() error {
+	if ps == nil {
+		return nil
+	}
+	ps.closeOnce.Do(func() {
+		ps.closeErr = disposeClosers(ps.closers)
+		ps.closed.Store(true)
+	})
+	return ps.closeErr
+}
+
+// Closed reports whether [ProcessServices.Close] has completed.
+func (ps *ProcessServices) Closed() bool {
+	if ps == nil {
+		return true
+	}
+	return ps.closed.Load()
+}
+
+// DisposeProcessClosersForTest exposes reverse-order disposal for unit tests.
+func DisposeProcessClosersForTest(closers []func() error) error {
+	return disposeClosers(closers)
+}

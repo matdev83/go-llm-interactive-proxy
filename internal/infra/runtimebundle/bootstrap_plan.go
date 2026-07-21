@@ -197,6 +197,10 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 			PluginRegistry: reg,
 			Infra: InfraOptions{
 				OutboundTracing: traceRes.Active,
+				ProcessTracing: ProcessTracing{
+					Shutdown: traceRes.Shutdown,
+					Active:   traceRes.Active,
+				},
 			},
 			Extensions: ExtensionsOptions{
 				SessionOpeners:                   merged.SessionOpeners,

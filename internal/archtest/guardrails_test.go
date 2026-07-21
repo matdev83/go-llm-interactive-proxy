@@ -203,7 +203,10 @@ var lineBudgets = []struct {
 	// uncertain-set reconcile, and settle-release pending counts at composition
 	// root. Post-merge measured non-test total is 6477; cap keeps ~48 lines of
 	// headroom.
-	{"internal/infra/runtimebundle", 6525},
+	// Raised from 6525 to 7020 for versioned-runtime-reload task 2.3: explicit
+	// ProcessServices construction, candidate compilation inputs, and Build
+	// compatibility wrapper (measured non-test total 6967; ~53 lines headroom).
+	{"internal/infra/runtimebundle", 7020},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

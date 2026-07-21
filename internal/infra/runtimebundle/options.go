@@ -78,6 +78,10 @@ type InfraOptions struct {
 	// HTTP propagation. When HTTPClient is non-nil, Build clones the client
 	// before wrapping so caller-owned clients are not mutated.
 	OutboundTracing bool
+	// ProcessTracing carries an already-initialized process tracer shutdown handle
+	// from BuildBootstrap. Build retains it on ProcessServices without owning Close
+	// (bootstrap / stdhttp remain the shutdown owners).
+	ProcessTracing ProcessTracing
 }
 
 // AuthOptions carries transport-auth composition-root injection points.

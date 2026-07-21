@@ -87,7 +87,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.3, 2.1_
   - _Validation: `go test ./internal/core/configreload/... ./internal/core/config/... -run 'Reloadability|RestartRequired|FieldCoverage'`_
 
-- [ ] 2.3 Split process-service construction from generation compilation
+- [x] 2.3 Split process-service construction from generation compilation
   - Extract explicit process-owned construction for stores, pools, terminal-work processing, metrics registry, tracing/logger dependencies, plugin discovery/trust, process limiters, and compatible mutable state registries.
   - Define explicit `ProcessServices` inputs with one owner and one shutdown path; do not introduce a service locator.
   - Split existing closer lists by ownership and preserve reverse-order error disposal on partial startup.

@@ -1,8 +1,10 @@
 package runtimebundle
 
 import (
+	"database/sql"
 	"net/http"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/httpclient"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
@@ -15,24 +17,41 @@ type observabilityRuntime struct {
 	Upstream *http.Client
 }
 
-// buildObservabilityRuntime builds the metrics bundle (when enabled) and the
-// shared upstream HTTP client, wrapping its transport with upstream metrics and
-// optional OpenTelemetry propagation. Behavior matches the inline block formerly
-// in [Build].
-func buildObservabilityRuntime(bctx buildContext) observabilityRuntime {
+// buildProcessMetricsBundle constructs the process-owned Prometheus metrics bundle
+// when metrics are enabled. Call site for metrics.NewBundle remains here so the
+// live uniqueness gate keeps a single process construction site.
+func buildProcessMetricsBundle(cfg *config.Config, poolStats func() []sql.DBStats) *metrics.Bundle {
+	if cfg == nil || !cfg.Observability.Metrics.Enabled {
+		return nil
+	}
+	return metrics.NewBundle(cfg, poolStats)
+}
+
+// buildGenerationObservability builds the generation-owned upstream HTTP client,
+// wrapping it with the shared process metrics bundle and optional OTEL propagation.
+// It does not construct a metrics registry.
+func buildGenerationObservability(bctx buildContext, bundle *metrics.Bundle) observabilityRuntime {
 	cfg := bctx.Cfg
 	opts := bctx.Opts
-	var bundle *metrics.Bundle
-	if cfg.Observability.Metrics.Enabled {
-		bundle = metrics.NewBundle(cfg, bctx.PostgresPools.Stats)
-	}
 	tune := httpclient.TransportTuneFromConfig(cfg)
 	upstream := httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)
 	if opts.Infra.HTTPClient != nil {
 		upstream = opts.Infra.HTTPClient
 	}
-	upstream = wrapUpstreamClient(upstream, bundle, opts.Infra.OutboundTracing)
+	outbound := false
+	if opts != nil {
+		outbound = opts.Infra.OutboundTracing
+	}
+	upstream = wrapUpstreamClient(upstream, bundle, outbound)
 	return observabilityRuntime{Bundle: bundle, Upstream: upstream}
+}
+
+// buildObservabilityRuntime builds the metrics bundle (when enabled) and the
+// shared upstream HTTP client. Kept for compatibility with callers that still
+// assemble both together; prefer process metrics + [buildGenerationObservability].
+func buildObservabilityRuntime(bctx buildContext) observabilityRuntime {
+	bundle := buildProcessMetricsBundle(bctx.Cfg, bctx.PostgresPools.Stats)
+	return buildGenerationObservability(bctx, bundle)
 }
 
 // wrapUpstreamClient wraps an upstream [http.Client] transport with the metrics
