@@ -42,10 +42,10 @@ func TestRecordingMeter_ConcurrentAppendPreservesAllFacts(t *testing.T) {
 	const perG = 50
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		go func(g int) {
 			defer wg.Done()
-			for i := 0; i < perG; i++ {
+			for i := range perG {
 				fact := metering.Fact{FactID: fmt.Sprintf("g%d-%d", g, i)}
 				if err := rec.Append(context.Background(), fact); err != nil {
 					t.Errorf("Append: %v", err)
@@ -67,8 +67,8 @@ func TestRecordingMeter_ConcurrentAppendPreservesAllFacts(t *testing.T) {
 		}
 		seen[f.FactID] = struct{}{}
 	}
-	for g := 0; g < goroutines; g++ {
-		for i := 0; i < perG; i++ {
+	for g := range goroutines {
+		for i := range perG {
 			id := fmt.Sprintf("g%d-%d", g, i)
 			if _, ok := seen[id]; !ok {
 				t.Fatalf("missing fact %s", id)
