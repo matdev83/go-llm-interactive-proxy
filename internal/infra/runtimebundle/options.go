@@ -65,6 +65,12 @@ type BuildOptions struct {
 	// not also Start/Stop the same instances via runtime.App (singular ownership).
 	// Inspect-only bootstrap may keep lifecycles on App instead.
 	FeatureLifecycles []lipplugin.Lifecycle
+	// ReplaceCandidateSurface, when true, replaces process FeatureLifecycles and
+	// Extensions with this overlay's values even when nil/empty. Used by
+	// [CompileGeneration] so a candidate that removes the last feature does not
+	// reuse startup-merged lifecycles/extensions. Legacy [CompileCandidate]
+	// callers leave this false (nil overlay fields mean "no override").
+	ReplaceCandidateSurface bool
 }
 
 // StartupOptions carries startup-context configuration.

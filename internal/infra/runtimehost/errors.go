@@ -8,12 +8,13 @@ import (
 
 // Sentinel errors for generation publication and lifecycle (req 10.1, 10.8-10.9).
 var (
-	ErrRetentionBlocked  = errors.New("runtimehost: retained-generation budget exhausted")
-	ErrNotPrepared       = errors.New("runtimehost: candidate not prepared")
-	ErrAlreadyPublished  = errors.New("runtimehost: generation already published")
-	ErrAlreadyClosed     = errors.New("runtimehost: generation already closed")
-	ErrIllegalTransition = errors.New("runtimehost: illegal generation lifecycle transition")
-	ErrOwnedAlreadyBound = errors.New("runtimehost: generation owned resources already bound")
+	ErrRetentionBlocked         = errors.New("runtimehost: retained-generation budget exhausted")
+	ErrNotPrepared              = errors.New("runtimehost: candidate not prepared")
+	ErrAlreadyPublished         = errors.New("runtimehost: generation already published")
+	ErrAlreadyClosed            = errors.New("runtimehost: generation already closed")
+	ErrIllegalTransition        = errors.New("runtimehost: illegal generation lifecycle transition")
+	ErrOwnedAlreadyBound        = errors.New("runtimehost: generation owned resources already bound")
+	ErrRequestPlaneAlreadyBound = errors.New("runtimehost: generation request plane already bound")
 )
 
 // ManualClock is a fake clock for tests (no timing sleeps).

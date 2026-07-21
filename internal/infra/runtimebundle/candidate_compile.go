@@ -32,15 +32,28 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// GenerationCompileInput is the non-owning input to [CompileCandidate].
-// Process must outlive the candidate; candidate Close must not Close Process.
+// GenerationCompileInput is the non-owning input to [CompileCandidate] /
+// [CompileGeneration]. Process must outlive the candidate; candidate Close must
+// not Close Process.
 type GenerationCompileInput struct {
 	Process *ProcessServices
 	Bus     *hooks.Bus
+	// Candidate is the isolated effective configuration for this compile.
+	// When nil, Process startup config is used (compatibility with [Build]).
+	Candidate *config.Config
+	// CandidateOpts supplies generation-owned options (feature lifecycles /
+	// extensions) without mutating Process startup options. Process-fixed
+	// fields (PluginRegistry, Infra, Testing, Production, Auth, …) remain
+	// sourced from ProcessServices.
+	CandidateOpts *BuildOptions
+	// Compose builds the request-plane http.Handler without binding a listener.
+	// Required by [CompileGeneration]; unused by [CompileCandidate].
+	Compose HandlerComposer
 	// FaultInject is test-only; production leaves it zero.
 	FaultInject CandidateFaultInject
 }
@@ -153,8 +166,11 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	if ps.Closed() {
 		return nil, fmt.Errorf("runtimebundle: ProcessServices is closed")
 	}
-	cfg := ps.cfg
-	opts := ps.opts
+	cfg := in.Candidate
+	if cfg == nil {
+		cfg = ps.cfg
+	}
+	opts := mergeCandidateBuildOptions(ps.opts, in.CandidateOpts)
 	log := ps.Logger
 	if cfg == nil || opts == nil || opts.PluginRegistry == nil {
 		return nil, fmt.Errorf("runtimebundle: ProcessServices missing config or PluginRegistry")
@@ -270,10 +286,6 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	if err != nil {
 		return fail(err)
 	}
-	if err := ps.DatabasePools.PruneUnclaimed(); err != nil {
-		return fail(fmt.Errorf("runtimebundle: prune unclaimed postgres pools: %w", err))
-	}
-
 	if err := AdaptOverlapSafeLifecycles(ledger, opts.FeatureLifecycles); err != nil {
 		return fail(err)
 	}
@@ -339,4 +351,67 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		terminalWorkReady:      twReady,
 		terminalWorkRT:         ps.terminalWorkRT,
 	}, nil
+}
+
+// mergeCandidateBuildOptions overlays generation-owned FeatureLifecycles and
+// Extensions onto a shallow copy of process options without mutating Process.
+// When overlay.ReplaceCandidateSurface is true, FeatureLifecycles and Extensions
+// replace process values even when nil/empty (complete-generation compile).
+// Legacy CompileCandidate callers leave ReplaceCandidateSurface false so nil
+// overlay fields mean "no override".
+func mergeCandidateBuildOptions(process *BuildOptions, overlay *BuildOptions) *BuildOptions {
+	if process == nil {
+		return overlay
+	}
+	if overlay == nil {
+		return process
+	}
+	out := *process
+	if overlay.ReplaceCandidateSurface {
+		out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
+		out.Extensions = overlay.Extensions
+	} else {
+		if overlay.FeatureLifecycles != nil {
+			out.FeatureLifecycles = append([]lipplugin.Lifecycle(nil), overlay.FeatureLifecycles...)
+		}
+		if hasExtensionOverlay(overlay.Extensions) {
+			out.Extensions = overlay.Extensions
+		}
+	}
+	if overlay.WireModel != nil {
+		out.WireModel = overlay.WireModel
+	}
+	// Always keep process factory catalog / infra / testing / production / auth.
+	out.PluginRegistry = process.PluginRegistry
+	out.Startup = process.Startup
+	out.Infra = process.Infra
+	out.Auth = process.Auth
+	out.Policy = process.Policy
+	out.Diagnostics = process.Diagnostics
+	out.Testing = process.Testing
+	out.Production = process.Production
+	out.ReplaceCandidateSurface = false
+	return &out
+}
+
+func hasExtensionOverlay(e ExtensionsOptions) bool {
+	return len(e.SessionOpeners) > 0 ||
+		len(e.WorkspaceResolvers) > 0 ||
+		len(e.ToolCatalogFilters) > 0 ||
+		len(e.ToolCallPolicies) > 0 ||
+		len(e.ToolCallFinalizers) > 0 ||
+		e.ToolCallFinalizationMaxArgsBytes > 0 ||
+		len(e.RequestTransforms) > 0 ||
+		len(e.PreRequestHandlers) > 0 ||
+		len(e.RouteHintProviders) > 0 ||
+		len(e.CompletionGates) > 0 ||
+		len(e.AttemptTransforms) > 0 ||
+		len(e.StreamObserverFactories) > 0 ||
+		len(e.TrafficObservers) > 0 ||
+		len(e.UsageObservers) > 0 ||
+		len(e.RawCaptureSinks) > 0 ||
+		len(e.TrafficRedactors) > 0 ||
+		len(e.SecretGuards) > 0 ||
+		e.SecretGuardEnvironment != nil ||
+		e.SecretDecisionObserver != nil
 }

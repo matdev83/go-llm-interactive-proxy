@@ -145,7 +145,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 2.3, 3.1_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/infra/runtimehost/... ./internal/plugins/... -run 'Candidate|Rollback|Lifecycle|Close|Preflight'`_
 
-- [ ] 3.3 Implement complete generation compilation
+- [x] 3.3 Implement complete generation compilation
   - Compile isolated registry/registration views, feature surfaces, backend instances, inventories, routes, aliases, capabilities, generation-owned HTTP client, executor, app, and model runtime from the candidate plus process services.
   - Construct a complete standard handler without binding a listener and freeze all published maps/slices/config.
   - Ensure no process service is recreated and no active object is mutated.

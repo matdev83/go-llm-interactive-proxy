@@ -1,6 +1,7 @@
 package runtimehost
 
 import (
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,10 +93,14 @@ type Generation struct {
 	closeCount atomic.Int32
 	closeErr   error
 
-	metaMu  sync.RWMutex
-	meta    GenerationMeta
-	owned   OwnedCloser
-	ownedMu sync.Mutex
+	metaMu sync.RWMutex
+	meta   GenerationMeta
+
+	// payloadMu keeps the served request plane and its owned closer an atomic
+	// ownership pair. A generation must never serve plane A while closing B.
+	payloadMu    sync.Mutex
+	owned        OwnedCloser
+	requestPlane PublishedRequestPlane
 }
 
 func newGeneration(label string, state GenLifecycle, owned OwnedCloser) *Generation {
@@ -106,6 +111,12 @@ func newGeneration(label string, state GenLifecycle, owned OwnedCloser) *Generat
 		meta:    GenerationMeta{Label: label},
 	}
 	g.word.Store(packLease(state, 0))
+	return g
+}
+
+func newGenerationWithRequestPlane(label string, state GenLifecycle, plane PublishedRequestPlane) *Generation {
+	g := newGeneration(label, state, plane)
+	g.requestPlane = plane
 	return g
 }
 
@@ -199,13 +210,55 @@ func (g *Generation) AttachOwned(owned OwnedCloser) error {
 	if st != GenPreparing && st != GenPrepared {
 		return ErrIllegalTransition
 	}
-	g.ownedMu.Lock()
-	defer g.ownedMu.Unlock()
-	if g.owned != nil {
+	g.payloadMu.Lock()
+	defer g.payloadMu.Unlock()
+	if g.owned != nil || g.requestPlane != nil {
 		return ErrOwnedAlreadyBound
 	}
 	g.owned = owned
 	return nil
+}
+
+// AttachRequestPlane atomically binds the immutable request-plane publisher as
+// both the served plane and the generation-owned closer while preparing.
+func (g *Generation) AttachRequestPlane(plane PublishedRequestPlane) error {
+	if g == nil {
+		return ErrNotPrepared
+	}
+	st := g.Lifecycle()
+	if st != GenPreparing && st != GenPrepared {
+		return ErrIllegalTransition
+	}
+	g.payloadMu.Lock()
+	defer g.payloadMu.Unlock()
+	if g.requestPlane != nil {
+		return ErrRequestPlaneAlreadyBound
+	}
+	if g.owned != nil {
+		return ErrOwnedAlreadyBound
+	}
+	g.requestPlane = plane
+	g.owned = plane
+	return nil
+}
+
+// RequestPlane returns the bound immutable request-plane publisher, or nil.
+func (g *Generation) RequestPlane() PublishedRequestPlane {
+	if g == nil {
+		return nil
+	}
+	g.payloadMu.Lock()
+	defer g.payloadMu.Unlock()
+	return g.requestPlane
+}
+
+// Handler returns the bound request-plane handler, or nil when unbound.
+func (g *Generation) Handler() http.Handler {
+	plane := g.RequestPlane()
+	if plane == nil {
+		return nil
+	}
+	return plane.Handler()
 }
 
 // MarkPrepared transitions Preparing → Prepared.
@@ -376,10 +429,10 @@ func (g *Generation) Close() error {
 	}
 	g.closeCount.Add(1)
 
-	g.ownedMu.Lock()
+	g.payloadMu.Lock()
 	owned := g.owned
 	g.owned = nil
-	g.ownedMu.Unlock()
+	g.payloadMu.Unlock()
 	if owned != nil {
 		g.closeErr = owned.Close()
 	}
@@ -427,10 +480,10 @@ func (g *Generation) Discard() error {
 	}
 	g.closeCount.Add(1)
 
-	g.ownedMu.Lock()
+	g.payloadMu.Lock()
 	owned := g.owned
 	g.owned = nil
-	g.ownedMu.Unlock()
+	g.payloadMu.Unlock()
 	if owned != nil {
 		g.closeErr = owned.Close()
 	}

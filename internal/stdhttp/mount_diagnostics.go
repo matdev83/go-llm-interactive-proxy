@@ -28,6 +28,8 @@ type mountDiagnosticsInput struct {
 	Exec   *runtime.Executor
 	Reg    *pluginreg.Registry
 	App    *runtime.App
+	// Registrations is used when App is nil (generation path).
+	Registrations []lipsdk.Registration
 }
 
 // mountDiagnostics mounts health, attempts, inventory, route-trace, and pprof endpoints when
@@ -52,7 +54,11 @@ func mountDiagnostics(in mountDiagnosticsInput) error {
 		mux.Handle(ap, diag.WrapDiagnosticsProtect(cfg.Diagnostics.SharedSecret, ah))
 	}
 	if ip := strings.TrimSpace(cfg.Diagnostics.InventoryPath); ip != "" {
-		ih, err := diag.InventoryHandler(cfg, mergeInventoryExtrasForDiagnostics(in.Reg, in.App.Registrations(), in.Built.SecretGuardInventory))
+		regs := in.Registrations
+		if in.App != nil {
+			regs = in.App.Registrations()
+		}
+		ih, err := diag.InventoryHandler(cfg, mergeInventoryExtrasForDiagnostics(in.Reg, regs, in.Built.SecretGuardInventory))
 		if err != nil {
 			return fmt.Errorf("stdhttp: inventory handler: %w", err)
 		}

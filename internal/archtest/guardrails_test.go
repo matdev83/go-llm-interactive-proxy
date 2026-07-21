@@ -174,7 +174,10 @@ var lineBudgets = []struct {
 	// (measured non-test total 65818; ~32 lines headroom).
 	{"internal/core", 65850},
 	{"internal/pluginreg", 4500},
-	{"internal/stdhttp", 3500},
+	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
+	// generation request-plane composer (ComposeRequestPlane) without listener
+	// bind (measured non-test total 3668; ~132 lines headroom).
+	{"internal/stdhttp", 3800},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -218,7 +221,10 @@ var lineBudgets = []struct {
 	// Raised from 8200 to 8350 for task 3.2 final production wiring: feature
 	// lifecycle classify/adapt, backend optional hooks, catalog PhaseQuiesce,
 	// and generation-owned HTTP idle cleanup (measured 8238; ~112 lines headroom).
-	{"internal/infra/runtimebundle", 8350},
+	// Raised from 8350 to 9100 for versioned-runtime-reload task 3.3: complete
+	// generation compilation, immutable GenerationBundle, RequestPlane view, and
+	// config freeze (measured non-test total 8982; ~118 lines headroom).
+	{"internal/infra/runtimebundle", 9100},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

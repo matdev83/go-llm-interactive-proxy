@@ -37,6 +37,12 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// A bound publication plane is the authoritative generation owner. Ignore a
+	// stale/mismatched compatibility argument so the served bundle is always the
+	// bundle that gets quiesced; final Close is likewise owned by Generation.
+	if plane := g.RequestPlane(); plane != nil {
+		owned = plane
+	}
 
 	g.retireMu.Lock()
 	defer g.retireMu.Unlock()

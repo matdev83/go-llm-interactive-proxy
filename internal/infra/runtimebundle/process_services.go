@@ -305,6 +305,12 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	)
 	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
 
+	// One-time prune after all process-owned Open/Claim paths complete. Candidate
+	// compilation must remain read-only with respect to the process pool registry.
+	if err := postgresPools.PruneUnclaimed(); err != nil {
+		return fail(fmt.Errorf("runtimebundle: prune unclaimed postgres pools: %w", err))
+	}
+
 	// ProcessServices owns the pool registry on every successful return. Close
 	// disposes it after dependent process resources; empty registries are cheap.
 	poolsClaimed = true

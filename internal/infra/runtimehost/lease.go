@@ -1,6 +1,9 @@
 package runtimehost
 
-import "sync/atomic"
+import (
+	"net/http"
+	"sync/atomic"
+)
 
 // Lease is a hot-path request lease (req 5.3-5.4, 15.1).
 type Lease struct {
@@ -15,6 +18,22 @@ func (l *Lease) Generation() *Generation {
 		return nil
 	}
 	return l.gen
+}
+
+// Handler returns the bound request-plane handler for this lease, or nil.
+func (l *Lease) Handler() http.Handler {
+	if l == nil || l.gen == nil {
+		return nil
+	}
+	return l.gen.Handler()
+}
+
+// RequestPlane returns the bound immutable request-plane publisher, or nil.
+func (l *Lease) RequestPlane() PublishedRequestPlane {
+	if l == nil || l.gen == nil {
+		return nil
+	}
+	return l.gen.RequestPlane()
 }
 
 // Release drops the lease retain exactly once; double-release is a no-op (req 10.4).

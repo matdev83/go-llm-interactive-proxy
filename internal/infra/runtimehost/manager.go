@@ -37,9 +37,21 @@ func (m *Manager) PrepareOwned(label string, owned OwnedCloser) *Generation {
 	return newGeneration(label, GenPrepared, owned)
 }
 
+// PrepareRequestPlane creates a prepared candidate bound to an immutable
+// request-plane publisher (owned close + Handler).
+func (m *Manager) PrepareRequestPlane(label string, plane PublishedRequestPlane) *Generation {
+	return newGenerationWithRequestPlane(label, GenPrepared, plane)
+}
+
 // BeginPrepare creates a preparing candidate (MarkPrepared before Publish).
 func (m *Manager) BeginPrepare(label string, owned OwnedCloser) *Generation {
 	return newGeneration(label, GenPreparing, owned)
+}
+
+// BeginPrepareRequestPlane creates a preparing candidate bound to an immutable
+// request-plane publisher (MarkPrepared before Publish).
+func (m *Manager) BeginPrepareRequestPlane(label string, plane PublishedRequestPlane) *Generation {
+	return newGenerationWithRequestPlane(label, GenPreparing, plane)
 }
 
 // Active returns the current active generation pointer (may be nil).
