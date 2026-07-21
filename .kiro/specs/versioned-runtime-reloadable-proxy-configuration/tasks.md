@@ -28,7 +28,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.1_
   - _Validation: `go test ./internal/core/config/... ./internal/infra/configsource/... -run 'Reload|Strict|Effective|Noop|NoWatcher' && go test -fuzz=FuzzReloadConfigSource -fuzztime=30s -run=^$ ./internal/core/config/...`_
 
-- [ ] 1.3 Define exhaustive reloadability-policy RED tests
+- [x] 1.3 Define exhaustive reloadability-policy RED tests
   - Create a typed field inventory for every top-level config section and startup CLI/environment override.
   - Add cases for startup-only, reloadable, conditional, mixed, secret-bearing, and newly added/unclassified fields.
   - Require deterministic sorted bounded `restart_required_fields` output without values.
