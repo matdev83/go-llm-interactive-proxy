@@ -260,14 +260,11 @@ func TestProcessServices_OwnershipDeferredSharedMutableDocumented(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = ps.Close() })
 
-	note := ps.DeferredSharedMutable.OwnershipNote
-	if note == "" {
-		t.Fatal("expected typed ownership note for resources deferred to task 2.4")
+	if ps.DeferredSharedMutable.OwnershipNote != "" {
+		t.Fatalf("task 2.4 must resolve DeferredSharedMutable; got note %q", ps.DeferredSharedMutable.OwnershipNote)
 	}
-	for _, needle := range []string{"A-leg", "affinity", "health", "2.4"} {
-		if !containsFold(note, needle) {
-			t.Fatalf("DeferredSharedMutable note %q must mention %q", note, needle)
-		}
+	if ps.ALegLifecycle == nil || ps.AffinityStore == nil || ps.CandidateHealth == nil || ps.ExtensionState == nil {
+		t.Fatal("expected hoisted A-leg, affinity, health, and extension state on ProcessServices")
 	}
 }
 
@@ -340,8 +337,4 @@ func reverseClosers(in []func() error) []func() error {
 		out[len(in)-1-i] = in[i]
 	}
 	return out
-}
-
-func containsFold(s, sub string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }

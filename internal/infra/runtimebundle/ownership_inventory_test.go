@@ -133,9 +133,9 @@ var compositionResourceOwnership = []ownershipEntry{
 	{Symbol: "stdhttp.serverShutdownLifecycle", Class: ownershipProcess, Source: "stdhttp.RunWithRuntime Shutdown ordering", Notes: "Server stop → app shutdown → closers."},
 
 	// executor nested mutable services (process identity per req 6.6)
-	{Symbol: "executor.ALegLifecycle", Class: ownershipProcess, Source: "build_executor.go → leglifecycle.NewCoordinator", Notes: "A-leg lifecycle/cancellation identity is process-owned (req 6.6)."},
-	{Symbol: "executor.AffinityStore", Class: ownershipProcess, Source: "build_executor.go → affinitymem.New", Notes: "Mutable affinity store identity is process-owned (req 6.6–6.8)."},
-	{Symbol: "executor.CandidateHealth", Class: ownershipProcess, Source: "build_executor.go → routinghealth.CandidateHealthFromConfig", Notes: "Routing-health observation identity is process-owned (req 6.6–6.8)."},
+	{Symbol: "executor.ALegLifecycle", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → leglifecycle.NewCoordinator", Notes: "A-leg lifecycle/cancellation identity is process-owned (req 6.6)."},
+	{Symbol: "executor.AffinityStore", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → affinity registry + candidate views", Notes: "Mutable affinity store identity is process-owned; views key reuse by BackendStateIdentity (req 6.6–6.8)."},
+	{Symbol: "executor.CandidateHealth", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → routinghealth.CandidateHealthFromConfig", Notes: "Routing-health observation identity is process-owned; views namespace by BackendStateIdentity (req 6.6–6.8)."},
 	{Symbol: "executor.AuxiliaryExecutors", Class: ownershipGeneration, Source: "build_extension.go / auxreq wiring", Notes: "Auxiliary executor runners bind generation request-plane."},
 	{Symbol: "executor.toolCallFinalizers", Class: ownershipGeneration, Source: "runtime.NewExecutor ExtensionRuntime", Notes: "Tool-call finalizer set projected with generation."},
 	{Symbol: "executor.preRequestHeartbeatConfig", Class: ownershipGeneration, Source: "stdhttp MountBundledFrontends PreRequestKeepalive", Notes: "Pre-request heartbeat config follows generation server settings."},
@@ -148,7 +148,7 @@ var compositionResourceOwnership = []ownershipEntry{
 	{Symbol: "backend.instances", Class: ownershipGeneration, Source: "buildBackends / appendBackendClosers", Notes: "Backend instances and rollback closers are generation-owned."},
 
 	// extension / secure-session / terminal-work / metering nested constructions
-	{Symbol: "extension.State:corestate.NewMem", Class: ownershipProcess, Source: "build_extension.go → corestate.NewMem", ConstructorID: "corestate.NewMem", Notes: "Mutable extension state identity is process-owned; must not silently reset across generations (req 6.6). Distinguish from generation RuntimeSnapshot projection."},
+	{Symbol: "extension.State:corestate.NewMem", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → corestate.NewMem", ConstructorID: "corestate.NewMem", Notes: "Mutable extension state identity is process-owned; must not silently reset across generations (req 6.6). Distinguish from generation RuntimeSnapshot projection."},
 	{Symbol: "secureSession.Generator:app.NewRandGenerator", Class: ownershipProcess, Source: "secure_session.go → app.NewRandGenerator", ConstructorID: "app.NewRandGenerator", Notes: "Secure-session token generator (process)."},
 	{Symbol: "secureSession.Lineage:b2bualineage.New", Class: ownershipProcess, Source: "secure_session.go → b2bualineage.New", ConstructorID: "b2bualineage.New", Notes: "Secure-session lineage adapter over process B2BUA store."},
 	{Symbol: "secureSession.Manager", Class: ownershipProcess, Source: "secure_session.go → app.NewManager", ConstructorID: "app.NewManager", Notes: "Secure-session manager identity is process-owned (req 6.2, 6.6)."},
@@ -156,8 +156,8 @@ var compositionResourceOwnership = []ownershipEntry{
 	{Symbol: "secureSession.EphemeralFingerprintKey", Class: ownershipProcess, Source: "secure_session.go memory store ephemeral key", ConstructorID: "crypto/rand.Read→token_fingerprint_key", Notes: "In-memory ephemeral fingerprint-key ownership is process-local."},
 	{Symbol: "terminalWork.IntentService:terminalworkapp.NewIntentService", Class: ownershipProcess, Source: "terminal_work.go → terminalworkapp.NewIntentService", ConstructorID: "terminalworkapp.NewIntentService", Notes: "Nested IntentService assembled with process terminal-work runtime."},
 	{Symbol: "terminalWork.QueryService:terminalworkapp.NewQueryService", Class: ownershipProcess, Source: "terminal_work.go → terminalworkapp.NewQueryService", ConstructorID: "terminalworkapp.NewQueryService", Notes: "Nested query service over process terminal-work store."},
-	{Symbol: "metering.nestedStores", Class: ownershipProcess, Source: "metering.go → journalstore.NewMemoryStore / openDurableMeteringJournal", ConstructorID: "journalstore.NewMemoryStore|openDurableMeteringJournal", Notes: "Metering journal/store and readiness lifecycle resources are process-owned (req 6.2)."},
-	{Symbol: "accounting.nestedStores", Class: ownershipProcess, Source: "token_accounting.go → accountingledger.NewMemoryLedger / openDurableAccountingLedger", ConstructorID: "accountingledger.NewMemoryLedger|openDurableAccountingLedger", Notes: "Accounting ledger/service nested mutable stores are process-owned (req 6.2)."},
+	{Symbol: "metering.nestedStores", Class: ownershipProcess, Source: "process_services.go → buildMeteringRuntime", ConstructorID: "journalstore.NewMemoryStore|openDurableMeteringJournal", Notes: "Metering journal/store and readiness lifecycle resources are process-owned (req 6.2)."},
+	{Symbol: "accounting.nestedStores", Class: ownershipProcess, Source: "process_services.go → buildProcessAccountingStores", ConstructorID: "accountingledger.NewMemoryLedger|openDurableAccountingLedger", Notes: "Accounting ledger nested mutable stores are process-owned; provider counters bind per candidate (req 6.2)."},
 
 	// terminal work / Build subcomponents
 	{Symbol: "terminalWork.store", Class: ownershipProcess, Source: "buildTerminalWorkWithSetReconcile", ConstructorID: "buildTerminalWorkWithSetReconcile.Store", Notes: "Durable terminal-work store (req 6.2–6.3)."},
@@ -450,7 +450,7 @@ func TestOwnershipInventory_ConstructorIDDriftCheck(t *testing.T) {
 		File          string
 		ConstructorID string
 	}{
-		{"extension.State:corestate.NewMem", "build_extension.go", "corestate.NewMem"},
+		{"extension.State:corestate.NewMem", "shared_mutable.go", "corestate.NewMem"},
 		{"secureSession.Generator:app.NewRandGenerator", "secure_session.go", "app.NewRandGenerator"},
 		{"secureSession.Lineage:b2bualineage.New", "secure_session.go", "b2bualineage.New"},
 		{"secureSession.Manager", "secure_session.go", "app.NewManager"},

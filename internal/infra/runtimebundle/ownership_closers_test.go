@@ -28,21 +28,9 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Symbol: "process_services.go:NewProcessServices:acq#0:append(ps.closers, c)#0",
 		Class:  ownershipProcess,
 		Source: "process_services.go → NewProcessServices register helper",
-		Notes:  "Process closer bag: control-plane, usage, concurrency, persistence, and terminal-work teardown (req 6.2–6.4, 13.8).",
+		Notes:  "Process closer bag: control-plane, usage, concurrency, persistence, accounting, metering, and terminal-work teardown (req 6.2–6.5, 13.8).",
 	},
 
-	{
-		Symbol: "build_executor.go:buildExecutorRuntime:acq#0:append(closers, accountingClosers...)#0",
-		Class:  ownershipProcess,
-		Source: "build_executor.go → buildTokenAccountingRuntime",
-		Notes:  "Process accounting ledger closers (still constructed during candidate compile until a later hoist; closed with candidate bag in Build aggregate).",
-	},
-	{
-		Symbol: "build_executor.go:buildExecutorRuntime:acq#1:append(closers, meteringClosers...)#0",
-		Class:  ownershipProcess,
-		Source: "build_executor.go → buildMeteringRuntime",
-		Notes:  "Process metering journal/resources (candidate-compile path until later hoist).",
-	},
 	{
 		Symbol: "build_model.go:appendBackendClosers:acq#0:append(closers, be.Close)#0",
 		Class:  ownershipGeneration,
@@ -110,9 +98,9 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Process terminal-work processor Shutdown closer.",
 	},
 	{
-		Symbol: "token_accounting.go:buildTokenAccountingRuntime:acq#0:append(closers, closeFn)#0",
+		Symbol: "token_accounting.go:buildProcessAccountingStores:acq#0:append(closers, closeFn)#0",
 		Class:  ownershipProcess,
-		Source: "token_accounting.go → buildTokenAccountingRuntime",
+		Source: "token_accounting.go → buildProcessAccountingStores",
 		Notes:  "Process accounting ledger closers.",
 	},
 }

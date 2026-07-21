@@ -7,13 +7,18 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
+	accountingledger "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/ledger"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
@@ -22,6 +27,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
+	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 )
 
 // ProcessTracing holds process-owned tracing shutdown and outbound-propagation state.
@@ -31,11 +37,10 @@ type ProcessTracing struct {
 	Active   bool
 }
 
-// DeferredSharedMutableOwnership documents process-owned mutable continuity that
-// remains constructed inside each candidate executor until task 2.4 hoists it.
-// Task 2.3 does not fake sharing for these identities.
+// DeferredSharedMutableOwnership is retained for compatibility with task 2.3 tests.
+// After task 2.4, OwnershipNote is empty: shared mutable continuity is hoisted.
 type DeferredSharedMutableOwnership struct {
-	// OwnershipNote names the deferred resources and the owning follow-up task.
+	// OwnershipNote is empty when all deferred items have been hoisted.
 	OwnershipNote string
 }
 
@@ -50,6 +55,12 @@ type ProcessServices struct {
 	Continuity            b2bua.Store
 	SecureSessions        ssessionapp.Store
 	DecodeAdmission       lipsdk.DecodeAdmission
+	ALegLifecycle         *leglifecycle.Coordinator
+	AffinityStore         affinity.Store
+	CandidateHealth       policy.CandidateHealth
+	ExtensionState        lipstate.Store
+	AccountingLedger      accountingledger.Recorder
+	MeteringRecorder      metering.Recorder
 	UsageAuthority        *authorityapp.Service
 	Concurrency           *concurrencyapp.Service
 	SnapshotGeneration    *snapshotgen.Publisher
@@ -59,6 +70,14 @@ type ProcessServices struct {
 	TerminalWorkRegistry  *terminalworkapp.Registry
 	TerminalWorkQueries   *terminalworkapp.QueryService
 	TerminalWorkMetrics   *terminalworkapp.MetricsObserver
+
+	// StoreCompatKeys holds typed topology identities for process-owned stores.
+	StoreCompatKeys struct {
+		Continuity       StoreCompatKey
+		SecureSession    StoreCompatKey
+		AccountingLedger StoreCompatKey
+		MeteringJournal  StoreCompatKey
+	}
 
 	DeferredSharedMutable DeferredSharedMutableOwnership
 
@@ -70,6 +89,9 @@ type ProcessServices struct {
 	terminalWorkRT    *terminalWorkRuntime
 	dualPlaneMigrator *dualPlaneMigrator
 	policyObs         policydecision.Observer
+	sharedMutable     *sharedMutableRuntime
+	accountingStores  *processAccountingStores
+	meteringRT        *meteringRuntime
 	cfg               *config.Config
 	opts              *BuildOptions
 	parent            context.Context
@@ -120,13 +142,14 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		cfg:            in.Cfg,
 		opts:           in.Opts,
 		parent:         parent,
-		DeferredSharedMutable: DeferredSharedMutableOwnership{
-			OwnershipNote: "A-leg lifecycle, affinity store, routing-health observation, and extension in-memory state remain constructed per candidate executor until task 2.4 hoists shared mutable continuity.",
-		},
 	}
 	if ps.Tracing.Shutdown == nil {
 		ps.Tracing.Shutdown = func(context.Context) error { return nil }
 	}
+	ps.StoreCompatKeys.Continuity = StoreCompatKeyFromContinuity(in.Cfg.Continuity)
+	ps.StoreCompatKeys.SecureSession = StoreCompatKeyFromSecureSession(in.Cfg.SecureSession)
+	ps.StoreCompatKeys.AccountingLedger = StoreCompatKeyFromAccountingLedger(in.Cfg.Accounting)
+	ps.StoreCompatKeys.MeteringJournal = StoreCompatKeyFromMeteringJournal(in.Cfg.Metering)
 
 	postgresPools := db.NewPoolRegistry(in.Opts.Testing.PostgresPoolOpener)
 	ps.DatabasePools = postgresPools
@@ -219,6 +242,41 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	}
 
 	nowFn := in.Opts.Testing.Clock
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+
+	accountingStores, accountingClosers, err := buildProcessAccountingStores(parent, in.Cfg, nowFn)
+	for _, c := range accountingClosers {
+		register(c)
+	}
+	if err != nil {
+		return fail(err)
+	}
+	ps.accountingStores = accountingStores
+	if accountingStores != nil {
+		ps.AccountingLedger = accountingStores.Ledger
+	}
+
+	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, in.Cfg, nowFn, postgresPools, ps.dualPlaneMigrator)
+	for _, c := range meteringClosers {
+		register(c)
+	}
+	if err != nil {
+		return fail(err)
+	}
+	ps.meteringRT = meteringRT
+	if meteringRT != nil {
+		ps.MeteringRecorder = meteringRT.Recorder
+	}
+
+	shared := buildSharedMutableRuntime(in.Cfg, nowFn)
+	ps.sharedMutable = shared
+	ps.ALegLifecycle = shared.ALegLifecycle
+	ps.ExtensionState = shared.ExtensionState
+	ps.AffinityStore = &processAffinityHandle{reg: shared.affinity}
+	ps.CandidateHealth = shared.underlyingHealth
+
 	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency)
 	for _, c := range twClosers {
 		register(c)
@@ -265,8 +323,6 @@ func (ps *ProcessServices) Close() error {
 	}
 	ps.closeOnce.Do(func() {
 		ps.closeErr = disposeClosers(ps.closers)
-		// The pool registry is acquired before the resources above and therefore
-		// closes last, after stores/workers that may still depend on its pools.
 		if ps.DatabasePools != nil {
 			if err := ps.DatabasePools.Close(context.Background()); err != nil {
 				ps.closeErr = errors.Join(ps.closeErr, fmt.Errorf("runtimebundle: close database pools: %w", err))
@@ -283,6 +339,16 @@ func (ps *ProcessServices) Closed() bool {
 		return true
 	}
 	return ps.closed.Load()
+}
+
+// ReplaceConfigForTest swaps the config pointer used by subsequent candidate
+// compiles. Process-owned stores remain unchanged; only generation projections
+// and compatibility views re-read cfg.
+func (ps *ProcessServices) ReplaceConfigForTest(cfg *config.Config) {
+	if ps == nil || cfg == nil {
+		return
+	}
+	ps.cfg = cfg
 }
 
 // DisposeProcessClosersForTest exposes reverse-order disposal for unit tests.

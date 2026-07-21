@@ -10,7 +10,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accounting"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity"
-	affinitymem "github.com/matdev83/go-llm-interactive-proxy/internal/core/affinity/memorystore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/capabilities"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -18,6 +17,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/policy"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	ssessionapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/app"
@@ -25,7 +25,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/streamrecovery"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/routinghealth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 )
@@ -58,6 +57,10 @@ type executorBuildInput struct {
 	Concurrency        *concurrencyAuthorityRuntime
 	SnapshotGeneration *snapshotgen.Publisher
 	TerminalWork       *terminalWorkRuntime
+	SharedMutable      *sharedMutableRuntime
+	AccountingStores   *processAccountingStores
+	Metering           *meteringRuntime
+	BackendIdentities  map[string]BackendStateIdentity
 }
 
 // buildExecutorRuntime runs the executor-assembly sequence: routing resolution,
@@ -66,10 +69,11 @@ type executorBuildInput struct {
 // wiring, synthetic-local-principal flag, and model-catalog resolver attachment.
 // All values are computed before [runtime.NewExecutor] so NewExecutor is a strong
 // invariant boundary: no post-construction field mutation occurs.
-// It appends token-accounting closers to closers and returns the updated slice.
+// Accounting ledger and metering stores are process-owned; this bind only
+// attaches generation backends to those shared identities.
 func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*executorRuntime, []func() error, error) {
 	bctx := in.Bctx
-	cfg, log, opts, parent := bctx.Cfg, bctx.Log, bctx.Opts, bctx.Parent
+	cfg, log, opts := bctx.Cfg, bctx.Log, bctx.Opts
 
 	effectiveRoute, defBE, aliasResolver, err := resolveRouting(cfg, opts.WireModel)
 	if err != nil {
@@ -91,17 +95,18 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if err != nil {
 		return nil, closers, err
 	}
-	tokenAccounting, accountingClosers, err := buildTokenAccountingRuntime(parent, cfg, in.NowFn, in.Model.Backends)
+	tokenAccounting, err := bindTokenAccountingRuntime(in.AccountingStores, cfg, in.Model.Backends)
 	if err != nil {
 		return nil, closers, err
 	}
-	closers = append(closers, accountingClosers...)
 
-	meteringRT, meteringClosers, err := buildMeteringRuntime(parent, cfg, in.NowFn, bctx.PostgresPools, bctx.DualPlaneMigrator)
-	if err != nil {
-		return nil, closers, err
+	meteringRT := in.Metering
+	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
+		meteringRT = &meteringRuntime{
+			Recorder:     in.Bctx.Opts.Production.MeteringRecorder,
+			StoreBacking: "injected",
+		}
 	}
-	closers = append(closers, meteringClosers...)
 
 	// Compute interleaved-thinking config before construction.
 	interleaved, err := interleavedExecutorRuntime(cfg)
@@ -127,14 +132,6 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 	if in.Bctx.Opts != nil && in.Bctx.Opts.Production.MeteringRecorder != nil {
 		accountingRT.MeteringRecorder = in.Bctx.Opts.Production.MeteringRecorder
-		if meteringRT == nil {
-			meteringRT = &meteringRuntime{StoreBacking: "injected"}
-		} else {
-			meteringRT = &meteringRuntime{
-				Recorder:     in.Bctx.Opts.Production.MeteringRecorder,
-				StoreBacking: "injected",
-			}
-		}
 	}
 	var prod ProductionOptions
 	if in.Bctx.Opts != nil {
@@ -206,14 +203,21 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	}
 
 	// Build routing runtime; model catalog resolvers are attached before construction.
+	var affStore affinity.Store
+	var candHealth policy.CandidateHealth
+	var aLeg = (*leglifecycle.Coordinator)(nil)
+	if in.SharedMutable != nil {
+		affStore, candHealth = in.SharedMutable.candidateRoutingViews(in.BackendIdentities)
+		aLeg = in.SharedMutable.ALegLifecycle
+	}
 	routingRT := runtime.RoutingRuntime{
 		MaxAttempts:             cfg.Routing.MaxAttempts,
 		DefaultBackend:          defBE,
 		SelectorAliases:         aliasResolver,
 		CapsResolver:            capMap,
-		CandidateHealth:         routinghealth.CandidateHealthFromConfig(cfg, in.NowFn),
+		CandidateHealth:         candHealth,
 		RouteObserver:           routeObserverFor(log),
-		AffinityStore:           affinitymem.New(),
+		AffinityStore:           affStore,
 		AffinityMissingIdentity: affinity.MissingIdentityPolicy(strings.TrimSpace(cfg.Routing.Affinity.MissingIdentity)),
 		TransportFallbackPolicy: config.EffectiveTransportFallbackPolicy(cfg),
 	}
@@ -224,7 +228,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 		Core: runtime.CoreRuntime{
 			Store:                in.Persistence.Store,
 			Backends:             in.Model.Backends,
-			ALegLifecycle:        leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{CancelTimeout: 2 * time.Second}),
+			ALegLifecycle:        aLeg,
 			Rand:                 routing.NewSeededRng(seed),
 			Now:                  in.NowFn,
 			MaxPendingWireEvents: cfg.Server.EffectiveMaxPendingWireEvents(),

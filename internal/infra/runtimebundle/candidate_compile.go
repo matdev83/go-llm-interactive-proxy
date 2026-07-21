@@ -30,6 +30,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
+	lipstate "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/state"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -174,7 +175,15 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	}
 
 	var exec *runtime.Executor
-	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, ps.controlPlane, ps.policyObs, sg)
+	var extState lipstate.Store
+	if ps.sharedMutable != nil {
+		extState = ps.sharedMutable.ExtensionState
+	}
+	ext := buildExtensionRuntime(bctx, nowFn, func() auxreq.ExecutorRunner { return exec }, ps.controlPlane, ps.policyObs, sg, extState)
+	backendIDs, err := BackendStateIdentitiesFromConfig(cfg)
+	if err != nil {
+		return fail(err)
+	}
 	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
 		NowFn:              nowFn,
@@ -188,6 +197,10 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		Concurrency:        ps.concurrencyRT,
 		SnapshotGeneration: ps.SnapshotGeneration,
 		TerminalWork:       ps.terminalWorkRT,
+		SharedMutable:      ps.sharedMutable,
+		AccountingStores:   ps.accountingStores,
+		Metering:           ps.meteringRT,
+		BackendIdentities:  backendIDs,
 	}, closers)
 	if err != nil {
 		return fail(err)

@@ -98,7 +98,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.1, 2.2_
   - _Validation: `go test ./internal/infra/runtimebundle/... -run 'ProcessServices|Ownership|Duplicate|Bootstrap|Closer'`_
 
-- [ ] 2.4 Hoist process-capacity and mutable continuity state
+- [x] 2.4 Hoist process-capacity and mutable continuity state
   - Move decode admission and other overlap-sensitive process budgets out of `Built`.
   - Preserve in-memory continuity, secure-session, A-leg lifecycle/cancellation, affinity, health observation, and shared-state identity where configuration identity is compatible.
   - Define safe keying/reset semantics for materially changed backend instances and stale affinity/health entries.

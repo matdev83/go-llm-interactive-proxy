@@ -206,7 +206,10 @@ var lineBudgets = []struct {
 	// Raised from 6525 to 7020 for versioned-runtime-reload task 2.3: explicit
 	// ProcessServices construction, candidate compilation inputs, and Build
 	// compatibility wrapper (measured non-test total 6967; ~53 lines headroom).
-	{"internal/infra/runtimebundle", 7020},
+	// Raised from 7020 to 7600 for versioned-runtime-reload task 2.4: hoist
+	// process-capacity / shared mutable continuity (A-leg, affinity/health views,
+	// extension state, accounting/metering stores, BackendStateIdentity keys).
+	{"internal/infra/runtimebundle", 7600},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {
