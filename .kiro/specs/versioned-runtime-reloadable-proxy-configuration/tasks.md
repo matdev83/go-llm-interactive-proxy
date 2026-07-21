@@ -155,7 +155,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 2.3-2.5, 3.2_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/stdhttp/... -run 'CompileGeneration|Coexist|Immutable|Handler'`_
 
-- [ ] 3.4 Add the stable data-plane dispatcher and initial-generation host
+- [x] 3.4 Add the stable data-plane dispatcher and initial-generation host
   - Place one generation dispatcher behind one long-lived `http.Server`.
   - Compile startup configuration as generation 1 through the same compiler and manager.
   - Attach bound generation metadata and async pin capability to request context.

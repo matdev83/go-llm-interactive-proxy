@@ -90,7 +90,11 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 		// already quiesced by a prior attempt
 	}
 
-	<-g.Drained()
+	select {
+	case <-g.Drained():
+	case <-ctx.Done():
+		return errors.Join(out, ctx.Err())
+	}
 
 	if g.Lifecycle() == GenDrained {
 		if err := g.BeginClose(); err != nil {

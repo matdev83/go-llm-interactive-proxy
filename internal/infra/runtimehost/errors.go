@@ -9,6 +9,7 @@ import (
 // Sentinel errors for generation publication and lifecycle (req 10.1, 10.8-10.9).
 var (
 	ErrRetentionBlocked         = errors.New("runtimehost: retained-generation budget exhausted")
+	ErrHostShuttingDown         = errors.New("runtimehost: host is shutting down")
 	ErrNotPrepared              = errors.New("runtimehost: candidate not prepared")
 	ErrAlreadyPublished         = errors.New("runtimehost: generation already published")
 	ErrAlreadyClosed            = errors.New("runtimehost: generation already closed")

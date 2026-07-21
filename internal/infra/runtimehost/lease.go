@@ -45,12 +45,26 @@ func (l *Lease) Release() {
 }
 
 // TransferPin converts the lease retain into an async/SSE/provider pin (req 5.7, 10.3).
+// Only PinSSE, PinAsync, and PinProvider are accepted; invalid kinds fail without
+// consuming the lease so a subsequent valid transfer can still succeed.
 func (l *Lease) TransferPin(kind PinKind) (*Pin, bool) {
-	if l == nil || !l.released.CompareAndSwap(false, true) {
+	if l == nil || !validTransferPinKind(kind) {
+		return nil, false
+	}
+	if !l.released.CompareAndSwap(false, true) {
 		return nil, false
 	}
 	l.transferred.Store(true)
 	return &Pin{gen: l.gen, kind: kind}, true
+}
+
+func validTransferPinKind(kind PinKind) bool {
+	switch kind {
+	case PinSSE, PinAsync, PinProvider:
+		return true
+	default:
+		return false
+	}
 }
 
 // Pin retains a generation across SSE/async/provider work.

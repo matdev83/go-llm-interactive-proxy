@@ -11,8 +11,12 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 # Exact-path allowlist for intentional owned workers / stream pumps only.
 # internal/core/terminalwork/app/processor.go: Start/Run/Shutdown owner, ProcessDue
 # claim fan-out, per-claim renew loop, and tick/renew ticker pumps (Phase 4.4).
+# internal/infra/runtimehost/shutdown.go: bounded fan-out retiring retained
+# generations concurrently so one pinned generation cannot stall unrelated drains.
 $allowed = @(
     "internal/stdhttp/server.go"
+    "internal/stdhttp/generation_host.go"
+    "internal/infra/runtimehost/shutdown.go"
     "internal/core/stream/keepalive.go"
     "internal/core/runtime/parallel_race.go"
     "internal/core/runtime/lease_heartbeat.go"

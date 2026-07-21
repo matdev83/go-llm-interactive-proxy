@@ -271,6 +271,7 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		Mandatory:               mandatoryStandardPlugins(),
 		LogWriter:               opts.Output,
 		StreamRecoveryOverrides: opts.StreamRecovery,
+		HandlerComposer:         stdhttp.ComposeRequestPlane,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
@@ -283,7 +284,12 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	}
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := stdhttp.RunWithRuntime(sigCtx, res.Config, res.App, res.Logger, res.Built); err != nil {
+	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
+		Config:  res.Config,
+		Log:     res.Logger,
+		Manager: res.GenerationManager,
+		Process: res.ProcessServices,
+	}); err != nil {
 		res.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
 	}

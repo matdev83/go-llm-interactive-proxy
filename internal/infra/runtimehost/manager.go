@@ -16,6 +16,7 @@ type Manager struct {
 	retained        []*Generation
 	clock           *ManualClock
 	afterRetainHook atomic.Value // func(*Generation)
+	shuttingDown    atomic.Bool
 }
 
 // NewManager constructs a manager with a finite retained-generation budget (req 10.8).
@@ -64,6 +65,26 @@ func (m *Manager) RetainedCount() int {
 	return len(m.retained)
 }
 
+// HasOpenGenerations reports whether any active or retained generation is still
+// non-closed. Used by process shutdown to avoid closing ProcessServices while a
+// generation pin/lease remains (req 13.x).
+func (m *Manager) HasOpenGenerations() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if g := m.active.Load(); g != nil && g.Lifecycle() != GenClosed {
+		return true
+	}
+	for _, g := range m.retained {
+		if g != nil && g.Lifecycle() != GenClosed {
+			return true
+		}
+	}
+	return false
+}
+
 // ClockNow returns the manager clock instant, or zero if unset.
 func (m *Manager) ClockNow() time.Time {
 	if m.clock == nil {
@@ -83,7 +104,13 @@ func (m *Manager) SetAfterRetainHook(fn func(*Generation)) {
 
 // Acquire loads the active generation with retain and pointer recheck (req 5.3-5.4, 10.2, 15.1).
 func (m *Manager) Acquire() (*Lease, bool) {
+	if m == nil || m.shuttingDown.Load() {
+		return nil, false
+	}
 	for {
+		if m.shuttingDown.Load() {
+			return nil, false
+		}
 		g := m.active.Load()
 		if g == nil {
 			return nil, false
@@ -99,62 +126,78 @@ func (m *Manager) Acquire() (*Lease, bool) {
 				hook(g)
 			}
 		}
-		if m.active.Load() == g {
+		if !m.shuttingDown.Load() && m.active.Load() == g {
 			return &Lease{gen: g}, true
 		}
 		g.releaseRef()
+		if m.shuttingDown.Load() {
+			return nil, false
+		}
 	}
 }
 
 // Publish atomically swaps the active pointer after budget reservation (req 5.2, 5.9, 15.4).
-// Retention rejection rolls back the unpublished candidate before returning (req 10.9).
+// Retention rejection and host-shutdown rejection roll back the unpublished candidate
+// exactly once after releasing Manager.mu so closers may re-enter status paths (req 10.9).
 func (m *Manager) Publish(candidate *Generation) error {
 	if candidate == nil {
 		return ErrNotPrepared
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	switch candidate.Lifecycle() {
-	case GenPrepared:
-		// ok
-	case GenPreparing:
-		return ErrNotPrepared
-	case GenActive, GenRetiring, GenQuiescing, GenQuiesced, GenDrained, GenClosing, GenClosed:
-		return ErrAlreadyPublished
+	var reject error
+	switch {
+	case m.shuttingDown.Load():
+		reject = ErrHostShuttingDown
 	default:
-		return ErrNotPrepared
-	}
-
-	if len(m.retained) >= m.maxRetained && m.active.Load() != nil {
-		cleanupErr := candidate.Discard()
-		if cleanupErr != nil && !errors.Is(cleanupErr, ErrAlreadyClosed) {
-			return errors.Join(ErrRetentionBlocked, cleanupErr)
+		switch candidate.Lifecycle() {
+		case GenPrepared:
+			// ok
+		case GenPreparing:
+			m.mu.Unlock()
+			return ErrNotPrepared
+		case GenActive, GenRetiring, GenQuiescing, GenQuiesced, GenDrained, GenClosing, GenClosed:
+			m.mu.Unlock()
+			return ErrAlreadyPublished
+		default:
+			m.mu.Unlock()
+			return ErrNotPrepared
 		}
-		return ErrRetentionBlocked
-	}
 
-	prev := m.active.Load()
-	var prevID int64
-	if prev != nil {
-		prevID = prev.ID()
-	}
-	id := m.nextID.Add(1)
-	publishedAt := time.Now().UTC()
-	if m.clock != nil {
-		publishedAt = m.clock.Now()
-	}
-	if err := candidate.assignPublish(id, prevID, publishedAt); err != nil {
-		return err
-	}
+		if len(m.retained) >= m.maxRetained && m.active.Load() != nil {
+			reject = ErrRetentionBlocked
+		} else {
+			prev := m.active.Load()
+			var prevID int64
+			if prev != nil {
+				prevID = prev.ID()
+			}
+			id := m.nextID.Add(1)
+			publishedAt := time.Now().UTC()
+			if m.clock != nil {
+				publishedAt = m.clock.Now()
+			}
+			if err := candidate.assignPublish(id, prevID, publishedAt); err != nil {
+				m.mu.Unlock()
+				return err
+			}
 
-	prior := m.active.Swap(candidate)
-	if prior != nil {
-		prior.markRetiring()
-		m.retained = append(m.retained, prior)
+			prior := m.active.Swap(candidate)
+			if prior != nil {
+				prior.markRetiring()
+				m.retained = append(m.retained, prior)
+			}
+			m.mu.Unlock()
+			return nil
+		}
 	}
-	return nil
+	m.mu.Unlock()
+
+	cleanupErr := candidate.Discard()
+	if cleanupErr != nil && !errors.Is(cleanupErr, ErrAlreadyClosed) {
+		return errors.Join(reject, cleanupErr)
+	}
+	return reject
 }
 
 // SweepClosed drops closed generations from the retained budget set.

@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
@@ -47,19 +48,27 @@ type BuildBootstrapInput struct {
 	StreamRecoveryOverrides config.StreamRecoveryOverrides
 	// Production carries first-class enterprise injection seams (requirement 12.4).
 	Production ProductionOptions
+	// HandlerComposer enables generation-host serve mode: ProcessServices once,
+	// CompileGeneration, and publish generation 1 through a runtimehost.Manager.
+	// When nil, BootstrapServe keeps the legacy Built path for compatibility
+	// callers (for example pkg/lipruntime.Build).
+	HandlerComposer HandlerComposer
 }
 
 // BootstrapResult is the shared output of [BuildBootstrap] for inspect and serve commands.
 type BootstrapResult struct {
-	Config          *config.Config
-	Logger          *slog.Logger
-	Registry        *pluginreg.Registry
-	Registrations   []lipsdk.Registration
-	FeatureSurface  featurebundle.MergedFeatureSurface
-	App             *BootstrapApp
-	Built           *Built
-	ShutdownTracing func(context.Context) error
-	OutboundTracing bool
+	Config            *config.Config
+	Logger            *slog.Logger
+	Registry          *pluginreg.Registry
+	Registrations     []lipsdk.Registration
+	FeatureSurface    featurebundle.MergedFeatureSurface
+	App               *BootstrapApp
+	Built             *Built
+	ProcessServices   *ProcessServices
+	GenerationManager *runtimehost.Manager
+	InitialGeneration *runtimehost.Generation
+	ShutdownTracing   func(context.Context) error
+	OutboundTracing   bool
 }
 
 // shutdownTracing invokes the provided shutdown func with a value-preserving
@@ -174,6 +183,19 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	out.App = app
 
 	if in.Mode == BootstrapServe {
+		if in.HandlerComposer != nil {
+			return publishInitialGeneration(ctx, out, publishInitialGenerationInput{
+				Cfg:           cfg,
+				Effective:     effective,
+				Logger:        logger,
+				Registry:      reg,
+				SecretEnv:     secretEnv,
+				Production:    in.Production,
+				Compose:       in.HandlerComposer,
+				TraceActive:   traceRes.Active,
+				TraceShutdown: traceRes.Shutdown,
+			})
+		}
 		built, err := Build(cfg, app.HookBus(), logger, &BuildOptions{
 			PluginRegistry:    reg,
 			FeatureLifecycles: candidateLifecycles,
