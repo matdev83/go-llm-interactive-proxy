@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -77,8 +78,6 @@ type ProcessServices struct {
 	closeOnce sync.Once
 	closeErr  error
 	closed    atomic.Bool
-
-	poolCloserRegistered bool
 }
 
 // ProcessServicesInput configures [NewProcessServices].
@@ -167,25 +166,25 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	ps.policyObs = policyObs
 
 	usageAuthority, usageClosers, err := buildUsageAuthorityRuntime(parent, in.Cfg, in.Log, in.Opts, controlPlane, policyObs, postgresPools, ps.dualPlaneMigrator)
+	for _, c := range usageClosers {
+		register(c)
+	}
 	if err != nil {
 		return fail(err)
 	}
 	ps.usageRT = usageAuthority
-	for _, c := range usageClosers {
-		register(c)
-	}
 	if usageAuthority != nil {
 		ps.UsageAuthority = usageAuthority.Service
 	}
 
 	concurrencyRT, concurrencyClosers, err := buildConcurrencyAuthorityRuntime(parent, in.Cfg, in.Log, in.Opts.Testing, postgresPools, ps.dualPlaneMigrator)
+	for _, c := range concurrencyClosers {
+		register(c)
+	}
 	if err != nil {
 		return fail(err)
 	}
 	ps.concurrencyRT = concurrencyRT
-	for _, c := range concurrencyClosers {
-		register(c)
-	}
 	if concurrencyRT != nil {
 		ps.Concurrency = concurrencyRT.Service
 	}
@@ -205,13 +204,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		DualPlaneMigrator: ps.dualPlaneMigrator,
 	}
 	persist, persistClosers, err := buildPersistenceRuntime(bctx, controlPlane, ps.Metrics, nil)
+	for _, c := range persistClosers {
+		register(c)
+	}
 	if err != nil {
 		return fail(err)
 	}
 	ps.persistence = persist
-	for _, c := range persistClosers {
-		register(c)
-	}
 	if persist != nil {
 		ps.Continuity = persist.Store
 		if persist.SecureSession != nil {
@@ -221,13 +220,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 
 	nowFn := in.Opts.Testing.Clock
 	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency)
+	for _, c := range twClosers {
+		register(c)
+	}
 	if err != nil {
 		return fail(err)
 	}
 	ps.terminalWorkRT = twRT
-	for _, c := range twClosers {
-		register(c)
-	}
 	if twRT != nil {
 		ps.TerminalWorkProcessor = twRT.Processor
 		ps.TerminalWorkRegistry = twRT.Registry
@@ -248,29 +247,14 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	)
 	ps.MeteringQuerier = in.Opts.Production.MeteringQuerier
 
-	// Pool registry closer is registered after candidate prune via ensurePoolCloser
-	// so empty in-memory builds retain historical zero-closer aggregate semantics.
+	// ProcessServices owns the pool registry on every successful return. Close
+	// disposes it after dependent process resources; empty registries are cheap.
 	poolsClaimed = true
 
 	// Tracing shutdown remains with the process host (BuildBootstrap.ShutdownTracing /
 	// stdhttp). ProcessServices retains the non-owning handle for identity reuse only.
 
 	return ps, nil
-}
-
-// ensurePoolCloser registers DatabasePools.Close once when the registry still
-// holds pools after prune. Safe to call from candidate compilation.
-func (ps *ProcessServices) ensurePoolCloser() {
-	if ps == nil || ps.poolCloserRegistered || ps.DatabasePools == nil {
-		return
-	}
-	if ps.DatabasePools.Len() == 0 {
-		return
-	}
-	ps.closers = append(ps.closers, func() error {
-		return ps.DatabasePools.Close(context.Background())
-	})
-	ps.poolCloserRegistered = true
 }
 
 // Close disposes process-owned resources in reverse acquisition order.
@@ -281,6 +265,13 @@ func (ps *ProcessServices) Close() error {
 	}
 	ps.closeOnce.Do(func() {
 		ps.closeErr = disposeClosers(ps.closers)
+		// The pool registry is acquired before the resources above and therefore
+		// closes last, after stores/workers that may still depend on its pools.
+		if ps.DatabasePools != nil {
+			if err := ps.DatabasePools.Close(context.Background()); err != nil {
+				ps.closeErr = errors.Join(ps.closeErr, fmt.Errorf("runtimebundle: close database pools: %w", err))
+			}
+		}
 		ps.closed.Store(true)
 	})
 	return ps.closeErr

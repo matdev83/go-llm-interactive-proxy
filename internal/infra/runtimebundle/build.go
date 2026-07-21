@@ -55,7 +55,6 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		Bus:     bus,
 	})
 	if err != nil {
-		ps.ensurePoolCloser()
 		return nil, withDisposedClosers(err, []func() error{ps.Close})
 	}
 
@@ -64,7 +63,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 	// generation closers before process services. Empty process closer bags
 	// preserve historical zero-closer aggregates for in-memory builds.
 	closers := cand.Closers
-	if len(ps.closers) > 0 {
+	if len(ps.closers) > 0 || (ps.DatabasePools != nil && ps.DatabasePools.Len() > 0) {
 		closers = append([]func() error{ps.Close}, cand.Closers...)
 	}
 	return &Built{

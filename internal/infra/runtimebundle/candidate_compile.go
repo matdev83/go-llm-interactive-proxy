@@ -195,7 +195,6 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	if err := ps.DatabasePools.PruneUnclaimed(); err != nil {
 		return fail(fmt.Errorf("runtimebundle: prune unclaimed postgres pools: %w", err))
 	}
-	ps.ensurePoolCloser()
 
 	exec = execRun.Exec
 	var twReady func(context.Context) error

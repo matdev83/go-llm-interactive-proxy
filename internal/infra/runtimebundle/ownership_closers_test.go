@@ -30,12 +30,7 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Source: "process_services.go → NewProcessServices register helper",
 		Notes:  "Process closer bag: control-plane, usage, concurrency, persistence, and terminal-work teardown (req 6.2–6.4, 13.8).",
 	},
-	{
-		Symbol: "process_services.go:ensurePoolCloser:acq#0:append(ps.closers, func:ps.DatabasePools.Close|context.Background)#0",
-		Class:  ownershipProcess,
-		Source: "process_services.go → ensurePoolCloser",
-		Notes:  "Process database pool registry closer registered after prune when pools remain.",
-	},
+
 	{
 		Symbol: "build_executor.go:buildExecutorRuntime:acq#0:append(closers, accountingClosers...)#0",
 		Class:  ownershipProcess,
