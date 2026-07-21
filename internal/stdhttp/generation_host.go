@@ -21,6 +21,18 @@ type GenerationHostInput struct {
 	Log     *slog.Logger
 	Manager *runtimehost.Manager
 	Process *runtimebundle.ProcessServices
+	// Coordinator, when set, receives BeginShutdown before data-plane drain
+	// and WaitForIdle after HTTP drain so candidate rollback finishes before
+	// generation/process closure (task 5.6 / req 13.7-13.8).
+	Coordinator interface {
+		BeginShutdown()
+		WaitForIdle(context.Context) error
+	}
+	// Management is the optional process-owned management server closed after
+	// generation drain and before process services (task 5.6).
+	Management interface {
+		Shutdown(context.Context) error
+	}
 	// ShutdownTimeout bounds HTTP drain and generation retirement waits.
 	// Zero uses 15s.
 	ShutdownTimeout time.Duration
@@ -33,8 +45,15 @@ var httpServerShutdown = func(ctx context.Context, srv *http.Server) error {
 
 // RunWithGenerationHost serves one long-lived http.Server backed by a stable
 // generation dispatcher. Startup listener/timeouts are fixed from Config.
-// Shutdown order: stop HTTP → detach/retire generations → close ProcessServices.
-// Tracing remains owned by the outer bootstrap defer (req 5.1, 13.x, 16.3).
+// Shutdown order (task 5.6 / req 13.7-13.10):
+//  1. stop trigger acceptance (coordinator BeginShutdown)
+//  2. stop data admissions/HTTP
+//  3. await coordinator idle (candidate rollback complete)
+//  4. drain generations without closing beneath pinned work
+//  5. close management
+//  6. close process services
+//
+// Tracing remains owned by the outer bootstrap defer.
 //
 // If HTTP drain fails/times out, generation and process resources are left open
 // so live handlers are not closed underneath. Generation/process shutdown errors
@@ -98,6 +117,9 @@ func RunWithGenerationHost(ctx context.Context, in GenerationHostInput) error {
 
 	select {
 	case <-ctx.Done():
+		if in.Coordinator != nil {
+			in.Coordinator.BeginShutdown()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		if err := httpServerShutdown(shutdownCtx, srv); err != nil {
@@ -118,6 +140,9 @@ func RunWithGenerationHost(ctx context.Context, in GenerationHostInput) error {
 		genErr := shutdownGenerationHost(shutdownCtx, in, timeout)
 		return errors.Join(serveErr, genErr)
 	case err := <-errCh:
+		if in.Coordinator != nil {
+			in.Coordinator.BeginShutdown()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		var out error
@@ -150,13 +175,26 @@ func shutdownGenerationHost(ctx context.Context, in GenerationHostInput, timeout
 		defer cancel()
 	}
 	var out error
+	var idleErr error
+	if in.Coordinator != nil {
+		in.Coordinator.BeginShutdown()
+		if err := in.Coordinator.WaitForIdle(ctx); err != nil {
+			idleErr = fmt.Errorf("stdhttp: await reload idle: %w", err)
+			out = errors.Join(out, idleErr)
+		}
+	}
 	if in.Manager != nil {
 		if err := in.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker()); err != nil {
 			out = errors.Join(out, err)
 		}
 	}
-	// Never close ProcessServices while any generation remains open/pinned.
-	if in.Process != nil && (in.Manager == nil || !in.Manager.HasOpenGenerations()) {
+	if in.Management != nil {
+		if err := in.Management.Shutdown(ctx); err != nil {
+			out = errors.Join(out, err)
+		}
+	}
+	// Never close ProcessServices while candidate reload work or generations remain.
+	if in.Process != nil && idleErr == nil && (in.Manager == nil || !in.Manager.HasOpenGenerations()) {
 		if err := closeProcessServices(in.Process); err != nil {
 			out = errors.Join(out, err)
 		}

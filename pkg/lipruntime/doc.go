@@ -10,6 +10,10 @@
 // operations delegate to the same runtimehost coordinator/query seams as the
 // standard binary and return copied DTOs without paths, secrets, raw YAML,
 // mutable config, closers, or runtimebundle internals (requirements 16.1–16.2).
+// [Runtime.ExecutorView] is a stable generation-dispatching facade: each
+// Execute acquires the current generation and pins the returned stream until
+// terminal/close; CancelALeg reaches process-owned cross-generation A-leg
+// state (requirements 16.12–16.13).
 // [Runtime.RefreshSnapshots] remains a subordinate explicit metadata/policy
 // refresh, not whole-config reload.
 //

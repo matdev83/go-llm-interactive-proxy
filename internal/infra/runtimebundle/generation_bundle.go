@@ -15,6 +15,7 @@ import (
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
@@ -45,6 +46,7 @@ type GenerationBundle struct {
 	// terminalProviders is an immutable snapshot of terminal effect providers
 	// captured at compile time (task 3.6). It must not share mutable registry state.
 	terminalProviders *terminalworkapp.FrozenTerminalProviders
+	readiness         controlplane.ReadinessReportReader
 
 	quiesceOnce sync.Once
 	quiesceErr  error
@@ -111,6 +113,14 @@ func (b *GenerationBundle) ExecutorView() lipsdk.ExecutorView {
 		return nil
 	}
 	return b.executor
+}
+
+// ReadinessReport returns the generation readiness report service, or nil.
+func (b *GenerationBundle) ReadinessReport() controlplane.ReadinessReportReader {
+	if b == nil {
+		return nil
+	}
+	return b.readiness
 }
 
 // BackendIDs returns a defensive copy of generation backend instance IDs.

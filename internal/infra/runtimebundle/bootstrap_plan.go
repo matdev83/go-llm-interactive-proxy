@@ -11,6 +11,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
@@ -50,8 +51,7 @@ type BuildBootstrapInput struct {
 	Production ProductionOptions
 	// HandlerComposer enables generation-host serve mode: ProcessServices once,
 	// CompileGeneration, and publish generation 1 through a runtimehost.Manager.
-	// When nil, BootstrapServe keeps the legacy Built path for compatibility
-	// callers (for example pkg/lipruntime.Build).
+	// When nil, BootstrapServe keeps the legacy Built path for compatibility.
 	HandlerComposer HandlerComposer
 }
 
@@ -67,8 +67,15 @@ type BootstrapResult struct {
 	ProcessServices   *ProcessServices
 	GenerationManager *runtimehost.Manager
 	InitialGeneration *runtimehost.Generation
-	ShutdownTracing   func(context.Context) error
-	OutboundTracing   bool
+	// Effective and ActiveSource seed the reload coordinator (task 5.5/5.6).
+	Effective    *config.EffectiveConfig
+	ActiveSource *configsource.ActiveSourceVersion
+	// FixedStreamRecovery is the CLI+environment override snapshot captured
+	// exactly once during BuildBootstrap. AttachReloadHost and every future
+	// effective reload must reuse this immutable value (no env reread).
+	FixedStreamRecovery config.StreamRecoveryOverrides
+	ShutdownTracing     func(context.Context) error
+	OutboundTracing     bool
 }
 
 // shutdownTracing invokes the provided shutdown func with a value-preserving
@@ -106,11 +113,14 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		logOut = os.Stdout
 	}
 
-	effective, err := LoadBootstrapEffective(ctx, path, in.StreamRecoveryOverrides)
+	effective, activeSource, fixedStreamRecovery, err := LoadBootstrapEffectiveWithSource(ctx, path, in.StreamRecoveryOverrides)
 	if err != nil {
 		return out, err
 	}
 	cfg := effective.Config
+	out.Effective = effective
+	out.ActiveSource = activeSource
+	out.FixedStreamRecovery = fixedStreamRecovery
 
 	traceRes, err := tracing.Init(ctx, cfg)
 	if err != nil {

@@ -254,7 +254,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 ## Phase 5: Add Coordinator, Signal, Management, and Public Surfaces
 
-- [ ] 5. Expose explicit production administration
+- [x] 5. Expose explicit production administration
 
 - [x] 5.1 Implement the serialized reload coordinator and status state machine
   - Implement read, load, no-op, classify, compile, prepare, retention check, publish, rollback, and terminal status transitions.
@@ -266,7 +266,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 2.1-2.2, 3.1-3.3, 4.6_
   - _Validation: `go test -race ./internal/core/configreload/... ./internal/infra/runtimehost/... -run 'Coordinator|Busy|Noop|Fault|Shutdown|Coalesce'`_
 
-- [ ] 5.2 Implement Unix SIGHUP and non-Unix API-only adapters
+- [x] 5.2 Implement Unix SIGHUP and non-Unix API-only adapters
   - Register HUP separately from shutdown signals.
   - Deliver to a bounded process-owned channel and record coalescing without one goroutine per signal.
   - Add build-tagged platform tests and verify INT/TERM behavior remains unchanged.
@@ -309,7 +309,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 5.1, 5.4_
   - _Validation: `go test ./pkg/lipruntime/... ./internal/archtest/... -run 'Reload|Status|ExternalModule|RefreshSnapshots'`_
 
-- [ ] 5.6 Implement complete host shutdown ordering and trigger teardown
+- [x] 5.6 Implement complete host shutdown ordering and trigger teardown
   - Stop signal/API trigger acceptance, cancel candidate work, shut down data admissions, drain generations, close generation resources, close management, close process services, and flush tracing.
   - Add shutdown races with source read, compilation, publication boundary, active SSE, pending signal, and cleanup error.
   - Observable completion: shutdown publishes no late generation, leaks no worker/channel, and preserves existing graceful server deadline behavior.
@@ -393,3 +393,5 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 - Task 5.3: management listen worker is allowlisted in `scripts/check-adhoc-goroutines.*`; `internal/stdhttp` line budget raised for `admin/configreload`. Host-wide management/data-plane shutdown ordering remains task 5.6.
 - Task 5.4: `internal/core` line budget raised for sanitize/history/diag reload surfaces; reload metrics live in process-owned `metrics.Bundle.Reload` and observer callbacks on the existing coordinator (no second telemetry stack).
 - Task 5.5: `pkg/lipruntime` public Reload/Status DTOs map 1:1 from `configreload` categories via unexported coordinator/query seam; paths/secrets omitted; `export_test.go` binds test fakes. Full generation-dispatcher ExecutorView publish wiring remains composition-root owned (no cmd/lipstd changes in 5.5).
+- Tasks 5.5–5.6 (production composition): `runtimebundle.AttachReloadHost` binds FixedSource + shared effective loader + `GenerationCompiler` + `runtimehost.Coordinator` onto the initial-generation manager; `lipruntime.Build` and `cmd/lipstd serve` both use that host. `BootstrapResult.FixedStreamRecovery` captures the CLI+env override snapshot once during `BuildBootstrap` and is reused for every effective reload (no env reread in `AttachReloadHost`). Stable `runtimehost.GenerationExecutor` acquires/pins per Execute. SIGHUP adapter sink is the real coordinator (never nil). Management server uses startup-fixed loopback options: single_user loopback defaults to local_trust; multi_user requires dedicated bearer from `LIP_RELOAD_MANAGEMENT_TOKEN` (absent → management disabled with warning, data-plane serve continues; weak token rejected). Pre-serve failure paths run `serveStartupRollback` (BeginShutdown → retire generations → close management → close process services when none remain; tracing stays outer defer). `RunWithGenerationHost` shutdown order: BeginShutdown → HTTP drain → coordinator WaitForIdle (candidate rollback) → generation drain → management close → process services; tracing stays outer defer.
+- Task 5.6 shutdown ownership repair: `Coordinator` arms a host-owned cancel covering coalesced follow-ups, `BeginShutdown` cancels it (arm/shutdown handshake cannot miss), and `WaitForIdle` is the context-bounded barrier. `Runtime.Close` honors the caller deadline (no `WithoutCancel` strip on drain/tracing), is `sync.Once`-idempotent, and retains facade pointers so concurrent Reload/Status/Execute fail through manager state.

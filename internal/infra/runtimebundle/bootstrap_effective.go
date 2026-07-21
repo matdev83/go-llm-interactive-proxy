@@ -3,6 +3,7 @@ package runtimebundle
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
@@ -19,27 +20,49 @@ import (
 // stream-recovery overrides → standard feature injection → core validation →
 // alias/prefix validation → private/public identity.
 func LoadBootstrapEffective(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, error) {
+	eff, _, _, err := LoadBootstrapEffectiveWithSource(ctx, path, cliOverrides)
+	return eff, err
+}
+
+// LoadBootstrapEffectiveWithSource is LoadBootstrapEffective plus the active
+// source identity and the resolved CLI+environment stream-recovery override
+// snapshot. The snapshot is captured exactly once for process composition and
+// must be reused for every future effective reload (startup-fixed; no env reread).
+func LoadBootstrapEffectiveWithSource(ctx context.Context, path string, cliOverrides config.StreamRecoveryOverrides) (*config.EffectiveConfig, *configsource.ActiveSourceVersion, config.StreamRecoveryOverrides, error) {
 	if ctx == nil {
-		return nil, fmt.Errorf("runtimebundle: nil context")
+		return nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: nil context")
 	}
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, fmt.Errorf("runtimebundle: empty config path")
+		return nil, nil, config.StreamRecoveryOverrides{}, fmt.Errorf("runtimebundle: empty config path")
 	}
 	envOverrides, err := config.StreamRecoveryOverridesFromEnv()
 	if err != nil {
-		return nil, err
+		return nil, nil, config.StreamRecoveryOverrides{}, err
 	}
 	merged := mergeStreamRecoveryOverrides(envOverrides, cliOverrides)
-	eff, _, err := configsource.LoadEffectiveFromPath(ctx, path, nil, config.LoadEffectiveOptions{
+	src, err := configsource.NewFixedSource(path, 0)
+	if err != nil {
+		return nil, nil, config.StreamRecoveryOverrides{}, err
+	}
+	snap, _, err := src.ReadStable(ctx, nil)
+	if err != nil {
+		return nil, nil, config.StreamRecoveryOverrides{}, err
+	}
+	eff, err := config.LoadEffective(ctx, snap.Bytes, config.LoadEffectiveOptions{
+		ConfigDir:           filepath.Dir(src.AbsolutePath()),
 		FixedStreamRecovery: &merged,
 		InjectFeatures:      injectStandardBootstrapFeatures,
 		ExtraValidate:       extraBootstrapValidate,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, config.StreamRecoveryOverrides{}, err
 	}
-	return eff, nil
+	active := &configsource.ActiveSourceVersion{
+		HandleIdentity: snap.HandleIdentity,
+		PrivateDigest:  snap.PrivateDigest,
+	}
+	return eff, active, merged, nil
 }
 
 func injectStandardBootstrapFeatures(cfg *config.Config) error {

@@ -163,6 +163,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		ledger:            cand.Ledger,
 		owner:             cand,
 		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.TerminalWorkRegistry),
+		readiness:         cand.ReadinessReport,
 	}, nil
 }
 

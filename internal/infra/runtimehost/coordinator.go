@@ -78,6 +78,13 @@ type Coordinator struct {
 	activeEff      *config.EffectiveConfig
 	activeSource   *configsource.ActiveSourceVersion
 	activeSourceMu sync.RWMutex
+
+	// Host-owned attempt cancellation + idle barrier (req 13.7).
+	// attemptCancel cancels the active Reload (including coalesced follow-ups).
+	// attemptDone is non-nil while an attempt slot is armed; closed exactly once on release.
+	attemptCancel context.CancelFunc
+	attemptDone   chan struct{}
+	attemptOnce   *sync.Once // closes attemptDone exactly once
 }
 
 // NewCoordinator constructs a production serialized reload coordinator.
@@ -127,19 +134,105 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 	return c, nil
 }
 
-// BeginShutdown rejects new attempts, cancels candidate work via manager shutdown
-// signalling, and prevents late publication (req 1.9, 11.9, 13.7).
+// BeginShutdown rejects new attempts, cancels the host-owned reload context
+// (including coalesced follow-ups), signals manager shutdown, and prevents late
+// publication (req 1.9, 11.9, 13.7). It does not wait for rollback; callers that
+// must close process services afterward should use [Coordinator.WaitForIdle].
 func (c *Coordinator) BeginShutdown() {
 	if c == nil {
 		return
 	}
 	c.shutdown.Store(true)
+	c.mu.Lock()
+	c.pendingSignal = false
+	cancel := c.attemptCancel
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if c.mgr != nil {
 		c.mgr.BeginShutdown()
 	}
+}
+
+// WaitForIdle blocks until no reload attempt (including coalesced follow-up) is
+// in flight, or until ctx is done. It is safe after [Coordinator.BeginShutdown]
+// and does not take request-path locks (req 13.7, 15.1).
+func (c *Coordinator) WaitForIdle(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		c.mu.Lock()
+		done := c.attemptDone
+		busy := c.busy
+		c.mu.Unlock()
+		if done == nil && !busy {
+			return nil
+		}
+		if done == nil {
+			// Narrow window: busy set but attempt not yet armed (or just released).
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Millisecond):
+				continue
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+			// Re-check: another coalesced attempt may have armed immediately.
+		}
+	}
+}
+
+// armAttempt registers cancel/done for the active Reload slot. If shutdown already
+// began, cancel is invoked so BeginShutdown cannot miss the registration race.
+// Caller must releaseAttempt exactly once for the returned done channel.
+func (c *Coordinator) armAttempt(cancel context.CancelFunc) (done chan struct{}, shutdownAlready bool) {
+	done = make(chan struct{})
+	once := &sync.Once{}
 	c.mu.Lock()
-	c.pendingSignal = false
+	c.attemptCancel = cancel
+	c.attemptDone = done
+	c.attemptOnce = once
+	shutdownAlready = c.shutdown.Load()
 	c.mu.Unlock()
+	if shutdownAlready {
+		cancel()
+	}
+	return done, shutdownAlready
+}
+
+// releaseAttempt clears the armed slot when it still matches done and closes
+// done exactly once so WaitForIdle observers wake.
+func (c *Coordinator) releaseAttempt(done chan struct{}, cancel context.CancelFunc) {
+	if cancel != nil {
+		cancel()
+	}
+	c.mu.Lock()
+	once := c.attemptOnce
+	if c.attemptDone == done {
+		c.attemptCancel = nil
+		c.attemptDone = nil
+		c.attemptOnce = nil
+	}
+	c.mu.Unlock()
+	if once != nil {
+		once.Do(func() { close(done) })
+	} else {
+		// Slot already cleared by a prior release; still ensure done is closed.
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	}
 }
 
 // Status returns a bounded safe snapshot (req 13.1-13.2, 14.1, 14.8).
@@ -242,12 +335,27 @@ func (c *Coordinator) Reload(ctx context.Context, trigger configreload.ReloadTri
 	c.busy = true
 	c.mu.Unlock()
 
-	hostCtx := context.WithoutCancel(ctx)
-	if hostCtx == nil {
-		hostCtx = context.Background()
+	// Parent cancel covers the first attempt and every coalesced follow-up so
+	// BeginShutdown can abort the whole Reload slot (req 13.7).
+	parentBase := context.WithoutCancel(ctx)
+	if parentBase == nil {
+		parentBase = context.Background()
 	}
-	var cancel context.CancelFunc
-	hostCtx, cancel = context.WithTimeout(hostCtx, c.timeout)
+	parentCtx, parentCancel := context.WithCancel(parentBase)
+	done, shut := c.armAttempt(parentCancel)
+	defer c.releaseAttempt(done, parentCancel)
+	if shut {
+		c.mu.Lock()
+		c.pendingSignal = false
+		c.busy = false
+		c.mu.Unlock()
+		return c.terminal(configreload.ReloadResult{
+			Category:       configreload.ResultCanceled,
+			ReasonCategory: configreload.StageShutdown,
+		}, false)
+	}
+
+	hostCtx, cancel := context.WithTimeout(parentCtx, c.timeout)
 	defer cancel()
 
 	first := c.runAttempt(hostCtx, trigger)
@@ -272,7 +380,7 @@ func (c *Coordinator) Reload(ctx context.Context, trigger configreload.ReloadTri
 		c.coalesced = 0
 		c.mu.Unlock()
 
-		followCtx, followCancel := context.WithTimeout(context.WithoutCancel(context.Background()), c.timeout)
+		followCtx, followCancel := context.WithTimeout(parentCtx, c.timeout)
 		follow := c.runAttempt(followCtx, configreload.ReloadTrigger{
 			Kind:       configreload.TriggerSIGHUP,
 			AcceptedAt: time.Now().UTC(),
@@ -396,6 +504,12 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 	}
 	snap, atomicRes, err := c.source.ReadStable(stageCtx, activeSrc)
 	if err != nil {
+		if c.shutdown.Load() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			res.Category = configreload.ResultCanceled
+			res.ReasonCategory = configreload.StageShutdown
+			endStage(string(res.Category))
+			return res
+		}
 		cat, reason := configreload.MapLoadFailure(err)
 		if srcCat, ok := configsource.CategoryOf(err); ok {
 			cat, reason = configreload.MapLoadCategory(string(srcCat))
@@ -419,6 +533,12 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 	}
 	eff, err := c.loader.LoadEffective(stageCtx, snap.Bytes)
 	if err != nil {
+		if c.shutdown.Load() || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			res.Category = configreload.ResultCanceled
+			res.ReasonCategory = configreload.StageShutdown
+			endStage(string(res.Category))
+			return res
+		}
 		cat, reason := configreload.MapLoadFailure(err)
 		if srcCat, ok := configsource.CategoryOf(err); ok {
 			cat, reason = configreload.MapLoadCategory(string(srcCat))

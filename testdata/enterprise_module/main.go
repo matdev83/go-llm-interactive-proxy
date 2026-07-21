@@ -161,14 +161,20 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("runtime not ready")
 	}
 	// Public reload/status facade is importable without internal types (req 16.1-16.2).
-	// Coordinator binding is composition-owned; unbound Reload reports a safe category.
+	// Build binds the same coordinator as lipstd; Reload is available on the facade.
+	if rt.ReloadControl() == nil {
+		return fmt.Errorf("expected coordinator-bound ReloadControl")
+	}
 	reloadRes := rt.Reload(ctx, lipruntime.ReloadTrigger{Kind: lipruntime.TriggerAPI, SafeActor: "enterprise-fixture"})
-	if reloadRes.Category != lipruntime.ResultInternalFailed {
-		return fmt.Errorf("unbound Reload category=%q want internal-failed", reloadRes.Category)
+	if reloadRes.Category != lipruntime.ResultNoop && reloadRes.Category != lipruntime.ResultPublished {
+		return fmt.Errorf("bound Reload category=%q want no-op or published", reloadRes.Category)
 	}
 	st := rt.ReloadStatus()
 	if st.Busy {
-		return fmt.Errorf("unbound ReloadStatus must not report busy")
+		return fmt.Errorf("ReloadStatus must not report busy after terminal result")
+	}
+	if st.ActiveGeneration < 1 {
+		return fmt.Errorf("expected active generation >= 1, got %d", st.ActiveGeneration)
 	}
 	_ = lipruntime.ResultPublished
 	_ = lipruntime.ResultNoop

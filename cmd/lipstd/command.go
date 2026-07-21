@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/dbmigrate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
@@ -263,13 +264,14 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
+	compose := stdhttp.ComposeRequestPlane
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath:              opts.ConfigPath,
 		Mode:                    runtimebundle.BootstrapServe,
 		Mandatory:               mandatoryStandardPlugins(),
 		LogWriter:               opts.Output,
 		StreamRecoveryOverrides: opts.StreamRecovery,
-		HandlerComposer:         stdhttp.ComposeRequestPlane,
+		HandlerComposer:         compose,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
@@ -277,18 +279,32 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 	}
 	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
 	if err := logBootstrapAccessAuth(ctx, res.Logger, res.Config); err != nil {
-		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", err)
+		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
+		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", errors.Join(err, cleanupErr))
 		return 1
 	}
-	// INT/TERM shut down the server; SIGHUP is owned by the reload adapter when a
-	// sink is wired (task 5.2). Sink remains nil until management/coordinator composition.
-	sigCtx, stop := startServeSignalHandling(ctx, nil)
+	host, err := runtimebundle.AttachReloadHost(ctx, res, opts.ConfigPath, compose)
+	if err != nil {
+		cleanupErr := serveStartupRollback(ctx, &res, nil, nil)
+		res.Logger.ErrorContext(ctx, "lipstd: reload host", "error", errors.Join(err, cleanupErr))
+		return 1
+	}
+	mgmt, err := startManagementServer(ctx, res, host.Coordinator)
+	if err != nil {
+		cleanupErr := serveStartupRollback(ctx, &res, host, nil)
+		res.Logger.ErrorContext(ctx, "lipstd: management server", "error", errors.Join(err, cleanupErr))
+		return 1
+	}
+	// INT/TERM shut down the server; SIGHUP delivers to the real coordinator (never nil).
+	sigCtx, stop := startServeSignalHandling(ctx, host.Coordinator)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
-		Config:  res.Config,
-		Log:     res.Logger,
-		Manager: res.GenerationManager,
-		Process: res.ProcessServices,
+		Config:      res.Config,
+		Log:         res.Logger,
+		Manager:     res.GenerationManager,
+		Process:     res.ProcessServices,
+		Coordinator: host.Coordinator,
+		Management:  mgmt,
 	}); err != nil {
 		res.Logger.ErrorContext(sigCtx, "server stopped", "error", err)
 		return 1
@@ -315,12 +331,28 @@ func validateServeMultiUserGate(ctx context.Context, configPath string, multiUse
 }
 
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{ConfigPath: opts.ConfigPath, Mode: runtimebundle.BootstrapInspect, Mandatory: mandatoryStandardPlugins(), LogWriter: io.Discard, StreamRecoveryOverrides: opts.StreamRecovery})
+	compose := stdhttp.ComposeRequestPlane
+	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+		ConfigPath:              opts.ConfigPath,
+		Mode:                    runtimebundle.BootstrapServe,
+		Mandatory:               mandatoryStandardPlugins(),
+		LogWriter:               io.Discard,
+		StreamRecoveryOverrides: opts.StreamRecovery,
+		HandlerComposer:         compose,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "configuration invalid: %v\n", err)
 		return 1
 	}
 	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
+	// check-config uses the same CompileGeneration path as serve/reload, then
+	// rolls back without listening (design ValidationDryRun).
+	if res.GenerationManager != nil {
+		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+	}
+	if res.ProcessServices != nil {
+		_ = res.ProcessServices.Close()
+	}
 	_, _ = fmt.Fprintln(opts.Output, "configuration is valid")
 	return 0
 }

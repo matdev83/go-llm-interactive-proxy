@@ -218,7 +218,9 @@ var lineBudgets = []struct {
 	// management HTTP adapter (admin/configreload listener, auth, browser guard,
 	// DTOs, and lifecycle) outside the swappable request plane
 	// (measured non-test total 4587; ~63 lines headroom).
-	{"internal/stdhttp", 4650},
+	// Raised from 4650 to 4750 for versioned-runtime-reload task 5.6: generation
+	// host shutdown ordering (coordinator BeginShutdown + management close).
+	{"internal/stdhttp", 4750},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -278,7 +280,11 @@ var lineBudgets = []struct {
 	// Raised from 9650 to 9700 for versioned-runtime-reload task 5.1:
 	// GenerationBundle.BackendFactoryKindCounts for LiveFactoryKinds admission
 	// (measured 9666; ~34 headroom).
-	{"internal/infra/runtimebundle", 9700},
+	// Raised from 9700 to 9950 for versioned-runtime-reload tasks 5.5–5.6:
+	// shared ReloadHost composition (fixed source, effective loader, generation
+	// compiler adapter, coordinator bind) and ActiveSource bootstrap retention
+	// used by lipruntime and lipstd (measured non-test total ~9849; ~100 headroom).
+	{"internal/infra/runtimebundle", 9950},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {
