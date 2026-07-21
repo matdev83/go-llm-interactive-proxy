@@ -79,6 +79,11 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	if err != nil {
 		return nil, closers, fmt.Errorf("runtimebundle: %w", err)
 	}
+	if bctx.ExplicitCandidate {
+		if err := validateRouteSelectorsAgainstBackends(cfg, effectiveRoute, cfg.ModelAliases, cfg.Plugins.Backends); err != nil {
+			return nil, closers, err
+		}
+	}
 	capMap := make(capabilities.MapResolver, len(in.Model.Backends))
 	for id, be := range in.Model.Backends {
 		capMap[id] = func(ctx context.Context, cand routing.AttemptCandidate, call lipapi.Call) lipapi.BackendCaps {
@@ -207,7 +212,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	var candHealth policy.CandidateHealth
 	var aLeg = (*leglifecycle.Coordinator)(nil)
 	if in.SharedMutable != nil {
-		affStore, candHealth = in.SharedMutable.candidateRoutingViews(in.BackendIdentities)
+		affStore, candHealth = in.SharedMutable.candidateRoutingViews(in.BackendIdentities, cfg, in.NowFn)
 		aLeg = in.SharedMutable.ALegLifecycle
 	}
 	routingRT := runtime.RoutingRuntime{
@@ -290,6 +295,65 @@ func streamRecoveryConfigFromConfig(cfg *config.Config) (streamrecovery.Config, 
 		GracePeriod: eff.GracePeriod,
 		EmitWarning: eff.EmitWarning,
 	}, nil
+}
+
+// validateRouteSelectorsAgainstBackends fails compile before publication when
+// the candidate's effective default route or any configured model-alias
+// replacement references a backend ID absent from the candidate's configured
+// backend row set (req 9.2). Validation is against configured rows (any
+// enabled state) rather than only built/enabled instances: a disabled row is
+// a deliberate candidate-backend-set member, not an unconfigured reference.
+// Model-only selectors (no literal backend) are exempt; their backend is
+// filled from the routing default at request time.
+//
+// The default route is validated only when the operator set
+// routing.default_route explicitly. When it is empty, EffectiveDefaultRouteSelector
+// either synthesizes it from an actually-enabled backend (trivially valid) or
+// falls back to a compile-time placeholder documented as "tests / degenerate
+// bootstrap" that is not a real candidate-backend reference and must not fail
+// compile. Alias replacements are always operator-configured and always validated.
+func validateRouteSelectorsAgainstBackends(cfg *config.Config, effectiveRoute string, aliases []config.ModelAliasConfig, backendRows []config.PluginConfig) error {
+	configured := make(map[string]struct{}, len(backendRows))
+	for _, p := range backendRows {
+		if id := p.InstanceID(); id != "" {
+			configured[id] = struct{}{}
+		}
+	}
+	if strings.TrimSpace(cfg.Routing.DefaultRoute) != "" {
+		if err := validateSelectorTextAgainstBackends("routing default_route", effectiveRoute, configured); err != nil {
+			return err
+		}
+	}
+	for i, a := range aliases {
+		repl := strings.TrimSpace(a.Replacement)
+		if repl == "" {
+			continue
+		}
+		label := fmt.Sprintf("model_aliases[%d].replacement", i)
+		if err := validateSelectorTextAgainstBackends(label, repl, configured); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSelectorTextAgainstBackends(label, text string, configured map[string]struct{}) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	sel, err := routing.Parse(text)
+	if err != nil {
+		// Malformed selectors are already rejected by config.Validate; do not
+		// duplicate that error category here.
+		return nil
+	}
+	for _, id := range routing.BackendIDsReferenced(sel) {
+		if _, ok := configured[id]; !ok {
+			return fmt.Errorf("runtimebundle: %s references unconfigured backend %q", label, id)
+		}
+	}
+	return nil
 }
 
 func resolveRouting(cfg *config.Config, wireModel config.WireModelForBackend) (string, string, *routing.AliasResolver, error) {

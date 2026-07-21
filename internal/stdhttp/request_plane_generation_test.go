@@ -114,8 +114,9 @@ func newStdProcess(t *testing.T) *runtimebundle.ProcessServices {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes:    1024,
 			MaxConcurrentDecodes:   4,

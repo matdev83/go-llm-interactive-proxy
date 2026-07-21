@@ -14,6 +14,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/b2bua"
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/extensions"
@@ -178,6 +179,19 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	if cfg == nil || opts == nil || opts.PluginRegistry == nil {
 		return nil, fmt.Errorf("runtimebundle: ProcessServices missing config or PluginRegistry")
 	}
+
+	// Classify the candidate against the process baseline before any generation
+	// resource acquisition (req 3.5, 7.5): a startup-only/process-topology
+	// change fails with a typed RestartRequiredError before publication. Skipped
+	// when the caller reused the process config (legacy [Build] compatibility
+	// path, in.Candidate == nil) or when the candidate is the identical config
+	// pointer already known compatible with itself.
+	if in.Candidate != nil && ps.cfg != nil && cfg != ps.cfg {
+		if _, err := configreload.Classify(ps.cfg, cfg); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
@@ -215,6 +229,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		PostgresPools:     ps.DatabasePools,
 		DualPlaneMigrator: ps.dualPlaneMigrator,
 		Ledger:            ledger,
+		ExplicitCandidate: in.Candidate != nil,
 	}
 
 	var closers []func() error

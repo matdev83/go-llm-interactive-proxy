@@ -129,8 +129,9 @@ func TestReloadOverlap_OldAndNewInstanceHandles(t *testing.T) {
 	t.Cleanup(func() { _ = ps.Close() })
 
 	cfgA := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "inst:stub-default"},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "inst:stub-default"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096,
 		},
@@ -143,8 +144,9 @@ func TestReloadOverlap_OldAndNewInstanceHandles(t *testing.T) {
 		},
 	}
 	cfgB := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "inst:stub-default"},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "inst:stub-default"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096,
 		},
@@ -224,8 +226,9 @@ func TestReloadDiscovered_SharedProcessNoOverlap_RestartRequired(t *testing.T) {
 	t.Cleanup(func() { _ = ps.Close() })
 
 	cand := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "excl:m"},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "excl:m"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096,
 		},

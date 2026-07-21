@@ -192,7 +192,12 @@ var lineBudgets = []struct {
 	// Raised from 67900 to 68500 for task 3.6 remediation B: process-owned
 	// AmbiguousAppendReconciler worker and IntentService handoff (measured
 	// 68303; ~197 headroom).
-	{"internal/core", 68500},
+	// Raised from 68500 to 68700 for versioned-runtime-reload task 4.4+4.5:
+	// generation-scoped CircuitBreakerState/CircuitBreakerPolicy split
+	// (internal/core/policy) and route-selector backend-ID enumeration for
+	// default-route/alias validation (internal/core/routing) (measured
+	// 68608; ~92 headroom).
+	{"internal/core", 68700},
 	{"internal/pluginreg", 4500},
 	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
 	// generation request-plane composer (ComposeRequestPlane) without listener
@@ -256,7 +261,11 @@ var lineBudgets = []struct {
 	// ~139 lines headroom).
 	// Raised from 9350 to 9550 for task 3.6: generation-local terminal provider
 	// resolver + GenerationBundle provider snapshot (measured 9417; ~133 headroom).
-	{"internal/infra/runtimebundle", 9550},
+	// Raised from 9550 to 9650 for versioned-runtime-reload task 4.4+4.5:
+	// candidate-vs-process Classify wiring, default-route/alias-vs-backend-set
+	// validation, and generation-scoped health-policy wiring in
+	// candidateRoutingViews (measured 9578; ~72 headroom).
+	{"internal/infra/runtimebundle", 9650},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

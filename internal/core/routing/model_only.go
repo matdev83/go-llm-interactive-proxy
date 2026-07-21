@@ -110,6 +110,54 @@ func weightedBranchHasEmptyBackend(b WeightedBranch) bool {
 	return strings.TrimSpace(b.Target.Backend) == ""
 }
 
+// BackendIDsReferenced returns every literal (non-model-only) backend ID
+// embedded across sel's failover alternatives, weighted branches, and
+// parallel branches, in selector order. Used to validate a candidate default
+// route or alias replacement against the candidate backend set before
+// publication (req 9.2). A nil selector returns nil.
+func BackendIDsReferenced(sel *Selector) []string {
+	if sel == nil {
+		return nil
+	}
+	var out []string
+	for _, alt := range sel.Alternatives {
+		collectAltBackendIDs(alt, &out)
+	}
+	return out
+}
+
+func collectAltBackendIDs(a FailoverAlt, out *[]string) {
+	switch {
+	case a.Primary != nil:
+		appendBackendID(out, a.Primary.Backend)
+	case a.Weighted != nil:
+		for _, b := range a.Weighted.Branches {
+			collectWeightedBackendIDs(b, out)
+		}
+	case a.Parallel != nil:
+		for _, b := range a.Parallel.Branches {
+			appendBackendID(out, b.Target.Backend)
+		}
+	}
+}
+
+func collectWeightedBackendIDs(b WeightedBranch, out *[]string) {
+	if b.Parallel != nil {
+		for _, leg := range b.Parallel.Branches {
+			appendBackendID(out, leg.Target.Backend)
+		}
+		return
+	}
+	appendBackendID(out, b.Target.Backend)
+}
+
+func appendBackendID(out *[]string, backend string) {
+	backend = strings.TrimSpace(backend)
+	if backend != "" {
+		*out = append(*out, backend)
+	}
+}
+
 // DefaultBackendFromRouteSelector extracts the backend id from a configured default route
 // (for example "openai-responses:gpt-4o-mini"). The route must contain at least one primary
 // with a non-empty backend (not model-only).

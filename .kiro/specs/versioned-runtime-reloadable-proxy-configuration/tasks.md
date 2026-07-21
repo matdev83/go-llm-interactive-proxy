@@ -221,7 +221,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 3.2-3.4_
   - _Validation: `go test -race ./internal/featurebundle/... ./internal/plugins/frontends/... ./internal/plugins/features/... ./internal/stdhttp/... -run 'Reload|Generation|RouteConflict|Lifecycle'`_
 
-- [ ] 4.4 Enable routing, auth-record, request-limit, HTTP-client, and policy changes
+- [x] 4.4 Enable routing, auth-record, request-limit, HTTP-client, and policy changes
   - Add per-field tests before enabling each reloadable group.
   - Rebuild aliases/default route/health policy/capabilities, local auth key records under fixed handler mode, request body/pending-event/keepalive limits, and generation-owned upstream client.
   - Preserve compatible affinity/health state and reject process-topology changes.
@@ -231,7 +231,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 2.2, 2.4, 3.3_
   - _Validation: `go test -race ./internal/core/routing/... ./internal/core/auth/... ./internal/core/runtime/... ./internal/infra/runtimebundle/... ./internal/stdhttp/... -run 'Reload|Alias|AuthKey|Limit|HTTPClient|Health|Affinity'`_
 
-- [ ] 4.5 Enable coherent model catalog and inventory generation changes
+- [x] 4.5 Enable coherent model catalog and inventory generation changes
   - Build candidate inventory from its backend set and configured static/cache/remote policy under existing fail-soft/strict rules.
   - Stop old generation refresh loops at quiesce while retaining immutable bound views.
   - Add `/v1/models`, ETag, diagnostics, stale cache, empty/invalid inventory, and backend removal tests.

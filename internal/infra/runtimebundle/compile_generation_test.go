@@ -47,8 +47,14 @@ func stdFactoryCatalog(t *testing.T) *pluginreg.Registry {
 	return reg
 }
 
+// processBaseConfig returns the process-owned baseline used by compile
+// candidates in this file. Diagnostics matches [stubCandidateConfig] so
+// candidates that only change reloadable rows (backends/frontends/routing)
+// do not trip [configreload.Classify]'s startup-only diagnostics gate; cfg is
+// pre-validated so defaulted comparators observe the same normalized values
+// a real reload would (config.Validate is idempotent on already-valid input).
 func processBaseConfig() *config.Config {
-	return &config.Config{
+	cfg := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
 		Server: config.ServerConfig{
@@ -56,10 +62,13 @@ func processBaseConfig() *config.Config {
 			MaxConcurrentDecodes:   4,
 			MaxInflightDecodeBytes: 4096,
 		},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Plugins: config.PluginsConfig{
 			Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}},
 		},
 	}
+	_ = config.Validate(cfg)
+	return cfg
 }
 
 func stubCandidateConfig(t *testing.T, backendID, text, defaultRoute string, frontends []config.PluginConfig) *config.Config {

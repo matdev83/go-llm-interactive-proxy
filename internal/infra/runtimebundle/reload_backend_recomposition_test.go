@@ -261,8 +261,9 @@ models:
 		})
 	}
 	cand := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "anchor:stub-default"},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "anchor:stub-default"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096,
 		},
@@ -339,8 +340,9 @@ func TestReloadBackend_CandidateFactoryFailureRollback(t *testing.T) {
 	t.Cleanup(func() { _ = ps.Close() })
 
 	okCand := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "ok:m"},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "ok:m"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096,
 		},
@@ -363,8 +365,9 @@ func TestReloadBackend_CandidateFactoryFailureRollback(t *testing.T) {
 	t.Cleanup(func() { _ = okBundle.Close() })
 
 	badCand := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "bad:m"},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "bad:m"},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes: 1024, MaxConcurrentDecodes: 4, MaxInflightDecodeBytes: 4096,
 		},

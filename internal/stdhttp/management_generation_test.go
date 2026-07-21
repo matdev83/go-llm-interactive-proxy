@@ -22,8 +22,9 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Routing:     config.RoutingConfig{MaxAttempts: 3},
+		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
+		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
 		Server: config.ServerConfig{
 			MaxRequestBodyBytes:    1024,
 			MaxConcurrentDecodes:   4,

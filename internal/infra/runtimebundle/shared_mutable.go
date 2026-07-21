@@ -21,11 +21,19 @@ const healthNamespaceSep = "\x1e"
 
 // sharedMutableRuntime holds process-owned overlap-sensitive mutable continuity
 // constructed once and viewed per candidate through compatibility keys.
+//
+// Health *policy* (failure threshold / open duration / enabled) is generation-
+// scoped and reloadable (req 7.4, 9.1): [candidateRoutingViews] rebuilds a
+// [routinghealth.CandidateHealthPolicyFromState] view from each candidate's own
+// cfg.Routing.Health on every compile. The underlying failure/blockedUntil
+// observation counters in healthState stay process-shared so compatible
+// overlapping generations agree on which candidate keys are currently open
+// (design "Health policy reload").
 type sharedMutableRuntime struct {
 	ALegLifecycle    *leglifecycle.Coordinator
 	ExtensionState   lipstate.Store
 	affinity         *affinityRegistry
-	health           *healthRegistry
+	healthState      *policy.CircuitBreakerState
 	underlyingHealth policy.CandidateHealth
 }
 
@@ -33,25 +41,32 @@ func buildSharedMutableRuntime(cfg *config.Config, nowFn func() time.Time) *shar
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	health := routinghealth.CandidateHealthFromConfig(cfg, nowFn)
+	healthState := policy.NewCircuitBreakerState(policy.CircuitBreakerStateOptions{})
 	return &sharedMutableRuntime{
 		ALegLifecycle: leglifecycle.NewCoordinator(leglifecycle.CoordinatorConfig{
 			CancelTimeout: 2 * time.Second,
 		}),
 		ExtensionState:   corestate.NewMem(nowFn),
 		affinity:         newAffinityRegistry(),
-		health:           newHealthRegistry(health),
-		underlyingHealth: health,
+		healthState:      healthState,
+		underlyingHealth: routinghealth.CandidateHealthPolicyFromState(cfg, healthState, nowFn),
 	}
 }
 
 // candidateRoutingViews returns non-owning affinity/health views gated by the
-// candidate's backend state identities.
-func (s *sharedMutableRuntime) candidateRoutingViews(active map[string]BackendStateIdentity) (affinity.Store, policy.CandidateHealth) {
+// candidate's backend state identities. health is rebuilt from cfg's own
+// routing.health policy on every call so each generation evaluates/records
+// using its own threshold/open-duration/enabled disposition against the
+// process-shared observation store (req 7.4, 9.1).
+func (s *sharedMutableRuntime) candidateRoutingViews(active map[string]BackendStateIdentity, cfg *config.Config, nowFn func() time.Time) (affinity.Store, policy.CandidateHealth) {
 	if s == nil {
 		return nil, nil
 	}
-	return newAffinityView(s.affinity, active), newHealthView(s.health, active)
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	health := routinghealth.CandidateHealthPolicyFromState(cfg, s.healthState, nowFn)
+	return newAffinityView(s.affinity, active), newHealthView(newHealthRegistry(health), active)
 }
 
 type affinityRegistry struct {
