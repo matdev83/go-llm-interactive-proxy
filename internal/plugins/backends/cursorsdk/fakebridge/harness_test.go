@@ -131,15 +131,22 @@ func TestHarnessWaitForFileGatesBeforeEvents(t *testing.T) {
 		{Type: fakebridge.ActionEvent, RunID: "run-gate", Seq: 2, Kind: protocol.KindFinished, Payload: json.RawMessage(`{"status":"finished"}`)},
 	}
 	h := fakebridge.New(script)
-	var in, out bytes.Buffer
+	var in bytes.Buffer
+	var (
+		outMu sync.Mutex
+		out   bytes.Buffer
+	)
+	writer := &lockedWriter{mu: &outMu, buf: &out}
 	writeReq(&in, "1", protocol.MethodAgentSend, `{"agentId":"a","prompt":"p"}`)
 
 	done := make(chan error, 1)
-	go func() { done <- h.Run(&in, &out) }()
+	go func() { done <- h.Run(&in, writer) }()
 
 	deadline := time.After(2 * time.Second)
 	for {
+		outMu.Lock()
 		frames := decodeAll(t, out.Bytes())
+		outMu.Unlock()
 		if len(frames) >= 1 && frames[0].Type == protocol.TypeResponse {
 			break
 		}
@@ -152,10 +159,15 @@ func TestHarnessWaitForFileGatesBeforeEvents(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	require.Len(t, decodeAll(t, out.Bytes()), 1, "events must wait for gate file")
+	outMu.Lock()
+	preGateFrames := decodeAll(t, out.Bytes())
+	outMu.Unlock()
+	require.Len(t, preGateFrames, 1, "events must wait for gate file")
 	require.NoError(t, os.WriteFile(gate, []byte("go"), 0o644))
 	require.NoError(t, <-done)
+	outMu.Lock()
 	frames := decodeAll(t, out.Bytes())
+	outMu.Unlock()
 	require.GreaterOrEqual(t, len(frames), 3)
 	require.Equal(t, protocol.TypeEvent, frames[1].Type)
 }

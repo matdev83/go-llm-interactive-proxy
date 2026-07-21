@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk/protocol"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -349,6 +350,48 @@ func TestSessionPool_FailedSendDoesNotCommit(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, HistoryMarker{}, pool.Marker(key))
+	assert.Equal(t, 0, pool.LiveCount())
+}
+
+func TestSessionPool_SendBridgeExitedClassifiedRecoverablePreOutput(t *testing.T) {
+	secret := "api-key-one"
+	bridge := newFakeAgentBridge(1)
+	bridge.sendErr = BridgeExited(nil, "stderr=unauthorized "+secret)
+	pool := NewSessionPool(poolTestConfig(), bridge, SessionPoolOpts{})
+	defer func() { _ = pool.Close(context.Background()) }()
+	key := testAgentKey("sess-send-exit")
+
+	_, err := pool.PrepareSend(context.Background(), PrepareSendInput{
+		Key: key, Create: createParamsFor(key), View: view(1, "h1", "", "t1"), FullPrompt: "F", SuffixPrompt: "S",
+	})
+	require.Error(t, err)
+	assert.True(t, lipapi.IsRecoverablePreOutput(err), "send-time BridgeExited must be RecoverablePreOutput, got %v", err)
+	assert.ErrorIs(t, err, ErrBridgeExited)
+
+	var cf *ClassifiedFailure
+	require.True(t, errors.As(err, &cf), "want ClassifiedFailure in chain, got %T %v", err, err)
+	require.NotNil(t, cf)
+	assert.Equal(t, CodeBridgeExited, cf.Code)
+	assert.Equal(t, lipapi.PhasePreOutput, cf.Phase)
+	assert.True(t, cf.Recoverable)
+	assert.NotContains(t, err.Error(), secret)
+	assert.Equal(t, HistoryMarker{}, pool.Marker(key))
+	assert.Equal(t, 0, pool.LiveCount())
+}
+
+func TestSessionPool_CreateBridgeExitedNotClassifiedRecoverable(t *testing.T) {
+	bridge := newFakeAgentBridge(1)
+	bridge.createErr = BridgeExited(nil, "create-exit")
+	pool := NewSessionPool(poolTestConfig(), bridge, SessionPoolOpts{})
+	defer func() { _ = pool.Close(context.Background()) }()
+	key := testAgentKey("sess-create-exit")
+
+	_, err := pool.PrepareSend(context.Background(), PrepareSendInput{
+		Key: key, Create: createParamsFor(key), View: view(1, "h1", "", "t1"), FullPrompt: "F", SuffixPrompt: "S",
+	})
+	require.Error(t, err)
+	assert.False(t, lipapi.IsRecoverablePreOutput(err), "create-time errors must stay unmapped, got %v", err)
+	assert.ErrorIs(t, err, ErrBridgeExited)
 	assert.Equal(t, 0, pool.LiveCount())
 }
 

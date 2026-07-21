@@ -819,11 +819,11 @@ func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
 		return baseEffective("fp-"+string(raw), byte(n+1)), nil
 	})
 	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
-		Source:   src,
-		Loader:   loader,
-		Compile:  compile,
-		Manager:  mgr,
-		Timeout:  time.Second,
+		Source:  src,
+		Loader:  loader,
+		Compile: compile,
+		Manager: mgr,
+		Timeout: time.Second,
 		ActiveEffective: &config.EffectiveConfig{
 			Config: &config.Config{},
 			Identity: config.EffectiveIdentity{
