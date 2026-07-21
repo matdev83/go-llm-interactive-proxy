@@ -257,7 +257,7 @@ func parseBoolFlag(name, raw string) (bool, error) {
 }
 
 func runServeCommand(ctx context.Context, opts CommandOptions) int {
-	if err := validateServeMultiUserGate(opts.ConfigPath, opts.MultiUser); err != nil {
+	if err := validateServeMultiUserGate(ctx, opts.ConfigPath, opts.MultiUser, opts.StreamRecovery); err != nil {
 		if errors.Is(err, accessmode.ErrMultiUserFlagRequired) || errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 			_, _ = fmt.Fprintf(opts.ErrorOut, "lipstd: %v\n", err)
 			return 2
@@ -292,16 +292,16 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 
 // validateServeMultiUserGate enforces the --multi-user CLI flag consistency
 // against access.mode for serve mode. It is a CLI-layer concern: it loads the
-// config, resolves the effective access mode, and applies
-// [accessmode.ValidateServeModeGate] before heavy runtime assembly in
-// [runtimebundle.BuildBootstrap]. Runtime posture/security validation
-// (backend access scopes, credential modes) stays in runtimebundle.Build.
-func validateServeMultiUserGate(configPath string, multiUserFlag *bool) error {
-	cfg, err := config.LoadFile(configPath)
+// config through the shared strict effective pipeline, resolves the effective
+// access mode, and applies [accessmode.ValidateServeModeGate] before heavy
+// runtime assembly in [runtimebundle.BuildBootstrap]. Runtime posture/security
+// validation (backend access scopes, credential modes) stays in runtimebundle.Build.
+func validateServeMultiUserGate(ctx context.Context, configPath string, multiUserFlag *bool, streamOverrides config.StreamRecoveryOverrides) error {
+	eff, err := runtimebundle.LoadBootstrapEffective(ctx, configPath, streamOverrides)
 	if err != nil {
 		return err
 	}
-	mode, err := cfg.EffectiveAccessMode()
+	mode, err := eff.Config.EffectiveAccessMode()
 	if err != nil {
 		return fmt.Errorf("bootstrap access/auth: %w", err)
 	}

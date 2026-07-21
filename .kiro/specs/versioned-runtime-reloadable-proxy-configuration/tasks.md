@@ -62,7 +62,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 ## Phase 2: Separate Effective Configuration and Process Services
 
-- [ ] 2. Build the safe reusable bootstrap foundations
+- [x] 2. Build the safe reusable bootstrap foundations
 
 - [x] 2.1 Implement bounded fixed-path source reading and strict effective loading
   - Resolve and retain the absolute source path at startup.
@@ -109,7 +109,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 2.3_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/core/continuity/... ./internal/core/securesession/... ./internal/core/affinity/... ./internal/core/policy/... -run 'Reload|Shared|Identity|Stale'`_
 
-- [ ] 2.5 Preserve startup, inspect, routes, inventory, and public Build compatibility
+- [x] 2.5 Preserve startup, inspect, routes, inventory, and public Build compatibility
   - Route existing commands through the new effective loader and split bootstrap without enabling runtime reload yet.
   - Preserve error classification, standard plugin defaults, CLI flag precedence, and resource cleanup.
   - Add public/internal compatibility tests before deleting or narrowing existing bootstrap entrypoints.

@@ -3,6 +3,8 @@ package configsource
 import (
 	"errors"
 	"fmt"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 )
 
 // IntegrityError is a secret-safe source-integrity or pre-decode failure.
@@ -23,7 +25,7 @@ func (e *IntegrityError) Error() string {
 }
 
 // CategoryOf returns the integrity/decode category when err wraps or is an
-// IntegrityError or carries a known configsource category prefix.
+// IntegrityError or a config.LoadError from the shared effective-load pipeline.
 func CategoryOf(err error) (Category, bool) {
 	if err == nil {
 		return "", false
@@ -31,6 +33,10 @@ func CategoryOf(err error) (Category, bool) {
 	var ie *IntegrityError
 	if errors.As(err, &ie) && ie != nil && ie.Category != "" {
 		return ie.Category, true
+	}
+	var le *config.LoadError
+	if errors.As(err, &le) && le != nil && le.Category != "" {
+		return le.Category, true
 	}
 	return "", false
 }

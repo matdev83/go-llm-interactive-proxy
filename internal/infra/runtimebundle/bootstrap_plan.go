@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
@@ -97,27 +96,11 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		logOut = os.Stdout
 	}
 
-	cfg, err := config.LoadFile(path)
+	effective, err := LoadBootstrapEffective(ctx, path, in.StreamRecoveryOverrides)
 	if err != nil {
 		return out, err
 	}
-	envOverrides, err := config.StreamRecoveryOverridesFromEnv()
-	if err != nil {
-		return out, err
-	}
-	mergedOverrides := mergeStreamRecoveryOverrides(envOverrides, in.StreamRecoveryOverrides)
-	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, mergedOverrides)
-	if err != nil {
-		return out, err
-	}
-	applyEffectiveStreamRecovery(cfg, eff)
-
-	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
-		return out, err
-	}
-	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
-		return out, fmt.Errorf("runtimebundle: %w", err)
-	}
+	cfg := effective.Config
 
 	traceRes, err := tracing.Init(ctx, cfg)
 	if err != nil {
@@ -147,18 +130,6 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		}
 	}
 
-	if err := standardplugins.EnsureToolCallRepairInConfig(cfg, standardplugins.ToolCallRepairInjectOpts{
-		StandardDistribution: true,
-	}); err != nil {
-		shutdownTracing(ctx, traceRes.Shutdown)
-		return out, fmt.Errorf("runtimebundle: tool-call-repair defaults: %w", err)
-	}
-	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, standardplugins.ReasoningOutputPreservationInjectOpts{
-		StandardDistribution: true,
-	}); err != nil {
-		shutdownTracing(ctx, traceRes.Shutdown)
-		return out, fmt.Errorf("runtimebundle: reasoning-output-preservation defaults: %w", err)
-	}
 	regs := config.RegistrationsFromConfig(cfg)
 	// Secrets-guard uniqueness is owned by the feature package; enforce it at the
 	// composition root so inspect and serve both fail closed before merge/build.
