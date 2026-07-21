@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
@@ -139,7 +140,9 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		terminalMetrics: cand.TerminalWorkMetrics,
 	}
 
-	handler, err := in.Compose(ctx, plane)
+	// Isolate composer panics so candidate resources roll back and
+	// ProcessServices stay up (req 3.9).
+	handler, err := composeRequestPlaneIsolated(ctx, in.Compose, plane)
 	if err != nil {
 		return fail(fmt.Errorf("runtimebundle: compose request plane: %w", err))
 	}
@@ -161,6 +164,16 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		owner:             cand,
 		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.TerminalWorkRegistry),
 	}, nil
+}
+
+func composeRequestPlaneIsolated(ctx context.Context, compose HandlerComposer, plane RequestPlane) (handler http.Handler, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			handler = nil
+			err = fmt.Errorf("runtimebundle: compose panic: %v", p)
+		}
+	}()
+	return compose(ctx, plane)
 }
 
 func injectCandidateFault(fi CandidateFaultInject, boundary string) error {

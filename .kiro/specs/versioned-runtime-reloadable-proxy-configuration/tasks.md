@@ -211,7 +211,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: backend-connector-plugin-architecture implementation, 4.1_
   - _Validation: `go test -race ./internal/pluginreg/... ./internal/infra/runtimebundle/... ./internal/infra/backendplugin/... -run 'Reload|Discovered|Overlap|NoRescan|NoInstall'`_
 
-- [ ] 4.3 Enable frontend and feature generation replacement
+- [x] 4.3 Enable frontend and feature generation replacement
   - Rebuild frontend mounts, auth renderers, feature bundles, hooks, extension snapshots, and app lifecycles as one candidate.
   - Add route conflict, feature uniqueness, lifecycle failure, and old/new handler isolation tests.
   - Ensure management routes remain outside the swappable graph.

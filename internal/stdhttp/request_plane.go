@@ -18,7 +18,10 @@ import (
 // and without starting/stopping feature lifecycles (ledger owns those).
 //
 // This is the HandlerComposer injected into runtimebundle.CompileGeneration so
-// runtimebundle never imports stdhttp (no import cycle).
+// runtimebundle never imports stdhttp (no import cycle). Route registration
+// conflicts are returned as [ErrRouteConflict] rather than panicking.
+// Management reload/status routes are intentionally absent: they remain
+// process-owned outside this swappable request-plane graph (req 12.1).
 func ComposeRequestPlane(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
 	if ctx == nil {
 		return nil, errors.New("stdhttp: nil context")
@@ -99,13 +102,12 @@ func ComposeRequestPlane(ctx context.Context, plane runtimebundle.RequestPlane) 
 			Red: snap.TrafficRedactors(),
 		}
 	}
-	frontends := plane.Frontends()
 	if err := MountBundledFrontends(MountBundledFrontendsInput{
 		Mux:                  mux,
 		Exec:                 exec,
 		DefaultRouteSelector: route,
 		RoutePrefixes:        plane.Routing().RoutePrefixes,
-		Plugins:              frontends,
+		Plugins:              plane.Frontends(),
 		MaxRequestBodyBytes:  maxBody,
 		DecodeAdmission:      decodeAdmission,
 		Reg:                  reg,
@@ -118,7 +120,13 @@ func ComposeRequestPlane(ctx context.Context, plane runtimebundle.RequestPlane) 
 		return nil, fmt.Errorf("stdhttp: mount frontends: %w", err)
 	}
 
-	mux.Handle(openAIModelsPath, NewModelRegistryHandler(plane.ModelRegistryRuntime()))
+	// Models path may collide with a frontend mount; convert ServeMux panic.
+	if err := callMount(func() error {
+		mux.Handle(openAIModelsPath, NewModelRegistryHandler(plane.ModelRegistryRuntime()))
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 
 	// Intentionally no runtime.App Start/Shutdown: feature lifecycles are owned
 	// by the candidate resource ledger (singular Start/Stop).
