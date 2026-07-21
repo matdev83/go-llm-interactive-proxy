@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -362,6 +363,12 @@ func TestCursorSDK_parallelRaceLoserCancel_holdUntilCancel(t *testing.T) {
 	slow := buildRuntimeCursorSDK(t, slowScript, ws)
 	t.Cleanup(func() { _ = slow.Close() })
 
+	// Gate fast-lane eligibility until the slow SDK Open returns. HoldUntilCancel
+	// writes active before Respond, so Open completion means the hold barrier is up.
+	// Without this, an immediately-ready fast backend can win and cancel slow before
+	// AgentSend reaches the hold — waitForPath after Execute cannot enforce that order.
+	slowReady := make(chan struct{})
+	var signalSlowReady sync.Once
 	var cancels atomic.Int32
 	wrappedSlow := slow
 	orig := wrappedSlow.Open
@@ -370,6 +377,7 @@ func TestCursorSDK_parallelRaceLoserCancel_holdUntilCancel(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
+		signalSlowReady.Do(func() { close(slowReady) })
 		return &cancelCountingStream{inner: stream, cancels: &cancels}, nil
 	}
 
@@ -379,7 +387,15 @@ func TestCursorSDK_parallelRaceLoserCancel_holdUntilCancel(t *testing.T) {
 	ex.Rand = routing.NewSeededRng(11)
 	ex.Backends = map[string]execbackend.Backend{
 		"slow-sdk": wrappedSlow,
-		"fast":     parallelBackend(completionEvents("fast-wins")),
+		"fast": {
+			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
+			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
+				return &parallelRaceCleanupStream{
+					waitReady: slowReady,
+					events:    completionEvents("fast-wins"),
+				}, nil
+			},
+		},
 	}
 	testkit.WireConformanceExecutorSecureSession(t, ex)
 
@@ -389,7 +405,14 @@ func TestCursorSDK_parallelRaceLoserCancel_holdUntilCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	waitForPath(t, active, 5*time.Second)
+	select {
+	case <-slowReady:
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for slow hold barrier: %v", ctx.Err())
+	}
+	if _, err := os.Stat(active); err != nil {
+		t.Fatalf("slow-active missing after hold barrier: %v", err)
+	}
 	col, err := lipapi.Collect(ctx, stream)
 	_ = stream.Close()
 	if err != nil {
@@ -402,18 +425,4 @@ func TestCursorSDK_parallelRaceLoserCancel_holdUntilCancel(t *testing.T) {
 		t.Fatalf("loser cancels=%d want >=1", cancels.Load())
 	}
 	// Direct HistoryMarker proof lives in cursorsdk.TestParallelRace_LoserCancelClearsHistoryMarker_NoCommitRetained.
-}
-
-func waitForPath(t *testing.T, path string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for path %s", path)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }

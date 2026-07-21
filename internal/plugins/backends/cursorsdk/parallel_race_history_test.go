@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,6 +47,30 @@ func (s *raceCancelStream) Cancel(ctx context.Context, cause lipapi.CancelCause)
 	return s.inner.Cancel(ctx, cause)
 }
 func (s *raceCancelStream) Close() error { return s.inner.Close() }
+
+// raceBarrierStream delays the first Recv until waitReady closes so a parallel
+// fast lane cannot win before the slow SDK arm reaches its active barrier.
+type raceBarrierStream struct {
+	waitReady <-chan struct{}
+	waited    atomic.Bool
+	inner     lipapi.ManagedEventStream
+}
+
+func (s *raceBarrierStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s.waitReady != nil && !s.waited.Swap(true) {
+		select {
+		case <-s.waitReady:
+		case <-ctx.Done():
+			return lipapi.Event{}, ctx.Err()
+		}
+	}
+	return s.inner.Recv(ctx)
+}
+
+func (s *raceBarrierStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
+	return s.inner.Cancel(ctx, cause)
+}
+func (s *raceBarrierStream) Close() error { return s.inner.Close() }
 
 func TestParallelRace_LoserCancelClearsHistoryMarker_NoCommitRetained(t *testing.T) {
 	acp.ResetLookPathCache()
@@ -89,6 +114,12 @@ func TestParallelRace_LoserCancelClearsHistoryMarker_NoCommitRetained(t *testing
 	require.NoError(t, err)
 	rt.tracking.AcceptInventory(snap.Models)
 
+	// Fast must not emit until slow Open returns (HoldUntilCancel Path + CommitSend).
+	slowReady := make(chan struct{})
+	var slowReadyOnce sync.Once
+	releaseSlowReady := func() { slowReadyOnce.Do(func() { close(slowReady) }) }
+	t.Cleanup(releaseSlowReady)
+
 	var cancels atomic.Int32
 	var loserKey AgentKey
 	var sawLoserOpen atomic.Bool
@@ -103,6 +134,8 @@ func TestParallelRace_LoserCancelClearsHistoryMarker_NoCommitRetained(t *testing
 		loserKey = key
 		sawLoserOpen.Store(true)
 		require.Greater(t, rt.pool.Marker(key).MessageCount, 0, "CommitSend must land before race cancel")
+		// Path is written before Respond; Open returns after Respond — barrier established.
+		releaseSlowReady()
 		return &raceCancelStream{inner: stream, cancels: &cancels}, nil
 	}
 
@@ -117,12 +150,15 @@ func TestParallelRace_LoserCancelClearsHistoryMarker_NoCommitRetained(t *testing
 		"fast": {
 			Caps: lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 			Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
-				return lipapi.NewFixedEventStream([]lipapi.Event{
-					{Kind: lipapi.EventResponseStarted},
-					{Kind: lipapi.EventMessageStarted},
-					{Kind: lipapi.EventTextDelta, Delta: "fast-wins"},
-					{Kind: lipapi.EventResponseFinished},
-				}), nil
+				return &raceBarrierStream{
+					waitReady: slowReady,
+					inner: lipapi.NewFixedEventStream([]lipapi.Event{
+						{Kind: lipapi.EventResponseStarted},
+						{Kind: lipapi.EventMessageStarted},
+						{Kind: lipapi.EventTextDelta, Delta: "fast-wins"},
+						{Kind: lipapi.EventResponseFinished},
+					}),
+				}, nil
 			},
 		},
 	}
