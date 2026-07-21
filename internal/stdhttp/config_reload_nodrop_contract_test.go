@@ -309,10 +309,5 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 	})
 }
 
-func TestProductionConfigReload_NoDrop_IntegrationRED(t *testing.T) {
-	t.Skip("RED until production GenerationDispatcher + reload coordinator wire into RunWithRuntime")
-}
-
-func TestProductionConfigReload_GenerationPin_IntegrationRED(t *testing.T) {
-	t.Skip("RED until production request-plane generation pinning is mounted on stdhttp")
-}
+// Phase 6.1 production no-drop certification lives in
+// runtime_config_reload_nodrop_cert_test.go (TestRuntimeConfigReload_NoDrop_*).

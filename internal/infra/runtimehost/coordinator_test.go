@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -641,5 +643,315 @@ func TestCoordinator_HostTimeoutIndependentOfClientCancel(t *testing.T) {
 	res := <-done
 	if res.Category != configreload.ResultPublished {
 		t.Fatalf("category=%q after client cancel", res.Category)
+	}
+}
+
+// Phase 6.2 certification: last-good retention across the pre-publication fault
+// matrix (source empty/partial, decode/validate/classify/compile/retention).
+func TestCoordinator_LastGoodFaultMatrix_SourceDecodeClassifyCompileRetention(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		src      *fakeSource
+		loader   runtimehost.EffectiveLoader
+		classify func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error)
+		compile  *controllableCompiler
+		mgrMax   int
+		want     configreload.ResultCategory
+	}{
+		{
+			name: "source_empty",
+			src: &fakeSource{
+				path: "/fixed/startup/config.yaml",
+				err:  &configsource.IntegrityError{Category: configsource.CategoryEmpty},
+			},
+			want: configreload.ResultSourceIntegrity,
+		},
+		{
+			name: "source_partial_unreadable",
+			src: &fakeSource{
+				path: "/fixed/startup/config.yaml",
+				err:  &configsource.IntegrityError{Category: configsource.CategoryPartialUnreadable},
+			},
+			want: configreload.ResultSourceIntegrity,
+		},
+		{
+			name: "source_non_atomic_inplace",
+			src: &fakeSource{
+				path: "/fixed/startup/config.yaml",
+				err:  &configsource.IntegrityError{Category: configsource.CategoryNonAtomicUpdate},
+			},
+			want: configreload.ResultSourceIntegrity,
+		},
+		{
+			name: "decode_malformed_yaml",
+			src: &fakeSource{
+				path:   "/fixed/startup/config.yaml",
+				atomic: configsource.AtomicEligible,
+				snap:   configsource.SourceSnapshot{Bytes: []byte("server: [")},
+			},
+			loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+				return nil, &config.LoadError{Category: config.CategoryMalformedYAML}
+			}),
+			want: configreload.ResultInvalid,
+		},
+		{
+			name: "validate_unknown_core_field",
+			src: &fakeSource{
+				path:   "/fixed/startup/config.yaml",
+				atomic: configsource.AtomicEligible,
+				snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
+			},
+			loader: runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+				return nil, &config.LoadError{Category: config.CategoryUnknownCoreField}
+			}),
+			want: configreload.ResultInvalid,
+		},
+		{
+			name: "classify_restart_required",
+			src: &fakeSource{
+				path:   "/fixed/startup/config.yaml",
+				atomic: configsource.AtomicEligible,
+				snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
+			},
+			classify: func(active, candidate *config.EffectiveConfig) ([]configreload.SafeChange, error) {
+				return nil, &configreload.RestartRequiredError{
+					RestartRequiredFields: []string{"server.address", "plugins.backends"},
+					TotalBlocked:          2,
+				}
+			},
+			want: configreload.ResultRestartRequired,
+		},
+		{
+			name: "compile_preparation_failed",
+			src: &fakeSource{
+				path:   "/fixed/startup/config.yaml",
+				atomic: configsource.AtomicEligible,
+				snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
+			},
+			compile: &controllableCompiler{err: errors.New("factory boom")},
+			want:    configreload.ResultPreparationFailed,
+		},
+		{
+			name: "retention_blocked",
+			src: &fakeSource{
+				path:   "/fixed/startup/config.yaml",
+				atomic: configsource.AtomicEligible,
+				snap:   configsource.SourceSnapshot{Bytes: []byte("x: 1")},
+			},
+			compile: &controllableCompiler{},
+			mgrMax:  0,
+			want:    configreload.ResultRetentionBlocked,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			maxRetained := 8
+			if tc.mgrMax != 0 || tc.name == "retention_blocked" {
+				maxRetained = tc.mgrMax
+			}
+			mgr := runtimehost.NewManager(maxRetained, nil)
+			g0 := mgr.PrepareRequestPlane("startup", newFakePlane(nil))
+			if err := mgr.Publish(g0); err != nil {
+				t.Fatal(err)
+			}
+			loader := tc.loader
+			if loader == nil {
+				loader = runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+					return baseEffective("fp-cand", 9), nil
+				})
+			}
+			compile := tc.compile
+			if compile == nil {
+				compile = &controllableCompiler{}
+			}
+			deps := runtimehost.CoordinatorDeps{
+				Source:          tc.src,
+				Loader:          loader,
+				Classify:        tc.classify,
+				Compile:         compile,
+				Manager:         mgr,
+				Timeout:         time.Second,
+				ActiveEffective: baseEffective("fp-old", 1),
+			}
+			c, err := runtimehost.NewCoordinator(deps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+			if res.Category != tc.want {
+				t.Fatalf("category=%q want %q", res.Category, tc.want)
+			}
+			if mgr.Active().ID() != 1 {
+				t.Fatalf("last-good active mutated to %d", mgr.Active().ID())
+			}
+		})
+	}
+}
+
+func TestCoordinator_LastGood_AtomicRenameThenPublish(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	v1 := []byte("version: one\n")
+	if err := os.WriteFile(path, v1, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := configsource.NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap1, res1, err := src.ReadStable(context.Background(), nil)
+	if err != nil || res1 != configsource.AtomicEligible {
+		t.Fatalf("bootstrap read: res=%q err=%v", res1, err)
+	}
+
+	mgr := runtimehost.NewManager(8, nil)
+	g0 := mgr.PrepareRequestPlane("startup", newFakePlane(map[string]int{"local-stub": 1}))
+	if err := mgr.Publish(g0); err != nil {
+		t.Fatal(err)
+	}
+	compile := &controllableCompiler{kinds: map[string]int{"local-stub": 1}}
+	var loadN atomic.Int64
+	loader := runtimehost.FuncEffectiveLoader(func(_ context.Context, raw []byte) (*config.EffectiveConfig, error) {
+		n := loadN.Add(1)
+		return baseEffective("fp-"+string(raw), byte(n+1)), nil
+	})
+	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
+		Source:   src,
+		Loader:   loader,
+		Compile:  compile,
+		Manager:  mgr,
+		Timeout:  time.Second,
+		ActiveEffective: &config.EffectiveConfig{
+			Config: &config.Config{},
+			Identity: config.EffectiveIdentity{
+				PrivateDigest:     snap1.PrivateDigest,
+				PublicFingerprint: "fp-startup",
+			},
+		},
+		ActiveSource: &configsource.ActiveSourceVersion{
+			HandleIdentity: snap1.HandleIdentity,
+			PrivateDigest:  snap1.PrivateDigest,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// In-place rewrite must retain last-good.
+	if err := os.WriteFile(path, []byte("version: torn\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inplace := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	if inplace.Category != configreload.ResultSourceIntegrity {
+		t.Fatalf("inplace category=%q", inplace.Category)
+	}
+	if mgr.Active().ID() != 1 {
+		t.Fatalf("inplace mutated active=%d", mgr.Active().ID())
+	}
+
+	// Atomic rename replacement is eligible and publishes.
+	tmp := filepath.Join(dir, "config.yaml.tmp")
+	if err := os.WriteFile(tmp, []byte("version: two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+	pub := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	if pub.Category != configreload.ResultPublished {
+		t.Fatalf("atomic rename category=%q reason=%q", pub.Category, pub.ReasonCategory)
+	}
+	if mgr.Active().ID() != 2 {
+		t.Fatalf("active=%d want 2", mgr.Active().ID())
+	}
+}
+
+func TestCoordinator_RestartRequired_MixedNoPartialApply_RequiresRetrigger(t *testing.T) {
+	t.Parallel()
+	activeCfg := &config.Config{
+		Access:  config.AccessConfig{Mode: "single_user"},
+		Server:  config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing: config.RoutingConfig{MaxAttempts: 3, DefaultRoute: "stub:m"},
+	}
+	mixedCfg := &config.Config{
+		Access:  config.AccessConfig{Mode: "multi_user"}, // startup-only
+		Server:  config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing: config.RoutingConfig{MaxAttempts: 5, DefaultRoute: "stub:m"}, // reloadable
+	}
+	fixedCfg := &config.Config{
+		Access:  config.AccessConfig{Mode: "single_user"},
+		Server:  config.ServerConfig{Address: "127.0.0.1:0"},
+		Routing: config.RoutingConfig{MaxAttempts: 5, DefaultRoute: "stub:m"},
+	}
+
+	mgr := runtimehost.NewManager(8, nil)
+	g0 := mgr.PrepareRequestPlane("startup", newFakePlane(map[string]int{"local-stub": 1}))
+	if err := mgr.Publish(g0); err != nil {
+		t.Fatal(err)
+	}
+	compile := &controllableCompiler{kinds: map[string]int{"local-stub": 1}}
+	var candidate atomic.Pointer[config.Config]
+	candidate.Store(mixedCfg)
+	loader := runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+		cfg := candidate.Load()
+		var d [32]byte
+		d[0] = byte(cfg.Routing.MaxAttempts)
+		if cfg.Access.Mode == "multi_user" {
+			d[1] = 9
+		}
+		return &config.EffectiveConfig{
+			Config: cfg,
+			Identity: config.EffectiveIdentity{
+				PrivateDigest:     d,
+				PublicFingerprint: cfg.Access.Mode + "-" + string(rune('0'+cfg.Routing.MaxAttempts)),
+			},
+		}, nil
+	})
+	src := &fakeSource{
+		path:   "/fixed/startup/config.yaml",
+		atomic: configsource.AtomicEligible,
+		snap:   configsource.SourceSnapshot{Bytes: []byte("candidate")},
+	}
+	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
+		Source:          src,
+		Loader:          loader,
+		Classify:        configreload.ClassifyEffective,
+		Compile:         compile,
+		Manager:         mgr,
+		Timeout:         time.Second,
+		ActiveEffective: &config.EffectiveConfig{Config: activeCfg, Identity: config.EffectiveIdentity{PublicFingerprint: "active", PrivateDigest: [32]byte{1}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	if blocked.Category != configreload.ResultRestartRequired {
+		t.Fatalf("mixed category=%q want restart_required", blocked.Category)
+	}
+	if mgr.Active().ID() != 1 {
+		t.Fatalf("partial apply leaked: active=%d", mgr.Active().ID())
+	}
+	if compile.calls.Load() != 0 {
+		t.Fatalf("compile must not run on restart-required, calls=%d", compile.calls.Load())
+	}
+
+	// Correction alone does nothing until an explicit retrigger.
+	candidate.Store(fixedCfg)
+	if mgr.Active().ID() != 1 {
+		t.Fatal("active mutated without retrigger")
+	}
+	pub := c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	if pub.Category != configreload.ResultPublished {
+		t.Fatalf("retrigger after correction category=%q reason=%q", pub.Category, pub.ReasonCategory)
+	}
+	if mgr.Active().ID() != 2 {
+		t.Fatalf("active=%d want 2 after explicit retrigger", mgr.Active().ID())
+	}
+	if compile.calls.Load() != 1 {
+		t.Fatalf("compile calls=%d want 1", compile.calls.Load())
 	}
 }
