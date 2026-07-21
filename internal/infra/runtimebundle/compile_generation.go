@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
@@ -146,17 +147,18 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 	}
 
 	return &GenerationBundle{
-		handler:       handler,
-		executor:      cand.Executor,
-		routing:       FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.RoutePrefixes...)},
-		frontends:     freezePluginConfigs(frozen.Plugins.Frontends),
-		registrations: freezeRegistrations(regs),
-		httpAuth:      append([]httpauth.Provider(nil), authProviders...),
-		models:        cand.ModelRegistryRuntime,
-		catalog:       cand.CatalogRuntime,
-		backendIDs:    backendIDsOf(cand.Executor),
-		ledger:        cand.Ledger,
-		owner:         cand,
+		handler:           handler,
+		executor:          cand.Executor,
+		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.RoutePrefixes...)},
+		frontends:         freezePluginConfigs(frozen.Plugins.Frontends),
+		registrations:     freezeRegistrations(regs),
+		httpAuth:          append([]httpauth.Provider(nil), authProviders...),
+		models:            cand.ModelRegistryRuntime,
+		catalog:           cand.CatalogRuntime,
+		backendIDs:        backendIDsOf(cand.Executor),
+		ledger:            cand.Ledger,
+		owner:             cand,
+		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.TerminalWorkRegistry),
 	}, nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
+	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -41,6 +42,9 @@ type GenerationBundle struct {
 	backendIDs    []string
 	ledger        *ResourceLedger // private; ResourceCount only
 	owner         generationOwner
+	// terminalProviders is an immutable snapshot of terminal effect providers
+	// captured at compile time (task 3.6). It must not share mutable registry state.
+	terminalProviders *terminalworkapp.FrozenTerminalProviders
 
 	quiesceOnce sync.Once
 	quiesceErr  error
@@ -83,6 +87,14 @@ func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
 	ctx = routing.WithNativeModelResolver(ctx, regView)
 	ctx = modelview.WithIdentity(ctx, id)
 	return ctx
+}
+
+// TerminalProviders returns this generation's immutable terminal-effect provider view.
+func (b *GenerationBundle) TerminalProviders() terminalworkapp.TerminalProviderView {
+	if b == nil || b.terminalProviders == nil {
+		return terminalworkapp.SnapshotTerminalProviders(nil)
+	}
+	return b.terminalProviders
 }
 
 // Handler returns the generation request-plane handler (no listener).

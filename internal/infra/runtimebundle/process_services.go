@@ -277,7 +277,13 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 	ps.AffinityStore = &processAffinityHandle{reg: shared.affinity}
 	ps.CandidateHealth = shared.underlyingHealth
 
-	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency)
+	// Snapshot binder before terminal workers so IntentService/reconciler receive
+	// executable pending ownership without a post-start setter race.
+	snapGen, snapCtrl := buildSnapshotGeneration(in.Cfg, in.Opts.Testing, in.Opts.Production)
+	ps.SnapshotGeneration = snapGen
+	ps.SnapshotController = snapCtrl
+
+	twRT, twClosers, err := buildTerminalWorkWithSetReconcile(parent, in.Opts.Production, nowFn, ps.Metrics, ps.Concurrency, snapGen)
 	for _, c := range twClosers {
 		register(c)
 	}
@@ -290,13 +296,6 @@ func NewProcessServices(ctx context.Context, in ProcessServicesInput) (*ProcessS
 		ps.TerminalWorkRegistry = twRT.Registry
 		ps.TerminalWorkQueries = twRT.Queries
 		ps.TerminalWorkMetrics = twRT.Metrics
-	}
-
-	snapGen, snapCtrl := buildSnapshotGeneration(in.Cfg, in.Opts.Testing, in.Opts.Production)
-	ps.SnapshotGeneration = snapGen
-	ps.SnapshotController = snapCtrl
-	if twRT != nil {
-		twRT.bindSnapshotPublisher(snapGen)
 	}
 
 	ps.DecodeAdmission = decodeqos.New(

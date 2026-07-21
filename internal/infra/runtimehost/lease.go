@@ -58,6 +58,28 @@ func (l *Lease) TransferPin(kind PinKind) (*Pin, bool) {
 	return &Pin{gen: l.gen, kind: kind}, true
 }
 
+// RetainPin acquires an additional independent generation pin while this lease
+// still holds spawn rights (req 5.3, 5.7, 10.3). Unlike TransferPin, the lease
+// retain is preserved so multiple terminal/async dependents can each hold a pin.
+// Invalid kinds and post-release attempts fail closed without consuming ownership.
+func (l *Lease) RetainPin(kind PinKind) (*Pin, bool) {
+	if l == nil || l.gen == nil || !validTransferPinKind(kind) {
+		return nil, false
+	}
+	if l.released.Load() {
+		return nil, false
+	}
+	if !l.gen.tryRetainWhileBound() {
+		return nil, false
+	}
+	// Lease may have released between the checks and retain; roll back.
+	if l.released.Load() {
+		l.gen.releaseRef()
+		return nil, false
+	}
+	return &Pin{gen: l.gen, kind: kind}, true
+}
+
 func validTransferPinKind(kind PinKind) bool {
 	switch kind {
 	case PinSSE, PinAsync, PinProvider:

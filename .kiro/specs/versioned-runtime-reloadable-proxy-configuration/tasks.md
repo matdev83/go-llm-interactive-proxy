@@ -176,7 +176,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 3.3, 3.4_
   - _Validation: `go test -race ./internal/core/modelregistry/... ./internal/core/modelcatalog/... ./internal/core/runtime/... ./internal/core/routing/... -run 'BoundModel|Generation|Refresh|Failover|Parallel'`_
 
-- [ ] 3.6 Transfer generation ownership to terminal and asynchronous work
+- [x] 3.6 Transfer generation ownership to terminal and asynchronous work
   - Retain a generation/provider pin before heartbeats, finalizers, auxiliary work, or terminal intents outlive the HTTP lease.
   - Integrate retained generation/provider lookup with existing executable policy generation and terminal-work ownership without conflating their IDs.
   - Clear pins exactly once on terminal completion, durable handoff completion, or provider resolution.

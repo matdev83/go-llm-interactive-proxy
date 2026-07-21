@@ -16,12 +16,14 @@ mapfile -t hits < <(
 # Exact-path allowlist for intentional owned workers / stream pumps only.
 # internal/core/terminalwork/app/processor.go: Start/Run/Shutdown owner, ProcessDue
 # claim fan-out, per-claim renew loop, and tick/renew ticker pumps (Phase 4.4).
+# internal/core/terminalwork/app/ambiguous_append_reconciler.go: one process-owned
+# worker draining WorkID-keyed ambiguous append ownership (task 3.6 remediation B).
 # internal/infra/runtimehost/shutdown.go: bounded fan-out retiring retained
 # generations concurrently so one pinned generation cannot stall unrelated drains.
 bad=()
 for f in "${hits[@]}"; do
 	case "$f" in
-	internal/stdhttp/server.go | internal/stdhttp/generation_host.go | internal/infra/runtimehost/shutdown.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | internal/plugins/backends/acp/transport_stdio.go | internal/plugins/backends/cursorsdk/bridge_process.go | internal/plugins/backends/cursorsdk/fakebridge/harness.go | internal/core/terminalwork/app/processor.go) ;;
+	internal/stdhttp/server.go | internal/stdhttp/generation_host.go | internal/infra/runtimehost/shutdown.go | internal/core/stream/keepalive.go | internal/core/runtime/parallel_race.go | internal/core/runtime/lease_heartbeat.go | internal/core/extensions/decision_timeout.go | internal/plugins/frontends/holdalive/wait.go | internal/infra/runtimebundle/modelcatalog_refresh_loop.go | internal/plugins/backends/acp/transport_stdio.go | internal/plugins/backends/cursorsdk/bridge_process.go | internal/plugins/backends/cursorsdk/fakebridge/harness.go | internal/core/terminalwork/app/processor.go | internal/core/terminalwork/app/ambiguous_append_reconciler.go) ;;
 	*) bad+=("$f") ;;
 	esac
 done

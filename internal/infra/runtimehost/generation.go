@@ -50,6 +50,7 @@ type MetaHints struct {
 // It never carries private digests, mutable config, or mixed Built handles.
 type GenerationMeta struct {
 	ID                int64
+	InstanceID        string // opaque Manager process incarnation (task 3.6)
 	PreviousID        int64
 	Label             string
 	PublicFingerprint string
@@ -345,6 +346,36 @@ func (g *Generation) tryRetain() bool {
 	}
 }
 
+// tryRetainWhileBound increments ownership for a child pin while a request lease
+// (or transferred pin path) already proves the generation is still live.
+// Active and post-retirement drain states with outstanding refs are allowed so
+// a publication race cannot close the generation between child-pin acquisition
+// and use. New acquires after drain/close fail closed.
+func (g *Generation) tryRetainWhileBound() bool {
+	if g == nil {
+		return false
+	}
+	for {
+		cur := g.word.Load()
+		st, refs := unpackLease(cur)
+		if !childRetainable(st) || refs == 0 || refs == ^uint32(0) {
+			return false
+		}
+		if g.word.CompareAndSwap(cur, packLease(st, refs+1)) {
+			return true
+		}
+	}
+}
+
+func childRetainable(st GenLifecycle) bool {
+	switch st {
+	case GenActive, GenRetiring, GenQuiescing, GenQuiesced:
+		return true
+	default:
+		return false
+	}
+}
+
 func (g *Generation) releaseRef() {
 	for {
 		cur := g.word.Load()
@@ -515,6 +546,17 @@ func (g *Generation) assignPublish(id, prev int64, publishedAt time.Time) error 
 	g.meta.PreviousID = prev
 	g.meta.PublishedAt = publishedAt
 	g.meta.Label = g.label
+	g.metaMu.Unlock()
+	return nil
+}
+
+// assignPublishWithInstance assigns publish metadata including manager instance ID.
+func (g *Generation) assignPublishWithInstance(id, prev int64, instanceID string, publishedAt time.Time) error {
+	if err := g.assignPublish(id, prev, publishedAt); err != nil {
+		return err
+	}
+	g.metaMu.Lock()
+	g.meta.InstanceID = instanceID
 	g.metaMu.Unlock()
 	return nil
 }

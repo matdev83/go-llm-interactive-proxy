@@ -104,6 +104,12 @@ var closerAcquisitionOwnership = []ownershipEntry{
 		Notes:  "Process terminal-work processor Shutdown closer.",
 	},
 	{
+		Symbol: "terminal_work.go:buildTerminalWorkRuntime:acq#1:append(closers, func:context.WithTimeout|context.Background|cancel|reconciler.Shutdown)#0",
+		Class:  ownershipProcess,
+		Source: "terminal_work.go → buildTerminalWorkRuntime",
+		Notes:  "Process ambiguous-append reconciler Shutdown closer (before processor on reverse dispose).",
+	},
+	{
 		Symbol: "token_accounting.go:buildProcessAccountingStores:acq#0:append(closers, closeFn)#0",
 		Class:  ownershipProcess,
 		Source: "token_accounting.go → buildProcessAccountingStores",

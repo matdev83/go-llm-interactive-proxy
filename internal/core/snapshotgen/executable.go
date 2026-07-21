@@ -43,9 +43,10 @@ type ExecutableGeneration struct {
 	MaxActiveRequests int
 	RatingObjectID    string
 
-	liveRefs   atomic.Int64
-	pendingMu  sync.Mutex
-	pendingRef map[string]int
+	liveRefs    atomic.Int64
+	pendingMu   sync.Mutex
+	pendingRef  map[string]int    // providerID -> count (compat + CanRemoveProvider)
+	pendingWork map[string]string // workID -> providerID (idempotent WorkID ownership)
 }
 
 // ValidateComplete rejects metadata-only generations that lack executable objects.
@@ -133,6 +134,7 @@ func (g *ExecutableGeneration) LiveRefs() int64 {
 }
 
 // AddPendingProvider tracks pending terminal-work references to a provider ID.
+// Prefer AddPendingWork for WorkID-keyed idempotent ownership (task 3.6).
 func (g *ExecutableGeneration) AddPendingProvider(providerID string) {
 	if g == nil {
 		return
@@ -147,6 +149,35 @@ func (g *ExecutableGeneration) AddPendingProvider(providerID string) {
 		g.pendingRef = make(map[string]int)
 	}
 	g.pendingRef[id]++
+}
+
+// AddPendingWork registers idempotent pending ownership for one WorkID.
+// Returns false when workID was already present (no refcount bump).
+func (g *ExecutableGeneration) AddPendingWork(workID, providerID string) bool {
+	if g == nil {
+		return false
+	}
+	workID = strings.TrimSpace(workID)
+	providerID = strings.TrimSpace(providerID)
+	if workID == "" {
+		return false
+	}
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	if g.pendingWork == nil {
+		g.pendingWork = make(map[string]string)
+	}
+	if _, exists := g.pendingWork[workID]; exists {
+		return false
+	}
+	g.pendingWork[workID] = providerID
+	if providerID != "" {
+		if g.pendingRef == nil {
+			g.pendingRef = make(map[string]int)
+		}
+		g.pendingRef[providerID]++
+	}
+	return true
 }
 
 // ClearPendingProvider decrements a pending provider reference.
@@ -166,6 +197,43 @@ func (g *ExecutableGeneration) ClearPendingProvider(providerID string) {
 		return
 	}
 	g.pendingRef[id] = cur - 1
+}
+
+// ClearPendingWork clears WorkID-keyed pending ownership exactly once.
+func (g *ExecutableGeneration) ClearPendingWork(workID string) {
+	if g == nil {
+		return
+	}
+	workID = strings.TrimSpace(workID)
+	if workID == "" {
+		return
+	}
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	providerID, ok := g.pendingWork[workID]
+	if !ok {
+		return
+	}
+	delete(g.pendingWork, workID)
+	if providerID == "" {
+		return
+	}
+	cur := g.pendingRef[providerID]
+	if cur <= 1 {
+		delete(g.pendingRef, providerID)
+		return
+	}
+	g.pendingRef[providerID] = cur - 1
+}
+
+// PendingWorkCount reports outstanding WorkID-keyed pending entries.
+func (g *ExecutableGeneration) PendingWorkCount() int {
+	if g == nil {
+		return 0
+	}
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	return len(g.pendingWork)
 }
 
 // PendingProviderIDs returns provider IDs with outstanding pending work.

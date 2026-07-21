@@ -1,7 +1,10 @@
 package runtimehost
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,6 +12,7 @@ import (
 
 // Manager is the production generation publication and acquire surface (req 5.2-5.4, 10, 15).
 type Manager struct {
+	instanceID      string
 	active          atomic.Pointer[Generation]
 	nextID          atomic.Int64
 	maxRetained     int
@@ -20,12 +24,40 @@ type Manager struct {
 }
 
 // NewManager constructs a manager with a finite retained-generation budget (req 10.8).
-// clock may be nil.
+// clock may be nil. A cryptographically random opaque instance ID is assigned once
+// for this manager/process incarnation (task 3.6).
 func NewManager(maxRetained int, clock *ManualClock) *Manager {
+	return NewManagerWithInstanceID(maxRetained, clock, newRuntimeInstanceID())
+}
+
+// NewManagerWithInstanceID is the deterministic constructor/test seam for a fixed
+// opaque runtime instance identity. Empty instanceID falls back to a random one.
+func NewManagerWithInstanceID(maxRetained int, clock *ManualClock, instanceID string) *Manager {
 	if maxRetained < 0 {
 		maxRetained = 0
 	}
-	return &Manager{maxRetained: maxRetained, clock: clock}
+	instanceID = strings.TrimSpace(instanceID)
+	if instanceID == "" {
+		instanceID = newRuntimeInstanceID()
+	}
+	return &Manager{maxRetained: maxRetained, clock: clock, instanceID: instanceID}
+}
+
+// InstanceID returns the opaque process/manager incarnation identity.
+func (m *Manager) InstanceID() string {
+	if m == nil {
+		return ""
+	}
+	return m.instanceID
+}
+
+func newRuntimeInstanceID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Extremely unlikely; still produce a non-empty collision-resistant-ish id.
+		return hex.EncodeToString([]byte(time.Now().UTC().Format(time.RFC3339Nano)))
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // Prepare creates a prepared candidate with no generation-owned payload.
@@ -83,6 +115,35 @@ func (m *Manager) HasOpenGenerations() bool {
 		}
 	}
 	return false
+}
+
+// GenerationByID returns an active or retained generation with the given id, or nil.
+// Used by terminal-work generation-bound provider resolution (task 3.6).
+func (m *Manager) GenerationByID(id int64) *Generation {
+	return m.GenerationByIdentity(m.instanceID, id)
+}
+
+// GenerationByIdentity returns an open generation only when both the manager
+// instance ID and numeric generation ID match exactly (task 3.6 restart safety).
+func (m *Manager) GenerationByIdentity(instanceID string, id int64) *Generation {
+	if m == nil || id <= 0 {
+		return nil
+	}
+	instanceID = strings.TrimSpace(instanceID)
+	if instanceID == "" || instanceID != m.instanceID {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if g := m.active.Load(); g != nil && g.ID() == id && g.Lifecycle() != GenClosed {
+		return g
+	}
+	for _, g := range m.retained {
+		if g != nil && g.ID() == id && g.Lifecycle() != GenClosed {
+			return g
+		}
+	}
+	return nil
 }
 
 // ClockNow returns the manager clock instant, or zero if unset.
@@ -177,7 +238,7 @@ func (m *Manager) Publish(candidate *Generation) error {
 			if m.clock != nil {
 				publishedAt = m.clock.Now()
 			}
-			if err := candidate.assignPublish(id, prevID, publishedAt); err != nil {
+			if err := candidate.assignPublishWithInstance(id, prevID, m.instanceID, publishedAt); err != nil {
 				m.mu.Unlock()
 				return err
 			}

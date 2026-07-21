@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
@@ -28,6 +29,8 @@ type TerminalWorkReadiness struct {
 	BacklogKnown bool
 	// Backlog is outstanding terminal-work count from MetricsObserver.
 	Backlog int
+	// ReconcilerPending is unique WorkIDs owned by the ambiguous-append reconciler.
+	ReconcilerPending int
 	// ErrorCode is an operator-safe code (never raw store/snapshot error text).
 	ErrorCode string
 }
@@ -35,13 +38,16 @@ type TerminalWorkReadiness struct {
 // terminalWorkRuntime is composition-root ownership for terminal-work recovery
 // (tasks 4.4–4.5): processor, intents, queries, metrics, and readiness.
 type terminalWorkRuntime struct {
-	Processor *terminalworkapp.Processor
-	Registry  *terminalworkapp.Registry
-	Store     terminalworkapp.RecoveryStore
-	Intents   *terminalworkapp.IntentService
-	Queries   *terminalworkapp.QueryService
-	Metrics   *terminalworkapp.MetricsObserver
+	Processor  *terminalworkapp.Processor
+	Registry   *terminalworkapp.Registry
+	Store      terminalworkapp.RecoveryStore
+	Intents    *terminalworkapp.IntentService
+	Queries    *terminalworkapp.QueryService
+	Metrics    *terminalworkapp.MetricsObserver
+	Pins       *terminalworkapp.GenerationPinTracker
+	Reconciler *terminalworkapp.AmbiguousAppendReconciler
 
+	genResolver  *generationPresentResolver
 	checkReady   func(context.Context) error
 	storeBacking string
 	clock        func() time.Time
@@ -49,21 +55,61 @@ type terminalWorkRuntime struct {
 	snapshotPub  *snapshotgen.Publisher
 }
 
+// BindGenerationManager wires generation presence lookup for exact
+// RuntimeInstanceID + RuntimeGenerationID terminal-work rows (task 3.6).
+func (rt *terminalWorkRuntime) BindGenerationManager(mgr *runtimehost.Manager) {
+	if rt == nil || rt.genResolver == nil || mgr == nil {
+		return
+	}
+	rt.genResolver.SetLookup(mgr.GenerationByIdentity)
+}
+
 func (rt *terminalWorkRuntime) bindSnapshotPublisher(pub *snapshotgen.Publisher) {
 	if rt == nil {
 		return
 	}
 	rt.snapshotPub = pub
+	binder := snapshotPendingBinder{pub: pub}
+	if rt.Intents != nil && pub != nil {
+		rt.Intents.SetExecutablePending(binder)
+	}
+	if rt.Reconciler != nil && pub != nil {
+		rt.Reconciler.SetExecutablePending(binder)
+	}
 	if rt.Processor == nil || pub == nil {
 		return
 	}
-	rt.Processor.SetOnTerminalDone(func(rec terminalwork.WorkRecord) {
-		gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.GenerationID), 10, 64)
+	// Compose rather than overwrite: pin release stays on GenerationPins;
+	// this clears WorkID-keyed executable pending as a safety net (idempotent
+	// with tracker clearExec).
+	rt.Processor.AddOnTerminalDone(func(rec terminalwork.WorkRecord) {
+		gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.ExecutableGenerationID()), 10, 64)
 		if err != nil || gid <= 0 {
 			return
 		}
-		pub.ClearPendingProvider(gid, rec.ProviderID)
+		pub.ClearPendingWork(gid, rec.WorkID)
 	})
+}
+
+type snapshotPendingBinder struct {
+	pub *snapshotgen.Publisher
+}
+
+func (b snapshotPendingBinder) Bind(workID string, versions terminalwork.BoundVersions) (func(), bool) {
+	if b.pub == nil {
+		return nil, false
+	}
+	workID = strings.TrimSpace(workID)
+	gid, err := strconv.ParseInt(strings.TrimSpace(versions.ExecutableGenerationID()), 10, 64)
+	if err != nil || gid <= 0 || workID == "" {
+		return nil, false
+	}
+	if !b.pub.AddPendingWork(gid, workID, versions.ProviderID) {
+		// Idempotent no-op: do not return a clear handle that could clear the
+		// winner's existing WorkID hold.
+		return nil, false
+	}
+	return func() { b.pub.ClearPendingWork(gid, workID) }, true
 }
 
 type terminalWorkBuildInput struct {
@@ -82,7 +128,7 @@ type terminalWorkBuildInput struct {
 	SnapshotPub   *snapshotgen.Publisher
 }
 
-func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle) (
+func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.Time, bundle *metrics.Bundle, snapshotPub *snapshotgen.Publisher) (
 	*terminalWorkRuntime,
 	[]func() error,
 	error,
@@ -111,6 +157,7 @@ func buildTerminalWorkFromProduction(prod ProductionOptions, clock func() time.T
 		Clock:         clock,
 		StoreBacking:  "injected",
 		Prom:          prom,
+		SnapshotPub:   snapshotPub,
 	})
 }
 
@@ -221,23 +268,29 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	metricsObs := terminalworkapp.NewMetricsObserver(in.Store, terminalworkapp.MetricsConfig{Clock: clock})
+	pins := terminalworkapp.NewGenerationPinTracker()
+	genResolver := &generationPresentResolver{}
 	cfg := terminalworkapp.Config{
-		OwnerID:        owner,
-		ClaimTTL:       claimTTL,
-		ClaimLimit:     in.ClaimLimit,
-		GlobalMax:      in.GlobalMax,
-		PerProviderMax: in.PerProvMax,
-		TickInterval:   tickInterval,
-		RenewInterval:  renewInterval,
-		Clock:          clockFunc{now: clock},
+		OwnerID:            owner,
+		ClaimTTL:           claimTTL,
+		ClaimLimit:         in.ClaimLimit,
+		GlobalMax:          in.GlobalMax,
+		PerProviderMax:     in.PerProvMax,
+		TickInterval:       tickInterval,
+		RenewInterval:      renewInterval,
+		Clock:              clockFunc{now: clock},
+		GenerationPins:     pins,
+		GenerationResolver: genResolver,
 	}
+	var execPending terminalworkapp.ExecutablePendingBinder
 	if pub := in.SnapshotPub; pub != nil {
+		execPending = snapshotPendingBinder{pub: pub}
 		cfg.OnTerminalDone = func(rec terminalwork.WorkRecord) {
-			gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.GenerationID), 10, 64)
+			gid, err := strconv.ParseInt(strings.TrimSpace(rec.Versions.ExecutableGenerationID()), 10, 64)
 			if err != nil || gid <= 0 {
 				return
 			}
-			pub.ClearPendingProvider(gid, rec.ProviderID)
+			pub.ClearPendingWork(gid, rec.WorkID)
 		}
 	}
 	if obs := newTerminalWorkProcessObserver(metricsObs, in.Prom); obs != nil {
@@ -247,17 +300,41 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("runtimebundle: terminal work processor: %w", err)
 	}
+
+	var reconciler *terminalworkapp.AmbiguousAppendReconciler
+	if as, ok := any(in.Store).(terminalworkapp.AmbiguousAppendStore); ok {
+		reconciler, err = terminalworkapp.NewAmbiguousAppendReconciler(as, terminalworkapp.AmbiguousAppendReconcilerConfig{
+			Clock:             clock,
+			Pins:              pins,
+			ExecutablePending: execPending,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("runtimebundle: ambiguous append reconciler: %w", err)
+		}
+	}
+
 	backing := strings.TrimSpace(in.StoreBacking)
 	if backing == "" {
 		backing = "injected"
+	}
+	intentCfg := terminalworkapp.IntentServiceConfig{
+		Clock:             clock,
+		Pins:              pins,
+		ExecutablePending: execPending,
+	}
+	if reconciler != nil {
+		intentCfg.AmbiguousHandoff = reconciler
 	}
 	rt := &terminalWorkRuntime{
 		Processor:    proc,
 		Registry:     reg,
 		Store:        in.Store,
-		Intents:      terminalworkapp.NewIntentService(in.Store, terminalworkapp.IntentServiceConfig{Clock: clock}),
+		Intents:      terminalworkapp.NewIntentService(in.Store, intentCfg),
 		Queries:      terminalworkapp.NewQueryService(in.Store),
 		Metrics:      metricsObs,
+		Pins:         pins,
+		Reconciler:   reconciler,
+		genResolver:  genResolver,
 		storeBacking: backing,
 		clock:        clock,
 		prom:         in.Prom,
@@ -268,15 +345,40 @@ func buildTerminalWorkRuntime(in terminalWorkBuildInput) (*terminalWorkRuntime, 
 	}); ok {
 		rt.checkReady = ready.CheckReadiness
 	}
+
+	// Start reconciler before processor so ambiguous handoffs are live when
+	// the claim worker begins. Partial-start rollback closes started workers.
+	reconcilerStarted := false
+	if reconciler != nil {
+		if err := reconciler.Start(); err != nil {
+			return nil, nil, fmt.Errorf("runtimebundle: ambiguous append reconciler start: %w", err)
+		}
+		reconcilerStarted = true
+	}
 	if err := proc.Start(context.Background()); err != nil {
+		if reconcilerStarted {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = reconciler.Shutdown(ctx)
+			cancel()
+		}
 		return nil, nil, fmt.Errorf("runtimebundle: terminal work start: %w", err)
 	}
+
+	// disposeClosers runs reverse order: register processor first, reconciler
+	// second so shutdown drains reconciler before stopping the processor.
 	closers := []func() error{
 		func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			return proc.Shutdown(ctx)
 		},
+	}
+	if reconciler != nil {
+		closers = append(closers, func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return reconciler.Shutdown(ctx)
+		})
 	}
 	return rt, closers, nil
 }
@@ -291,6 +393,9 @@ func (rt *terminalWorkRuntime) Readiness(ctx context.Context) TerminalWorkReadin
 	snap := rt.Processor.Readiness()
 	out.Running = snap.Running
 	out.UnresolvedProviderIDs = append([]string(nil), snap.UnresolvedProviderIDs...)
+	if rt.Reconciler != nil {
+		out.ReconcilerPending = rt.Reconciler.Pending()
+	}
 	if rt.snapshotPub != nil {
 		for _, id := range rt.snapshotPub.UnresolvedProviderIDs() {
 			out.UnresolvedProviderIDs = appendUniqueString(out.UnresolvedProviderIDs, id)
@@ -397,7 +502,7 @@ func (rt *terminalWorkRuntime) readinessComponent(ctx context.Context) (controlp
 		return row, nil
 	}
 	_ = rt.publishMetrics(ctx)
-	if metricsSnap.Backlog > 0 {
+	if metricsSnap.Backlog > 0 || (rt.Reconciler != nil && rt.Reconciler.Pending() > 0) {
 		row.State = controlplane.CapabilityDegraded
 		row.Reason = controlplane.ReasonPendingTerminalWork
 		return row, nil

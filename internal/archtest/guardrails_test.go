@@ -179,7 +179,20 @@ var lineBudgets = []struct {
 	// Raised from 66250 to 66700 for task 3.5 repair: multi-state native
 	// binding, monotonic allowlists, recv-bound model views, modelview
 	// aggregate identity (measured non-test total 66624; ~76 lines headroom).
-	{"internal/core", 66700},
+	// Raised from 66700 to 66950 for task 3.6: runtime-generation pin tracker,
+	// request-context pin prepare helper, and BoundVersions runtime identity
+	// accessors for durable terminal/async ownership (req 5.3, 10.3, 10.7;
+	// measured non-test total 66847; ~103 lines headroom).
+	// Raised from 66950 to 67400 for task 3.6 pass-2: runtime instance ID,
+	// AppendIntent reconciliation, WorkID executable pending, aux stream pin,
+	// and synchronized terminal-done callbacks (measured 67287; ~113 headroom).
+	// Raised from 67400 to 67900 for task 3.6 remediation A: adoption
+	// reservation/MarkTerminal state machine, AppendIntentOutcome seam, and
+	// AmbiguousAppendHandoff wiring (measured 67702; ~198 headroom).
+	// Raised from 67900 to 68500 for task 3.6 remediation B: process-owned
+	// AmbiguousAppendReconciler worker and IntentService handoff (measured
+	// 68303; ~197 headroom).
+	{"internal/core", 68500},
 	{"internal/pluginreg", 4500},
 	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
 	// generation request-plane composer (ComposeRequestPlane) without listener
@@ -238,7 +251,9 @@ var lineBudgets = []struct {
 	// generation bootstrap host (ProcessServices + CompileGeneration + Manager
 	// publish of generation 1) without Built (measured non-test total 9211;
 	// ~139 lines headroom).
-	{"internal/infra/runtimebundle", 9350},
+	// Raised from 9350 to 9550 for task 3.6: generation-local terminal provider
+	// resolver + GenerationBundle provider snapshot (measured 9417; ~133 headroom).
+	{"internal/infra/runtimebundle", 9550},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

@@ -6,10 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execctx"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auxiliary"
+	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/genpin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
 
@@ -68,7 +71,26 @@ func (c Client) Stream(ctx context.Context, req auxiliary.Request) (lipapi.Event
 	}
 	encodeLineage(&work, req)
 
-	return run.Execute(childCtx, &work)
+	var pin genpin.Pin
+	if ret, ok := genpin.FromContext(ctx); ok && ret != nil {
+		p, retained := ret.Retain(genpin.KindAsync)
+		if !retained || p == nil {
+			return nil, fmt.Errorf("auxreq: runtime generation pin retain failed: %w", lipapi.ErrInvalidCall)
+		}
+		pin = p
+	}
+
+	stream, err := run.Execute(childCtx, &work)
+	if err != nil {
+		if pin != nil {
+			pin.Release()
+		}
+		return nil, err
+	}
+	if pin == nil {
+		return stream, nil
+	}
+	return &pinnedEventStream{inner: stream, pin: pin}, nil
 }
 
 func (c Client) Collect(ctx context.Context, req auxiliary.Request) (lipapi.Collected, error) {
@@ -77,6 +99,43 @@ func (c Client) Collect(ctx context.Context, req auxiliary.Request) (lipapi.Coll
 		return lipapi.Collected{}, err
 	}
 	return lipapi.Collect(ctx, s)
+}
+
+// pinnedEventStream releases a generation pin exactly once on terminal Recv
+// outcome (EOF/error) or Close. Concurrent Close+Recv cannot underflow.
+type pinnedEventStream struct {
+	inner lipapi.EventStream
+	pin   genpin.Pin
+	once  sync.Once
+}
+
+func (s *pinnedEventStream) release() {
+	s.once.Do(func() {
+		if s.pin != nil {
+			s.pin.Release()
+		}
+	})
+}
+
+func (s *pinnedEventStream) Recv(ctx context.Context) (lipapi.Event, error) {
+	if s == nil || s.inner == nil {
+		s.release()
+		return lipapi.Event{}, io.EOF
+	}
+	ev, err := s.inner.Recv(ctx)
+	if err != nil {
+		s.release()
+	}
+	return ev, err
+}
+
+func (s *pinnedEventStream) Close() error {
+	var err error
+	if s != nil && s.inner != nil {
+		err = s.inner.Close()
+	}
+	s.release()
+	return err
 }
 
 func childAuxTraceID(parent string) string {
@@ -116,3 +175,4 @@ func encodeLineage(call *lipapi.Call, req auxiliary.Request) {
 }
 
 var _ auxiliary.Client = Client{}
+var _ lipapi.EventStream = (*pinnedEventStream)(nil)
