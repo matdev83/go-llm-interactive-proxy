@@ -123,7 +123,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 - [ ] 3. Build the generation publication and request-binding path
 
-- [ ] 3.1 Implement race-safe generation state, lease, and atomic manager
+- [x] 3.1 Implement race-safe generation state, lease, and atomic manager
   - Implement prepared/active/retiring/quiesced/drained/closing/closed transitions.
   - Implement active pointer acquire with retain and pointer recheck.
   - Add transferable request/async/provider pins and one drained notification.

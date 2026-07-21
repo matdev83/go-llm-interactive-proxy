@@ -114,7 +114,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 		}
 		close(hold)
 		if a, b := <-out, <-out; a != "1" || b != "1" {
-			t.Fatalf("in-flight=%s %s active=%s", a, b, m.Active().Label)
+			t.Fatalf("in-flight=%s %s active=%s", a, b, m.Active().Label())
 		}
 		res, err := client.Get(srv.URL + "/s")
 		if err != nil {
@@ -155,8 +155,8 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 		if _, err := d.PublishWithHandler("g2", genEchoHandler("g2")); err != nil {
 			t.Fatal(err)
 		}
-		if m.Active().Label != "g2" {
-			t.Fatal(m.Active().Label)
+		if m.Active().Label() != "g2" {
+			t.Fatal(m.Active().Label())
 		}
 		close(resume)
 		var lines []string
@@ -302,8 +302,8 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 		if _, err := d.PublishWithHandler("g1", genEchoHandler("g1")); err != nil {
 			t.Fatal(err)
 		}
-		before := m.Active().ID
-		if m.Active().ID != before {
+		before := m.Active().ID()
+		if m.Active().ID() != before {
 			t.Fatal("mutated without publish")
 		}
 	})

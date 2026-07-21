@@ -57,12 +57,12 @@ func (d *RefGenerationDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 	defer lease.Release()
 	gen := lease.Generation()
-	h, ok := d.Handlers.Get(gen.Label)
+	h, ok := d.Handlers.Get(gen.Label())
 	if !ok {
 		http.Error(w, "missing generation handler", http.StatusInternalServerError)
 		return
 	}
-	h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), generationCtxKey{}, gen.ID)))
+	h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), generationCtxKey{}, gen.ID())))
 }
 
 func (d *RefGenerationDispatcher) PublishWithHandler(label string, h http.Handler) (*runtimehost.RefGeneration, error) {
