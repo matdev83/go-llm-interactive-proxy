@@ -121,7 +121,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 ## Phase 3: Implement Immutable Generations and Stable Serving
 
-- [ ] 3. Build the generation publication and request-binding path
+- [x] 3. Build the generation publication and request-binding path
 
 - [x] 3.1 Implement race-safe generation state, lease, and atomic manager
   - Implement prepared/active/retiring/quiesced/drained/closing/closed transitions.
@@ -320,9 +320,9 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 ## Phase 6: Full-Stack Certification, Documentation, and Release Gates
 
-- [ ] 6. Certify production behavior and migration
+- [x] 6. Certify production behavior and migration
 
-- [ ] 6.1 Prove zero-drop HTTP and streaming behavior under publication
+- [x] 6.1 Prove zero-drop HTTP and streaming behavior under publication
   - Run HTTP/1.1 keep-alive, HTTP/2 multiplexing, SSE, non-streaming, cancellation, failover, parallel race, pre-output error, and post-output error scenarios.
   - Assert old requests use only old auth/hooks/routes/backends/models and new requests use only new components.
   - Assert listener identity, connection reuse, event order, terminal count, B2BUA lineage, post-publication cancellation of an old A-leg, and no-retry-after-output.
@@ -332,7 +332,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 4.1-4.6, 5.1-5.6_
   - _Validation: `go test -race ./internal/stdhttp/... ./internal/core/runtime/... -run 'RuntimeConfigReload.*NoDrop|HTTP2|SSE|Failover|Parallel'`_
 
-- [ ] 6.2 Prove last-good rollback and restart-required behavior
+- [x] 6.2 Prove last-good rollback and restart-required behavior
   - Fault every source, decode, validation, diff, factory, model, lifecycle, handler mount, retention, quiesce, close, and shutdown stage.
   - Include empty/partial file from in-place write and safe atomic rename replacement.
   - Verify mixed reloadable/startup-only changes never partially apply and require another explicit trigger after correction.
@@ -342,7 +342,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 5.1, 6.1_
   - _Validation: `go test -race ./internal/core/configreload/... ./internal/infra/runtimehost/... ./internal/infra/runtimebundle/... ./internal/stdhttp/... -run 'LastGood|Rollback|RestartRequired|AtomicRename|FaultMatrix'`_
 
-- [ ] 6.3 Prove dynamic component and adjacent plugin compatibility
+- [x] 6.3 Prove dynamic component and adjacent plugin compatibility
   - Add/change/remove every generic compatible kind and representative built-in backend instances.
   - Recompose frontend and feature rows, auth records, routes, aliases, models, and request-plane limits.
   - Where backend executable plugins are implemented, activate an already discovered kind and prove old/new instance overlap.
@@ -353,7 +353,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 4.1-4.5_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/plugins/... ./internal/pluginreg/... ./internal/stdhttp/... -run 'Reload.*Dynamic|Generic|Discovered|NoInstall|NoWatcher'`_
 
-- [ ] 6.4 Run race, leak, fuzz, benchmark, and bounded soak evidence
+- [x] 6.4 Run race, leak, fuzz, benchmark, and bounded soak evidence
   - Run focused Linux race tests for publication/acquire/pin/shutdown and the default race gate.
   - Run goleak suites for host, signal, model loops, terminal work, and lifecycle rollback.
   - Fuzz config source, strict YAML, effective canonicalization, reload diff, management decode, and coordinator state transitions.
@@ -365,7 +365,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 6.1-6.3_
   - _Validation: `make test-race && make test-fuzz && make bench && go test -tags=precommit -run TestRuntimeConfigReloadSoak ./internal/stdhttp/...`_
 
-- [ ] 6.5 Update configuration schema, operator docs, ADRs, and specification bundle
+- [x] 6.5 Update configuration schema, operator docs, ADRs, and specification bundle
   - Document management startup fields, strict source limit, explicit triggers, atomic replacement, no-op, restart-required matrix, generation/model status, retained-generation pressure, and security.
   - State prominently that file changes alone do nothing and no watcher/automatic retry exists.
   - Add deterministic local examples for SIGHUP and API reload plus invalid-candidate recovery.
@@ -376,10 +376,11 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 5.2-5.5, 6.2-6.3_
   - _Validation: `go test ./cmd/lipstd/... ./internal/qa/... -run 'ConfigExample|Docs|Reload' && go run ./cmd/lipstd check-config --config <each-reload-example>`_
 
-- [ ] 6.6 Run final architecture, security, parity, and QA gates
+- [x] 6.6 Run final architecture, security, parity, and QA gates
   - Run focused and full unit suites, architecture/guard scripts, parity checks, tagged tests, lint, vulnerability scan, race evidence, fuzz smoke, and reload soak.
   - Verify no new dependency, watcher package, global registry mutation, provider SDK leakage, unclassified field, or spec-unrelated runtime path remains.
   - Record exact commands, platform coverage, benchmark comparison, soak parameters, skipped optional external-service tests, and known limitations.
+  - _Evidence: [release-evidence.md](release-evidence.md)_
   - Observable completion: all mandatory gates pass and release evidence proves the issue acceptance criteria without a proxy restart or connection drop.
   - _Requirements: 15.7-15.10, 16.3-16.13_
   - _Boundary: Release certification_
