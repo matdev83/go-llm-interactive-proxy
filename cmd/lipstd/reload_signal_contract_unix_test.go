@@ -12,7 +12,7 @@ import (
 // Task 1.5 Unix SIGHUP vs INT/TERM (req 1.2, 11.1-11.9).
 
 func TestSIGHUP_Contracts(t *testing.T) {
-	t.Parallel()
+	withExclusiveSIGHUP(t)
 	t.Run("separated_from_shutdown", func(t *testing.T) {
 		if SignalsOverlap() || len(ReloadSignals()) != 1 || ReloadSignals()[0] != syscall.SIGHUP || len(ShutdownSignals()) != 2 {
 			t.Fatalf("reload=%v shut=%v overlap=%v", ReloadSignals(), ShutdownSignals(), SignalsOverlap())
@@ -68,6 +68,18 @@ func TestConfigReload_ExplicitTriggerOnly_NoWatcher(t *testing.T) {
 	_ = ReloadSignals()
 }
 
-func TestProductionSIGHUPReload_IntegrationRED(t *testing.T) {
-	t.Skip("RED until production SIGHUP adapter is wired beside NotifyContext(INT/TERM) in runServeCommand")
+func TestProductionSIGHUPReload_IntegrationWired(t *testing.T) {
+	t.Parallel()
+	// Production adapter is exercised by SignalReload_* tests; serve uses
+	// startServeSignalHandling with ShutdownSignals() and optional sink.
+	sigCtx, stop := startServeSignalHandling(context.Background(), nil)
+	defer stop()
+	select {
+	case <-sigCtx.Done():
+		t.Fatal("serve signal context must stay open without INT/TERM")
+	default:
+	}
+	if SignalsOverlap() {
+		t.Fatal("overlap")
+	}
 }

@@ -18,7 +18,9 @@ type RefSIGHUPTrigger struct {
 	delivered atomic.Int64
 }
 
-func NewRefSIGHUPTrigger() *RefSIGHUPTrigger   { return &RefSIGHUPTrigger{ch: make(chan struct{}, 1)} }
+func NewRefSIGHUPTrigger() *RefSIGHUPTrigger {
+	return &RefSIGHUPTrigger{ch: make(chan struct{}, 1)}
+}
 func (t *RefSIGHUPTrigger) Coalesced() int64   { return t.coalesced.Load() }
 func (t *RefSIGHUPTrigger) Delivered() int64   { return t.delivered.Load() }
 func (t *RefSIGHUPTrigger) C() <-chan struct{} { return t.ch }
@@ -31,9 +33,6 @@ func (t *RefSIGHUPTrigger) Notify() {
 		t.coalesced.Add(1)
 	}
 }
-
-func ShutdownSignals() []os.Signal { return []os.Signal{os.Interrupt, syscall.SIGTERM} }
-func ReloadSignals() []os.Signal   { return []os.Signal{syscall.SIGHUP} }
 
 func StartRefSIGHUPAdapter(ctx context.Context, trigger *RefSIGHUPTrigger) (stop func()) {
 	sigCh := make(chan os.Signal, 1)
@@ -54,17 +53,4 @@ func StartRefSIGHUPAdapter(ctx context.Context, trigger *RefSIGHUPTrigger) (stop
 		}
 	}()
 	return func() { signal.Stop(sigCh) }
-}
-
-func SignalsOverlap() bool {
-	shut := map[os.Signal]struct{}{}
-	for _, s := range ShutdownSignals() {
-		shut[s] = struct{}{}
-	}
-	for _, s := range ReloadSignals() {
-		if _, ok := shut[s]; ok {
-			return true
-		}
-	}
-	return false
 }

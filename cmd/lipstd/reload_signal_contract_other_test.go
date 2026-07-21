@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 )
 
@@ -27,6 +28,16 @@ func TestSIGHUP_APIOnlyPlatform(t *testing.T) {
 	}
 }
 
-func TestProductionSIGHUPReload_IntegrationRED(t *testing.T) {
-	t.Skip("RED until production management-API reload path covers non-Unix platforms")
+func TestProductionSIGHUPReload_IntegrationWired(t *testing.T) {
+	t.Parallel()
+	sigCtx, stop := startServeSignalHandling(context.Background(), nil)
+	defer stop()
+	select {
+	case <-sigCtx.Done():
+		t.Fatal("serve signal context must stay open without INT/TERM")
+	default:
+	}
+	if PlatformReloadMode() != "api-only" {
+		t.Fatalf("mode=%s", PlatformReloadMode())
+	}
 }

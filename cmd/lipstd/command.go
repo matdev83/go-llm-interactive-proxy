@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
@@ -282,7 +280,9 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		res.Logger.ErrorContext(ctx, "lipstd: bootstrap access/auth", "error", err)
 		return 1
 	}
-	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	// INT/TERM shut down the server; SIGHUP is owned by the reload adapter when a
+	// sink is wired (task 5.2). Sink remains nil until management/coordinator composition.
+	sigCtx, stop := startServeSignalHandling(ctx, nil)
 	defer stop()
 	if err := stdhttp.RunWithGenerationHost(sigCtx, stdhttp.GenerationHostInput{
 		Config:  res.Config,
