@@ -53,6 +53,24 @@ type Backend struct {
 	// resources or cleans them through individual streams. Callers treat a
 	// non-nil callback as idempotent; it is not a request-cancellation API.
 	Close func() error
+
+	// Optional generation-local lifecycle / transport seams. nil means unsupported.
+	// Composition roots adapt these into candidate prepare/rollback ownership;
+	// legacy backends that only set Close remain fully compatible.
+	Start                 func(context.Context) error
+	Stop                  func(context.Context) error
+	CleanupIdleTransports func(context.Context) error
+	// PreflightCapability, when set, is an explicit non-billable readiness probe.
+	// It is never invoked automatically as a publication gate.
+	PreflightCapability func(context.Context) (CapabilityPreflight, error)
+}
+
+// CapabilityPreflight is an optional non-billable backend readiness probe result.
+// Billable must be false when consumed by candidate composition (req 8.11).
+type CapabilityPreflight struct {
+	Ready       bool
+	Billable    bool
+	Description string
 }
 
 type BillingFinalizationInput struct {

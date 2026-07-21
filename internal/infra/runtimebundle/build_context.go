@@ -20,4 +20,7 @@ type buildContext struct {
 	Parent            context.Context
 	PostgresPools     *db.PoolRegistry
 	DualPlaneMigrator *dualPlaneMigrator
+	// Ledger, when non-nil, receives generation-owned resources immediately
+	// after acquisition (task 3.2). Process services never register here.
+	Ledger *ResourceLedger
 }

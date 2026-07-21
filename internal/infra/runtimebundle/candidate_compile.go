@@ -2,9 +2,11 @@ package runtimebundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
@@ -39,6 +41,8 @@ import (
 type GenerationCompileInput struct {
 	Process *ProcessServices
 	Bus     *hooks.Bus
+	// FaultInject is test-only; production leaves it zero.
+	FaultInject CandidateFaultInject
 }
 
 // CandidateRuntime holds generation-owned assembly produced by [CompileCandidate].
@@ -80,23 +84,60 @@ type CandidateRuntime struct {
 	// tracing ownership stays on ProcessServices / bootstrap (req 6.4, 6.10).
 	ProcessTracingShutdown func(context.Context) error
 
-	// Closers contains generation-owned teardown only.
+	// Closers contains generation-owned teardown only (legacy view of Ledger).
 	Closers []func() error
+	// Ledger owns generation resources for rollback/quiesce/close (task 3.2).
+	Ledger *ResourceLedger
 
-	closeOnce sync.Once
-	closeErr  error
+	closeOnce   sync.Once
+	closeErr    error
+	quiesceOnce sync.Once
+	quiesceErr  error
+	didQuiesce  atomic.Bool
 
 	terminalWorkReady func(context.Context) error
 	terminalWorkRT    *terminalWorkRuntime
 }
 
+// NewCandidateRuntimeForTest builds a minimal candidate bound to ledger (tests).
+func NewCandidateRuntimeForTest(ledger *ResourceLedger) *CandidateRuntime {
+	c := &CandidateRuntime{Ledger: ledger}
+	if ledger != nil {
+		c.Closers = ledger.LegacyClosers()
+	}
+	return c
+}
+
+// Quiesce stops admission-independent generation workers once (req 10.5).
+func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	c.quiesceOnce.Do(func() {
+		c.didQuiesce.Store(true)
+		if c.Ledger != nil {
+			c.quiesceErr = c.Ledger.Quiesce(ctx)
+		}
+	})
+	return c.quiesceErr
+}
+
 // Close disposes generation-owned resources in reverse order.
-// It does not close process services.
+// Unpublished discard / compile failure uses full ledger rollback; after Quiesce,
+// only remaining close-phase resources are released. Never closes ProcessServices.
 func (c *CandidateRuntime) Close() error {
 	if c == nil {
 		return nil
 	}
 	c.closeOnce.Do(func() {
+		if c.Ledger != nil {
+			if c.didQuiesce.Load() {
+				c.closeErr = c.Ledger.Close(context.Background())
+			} else {
+				c.closeErr = c.Ledger.Rollback(context.Background())
+			}
+			return
+		}
 		c.closeErr = disposeClosers(c.Closers)
 	})
 	return c.closeErr
@@ -122,6 +163,12 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 
+	// Reject unsafe feature lifecycles before any generation resource acquisition
+	// so unmarked plugins cannot escape cleanup (req 8.8, task 3.2).
+	if err := ClassifyFeatureLifecycles(opts.FeatureLifecycles); err != nil {
+		return nil, err
+	}
+
 	bus := in.Bus
 	if bus == nil {
 		bus = hooks.New(hooks.Config{})
@@ -134,6 +181,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		parent = opts.Startup.StartupContext
 	}
 
+	ledger := NewResourceLedger()
 	bctx := buildContext{
 		Cfg:               cfg,
 		Bus:               bus,
@@ -142,11 +190,25 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		Parent:            parent,
 		PostgresPools:     ps.DatabasePools,
 		DualPlaneMigrator: ps.dualPlaneMigrator,
+		Ledger:            ledger,
 	}
 
 	var closers []func() error
 	fail := func(err error) (*CandidateRuntime, error) {
-		return nil, withDisposedClosers(err, closers)
+		rollErr := ledger.Rollback(parent)
+		if rollErr != nil {
+			return nil, errors.Join(err, rollErr)
+		}
+		return nil, err
+	}
+	injectFault := func(boundary string) error {
+		if in.FaultInject.After != boundary {
+			return nil
+		}
+		if in.FaultInject.Hook != nil {
+			in.FaultInject.Hook()
+		}
+		return fmt.Errorf("%w: after %s", ErrCandidateFaultInjected, boundary)
 	}
 
 	sec, err := buildSecurityRuntime(bctx, ps.controlPlane)
@@ -166,6 +228,9 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 
 	model, closers, err := buildModelRuntime(bctx, obs.Upstream, closers)
 	if err != nil {
+		return fail(err)
+	}
+	if err := injectFault("model"); err != nil {
 		return fail(err)
 	}
 
@@ -209,16 +274,38 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		return fail(fmt.Errorf("runtimebundle: prune unclaimed postgres pools: %w", err))
 	}
 
+	if err := AdaptOverlapSafeLifecycles(ledger, opts.FeatureLifecycles); err != nil {
+		return fail(err)
+	}
+	if err := injectFault("prepare"); err != nil {
+		return fail(err)
+	}
+	if err := ledger.Prepare(parent); err != nil {
+		return fail(err)
+	}
+	if err := injectFault("activate"); err != nil {
+		return fail(err)
+	}
+	if err := ledger.Activate(parent); err != nil {
+		return fail(err)
+	}
+
 	exec = execRun.Exec
 	var twReady func(context.Context) error
 	if ps.terminalWorkRT != nil {
 		twReady = ps.terminalWorkRT.checkReady
 	}
 
+	// Prefer ledger-backed closers so Built/Close stay idempotent with Rollback.
+	if n := ledger.Len(); n > 0 {
+		closers = ledger.LegacyClosers()
+	}
+
 	return &CandidateRuntime{
 		Executor:               execRun.Exec,
 		Store:                  ps.Continuity,
 		Closers:                closers,
+		Ledger:                 ledger,
 		UpstreamHTTP:           obs.Upstream,
 		RoutePrefixes:          model.RoutePrefixes,
 		DecodeAdmission:        ps.DecodeAdmission,

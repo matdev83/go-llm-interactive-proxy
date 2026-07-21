@@ -134,7 +134,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.4, 2.3_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'Generation|Lease|Publish|Retire|Retention'`_
 
-- [ ] 3.2 Implement candidate resource ledger and lifecycle phases
+- [x] 3.2 Implement candidate resource ledger and lifecycle phases
   - Register candidate resources immediately with idempotent reverse-order rollback.
   - Adapt safe existing feature lifecycles to prepare/activate/quiesce/close ownership.
   - Add internal backend instance wrappers for optional lifecycle, close, idle transport cleanup, and non-billable preflight capability.

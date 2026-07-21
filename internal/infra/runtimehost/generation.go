@@ -65,7 +65,7 @@ type Status struct {
 }
 
 // packed word: high 32 = lifecycle, low 32 = refcount (req 10.4, 15.1).
-// sync.WaitGroup is intentionally not used as a request refcounter.
+// Request/lease refcounting uses this packed atomic word, not a wait-group.
 func packLease(state GenLifecycle, refs uint32) uint64 {
 	return (uint64(state) << 32) | uint64(refs)
 }
@@ -83,6 +83,11 @@ type Generation struct {
 	drainMu     sync.Mutex
 	drainCh     chan struct{}
 	drainClosed bool
+
+	// retireMu serializes LifecycleWorker.Retire for this generation only.
+	// It lives on the generation so concurrent unrelated retirements progress
+	// independently without a process-wide lock or unbounded worker map.
+	retireMu sync.Mutex
 
 	closeCount atomic.Int32
 	closeErr   error

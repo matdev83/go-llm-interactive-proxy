@@ -37,8 +37,8 @@ func TestBuild_sqliteStoreRegistersCloser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Closers) != 1 {
-		t.Fatalf("expected 1 closer for sqlite, got %d", len(b.Closers))
+	if len(b.Closers) != 2 {
+		t.Fatalf("expected 2 closers (process sqlite + generation upstream idle), got %d", len(b.Closers))
 	}
 	closeRuntimeBuilt(t, b)
 }

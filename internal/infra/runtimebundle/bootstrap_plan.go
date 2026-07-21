@@ -18,6 +18,7 @@ import (
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
@@ -144,13 +145,22 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	}
 	merged.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
 
+	// Serve mode: candidate ledger owns feature lifecycles (singular Start/Stop).
+	// Inspect mode: keep lifecycles on App for compatibility (no CompileCandidate).
+	appLifecycles := merged.Lifecycles
+	var candidateLifecycles []lipplugin.Lifecycle
+	if in.Mode == BootstrapServe {
+		candidateLifecycles = merged.Lifecycles
+		appLifecycles = nil
+	}
+
 	app, err := NewBootstrapApp(BootstrapOptions{
 		Config:        cfg,
 		Logger:        logger,
 		Registrations: regs,
 		Mandatory:     in.Mandatory,
 		Hooks:         hooksConfigFromMerged(merged),
-		Lifecycles:    merged.Lifecycles,
+		Lifecycles:    appLifecycles,
 	})
 	if err != nil {
 		shutdownTracing(ctx, traceRes.Shutdown)
@@ -165,7 +175,8 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 
 	if in.Mode == BootstrapServe {
 		built, err := Build(cfg, app.HookBus(), logger, &BuildOptions{
-			PluginRegistry: reg,
+			PluginRegistry:    reg,
+			FeatureLifecycles: candidateLifecycles,
 			Infra: InfraOptions{
 				OutboundTracing: traceRes.Active,
 				ProcessTracing: ProcessTracing{

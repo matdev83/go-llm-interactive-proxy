@@ -169,7 +169,10 @@ var lineBudgets = []struct {
 	// fixed override materialization, and private/public effective identities
 	// (requirements 1.7, 2.1-2.10, 3.6-3.8, 14.3). The measured total is 65411;
 	// cap keeps roughly 389 lines of headroom.
-	{"internal/core", 65800},
+	// Raised from 65800 to 65850 for versioned-runtime-reload task 3.2 final wiring:
+	// optional backend Start/Stop/idle/preflight fields on execbackend.Backend
+	// (measured non-test total 65818; ~32 lines headroom).
+	{"internal/core", 65850},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
@@ -209,7 +212,13 @@ var lineBudgets = []struct {
 	// Raised from 7020 to 7600 for versioned-runtime-reload task 2.4: hoist
 	// process-capacity / shared mutable continuity (A-leg, affinity/health views,
 	// extension state, accounting/metering stores, BackendStateIdentity keys).
-	{"internal/infra/runtimebundle", 7600},
+	// Raised from 7600 to 8200 for versioned-runtime-reload task 3.2: candidate
+	// ResourceLedger, backend instance wrapper, and lifecycle adaption
+	// (measured non-test total ~8100; ~100 lines headroom).
+	// Raised from 8200 to 8350 for task 3.2 final production wiring: feature
+	// lifecycle classify/adapt, backend optional hooks, catalog PhaseQuiesce,
+	// and generation-owned HTTP idle cleanup (measured 8238; ~112 lines headroom).
+	{"internal/infra/runtimebundle", 8350},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

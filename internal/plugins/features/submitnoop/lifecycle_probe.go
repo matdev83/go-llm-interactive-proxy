@@ -10,6 +10,7 @@ import (
 var _ lipplugin.Lifecycle = (*LifecycleProbe)(nil)
 
 // LifecycleProbe is an optional no-op lifecycle returned when HookConfig.LifecycleProbe is true.
+// It is explicitly safe under candidate overlap (generation-local, no process globals).
 type LifecycleProbe struct {
 	started atomic.Bool
 	stopped atomic.Bool
@@ -20,6 +21,9 @@ func (l *LifecycleProbe) WasStarted() bool { return l.started.Load() }
 
 // WasStopped reports whether Stop has completed successfully.
 func (l *LifecycleProbe) WasStopped() bool { return l.stopped.Load() }
+
+// SafeUnderCandidateOverlap reports that Start/Stop may overlap across generations.
+func (l *LifecycleProbe) SafeUnderCandidateOverlap() bool { return true }
 
 func (l *LifecycleProbe) Start(context.Context) error {
 	if l == nil {

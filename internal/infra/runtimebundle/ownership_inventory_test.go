@@ -142,7 +142,7 @@ var compositionResourceOwnership = []ownershipEntry{
 
 	// model/catalog startup
 	{Symbol: "catalog.cacheAndRefresh", Class: ownershipGeneration, Source: "startModelCatalog / runModelCatalogRefreshLoop", Notes: "Catalog cache/view/refresh loop owned with candidate CatalogRuntime."},
-	{Symbol: "catalog.closers", Class: ownershipGeneration, Source: "startModelCatalog / buildModelRuntime startedCatalog.closers", Notes: "Candidate catalog cleanup; see closerAcquisitionOwnership expression IDs."},
+	{Symbol: "catalog.closers", Class: ownershipGeneration, Source: "startModelCatalog / buildModelRuntime startedCatalog.closers + quiesceClosers", Notes: "Candidate catalog PhaseClose runtime/client cleanup and PhaseQuiesce refresh cancel/wait."},
 	{Symbol: "modelRegistry.cacheAndRefresh", Class: ownershipGeneration, Source: "startModelRegistryRuntime / runModelRegistryRefreshLoop", Notes: "Registry cache/snapshot/refresh owned with candidate ModelRegistryRuntime."},
 	{Symbol: "modelRegistry.closers", Class: ownershipGeneration, Source: "startModelRegistryRuntime", Notes: "Candidate registry refresh cleanup; see closerAcquisitionOwnership expression IDs."},
 	{Symbol: "backend.instances", Class: ownershipGeneration, Source: "buildBackends / appendBackendClosers", Notes: "Backend instances and rollback closers are generation-owned."},

@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -30,19 +31,31 @@ func buildProcessMetricsBundle(cfg *config.Config, poolStats func() []sql.DBStat
 // buildGenerationObservability builds the generation-owned upstream HTTP client,
 // wrapping it with the shared process metrics bundle and optional OTEL propagation.
 // It does not construct a metrics registry.
+// Internally created transports are ledgered for idle cleanup; caller-injected
+// Infra.HTTPClient transports are never claimed.
 func buildGenerationObservability(bctx buildContext, bundle *metrics.Bundle) observabilityRuntime {
 	cfg := bctx.Cfg
 	opts := bctx.Opts
 	tune := httpclient.TransportTuneFromConfig(cfg)
-	upstream := httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)
-	if opts.Infra.HTTPClient != nil {
+	ownedIdle := idleTransportCloser(nil)
+	var upstream *http.Client
+	if opts != nil && opts.Infra.HTTPClient != nil {
 		upstream = opts.Infra.HTTPClient
+	} else {
+		upstream = httpclient.StandardWithTune(cfg.EffectiveTrustEnvironmentProxy(), tune)
+		ownedIdle = idleTransportCloser(upstream.Transport)
 	}
 	outbound := false
 	if opts != nil {
 		outbound = opts.Infra.OutboundTracing
 	}
 	upstream = wrapUpstreamClient(upstream, bundle, outbound)
+	if ownedIdle != nil && bctx.Ledger != nil {
+		bctx.Ledger.Add("upstream-idle-transport", PhaseClose, func(context.Context) error {
+			ownedIdle()
+			return nil
+		})
+	}
 	return observabilityRuntime{Bundle: bundle, Upstream: upstream}
 }
 
@@ -79,4 +92,20 @@ func wrapUpstreamClient(client *http.Client, bundle *metrics.Bundle, outboundTra
 	c := *client
 	c.Transport = wrapped
 	return &c
+}
+
+// idleTransportCloser returns a CloseIdleConnections callback for an owned
+// transport without going through metrics/otel wrappers that may hide the hook.
+func idleTransportCloser(rt http.RoundTripper) func() {
+	if rt == nil {
+		return nil
+	}
+	if tr, ok := rt.(*http.Transport); ok {
+		return tr.CloseIdleConnections
+	}
+	type idleCloser interface{ CloseIdleConnections() }
+	if c, ok := rt.(idleCloser); ok {
+		return c.CloseIdleConnections
+	}
+	return nil
 }

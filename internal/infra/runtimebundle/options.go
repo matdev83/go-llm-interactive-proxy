@@ -18,6 +18,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/db"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/completion"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/prerequest"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/request"
@@ -58,6 +59,12 @@ type BuildOptions struct {
 	// Production holds first-class enterprise injection seams (requirement 12.4).
 	// Unlike Testing, these are supported for closed modules via pkg/lipruntime.
 	Production ProductionOptions
+
+	// FeatureLifecycles are merged feature plugin lifecycles owned by the candidate
+	// resource ledger in serve/compile paths (task 3.2). When non-empty, callers must
+	// not also Start/Stop the same instances via runtime.App (singular ownership).
+	// Inspect-only bootstrap may keep lifecycles on App instead.
+	FeatureLifecycles []lipplugin.Lifecycle
 }
 
 // StartupOptions carries startup-context configuration.
