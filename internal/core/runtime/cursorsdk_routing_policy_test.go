@@ -279,16 +279,24 @@ func TestCursorSDK_preOutputRecoverable_failoverWhenOperatorPlanIncludesNext(t *
 
 func TestCursorSDK_postOutputCrashSurfacesCommittedBLegNoRetry(t *testing.T) {
 	ws := t.TempDir()
+	// Gate Exit until the runtime Recv loop has demonstrably consumed the TextDelta.
+	// Without this, process exit can race ahead of commit and look like a valid pre-output failure.
+	gate := filepath.Join(ws, "post-output-gate")
 	script := fakebridge.DefaultScript()
 	script.OnMethod = map[string][]fakebridge.Action{
 		protocol.MethodAgentSend: {
 			{Type: fakebridge.ActionRespond, Result: json.RawMessage(`{"runId":"run-post"}`)},
 			{Type: fakebridge.ActionEvent, RunID: "run-post", Seq: 1, Kind: protocol.KindTextDelta, Payload: json.RawMessage(`{"text":"partial"}`)},
+			{Type: fakebridge.ActionWaitForFile, Path: gate, Ms: 60000},
 			{Type: fakebridge.ActionExit, Code: 11},
 		},
 	}
 	sdk := buildRuntimeCursorSDK(t, script, ws)
-	t.Cleanup(func() { _ = sdk.Close() })
+	t.Cleanup(func() {
+		// Release the gate even if an earlier assertion fails so WaitForFile cannot hang the bridge.
+		_ = os.WriteFile(gate, []byte("release"), 0o644)
+		_ = sdk.Close()
+	})
 
 	var opens atomic.Int32
 	wrapped := sdk
@@ -321,6 +329,7 @@ func TestCursorSDK_postOutputCrashSurfacesCommittedBLegNoRetry(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	var sawText, sawErr bool
+	var gateWritten bool
 	for {
 		ev, rerr := stream.Recv(context.Background())
 		if errors.Is(rerr, io.EOF) {
@@ -335,6 +344,12 @@ func TestCursorSDK_postOutputCrashSurfacesCommittedBLegNoRetry(t *testing.T) {
 		}
 		if ev.Kind == lipapi.EventTextDelta && ev.Delta != "" {
 			sawText = true
+			if !gateWritten {
+				if werr := os.WriteFile(gate, []byte("release"), 0o644); werr != nil {
+					t.Fatalf("write post-output gate: %v", werr)
+				}
+				gateWritten = true
+			}
 		}
 	}
 	_ = stream.Close()
