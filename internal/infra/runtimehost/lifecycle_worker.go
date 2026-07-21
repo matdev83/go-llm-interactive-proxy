@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
+
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 )
 
 // QuiesceCloser is generation-owned teardown with an explicit quiesce phase.
@@ -18,7 +21,8 @@ type QuiesceCloser interface {
 // Retirement serialization is per-generation (Generation.retireMu), so unrelated
 // generations progress independently without a process-wide lock or worker map.
 type LifecycleWorker struct {
-	policy CleanupPolicy
+	policy   CleanupPolicy
+	observer *ReloadObserver
 
 	statusMu sync.Mutex
 	last     RetirementStatus
@@ -32,6 +36,14 @@ func NewLifecycleWorker() *LifecycleWorker {
 // NewLifecycleWorkerWithPolicy returns a retirement worker with an explicit cleanup retry budget.
 func NewLifecycleWorkerWithPolicy(policy CleanupPolicy) *LifecycleWorker {
 	return &LifecycleWorker{policy: policy}
+}
+
+// SetObserver attaches optional reload lifecycle telemetry (quiesce/cleanup spans).
+func (w *LifecycleWorker) SetObserver(obs *ReloadObserver) {
+	if w == nil {
+		return
+	}
+	w.observer = obs
 }
 
 // LastStatus returns a copy of the most recent retirement status snapshot.
@@ -96,10 +108,16 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 		fallthrough
 	case GenQuiescing:
 		if owned != nil {
+			qStart := time.Now()
 			if err := safeQuiesce(ctx, owned); err != nil {
 				out = errors.Join(out, err)
 				status.Outcome = LifecycleOutcomeQuiesceFailed
 				status.Err = err
+				if w.observer != nil {
+					w.observer.ObserveLifecycle(ctx, "quiesce", string(LifecycleOutcomeQuiesceFailed), time.Since(qStart))
+				}
+			} else if w.observer != nil {
+				w.observer.ObserveLifecycle(ctx, "quiesce", "ok", time.Since(qStart))
 			}
 		}
 		quiesced = true
@@ -109,10 +127,16 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 	case GenDrained:
 		// Zero-ref fast path skipped quiescing; still stop workers before close.
 		if owned != nil {
+			qStart := time.Now()
 			if err := safeQuiesce(ctx, owned); err != nil {
 				out = errors.Join(out, err)
 				status.Outcome = LifecycleOutcomeQuiesceFailed
 				status.Err = err
+				if w.observer != nil {
+					w.observer.ObserveLifecycle(ctx, "quiesce", string(LifecycleOutcomeQuiesceFailed), time.Since(qStart))
+				}
+			} else if w.observer != nil {
+				w.observer.ObserveLifecycle(ctx, "quiesce", "ok", time.Since(qStart))
 			}
 		}
 		quiesced = true
@@ -143,6 +167,7 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 	if g.Lifecycle() == GenClosing {
 		maxAttempts := w.policy.maxAttempts()
 		var closeErr error
+		cStart := time.Now()
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			status.Attempts = attempt
 			closeErr = safeClose(g)
@@ -159,8 +184,14 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 			out = errors.Join(out, closeErr)
 			status.Outcome = LifecycleOutcomeCleanupFailed
 			status.Err = closeErr
+			if w.observer != nil {
+				w.observer.ObserveLifecycle(ctx, "cleanup", string(LifecycleOutcomeCleanupFailed), time.Since(cStart))
+			}
 		} else if status.Outcome == "" {
 			status.Outcome = LifecycleOutcomeOK
+			if w.observer != nil {
+				w.observer.ObserveLifecycle(ctx, "cleanup", "ok", time.Since(cStart))
+			}
 		}
 	}
 	w.setStatus(status)
@@ -170,7 +201,7 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 func safeQuiesce(ctx context.Context, owned QuiesceCloser) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = panicError("quiesce", recovered)
+			err = panicError("quiesce", configreload.SanitizePanicValue(recovered))
 		}
 	}()
 	return owned.Quiesce(ctx)
@@ -179,7 +210,7 @@ func safeQuiesce(ctx context.Context, owned QuiesceCloser) (err error) {
 func safeClose(g *Generation) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = panicError("cleanup", recovered)
+			err = panicError("cleanup", configreload.SanitizePanicValue(recovered))
 		}
 	}()
 	return g.Close()

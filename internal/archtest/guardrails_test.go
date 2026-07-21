@@ -200,7 +200,10 @@ var lineBudgets = []struct {
 	// Raised from 68700 to 68850 for versioned-runtime-reload task 5.1:
 	// configreload trigger/result vocabulary and load-failure mapping used by
 	// the serialized reload coordinator (measured 68780; ~70 headroom).
-	{"internal/core", 68850},
+	// Raised from 68850 to 69350 for versioned-runtime-reload task 5.4:
+	// secret-safe reload sanitizers, bounded status history ring, and protected
+	// reload diagnostics DTOs (measured 69194; ~156 headroom).
+	{"internal/core", 69350},
 	{"internal/pluginreg", 4500},
 	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
 	// generation request-plane composer (ComposeRequestPlane) without listener

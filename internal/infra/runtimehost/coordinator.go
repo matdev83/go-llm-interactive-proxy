@@ -51,6 +51,7 @@ type CoordinatorDeps struct {
 	Timeout         time.Duration
 	ActiveEffective *config.EffectiveConfig
 	ActiveSource    *configsource.ActiveSourceVersion
+	Observer        *ReloadObserver
 }
 
 // Coordinator serializes explicit reload attempts (design Reload Coordinator; req 1.4, 3.x, 11.x, 13.x).
@@ -61,12 +62,17 @@ type Coordinator struct {
 	compile  CandidateCompiler
 	mgr      *Manager
 	timeout  time.Duration
+	observer *ReloadObserver
 
 	mu             sync.Mutex
 	busy           bool
 	pendingSignal  bool
 	coalesced      int64
 	last           configreload.ReloadResult
+	lastSuccess    configreload.ReloadResult
+	lastFailure    configreload.ReloadResult
+	sourcePosture  string
+	modelGen       string
 	attempts       atomic.Int64
 	shutdown       atomic.Bool
 	activeEff      *config.EffectiveConfig
@@ -97,19 +103,25 @@ func NewCoordinator(deps CoordinatorDeps) (*Coordinator, error) {
 		timeout = DefaultReloadTimeout
 	}
 	c := &Coordinator{
-		source:       deps.Source,
-		loader:       deps.Loader,
-		classify:     classify,
-		compile:      deps.Compile,
-		mgr:          deps.Manager,
-		timeout:      timeout,
-		activeEff:    deps.ActiveEffective,
-		activeSource: cloneActiveSource(deps.ActiveSource),
+		source:        deps.Source,
+		loader:        deps.Loader,
+		classify:      classify,
+		compile:       deps.Compile,
+		mgr:           deps.Manager,
+		timeout:       timeout,
+		observer:      deps.Observer,
+		activeEff:     deps.ActiveEffective,
+		activeSource:  cloneActiveSource(deps.ActiveSource),
+		sourcePosture: "ok",
 	}
 	if active := deps.Manager.Active(); active != nil {
 		c.last = configreload.ReloadResult{
 			Category:         configreload.ResultPublished,
 			ActiveGeneration: active.ID(),
+		}
+		c.lastSuccess = c.last
+		if meta := active.Status().Meta; meta.PublicFingerprint != "" {
+			c.modelGen = meta.PublicFingerprint
 		}
 	}
 	return c, nil
@@ -130,7 +142,7 @@ func (c *Coordinator) BeginShutdown() {
 	c.mu.Unlock()
 }
 
-// Status returns a bounded safe snapshot (req 13.1-13.2, 14.1).
+// Status returns a bounded safe snapshot (req 13.1-13.2, 14.1, 14.8).
 func (c *Coordinator) Status() configreload.ReloadStatus {
 	if c == nil {
 		return configreload.ReloadStatus{}
@@ -138,22 +150,52 @@ func (c *Coordinator) Status() configreload.ReloadStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var activeID int64
+	retained := 0
+	pressure := false
 	if c.mgr != nil {
 		if g := c.mgr.Active(); g != nil {
 			activeID = g.ID()
 		}
+		snap := c.mgr.ObservabilitySnapshot()
+		retained = snap.Retired
+		pressure = snap.RetentionWouldBlock
 	}
 	path := ""
 	if c.source != nil {
 		path = c.source.AbsolutePath()
 	}
+	var history []configreload.HistoryEntry
+	if c.observer != nil && c.observer.History() != nil {
+		history = c.observer.History().Snapshot()
+	}
+	var current *configreload.ReloadResult
+	if c.busy {
+		cur := c.last
+		current = &cur
+	}
+	controlDegraded := c.lastFailure.Category != "" &&
+		c.lastFailure.Category != configreload.ResultPublished &&
+		c.lastFailure.Category != configreload.ResultNoop
+	posture := c.sourcePosture
+	if posture == "" {
+		posture = "unknown"
+	}
 	return configreload.ReloadStatus{
-		ActiveGeneration: activeID,
-		LastResult:       c.last,
-		Busy:             c.busy,
-		FixedSourcePath:  path,
-		PendingSignal:    c.pendingSignal,
-		CoalescedSignals: c.coalesced,
+		ActiveGeneration:    activeID,
+		CurrentAttempt:      current,
+		LastResult:          c.last,
+		LastSuccess:         c.lastSuccess,
+		LastFailure:         c.lastFailure,
+		SourceIntegrity:     posture,
+		RetainedGenerations: retained,
+		RetentionPressure:   pressure,
+		ControlDegraded:     controlDegraded,
+		ModelGeneration:     c.modelGen,
+		History:             history,
+		Busy:                c.busy,
+		FixedSourcePath:     path,
+		PendingSignal:       c.pendingSignal,
+		CoalescedSignals:    c.coalesced,
 	}
 }
 
@@ -209,8 +251,8 @@ func (c *Coordinator) Reload(ctx context.Context, trigger configreload.ReloadTri
 	defer cancel()
 
 	first := c.runAttempt(hostCtx, trigger)
+	c.recordTerminal(first)
 	c.mu.Lock()
-	c.last = first
 	// Keep busy until pending is claimed or confirmed absent so API callers
 	// cannot start a concurrent candidate build (req 11.4).
 	for {
@@ -238,9 +280,9 @@ func (c *Coordinator) Reload(ctx context.Context, trigger configreload.ReloadTri
 		})
 		followCancel()
 		follow.CoalescedSignals = coal
+		c.recordTerminal(follow)
 
 		c.mu.Lock()
-		c.last = follow
 		// loop: another SIGHUP may have reserved pending during follow-up
 	}
 }
@@ -250,9 +292,7 @@ func (c *Coordinator) terminal(res configreload.ReloadResult, record bool) confi
 		res.ActiveGeneration = c.activeGenerationID()
 	}
 	if record {
-		c.mu.Lock()
-		c.last = res
-		c.mu.Unlock()
+		c.recordTerminal(res)
 	}
 	return res
 }
@@ -273,6 +313,37 @@ func (c *Coordinator) activeGenerationIDLocked() int64 {
 	return 0
 }
 
+func (c *Coordinator) recordTerminal(res configreload.ReloadResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.last = res
+	switch res.Category {
+	case configreload.ResultPublished:
+		c.lastSuccess = res
+		c.sourcePosture = "ok"
+		if c.mgr != nil {
+			if g := c.mgr.Active(); g != nil {
+				if fp := g.Status().Meta.PublicFingerprint; fp != "" {
+					c.modelGen = fp
+				}
+			}
+		}
+	case configreload.ResultNoop:
+		c.lastFailure = res // most recent failed/no-op per req 14.1
+		c.sourcePosture = "ok"
+	case configreload.ResultSourceIntegrity:
+		c.lastFailure = res
+		c.sourcePosture = "failed"
+	case configreload.ResultBusy:
+		// busy is not a completed attempt outcome for last-failure tracking
+	default:
+		c.lastFailure = res
+	}
+	if c.observer != nil {
+		c.observer.RefreshGauges(c.mgr)
+	}
+}
+
 func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.ReloadTrigger) (res configreload.ReloadResult) {
 	attempt := c.attempts.Add(1)
 	activeBefore := c.activeGenerationID()
@@ -281,6 +352,10 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		ActiveGeneration: activeBefore,
 	}
 
+	endAttempt := func(configreload.ReloadResult) {}
+	if c.observer != nil {
+		ctx, endAttempt = c.observer.BeginAttempt(ctx, trigger, attempt, activeBefore)
+	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			res = configreload.ReloadResult{
@@ -289,6 +364,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 				ActiveGeneration: c.activeGenerationID(),
 				ReasonCategory:   configreload.StagePanic,
 			}
+			_ = configreload.SanitizePanicValue(recovered)
 		}
 		if res.AttemptID == 0 {
 			res.AttemptID = attempt
@@ -296,6 +372,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		if res.ActiveGeneration == 0 {
 			res.ActiveGeneration = c.activeGenerationID()
 		}
+		endAttempt(res)
 	}()
 
 	if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
@@ -313,7 +390,11 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 	activeSrc := cloneActiveSource(c.activeSource)
 	c.activeSourceMu.RUnlock()
 
-	snap, atomicRes, err := c.source.ReadStable(ctx, activeSrc)
+	stageCtx, endStage := ctx, func(string) {}
+	if c.observer != nil {
+		stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageRead)
+	}
+	snap, atomicRes, err := c.source.ReadStable(stageCtx, activeSrc)
 	if err != nil {
 		cat, reason := configreload.MapLoadFailure(err)
 		if srcCat, ok := configsource.CategoryOf(err); ok {
@@ -321,15 +402,22 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		}
 		res.Category = cat
 		res.ReasonCategory = reason
+		endStage(string(cat))
 		return res
 	}
+	endStage("ok")
 	if atomicRes == configsource.AtomicNoop {
 		res.Category = configreload.ResultNoop
 		res.ReasonCategory = configreload.StageNoop
 		return res
 	}
 
-	eff, err := c.loader.LoadEffective(ctx, snap.Bytes)
+	if c.observer != nil {
+		stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageLoad)
+	} else {
+		stageCtx, endStage = ctx, func(string) {}
+	}
+	eff, err := c.loader.LoadEffective(stageCtx, snap.Bytes)
 	if err != nil {
 		cat, reason := configreload.MapLoadFailure(err)
 		if srcCat, ok := configsource.CategoryOf(err); ok {
@@ -337,8 +425,10 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		}
 		res.Category = cat
 		res.ReasonCategory = reason
+		endStage(string(cat))
 		return res
 	}
+	endStage("ok")
 
 	c.activeSourceMu.RLock()
 	activeEff := c.activeEff
@@ -350,7 +440,13 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 	}
 
 	if activeEff != nil {
+		if c.observer != nil {
+			stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageClassify)
+		} else {
+			stageCtx, endStage = ctx, func(string) {}
+		}
 		_, err := c.classify(activeEff, eff)
+		_ = stageCtx
 		if err != nil {
 			var rr *configreload.RestartRequiredError
 			if errors.As(err, &rr) {
@@ -360,12 +456,15 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 					res.RestartFields = append([]string(nil), rr.RestartRequiredFields...)
 					res.RestartFieldCount = rr.TotalBlocked
 				}
+				endStage(string(res.Category))
 				return res
 			}
 			res.Category = configreload.ResultInvalid
 			res.ReasonCategory = configreload.StageClassify
+			endStage(string(res.Category))
 			return res
 		}
+		endStage("ok")
 	}
 
 	if c.shutdown.Load() || (c.mgr != nil && c.mgr.ShuttingDown()) {
@@ -375,7 +474,12 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 	}
 
 	liveKinds := c.collectLiveFactoryKinds()
-	plane, compileErr := c.compileIsolated(ctx, eff.Config, liveKinds)
+	if c.observer != nil {
+		stageCtx, endStage = c.observer.BeginStage(ctx, configreload.StageCompile)
+	} else {
+		stageCtx, endStage = ctx, func(string) {}
+	}
+	plane, compileErr := c.compileIsolated(stageCtx, eff.Config, liveKinds)
 	if compileErr != nil {
 		var rr *configreload.RestartRequiredError
 		if errors.As(compileErr, &rr) {
@@ -385,22 +489,27 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 				res.RestartFields = append([]string(nil), rr.RestartRequiredFields...)
 				res.RestartFieldCount = rr.TotalBlocked
 			}
+			endStage(string(res.Category))
 			return res
 		}
 		if c.shutdown.Load() || errors.Is(compileErr, context.Canceled) || errors.Is(compileErr, context.DeadlineExceeded) {
 			res.Category = configreload.ResultCanceled
 			res.ReasonCategory = configreload.StageShutdown
+			endStage(string(res.Category))
 			return res
 		}
 		if errors.Is(compileErr, errCompilePanic) {
 			res.Category = configreload.ResultInternalFailed
 			res.ReasonCategory = configreload.StagePanic
+			endStage(string(res.Category))
 			return res
 		}
 		res.Category = configreload.ResultPreparationFailed
 		res.ReasonCategory = configreload.StageCompile
+		endStage(string(res.Category))
 		return res
 	}
+	endStage("ok")
 	if plane == nil {
 		res.Category = configreload.ResultPreparationFailed
 		res.ReasonCategory = configreload.StageCompile
@@ -428,6 +537,11 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		return res
 	}
 
+	if c.observer != nil {
+		_, endStage = c.observer.BeginStage(ctx, configreload.StagePrepare)
+	} else {
+		endStage = func(string) {}
+	}
 	label := string(trigger.Kind)
 	if label == "" {
 		label = "reload"
@@ -438,6 +552,7 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		TriggerKind:       string(trigger.Kind),
 		LoadedAt:          eff.LoadedAt,
 	})
+	endStage("ok")
 
 	if c.shutdown.Load() || c.mgr.ShuttingDown() {
 		_ = gen.Discard()
@@ -446,6 +561,11 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 		return res
 	}
 
+	if c.observer != nil {
+		_, endStage = c.observer.BeginStage(ctx, configreload.StagePublish)
+	} else {
+		endStage = func(string) {}
+	}
 	if err := c.mgr.Publish(gen); err != nil {
 		// Publish already Discards on retention/shutdown rejection.
 		switch {
@@ -460,8 +580,10 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 			res.ReasonCategory = configreload.StagePublish
 		}
 		res.ActiveGeneration = c.activeGenerationID()
+		endStage(string(res.Category))
 		return res
 	}
+	endStage(string(configreload.ResultPublished))
 
 	c.activeSourceMu.Lock()
 	c.activeEff = eff
@@ -515,7 +637,7 @@ func (c *Coordinator) compileIsolated(ctx context.Context, cfg *config.Config, l
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			plane = nil
-			err = fmt.Errorf("%w: %v", errCompilePanic, recovered)
+			err = fmt.Errorf("%w: %s", errCompilePanic, configreload.SanitizePanicValue(recovered))
 		}
 	}()
 	return c.compile.Compile(ctx, cfg, liveKinds)

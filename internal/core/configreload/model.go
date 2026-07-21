@@ -63,14 +63,24 @@ type ReloadResult struct {
 	CoalescedSignals   int64
 }
 
-// ReloadStatus is the bounded public status snapshot (req 13.1-13.2, 14.1).
+// ReloadStatus is the bounded public status snapshot (req 13.1-13.2, 14.1, 14.8).
+// It never carries raw YAML, credentials, DSNs, or opaque plugin configuration.
 type ReloadStatus struct {
-	ActiveGeneration int64
-	LastResult       ReloadResult
-	Busy             bool
-	FixedSourcePath  string
-	PendingSignal    bool
-	CoalescedSignals int64
+	ActiveGeneration    int64
+	CurrentAttempt      *ReloadResult // non-nil while Busy
+	LastResult          ReloadResult
+	LastSuccess         ReloadResult
+	LastFailure         ReloadResult // most recent failed or no-op attempt
+	SourceIntegrity     string       // bounded posture category (ok|failed|unknown)
+	RetainedGenerations int
+	RetentionPressure   bool
+	ControlDegraded     bool // reload-control posture; independent of data-plane readiness
+	ModelGeneration     string
+	History             []HistoryEntry
+	Busy                bool
+	FixedSourcePath     string
+	PendingSignal       bool
+	CoalescedSignals    int64
 }
 
 // Stage names used in ReasonCategory / diagnostics (bounded, non-secret).

@@ -20,14 +20,21 @@ type ResultDTO struct {
 	CoalescedSignals   int64    `json:"coalesced_signals,omitempty"`
 }
 
-// StatusDTO is the secret-safe JSON status snapshot (req 12.10, 13.1-13.2, 14.8).
+// StatusDTO is the secret-safe JSON status snapshot (req 12.10, 13.1-13.2, 14.1, 14.8).
 type StatusDTO struct {
-	ActiveGeneration int64     `json:"active_generation"`
-	LastResult       ResultDTO `json:"last_result"`
-	Busy             bool      `json:"busy"`
-	FixedSourcePath  string    `json:"fixed_source_path"`
-	PendingSignal    bool      `json:"pending_signal,omitempty"`
-	CoalescedSignals int64     `json:"coalesced_signals,omitempty"`
+	ActiveGeneration    int64     `json:"active_generation"`
+	LastResult          ResultDTO `json:"last_result"`
+	LastSuccess         ResultDTO `json:"last_success,omitempty"`
+	LastFailure         ResultDTO `json:"last_failure,omitempty"`
+	SourceIntegrity     string    `json:"source_integrity,omitempty"`
+	RetainedGenerations int       `json:"retained_generations,omitempty"`
+	RetentionPressure   bool      `json:"retention_pressure,omitempty"`
+	ControlDegraded     bool      `json:"control_degraded,omitempty"`
+	ModelGeneration     string    `json:"model_generation,omitempty"`
+	Busy                bool      `json:"busy"`
+	FixedSourcePath     string    `json:"fixed_source_path"`
+	PendingSignal       bool      `json:"pending_signal,omitempty"`
+	CoalescedSignals    int64     `json:"coalesced_signals,omitempty"`
 }
 
 // HTTPStatusFor maps a terminal result category to the management HTTP status (req 12.8).
@@ -61,13 +68,25 @@ func resultDTO(res configreload.ReloadResult) ResultDTO {
 
 func statusDTO(st configreload.ReloadStatus) StatusDTO {
 	return StatusDTO{
-		ActiveGeneration: st.ActiveGeneration,
-		LastResult:       resultDTO(st.LastResult),
-		Busy:             st.Busy,
-		FixedSourcePath:  st.FixedSourcePath,
-		PendingSignal:    st.PendingSignal,
-		CoalescedSignals: st.CoalescedSignals,
+		ActiveGeneration:    st.ActiveGeneration,
+		LastResult:          resultDTO(st.LastResult),
+		LastSuccess:         resultDTO(st.LastSuccess),
+		LastFailure:         resultDTO(st.LastFailure),
+		SourceIntegrity:     st.SourceIntegrity,
+		RetainedGenerations: st.RetainedGenerations,
+		RetentionPressure:   st.RetentionPressure,
+		ControlDegraded:     st.ControlDegraded,
+		ModelGeneration:     st.ModelGeneration,
+		Busy:                st.Busy,
+		FixedSourcePath:     st.FixedSourcePath,
+		PendingSignal:       st.PendingSignal,
+		CoalescedSignals:    st.CoalescedSignals,
 	}
+}
+
+// StatusFrom projects a coordinator status snapshot into the management DTO.
+func StatusFrom(st configreload.ReloadStatus) StatusDTO {
+	return statusDTO(st)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

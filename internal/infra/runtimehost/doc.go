@@ -15,4 +15,7 @@
 // no-op and restart-required classification, candidate compile/prepare,
 // retention admission, atomic publish, rollback, Busy/coalesce, and
 // shutdown-safe terminal status — without duplicating compiler or manager logic.
+// Task 5.4 adds ReloadObserver: structured logs, fixed-label metrics, process-owned
+// spans, bounded status history, and aggregate generation gauges wired through
+// coordinator callbacks — without a second telemetry stack or reload-logic fork.
 package runtimehost

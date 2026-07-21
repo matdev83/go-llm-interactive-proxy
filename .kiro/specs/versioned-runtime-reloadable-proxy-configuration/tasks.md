@@ -287,7 +287,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.5, 5.1_
   - _Validation: `go test -race ./internal/stdhttp/admin/configreload/... ./internal/stdhttp/... -run 'Management|ReloadAPI|Auth|Loopback|Disconnect|FixedSource'`_
 
-- [ ] 5.4 Add bounded reload observability and safe generation correlation
+- [x] 5.4 Add bounded reload observability and safe generation correlation
   - Add structured logs, fixed-label counters/histograms, aggregate active/retired/pinned gauges, and process-owned reload spans.
   - Add bounded status history and protected diagnostics with config/model generation references.
   - Add secret corpus tests for config keys, DSNs, URLs, opaque nodes, and validation failures.
@@ -391,3 +391,4 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 - Phase 4.1–4.2: `internal/infra/backendplugin` does not exist yet; discovered-factory freeze/overlap/no-rescan lives in `pluginreg` + `runtimebundle.ClassifyBackendOverlap`. Coordinator (5.1) must populate `GenerationCompileInput.LiveFactoryKinds` from active/retained generations.
 - Shared-process exclusive kinds reject with `configreload.RestartRequiredError` wrapping `ErrUnsafeLifecycleOverlap` before candidate resource acquisition.
 - Task 5.3: management listen worker is allowlisted in `scripts/check-adhoc-goroutines.*`; `internal/stdhttp` line budget raised for `admin/configreload`. Host-wide management/data-plane shutdown ordering remains task 5.6.
+- Task 5.4: `internal/core` line budget raised for sanitize/history/diag reload surfaces; reload metrics live in process-owned `metrics.Bundle.Reload` and observer callbacks on the existing coordinator (no second telemetry stack).
