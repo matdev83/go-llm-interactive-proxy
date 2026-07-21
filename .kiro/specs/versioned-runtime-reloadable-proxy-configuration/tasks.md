@@ -17,7 +17,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: none_
   - _Validation: `go test ./internal/archtest/... ./internal/infra/runtimebundle/... -run 'Reload|Ownership|Watcher|ProcessService'`_
 
-- [ ] 1.2 Define bounded strict configuration-source and effective-loader RED tests
+- [x] 1.2 Define bounded strict configuration-source and effective-loader RED tests
   - Add table/fuzz fixtures for missing, empty, whitespace, oversize, partial, malformed, multiple-document, trailing-content, unknown-core-field, and valid opaque plugin-node inputs.
   - Characterize current defaults, stream-recovery CLI/environment overrides, standard feature injection, alias validation, prefix validation, and full-build-only failures.
   - Define private raw/effective identity and safe public fingerprint expectations, including comment/key-order no-op and secret-only changes.
