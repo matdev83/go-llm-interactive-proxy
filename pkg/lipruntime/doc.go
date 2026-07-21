@@ -5,6 +5,14 @@
 // runtimebundle composition root and does not expose Executor internals or
 // internal coordinator types.
 //
+// Explicit whole-config reload and safe status are exposed through
+// [Runtime.Reload], [Runtime.ReloadStatus], and [ReloadControl]. Those
+// operations delegate to the same runtimehost coordinator/query seams as the
+// standard binary and return copied DTOs without paths, secrets, raw YAML,
+// mutable config, closers, or runtimebundle internals (requirements 16.1–16.2).
+// [Runtime.RefreshSnapshots] remains a subordinate explicit metadata/policy
+// refresh, not whole-config reload.
+//
 // Executable generations carry the evaluator objects used for admission and
 // settlement. [Runtime.RefreshSnapshots] refreshes injectable source-fetch
 // metadata compatibility views and, on success, republishes an executable

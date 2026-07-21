@@ -298,7 +298,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 5.1, 5.3_
   - _Validation: `go test ./internal/infra/metrics/... ./internal/core/diag/... ./internal/infra/runtimehost/... ./internal/stdhttp/... -run 'Reload|Generation|Cardinality|Secret|Readiness'`_
 
-- [ ] 5.5 Add the supported `pkg/lipruntime` reload and status facade
+- [x] 5.5 Add the supported `pkg/lipruntime` reload and status facade
   - Expose explicit reload and safe status DTOs without internal types or mutable config.
   - Return a stable delegating `ExecutorView`: each `Execute` acquires the current generation, its returned stream retains the lease through terminal/close, and `CancelALeg` reaches process-owned cross-generation A-leg state.
   - Use the same coordinator/compiler/manager as the standard binary and add a separate-module compile fixture.
@@ -392,3 +392,4 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 - Shared-process exclusive kinds reject with `configreload.RestartRequiredError` wrapping `ErrUnsafeLifecycleOverlap` before candidate resource acquisition.
 - Task 5.3: management listen worker is allowlisted in `scripts/check-adhoc-goroutines.*`; `internal/stdhttp` line budget raised for `admin/configreload`. Host-wide management/data-plane shutdown ordering remains task 5.6.
 - Task 5.4: `internal/core` line budget raised for sanitize/history/diag reload surfaces; reload metrics live in process-owned `metrics.Bundle.Reload` and observer callbacks on the existing coordinator (no second telemetry stack).
+- Task 5.5: `pkg/lipruntime` public Reload/Status DTOs map 1:1 from `configreload` categories via unexported coordinator/query seam; paths/secrets omitted; `export_test.go` binds test fakes. Full generation-dispatcher ExecutorView publish wiring remains composition-root owned (no cmd/lipstd changes in 5.5).

@@ -25,6 +25,7 @@ type Runtime struct {
 	evidenceSinkAttached     bool
 	raterAttached            bool
 	meteringQuerierAttached  bool
+	reload                   *ReloadControl
 }
 
 // Build constructs a production runtime from public options. The standard
@@ -284,6 +285,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 		}
 		r.shutdownTracing = nil
 	}
+	r.reload = nil
 	r.built = nil
 	return first
 }
