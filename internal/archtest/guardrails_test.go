@@ -197,7 +197,10 @@ var lineBudgets = []struct {
 	// (internal/core/policy) and route-selector backend-ID enumeration for
 	// default-route/alias validation (internal/core/routing) (measured
 	// 68608; ~92 headroom).
-	{"internal/core", 68700},
+	// Raised from 68700 to 68850 for versioned-runtime-reload task 5.1:
+	// configreload trigger/result vocabulary and load-failure mapping used by
+	// the serialized reload coordinator (measured 68780; ~70 headroom).
+	{"internal/core", 68850},
 	{"internal/pluginreg", 4500},
 	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
 	// generation request-plane composer (ComposeRequestPlane) without listener
@@ -265,7 +268,10 @@ var lineBudgets = []struct {
 	// candidate-vs-process Classify wiring, default-route/alias-vs-backend-set
 	// validation, and generation-scoped health-policy wiring in
 	// candidateRoutingViews (measured 9578; ~72 headroom).
-	{"internal/infra/runtimebundle", 9650},
+	// Raised from 9650 to 9700 for versioned-runtime-reload task 5.1:
+	// GenerationBundle.BackendFactoryKindCounts for LiveFactoryKinds admission
+	// (measured 9666; ~34 headroom).
+	{"internal/infra/runtimebundle", 9700},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

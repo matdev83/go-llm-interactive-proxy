@@ -121,6 +121,29 @@ func (b *GenerationBundle) BackendIDs() []string {
 	return append([]string(nil), b.backendIDs...)
 }
 
+// BackendFactoryKindCounts returns enabled backend factory-kind occurrence
+// counts for LiveFactoryKinds admission (task 5.1 / req 8.8).
+func (b *GenerationBundle) BackendFactoryKindCounts() map[string]int {
+	if b == nil || len(b.registrations) == 0 {
+		return nil
+	}
+	out := make(map[string]int)
+	for _, r := range b.registrations {
+		if !r.Enabled || r.Kind != lipsdk.PluginKindBackend {
+			continue
+		}
+		key := r.RegistryFactoryKey()
+		if key == "" {
+			continue
+		}
+		out[key]++
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // Routing returns a defensive copy of the frozen routing view.
 func (b *GenerationBundle) Routing() FrozenRoutingView {
 	if b == nil {

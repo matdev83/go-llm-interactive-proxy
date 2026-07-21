@@ -256,7 +256,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 - [ ] 5. Expose explicit production administration
 
-- [ ] 5.1 Implement the serialized reload coordinator and status state machine
+- [x] 5.1 Implement the serialized reload coordinator and status state machine
   - Implement read, load, no-op, classify, compile, prepare, retention check, publish, rollback, and terminal status transitions.
   - Use one active attempt, bounded host-owned timeout, API busy result, and at most one pending coalesced signal.
   - Prevent publication after shutdown begins and isolate worker panics.
