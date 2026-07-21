@@ -76,7 +76,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.2_
   - _Validation: `go test ./internal/core/config/... ./internal/infra/configsource/... ./cmd/lipstd/... -run 'Load|CheckConfig|Effective|Strict|Reload'`_
 
-- [ ] 2.2 Implement the typed reloadability classifier
+- [x] 2.2 Implement the typed reloadability classifier
   - Define maintained comparators by owned configuration section rather than reflection.
   - Classify listener/server, management, access/auth class, global observability, database/store topology, plugin discovery/trust, process budgets, and startup overrides as startup-only.
   - Classify proven generation-owned rows and policy fields as reloadable.

@@ -61,6 +61,16 @@ func RequiredStartupOverridePaths() []string {
 // Inventory returns the authoritative reloadability classification table.
 func Inventory() []FieldClass { return slices.Clone(inventoryTable) }
 
+// TypedComparatorSections lists every inventoried path covered by a maintained
+// typed comparator in Classify (requirement 7.2 / task 2.2 FieldCoverage).
+func TypedComparatorSections() []string {
+	out := make([]string, 0, len(inventoryTable))
+	for _, e := range inventoryTable {
+		out = append(out, e.Path)
+	}
+	return out
+}
+
 // MissingClassifications returns declared paths absent from inventoried paths.
 func MissingClassifications(declared, inventoried []string) []string {
 	have := make(map[string]struct{}, len(inventoried))

@@ -1,6 +1,8 @@
 package configreload_test
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +10,39 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 )
+
+// TestFieldCoverage_NoYAMLSectionSerialization guards requirement 7.2: production
+// classifiers must use maintained typed comparators, not ad hoc YAML marshaling.
+func TestFieldCoverage_NoYAMLSectionSerialization(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join("..", "configreload")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// When tests run as ./internal/core/configreload, package dir is cwd.
+		entries, err = os.ReadDir(".")
+		if err != nil {
+			t.Fatalf("read configreload dir: %v", err)
+		}
+		dir = "."
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		src := string(body)
+		if strings.Contains(src, "yaml.Marshal") {
+			t.Fatalf("%s: production classifier must not yaml.Marshal config sections (req 7.2)", name)
+		}
+		if strings.Contains(src, "func yamlEqual") || strings.Contains(src, "func diffYAML") {
+			t.Fatalf("%s: remove YAML section equality helpers; use typed comparators", name)
+		}
+	}
+}
 
 // TestUnclassifiedTopLevelField_StructuralGuardFails uses reflection only in
 // tests to ensure every YAML-tagged top-level Config field is inventoried.

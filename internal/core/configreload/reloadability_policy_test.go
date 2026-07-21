@@ -278,6 +278,94 @@ func TestReloadabilityClassify_NilConfigs(t *testing.T) {
 	}
 }
 
+func TestFieldCoverage_EveryTopLevelHasTypedComparator(t *testing.T) {
+	t.Parallel()
+	covered := map[string]bool{}
+	for _, path := range configreload.TypedComparatorSections() {
+		covered[path] = true
+	}
+	var missing []string
+	for _, path := range configreload.RequiredTopLevelPaths() {
+		if !covered[path] {
+			missing = append(missing, path)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("top-level sections without typed comparators: %v", missing)
+	}
+	for _, path := range configreload.RequiredStartupOverridePaths() {
+		if !covered[path] {
+			t.Fatalf("startup override without typed comparator coverage: %q", path)
+		}
+	}
+}
+
+func TestClassifyEffective_UsesConfigProjection(t *testing.T) {
+	t.Parallel()
+	active := &config.EffectiveConfig{Config: baseConfig()}
+	candidate := &config.EffectiveConfig{Config: baseConfig()}
+	candidate.Config.Routing.DefaultRoute = "stub:other"
+
+	changes, err := configreload.ClassifyEffective(active, candidate)
+	if err != nil {
+		t.Fatalf("ClassifyEffective: %v", err)
+	}
+	if !containsChange(changes, "routing.default_route", configreload.ChangeReloadable) {
+		t.Fatalf("want routing.default_route reloadable, got %v", changes)
+	}
+
+	candidate.Config.Access.Mode = "multi_user"
+	_, err = configreload.ClassifyEffective(active, candidate)
+	var rr *configreload.RestartRequiredError
+	if !errors.As(err, &rr) {
+		t.Fatalf("want RestartRequiredError, got %v", err)
+	}
+	if !containsPath(rr.RestartRequiredFields, "access") {
+		t.Fatalf("want access blocked, got %v", rr.RestartRequiredFields)
+	}
+}
+
+func TestClassifyEffective_NilEffective(t *testing.T) {
+	t.Parallel()
+	if _, err := configreload.ClassifyEffective(nil, &config.EffectiveConfig{Config: baseConfig()}); err == nil {
+		t.Fatal("nil active EffectiveConfig must error")
+	}
+	if _, err := configreload.ClassifyEffective(&config.EffectiveConfig{Config: baseConfig()}, nil); err == nil {
+		t.Fatal("nil candidate EffectiveConfig must error")
+	}
+}
+
+func TestReloadabilityClassify_PluginsRows_Reloadable(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.Plugins.Backends = []config.PluginConfig{{
+		ID: "stub", Kind: "echo", Enabled: true,
+	}}
+	changes, err := configreload.Classify(active, candidate)
+	if err != nil {
+		t.Fatalf("plugin row add must be reloadable: %v", err)
+	}
+	if !containsChange(changes, "plugins.backends", configreload.ChangeReloadable) {
+		t.Fatalf("want plugins.backends reloadable, got %v", changes)
+	}
+}
+
+func TestReloadabilityClassify_LoggingNested_RestartRequired(t *testing.T) {
+	t.Parallel()
+	active := baseConfig()
+	candidate := baseConfig()
+	candidate.Logging.Level = "debug"
+	_, err := configreload.Classify(active, candidate)
+	var rr *configreload.RestartRequiredError
+	if !errors.As(err, &rr) {
+		t.Fatalf("logging change must restart_required, got %v", err)
+	}
+	if !containsPath(rr.RestartRequiredFields, "logging.level") && !containsPath(rr.RestartRequiredFields, "logging") {
+		t.Fatalf("want logging path blocked, got %v", rr.RestartRequiredFields)
+	}
+}
+
 func baseConfig() *config.Config {
 	return &config.Config{
 		Server: config.ServerConfig{Address: "127.0.0.1:8080"},
