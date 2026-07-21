@@ -2,7 +2,7 @@
 
 This document complements [ADR 0001](adr/0001-registry-driven-composition.md) and [ADR 0005](adr/0005-architecture-guardrails-and-complexity-budgets.md). It explains why we enforce structural rules and where to update the numbers.
 
-Stage four (extension platform) adds the **legal extension pipeline**, brownfield hook-bus migration rules, privileged inventory surfaces, and reload-oriented snapshot assumptions — see [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md).
+Stage four (extension platform) adds the **legal extension pipeline**, brownfield hook-bus migration rules, privileged inventory surfaces, and reload-oriented snapshot assumptions — see [ADR 0006](adr/0006-stage-four-extension-seam-map-and-migration.md). Versioned runtime config reload (immutable generations, explicit triggers, process/generation ownership split) is owned by [ADR 0008](adr/0008-versioned-runtime-config-reload.md) and the operator guide [runtime-config-reload.md](runtime-config-reload.md).
 
 **Authoring** — stage choice, facades, privileged inventory fields, hook→bundle migration, and the feature→seam mapping for new work: [extension-platform-authoring.md](extension-platform-authoring.md).
 
