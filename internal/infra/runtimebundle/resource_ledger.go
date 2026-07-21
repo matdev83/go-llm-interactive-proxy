@@ -260,11 +260,20 @@ func (l *ResourceLedger) stopReverse(ctx context.Context, match func(*ledgerEntr
 		if e.start != nil && !e.startAttempted.Load() {
 			continue
 		}
-		if err := e.stopCtx(ctx); err != nil {
+		if err := safeLedgerStop(ctx, e); err != nil {
 			out = errors.Join(out, fmt.Errorf("runtimebundle: ledger close %q: %w", e.name, err))
 		}
 	}
 	return out
+}
+
+func safeLedgerStop(ctx context.Context, e *ledgerEntry) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("runtimebundle: ledger close panic: %v", recovered)
+		}
+	}()
+	return e.stopCtx(ctx)
 }
 
 // LegacyClosers returns once-wrapped no-arg closers in acquisition order for

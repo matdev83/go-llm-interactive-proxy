@@ -9,4 +9,6 @@
 // manager shutdown/detach primitives for the initial-generation host.
 // ShutdownDetached fans out bounded per-generation retirement workers so a
 // pinned generation cannot stall unrelated drained generations.
+// Task 4.6 completes retired-generation quiesce, bounded cleanup retry, panic
+// isolation, retention-pressure diagnostics, and reverse-order drain/close.
 package runtimehost

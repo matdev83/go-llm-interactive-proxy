@@ -93,6 +93,7 @@ type Generation struct {
 
 	closeCount atomic.Int32
 	closeErr   error
+	closeMu    sync.Mutex // serializes Closing→Closed cleanup attempts (retry-safe)
 
 	metaMu sync.RWMutex
 	meta   GenerationMeta
@@ -443,11 +444,18 @@ func (g *Generation) signalDrained() {
 	close(g.drainCh)
 }
 
-// Close closes generation-owned resources exactly once from Closing (req 10.6).
+// Close closes generation-owned resources from Closing (req 10.6, 10.12).
+// On success it transitions to GenClosed exactly once. On failure it remains
+// GenClosing so an explicitly owned cleanup retry policy may call Close again
+// (design Closing→Closing). Successful close of owned resources happens once:
+// a failed attempt retains the owned closer for retry.
 func (g *Generation) Close() error {
 	if g == nil {
 		return nil
 	}
+	g.closeMu.Lock()
+	defer g.closeMu.Unlock()
+
 	if g.closed.Load() {
 		return ErrAlreadyClosed
 	}
@@ -455,27 +463,32 @@ func (g *Generation) Close() error {
 	if st != GenClosing {
 		return ErrIllegalTransition
 	}
-	if !g.closed.CompareAndSwap(false, true) {
-		return ErrAlreadyClosed
-	}
-	g.closeCount.Add(1)
 
 	g.payloadMu.Lock()
 	owned := g.owned
+	g.payloadMu.Unlock()
+
+	var closeErr error
+	if owned != nil {
+		closeErr = owned.Close()
+	}
+	g.closeCount.Add(1)
+	if closeErr != nil {
+		g.closeErr = closeErr
+		return closeErr
+	}
+
+	g.closed.Store(true)
+	g.payloadMu.Lock()
 	g.owned = nil
 	g.payloadMu.Unlock()
-	if owned != nil {
-		g.closeErr = owned.Close()
-	}
+	g.closeErr = nil
 	for {
 		cur := g.word.Load()
 		_, refs := unpackLease(cur)
 		if g.word.CompareAndSwap(cur, packLease(GenClosed, refs)) {
 			break
 		}
-	}
-	if g.closeErr != nil {
-		return g.closeErr
 	}
 	return nil
 }

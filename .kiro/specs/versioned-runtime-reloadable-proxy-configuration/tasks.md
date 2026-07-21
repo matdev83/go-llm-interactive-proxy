@@ -188,7 +188,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 ## Phase 4: Enable Reloadable Request-Plane Composition
 
-- [ ] 4. Add safe runtime recomposition by field group
+- [x] 4. Add safe runtime recomposition by field group
 
 - [x] 4.1 Enable backend add, replace, disable, and removal
   - Add tests and implementation for a backend absent at startup, same-ID changed configuration, disabled/removed backend, and candidate factory failure.
@@ -241,7 +241,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 3.5, 4.1_
   - _Validation: `go test -race ./internal/core/modelregistry/... ./internal/core/modelcatalog/... ./internal/infra/runtimebundle/... ./internal/stdhttp/... -run 'Reload|Models|Inventory|ETag|Quiesce'`_
 
-- [ ] 4.6 Complete retired-generation quiesce, cleanup, and pressure handling
+- [x] 4.6 Complete retired-generation quiesce, cleanup, and pressure handling
   - Stop generation background loops after retirement without closing resources needed by pins.
   - Close feature/backend/client/model resources in reverse order after drain.
   - Add cleanup panic/error isolation, bounded retry policy, status reporting, and idle transport closure.

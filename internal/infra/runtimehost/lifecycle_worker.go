@@ -3,6 +3,7 @@ package runtimehost
 import (
 	"context"
 	"errors"
+	"sync"
 )
 
 // QuiesceCloser is generation-owned teardown with an explicit quiesce phase.
@@ -16,15 +17,44 @@ type QuiesceCloser interface {
 // Publication never waits on this worker (req 5.9, 10.5-10.6, 13.5).
 // Retirement serialization is per-generation (Generation.retireMu), so unrelated
 // generations progress independently without a process-wide lock or worker map.
-type LifecycleWorker struct{}
+type LifecycleWorker struct {
+	policy CleanupPolicy
 
-// NewLifecycleWorker returns a process-owned retirement worker.
-func NewLifecycleWorker() *LifecycleWorker {
-	return &LifecycleWorker{}
+	statusMu sync.Mutex
+	last     RetirementStatus
 }
 
-// Retire quiesces once, waits for drain, then closes once in ownership order.
-// Quiesce/cleanup errors are returned without altering the active generation.
+// NewLifecycleWorker returns a process-owned retirement worker with default cleanup policy.
+func NewLifecycleWorker() *LifecycleWorker {
+	return NewLifecycleWorkerWithPolicy(CleanupPolicy{})
+}
+
+// NewLifecycleWorkerWithPolicy returns a retirement worker with an explicit cleanup retry budget.
+func NewLifecycleWorkerWithPolicy(policy CleanupPolicy) *LifecycleWorker {
+	return &LifecycleWorker{policy: policy}
+}
+
+// LastStatus returns a copy of the most recent retirement status snapshot.
+func (w *LifecycleWorker) LastStatus() RetirementStatus {
+	if w == nil {
+		return RetirementStatus{}
+	}
+	w.statusMu.Lock()
+	defer w.statusMu.Unlock()
+	return w.last
+}
+
+func (w *LifecycleWorker) setStatus(st RetirementStatus) {
+	if w == nil {
+		return
+	}
+	w.statusMu.Lock()
+	w.last = st
+	w.statusMu.Unlock()
+}
+
+// Retire quiesces once, waits for drain, then closes with bounded cleanup retries.
+// Quiesce/cleanup errors and panics are isolated without altering the active generation.
 // Idempotent: a second call on an already-closed generation returns ErrAlreadyClosed.
 // Concurrent Retire calls for different generations do not block each other.
 //
@@ -52,20 +82,24 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 		return ErrAlreadyClosed
 	}
 
+	status := RetirementStatus{GenerationID: g.ID()}
 	var out error
 	quiesced := false
 
 	switch st {
 	case GenRetiring:
 		if err := g.BeginQuiesce(); err != nil {
+			w.setStatus(status)
 			return errors.Join(out, err)
 		}
 		st = GenQuiescing
 		fallthrough
 	case GenQuiescing:
 		if owned != nil {
-			if err := owned.Quiesce(ctx); err != nil {
+			if err := safeQuiesce(ctx, owned); err != nil {
 				out = errors.Join(out, err)
+				status.Outcome = LifecycleOutcomeQuiesceFailed
+				status.Err = err
 			}
 		}
 		quiesced = true
@@ -75,14 +109,17 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 	case GenDrained:
 		// Zero-ref fast path skipped quiescing; still stop workers before close.
 		if owned != nil {
-			if err := owned.Quiesce(ctx); err != nil {
+			if err := safeQuiesce(ctx, owned); err != nil {
 				out = errors.Join(out, err)
+				status.Outcome = LifecycleOutcomeQuiesceFailed
+				status.Err = err
 			}
 		}
 		quiesced = true
 	case GenQuiesced, GenClosing:
 		// resume
 	default:
+		w.setStatus(status)
 		return ErrIllegalTransition
 	}
 
@@ -93,18 +130,57 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 	select {
 	case <-g.Drained():
 	case <-ctx.Done():
+		w.setStatus(status)
 		return errors.Join(out, ctx.Err())
 	}
 
 	if g.Lifecycle() == GenDrained {
 		if err := g.BeginClose(); err != nil {
+			w.setStatus(status)
 			return errors.Join(out, err)
 		}
 	}
 	if g.Lifecycle() == GenClosing {
-		if err := g.Close(); err != nil && !errors.Is(err, ErrAlreadyClosed) {
-			out = errors.Join(out, err)
+		maxAttempts := w.policy.maxAttempts()
+		var closeErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			status.Attempts = attempt
+			closeErr = safeClose(g)
+			if closeErr == nil || errors.Is(closeErr, ErrAlreadyClosed) {
+				closeErr = nil
+				break
+			}
+			if g.Lifecycle() == GenClosed {
+				closeErr = nil
+				break
+			}
+		}
+		if closeErr != nil {
+			out = errors.Join(out, closeErr)
+			status.Outcome = LifecycleOutcomeCleanupFailed
+			status.Err = closeErr
+		} else if status.Outcome == "" {
+			status.Outcome = LifecycleOutcomeOK
 		}
 	}
+	w.setStatus(status)
 	return out
+}
+
+func safeQuiesce(ctx context.Context, owned QuiesceCloser) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = panicError("quiesce", recovered)
+		}
+	}()
+	return owned.Quiesce(ctx)
+}
+
+func safeClose(g *Generation) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = panicError("cleanup", recovered)
+		}
+	}()
+	return g.Close()
 }
