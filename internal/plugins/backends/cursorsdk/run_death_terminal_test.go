@@ -105,6 +105,104 @@ func TestBridgeProcess_ProcessExitBeforeFinishedStampsTypedBridgeExited(t *testi
 	assert.NotContains(t, strings.ToLower(msg), "bridge run ended before terminal")
 }
 
+// TestBridgeProcess_ExitAfterSendBeforeSubscribe_YieldsBridgeExited forces the
+// close-before-SubscribeRun interleaving: agent/send arms a same-generation
+// runSub, waitProc closes it with BridgeExited (zero buffered frames), then
+// SubscribeRun must return that closed terminal fault — never an open channel.
+func TestBridgeProcess_ExitAfterSendBeforeSubscribe_YieldsBridgeExited(t *testing.T) {
+	t.Parallel()
+	proc := newFakeProc(910030)
+	genDead := make(chan struct{})
+	starter := &recordingStarter{next: func(cmd []string, cwd string, env []string) (Process, error) {
+		go serveFakeBridgeRPC(t, proc, map[string]func(req *protocol.Frame){
+			protocol.MethodAgentSend: func(req *protocol.Frame) {
+				res, _ := json.Marshal(protocol.AgentSendResult{RunID: "run-pre"})
+				proc.writeStdoutLine(mustEncodeFrame(&protocol.Frame{
+					SchemaVersion: protocol.SchemaVersion,
+					Type:          protocol.TypeResponse,
+					ID:            req.ID,
+					Method:        req.Method,
+					Result:        res,
+				}))
+			},
+		})
+		return proc, nil
+	}}
+	bp := newBridgeProcess(testConfig("/bridge/exe"), bridgeOpts{
+		Starter: starter,
+		HostEnv: []string{"PATH=/bin"},
+		OnBridgeGenerationDead: func(gen int64) {
+			select {
+			case <-genDead:
+			default:
+				close(genDead)
+			}
+		},
+	})
+	defer func() { _ = bp.Close() }()
+	_, err := bp.EnsureReady(context.Background())
+	require.NoError(t, err)
+
+	resp, err := bp.Call(context.Background(), protocol.MethodAgentSend, json.RawMessage(`{"agentId":"a","prompt":"p"}`))
+	require.NoError(t, err)
+	var send protocol.AgentSendResult
+	require.NoError(t, json.Unmarshal(resp.Result, &send))
+	require.Equal(t, "run-pre", send.RunID)
+	require.True(t, bp.hasRunSub("run-pre"))
+	require.False(t, bp.runSubClosed("run-pre"), "armed runSub must still be open before process exit")
+
+	// Barrier: process exit closes the armed sub before any SubscribeRun.
+	proc.exit(errors.New("exit status 3"))
+	select {
+	case <-genDead:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for waitProc generation-dead barrier")
+	}
+	require.True(t, bp.runSubClosed("run-pre"), "closed terminal fault must remain map-visible")
+
+	ch, cancel, termErr := bp.SubscribeRun("run-pre")
+	defer cancel()
+	require.NotNil(t, ch)
+	select {
+	case _, ok := <-ch:
+		require.False(t, ok, "SubscribeRun must return the already-closed terminal channel")
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("SubscribeRun resurrected an open channel after BridgeExited close-before-subscribe")
+	}
+	err = termErr()
+	require.ErrorIs(t, err, ErrBridgeExited)
+	var bf *BridgeFault
+	require.True(t, errors.As(err, &bf))
+	assert.Equal(t, CodeBridgeExited, bf.Code)
+}
+
+func TestSubscribeRun_ClosedTerminalFaultZeroBuffer_NotResurrected(t *testing.T) {
+	t.Parallel()
+	bp := newBridgeProcess(testConfig("/bridge/exe"), bridgeOpts{HostEnv: []string{"PATH=/bin"}})
+	defer func() { _ = bp.Close() }()
+
+	fault := BridgeExited(errors.New("exit status 3"), "stderr=noise")
+	bp.mu.Lock()
+	bp.gen = 1
+	bp.state = bridgeFailed
+	sub := newRunSub(1)
+	sub.markSendBound()
+	sub.closeWithErr(fault)
+	bp.runs = map[string]*runSub{"run-pre": sub}
+	bp.mu.Unlock()
+
+	ch, cancel, termErr := bp.SubscribeRun("run-pre")
+	defer cancel()
+	select {
+	case _, ok := <-ch:
+		require.False(t, ok)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("SubscribeRun resurrected open channel for closed zero-buffer terminal fault")
+	}
+	require.ErrorIs(t, termErr(), ErrBridgeExited)
+	require.True(t, bp.hasRunSub("run-pre"))
+}
+
 func TestBridgeProcess_CloseDoesNotStampBridgeExitedOnIdleRuns(t *testing.T) {
 	t.Parallel()
 	exe := buildFakeBridgeExe(t)

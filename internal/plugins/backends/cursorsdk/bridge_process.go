@@ -631,7 +631,11 @@ func (b *bridgeProcess) SubscribeRun(runID string) (<-chan *protocol.Frame, func
 			delete(b.runs, runID)
 			stale = existing
 		} else if existing.isClosed() {
-			if existing.buffered() > 0 {
+			// Preserve closed same-generation terminal faults (BridgeExited /
+			// protocol overflow) even with zero buffered frames so a late
+			// SubscribeRun observes the fault instead of resurrecting an open
+			// channel that nothing will ever close.
+			if existing.buffered() > 0 || existing.TerminalErr() != nil {
 				existing.markClaimed()
 				b.mu.Unlock()
 				return existing.ch, b.runSubCancel(runID, existing), existing.TerminalErr
@@ -1019,7 +1023,13 @@ func (b *bridgeProcess) closeRunsForGenerationLocked(gen int64, terminal error) 
 		if sub.generation != gen {
 			continue
 		}
-		delete(b.runs, id)
+		// When stamping a terminal process/protocol fault, keep the closed
+		// runSub in the map so SubscribeRun can hand it to the first claimant
+		// (including zero-buffer BridgeExited after agent/send). Plain close
+		// without a fault still removes the entry.
+		if terminal == nil {
+			delete(b.runs, id)
+		}
 		subs = append(subs, sub)
 	}
 	for _, sub := range subs {
