@@ -39,7 +39,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.2_
   - _Validation: `go test ./internal/core/configreload/... ./internal/core/config/... -run 'Reloadability|RestartRequired|Unclassified'`_
 
-- [ ] 1.4 Define generation-manager linearizability and retention RED tests
+- [x] 1.4 Define generation-manager linearizability and retention RED tests
   - Add deterministic acquire/publish races, retiring-bit/refcount transitions, exactly-once release, pointer recheck, async-pin transfer, zero-ref drain, and double-close cases.
   - Prohibit `sync.WaitGroup` as the general request refcounter through focused tests/architecture checks.
   - Add blocked SSE/async/provider pins and retained-generation budget cases proving later publication is rejected without killing old work.
