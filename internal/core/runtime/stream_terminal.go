@@ -173,23 +173,37 @@ type accumulatorSnapWire struct {
 	Final  bool   `json:"f"`
 }
 
-func (s *retryRecvStream) ensureTerminals() {
-	if s == nil {
-		return
-	}
+// snapshotTerminals returns coherent request/attempt owners, initializing them
+// once under termMu. Callers must use the returned pointers for the duration of
+// a terminalize attempt and must not hold termMu across Terminalize/effects.
+func (s *retryRecvStream) snapshotTerminals() (req, att *streamTerminal) {
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
 	if s.requestTerm == nil {
 		s.requestTerm = newStreamTerminal(sdk.ScopeRequest)
 	}
 	if s.attemptTerm == nil {
 		s.attemptTerm = newStreamTerminal(sdk.ScopeAttempt)
 	}
+	return s.requestTerm, s.attemptTerm
 }
 
+func (s *retryRecvStream) ensureTerminals() {
+	if s == nil {
+		return
+	}
+	_, _ = s.snapshotTerminals()
+}
+
+// resetAttemptTerminal replaces attempt ownership for a replacement transition.
+// In-flight Close/Recv that already snapshotted keep their prior attempt owner.
 func (s *retryRecvStream) resetAttemptTerminal() {
 	if s == nil {
 		return
 	}
+	s.termMu.Lock()
 	s.attemptTerm = newStreamTerminal(sdk.ScopeAttempt)
+	s.termMu.Unlock()
 }
 
 func (s *retryRecvStream) accumulatorSnapshot() coreterm.AccumulatorSnapshot {
@@ -241,7 +255,7 @@ func (s *retryRecvStream) runStreamTerminal(
 	if s == nil {
 		return coreterm.Result{Err: sdk.ErrInvalid}
 	}
-	s.ensureTerminals()
+	req, att := s.snapshotTerminals()
 	snapFn := func() coreterm.AccumulatorSnapshot { return s.accumulatorSnapshot() }
 
 	runEffects := func(cctx context.Context, _ coreterm.Outcome) error {
@@ -252,14 +266,14 @@ func (s *retryRecvStream) runStreamTerminal(
 	}
 
 	if !cmd.AllowsScope(sdk.ScopeRequest) {
-		return s.attemptTerm.Terminalize(ctx, cmd, snapFn, runEffects)
+		return att.Terminalize(ctx, cmd, snapFn, runEffects)
 	}
 
-	return s.requestTerm.Terminalize(ctx, cmd, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
+	return req.Terminalize(ctx, cmd, snapFn, func(cctx context.Context, out coreterm.Outcome) error {
 		if !cmd.AllowsScope(sdk.ScopeAttempt) {
 			return runEffects(cctx, out)
 		}
-		ar := s.attemptTerm.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
+		ar := att.Terminalize(cctx, cmd, func() coreterm.AccumulatorSnapshot {
 			return out.Snapshot.Clone()
 		}, runEffects)
 		if ar.Won {
@@ -279,8 +293,8 @@ func (s *retryRecvStream) runAttemptTerminal(
 	if s == nil {
 		return coreterm.Result{Err: sdk.ErrInvalid}
 	}
-	s.ensureTerminals()
-	return s.attemptTerm.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
+	_, att := s.snapshotTerminals()
+	return att.Terminalize(ctx, cmd, func() coreterm.AccumulatorSnapshot {
 		return s.accumulatorSnapshot()
 	}, func(cctx context.Context, _ coreterm.Outcome) error {
 		if effects == nil {

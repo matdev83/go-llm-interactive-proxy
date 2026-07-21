@@ -165,6 +165,9 @@ type retryRecvStream struct {
 
 	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
 	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
+	// termMu guards pointer publish/replace; callers snapshot under the lock and
+	// must not hold termMu across Terminalize/effects.
+	termMu      sync.Mutex
 	requestTerm *streamTerminal
 	attemptTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
