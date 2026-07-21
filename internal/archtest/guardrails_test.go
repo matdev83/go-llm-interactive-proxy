@@ -161,7 +161,12 @@ var lineBudgets = []struct {
 	// req 1.5 / 2.9), AttemptCoordinator.Preview clamp-preview fallback for
 	// nil-coordinator UsageAuthority-only deployments, and execbackend.Backend.Close.
 	// Post-merge measured non-test total is 64713; cap keeps ~87 lines of headroom.
-	{"internal/core", 64800},
+	// Raised from 64800 to 65300 for the versioned runtime reload policy package:
+	// explicit top-level/startup-override inventory, typed section comparators,
+	// safe bounded restart-required reporting, and mixed-change rejection
+	// (requirements 3.5, 7.1-7.9, 12.11). The measured total is 65129;
+	// cap keeps roughly 170 lines of headroom.
+	{"internal/core", 65300},
 	{"internal/pluginreg", 4500},
 	{"internal/stdhttp", 3500},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh

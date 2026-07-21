@@ -21,8 +21,8 @@ type RefSIGHUPTrigger struct {
 
 func NewRefSIGHUPTrigger() *RefSIGHUPTrigger { return &RefSIGHUPTrigger{} }
 
-func (t *RefSIGHUPTrigger) Coalesced() int64  { return t.coalesced }
-func (t *RefSIGHUPTrigger) Delivered() int64  { return 0 }
+func (t *RefSIGHUPTrigger) Coalesced() int64   { return t.coalesced }
+func (t *RefSIGHUPTrigger) Delivered() int64   { return 0 }
 func (t *RefSIGHUPTrigger) C() <-chan struct{} { return nil }
 func (t *RefSIGHUPTrigger) Notify()            { t.coalesced++ }
 

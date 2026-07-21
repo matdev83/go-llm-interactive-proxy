@@ -18,9 +18,9 @@ type RefSIGHUPTrigger struct {
 	delivered atomic.Int64
 }
 
-func NewRefSIGHUPTrigger() *RefSIGHUPTrigger { return &RefSIGHUPTrigger{ch: make(chan struct{}, 1)} }
-func (t *RefSIGHUPTrigger) Coalesced() int64  { return t.coalesced.Load() }
-func (t *RefSIGHUPTrigger) Delivered() int64  { return t.delivered.Load() }
+func NewRefSIGHUPTrigger() *RefSIGHUPTrigger   { return &RefSIGHUPTrigger{ch: make(chan struct{}, 1)} }
+func (t *RefSIGHUPTrigger) Coalesced() int64   { return t.coalesced.Load() }
+func (t *RefSIGHUPTrigger) Delivered() int64   { return t.delivered.Load() }
 func (t *RefSIGHUPTrigger) C() <-chan struct{} { return t.ch }
 
 func (t *RefSIGHUPTrigger) Notify() {

@@ -1,6 +1,3 @@
-// Package configreload owns typed field-level reloadability policy for runtime
-// config reload (requirements 3.5, 7.1–7.9, 12.11). Classification uses
-// maintained path rules; reflection is tests-only for completeness guards.
 package configreload
 
 import "slices"
