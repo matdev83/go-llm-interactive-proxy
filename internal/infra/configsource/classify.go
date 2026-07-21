@@ -2,7 +2,6 @@ package configsource
 
 import (
 	"bytes"
-	"fmt"
 	"unicode"
 	"unicode/utf8"
 )
@@ -18,13 +17,13 @@ func ClassifyBytes(raw []byte, maxBytes int64) (Category, error) {
 		maxBytes = DefaultMaxBytes
 	}
 	if int64(len(raw)) > maxBytes {
-		return CategoryOversize, fmt.Errorf("configsource: %s (limit %d bytes)", CategoryOversize, maxBytes)
+		return CategoryOversize, oversizeErr(maxBytes)
 	}
 	if len(raw) == 0 {
-		return CategoryEmpty, fmt.Errorf("configsource: %s", CategoryEmpty)
+		return CategoryEmpty, integrityErr(CategoryEmpty)
 	}
 	if isWhitespaceOnly(raw) {
-		return CategoryWhitespace, fmt.Errorf("configsource: %s", CategoryWhitespace)
+		return CategoryWhitespace, integrityErr(CategoryWhitespace)
 	}
 	return CategoryOK, nil
 }
@@ -49,10 +48,10 @@ func isWhitespaceOnly(raw []byte) bool {
 // reading contents. Used by table fixtures and the future ReadStable path.
 func ClassifyPathPresence(exists, isRegular bool) (Category, error) {
 	if !exists {
-		return CategoryMissing, fmt.Errorf("configsource: %s", CategoryMissing)
+		return CategoryMissing, integrityErr(CategoryMissing)
 	}
 	if !isRegular {
-		return CategoryUnsupportedType, fmt.Errorf("configsource: %s", CategoryUnsupportedType)
+		return CategoryUnsupportedType, integrityErr(CategoryUnsupportedType)
 	}
 	return CategoryOK, nil
 }
@@ -61,7 +60,7 @@ func ClassifyPathPresence(exists, isRegular bool) (Category, error) {
 // across the bounded read window (requirement 2.1–2.2).
 func ClassifyStability(beforeSize, afterSize int64, beforeID, afterID FileIdentity) (Category, error) {
 	if beforeSize != afterSize || beforeID != afterID {
-		return CategoryUnstable, fmt.Errorf("configsource: %s", CategoryUnstable)
+		return CategoryUnstable, integrityErr(CategoryUnstable)
 	}
 	return CategoryOK, nil
 }
@@ -84,7 +83,7 @@ func ClassifyAtomicReplacement(active ActiveSourceVersion, candidate SourceSnaps
 	case sameID && sameDigest:
 		return AtomicNoop, CategoryOK, nil
 	case sameID && !sameDigest:
-		return AtomicReject, CategoryNonAtomicUpdate, fmt.Errorf("configsource: %s", CategoryNonAtomicUpdate)
+		return AtomicReject, CategoryNonAtomicUpdate, integrityErr(CategoryNonAtomicUpdate)
 	default:
 		return AtomicEligible, CategoryOK, nil
 	}

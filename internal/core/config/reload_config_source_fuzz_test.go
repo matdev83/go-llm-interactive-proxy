@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 )
 
-// FuzzReloadConfigSource exercises bounded source classification and the
-// test-owned strict decode seam. Inputs are capped; failures must not panic or
-// echo seed secrets into error strings.
+// FuzzReloadConfigSource exercises bounded source classification and production
+// StrictDecode. Inputs are capped; failures must not panic or echo seed secrets
+// into error strings.
 func FuzzReloadConfigSource(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte(" \n\t"))
@@ -27,7 +28,7 @@ func FuzzReloadConfigSource(f *testing.F) {
 		if int64(len(raw)) > configsource.DefaultMaxBytes+4096 {
 			raw = raw[:configsource.DefaultMaxBytes+4096]
 		}
-		_, cat, err := strictDecodeContract(raw)
+		_, cat, err := config.StrictDecode(raw)
 		if err != nil {
 			msg := err.Error()
 			if strings.Contains(msg, "\x00") {

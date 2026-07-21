@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,14 +129,213 @@ not_a_core_field: true
 }
 
 func TestStrictEffectiveLoader_ProductionLoadFileParity_RED(t *testing.T) {
-	// Genuine RED observed 2026-07-21: config.LoadFile accepted unknown core fields,
-	// empty documents, multi-doc, and trailing content. Keep this as the exact
-	// future integration seam until task 2.1 wires LoadEffective.
-	t.Skip("RED until task 2.1 wires shared LoadEffective/strict decode so LoadFile-equivalent startup rejects unknown core fields")
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		raw  []byte
+		want configsource.Category
+	}{
+		{
+			name: "unknown_core_field",
+			raw: []byte(`server:
+  address: "127.0.0.1:0"
+not_a_core_field: true
+`),
+			want: configsource.CategoryUnknownCoreField,
+		},
+		{
+			name: "multiple_documents",
+			raw: []byte(`server:
+  address: "127.0.0.1:0"
+---
+server:
+  address: "127.0.0.1:1"
+`),
+			want: configsource.CategoryMultipleDocuments,
+		},
+		{
+			name: "trailing_content",
+			raw: []byte(`server:
+  address: "127.0.0.1:0"
+...
+this is not yaml document content that decoder may still see
+`),
+			want: configsource.CategoryTrailingContent,
+		},
+		{
+			name: "empty",
+			raw:  []byte{},
+			want: configsource.CategoryEmpty,
+		},
+		{
+			name: "whitespace",
+			raw:  []byte("  \n\t\n"),
+			want: configsource.CategoryWhitespace,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name+"/StrictDecode", func(t *testing.T) {
+			t.Parallel()
+			_, cat, err := config.StrictDecode(tc.raw)
+			if cat != tc.want || err == nil {
+				t.Fatalf("StrictDecode: cat=%q err=%v want %q", cat, err, tc.want)
+			}
+			msg := err.Error()
+			if strings.Contains(msg, "not_a_core_field: true") {
+				t.Fatalf("error leaked raw config: %q", msg)
+			}
+		})
+		t.Run(tc.name+"/LoadFile", func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(t.TempDir(), "cfg.yaml")
+			if err := os.WriteFile(p, tc.raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.LoadFile(p)
+			if err == nil {
+				t.Fatal("LoadFile must reject via shared strict path")
+			}
+			msg := err.Error()
+			if strings.Contains(msg, "not_a_core_field: true") {
+				t.Fatalf("LoadFile error leaked raw config: %q", msg)
+			}
+			if len(tc.raw) > 0 && strings.Contains(msg, string(tc.raw)) {
+				t.Fatalf("LoadFile error leaked raw config: %q", msg)
+			}
+		})
+	}
+
+	t.Run("valid_defaults_via_LoadEffective", func(t *testing.T) {
+		t.Parallel()
+		raw := []byte(`
+continuity:
+  in_memory: true
+plugins:
+  backends:
+    - id: stub
+      enabled: true
+`)
+		eff, err := config.LoadEffective(context.Background(), raw, config.LoadEffectiveOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eff.Config.Server.Address != "127.0.0.1:8080" {
+			t.Fatalf("default listen: %q", eff.Config.Server.Address)
+		}
+		if eff.Identity.PublicFingerprint == "" || strings.Contains(eff.Identity.PublicFingerprint, "secret") {
+			t.Fatalf("public fingerprint: %q", eff.Identity.PublicFingerprint)
+		}
+	})
 }
 
 func TestStrictReloadSource_ReadStableIntegration_RED(t *testing.T) {
-	t.Skip("RED until task 2.1 implements configsource.ReadStable with handle re-stat and atomic replacement enforcement")
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := []byte("server:\n  address: \"127.0.0.1:0\"\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	src, err := configsource.NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(src.AbsolutePath()) {
+		t.Fatalf("AbsolutePath must be absolute: %q", src.AbsolutePath())
+	}
+
+	snap1, res, err := src.ReadStable(ctx, nil)
+	if err != nil || res != configsource.AtomicEligible {
+		t.Fatalf("first read: res=%q err=%v", res, err)
+	}
+	if snap1.PrivateDigest == ([32]byte{}) || len(snap1.Bytes) == 0 {
+		t.Fatal("expected digest and bytes")
+	}
+
+	active := &configsource.ActiveSourceVersion{
+		HandleIdentity: snap1.HandleIdentity,
+		PrivateDigest:  snap1.PrivateDigest,
+	}
+	_, res, err = src.ReadStable(ctx, active)
+	if err != nil || res != configsource.AtomicNoop {
+		t.Fatalf("noop re-read: res=%q err=%v", res, err)
+	}
+
+	changed := []byte("server:\n  address: \"127.0.0.1:9\"\n")
+	if err := os.WriteFile(path, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, res, err = src.ReadStable(ctx, active)
+	if res != configsource.AtomicReject || err == nil {
+		t.Fatalf("in-place rewrite: res=%q err=%v", res, err)
+	}
+	if cat, ok := configsource.CategoryOf(err); !ok || cat != configsource.CategoryNonAtomicUpdate {
+		t.Fatalf("want non-atomic category, got cat=%q ok=%v err=%v", cat, ok, err)
+	}
+
+	tmp := filepath.Join(dir, "config.yaml.tmp")
+	if err := os.WriteFile(tmp, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+	snap2, res, err := src.ReadStable(ctx, active)
+	if err != nil || res != configsource.AtomicEligible {
+		t.Fatalf("atomic replace: res=%q err=%v", res, err)
+	}
+	if snap2.HandleIdentity == active.HandleIdentity {
+		t.Fatal("atomic replace must change handle identity")
+	}
+
+	t.Run("missing", func(t *testing.T) {
+		t.Parallel()
+		missing := filepath.Join(t.TempDir(), "nope.yaml")
+		s, err := configsource.NewFixedSource(missing, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = s.ReadStable(ctx, nil)
+		if cat, ok := configsource.CategoryOf(err); !ok || cat != configsource.CategoryMissing {
+			t.Fatalf("want missing, got cat=%q ok=%v err=%v", cat, ok, err)
+		}
+	})
+
+	t.Run("unsupported_directory", func(t *testing.T) {
+		t.Parallel()
+		s, err := configsource.NewFixedSource(dir, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = s.ReadStable(ctx, nil)
+		if cat, ok := configsource.CategoryOf(err); !ok || cat != configsource.CategoryUnsupportedType {
+			t.Fatalf("want unsupported, got cat=%q ok=%v err=%v", cat, ok, err)
+		}
+	})
+
+	t.Run("oversize", func(t *testing.T) {
+		t.Parallel()
+		p := filepath.Join(t.TempDir(), "big.yaml")
+		limit := int64(64)
+		if err := os.WriteFile(p, bytes.Repeat([]byte("a"), int(limit)+1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s, err := configsource.NewFixedSource(p, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = s.ReadStable(ctx, nil)
+		if cat, ok := configsource.CategoryOf(err); !ok || cat != configsource.CategoryOversize {
+			t.Fatalf("want oversize, got cat=%q ok=%v err=%v", cat, ok, err)
+		}
+		if err != nil && strings.Contains(err.Error(), strings.Repeat("a", 32)) {
+			t.Fatalf("oversize error echoed payload: %v", err)
+		}
+	})
 }
 
 func TestNoopEffectiveIdentity_CommentAndKeyOrder(t *testing.T) {

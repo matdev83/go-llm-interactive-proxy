@@ -1,7 +1,7 @@
-// Package configsource defines the bounded fixed-path configuration source
-// contract for runtime reload (versioned-runtime-reloadable-proxy-configuration).
+// Package configsource provides the bounded fixed-path configuration source for
+// runtime reload (versioned-runtime-reloadable-proxy-configuration).
 //
-// Task 1.2 freezes categories, size bounds, and classification expectations.
-// Task 2.1 wires production ReadStable / atomic-replacement integrity. This
+// [FixedSource] resolves an absolute startup path and implements ReadStable with
+// handle re-stat, path revalidation, and atomic-replacement enforcement. This
 // package must not grow a file watcher, mtime poller, or automatic reload loop.
 package configsource

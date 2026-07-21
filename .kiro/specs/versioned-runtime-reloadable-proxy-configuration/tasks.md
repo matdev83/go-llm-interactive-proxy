@@ -64,7 +64,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 - [ ] 2. Build the safe reusable bootstrap foundations
 
-- [ ] 2.1 Implement bounded fixed-path source reading and strict effective loading
+- [x] 2.1 Implement bounded fixed-path source reading and strict effective loading
   - Resolve and retain the absolute source path at startup.
   - Replace unbounded reload reads with a context-aware bounded snapshot and explicit empty/oversize classifications.
   - Decode exactly one strict typed document while preserving plugin-private `yaml.Node` subtrees.
