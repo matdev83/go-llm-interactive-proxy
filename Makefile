@@ -24,7 +24,7 @@ help:
 	@echo "  make test-cursor-sdk-comparison-report - ACP vs SDK matrix report (synthetic/blocked offline; no credentials)"
 	@echo "  make parity-checks   - conformance package tests only (-tags=precommit,integration; FE×BE matrix + parity suites; see docs/conformance-matrix-evidence.md)"
 	@echo "  make release-gates   - conformance package + all critical fuzz targets (race is separate: test-race / CI; see docs/release-gates.md)"
-	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, frontend encoders)"
+	@echo "  make bench           - benchmarks (testkit, stream, core runtime/routing/diag/toolcallrepair, runtimehost reload, frontend encoders)"
 	@echo "  make pgo-profile     - collect default.pgo from core benches (move under cmd/lipstd before build)"
 	@echo "  make pgo-build       - build cmd/lipstd (uses cmd/lipstd/default.pgo when present)"
 	@echo "  make qa              - quality-checks + one full test pass (-tags=precommit,integration) + lint + vuln (local)"
@@ -178,6 +178,12 @@ test-fuzz:
 	$(FUZZ_WRAPPER) -fuzz=FuzzParseDecimalToNano$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/economics
 	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_SourceEventKey_DelimiterSafety$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
 	$(FUZZ_WRAPPER) -fuzz=FuzzPhase32_MoneyPresentCurrency$$ -fuzztime=$(FUZZTIME) -run=^$$ ./pkg/lipsdk/metering
+	# Runtime reload Phase 6.4: source/strict YAML, effective identity, diff, management decode, lifecycle transitions
+	$(FUZZ_WRAPPER) -fuzz=FuzzReloadConfigSource$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/config
+	$(FUZZ_WRAPPER) -fuzz=FuzzEffectiveCanonicalization$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/config
+	$(FUZZ_WRAPPER) -fuzz=FuzzReloadDiffClassify$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/core/configreload
+	$(FUZZ_WRAPPER) -fuzz=FuzzManagementReloadDecode$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/stdhttp/admin/configreload
+	$(FUZZ_WRAPPER) -fuzz=FuzzGenerationLifecycleTransitions$$ -fuzztime=$(FUZZTIME) -run=^$$ ./internal/infra/runtimehost
 
 test-cursor-sdk-live:
 ifeq ($(OS),Windows_NT)
@@ -219,6 +225,7 @@ bench:
 		./internal/core/securesession/... \
 		./internal/core/runtime/... ./internal/core/routing/... ./internal/core/diag/... \
 		./internal/core/toolcallrepair/... \
+		./internal/infra/runtimehost/... ./internal/infra/runtimebundle/... \
 		./internal/infra/concurrencyauthority/leasestore/... \
 		./internal/infra/metering/journalstore/... \
 		./internal/infra/usageauthority/authoritystore/... \
