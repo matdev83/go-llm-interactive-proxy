@@ -4,7 +4,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 ## Phase 1: Freeze Contracts, Ownership, and RED Scenarios
 
-- [ ] 1. Establish the runtime reload contract surface
+- [x] 1. Establish the runtime reload contract surface
 
 - [x] 1.1 Inventory current resource ownership and add architecture RED gates
   - Enumerate every resource created by `BuildBootstrap`, `runtimebundle.Build`, `NewStandardHandler`, model/catalog startup, terminal work, metrics, tracing, and server startup.
@@ -50,7 +50,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 1.1_
   - _Validation: `go test -race ./internal/infra/runtimehost/... -run 'Generation|Acquire|Publish|Retire|Retention|Pin'`_
 
-- [ ] 1.5 Define composed no-drop and trigger-contract RED harnesses
+- [x] 1.5 Define composed no-drop and trigger-contract RED harnesses
   - Build deterministic `httptest` harnesses for HTTP/1.1 keep-alive, HTTP/2 multiplexing, SSE, non-streaming, cancellation, failover, parallel races, and management access.
   - Add Unix SIGHUP versus INT/TERM contract tests and non-Unix API-only compile tests.
   - Add management authentication, fixed-source, method/content-type/body, busy, disconnect, and status-response goldens.
