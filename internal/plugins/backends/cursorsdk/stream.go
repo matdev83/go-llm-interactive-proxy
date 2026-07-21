@@ -483,6 +483,12 @@ func (s *RunStream) escalateCancelTimeout(ctx context.Context) {
 	_ = s.opts.GenerationKiller.KillGeneration(context.WithoutCancel(ctx), gen)
 }
 
+// generationBoundCanceller cancels a run only while the given bridge generation
+// is still live. Implemented by *bridgeAgentClient; optional for test fakes.
+type generationBoundCanceller interface {
+	CancelRunForGeneration(ctx context.Context, runID string, generation int64) error
+}
+
 func (s *RunStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi.CancelResult {
 	_ = cause
 	s.cancelOnce.Do(func() {
@@ -497,7 +503,15 @@ func (s *RunStream) Cancel(ctx context.Context, cause lipapi.CancelCause) lipapi
 		defer cancel()
 		var err error
 		if s.bridge != nil && s.runID != "" {
-			err = s.bridge.CancelRun(cctx, s.runID)
+			boundGen := int64(0)
+			if s.lease != nil {
+				boundGen = s.lease.ProcessGeneration()
+			}
+			if gb, ok := s.bridge.(generationBoundCanceller); ok && boundGen > 0 {
+				err = gb.CancelRunForGeneration(cctx, s.runID, boundGen)
+			} else {
+				err = s.bridge.CancelRun(cctx, s.runID)
+			}
 		}
 		if err != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(cctx.Err(), context.DeadlineExceeded)) {
 			s.escalateCancelTimeout(ctx)

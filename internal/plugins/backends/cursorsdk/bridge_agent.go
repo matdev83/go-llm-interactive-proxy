@@ -93,12 +93,13 @@ func (c *bridgeAgentClient) SubscribeRun(runID string) (<-chan *protocol.Frame, 
 }
 
 func (c *bridgeAgentClient) CancelRun(ctx context.Context, runID string) error {
-	frame, err := c.bp.Call(ctx, protocol.MethodRunCancel, mustJSON(protocol.RunCancelParams{RunID: runID}))
-	if err != nil {
-		return err
-	}
-	if frame.Error != nil {
-		return fmt.Errorf("cursorsdk: run/cancel: %s: %s", frame.Error.Code, frame.Error.Message)
-	}
-	return nil
+	// Unscoped cancel targets the live generation (direct AgentBridge callers).
+	return c.CancelRunForGeneration(ctx, runID, 0)
+}
+
+// CancelRunForGeneration cancels runID only if generation still owns the live bridge.
+// generation <= 0 means "current generation". A stale generation is a no-op so an
+// old RunStream.Close cannot CancelRun a newer process that reused the same run ID.
+func (c *bridgeAgentClient) CancelRunForGeneration(ctx context.Context, runID string, generation int64) error {
+	return c.bp.cancelRun(ctx, runID, generation)
 }
