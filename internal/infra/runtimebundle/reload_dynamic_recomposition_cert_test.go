@@ -26,7 +26,7 @@ import (
 
 func postResponsesAuth(t *testing.T, h http.Handler, model, bearer string) string {
 	t.Helper()
-	body := []byte(fmt.Sprintf(`{"model":%q,"stream":false,"input":[{"role":"user","content":"ping"}]}`, model))
+	body := fmt.Appendf(nil, `{"model":%q,"stream":false,"input":[{"role":"user","content":"ping"}]}`, model)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+bearer)

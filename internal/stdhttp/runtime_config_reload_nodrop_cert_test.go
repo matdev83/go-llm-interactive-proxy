@@ -15,6 +15,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -71,7 +74,7 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 			t.Fatal(err)
 		}
 		b1, _ := io.ReadAll(res1.Body)
-		res1.Body.Close()
+		require.NoError(t, res1.Body.Close())
 
 		publishCertPlane(t, m, "g2", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b, ok := runtimehost.BindingFromContext(r.Context())
@@ -85,7 +88,7 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 			t.Fatal(err)
 		}
 		b2, _ := io.ReadAll(res2.Body)
-		res2.Body.Close()
+		require.NoError(t, res2.Body.Close())
 		if string(b1) != "g1" || string(b2) != "g2" || dials.Load() != 1 {
 			t.Fatalf("b1=%s b2=%s dials=%d (listener/connection must stay stable)", b1, b2, dials.Load())
 		}
@@ -98,7 +101,12 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 		first, resume := make(chan struct{}), make(chan struct{})
 		publishCertPlane(t, m, "g1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b, _ := runtimehost.BindingFromContext(r.Context())
-			flusher := w.(http.Flusher)
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "ResponseWriter does not implement http.Flusher", http.StatusInternalServerError)
+				t.Error("ResponseWriter does not implement http.Flusher")
+				return
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			_, _ = fmt.Fprintf(w, "data: start-%d\n\n", b.Meta().ID)
@@ -114,7 +122,9 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() {
+			require.NoError(t, res.Body.Close())
+		}()
 		<-first
 		publishCertPlane(t, m, "g2", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b, _ := runtimehost.BindingFromContext(r.Context())
@@ -170,7 +180,7 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 				return
 			}
 			body, _ := io.ReadAll(res.Body)
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 			done <- string(body)
 		}()
 		<-entered
@@ -199,7 +209,7 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 		}))
 		srv := httptest.NewServer(d)
 		t.Cleanup(srv.Close)
-		for round := 0; round < 8; round++ {
+		for round := range 8 {
 			readyAcq, readyPub, gate := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			result := make(chan string, 1)
 			go func() {
@@ -211,7 +221,7 @@ func TestRuntimeConfigReload_NoDrop_HTTP1KeepAliveSSEFailoverParallel(t *testing
 					return
 				}
 				b, _ := io.ReadAll(res.Body)
-				res.Body.Close()
+				assert.NoError(t, res.Body.Close())
 				result <- string(b)
 			}()
 			label := fmt.Sprintf("g-%d", round)
@@ -246,10 +256,12 @@ type recordingCertBLeg struct {
 func (b *recordingCertBLeg) Recv(context.Context) (lipapi.Event, error) {
 	return lipapi.Event{}, context.Canceled
 }
+
 func (b *recordingCertBLeg) Cancel(context.Context, lipapi.CancelCause) lipapi.CancelResult {
 	b.canceled.Store(true)
 	return lipapi.CancelResult{Mode: lipapi.CancelModeProvider}
 }
+
 func (b *recordingCertBLeg) Close() error {
 	b.closed.Store(true)
 	return nil
@@ -297,7 +309,9 @@ func postNonStreamingResponses(t *testing.T, client *http.Client, baseURL string
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		require.NoError(t, res.Body.Close())
+	}()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", res.StatusCode, raw)

@@ -90,7 +90,7 @@ func BenchmarkRetainedGenerationOverhead(b *testing.B) {
 			if err := m.Publish(boot); err != nil {
 				b.Fatal(err)
 			}
-			for i := 0; i < retained; i++ {
+			for i := range retained {
 				lease, ok := m.Acquire()
 				if !ok {
 					b.Fatal("acquire")
