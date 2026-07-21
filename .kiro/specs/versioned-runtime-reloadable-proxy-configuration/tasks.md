@@ -6,7 +6,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
 
 - [ ] 1. Establish the runtime reload contract surface
 
-- [ ] 1.1 Inventory current resource ownership and add architecture RED gates
+- [x] 1.1 Inventory current resource ownership and add architecture RED gates
   - Enumerate every resource created by `BuildBootstrap`, `runtimebundle.Build`, `NewStandardHandler`, model/catalog startup, terminal work, metrics, tracing, and server startup.
   - Classify each resource as process-owned, generation-owned, or request/async-work-owned.
   - Add failing architecture tests for a second global tracer/metrics registry, duplicate process worker, unclassified closer, active-runtime mutation setter, and any file-watcher dependency or polling loop.
