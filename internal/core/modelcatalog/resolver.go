@@ -51,20 +51,24 @@ func NewCatalogResolver(
 }
 
 // Resolve implements the executor catalog merge contract.
+// When a request-bound catalog view is present on ctx it is preferred so
+// failover/parallel attempts observe one immutable snapshot (req 9.4-9.5).
+// Compatibility callers without a bound view still read the live provider.
 func (c *CatalogResolverImpl) Resolve(
 	ctx context.Context,
 	candidate routing.AttemptCandidate,
 	call lipapi.Call,
 	backend lipapi.BackendCaps,
 ) EffectiveFacts {
-	_ = ctx
 	_ = call
 	input := strings.TrimSpace(candidate.Primary.Model)
 	be := CloneBackendCaps(backend)
 
 	var idx *SnapshotIndex
 	var snapRef SnapshotRef
-	if c.active != nil {
+	if bv, ok := BoundViewFromContext(ctx); ok {
+		idx, snapRef = bv.ActiveIndex()
+	} else if c.active != nil {
 		idx, snapRef = c.active.ActiveIndex()
 	}
 

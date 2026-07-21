@@ -24,6 +24,9 @@ var (
 	ErrInvalidModel           = errors.New("modelregistry: invalid model")
 	ErrInvalidCanonicalID     = errors.New("modelregistry: invalid canonical model id")
 	ErrNoUsableInventory      = errors.New("modelregistry: no usable inventory")
+	// ErrConflictingMapping is returned when two rows claim the same
+	// (backendID, canonicalID) with different NativeID values.
+	ErrConflictingMapping = errors.New("modelregistry: conflicting exact model mapping")
 )
 
 // inventoryFetchConcurrency caps parallel LoadModels during Build.
@@ -342,11 +345,44 @@ func canonicalUsesRegisteredPrefixQualifier(canonical string, registeredPrefixes
 	return registered
 }
 
+type exactMappingKey struct {
+	backendID   string
+	canonicalID string
+}
+
+// dedupeExactMappings rejects conflicting (backend, canonical)→native rows and
+// deterministically drops identical duplicates.
+func dedupeExactMappings(models []BackendModel) ([]BackendModel, error) {
+	seen := make(map[exactMappingKey]string, len(models))
+	out := make([]BackendModel, 0, len(models))
+	for i, row := range models {
+		key := exactMappingKey{
+			backendID:   strings.TrimSpace(row.BackendID),
+			canonicalID: strings.TrimSpace(row.CanonicalID),
+		}
+		native := strings.TrimSpace(row.NativeID)
+		if prev, ok := seen[key]; ok {
+			if prev != native {
+				return nil, fmt.Errorf("%w: backend %q canonical %q natives %q vs %q at model[%d]",
+					ErrConflictingMapping, key.backendID, key.canonicalID, prev, native, i)
+			}
+			continue // identical duplicate
+		}
+		seen[key] = native
+		out = append(out, row)
+	}
+	return out, nil
+}
+
 // newRegistryFromValidatedBackendModels builds a registry from rows already
-// trimmed and validated by Build (fail-soft path). Does not re-validate.
+// trimmed and validated by Build (fail-soft path). Rejects conflicting exact mappings.
 func newRegistryFromValidatedBackendModels(models []BackendModel) (*Registry, error) {
 	if len(models) == 0 {
 		return nil, fmt.Errorf("%w: no models", ErrInvalidModel)
+	}
+	models, err := dedupeExactMappings(models)
+	if err != nil {
+		return nil, err
 	}
 	byCanonical := make(map[string][]BackendModel, len(models))
 	all := make([]BackendModel, len(models))
@@ -383,8 +419,14 @@ func newRegistryFromBackendModels(models []BackendModel, registeredPrefixes map[
 			Source:      m.Source,
 			LoadedAt:    m.LoadedAt,
 		}
-		byCanonical[canonical] = append(byCanonical[canonical], row)
 		all = append(all, row)
+	}
+	all, err := dedupeExactMappings(all)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range all {
+		byCanonical[row.CanonicalID] = append(byCanonical[row.CanonicalID], row)
 	}
 	if len(all) == 0 {
 		return nil, fmt.Errorf("%w: no models", ErrInvalidModel)

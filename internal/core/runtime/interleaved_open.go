@@ -194,9 +194,14 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 	if e == nil || from == nil {
 		return nil, fmt.Errorf("executor: invalid interleaved continuation arguments")
 	}
-	e.logInterleavedThinkerSuppressed(ctx, from.traceID)
+	// A continuation may be opened from Recv with a bare caller context after
+	// model/catalog refresh. Reattach the logical request's frozen views before
+	// any planning, capability resolution, or backend open; copying them onto the
+	// resulting stream afterward is too late.
+	boundCtx := from.recvExecContext(ctx)
+	e.logInterleavedThinkerSuppressed(boundCtx, from.traceID)
 	out, err := e.tryPlanOpenOnce(attemptOpenParams{
-		ctx:                 ctx,
+		ctx:                 boundCtx,
 		bus:                 from.bus,
 		traceID:             from.traceID,
 		aLegID:              from.aLegID,
@@ -271,6 +276,7 @@ func (e *Executor) openInterleavedExecutorContinuation(ctx context.Context, from
 		bleg:                out.bleg,
 		cand:                out.cand,
 	}
+	copyBoundModelViews(rs, from)
 	rs.storeInner(out.stream)
 	return rs, nil
 }

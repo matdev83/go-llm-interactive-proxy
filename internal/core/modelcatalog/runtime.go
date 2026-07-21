@@ -142,6 +142,17 @@ func (r *CatalogRuntime) ActiveIndex() (*SnapshotIndex, SnapshotRef) {
 	return snap.Index, ref
 }
 
+// PublishSnapshot atomically publishes snap as the active catalog view.
+// Production refresh uses [CatalogRuntime.RunRefresh]; this helper supports
+// composition-root seeding and deterministic tests without network I/O.
+func (r *CatalogRuntime) PublishSnapshot(snap Snapshot) {
+	if r == nil {
+		return
+	}
+	cp := snap
+	r.active.Store(&cp)
+}
+
 // Close marks the runtime stopped. External refresh workers must be stopped separately by the composition root.
 func (r *CatalogRuntime) Close() error {
 	r.lifecycleMu.Lock()

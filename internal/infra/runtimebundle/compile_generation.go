@@ -153,6 +153,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		registrations: freezeRegistrations(regs),
 		httpAuth:      append([]httpauth.Provider(nil), authProviders...),
 		models:        cand.ModelRegistryRuntime,
+		catalog:       cand.CatalogRuntime,
 		backendIDs:    backendIDsOf(cand.Executor),
 		ledger:        cand.Ledger,
 		owner:         cand,

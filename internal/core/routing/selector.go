@@ -46,8 +46,14 @@ type ParallelBranch struct {
 // Primary is a concrete backend:model (or model-only) with optional query parameters.
 type Primary struct {
 	// Backend is empty for model-only selectors. It may contain dots (e.g. openai.azure).
-	Backend     string
-	Model       string
+	Backend string
+	// Model is the requested/logical identity (canonical or raw pass-through).
+	// Route keys, affinity, catalog matching, traces, and diagnostics use Model.
+	Model string
+	// NativeModel is the request-bound backend wire id when the registry mapped
+	// this leaf. Empty means unresolved pass-through (use Model at seams).
+	// NativeModel must not appear in String()/exclusion keys.
+	NativeModel string
 	Params      url.Values
 	Size        RequestSizeConstraint
 	TTFTTimeout *time.Duration

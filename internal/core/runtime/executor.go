@@ -55,10 +55,11 @@ func (e *Executor) capsForAttempt(
 	attempt lipapi.Call,
 	c routing.AttemptCandidate,
 ) lipapi.BackendCaps {
+	wire := routing.BackendFacingCandidate(c)
 	if e != nil && e.CapsResolver != nil {
-		return e.CapsResolver.DescribeCandidate(ctx, c, attempt)
+		return e.CapsResolver.DescribeCandidate(ctx, wire, attempt)
 	}
-	return execbackend.EffectiveCaps(ctx, be, attempt, c)
+	return execbackend.EffectiveCaps(ctx, be, attempt, wire)
 }
 
 func (e *Executor) transportCapsForAttempt(
@@ -67,7 +68,7 @@ func (e *Executor) transportCapsForAttempt(
 	attempt lipapi.Call,
 	c routing.AttemptCandidate,
 ) lipapi.BackendTransportCaps {
-	return execbackend.EffectiveTransportCaps(ctx, be, attempt, c)
+	return execbackend.EffectiveTransportCaps(ctx, be, attempt, routing.BackendFacingCandidate(c))
 }
 
 func (e *Executor) effectiveTransportFallbackPolicy() lipapi.TransportFallbackPolicy {

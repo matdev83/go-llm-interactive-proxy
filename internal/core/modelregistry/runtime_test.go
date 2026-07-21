@@ -126,8 +126,15 @@ func TestRuntime_RefreshDoesNotAcceptUntilPublish(t *testing.T) {
 	if provider.Accepts() <= acceptsAfterStart {
 		t.Fatal("refresh publish must AcceptInventory")
 	}
-	if got := provider.Accepted(); len(got) != 1 || got[0].NativeID != "v2" {
-		t.Fatalf("after refresh publish Accepted = %+v, want v2", got)
+	if got := provider.Accepted(); len(got) != 2 {
+		t.Fatalf("after refresh publish Accepted = %+v, want union v1+v2", got)
+	}
+	natives := map[string]bool{}
+	for _, m := range provider.Accepted() {
+		natives[m.NativeID] = true
+	}
+	if !natives["v1"] || !natives["v2"] {
+		t.Fatalf("after refresh publish Accepted = %+v, want monotonic union", provider.Accepted())
 	}
 	diag := rt.Diagnostics()
 	if diag.ModelCount != 1 {

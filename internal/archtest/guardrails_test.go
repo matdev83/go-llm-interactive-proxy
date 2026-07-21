@@ -172,7 +172,14 @@ var lineBudgets = []struct {
 	// Raised from 65800 to 65850 for versioned-runtime-reload task 3.2 final wiring:
 	// optional backend Start/Stop/idle/preflight fields on execbackend.Backend
 	// (measured non-test total 65818; ~32 lines headroom).
-	{"internal/core", 65850},
+	// Raised from 65850 to 66250 for versioned-runtime-reload task 3.5:
+	// immutable per-request model registry/catalog BoundView APIs, routing
+	// native-model resolver context, and coherent diagnostics helpers
+	// (measured non-test total 66202; ~48 lines headroom).
+	// Raised from 66250 to 66700 for task 3.5 repair: multi-state native
+	// binding, monotonic allowlists, recv-bound model views, modelview
+	// aggregate identity (measured non-test total 66624; ~76 lines headroom).
+	{"internal/core", 66700},
 	{"internal/pluginreg", 4500},
 	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
 	// generation request-plane composer (ComposeRequestPlane) without listener

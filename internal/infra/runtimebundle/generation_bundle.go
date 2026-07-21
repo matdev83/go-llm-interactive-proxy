@@ -7,7 +7,10 @@ import (
 	"sync"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
@@ -34,6 +37,7 @@ type GenerationBundle struct {
 	registrations []lipsdk.Registration
 	httpAuth      []httpauth.Provider
 	models        *modelregistry.Runtime
+	catalog       *modelcatalog.CatalogRuntime
 	backendIDs    []string
 	ledger        *ResourceLedger // private; ResourceCount only
 	owner         generationOwner
@@ -48,7 +52,38 @@ var (
 	_ runtimehost.OwnedCloser           = (*GenerationBundle)(nil)
 	_ runtimehost.QuiesceCloser         = (*GenerationBundle)(nil)
 	_ runtimehost.PublishedRequestPlane = (*GenerationBundle)(nil)
+	_ runtimehost.ModelViewBinder       = (*GenerationBundle)(nil)
+	_ routing.NativeModelResolver       = modelregistry.BoundView{}
 )
+
+// BindModelViews captures this generation's model-registry and catalog
+// publications into ctx exactly once for the logical request (req 9.4-9.5).
+// It also attaches one aggregate model-view identity for diagnostics/ETag.
+func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if b == nil {
+		return ctx
+	}
+	regView := b.models.BoundView()
+	catView := b.catalog.BoundView()
+	var configGen int64
+	var configFP string
+	if rb, ok := runtimehost.BindingFromContext(ctx); ok {
+		meta := rb.Meta()
+		configGen = meta.ID
+		configFP = meta.PublicFingerprint
+	}
+	id := modelview.Derive(configGen, configFP, regView.Generation(), catView.Generation())
+	ctx = modelregistry.WithBoundView(ctx, regView)
+	ctx = modelcatalog.WithBoundView(ctx, catView)
+	// Attach the same frozen registry as the routing native resolver so the
+	// executor can bind leaf NativeModel without importing modelregistry.
+	ctx = routing.WithNativeModelResolver(ctx, regView)
+	ctx = modelview.WithIdentity(ctx, id)
+	return ctx
+}
 
 // Handler returns the generation request-plane handler (no listener).
 func (b *GenerationBundle) Handler() http.Handler {

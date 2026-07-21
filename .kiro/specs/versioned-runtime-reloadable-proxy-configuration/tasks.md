@@ -166,7 +166,7 @@ Implementation is TDD-first. Contract tests, ownership gates, reloadability clas
   - _Depends: 3.1, 3.3_
   - _Validation: `go test ./internal/stdhttp/... ./internal/infra/runtimehost/... ./cmd/lipstd/... -run 'InitialGeneration|Dispatcher|StandardWiring|Identity|Auth'`_
 
-- [ ] 3.5 Bind one immutable model view to each logical request
+- [x] 3.5 Bind one immutable model view to each logical request
   - Expose a request-bindable model registry/catalog publication view with config and model generation identity.
   - Use the same bound view for route planning, failover, parallel attempts, capability/model legality, and diagnostics.
   - Keep configured model refresh independent from config publication and apply refreshed views only to later requests.

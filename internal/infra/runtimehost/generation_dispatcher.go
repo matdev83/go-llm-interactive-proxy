@@ -41,5 +41,9 @@ func (d *GenerationDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 
 	binding := newRequestBinding(lease)
-	h.ServeHTTP(w, r.WithContext(withRequestBinding(r.Context(), binding)))
+	ctx := withRequestBinding(r.Context(), binding)
+	// Bind immutable model/catalog views once after lease acquisition and
+	// before entering the generation handler (req 9.4). Optional for test planes.
+	ctx = BindModelViewsIfPresent(ctx, lease.RequestPlane())
+	h.ServeHTTP(w, r.WithContext(ctx))
 }

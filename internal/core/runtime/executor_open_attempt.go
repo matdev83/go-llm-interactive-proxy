@@ -615,7 +615,7 @@ func (e *Executor) openPlannedCandidate(
 	// Mark call-path identity for approved B-leg httpidentity transports (passthrough).
 	openCtx = identity.WithClientUserAgent(openCtx, wireCall.Invocation.ClientUserAgent)
 	stream, err := safety.CallValue(safety.BoundaryBackend, "backend_open", func() (lipapi.ManagedEventStream, error) {
-		return be.Open(openCtx, wireCall, c)
+		return be.Open(openCtx, wireCall, routing.BackendFacingCandidate(c))
 	})
 	openDur := time.Since(openStart).Seconds()
 	if err != nil {
