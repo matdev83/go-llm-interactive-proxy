@@ -292,17 +292,25 @@ func TestBoundModel_RecvFailoverKeepsBoundCatalogAfterRefresh(t *testing.T) {
 		_, err := lipapi.Collect(context.Background(), stream)
 		done <- err
 	}()
+	var collectErr error
 	select {
 	case <-replacementStarted:
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("collect before replacement: %v", err)
+		select {
+		case collectErr = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for collection after replacement open")
+		}
+	case collectErr = <-done:
+		select {
+		case <-replacementStarted:
+		default:
+			t.Fatal("collection completed before replacement open")
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for replacement open")
 	}
-	if err := <-done; err != nil {
-		t.Fatalf("collect: %v", err)
+	if collectErr != nil {
+		t.Fatalf("collect: %v", collectErr)
 	}
 	openMu.Lock()
 	defer openMu.Unlock()
