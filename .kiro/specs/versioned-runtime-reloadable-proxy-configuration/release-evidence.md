@@ -1,14 +1,14 @@
 # Versioned Runtime Reload — Release Evidence
 
-**Recorded:** 2026-07-22T14:14:54Z
+**Recorded:** 2026-07-22T16:43:18Z
 
-**Reviewed head:** `c5704359c1dfef10f26a8b191581e43e4e2b27d1`
+**Reviewed head:** `9b5e879799d73223dcec46481c0d695b37566f37`
 
 **Platform:** Linux 6.17.0-1018-oracle x86_64
 
 **Go:** go1.26.5 linux/amd64
 
-**Reviewer:** Hermes (independent final validation after Cursor implementation/remediation)
+**Reviewer:** Hermes (independent final validation after iterative Cursor/Bugbot review and remediation)
 
 ## Acceptance result
 
@@ -34,9 +34,11 @@ All mandatory local release gates pass. The implementation satisfies the approve
 | Architecture boundaries | `go test ./internal/archtest/... -run 'Reload|Ownership|Watcher|ProcessService|ExternalModule' -timeout=10m` | PASS |
 | Management shutdown timeout/retry | `go test -race ./internal/stdhttp/admin/configreload -run '^TestManagement_ServerShutdown(AppliesConfiguredTimeout|TimeoutCanBeRetried)$' -count=100 -timeout=10m` | PASS |
 | Bound-model failover fixture | `go test -race -tags=precommit,integration ./internal/core/runtime -run '^TestBoundModel_RecvFailoverKeepsBoundCatalogAfterRefresh$' -count=5000 -timeout=10m` | PASS |
+| Effective no-op source baseline | `go test -race ./internal/infra/runtimehost -run '^TestCoordinator_EffectiveNoopAdvancesActiveSource_RejectsInPlaceEdit$' -count=500 -timeout=10m` | PASS |
+| Cursor/Bugbot review loop | two isolated rounds against `origin/main...HEAD`; Hermes independently reviewed and validated the accepted patch | PASS — round 1 repaired one IMPORTANT source-integrity defect; round 2 returned `TERMINATION: NITPICKS_ONLY` with no edits |
 | Added-marker scan | added lines from `git diff --unified=0 95bf54a4 -- '*.go' '*.md' '*.yaml' '*.yml' '*.json'` scanned for TODO/FIXME/XXX/HACK/PLACEHOLDER/NOT IMPLEMENTED | PASS — no hits |
 
-After PR review, management shutdown was bounded by the configured timeout. Independent cross-checking found and repaired the corresponding retry-state defect, then the full PR lint gate was cleared without suppressions. A load-sensitive failover fixture double-consume was exposed by the canonical race gate, repaired, stressed 5,000 times, and followed by a clean complete race rerun at the reviewed head.
+After PR review, management shutdown was bounded by the configured timeout. Independent cross-checking found and repaired the corresponding retry-state defect, then the full PR lint gate was cleared without suppressions. A load-sensitive failover fixture double-consume was exposed by the canonical race gate, repaired, stressed 5,000 times, and followed by a clean complete race rerun. A later Cursor/Bugbot round found that an accepted atomic replacement with an unchanged effective digest did not advance the raw source identity baseline, allowing a subsequent same-inode rewrite to evade the non-atomic-update rejection. The baseline now advances on an accepted effective no-op without publishing a generation; the deterministic real-file regression passed 500 times under race. A fresh follow-up Bugbot round found no further production defect and stopped at one safe lock-style nitpick.
 
 ## Soak parameters and assertions
 
