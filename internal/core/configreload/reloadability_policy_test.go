@@ -2,6 +2,7 @@ package configreload_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -406,12 +407,7 @@ func assertSortedBoundedPaths(t *testing.T, rr *configreload.RestartRequiredErro
 }
 
 func containsPath(paths []string, want string) bool {
-	for _, p := range paths {
-		if p == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(paths, want)
 }
 
 func containsChange(changes []configreload.SafeChange, path string, d configreload.ChangeDisposition) bool {

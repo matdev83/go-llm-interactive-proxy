@@ -68,6 +68,7 @@ func (w *lifecycleWorker) run() {
 		}
 	})
 }
+
 func scanWaitGroupRequestRefcounter(filename, src string) []string {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
@@ -161,6 +162,7 @@ func scanWaitGroupRequestRefcounter(filename, src string) []string {
 	}
 	return hits
 }
+
 func recvTypeName(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.StarExpr:

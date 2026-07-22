@@ -149,6 +149,7 @@ func (p *stubPlane) Close() error                  { return nil }
 func (p *stubPlane) Handler() http.Handler {
 	return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 }
+
 func (p *stubPlane) TerminalProviders() terminalworkapp.TerminalProviderView {
 	return p.view
 }
@@ -163,6 +164,7 @@ func (p *countingEffect) Version() string    { return p.version }
 func (p *countingEffect) SupportedKinds() []sdk.WorkKind {
 	return []sdk.WorkKind{sdk.WorkKindSettleRequestProvider}
 }
+
 func (p *countingEffect) Invoke(context.Context, terminalwork.WorkRecord, string) error {
 	p.calls.Add(1)
 	return nil

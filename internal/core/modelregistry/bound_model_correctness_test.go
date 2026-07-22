@@ -178,12 +178,10 @@ func TestBoundView_PublicationDiscoveryCoherentUnderRace(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	errs := make(chan string, 64)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			<-start
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				v := rt.BoundView()
 				d := v.Diagnostics()
 				hasA, _ := v.Lookup("openai/gpt-a")
@@ -208,10 +206,10 @@ func TestBoundView_PublicationDiscoveryCoherentUnderRace(t *testing.T) {
 					errs <- "mixed A/B lookup on one BoundView"
 				}
 			}
-		}()
+		})
 	}
 	close(start)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		provider.useB = i%2 == 1
 		rt.RunRefresh(context.Background())
 	}

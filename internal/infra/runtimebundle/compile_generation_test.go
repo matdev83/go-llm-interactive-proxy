@@ -128,7 +128,7 @@ func newProcessForGeneration(t *testing.T) *runtimebundle.ProcessServices {
 
 func postResponses(t *testing.T, h http.Handler, model string) string {
 	t.Helper()
-	body := []byte(fmt.Sprintf(`{"model":%q,"stream":false,"input":[{"role":"user","content":"ping"}]}`, model))
+	body := fmt.Appendf(nil, `{"model":%q,"stream":false,"input":[{"role":"user","content":"ping"}]}`, model)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer sk-test")
@@ -380,8 +380,7 @@ func TestCompileGeneration_BundleContractNoConfigAppBuilt(t *testing.T) {
 	t.Cleanup(func() { _ = bundle.Close() })
 
 	rt := reflect.TypeOf(bundle).Elem()
-	for i := 0; i < rt.NumField(); i++ {
-		f := rt.Field(i)
+	for f := range rt.Fields() {
 		ft := f.Type.String()
 		name := f.Name
 		if strings.Contains(ft, "*config.Config") || ft == "config.Config" {

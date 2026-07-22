@@ -16,6 +16,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	"github.com/stretchr/testify/assert"
 )
 
 type stubReloadCoord struct {
@@ -229,7 +230,7 @@ func TestStartManagementServer_multiUserValidTokenStartsBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { assert.NoError(t, resp2.Body.Close()) }()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("authenticated status=%d want 200", resp2.StatusCode)
 	}

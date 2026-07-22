@@ -98,7 +98,7 @@ func TestGenerationPin_ChildRetain_RacesRetirementAndHTTPRelease(t *testing.T) {
 	firstPin := make(chan struct{})
 	var firstOnce sync.Once
 
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -112,15 +112,11 @@ func TestGenerationPin_ChildRetain_RacesRetirementAndHTTPRelease(t *testing.T) {
 			firstOnce.Do(func() { close(firstPin) })
 		}(i)
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		_ = m.Publish(m.Prepare("child-race-next"))
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		select {
 		case <-firstPin:
@@ -128,7 +124,7 @@ func TestGenerationPin_ChildRetain_RacesRetirementAndHTTPRelease(t *testing.T) {
 			t.Error("timed out waiting for first child pin")
 		}
 		lease.Release()
-	}()
+	})
 
 	close(start)
 	wg.Wait()
@@ -140,7 +136,10 @@ func TestGenerationPin_ChildRetain_RacesRetirementAndHTTPRelease(t *testing.T) {
 	var held int
 	pins.Range(func(_, v any) bool {
 		held++
-		p := v.(*runtimehost.Pin)
+		p, ok := v.(*runtimehost.Pin)
+		if !ok {
+			t.Fatalf("sync.Map value type %T, want *runtimehost.Pin", v)
+		}
 		p.Release()
 		p.Release()
 		return true

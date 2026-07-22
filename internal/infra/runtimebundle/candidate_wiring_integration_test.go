@@ -30,6 +30,7 @@ func (c *countingUnsafeLife) Start(context.Context) error {
 	c.starts.Add(1)
 	return nil
 }
+
 func (c *countingUnsafeLife) Stop(context.Context) error {
 	c.stops.Add(1)
 	return nil
@@ -450,7 +451,7 @@ func TestCompileCandidate_CatalogRefreshQuiescesBeforeClose(t *testing.T) {
 
 func TestResourceLedger_LateAddAcceptOrImmediatelyCloseRace(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		ledger := runtimebundle.NewResourceLedger()
 		var closed atomic.Int32
 		closeFn := func() error {
@@ -459,13 +460,11 @@ func TestResourceLedger_LateAddAcceptOrImmediatelyCloseRace(t *testing.T) {
 		}
 		var ready, released sync.WaitGroup
 		ready.Add(2)
-		released.Add(1)
-		go func() {
+		released.Go(func() {
 			ready.Done()
 			ready.Wait()
 			_ = ledger.AddClose("late", runtimebundle.PhaseClose, closeFn)
-			released.Done()
-		}()
+		})
 		go func() {
 			ready.Done()
 			ready.Wait()

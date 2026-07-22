@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
 
@@ -122,7 +123,7 @@ func TestManagement_SurvivesGenerationSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { assert.NoError(t, res.Body.Close()) }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("management status after generation swap: %d", res.StatusCode)
 	}

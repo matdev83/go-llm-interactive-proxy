@@ -31,8 +31,8 @@ func SanitizeConfigKey(key string) string {
 	if key == "" {
 		return ""
 	}
-	if i := strings.IndexByte(key, '='); i >= 0 {
-		return sanitizePathSegment(key[:i]) + "=" + RedactedPlaceholder
+	if before, _, ok := strings.Cut(key, "="); ok {
+		return sanitizePathSegment(before) + "=" + RedactedPlaceholder
 	}
 	return sanitizePathSegment(key)
 }
@@ -114,10 +114,7 @@ func SanitizeOpaqueYAML(node *yaml.Node) string {
 	case yaml.AliasNode:
 		kind = "alias"
 	}
-	n := countYAMLNodes(node)
-	if n > 64 {
-		n = 64
-	}
+	n := min(countYAMLNodes(node), 64)
 	return fmt.Sprintf("opaque_yaml:kind=%s:nodes=%d", kind, n)
 }
 

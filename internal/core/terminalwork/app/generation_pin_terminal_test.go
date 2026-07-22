@@ -69,6 +69,7 @@ func (p *stubProv) Version() string    { return p.version }
 func (p *stubProv) SupportedKinds() []sdk.WorkKind {
 	return []sdk.WorkKind{sdk.WorkKindSettleRequestProvider}
 }
+
 func (p *stubProv) Invoke(context.Context, terminalwork.WorkRecord, string) error {
 	p.calls.Add(1)
 	return nil
@@ -379,9 +380,11 @@ type rejectingStore struct{}
 func (rejectingStore) AppendIntent(context.Context, terminalwork.WorkRecord) error {
 	return errors.New("append boom")
 }
+
 func (rejectingStore) PromotePending(context.Context, terminalwork.PromotePendingCommand) error {
 	return nil
 }
+
 func (rejectingStore) LookupIntent(context.Context, string) (terminalwork.WorkRecord, bool, error) {
 	return terminalwork.WorkRecord{}, false, nil
 }

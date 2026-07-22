@@ -66,7 +66,7 @@ func TestBackendInstance_StartExactlyOnceRaceSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, n)
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		go func(i int) {
 			defer wg.Done()
 			errs[i] = inst.Start(context.Background())
@@ -162,6 +162,7 @@ func (s *safeLife) Start(context.Context) error {
 	s.started.Store(true)
 	return nil
 }
+
 func (s *safeLife) Stop(context.Context) error {
 	s.stopped.Store(true)
 	return nil

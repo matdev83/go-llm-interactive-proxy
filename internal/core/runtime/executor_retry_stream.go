@@ -357,7 +357,7 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 // captureBoundModelViews freezes request-bound registry/catalog/resolver/identity
 // onto the stream exactly once from the prepare/assemble context. Recv-phase
 // replacement must reattach these views rather than loading a second live view.
-func captureBoundModelViews(s *retryRecvStream, ctx context.Context) {
+func captureBoundModelViews(ctx context.Context, s *retryRecvStream) {
 	if s == nil {
 		return
 	}

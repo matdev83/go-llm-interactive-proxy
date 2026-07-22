@@ -130,7 +130,6 @@ func TestReloadFacade_PreservesBusyNoopRestartRetentionCanceled(t *testing.T) {
 		configreload.ResultCanceled,
 	}
 	for _, cat := range outcomes {
-		cat := cat
 		t.Run(string(cat), func(t *testing.T) {
 			t.Parallel()
 			q := &fakeReloadQuery{
@@ -262,13 +261,13 @@ func TestReloadFacade_NoSensitiveFields(t *testing.T) {
 		"FixedSource", "SourcePath", "FilePath", "URL", "Uri", "Credential",
 	}
 	for _, typ := range []reflect.Type{
-		reflect.TypeOf(lipruntime.ReloadTrigger{}),
-		reflect.TypeOf(lipruntime.ReloadResult{}),
-		reflect.TypeOf(lipruntime.ReloadStatus{}),
-		reflect.TypeOf(lipruntime.HistoryEntry{}),
+		reflect.TypeFor[lipruntime.ReloadTrigger](),
+		reflect.TypeFor[lipruntime.ReloadResult](),
+		reflect.TypeFor[lipruntime.ReloadStatus](),
+		reflect.TypeFor[lipruntime.HistoryEntry](),
 	} {
-		for i := 0; i < typ.NumField(); i++ {
-			name := typ.Field(i).Name
+		for field := range typ.Fields() {
+			name := field.Name
 			for _, bad := range forbidden {
 				if strings.Contains(name, bad) {
 					t.Fatalf("%s.%s looks sensitive/forbidden for public facade", typ.Name(), name)
@@ -323,7 +322,7 @@ func TestReloadFacade_ConcurrentReloadStatusSafe(t *testing.T) {
 	const n = 32
 	calls.Add(n * 2)
 	errCh := make(chan error, n*2)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer calls.Done()
 			res := ctrl.Reload(context.Background(), lipruntime.ReloadTrigger{Kind: lipruntime.TriggerAPI})

@@ -76,8 +76,7 @@ func TestSignalReload_SIGHUPDeliversFixedSourceTrigger(t *testing.T) {
 	withExclusiveSIGHUP(t)
 	sink := newRecordingReloadSink(configreload.ReloadResult{Category: configreload.ResultPublished, ActiveGeneration: 2})
 	adapter := NewSIGHUPAdapter(sink)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := adapter.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -112,8 +111,7 @@ func TestSignalReload_SIGHUPDoesNotStopServerContext(t *testing.T) {
 	withExclusiveSIGHUP(t)
 	sink := newRecordingReloadSink(configreload.ReloadResult{Category: configreload.ResultNoop})
 	adapter := NewSIGHUPAdapter(sink)
-	parent, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	parent := t.Context()
 	sigCtx, stopShutdown := signal.NotifyContext(parent, ShutdownSignals()...)
 	defer stopShutdown()
 	if err := adapter.Start(sigCtx); err != nil {
@@ -185,8 +183,7 @@ func TestSignalReload_CoalesceThroughCoordinator(t *testing.T) {
 	}
 	coord := newAdapterTestCoordinator(t, src, loader, compile)
 	adapter := NewSIGHUPAdapter(coord)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := adapter.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +195,7 @@ func TestSignalReload_CoalesceThroughCoordinator(t *testing.T) {
 	gate.WaitEnter(t)
 
 	// Flood HUPs while first attempt is active; coordinator must coalesce.
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if err := signalPID(syscall.SIGHUP); err != nil {
 			t.Fatal(err)
 		}
@@ -247,8 +244,7 @@ func TestSignalReload_PublishesValidCandidate(t *testing.T) {
 	before := coord.Status().ActiveGeneration
 
 	adapter := NewSIGHUPAdapter(coord)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := adapter.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

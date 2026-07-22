@@ -392,7 +392,7 @@ func TestGeneration_Discard_ConcurrentExactlyOnce(t *testing.T) {
 	var started, release sync.WaitGroup
 	started.Add(n)
 	release.Add(1)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			started.Done()
 			release.Wait()
@@ -402,7 +402,7 @@ func TestGeneration_Discard_ConcurrentExactlyOnce(t *testing.T) {
 	started.Wait()
 	release.Done()
 	var ok, already int
-	for i := 0; i < n; i++ {
+	for range n {
 		err := <-errs
 		switch {
 		case err == nil:

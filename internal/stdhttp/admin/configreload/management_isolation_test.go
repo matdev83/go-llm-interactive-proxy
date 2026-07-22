@@ -16,6 +16,7 @@ import (
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	adminreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
 
@@ -120,7 +121,7 @@ func TestManagement_RemainsReachableAfterInvalidCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid candidate status=%d", res.StatusCode)
 	}
@@ -130,7 +131,7 @@ func TestManagement_RemainsReachableAfterInvalidCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.Body.Close()
+	assert.NoError(t, st.Body.Close())
 	if st.StatusCode != http.StatusOK {
 		t.Fatalf("management status after invalid candidate: %d", st.StatusCode)
 	}

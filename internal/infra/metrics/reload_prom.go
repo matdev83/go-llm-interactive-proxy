@@ -173,13 +173,7 @@ func (m *ReloadProm) ApplyGenerationSnapshot(s ReloadGenerationSnapshot) {
 		m.pinned.Set(float64(nonNeg(s.Pinned)))
 	}
 	if m.retentionPressure != nil {
-		p := s.RetentionPressure
-		if p < 0 {
-			p = 0
-		}
-		if p > 1 {
-			p = 1
-		}
+		p := min(max(s.RetentionPressure, 0), 1)
 		m.retentionPressure.Set(float64(p))
 	}
 }

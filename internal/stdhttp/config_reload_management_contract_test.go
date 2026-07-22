@@ -12,6 +12,8 @@ import (
 
 	coreconfigreload "github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Task 1.5 management goldens (req 1.7, 11.6, 12.1-12.11).
@@ -38,6 +40,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 	t.Parallel()
 
 	t.Run("auth_required", func(t *testing.T) {
+		t.Parallel()
 		srv, _, _ := newManagementHarness(t, func(context.Context, ReloadTrigger) ReloadResult {
 			return ReloadResult{Category: ReloadCategoryPublished}
 		})
@@ -45,13 +48,14 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("status=%d", res.StatusCode)
 		}
 	})
 
 	t.Run("browser_guard", func(t *testing.T) {
+		t.Parallel()
 		srv, coord, h := newManagementHarness(t, func(context.Context, ReloadTrigger) ReloadResult {
 			return ReloadResult{Category: ReloadCategoryPublished}
 		})
@@ -70,7 +74,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 			if res.StatusCode != http.StatusForbidden || res.Header.Get("Access-Control-Allow-Origin") != "" {
 				t.Fatalf("guard status=%d cors=%q", res.StatusCode, res.Header.Get("Access-Control-Allow-Origin"))
 			}
@@ -80,7 +84,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ores.Body.Close()
+		assert.NoError(t, ores.Body.Close())
 		if ores.StatusCode != http.StatusForbidden || coord.Status().LastResult.AttemptID != before {
 			t.Fatal("OPTIONS must not trigger reload")
 		}
@@ -93,13 +97,14 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("allowlisted status=%d", res.StatusCode)
 		}
 	})
 
 	t.Run("fixed_source_method_body", func(t *testing.T) {
+		t.Parallel()
 		srv, coord, _ := newManagementHarness(t, func(context.Context, ReloadTrigger) ReloadResult {
 			return ReloadResult{Category: ReloadCategoryPublished}
 		})
@@ -108,7 +113,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusMethodNotAllowed {
 			t.Fatalf("GET status=%d", res.StatusCode)
 		}
@@ -125,7 +130,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 			if res.StatusCode != http.StatusUnprocessableEntity {
 				t.Fatalf("body %q status=%d", tc.body, res.StatusCode)
 			}
@@ -136,13 +141,14 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusOK || coord.FixedSourcePath() != "/fixed/startup/config.yaml" {
 			t.Fatalf("ok status=%d path=%s", res.StatusCode, coord.FixedSourcePath())
 		}
 	})
 
 	t.Run("busy_conflict", func(t *testing.T) {
+		t.Parallel()
 		entered, release := make(chan struct{}), make(chan struct{})
 		srv, _, _ := newManagementHarness(t, func(context.Context, ReloadTrigger) ReloadResult {
 			close(entered)
@@ -159,7 +165,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 				return
 			}
 			errCh <- res.StatusCode
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 		}()
 		<-entered
 		req := authReq(http.MethodPost, srv.URL+ConfigReloadPath, "test-secret", strings.NewReader("{}"))
@@ -170,7 +176,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		}
 		var body ReloadResult
 		_ = json.NewDecoder(res.Body).Decode(&body)
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusConflict || body.Category != ReloadCategoryBusy {
 			t.Fatalf("busy status=%d cat=%s", res.StatusCode, body.Category)
 		}
@@ -181,6 +187,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 	})
 
 	t.Run("disconnect_hosted", func(t *testing.T) {
+		t.Parallel()
 		started, finish, completed := make(chan struct{}), make(chan struct{}), make(chan ReloadResult, 1)
 		var mu sync.Mutex
 		var sawCancel bool
@@ -214,14 +221,21 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 	})
 
 	t.Run("status_goldens", func(t *testing.T) {
+		t.Parallel()
 		for _, tc := range []struct {
 			cat  string
 			want int
 		}{
-			{ReloadCategoryPublished, 200}, {ReloadCategoryNoop, 200},
-			{ReloadCategoryBusy, 409}, {ReloadCategoryRestartRequired, 409}, {ReloadCategoryRetentionBlocked, 409},
-			{ReloadCategoryInvalid, 422}, {ReloadCategorySourceIntegrity, 422},
-			{ReloadCategoryCanceled, 503}, {ReloadCategoryPreparationFailed, 503}, {ReloadCategoryInternalFailed, 503},
+			{ReloadCategoryPublished, 200},
+			{ReloadCategoryNoop, 200},
+			{ReloadCategoryBusy, 409},
+			{ReloadCategoryRestartRequired, 409},
+			{ReloadCategoryRetentionBlocked, 409},
+			{ReloadCategoryInvalid, 422},
+			{ReloadCategorySourceIntegrity, 422},
+			{ReloadCategoryCanceled, 503},
+			{ReloadCategoryPreparationFailed, 503},
+			{ReloadCategoryInternalFailed, 503},
 		} {
 			if httpStatusForReload(tc.cat) != tc.want {
 				t.Fatalf("%s => %d", tc.cat, httpStatusForReload(tc.cat))
@@ -238,7 +252,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		}
 		var body ReloadResult
 		_ = json.NewDecoder(res.Body).Decode(&body)
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != 409 || body.RestartFieldCount != 2 {
 			t.Fatalf("%d %+v", res.StatusCode, body)
 		}
@@ -249,13 +263,14 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		}
 		var st ReloadStatus
 		_ = json.NewDecoder(stRes.Body).Decode(&st)
-		stRes.Body.Close()
+		assert.NoError(t, stRes.Body.Close())
 		if st.FixedSourcePath != coord.FixedSourcePath() || st.LastResult.Category != ReloadCategoryRestartRequired {
 			t.Fatalf("%+v", st)
 		}
 	})
 
 	t.Run("shutdown_rejects", func(t *testing.T) {
+		t.Parallel()
 		srv, coord, _ := newManagementHarness(t, func(context.Context, ReloadTrigger) ReloadResult {
 			return ReloadResult{Category: ReloadCategoryPublished}
 		})
@@ -266,7 +281,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusServiceUnavailable {
 			t.Fatalf("status=%d", res.StatusCode)
 		}
@@ -300,7 +315,7 @@ func TestProductionManagementConfigReload_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { assert.NoError(t, res.Body.Close()) }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("production reload status=%d", res.StatusCode)
 	}
@@ -313,7 +328,7 @@ func TestProductionManagementConfigReload_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stRes.Body.Close()
+	defer func() { assert.NoError(t, stRes.Body.Close()) }()
 	if stRes.StatusCode != http.StatusOK {
 		t.Fatalf("production status=%d", stRes.StatusCode)
 	}

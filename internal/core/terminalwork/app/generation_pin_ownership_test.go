@@ -338,7 +338,7 @@ func TestGenerationPin_DuplicateConcurrent_OneRuntimeAndExecutable(t *testing.T)
 	const n = 32
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			pin := &countingPin{}
@@ -468,14 +468,12 @@ func TestProcessor_OnTerminalDone_RaceAndPanicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			proc.AddOnTerminalDone(func(terminalwork.WorkRecord) {
 				goodCalls.Add(1)
 			})
-		}()
+		})
 	}
 	wg.Wait()
 	if err := proc.ProcessDue(context.Background()); err != nil {
@@ -513,9 +511,11 @@ func (s *commitThenErrorStore) AppendIntent(ctx context.Context, rec terminalwor
 	}
 	return errors.New("network after commit")
 }
+
 func (s *commitThenErrorStore) PromotePending(ctx context.Context, cmd terminalwork.PromotePendingCommand) error {
 	return s.inner.PromotePending(ctx, cmd)
 }
+
 func (s *commitThenErrorStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
 	return s.inner.LookupIntent(ctx, workID)
 }
@@ -525,9 +525,11 @@ type lookupErrorStore struct{}
 func (lookupErrorStore) AppendIntent(context.Context, terminalwork.WorkRecord) error {
 	return errors.New("append boom")
 }
+
 func (lookupErrorStore) PromotePending(context.Context, terminalwork.PromotePendingCommand) error {
 	return nil
 }
+
 func (lookupErrorStore) LookupIntent(context.Context, string) (terminalwork.WorkRecord, bool, error) {
 	return terminalwork.WorkRecord{}, false, errors.New("lookup unavailable")
 }
@@ -546,9 +548,11 @@ func (s *conflictOnSecondStore) AppendIntent(ctx context.Context, rec terminalwo
 	}
 	return s.inner.AppendIntent(ctx, rec)
 }
+
 func (s *conflictOnSecondStore) PromotePending(ctx context.Context, cmd terminalwork.PromotePendingCommand) error {
 	return s.inner.PromotePending(ctx, cmd)
 }
+
 func (s *conflictOnSecondStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
 	return s.inner.LookupIntent(ctx, workID)
 }
@@ -576,12 +580,15 @@ func (s *completeFailOnceStore) Complete(ctx context.Context, cmd terminalwork.C
 func (s *completeFailOnceStore) ClaimDue(ctx context.Context, cmd terminalwork.ClaimDueCommand) ([]terminalwork.WorkRecord, error) {
 	return s.MemoryStore.ClaimDue(ctx, cmd)
 }
+
 func (s *completeFailOnceStore) RenewClaim(ctx context.Context, cmd terminalwork.RenewClaimCommand) error {
 	return s.MemoryStore.RenewClaim(ctx, cmd)
 }
+
 func (s *completeFailOnceStore) ScheduleRetry(ctx context.Context, cmd terminalwork.ScheduleRetryCommand) error {
 	return s.MemoryStore.ScheduleRetry(ctx, cmd)
 }
+
 func (s *completeFailOnceStore) Quarantine(ctx context.Context, cmd terminalwork.QuarantineCommand) error {
 	return s.MemoryStore.Quarantine(ctx, cmd)
 }

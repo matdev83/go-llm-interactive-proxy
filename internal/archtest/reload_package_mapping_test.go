@@ -182,8 +182,8 @@ func isReloadDrivingWrapperImport(importPath string) bool {
 		}
 	}
 	// Reasonable variants: path segments for watcher/notify/signal/fs driving adapters.
-	segs := strings.Split(lower, "/")
-	for _, seg := range segs {
+	segs := strings.SplitSeq(lower, "/")
+	for seg := range segs {
 		switch seg {
 		case "watcher", "watchers", "notify", "filesignal", "fswatch", "sighup", "signalwrap", "fswrap", "watchutil":
 			return true

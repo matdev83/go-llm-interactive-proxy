@@ -3,6 +3,7 @@ package runtimehost_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,14 +40,13 @@ func (p *fakePlane) Close() error {
 	}
 	return nil
 }
+
 func (p *fakePlane) BackendFactoryKindCounts() map[string]int {
 	if p == nil || p.kinds == nil {
 		return nil
 	}
 	out := make(map[string]int, len(p.kinds))
-	for k, v := range p.kinds {
-		out[k] = v
-	}
+	maps.Copy(out, p.kinds)
 	return out
 }
 
@@ -119,9 +119,7 @@ func (c *controllableCompiler) Compile(ctx context.Context, _ *config.Config, li
 	c.calls.Add(1)
 	if live != nil {
 		cp := make(map[string]int, len(live))
-		for k, v := range live {
-			cp[k] = v
-		}
+		maps.Copy(cp, live)
 		c.liveSeen.Store(cp)
 	}
 	if c.panicMsg != "" {
@@ -270,7 +268,7 @@ func TestCoordinator_BusyAndCoalesceNeverExceedOneActiveCompile(t *testing.T) {
 	gate.WaitEnter(t)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

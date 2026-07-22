@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/stretchr/testify/assert"
 )
 
 // Task 1.5 no-drop contracts (req 5.1-5.10). Barriers/channels only — no sleeps.
@@ -36,6 +37,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 	t.Parallel()
 
 	t.Run("http11_keepalive", func(t *testing.T) {
+		t.Parallel()
 		d, _, alive := newNoDropHarness(t)
 		if _, err := d.PublishWithHandler("g1", genEchoHandler("g1")); err != nil {
 			t.Fatal(err)
@@ -55,7 +57,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 			t.Fatal(err)
 		}
 		b1, _ := io.ReadAll(res1.Body)
-		res1.Body.Close()
+		assert.NoError(t, res1.Body.Close())
 		if _, err := d.PublishWithHandler("g2", genEchoHandler("g2")); err != nil {
 			t.Fatal(err)
 		}
@@ -65,13 +67,14 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 			t.Fatal(err)
 		}
 		b2, _ := io.ReadAll(res2.Body)
-		res2.Body.Close()
+		assert.NoError(t, res2.Body.Close())
 		if string(b1) != "g1" || string(b2) != "g2" || dials.Load() != 1 || alive.Publishes() != 2 {
 			t.Fatalf("b1=%s b2=%s dials=%d pubs=%d", b1, b2, dials.Load(), alive.Publishes())
 		}
 	})
 
 	t.Run("http2_multiplex", func(t *testing.T) {
+		t.Parallel()
 		d, m, _ := newNoDropHarness(t)
 		hold, entered := make(chan struct{}), make(chan struct{}, 2)
 		h1 := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +93,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 		client := srv.Client()
 		out := make(chan string, 2)
 		start := make(chan struct{})
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			go func() {
 				<-start
 				res, err := client.Get(srv.URL + "/s")
@@ -99,7 +102,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 					return
 				}
 				b, _ := io.ReadAll(res.Body)
-				res.Body.Close()
+				assert.NoError(t, res.Body.Close())
 				out <- string(b)
 			}()
 		}
@@ -121,18 +124,24 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 			t.Fatal(err)
 		}
 		nb, _ := io.ReadAll(res.Body)
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if string(nb) != "2" {
 			t.Fatalf("new stream=%s", nb)
 		}
 	})
 
 	t.Run("sse_retain", func(t *testing.T) {
+		t.Parallel()
 		d, m, _ := newNoDropHarness(t)
 		first, resume := make(chan struct{}), make(chan struct{})
 		if _, err := d.PublishWithHandler("g1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, _ := GenerationFromContext(r.Context())
-			flusher := w.(http.Flusher)
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "ResponseWriter does not implement http.Flusher", http.StatusInternalServerError)
+				t.Error("ResponseWriter does not implement http.Flusher")
+				return
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(200)
 			_, _ = fmt.Fprintf(w, "data: start-%d\n\n", id)
@@ -150,7 +159,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() { assert.NoError(t, res.Body.Close()) }()
 		<-first
 		if _, err := d.PublishWithHandler("g2", genEchoHandler("g2")); err != nil {
 			t.Fatal(err)
@@ -175,6 +184,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 	})
 
 	t.Run("cancel_no_migration", func(t *testing.T) {
+		t.Parallel()
 		d, _, _ := newNoDropHarness(t)
 		entered, resume := make(chan struct{}), make(chan struct{})
 		var bound atomic.Int64
@@ -199,7 +209,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 				return
 			}
 			_, _ = io.Copy(io.Discard, res.Body)
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 			errCh <- nil
 		}()
 		<-entered
@@ -215,6 +225,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 	})
 
 	t.Run("failover_pinned", func(t *testing.T) {
+		t.Parallel()
 		d, _, _ := newNoDropHarness(t)
 		entered, gate := make(chan struct{}), make(chan struct{})
 		var gens []int64
@@ -240,7 +251,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 				return
 			}
 			b, _ := io.ReadAll(res.Body)
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 			done <- string(b)
 		}()
 		<-entered
@@ -261,13 +272,14 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 	})
 
 	t.Run("publish_acquire_races", func(t *testing.T) {
+		t.Parallel()
 		d, m, _ := newNoDropHarness(t)
 		if _, err := d.PublishWithHandler("seed", genEchoHandler("seed")); err != nil {
 			t.Fatal(err)
 		}
 		srv := httptest.NewServer(d)
 		defer srv.Close()
-		for round := 0; round < 24; round++ {
+		for round := range 24 {
 			readyAcq, readyPub, gate := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			result := make(chan string, 1)
 			go func() {
@@ -279,7 +291,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 					return
 				}
 				b, _ := io.ReadAll(res.Body)
-				res.Body.Close()
+				assert.NoError(t, res.Body.Close())
 				result <- string(b)
 			}()
 			label := fmt.Sprintf("g-%d", round)
@@ -298,6 +310,7 @@ func TestNoDrop_KeepAlive_HTTP2_SSE_Cancel_Failover_Races(t *testing.T) {
 	})
 
 	t.Run("explicit_trigger_only", func(t *testing.T) {
+		t.Parallel()
 		d, m, _ := newNoDropHarness(t)
 		if _, err := d.PublishWithHandler("g1", genEchoHandler("g1")); err != nil {
 			t.Fatal(err)

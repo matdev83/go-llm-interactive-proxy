@@ -16,10 +16,12 @@ type attachTestPlane struct {
 func (*attachTestPlane) Handler() http.Handler {
 	return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 }
+
 func (p *attachTestPlane) Quiesce(context.Context) error {
 	p.quiesced.Add(1)
 	return nil
 }
+
 func (p *attachTestPlane) Close() error {
 	p.closed.Add(1)
 	return nil
@@ -35,6 +37,7 @@ func (c *attachTestCloser) Close() error {
 }
 
 func TestAttachRequestPlaneAtomicallyOwnsDiscard(t *testing.T) {
+	t.Parallel()
 	g := NewManager(1, nil).BeginPrepare("candidate", nil)
 	plane := &attachTestPlane{}
 	if err := g.AttachRequestPlane(plane); err != nil {
@@ -55,6 +58,7 @@ func TestAttachRequestPlaneAtomicallyOwnsDiscard(t *testing.T) {
 }
 
 func TestAttachRequestPlaneCannotSplitExistingOwnership(t *testing.T) {
+	t.Parallel()
 	owned := &attachTestCloser{}
 	plane := &attachTestPlane{}
 	g := NewManager(1, nil).BeginPrepare("candidate", owned)
@@ -76,6 +80,7 @@ func TestAttachRequestPlaneCannotSplitExistingOwnership(t *testing.T) {
 }
 
 func TestLifecycleWorkerUsesBoundPlaneAsAuthoritativeOwner(t *testing.T) {
+	t.Parallel()
 	m := NewManager(2, nil)
 	bound := &attachTestPlane{}
 	wrong := &attachTestPlane{}

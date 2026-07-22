@@ -111,10 +111,7 @@ func NewAmbiguousAppendReconciler(store AmbiguousAppendStore, cfg AmbiguousAppen
 	if opLimit <= 0 {
 		opLimit = defaultAmbiguousOpLimit
 	}
-	retryMin := cfg.RetryMin
-	if retryMin < 0 {
-		retryMin = 0
-	}
+	retryMin := max(cfg.RetryMin, 0)
 	if cfg.RetryMin == 0 && cfg.RetryMax == 0 && cfg.Clock == nil && cfg.After == nil {
 		retryMin = defaultAmbiguousRetryMin
 	}
@@ -394,9 +391,7 @@ func (r *AmbiguousAppendReconciler) worker(done chan struct{}) {
 				cancel()
 				continue
 			}
-			select {
-			case <-r.wake:
-			}
+			<-r.wake
 			continue
 		}
 		remove := r.reconcileOnce(item)
@@ -424,30 +419,28 @@ func (r *AmbiguousAppendReconciler) worker(done chan struct{}) {
 func (r *AmbiguousAppendReconciler) nextWork() (item *ambiguousItem, wait time.Duration, stop bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for {
-		if r.stopping && len(r.items) == 0 {
-			return nil, 0, true
-		}
-		if len(r.items) == 0 {
-			return nil, 0, false
-		}
-		now := r.clock().UTC()
-		var earliest *ambiguousItem
-		var earliestAt time.Time
-		for _, it := range r.items {
-			if !it.nextAt.After(now) {
-				return it, 0, false
-			}
-			if earliest == nil || it.nextAt.Before(earliestAt) {
-				earliest = it
-				earliestAt = it.nextAt
-			}
-		}
-		if earliest == nil {
-			return nil, 0, false
-		}
-		return nil, earliestAt.Sub(now), false
+	if r.stopping && len(r.items) == 0 {
+		return nil, 0, true
 	}
+	if len(r.items) == 0 {
+		return nil, 0, false
+	}
+	now := r.clock().UTC()
+	var earliest *ambiguousItem
+	var earliestAt time.Time
+	for _, it := range r.items {
+		if !it.nextAt.After(now) {
+			return it, 0, false
+		}
+		if earliest == nil || it.nextAt.Before(earliestAt) {
+			earliest = it
+			earliestAt = it.nextAt
+		}
+	}
+	if earliest == nil {
+		return nil, 0, false
+	}
+	return nil, earliestAt.Sub(now), false
 }
 
 func (r *AmbiguousAppendReconciler) backoff(attempt int) time.Duration {

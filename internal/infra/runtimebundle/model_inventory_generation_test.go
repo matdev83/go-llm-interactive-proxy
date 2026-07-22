@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func inventoryCandidateConfig(t *testing.T, backendID string) *config.Config {
 	return cfg
 }
 
-func modelsListFromHandler(t *testing.T, h http.Handler, ctx context.Context) modelregistry.OpenAIModelList {
+func modelsListFromHandler(ctx context.Context, t *testing.T, h http.Handler) modelregistry.OpenAIModelList {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	if ctx != nil {
@@ -79,12 +80,7 @@ func modelIDs(list modelregistry.OpenAIModelList) []string {
 }
 
 func containsModelID(ids []string, id string) bool {
-	for _, v := range ids {
-		if v == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, id)
 }
 
 // TestCompileGeneration_ModelsAndRoutingAgreeWithCandidateBackendSet proves
@@ -112,8 +108,8 @@ func TestCompileGeneration_ModelsAndRoutingAgreeWithCandidateBackendSet(t *testi
 
 	ctxA := a.BindModelViews(context.Background())
 	ctxB := b.BindModelViews(context.Background())
-	listA := modelsListFromHandler(t, a.Handler(), ctxA)
-	listB := modelsListFromHandler(t, b.Handler(), ctxB)
+	listA := modelsListFromHandler(ctxA, t, a.Handler())
+	listB := modelsListFromHandler(ctxB, t, b.Handler())
 
 	idsA, idsB := modelIDs(listA), modelIDs(listB)
 	if !containsModelID(idsA, "alpha:local-stub/stub-default") || containsModelID(idsA, "beta:local-stub/stub-default") {
@@ -163,7 +159,7 @@ func TestGenerationBundle_BackendRemovalOmitsModelsButOldBoundViewRetainsThem(t 
 
 	// Bind the old request's model view before the newer generation exists.
 	oldReqCtx := old.BindModelViews(context.Background())
-	oldList := modelsListFromHandler(t, old.Handler(), oldReqCtx)
+	oldList := modelsListFromHandler(oldReqCtx, t, old.Handler())
 	if !containsModelID(modelIDs(oldList), "removable:local-stub/stub-default") {
 		t.Fatalf("old generation must advertise its own backend, got %v", modelIDs(oldList))
 	}
@@ -177,7 +173,7 @@ func TestGenerationBundle_BackendRemovalOmitsModelsButOldBoundViewRetainsThem(t 
 	}
 	t.Cleanup(func() { _ = newer.Close() })
 
-	newList := modelsListFromHandler(t, newer.Handler(), newer.BindModelViews(context.Background()))
+	newList := modelsListFromHandler(newer.BindModelViews(context.Background()), t, newer.Handler())
 	if containsModelID(modelIDs(newList), "removable:local-stub/stub-default") {
 		t.Fatalf("newer generation must not advertise the removed backend, got %v", modelIDs(newList))
 	}
@@ -187,7 +183,7 @@ func TestGenerationBundle_BackendRemovalOmitsModelsButOldBoundViewRetainsThem(t 
 
 	// The already-bound old request context must still resolve the same
 	// (now-retired) models even after the newer generation has published.
-	replayList := modelsListFromHandler(t, old.Handler(), oldReqCtx)
+	replayList := modelsListFromHandler(oldReqCtx, t, old.Handler())
 	if !containsModelID(modelIDs(replayList), "removable:local-stub/stub-default") {
 		t.Fatalf("retained old bound view must still advertise its own backend, got %v", modelIDs(replayList))
 	}
@@ -250,7 +246,7 @@ func TestGenerationBundle_QuiesceStopsRefreshLoopButRetainsBoundView(t *testing.
 	}
 
 	boundCtx := bundle.BindModelViews(context.Background())
-	before := modelsListFromHandler(t, bundle.Handler(), boundCtx)
+	before := modelsListFromHandler(boundCtx, t, bundle.Handler())
 	if !containsModelID(modelIDs(before), "dyn:dyn/model") {
 		t.Fatalf("expected dyn model before quiesce, got %v", modelIDs(before))
 	}
@@ -266,7 +262,7 @@ func TestGenerationBundle_QuiesceStopsRefreshLoopButRetainsBoundView(t *testing.
 		t.Fatal("Quiesce did not return promptly; refresh loop goroutine likely leaked")
 	}
 
-	after := modelsListFromHandler(t, bundle.Handler(), boundCtx)
+	after := modelsListFromHandler(boundCtx, t, bundle.Handler())
 	if !containsModelID(modelIDs(after), "dyn:dyn/model") {
 		t.Fatalf("bound view must remain valid after quiesce, got %v", modelIDs(after))
 	}
@@ -276,7 +272,7 @@ func TestGenerationBundle_QuiesceStopsRefreshLoopButRetainsBoundView(t *testing.
 	}
 	// Bound view survives even generation close: it holds an immutable
 	// snapshot, not a live handle into the closed backend/runtime.
-	final := modelsListFromHandler(t, bundle.Handler(), boundCtx)
+	final := modelsListFromHandler(boundCtx, t, bundle.Handler())
 	if !containsModelID(modelIDs(final), "dyn:dyn/model") {
 		t.Fatalf("bound view must remain valid after close, got %v", modelIDs(final))
 	}
@@ -328,7 +324,7 @@ func TestCompileGeneration_StaleCacheForRemovedBackendNotAdvertised(t *testing.T
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
 
-	list := modelsListFromHandler(t, bundle.Handler(), bundle.BindModelViews(context.Background()))
+	list := modelsListFromHandler(bundle.BindModelViews(context.Background()), t, bundle.Handler())
 	ids := modelIDs(list)
 	if containsModelID(ids, "removed-instance:local-stub/stub-default") {
 		t.Fatalf("stale cache backend must not be advertised, got %v", ids)

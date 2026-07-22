@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -218,13 +219,7 @@ func TestOwnershipInventoryCoversEveryBuiltField(t *testing.T) {
 
 	var extra []string
 	for sym := range classified {
-		found := false
-		for _, name := range fields {
-			if name == sym {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(fields, sym)
 		if !found {
 			extra = append(extra, sym)
 		}

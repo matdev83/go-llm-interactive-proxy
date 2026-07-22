@@ -27,6 +27,7 @@ func (f *failingLifecycle) Start(context.Context) error {
 	f.starts.Add(1)
 	return f.err
 }
+
 func (f *failingLifecycle) Stop(context.Context) error {
 	f.stops.Add(1)
 	return nil

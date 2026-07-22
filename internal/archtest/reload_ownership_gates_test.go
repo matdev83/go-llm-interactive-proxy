@@ -4295,7 +4295,7 @@ func mutateUnrelated(h HostUnrelated) {
 	t.Run("mutation_cross_package_embedded_interface_deterministic", func(t *testing.T) {
 		t.Parallel()
 		const rounds = 64
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			res, err := scanReloadOwnershipOverlay(crossPkgEmbeddedOverlay())
 			if err != nil {
 				t.Fatalf("round %d: %v", i, err)
@@ -4712,7 +4712,7 @@ func safe(h Host) {
 	t.Run("collision_stress_count", func(t *testing.T) {
 		t.Parallel()
 		const rounds = 100
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			pos, err := scanReloadOwnershipOverlay(positiveCollisionOverlay())
 			if err != nil {
 				t.Fatalf("positive round %d: %v", i, err)

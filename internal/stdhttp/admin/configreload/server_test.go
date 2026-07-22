@@ -9,6 +9,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestManagement_ServerLifecycle(t *testing.T) {
@@ -41,7 +42,7 @@ func TestManagement_ServerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d", res.StatusCode)
 	}
@@ -88,7 +89,7 @@ func TestManagement_ServerShutdownAppliesConfiguredTimeout(t *testing.T) {
 			reqErr <- err
 			return
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		reqErr <- nil
 	}()
 

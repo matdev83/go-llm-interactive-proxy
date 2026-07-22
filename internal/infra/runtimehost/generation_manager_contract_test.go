@@ -53,7 +53,7 @@ func TestPublish_Acquire_LinearizablePointerRecheck(t *testing.T) {
 	var sawOld, sawNew, failed atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(workers)
-	for i := 0; i < workers; i++ {
+	for range workers {
 		go func() {
 			defer wg.Done()
 			<-start
@@ -127,7 +127,7 @@ func TestAcquire_RetiringBitRefcountAndNoNewRetain(t *testing.T) {
 	var lateOnG1 atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(16)
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		go func() {
 			defer wg.Done()
 			<-late
@@ -347,7 +347,7 @@ func TestPublish_AcquireRace_BarrierRounds(t *testing.T) {
 	t.Parallel()
 	m := runtimehost.NewManager(8, nil)
 	mustPublish(t, m, m.Prepare("seed"))
-	for round := 0; round < 40; round++ {
+	for round := range 40 {
 		readyAcq, readyPub, gate := make(chan struct{}), make(chan struct{}), make(chan struct{})
 		result := make(chan int64, 1)
 		go func() {

@@ -1,6 +1,7 @@
 package runtimebundle
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -37,7 +38,7 @@ func Build(cfg *config.Config, bus *hooks.Bus, log *slog.Logger, opts *BuildOpti
 		return nil, fmt.Errorf("runtimebundle: %w", err)
 	}
 
-	ps, err := NewProcessServices(nil, ProcessServicesInput{
+	ps, err := NewProcessServices(context.TODO(), ProcessServicesInput{
 		Cfg:     cfg,
 		Log:     log,
 		Opts:    opts,

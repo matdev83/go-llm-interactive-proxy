@@ -172,5 +172,7 @@ func (w genpinPin) Release() {
 	}
 }
 
-var _ genpin.Retainer = (*RequestBinding)(nil)
-var _ genpin.Pin = genpinPin{}
+var (
+	_ genpin.Retainer = (*RequestBinding)(nil)
+	_ genpin.Pin      = genpinPin{}
+)

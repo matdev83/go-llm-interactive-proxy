@@ -48,7 +48,7 @@ func TestFieldCoverage_NoYAMLSectionSerialization(t *testing.T) {
 // tests to ensure every YAML-tagged top-level Config field is inventoried.
 func TestUnclassifiedTopLevelField_StructuralGuardFails(t *testing.T) {
 	t.Parallel()
-	yamlFields := topLevelYAMLFields(t, reflect.TypeOf(config.Config{}))
+	yamlFields := topLevelYAMLFields(t, reflect.TypeFor[config.Config]())
 	inv := map[string]bool{}
 	for _, e := range configreload.Inventory() {
 		if strings.HasPrefix(e.Path, "override.") {
@@ -106,8 +106,7 @@ func topLevelYAMLFields(t *testing.T, typ reflect.Type) []string {
 		typ = typ.Elem()
 	}
 	var out []string
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
+	for f := range typ.Fields() {
 		if !f.IsExported() {
 			continue
 		}

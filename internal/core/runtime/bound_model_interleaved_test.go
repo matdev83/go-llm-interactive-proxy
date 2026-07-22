@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
@@ -65,7 +67,7 @@ func TestBoundModel_InterleavedContinuationRetainsBoundCatalogOnBareContext(t *t
 	if err != nil {
 		t.Fatalf("open continuation: %v", err)
 	}
-	defer rs.Close()
+	defer func() { assert.NoError(t, rs.Close()) }()
 
 	recorder.mu.Lock()
 	got := append([]string(nil), recorder.generations...)

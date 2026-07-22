@@ -96,7 +96,6 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 
 	status := RetirementStatus{GenerationID: g.ID()}
 	var out error
-	quiesced := false
 
 	switch st {
 	case GenRetiring:
@@ -104,7 +103,6 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 			w.setStatus(status)
 			return errors.Join(out, err)
 		}
-		st = GenQuiescing
 		fallthrough
 	case GenQuiescing:
 		if owned != nil {
@@ -120,7 +118,6 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 				w.observer.ObserveLifecycle(ctx, "quiesce", "ok", time.Since(qStart))
 			}
 		}
-		quiesced = true
 		if err := g.MarkQuiesced(); err != nil {
 			out = errors.Join(out, err)
 		}
@@ -139,7 +136,6 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 				w.observer.ObserveLifecycle(ctx, "quiesce", "ok", time.Since(qStart))
 			}
 		}
-		quiesced = true
 	case GenQuiesced, GenClosing:
 		// resume
 	default:
@@ -147,9 +143,7 @@ func (w *LifecycleWorker) Retire(ctx context.Context, g *Generation, owned Quies
 		return ErrIllegalTransition
 	}
 
-	if !quiesced && (st == GenQuiesced || g.Lifecycle() == GenQuiesced) {
-		// already quiesced by a prior attempt
-	}
+	// GenQuiesced/GenClosing resume paths fall through here without re-entering Quiesce.
 
 	select {
 	case <-g.Drained():

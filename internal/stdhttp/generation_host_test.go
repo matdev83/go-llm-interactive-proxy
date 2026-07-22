@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
@@ -62,7 +63,7 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 			resp, err := http.Get("http://" + addr + "/any")
 			if err == nil {
 				_, _ = io.Copy(io.Discard, resp.Body)
-				resp.Body.Close()
+				assert.NoError(t, resp.Body.Close())
 				if resp.StatusCode != http.StatusServiceUnavailable {
 					ready = true
 					break

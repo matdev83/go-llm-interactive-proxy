@@ -93,7 +93,8 @@ func resolveManagementOptions(cfg *config.Config) (mgmtreload.Options, bool, err
 func startManagementServer(ctx context.Context, res runtimebundle.BootstrapResult, coord interface {
 	Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult
 	Status() configreload.ReloadStatus
-}) (*mgmtreload.Server, error) {
+},
+) (*mgmtreload.Server, error) {
 	if coord == nil {
 		return nil, fmt.Errorf("lipstd: nil reload coordinator")
 	}

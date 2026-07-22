@@ -2,6 +2,7 @@ package runtimebundle
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -90,9 +91,7 @@ type affinityView struct {
 
 func newAffinityView(reg *affinityRegistry, active map[string]BackendStateIdentity) *affinityView {
 	cp := make(map[string]BackendStateIdentity, len(active))
-	for k, v := range active {
-		cp[k] = v
-	}
+	maps.Copy(cp, active)
 	return &affinityView{reg: reg, active: cp}
 }
 
@@ -166,9 +165,7 @@ type healthView struct {
 
 func newHealthView(reg *healthRegistry, active map[string]BackendStateIdentity) *healthView {
 	cp := make(map[string]BackendStateIdentity, len(active))
-	for k, v := range active {
-		cp[k] = v
-	}
+	maps.Copy(cp, active)
 	return &healthView{reg: reg, active: cp}
 }
 
@@ -212,8 +209,10 @@ func (v *healthView) OnRoutingAttemptOutcome(candidateKey string, outcome lipapi
 	sink.OnRoutingAttemptOutcome(joinHealthNamespace(id, candidateKey), outcome)
 }
 
-var _ policy.CandidateHealth = (*healthView)(nil)
-var _ policy.RoutingAttemptOutcomeSink = (*healthView)(nil)
+var (
+	_ policy.CandidateHealth           = (*healthView)(nil)
+	_ policy.RoutingAttemptOutcomeSink = (*healthView)(nil)
+)
 
 func joinHealthNamespace(id BackendStateIdentity, candidateKey string) string {
 	return id.Namespace() + healthNamespaceSep + candidateKey
@@ -232,13 +231,13 @@ func splitHealthNamespace(namespaced string) (candidateKey string, id BackendSta
 		return "", BackendStateIdentity{}, false
 	}
 	left, digest := ns[:at], ns[at+1:]
-	slash := strings.IndexByte(left, '/')
-	if slash < 0 {
+	before, after, ok := strings.Cut(left, "/")
+	if !ok {
 		return "", BackendStateIdentity{}, false
 	}
 	return candidateKey, BackendStateIdentity{
-		FactoryKind:  left[:slash],
-		InstanceID:   left[slash+1:],
+		FactoryKind:  before,
+		InstanceID:   after,
 		ConfigDigest: digest,
 	}, true
 }

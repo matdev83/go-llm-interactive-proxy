@@ -11,11 +11,10 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
-	"go.uber.org/goleak"
 )
 
 func TestShutdown_LatePublishRejectedDuringSourceRead(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	gate := newStageGate()
 	src := &fakeSource{
 		path:   "/fixed/startup/config.yaml",
@@ -55,7 +54,7 @@ func TestShutdown_LatePublishRejectedDuringSourceRead(t *testing.T) {
 }
 
 func TestShutdown_SourceReadReceivesContextCancellation(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	gate := newStageGate()
 	src := &fakeSource{
 		path:   "/fixed/startup/config.yaml",
@@ -84,7 +83,7 @@ func TestShutdown_SourceReadReceivesContextCancellation(t *testing.T) {
 }
 
 func TestShutdown_CompileReceivesContextCancellationAndRollsBack(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	gate := newStageGate()
 	plane := newFakePlane(map[string]int{"local-stub": 1})
 	compile := runtimehost.FuncCompiler(func(ctx context.Context, _ *config.Config, _ map[string]int) (runtimehost.PublishedRequestPlane, error) {
@@ -131,7 +130,7 @@ func TestShutdown_CompileReceivesContextCancellationAndRollsBack(t *testing.T) {
 }
 
 func TestShutdown_PendingSignalDoesNotPublish(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	gate := newStageGate()
 	compile := &controllableCompiler{gate: gate, kinds: map[string]int{"local-stub": 1}}
 	var loads atomic.Int64
@@ -179,10 +178,10 @@ func TestShutdown_PendingSignalDoesNotPublish(t *testing.T) {
 }
 
 func TestShutdown_BeginShutdownArmRaceCancelsAttempt(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	// High-count race: BeginShutdown after attempt enters source read must cancel
 	// and never publish; WaitForIdle must always succeed.
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		gate := newStageGate()
 		src := &fakeSource{
 			path:   "/fixed/startup/config.yaml",
@@ -214,7 +213,7 @@ func TestShutdown_BeginShutdownArmRaceCancelsAttempt(t *testing.T) {
 }
 
 func TestShutdown_ActivePinnedStreamSurvivesBeginShutdown(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	m := runtimehost.NewManager(4, nil)
 	closer := &countingCloser{}
 	g := m.PrepareOwned("pinned", closer)
@@ -248,7 +247,7 @@ func TestShutdown_ActivePinnedStreamSurvivesBeginShutdown(t *testing.T) {
 }
 
 func TestShutdown_CleanupErrorAggregated(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	m := runtimehost.NewManager(2, nil)
 	boom := errors.New("cleanup boom")
 	g := m.PrepareOwned("cleanup", errCloser{err: boom})

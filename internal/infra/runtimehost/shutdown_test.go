@@ -167,7 +167,7 @@ func TestManager_Publish_RejectsAfterBeginShutdown(t *testing.T) {
 
 func TestManager_Publish_BeginShutdownRace_NoActiveLeak(t *testing.T) {
 	t.Parallel()
-	for round := 0; round < 40; round++ {
+	for round := range 40 {
 		m := runtimehost.NewManager(8, nil)
 		closer := &reentrantCloser{m: m}
 		cand := m.PrepareOwned("race", closer)

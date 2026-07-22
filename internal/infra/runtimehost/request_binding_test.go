@@ -59,7 +59,8 @@ func TestRequestBinding_TransferPinRetainsAfterHandler(t *testing.T) {
 
 func TestRequestBinding_FailedTransferWithoutBinding(t *testing.T) {
 	t.Parallel()
-	if _, ok := runtimehost.BindingFromContext(nil); ok {
+	var nilCtx context.Context
+	if _, ok := runtimehost.BindingFromContext(nilCtx); ok {
 		t.Fatal("nil context must not yield binding")
 	}
 }
@@ -177,7 +178,7 @@ func TestRequestBinding_TransferPinRaceExactOnce(t *testing.T) {
 		start := make(chan struct{})
 		var wg sync.WaitGroup
 		wg.Add(8)
-		for i := 0; i < 8; i++ {
+		for range 8 {
 			go func() {
 				defer wg.Done()
 				<-start

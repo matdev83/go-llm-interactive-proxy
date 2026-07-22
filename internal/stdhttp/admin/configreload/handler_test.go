@@ -12,6 +12,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
+	"github.com/stretchr/testify/assert"
 )
 
 func newManagementHarness(t *testing.T, reloadFn func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult) (*httptest.Server, *fakeCoordinator, *mgmtreload.Handler) {
@@ -50,7 +51,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("status=%d", res.StatusCode)
 		}
@@ -72,7 +73,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusUnauthorized || coord.Status().LastResult.AttemptID != before {
 			t.Fatalf("cookie auth status=%d attempt=%d", res.StatusCode, coord.Status().LastResult.AttemptID)
 		}
@@ -98,7 +99,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			res.Body.Close()
+			assert.NoError(t, res.Body.Close())
 			if res.StatusCode != http.StatusForbidden || res.Header.Get("Access-Control-Allow-Origin") != "" {
 				t.Fatalf("guard status=%d cors=%q", res.StatusCode, res.Header.Get("Access-Control-Allow-Origin"))
 			}
@@ -108,7 +109,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ores.Body.Close()
+		assert.NoError(t, ores.Body.Close())
 		if ores.StatusCode != http.StatusForbidden || coord.Status().LastResult.AttemptID != before {
 			t.Fatal("OPTIONS must not trigger reload")
 		}
@@ -134,7 +135,7 @@ func TestManagement_AuthOriginMethodBodyBusyDisconnectStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("allowlisted status=%d", res.StatusCode)
 		}
@@ -151,7 +152,7 @@ func TestFixedSource_MethodBodyGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("GET status=%d", res.StatusCode)
 	}
@@ -170,7 +171,7 @@ func TestFixedSource_MethodBodyGuards(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 		if res.StatusCode != http.StatusUnprocessableEntity {
 			t.Fatalf("body %q status=%d", tc.body, res.StatusCode)
 		}
@@ -182,7 +183,7 @@ func TestFixedSource_MethodBodyGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("oversized status=%d", res.StatusCode)
 	}
@@ -192,7 +193,7 @@ func TestFixedSource_MethodBodyGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusOK || coord.FixedSourcePath() != "/fixed/startup/config.yaml" {
 		t.Fatalf("ok status=%d path=%s", res.StatusCode, coord.FixedSourcePath())
 	}
@@ -216,7 +217,7 @@ func TestManagement_BusyConflict(t *testing.T) {
 			return
 		}
 		errCh <- res.StatusCode
-		res.Body.Close()
+		assert.NoError(t, res.Body.Close())
 	}()
 	<-entered
 	req := authReq(http.MethodPost, srv.URL+mgmtreload.ReloadPath, "test-management-secret", strings.NewReader("{}"))
@@ -227,7 +228,7 @@ func TestManagement_BusyConflict(t *testing.T) {
 	}
 	var body mgmtreload.ResultDTO
 	_ = json.NewDecoder(res.Body).Decode(&body)
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusConflict || body.Category != string(configreload.ResultBusy) {
 		t.Fatalf("busy status=%d cat=%s", res.StatusCode, body.Category)
 	}
@@ -289,7 +290,7 @@ func TestReloadAPI_StatusGoldensAndShutdown(t *testing.T) {
 	}
 	var body mgmtreload.ResultDTO
 	_ = json.NewDecoder(res.Body).Decode(&body)
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != 409 || body.RestartFieldCount != 2 {
 		t.Fatalf("%d %+v", res.StatusCode, body)
 	}
@@ -300,7 +301,7 @@ func TestReloadAPI_StatusGoldensAndShutdown(t *testing.T) {
 	}
 	var st mgmtreload.StatusDTO
 	_ = json.NewDecoder(stRes.Body).Decode(&st)
-	stRes.Body.Close()
+	assert.NoError(t, stRes.Body.Close())
 	if st.FixedSourcePath != coord.FixedSourcePath() || st.LastResult.Category != string(configreload.ResultRestartRequired) {
 		t.Fatalf("%+v", st)
 	}
@@ -315,7 +316,7 @@ func TestReloadAPI_StatusGoldensAndShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d", res.StatusCode)
 	}
@@ -339,7 +340,7 @@ func TestManagement_LocalTrustLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	assert.NoError(t, res.Body.Close())
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("local trust status=%d", res.StatusCode)
 	}

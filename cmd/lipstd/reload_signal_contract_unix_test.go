@@ -34,8 +34,7 @@ func TestSIGHUP_Contracts(t *testing.T) {
 		}
 	})
 	t.Run("adapter_delivery", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		tr := NewRefSIGHUPTrigger()
 		defer StartRefSIGHUPAdapter(ctx, tr)()
 		got := make(chan struct{}, 1)

@@ -5,7 +5,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -974,12 +976,8 @@ func populateExportIndex(exports *exportTypeIndex, pkgPath string, idx *pkgTypeI
 	if exports.fields[pkgPath] == nil {
 		exports.fields[pkgPath] = map[string]map[string]string{}
 	}
-	for name, canon := range idx.aliases {
-		exports.types[pkgPath][name] = canon
-	}
-	for name, ret := range idx.funcReturns {
-		exports.funcs[pkgPath][name] = ret
-	}
+	maps.Copy(exports.types[pkgPath], idx.aliases)
+	maps.Copy(exports.funcs[pkgPath], idx.funcReturns)
 	for typeCanon, methods := range idx.typeMethods {
 		short := shortTypeName(typeCanon)
 		if short == "" {
@@ -995,9 +993,7 @@ func populateExportIndex(exports *exportTypeIndex, pkgPath string, idx *pkgTypeI
 	}
 	for typ, fields := range idx.structFields {
 		cp := map[string]string{}
-		for k, v := range fields {
-			cp[k] = v
-		}
+		maps.Copy(cp, fields)
 		exports.fields[pkgPath][typ] = cp
 	}
 }
@@ -1049,23 +1045,17 @@ func (idx *pkgTypeIndex) lookupTypeMethods(srcCanon string) (map[string]string, 
 		out := map[string]string{}
 		// Prefer exact canonical key.
 		if methods := idx.typeMethods[srcCanon]; methods != nil {
-			for k, v := range methods {
-				out[k] = v
-			}
+			maps.Copy(out, methods)
 			return out, nil
 		}
 		// Fixture short name or alias-equivalent local identity.
 		localCanon := idx.localTypeCanon(srcShort)
 		if methods := idx.typeMethods[localCanon]; methods != nil {
-			for k, v := range methods {
-				out[k] = v
-			}
+			maps.Copy(out, methods)
 			return out, nil
 		}
 		if methods := idx.typeMethods[srcShort]; methods != nil {
-			for k, v := range methods {
-				out[k] = v
-			}
+			maps.Copy(out, methods)
 		}
 		return out, nil
 	}
@@ -4663,10 +4653,7 @@ func stmtsAlwaysExitLoop(stmts []ast.Stmt, loopBody *ast.BlockStmt, bodyLabels m
 				return false
 			}
 			if s.Tok == token.GOTO {
-				if gotoExitsLoop(s, loopBody, bodyLabels) {
-					return true
-				}
-				return false
+				return gotoExitsLoop(s, loopBody, bodyLabels)
 			}
 		case *ast.ReturnStmt:
 			return true
@@ -4895,10 +4882,8 @@ func buildAfterFuncScheduleEdges(files []*parsedOverlayFile) map[string][]string
 		if from == "" || to == "" {
 			return
 		}
-		for _, existing := range edges[from] {
-			if existing == to {
-				return
-			}
+		if slices.Contains(edges[from], to) {
+			return
 		}
 		edges[from] = append(edges[from], to)
 	}
@@ -4960,10 +4945,8 @@ func appendUnique(slice []string, v string) []string {
 	if v == "" {
 		return slice
 	}
-	for _, s := range slice {
-		if s == v {
-			return slice
-		}
+	if slices.Contains(slice, v) {
+		return slice
 	}
 	return append(slice, v)
 }
@@ -5024,10 +5007,8 @@ func callbackNodeInRecurrentCycle(edges map[string][]string, node string) bool {
 		return false
 	}
 	// Self-loop.
-	for _, next := range edges[node] {
-		if next == node {
-			return true
-		}
+	if slices.Contains(edges[node], node) {
+		return true
 	}
 	visited := map[string]bool{}
 	var dfs func(string) bool
@@ -5088,12 +5069,7 @@ func recurrentCallbackComponent(edges map[string][]string, node string) []string
 				return false
 			}
 			vis[n] = true
-			for _, next := range edges[n] {
-				if dfs(next) {
-					return true
-				}
-			}
-			return false
+			return slices.ContainsFunc(edges[n], dfs)
 		}
 		return dfs(start)
 	}
@@ -5479,10 +5455,8 @@ func buildInPackageCallGraph(files []*parsedOverlayFile, ctx *pollPkgContext) ma
 		if from == "" || to == "" || from == to {
 			return
 		}
-		for _, existing := range edges[from] {
-			if existing == to {
-				return
-			}
+		if slices.Contains(edges[from], to) {
+			return
 		}
 		edges[from] = append(edges[from], to)
 	}
@@ -5549,10 +5523,10 @@ func flipMethodIdentityPointer(id string) string {
 	const key = ".method:"
 	i := strings.Index(id, key)
 	if i < 0 {
-		if strings.HasPrefix(id, "method:") {
-			rest := strings.TrimPrefix(id, "method:")
-			if strings.HasPrefix(rest, "*") {
-				return "method:" + strings.TrimPrefix(rest, "*")
+		if after, ok := strings.CutPrefix(id, "method:"); ok {
+			rest := after
+			if after, ok := strings.CutPrefix(rest, "*"); ok {
+				return "method:" + after
 			}
 			dot := strings.Index(rest, ".")
 			if dot > 0 {
@@ -5563,8 +5537,8 @@ func flipMethodIdentityPointer(id string) string {
 	}
 	prefix := id[:i+len(key)]
 	rest := id[i+len(key):]
-	if strings.HasPrefix(rest, "*") {
-		return prefix + strings.TrimPrefix(rest, "*")
+	if after, ok := strings.CutPrefix(rest, "*"); ok {
+		return prefix + after
 	}
 	return prefix + "*" + rest
 }
@@ -5589,7 +5563,7 @@ func computeTransitiveConfigReach(ctx *pollPkgContext) map[string]bool {
 		}
 	}
 	bound := len(ids) + 1
-	for step := 0; step < bound; step++ {
+	for range bound {
 		grew := false
 		for _, id := range ids {
 			if out[id] {
@@ -6236,7 +6210,7 @@ func recordPollLoop(fset *token.FileSet, loop ast.Node, scope *pathScope, live *
 				if succ.hadConfig {
 					backedgeHadConfig = true
 				}
-				cont := succ.scope
+				var cont *pathScope
 				if forPost != nil {
 					posted := clonePathScopeTree(succ.scope)
 					applyPathPostStmt(forPost, posted, idx, fn)
@@ -7376,7 +7350,7 @@ func scanReloadOwnershipOverlay(files map[string]string) (reloadOwnershipScanRes
 	// to a fixpoint, refreshing exports after each package that grows.
 	bound := embedFixpointBound(indexes)
 	converged := false
-	for iter := 0; iter < bound; iter++ {
+	for range bound {
 		changed := false
 		for _, dir := range dirs {
 			idx := pkgIndexByDir[dir]

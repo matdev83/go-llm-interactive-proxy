@@ -93,7 +93,7 @@ func TestAuxiliary_Stream_ReleaseOnceOnCloseAndRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -169,6 +169,7 @@ func (s *syncEOFStream) Recv(context.Context) (lipapi.Event, error) {
 	s.closed = true
 	return lipapi.Event{}, io.EOF
 }
+
 func (s *syncEOFStream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -190,6 +191,7 @@ func (b leaseBinding) RuntimeGenerationID() string {
 	}
 	return strconv.FormatInt(id, 10)
 }
+
 func (b leaseBinding) Retain(kind genpin.Kind) (genpin.Pin, bool) {
 	var pk runtimehost.PinKind
 	switch kind {

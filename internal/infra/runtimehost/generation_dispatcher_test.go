@@ -202,8 +202,7 @@ func TestGenerationDispatcher_RacePublishDuringServe(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	labels := make([]string, workers)
-	for i := 0; i < workers; i++ {
-		i := i
+	for i := range workers {
 		go func() {
 			defer wg.Done()
 			<-start

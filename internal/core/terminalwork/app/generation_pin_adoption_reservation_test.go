@@ -35,6 +35,7 @@ func (s *reviewerInterleaveStore) AppendIntent(ctx context.Context, rec terminal
 	_, err := s.AppendIntentOutcome(ctx, rec)
 	return err
 }
+
 func (s *reviewerInterleaveStore) AppendIntentOutcome(ctx context.Context, rec terminalwork.WorkRecord) (terminalwork.AppendIntentOutcome, error) {
 	if s.replay.Load() {
 		// Definitive replay without depending on store idempotency timing.
@@ -42,6 +43,7 @@ func (s *reviewerInterleaveStore) AppendIntentOutcome(ctx context.Context, rec t
 	}
 	return s.inner.AppendIntentOutcome(ctx, rec)
 }
+
 func (s *reviewerInterleaveStore) PromotePending(ctx context.Context, cmd terminalwork.PromotePendingCommand) error {
 	if s.lookupFailAfter.Load() {
 		s.promoteCalls.Add(1)
@@ -49,6 +51,7 @@ func (s *reviewerInterleaveStore) PromotePending(ctx context.Context, cmd termin
 	}
 	return s.inner.PromotePending(ctx, cmd)
 }
+
 func (s *reviewerInterleaveStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
 	// Fail only after a replay-time promote attempt (not the seed promote).
 	if s.lookupFailAfter.Load() && s.promoteCalls.Load() > 0 {
@@ -72,6 +75,7 @@ func (s *reviewerInterleaveStore) LookupIntent(ctx context.Context, workID strin
 }
 
 func TestAdoption_ReviewerInterleave_PublishRejectsAfterMarkTerminal(t *testing.T) {
+	t.Parallel()
 	backing, err := workstore.NewMemoryStore(workstore.MemoryConfig{StoreID: "reviewer-interleave"})
 	if err != nil {
 		t.Fatal(err)
@@ -209,8 +213,7 @@ func TestAdoption_TwoConcurrentReplayReservationsPlusTerminal(t *testing.T) {
 	clears := make([]atomic.Int32, n)
 	wg.Add(n)
 	ready.Add(n)
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		pinsOut[i] = &countingPin{}
 		go func() {
 			defer wg.Done()
@@ -229,7 +232,7 @@ func TestAdoption_TwoConcurrentReplayReservationsPlusTerminal(t *testing.T) {
 		t.Fatalf("pins=%d entries=%d", pins.Len(), pins.EntryCount())
 	}
 	var pinReleases, clearCount int32
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pinReleases += pinsOut[i].releases.Load()
 		clearCount += clears[i].Load()
 	}
@@ -359,6 +362,7 @@ func (s *replayThenLookupFailStore) AppendIntent(ctx context.Context, rec termin
 	_, err := s.AppendIntentOutcome(ctx, rec)
 	return err
 }
+
 func (s *replayThenLookupFailStore) AppendIntentOutcome(ctx context.Context, rec terminalwork.WorkRecord) (terminalwork.AppendIntentOutcome, error) {
 	outcome, err := s.inner.AppendIntentOutcome(ctx, rec)
 	if err != nil {
@@ -369,9 +373,11 @@ func (s *replayThenLookupFailStore) AppendIntentOutcome(ctx context.Context, rec
 	}
 	return terminalwork.AppendIntentOutcome{Replay: true}, nil
 }
+
 func (s *replayThenLookupFailStore) PromotePending(ctx context.Context, cmd terminalwork.PromotePendingCommand) error {
 	return s.inner.PromotePending(ctx, cmd)
 }
+
 func (s *replayThenLookupFailStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
 	if s.lookups.Add(1) == 1 {
 		return terminalwork.WorkRecord{}, false, errors.New("lookup boom")
@@ -383,10 +389,8 @@ func TestAdoption_TombstoneCleanupBounded(t *testing.T) {
 	t.Parallel()
 	pins := app.NewGenerationPinTracker()
 	const n = 256
-	for i := 0; i < n; i++ {
-		workID := "tw_bound_" + string(rune('a'+(i%26))) + string(rune('0'+i%10)) + string(rune('A'+i%26))
-		// Use unique IDs.
-		workID = "tw_bound_" + itoa(i)
+	for i := range n {
+		workID := "tw_bound_" + itoa(i)
 		tok := pins.BeginAdoption(workID)
 		pin := &countingPin{}
 		if !tok.Publish(pin, nil) {

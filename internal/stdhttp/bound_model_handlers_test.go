@@ -105,8 +105,12 @@ func TestModelRegistryStatusHandler_boundViewCoherent(t *testing.T) {
 	if got["generation"] != genA {
 		t.Fatalf("generation=%v want %q", got["generation"], genA)
 	}
-	if int(got["model_count"].(float64)) != 1 {
-		t.Fatalf("model_count=%v", got["model_count"])
+	modelCount, ok := got["model_count"].(float64)
+	if !ok {
+		t.Fatalf("model_count type %T, want float64", got["model_count"])
+	}
+	if int(modelCount) != 1 {
+		t.Fatalf("model_count=%v", modelCount)
 	}
 }
 

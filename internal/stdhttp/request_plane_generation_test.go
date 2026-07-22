@@ -147,7 +147,7 @@ func newStdProcess(t *testing.T) *runtimebundle.ProcessServices {
 func stubPlaneConfig(t *testing.T, backendID, text, defaultRoute string, frontends []config.PluginConfig) *config.Config {
 	t.Helper()
 	var n yaml.Node
-	if err := yaml.Unmarshal([]byte(fmt.Sprintf("text: %q\ninput_tokens: 1\noutput_tokens: 1\n", text)), &n); err != nil {
+	if err := yaml.Unmarshal(fmt.Appendf(nil, "text: %q\ninput_tokens: 1\noutput_tokens: 1\n", text), &n); err != nil {
 		t.Fatal(err)
 	}
 	for n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
@@ -177,7 +177,7 @@ func stubPlaneConfig(t *testing.T, backendID, text, defaultRoute string, fronten
 
 func postPlaneResponses(t *testing.T, h http.Handler, model string) string {
 	t.Helper()
-	body := []byte(fmt.Sprintf(`{"model":%q,"stream":false,"input":[{"role":"user","content":"ping"}]}`, model))
+	body := fmt.Appendf(nil, `{"model":%q,"stream":false,"input":[{"role":"user","content":"ping"}]}`, model)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer sk-test")

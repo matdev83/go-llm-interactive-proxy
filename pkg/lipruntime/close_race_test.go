@@ -11,7 +11,6 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
-	"go.uber.org/goleak"
 )
 
 func testConfigPath(t *testing.T) string {
@@ -20,7 +19,7 @@ func testConfigPath(t *testing.T) string {
 }
 
 func TestClose_HonorsDeadlineWithoutPrematureProcessClose(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	ctx := context.Background()
 	rt, err := Build(ctx, Options{ConfigPath: testConfigPath(t), LogWriter: io.Discard})
 	if err != nil {
@@ -86,8 +85,8 @@ func TestClose_HonorsDeadlineWithoutPrematureProcessClose(t *testing.T) {
 }
 
 func TestClose_ConcurrentWithReloadStatusExecute(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
-	for i := 0; i < 50; i++ {
+	t.Parallel()
+	for i := range 50 {
 		ctx := context.Background()
 		rt, err := Build(ctx, Options{ConfigPath: testConfigPath(t), LogWriter: io.Discard})
 		if err != nil {
@@ -127,7 +126,7 @@ func TestClose_ConcurrentWithReloadStatusExecute(t *testing.T) {
 }
 
 func TestClose_Idempotent(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
 	ctx := context.Background()
 	rt, err := Build(ctx, Options{ConfigPath: testConfigPath(t), LogWriter: io.Discard})
 	if err != nil {

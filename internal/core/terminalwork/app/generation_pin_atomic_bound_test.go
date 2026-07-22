@@ -28,8 +28,7 @@ func TestAtomicBound_DuplicatePublication_OneBinderHold(t *testing.T) {
 	pinsOut := make([]*countingPin, n)
 	ready.Add(n)
 	wg.Add(n)
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		pinsOut[i] = &countingPin{}
 		go func() {
 			defer wg.Done()
@@ -62,7 +61,7 @@ func TestAtomicBound_DuplicatePublication_OneBinderHold(t *testing.T) {
 		t.Fatalf("tracker ownership=%d want 1", pins.Len())
 	}
 	var pinReleases int32
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pinReleases += pinsOut[i].releases.Load()
 	}
 	if pinReleases != 1 {
@@ -74,7 +73,7 @@ func TestAtomicBound_DuplicatePublication_OneBinderHold(t *testing.T) {
 		t.Fatalf("after terminal pins=%d pending=%d", pins.Len(), execGen.PendingWorkCount())
 	}
 	pinReleases = 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pinReleases += pinsOut[i].releases.Load()
 	}
 	if pinReleases != 2 {
@@ -234,7 +233,7 @@ func TestAtomicBound_NoTrackerReentryDeadlock(t *testing.T) {
 	const rounds = 64
 	var wg sync.WaitGroup
 	wg.Add(rounds * 2)
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		workID := "tw_reentry_" + itoa(i)
 		go func(id string) {
 			defer wg.Done()
@@ -322,7 +321,6 @@ func TestAtomicBound_AmbiguousAppendDuplicate_NoSplitOwnership(t *testing.T) {
 		})
 	}()
 	for i := 1; i <= n; i++ {
-		i := i
 		pinsOut[i] = &countingPin{}
 		go func() {
 			defer wg.Done()
@@ -366,7 +364,7 @@ func TestAtomicBound_IntentServiceUsesBoundPublication(t *testing.T) {
 	const n = 24
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			pin := &countingPin{}

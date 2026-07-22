@@ -174,5 +174,7 @@ func encodeLineage(call *lipapi.Call, req auxiliary.Request) {
 	call.Extensions[extKey] = raw
 }
 
-var _ auxiliary.Client = Client{}
-var _ lipapi.EventStream = (*pinnedEventStream)(nil)
+var (
+	_ auxiliary.Client   = Client{}
+	_ lipapi.EventStream = (*pinnedEventStream)(nil)
+)

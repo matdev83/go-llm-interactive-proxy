@@ -163,9 +163,11 @@ type terminalBarrierStore struct {
 func (s *terminalBarrierStore) AppendIntent(ctx context.Context, rec terminalwork.WorkRecord) error {
 	return s.inner.AppendIntent(ctx, rec)
 }
+
 func (s *terminalBarrierStore) PromotePending(ctx context.Context, cmd terminalwork.PromotePendingCommand) error {
 	return s.inner.PromotePending(ctx, cmd)
 }
+
 func (s *terminalBarrierStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
 	if !s.replay.Load() {
 		return s.inner.LookupIntent(ctx, workID)
@@ -214,11 +216,9 @@ func TestGenerationPin_Replay_BarrierTerminalBeforeAdopt(t *testing.T) {
 
 	var acceptErr error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		acceptErr = svc.AcceptSettleFailure(ctx2, in)
-	}()
+	})
 
 	<-store.afterStaleLookup
 	forceComplete(t, backing, pins, workID, "owner-barrier")
@@ -500,7 +500,7 @@ func TestGenerationPin_AtomicAdoption_ConcurrentAcceptRace(t *testing.T) {
 	const n = 32
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			pin := &countingPin{}

@@ -812,7 +812,7 @@ func TestAmbiguousAppend_OneWorkerRaceTakeTerminalShutdown(t *testing.T) {
 	r := newTestReconciler(t, store, pins, app.AmbiguousAppendReconcilerConfig{Capacity: 64})
 
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -829,13 +829,15 @@ func TestAmbiguousAppend_OneWorkerRaceTakeTerminalShutdown(t *testing.T) {
 }
 
 func TestAmbiguousAppend_NoGoroutineLeakStartupShutdown(t *testing.T) {
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	t.Parallel()
+	leakOpts := goleak.IgnoreCurrent()
+	t.Cleanup(func() { goleak.VerifyNone(t, leakOpts) })
 	backing, err := workstore.NewMemoryStore(workstore.MemoryConfig{StoreID: "leak"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	pins := app.NewGenerationPinTracker()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		r, err := app.NewAmbiguousAppendReconciler(backing, app.AmbiguousAppendReconcilerConfig{
 			Capacity: 4, Pins: pins,
 			RetryMin: time.Millisecond, RetryMax: 5 * time.Millisecond,

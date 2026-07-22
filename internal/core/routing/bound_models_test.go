@@ -164,9 +164,7 @@ func TestBindNativeModelIDs_sameCanonicalDifferentNativesTwoBackends(t *testing.
 	if b.Model != "vendor/shared" || b.NativeModel != "native-b" {
 		t.Fatalf("backend-b = %+v", b)
 	}
-	if a.String() == b.String() {
-		// Same logical key shape is fine; natives differ.
-	}
+	// Same logical AttemptCandidate.String() key shape is fine when natives differ.
 	if a.NativeModel == b.NativeModel {
 		t.Fatal("exact-backend resolution must not share natives across backends")
 	}

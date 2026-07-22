@@ -210,7 +210,7 @@ func buildExecutorRuntime(in executorBuildInput, closers []func() error) (*execu
 	// Build routing runtime; model catalog resolvers are attached before construction.
 	var affStore affinity.Store
 	var candHealth policy.CandidateHealth
-	var aLeg = (*leglifecycle.Coordinator)(nil)
+	aLeg := (*leglifecycle.Coordinator)(nil)
 	if in.SharedMutable != nil {
 		affStore, candHealth = in.SharedMutable.candidateRoutingViews(in.BackendIdentities, cfg, in.NowFn)
 		aLeg = in.SharedMutable.ALegLifecycle

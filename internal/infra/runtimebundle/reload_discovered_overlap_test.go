@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -270,13 +271,7 @@ func TestReloadDiscovered_SharedProcessNoOverlap_RestartRequired(t *testing.T) {
 	if rr.TotalBlocked < 1 {
 		t.Fatalf("blocked=%d", rr.TotalBlocked)
 	}
-	found := false
-	for _, p := range rr.RestartRequiredFields {
-		if p == "plugins.backends" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(rr.RestartRequiredFields, "plugins.backends")
 	if !found {
 		t.Fatalf("want plugins.backends in fields, got %v", rr.RestartRequiredFields)
 	}
@@ -316,10 +311,5 @@ func TestReloadDiscovered_ProcessCatalogFrozenAtStartup(t *testing.T) {
 }
 
 func containsID(ids []string, want string) bool {
-	for _, id := range ids {
-		if id == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, want)
 }

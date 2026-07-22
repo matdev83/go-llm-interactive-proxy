@@ -22,6 +22,7 @@ func (p permanentProv) Version() string    { return "1" }
 func (p permanentProv) SupportedKinds() []sdk.WorkKind {
 	return []sdk.WorkKind{sdk.WorkKindSettleRequestProvider}
 }
+
 func (p permanentProv) Invoke(context.Context, terminalwork.WorkRecord, string) error {
 	return errors.Join(app.ErrMalformedProvider, errors.New("permanent"))
 }
