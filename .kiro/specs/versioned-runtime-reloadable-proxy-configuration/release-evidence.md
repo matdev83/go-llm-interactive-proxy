@@ -1,8 +1,8 @@
 # Versioned Runtime Reload — Release Evidence
 
-**Recorded:** 2026-07-21T23:07:04Z
+**Recorded:** 2026-07-22T14:14:54Z
 
-**Reviewed head:** `c54c3383d31d594434494da4dbccc1493d3c3ba2`
+**Reviewed head:** `c5704359c1dfef10f26a8b191581e43e4e2b27d1`
 
 **Platform:** Linux 6.17.0-1018-oracle x86_64
 
@@ -24,6 +24,7 @@ All mandatory local release gates pass. The implementation satisfies the approve
 | Benchmarks | `make bench` | PASS |
 | Bounded reload soak | `go test -tags=precommit -run '^TestRuntimeConfigReloadSoak$' -count=1 -v ./internal/stdhttp/...` | PASS |
 | Module integrity | `go mod verify` | PASS — all modules verified |
+| Full repository lint | `golangci-lint run --timeout=10m` | PASS — 0 issues |
 | Feature-delta lint | `golangci-lint run --timeout=10m --new-from-rev=95bf54a4` | PASS — 0 issues |
 | Vulnerabilities | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` | PASS — 0 reachable vulnerabilities; 0 imported-package vulnerabilities |
 | No-drop/failover/parallel focus | `go test -race ./internal/stdhttp/... ./internal/core/runtime/... -run 'RuntimeConfigReload.*NoDrop|HTTP2|SSE|Failover|Parallel' -timeout=10m` | PASS |
@@ -31,9 +32,11 @@ All mandatory local release gates pass. The implementation satisfies the approve
 | Dynamic component focus | `go test -race ./internal/infra/runtimebundle/... ./internal/plugins/... ./internal/pluginreg/... ./internal/stdhttp/... -run 'Reload.*Dynamic|Generic|Discovered|NoInstall|NoWatcher' -timeout=10m` | PASS |
 | Docs/config focus | `go test ./cmd/lipstd/... ./internal/qa/... -run 'ConfigExample|Docs|Reload' -timeout=10m` | PASS |
 | Architecture boundaries | `go test ./internal/archtest/... -run 'Reload|Ownership|Watcher|ProcessService|ExternalModule' -timeout=10m` | PASS |
+| Management shutdown timeout/retry | `go test -race ./internal/stdhttp/admin/configreload -run '^TestManagement_ServerShutdown(AppliesConfiguredTimeout|TimeoutCanBeRetried)$' -count=100 -timeout=10m` | PASS |
+| Bound-model failover fixture | `go test -race -tags=precommit,integration ./internal/core/runtime -run '^TestBoundModel_RecvFailoverKeepsBoundCatalogAfterRefresh$' -count=5000 -timeout=10m` | PASS |
 | Added-marker scan | added lines from `git diff --unified=0 95bf54a4 -- '*.go' '*.md' '*.yaml' '*.yml' '*.json'` scanned for TODO/FIXME/XXX/HACK/PLACEHOLDER/NOT IMPLEMENTED | PASS — no hits |
 
-The aggregate race/default passes were obtained immediately before the final equivalent integer-range modernization in a test-only recorder stress loop. The modernized loop then passed its focused runtime race tests 100 times and feature-delta lint at the reviewed head.
+After PR review, management shutdown was bounded by the configured timeout. Independent cross-checking found and repaired the corresponding retry-state defect, then the full PR lint gate was cleared without suppressions. A load-sensitive failover fixture double-consume was exposed by the canonical race gate, repaired, stressed 5,000 times, and followed by a clean complete race rerun at the reviewed head.
 
 ## Soak parameters and assertions
 
