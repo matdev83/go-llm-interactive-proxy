@@ -334,6 +334,84 @@ func TestCoordinator_NoopOnMatchingEffectiveFingerprint(t *testing.T) {
 	}
 }
 
+// Effective no-op after an atomic path replace must still advance the coordinator's
+// active source identity. Otherwise a later in-place rewrite of the new inode is
+// compared against the pre-rename handle and incorrectly classified as AtomicEligible
+// (req 2.9 / source_non_atomic_update).
+func TestCoordinator_EffectiveNoopAdvancesActiveSource_RejectsInPlaceEdit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	bodyA := []byte("server:\n  address: \"127.0.0.1:0\"\n")
+	if err := os.WriteFile(path, bodyA, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := configsource.NewFixedSource(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap1, res, err := src.ReadStable(ctx, nil)
+	if err != nil || res != configsource.AtomicEligible {
+		t.Fatalf("startup read: res=%q err=%v", res, err)
+	}
+	activeSrc := &configsource.ActiveSourceVersion{
+		HandleIdentity: snap1.HandleIdentity,
+		PrivateDigest:  snap1.PrivateDigest,
+	}
+	activeEff := baseEffective("fp-same", 7)
+	loader := runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+		return baseEffective("fp-same", 7), nil
+	})
+	compile := &controllableCompiler{kinds: nil}
+	mgr := runtimehost.NewManager(8, nil)
+	g0 := mgr.PrepareRequestPlane("startup", newFakePlane(map[string]int{"local-stub": 1}))
+	g0.SetMetaHints(runtimehost.MetaHints{PublicFingerprint: "fp-startup", TriggerKind: "startup"})
+	if err := mgr.Publish(g0); err != nil {
+		t.Fatalf("publish gen1: %v", err)
+	}
+	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
+		Source:          src,
+		Loader:          loader,
+		Compile:         compile,
+		Manager:         mgr,
+		Timeout:         time.Second,
+		ActiveEffective: activeEff,
+		ActiveSource:    activeSrc,
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+
+	bodyB := []byte("server:\n  address: \"127.0.0.1:0\"\n# reorder-noop\n")
+	tmp := filepath.Join(dir, "config.yaml.tmp")
+	if err := os.WriteFile(tmp, bodyB, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+	noop := c.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	if noop.Category != configreload.ResultNoop {
+		t.Fatalf("effective noop category=%q", noop.Category)
+	}
+	if compile.calls.Load() != 0 {
+		t.Fatalf("compile called on effective noop: %d", compile.calls.Load())
+	}
+
+	bodyC := []byte("server:\n  address: \"127.0.0.1:9\"\n")
+	if err := os.WriteFile(path, bodyC, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rejected := c.Reload(ctx, configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	if rejected.Category != configreload.ResultSourceIntegrity {
+		t.Fatalf("in-place rewrite after effective noop: category=%q want %q", rejected.Category, configreload.ResultSourceIntegrity)
+	}
+	if rejected.ReasonCategory != configreload.StageRead {
+		t.Fatalf("reason=%q want %q", rejected.ReasonCategory, configreload.StageRead)
+	}
+}
+
 func TestCoordinator_FaultMatrixPrePublication(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

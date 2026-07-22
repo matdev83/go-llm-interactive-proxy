@@ -46,8 +46,8 @@ type SourceSnapshot struct {
 	ReadAt         time.Time
 }
 
-// ActiveSourceVersion is the currently published source identity for no-op /
-// non-atomic comparisons.
+// ActiveSourceVersion is the last accepted source identity used for no-op /
+// non-atomic comparisons (published generation or effective no-op baseline).
 type ActiveSourceVersion struct {
 	HandleIdentity FileIdentity
 	PrivateDigest  [32]byte

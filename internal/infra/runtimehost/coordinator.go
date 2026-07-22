@@ -554,6 +554,15 @@ func (c *Coordinator) runAttempt(ctx context.Context, trigger configreload.Reloa
 	activeEff := c.activeEff
 	c.activeSourceMu.RUnlock()
 	if activeEff != nil && activeEff.Identity.PrivateDigest == eff.Identity.PrivateDigest {
+		// AtomicEligible may have landed a new inode whose effective identity matches
+		// the active generation. Advance the source baseline without publishing so a
+		// later in-place rewrite of that inode is rejected as non-atomic (req 2.9).
+		c.activeSourceMu.Lock()
+		c.activeSource = &configsource.ActiveSourceVersion{
+			HandleIdentity: snap.HandleIdentity,
+			PrivateDigest:  snap.PrivateDigest,
+		}
+		c.activeSourceMu.Unlock()
 		res.Category = configreload.ResultNoop
 		res.ReasonCategory = configreload.StageNoop
 		return res
