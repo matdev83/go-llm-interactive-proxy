@@ -19,6 +19,7 @@ type Server struct {
 	opts    Options
 	handler *Handler
 
+	shutdownMu sync.Mutex
 	mu         sync.Mutex
 	httpServer *http.Server
 	listener   net.Listener
@@ -103,10 +104,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
+	s.shutdownMu.Lock()
+	defer s.shutdownMu.Unlock()
+
 	s.mu.Lock()
 	srv := s.httpServer
 	started := s.started
 	timeout := s.opts.ShutdownTimeout
+	ch := s.serveErr
 	s.mu.Unlock()
 	if !started || srv == nil {
 		return nil
@@ -121,20 +126,32 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
 
-	err := srv.Shutdown(shutdownCtx)
-	s.mu.Lock()
-	ch := s.serveErr
-	s.started = false
-	s.mu.Unlock()
+	shutdownErr := srv.Shutdown(shutdownCtx)
+	err := shutdownErr
 	if ch != nil {
 		select {
 		case serveErr := <-ch:
+			s.mu.Lock()
+			if s.serveErr == ch {
+				s.serveErr = nil
+			}
+			s.mu.Unlock()
 			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 				err = errors.Join(err, serveErr)
 			}
 		case <-shutdownCtx.Done():
 			err = errors.Join(err, shutdownCtx.Err())
 		}
+	}
+	if shutdownErr == nil {
+		s.mu.Lock()
+		if s.httpServer == srv {
+			s.started = false
+			s.httpServer = nil
+			s.listener = nil
+			s.serveErr = nil
+		}
+		s.mu.Unlock()
 	}
 	return err
 }

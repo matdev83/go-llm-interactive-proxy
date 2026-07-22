@@ -121,6 +121,86 @@ func TestManagement_ServerShutdownAppliesConfiguredTimeout(t *testing.T) {
 	}
 }
 
+func TestManagement_ServerShutdownTimeoutCanBeRetried(t *testing.T) {
+	t.Parallel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+		close(entered)
+		<-release
+		return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+	})
+	srv, err := mgmtreload.New(mgmtreload.Options{
+		Address:         "127.0.0.1:0",
+		AuthMode:        mgmtreload.AuthModeBearer,
+		BearerToken:     "test-management-secret",
+		ShutdownTimeout: 500 * time.Millisecond,
+	}, coord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	reqErr := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, "http://"+srv.Addr()+mgmtreload.ReloadPath, http.NoBody)
+		if err != nil {
+			reqErr <- err
+			return
+		}
+		req.Header.Set("Authorization", "Bearer test-management-secret")
+		res, err := http.DefaultClient.Do(req)
+		if err == nil {
+			err = res.Body.Close()
+		}
+		reqErr <- err
+	}()
+
+	select {
+	case <-entered:
+	case err := <-reqErr:
+		t.Fatalf("reload request failed before coordinator entry: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for reload handler entry")
+	}
+
+	firstCtx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	err = srv.Shutdown(firstCtx)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first shutdown error=%v want context deadline exceeded", err)
+	}
+
+	retryErr := make(chan error, 1)
+	go func() { retryErr <- srv.Shutdown(context.Background()) }()
+	select {
+	case err := <-retryErr:
+		close(release)
+		t.Fatalf("retry returned before active request drained: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case err := <-retryErr:
+		if err != nil {
+			t.Fatalf("retry shutdown: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for retry shutdown")
+	}
+	select {
+	case err := <-reqErr:
+		if err != nil {
+			t.Fatalf("reload request cleanup: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for reload request cleanup")
+	}
+}
+
 func TestManagement_RejectsNilCoordinator(t *testing.T) {
 	t.Parallel()
 	_, err := mgmtreload.New(mgmtreload.Options{Address: "127.0.0.1:0"}, nil)
