@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -560,7 +561,7 @@ func TestRunCommand_serve_multiUserConfigRequiresFlag(t *testing.T) {
 func TestValidateServeMultiUserGate_multiUserConfigWithFlagPasses(t *testing.T) {
 	t.Parallel()
 	cfgPath := writeMultiUserTempConfig(t)
-	if err := validateServeMultiUserGate(cfgPath, new(true)); err != nil {
+	if err := validateServeMultiUserGate(t.Context(), cfgPath, new(true), config.StreamRecoveryOverrides{}); err != nil {
 		t.Fatalf("expected gate to pass with --multi-user=true on multi_user config: %v", err)
 	}
 }
@@ -568,7 +569,7 @@ func TestValidateServeMultiUserGate_multiUserConfigWithFlagPasses(t *testing.T) 
 func TestValidateServeMultiUserGate_multiUserConfigRequiresFlag(t *testing.T) {
 	t.Parallel()
 	cfgPath := writeMultiUserTempConfig(t)
-	if err := validateServeMultiUserGate(cfgPath, nil); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
+	if err := validateServeMultiUserGate(t.Context(), cfgPath, nil, config.StreamRecoveryOverrides{}); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
 		t.Fatalf("want ErrMultiUserFlagRequired, got %v", err)
 	}
 }
@@ -576,7 +577,7 @@ func TestValidateServeMultiUserGate_multiUserConfigRequiresFlag(t *testing.T) {
 func TestValidateServeMultiUserGate_multiUserConfigFlagFalseRejected(t *testing.T) {
 	t.Parallel()
 	cfgPath := writeMultiUserTempConfig(t)
-	if err := validateServeMultiUserGate(cfgPath, new(false)); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
+	if err := validateServeMultiUserGate(t.Context(), cfgPath, new(false), config.StreamRecoveryOverrides{}); !errors.Is(err, accessmode.ErrMultiUserFlagRequired) {
 		t.Fatalf("explicit --multi-user=false must not satisfy multi_user: got %v", err)
 	}
 }
@@ -584,7 +585,7 @@ func TestValidateServeMultiUserGate_multiUserConfigFlagFalseRejected(t *testing.
 func TestValidateServeMultiUserGate_singleUserConfigFlagTrueRejected(t *testing.T) {
 	t.Parallel()
 	cfgPath := filepath.Join("..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	if err := validateServeMultiUserGate(cfgPath, new(true)); !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
+	if err := validateServeMultiUserGate(t.Context(), cfgPath, new(true), config.StreamRecoveryOverrides{}); !errors.Is(err, accessmode.ErrMultiUserFlagInconsistent) {
 		t.Fatalf("want ErrMultiUserFlagInconsistent, got %v", err)
 	}
 }

@@ -1,97 +1,70 @@
 package config
 
 import (
-	"errors"
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
-// resolveConfigPath returns an absolute path to read. Relative paths are resolved with
-// [filepath.Join] against the process working directory after [filepath.Clean] (standard CLI
-// semantics). Callers that cd into package subtrees may use ".." segments to reach repo files;
-// operator-supplied absolute paths are also accepted.
+// resolveConfigPath returns the absolute startup configuration path.
 func resolveConfigPath(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", errors.New("config: empty config path")
+		return "", fmt.Errorf("config: empty path")
 	}
-	return filepath.Abs(filepath.Clean(raw))
+	path, err := filepath.Abs(filepath.Clean(raw))
+	if err != nil {
+		return "", fmt.Errorf("config: resolve path: %w", err)
+	}
+	return path, nil
 }
 
 // LoadFile decodes typed runtime configuration from YAML, applies defaults, and runs [Validate].
-// After a successful load, callers should run routing.ValidateModelAliasesConfig(cfg) from package
-// internal/core/routing so model_aliases regexp and replacement selectors are validated.
+// Reload candidates use the filesystem-driven configsource adapter; this compatibility entrypoint
+// deliberately keeps core/config independent from driving adapters.
 func LoadFile(path string) (*Config, error) {
-	resolved, err := resolveConfigPath(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
-	}
-	// security: resolved is cleaned; relative paths are cwd-confined in [resolveConfigPath].
-	// Operator-supplied absolute paths are trusted at the process CLI boundary.
-	data, err := os.ReadFile(resolved) // #nosec G304
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
-	}
+	return LoadFileContext(context.Background(), path)
+}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+// LoadFileContext is the context-aware form of [LoadFile].
+func LoadFileContext(ctx context.Context, rawPath string) (*Config, error) {
+	path, err := resolveConfigPath(rawPath)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	f, err := os.Open(path) // #nosec G304 -- explicit operator-supplied startup config path
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("read config: %s", CategoryUnsupportedType)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, DefaultConfigMaxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cfg, _, err := StrictDecode(raw)
+	if err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
-
-	cfg.ConfigDir = filepath.Dir(resolved)
-
-	applyDefaultServerListenAddress(&cfg)
-	if cfg.Auth.LocalAPIKeys == nil {
-		cfg.Auth.LocalAPIKeys = []AuthLocalAPIKeyRecord{}
-	}
-
-	if cfg.Diagnostics.HealthPath == "" {
-		cfg.Diagnostics.HealthPath = "/healthz"
-	}
-
-	if cfg.Diagnostics.AttemptsPath == "" {
-		cfg.Diagnostics.AttemptsPath = "/admin/attempts"
-	}
-
-	if cfg.Routing.MaxAttempts == 0 {
-		cfg.Routing.MaxAttempts = 3
-	}
-
-	if cfg.Continuity.InMemory && strings.TrimSpace(cfg.Continuity.Store) == "" {
-		cfg.Continuity.Store = "memory"
-	}
-
-	if cfg.SecureSessionEffectivelyEnabled() && strings.TrimSpace(cfg.SecureSession.Store) == "" {
-		cfg.SecureSession.Store = "memory"
-	}
-
-	if strings.TrimSpace(cfg.Logging.Level) == "" {
-		cfg.Logging.Level = "info"
-	}
-	if strings.TrimSpace(cfg.Logging.Format) == "" {
-		cfg.Logging.Format = "json"
-	}
-
-	if mp := strings.TrimSpace(cfg.Observability.Metrics.Path); mp == "" {
-		cfg.Observability.Metrics.Path = "/metrics"
-	} else {
-		cfg.Observability.Metrics.Path = mp
-	}
-
-	if cfg.ModelCatalog.ModelOverrides == nil {
-		cfg.ModelCatalog.ModelOverrides = []ModelCatalogModelOverrideEntry{}
-	}
-	if cfg.ModelCatalog.BackendModelOverrides == nil {
-		cfg.ModelCatalog.BackendModelOverrides = []ModelCatalogBackendModelOverrideEntry{}
-	}
-
-	if err := Validate(&cfg); err != nil {
+	cfg.ConfigDir = filepath.Dir(path)
+	applyLoadDefaults(cfg)
+	if err := Validate(cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
-
-	return &cfg, nil
+	return cfg, nil
 }

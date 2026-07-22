@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
 )
 
 type modelRegistryStatusResponse struct {
@@ -18,6 +19,12 @@ type modelRegistryStatusResponse struct {
 	ModelCount         int                         `json:"model_count"`
 	BackendModelCounts map[string]int              `json:"backend_model_counts"`
 	Discoveries        []modelRegistryDiscoveryRow `json:"discoveries"`
+	// Aggregate model-view identity fields (req 9.6); omitted when unbound.
+	ModelViewDigest    string `json:"model_view_digest,omitempty"`
+	ConfigGeneration   string `json:"config_generation,omitempty"`
+	ConfigFingerprint  string `json:"config_fingerprint,omitempty"`
+	CatalogGeneration  string `json:"catalog_generation,omitempty"`
+	RegistryGeneration string `json:"registry_generation,omitempty"`
 }
 
 type modelRegistryDiscoveryRow struct {
@@ -29,8 +36,9 @@ type modelRegistryDiscoveryRow struct {
 	ErrorCode  string `json:"error_code"`
 }
 
-// ModelRegistryStatusHandler serves protected GET JSON for live model-registry
-// discovery diagnostics. Nil runtime yields unavailable/empty with 200.
+// ModelRegistryStatusHandler serves protected GET JSON for model-registry
+// discovery diagnostics. Prefer the request-bound registry view when present;
+// otherwise read the live runtime (legacy/direct constructors).
 type ModelRegistryStatusHandler struct {
 	rt *modelregistry.Runtime
 }
@@ -50,25 +58,47 @@ func (h *ModelRegistryStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(true)
-	var rt *modelregistry.Runtime
-	if h != nil {
-		rt = h.rt
+	var resp modelRegistryStatusResponse
+	if r != nil {
+		if bv, ok := modelregistry.BoundViewFromContext(r.Context()); ok {
+			resp = buildModelRegistryStatusFromDiagnostics(bv.Diagnostics())
+		} else {
+			var rt *modelregistry.Runtime
+			if h != nil {
+				rt = h.rt
+			}
+			resp = buildModelRegistryStatus(rt)
+		}
+		if id, ok := modelview.FromContext(r.Context()); ok {
+			fields := id.SafeFields()
+			resp.ModelViewDigest = fields["model_view_digest"]
+			resp.ConfigGeneration = fields["config_generation"]
+			resp.ConfigFingerprint = fields["config_fingerprint"]
+			resp.CatalogGeneration = fields["catalog_generation"]
+			resp.RegistryGeneration = fields["registry_generation"]
+		}
 	}
-	if err := enc.Encode(buildModelRegistryStatus(rt)); err != nil {
+	if err := enc.Encode(resp); err != nil {
 		slog.Default().ErrorContext(r.Context(), "modelregistry: status encode", "error", err)
 	}
 }
 
 func buildModelRegistryStatus(rt *modelregistry.Runtime) modelRegistryStatusResponse {
+	if rt == nil {
+		return buildModelRegistryStatusFromDiagnostics(modelregistry.Diagnostics{
+			BackendModelCounts: map[string]int{},
+			BackendDiscoveries: []modelregistry.BackendDiscovery{},
+		})
+	}
+	return buildModelRegistryStatusFromDiagnostics(rt.Diagnostics())
+}
+
+func buildModelRegistryStatusFromDiagnostics(d modelregistry.Diagnostics) modelRegistryStatusResponse {
 	out := modelRegistryStatusResponse{
 		Status:             "unavailable",
 		BackendModelCounts: map[string]int{},
 		Discoveries:        []modelRegistryDiscoveryRow{},
 	}
-	if rt == nil {
-		return out
-	}
-	d := rt.Diagnostics()
 	if d.Active {
 		out.Status = "active"
 	}

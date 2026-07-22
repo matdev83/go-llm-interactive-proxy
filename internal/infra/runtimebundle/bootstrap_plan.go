@@ -9,16 +9,18 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	coresg "github.com/matdev83/go-llm-interactive-proxy/internal/core/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/featurebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/logging"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/osenv"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/tracing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
+	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
@@ -47,19 +49,33 @@ type BuildBootstrapInput struct {
 	StreamRecoveryOverrides config.StreamRecoveryOverrides
 	// Production carries first-class enterprise injection seams (requirement 12.4).
 	Production ProductionOptions
+	// HandlerComposer enables generation-host serve mode: ProcessServices once,
+	// CompileGeneration, and publish generation 1 through a runtimehost.Manager.
+	// When nil, BootstrapServe keeps the legacy Built path for compatibility.
+	HandlerComposer HandlerComposer
 }
 
 // BootstrapResult is the shared output of [BuildBootstrap] for inspect and serve commands.
 type BootstrapResult struct {
-	Config          *config.Config
-	Logger          *slog.Logger
-	Registry        *pluginreg.Registry
-	Registrations   []lipsdk.Registration
-	FeatureSurface  featurebundle.MergedFeatureSurface
-	App             *BootstrapApp
-	Built           *Built
-	ShutdownTracing func(context.Context) error
-	OutboundTracing bool
+	Config            *config.Config
+	Logger            *slog.Logger
+	Registry          *pluginreg.Registry
+	Registrations     []lipsdk.Registration
+	FeatureSurface    featurebundle.MergedFeatureSurface
+	App               *BootstrapApp
+	Built             *Built
+	ProcessServices   *ProcessServices
+	GenerationManager *runtimehost.Manager
+	InitialGeneration *runtimehost.Generation
+	// Effective and ActiveSource seed the reload coordinator (task 5.5/5.6).
+	Effective    *config.EffectiveConfig
+	ActiveSource *configsource.ActiveSourceVersion
+	// FixedStreamRecovery is the CLI+environment override snapshot captured
+	// exactly once during BuildBootstrap. AttachReloadHost and every future
+	// effective reload must reuse this immutable value (no env reread).
+	FixedStreamRecovery config.StreamRecoveryOverrides
+	ShutdownTracing     func(context.Context) error
+	OutboundTracing     bool
 }
 
 // shutdownTracing invokes the provided shutdown func with a value-preserving
@@ -97,27 +113,14 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		logOut = os.Stdout
 	}
 
-	cfg, err := config.LoadFile(path)
+	effective, activeSource, fixedStreamRecovery, err := LoadBootstrapEffectiveWithSource(ctx, path, in.StreamRecoveryOverrides)
 	if err != nil {
 		return out, err
 	}
-	envOverrides, err := config.StreamRecoveryOverridesFromEnv()
-	if err != nil {
-		return out, err
-	}
-	mergedOverrides := mergeStreamRecoveryOverrides(envOverrides, in.StreamRecoveryOverrides)
-	eff, err := config.EffectiveStreamRecoveryAutoResume(cfg, mergedOverrides)
-	if err != nil {
-		return out, err
-	}
-	applyEffectiveStreamRecovery(cfg, eff)
-
-	if err := routing.ValidateModelAliasesConfig(cfg); err != nil {
-		return out, err
-	}
-	if err := standardplugins.ValidateCustomCompatibleBackendPrefixes(cfg.Plugins.Backends); err != nil {
-		return out, fmt.Errorf("runtimebundle: %w", err)
-	}
+	cfg := effective.Config
+	out.Effective = effective
+	out.ActiveSource = activeSource
+	out.FixedStreamRecovery = fixedStreamRecovery
 
 	traceRes, err := tracing.Init(ctx, cfg)
 	if err != nil {
@@ -147,18 +150,6 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 		}
 	}
 
-	if err := standardplugins.EnsureToolCallRepairInConfig(cfg, standardplugins.ToolCallRepairInjectOpts{
-		StandardDistribution: true,
-	}); err != nil {
-		shutdownTracing(ctx, traceRes.Shutdown)
-		return out, fmt.Errorf("runtimebundle: tool-call-repair defaults: %w", err)
-	}
-	if err := standardplugins.EnsureReasoningOutputPreservationInConfig(cfg, standardplugins.ReasoningOutputPreservationInjectOpts{
-		StandardDistribution: true,
-	}); err != nil {
-		shutdownTracing(ctx, traceRes.Shutdown)
-		return out, fmt.Errorf("runtimebundle: reasoning-output-preservation defaults: %w", err)
-	}
 	regs := config.RegistrationsFromConfig(cfg)
 	// Secrets-guard uniqueness is owned by the feature package; enforce it at the
 	// composition root so inspect and serve both fail closed before merge/build.
@@ -173,13 +164,22 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	}
 	merged.ToolReactorErrorPolicy = config.ParseToolReactorErrorPolicy(cfg.Hooks.ToolReactorErrorPolicy)
 
+	// Serve mode: candidate ledger owns feature lifecycles (singular Start/Stop).
+	// Inspect mode: keep lifecycles on App for compatibility (no CompileCandidate).
+	appLifecycles := merged.Lifecycles
+	var candidateLifecycles []lipplugin.Lifecycle
+	if in.Mode == BootstrapServe {
+		candidateLifecycles = merged.Lifecycles
+		appLifecycles = nil
+	}
+
 	app, err := NewBootstrapApp(BootstrapOptions{
 		Config:        cfg,
 		Logger:        logger,
 		Registrations: regs,
 		Mandatory:     in.Mandatory,
 		Hooks:         hooksConfigFromMerged(merged),
-		Lifecycles:    merged.Lifecycles,
+		Lifecycles:    appLifecycles,
 	})
 	if err != nil {
 		shutdownTracing(ctx, traceRes.Shutdown)
@@ -193,10 +193,28 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	out.App = app
 
 	if in.Mode == BootstrapServe {
+		if in.HandlerComposer != nil {
+			return publishInitialGeneration(ctx, out, publishInitialGenerationInput{
+				Cfg:           cfg,
+				Effective:     effective,
+				Logger:        logger,
+				Registry:      reg,
+				SecretEnv:     secretEnv,
+				Production:    in.Production,
+				Compose:       in.HandlerComposer,
+				TraceActive:   traceRes.Active,
+				TraceShutdown: traceRes.Shutdown,
+			})
+		}
 		built, err := Build(cfg, app.HookBus(), logger, &BuildOptions{
-			PluginRegistry: reg,
+			PluginRegistry:    reg,
+			FeatureLifecycles: candidateLifecycles,
 			Infra: InfraOptions{
 				OutboundTracing: traceRes.Active,
+				ProcessTracing: ProcessTracing{
+					Shutdown: traceRes.Shutdown,
+					Active:   traceRes.Active,
+				},
 			},
 			Extensions: ExtensionsOptions{
 				SessionOpeners:                   merged.SessionOpeners,

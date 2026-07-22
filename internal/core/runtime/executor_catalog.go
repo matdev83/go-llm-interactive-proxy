@@ -29,10 +29,11 @@ func (e *Executor) backendCapsForAttempt(
 	attempt lipapi.Call,
 	c routing.AttemptCandidate,
 ) lipapi.BackendCaps {
+	wire := routing.BackendFacingCandidate(c)
 	if e != nil && e.CapsResolver != nil {
-		return e.CapsResolver.DescribeCandidate(ctx, c, attempt)
+		return e.CapsResolver.DescribeCandidate(ctx, wire, attempt)
 	}
-	return execbackend.EffectiveCaps(ctx, be, attempt, c)
+	return execbackend.EffectiveCaps(ctx, be, attempt, wire)
 }
 
 func syntheticBackendOnlyFacts(base lipapi.BackendCaps, c routing.AttemptCandidate) modelcatalog.EffectiveFacts {

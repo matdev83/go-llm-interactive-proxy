@@ -89,11 +89,17 @@ func (s *MemoryStore) sourceIndex(key terminalwork.SourceKey) string {
 }
 
 func (s *MemoryStore) AppendIntent(ctx context.Context, rec terminalwork.WorkRecord) error {
+	_, err := s.AppendIntentOutcome(ctx, rec)
+	return err
+}
+
+// AppendIntentOutcome implements the definitive insert-vs-replay seam.
+func (s *MemoryStore) AppendIntentOutcome(ctx context.Context, rec terminalwork.WorkRecord) (terminalwork.AppendIntentOutcome, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return terminalwork.AppendIntentOutcome{}, err
 	}
 	if err := rec.Validate(); err != nil {
-		return fmt.Errorf("terminalwork/workstore: %w", err)
+		return terminalwork.AppendIntentOutcome{}, fmt.Errorf("terminalwork/workstore: %w", err)
 	}
 	if rec.State == "" {
 		rec.State = sdk.WorkStateIntent
@@ -111,29 +117,41 @@ func (s *MemoryStore) AppendIntent(ctx context.Context, rec terminalwork.WorkRec
 	defer s.state.mu.Unlock()
 
 	if existing, ok := s.state.byWork[s.storeKey(cloned.WorkID)]; ok {
-		return resolveExistingRecord(existing, cloned)
+		return resolveExistingOutcome(existing, cloned)
 	}
 	if workID, ok := s.state.bySource[s.sourceIndex(cloned.SourceKey)]; ok {
 		existing := s.state.byWork[s.storeKey(workID)]
-		return resolveExistingRecord(existing, cloned)
+		return resolveExistingOutcome(existing, cloned)
 	}
 
 	s.state.byWork[s.storeKey(cloned.WorkID)] = cloned
 	s.state.bySource[s.sourceIndex(cloned.SourceKey)] = cloned.WorkID
-	return nil
+	return terminalwork.AppendIntentOutcome{Inserted: true}, nil
 }
 
 func (s *MemoryStore) GetByWorkID(ctx context.Context, workID string) (terminalwork.WorkRecord, error) {
-	if err := ctx.Err(); err != nil {
+	rec, found, err := s.LookupIntent(ctx, workID)
+	if err != nil {
 		return terminalwork.WorkRecord{}, err
+	}
+	if !found {
+		return terminalwork.WorkRecord{}, ErrNotFound
+	}
+	return rec, nil
+}
+
+// LookupIntent implements terminalworkapp.IntentLookup.
+func (s *MemoryStore) LookupIntent(ctx context.Context, workID string) (terminalwork.WorkRecord, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return terminalwork.WorkRecord{}, false, err
 	}
 	s.state.mu.Lock()
 	defer s.state.mu.Unlock()
 	rec, ok := s.state.byWork[s.storeKey(workID)]
 	if !ok {
-		return terminalwork.WorkRecord{}, ErrNotFound
+		return terminalwork.WorkRecord{}, false, nil
 	}
-	return cloneRecord(rec), nil
+	return cloneRecord(rec), true, nil
 }
 
 func (s *MemoryStore) GetBySourceKey(ctx context.Context, key terminalwork.SourceKey) (terminalwork.WorkRecord, error) {
@@ -400,8 +418,13 @@ func cloneRecord(r terminalwork.WorkRecord) terminalwork.WorkRecord {
 }
 
 func resolveExistingRecord(existing, incoming terminalwork.WorkRecord) error {
+	_, err := resolveExistingOutcome(existing, incoming)
+	return err
+}
+
+func resolveExistingOutcome(existing, incoming terminalwork.WorkRecord) (terminalwork.AppendIntentOutcome, error) {
 	if terminalwork.SameIntentReplay(existing, incoming) {
-		return nil
+		return terminalwork.AppendIntentOutcome{Replay: true}, nil
 	}
-	return fmt.Errorf("%w: work_id=%q source_key=%q", ErrIdentityCollision, incoming.WorkID, incoming.SourceKey)
+	return terminalwork.AppendIntentOutcome{}, fmt.Errorf("%w: work_id=%q source_key=%q", ErrIdentityCollision, incoming.WorkID, incoming.SourceKey)
 }

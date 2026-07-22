@@ -21,14 +21,3 @@ func mergeStreamRecoveryOverrides(env, cli config.StreamRecoveryOverrides) confi
 	}
 	return out
 }
-
-func applyEffectiveStreamRecovery(cfg *config.Config, eff config.EffectiveAutoResumeConfig) {
-	if cfg == nil {
-		return
-	}
-	cfg.StreamRecovery.AutoResume.Enabled = &eff.Enabled
-	cfg.StreamRecovery.AutoResume.IdleTimeout = eff.IdleTimeout.String()
-	cfg.StreamRecovery.AutoResume.GracePeriod = eff.GracePeriod.String()
-	cfg.StreamRecovery.AutoResume.PostOutputPolicy = string(eff.PostOutputPolicy)
-	cfg.StreamRecovery.AutoResume.EmitWarning = &eff.EmitWarning
-}

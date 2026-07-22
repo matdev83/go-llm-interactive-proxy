@@ -310,9 +310,10 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 	if req.settleCalls.Load() != 1 {
 		t.Fatalf("customer SettleRequest=%d want 1", req.settleCalls.Load())
 	}
+	facts := rec.Facts()
 	var loserBE int
 	var feMoney *metering.MoneyObservation
-	for _, f := range rec.facts {
+	for _, f := range facts {
 		if f.Boundary == metering.BoundaryBackendEgress && f.AttemptOutcome == metering.AttemptOutcomeLoser {
 			loserBE++
 		}
@@ -324,8 +325,8 @@ func TestDualPlaneMatrix_ParallelLoserIncurredSettlesViaRace(t *testing.T) {
 		t.Fatalf("loser BE egress facts=%d want 1", loserBE)
 	}
 	var loserFact *metering.Fact
-	for i := range rec.facts {
-		f := &rec.facts[i]
+	for i := range facts {
+		f := &facts[i]
 		if f.Boundary == metering.BoundaryBackendEgress && f.AttemptOutcome == metering.AttemptOutcomeLoser {
 			loserFact = f
 			break

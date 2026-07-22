@@ -28,7 +28,15 @@ type Config struct {
 	Metrics        ProcessMetrics
 	// OnTerminalDone is invoked after successful Complete or Quarantine so
 	// generation pending-provider refs can be cleared (requirement 9.8).
+	// Prefer composing callbacks before Processor.Start; post-start registration
+	// uses AddOnTerminalDone (synchronized, multi-subscriber).
 	OnTerminalDone func(rec terminalwork.WorkRecord)
+	// GenerationPins releases runtime-generation pins on terminal completion.
+	GenerationPins *GenerationPinTracker
+	// GenerationResolver resolves providers for rows with exact runtime
+	// instance+generation identity. Nil falls back to process registry only for
+	// legacy rows; exact/malformed rows fail closed when resolver is missing.
+	GenerationResolver GenerationBoundResolver
 }
 
 // Processor claims due work, invokes providers once per claim, and completes/retries/quarantines.
@@ -48,6 +56,9 @@ type Processor struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	started bool
+
+	terminalDoneMu sync.RWMutex
+	terminalDone   []func(rec terminalwork.WorkRecord)
 }
 
 // NewProcessor validates config and returns a ready processor.
@@ -91,13 +102,17 @@ func NewProcessor(store WorkStore, registry *Registry, cfg Config) (*Processor, 
 	if cfg.RetrySchedule.Max <= 0 {
 		cfg.RetrySchedule.Max = 30 * time.Second
 	}
-	return &Processor{
+	p := &Processor{
 		store:      store,
 		registry:   registry,
 		cfg:        cfg,
 		globalSem:  make(chan struct{}, cfg.GlobalMax),
 		unresolved: make(map[string]struct{}),
-	}, nil
+	}
+	if cfg.OnTerminalDone != nil {
+		p.terminalDone = []func(terminalwork.WorkRecord){cfg.OnTerminalDone}
+	}
+	return p, nil
 }
 
 type systemClock struct{}
@@ -308,7 +323,7 @@ func (p *Processor) invokeSafe(ctx context.Context, rec terminalwork.WorkRecord)
 		}
 		providerID = string(rec.Kind)
 	}
-	prov, rerr := p.registry.Resolve(providerID, rec.Kind)
+	prov, rerr := p.resolveProvider(rec, providerID)
 	if rerr != nil {
 		if errors.Is(rerr, ErrMissingProvider) {
 			p.noteUnresolved(providerID)
@@ -317,6 +332,31 @@ func (p *Processor) invokeSafe(ctx context.Context, rec terminalwork.WorkRecord)
 	}
 	p.clearUnresolved(providerID)
 	return prov.Invoke(ctx, rec, rec.SourceKey.String())
+}
+
+func (p *Processor) resolveProvider(rec terminalwork.WorkRecord, providerID string) (EffectProvider, error) {
+	switch rec.Versions.RuntimeIdentity() {
+	case terminalwork.RuntimeIdentityLegacy:
+		return p.registry.Resolve(providerID, rec.Kind)
+	case terminalwork.RuntimeIdentityMalformed:
+		p.noteUnresolved(providerID)
+		return nil, fmt.Errorf("%w: malformed runtime identity", ErrMissingProvider)
+	case terminalwork.RuntimeIdentityExact:
+		runtimeInst := strings.TrimSpace(rec.Versions.RuntimeInstanceID)
+		runtimeGenID := strings.TrimSpace(rec.Versions.RuntimeGenerationID)
+		if p.cfg.GenerationResolver == nil {
+			p.noteUnresolved(providerID)
+			return nil, fmt.Errorf("%w: runtime generation %s unbound", ErrMissingProvider, runtimeGenID)
+		}
+		prov, err := p.cfg.GenerationResolver.Resolve(runtimeInst, runtimeGenID, providerID, rec.Kind)
+		if err != nil {
+			return nil, err
+		}
+		return prov, nil
+	default:
+		p.noteUnresolved(providerID)
+		return nil, fmt.Errorf("%w: unknown runtime identity", ErrMissingProvider)
+	}
 }
 
 func (p *Processor) renewLoop(ctx context.Context, workID string, pulse <-chan struct{}) error {
@@ -542,18 +582,48 @@ func (p *Processor) Shutdown(ctx context.Context) error {
 }
 
 func (p *Processor) notifyTerminalDone(rec terminalwork.WorkRecord) {
-	if p == nil || p.cfg.OnTerminalDone == nil {
-		return
-	}
-	p.cfg.OnTerminalDone(rec)
-}
-
-// SetOnTerminalDone wires generation pending-drain callbacks after composition.
-func (p *Processor) SetOnTerminalDone(fn func(rec terminalwork.WorkRecord)) {
 	if p == nil {
 		return
 	}
-	p.cfg.OnTerminalDone = fn
+	// Snapshot callbacks under lock, then invoke outside so panic in one
+	// subscriber cannot skip pin release or other subscribers.
+	p.terminalDoneMu.RLock()
+	cbs := append([]func(terminalwork.WorkRecord){}, p.terminalDone...)
+	p.terminalDoneMu.RUnlock()
+
+	if p.cfg.GenerationPins != nil {
+		func() {
+			defer func() { _ = recover() }()
+			p.cfg.GenerationPins.MarkTerminal(rec.WorkID)
+		}()
+	}
+	for _, fn := range cbs {
+		if fn == nil {
+			continue
+		}
+		func(cb func(terminalwork.WorkRecord)) {
+			defer func() { _ = recover() }()
+			cb(rec)
+		}(fn)
+	}
+}
+
+// AddOnTerminalDone registers an additional terminal-done subscriber.
+// Safe under concurrent registration and invocation; does not overwrite
+// existing callbacks (task 3.6). Prefer composing OnTerminalDone before Start.
+func (p *Processor) AddOnTerminalDone(fn func(rec terminalwork.WorkRecord)) {
+	if p == nil || fn == nil {
+		return
+	}
+	p.terminalDoneMu.Lock()
+	defer p.terminalDoneMu.Unlock()
+	p.terminalDone = append(p.terminalDone, fn)
+}
+
+// SetOnTerminalDone appends a terminal-done callback (compat). Prefer
+// AddOnTerminalDone or immutable Config.OnTerminalDone before Start.
+func (p *Processor) SetOnTerminalDone(fn func(rec terminalwork.WorkRecord)) {
+	p.AddOnTerminalDone(fn)
 }
 
 func (p *Processor) noteUnresolved(providerID string) {

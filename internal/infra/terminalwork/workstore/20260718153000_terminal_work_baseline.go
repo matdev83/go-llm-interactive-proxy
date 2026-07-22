@@ -20,6 +20,8 @@ var (
 func registerMigrations() {
 	registerMigrationsOnce.Do(func() {
 		migrations.MustRegister(baselineUp, func(context.Context, *bun.DB) error { return nil })
+		registerRuntimeGenerationIDMigration()
+		registerRuntimeInstanceIDMigration()
 	})
 }
 
@@ -68,6 +70,8 @@ func sqliteDDL() []string {
 			attempt_id TEXT NOT NULL DEFAULT '',
 			trace_id TEXT NOT NULL DEFAULT '',
 			generation_id TEXT NOT NULL DEFAULT '',
+			runtime_instance_id TEXT NOT NULL DEFAULT '',
+			runtime_generation_id TEXT NOT NULL DEFAULT '',
 			bound_provider_id TEXT NOT NULL DEFAULT '',
 			rating_id TEXT NOT NULL DEFAULT '',
 			fact_id TEXT NOT NULL DEFAULT '',
@@ -109,6 +113,8 @@ func postgresDDL() []string {
 			attempt_id TEXT NOT NULL DEFAULT '',
 			trace_id TEXT NOT NULL DEFAULT '',
 			generation_id TEXT NOT NULL DEFAULT '',
+			runtime_instance_id TEXT NOT NULL DEFAULT '',
+			runtime_generation_id TEXT NOT NULL DEFAULT '',
 			bound_provider_id TEXT NOT NULL DEFAULT '',
 			rating_id TEXT NOT NULL DEFAULT '',
 			fact_id TEXT NOT NULL DEFAULT '',

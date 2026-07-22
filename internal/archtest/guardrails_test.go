@@ -161,9 +161,66 @@ var lineBudgets = []struct {
 	// req 1.5 / 2.9), AttemptCoordinator.Preview clamp-preview fallback for
 	// nil-coordinator UsageAuthority-only deployments, and execbackend.Backend.Close.
 	// Post-merge measured non-test total is 64713; cap keeps ~87 lines of headroom.
-	{"internal/core", 64800},
+	// Raised from 64800 to 65300 for the versioned runtime reload policy package:
+	// explicit top-level/startup-override inventory, typed section comparators,
+	// safe bounded restart-required reporting, and mixed-change rejection.
+	// Raised from 65300 to 65800 for the strict effective configuration pipeline:
+	// bounded core-compatible loading, exactly-one-document decode, defaults and
+	// fixed override materialization, and private/public effective identities
+	// (requirements 1.7, 2.1-2.10, 3.6-3.8, 14.3). The measured total is 65411;
+	// cap keeps roughly 389 lines of headroom.
+	// Raised from 65800 to 65850 for versioned-runtime-reload task 3.2 final wiring:
+	// optional backend Start/Stop/idle/preflight fields on execbackend.Backend
+	// (measured non-test total 65818; ~32 lines headroom).
+	// Raised from 65850 to 66250 for versioned-runtime-reload task 3.5:
+	// immutable per-request model registry/catalog BoundView APIs, routing
+	// native-model resolver context, and coherent diagnostics helpers
+	// (measured non-test total 66202; ~48 lines headroom).
+	// Raised from 66250 to 66700 for task 3.5 repair: multi-state native
+	// binding, monotonic allowlists, recv-bound model views, modelview
+	// aggregate identity (measured non-test total 66624; ~76 lines headroom).
+	// Raised from 66700 to 66950 for task 3.6: runtime-generation pin tracker,
+	// request-context pin prepare helper, and BoundVersions runtime identity
+	// accessors for durable terminal/async ownership (req 5.3, 10.3, 10.7;
+	// measured non-test total 66847; ~103 lines headroom).
+	// Raised from 66950 to 67400 for task 3.6 pass-2: runtime instance ID,
+	// AppendIntent reconciliation, WorkID executable pending, aux stream pin,
+	// and synchronized terminal-done callbacks (measured 67287; ~113 headroom).
+	// Raised from 67400 to 67900 for task 3.6 remediation A: adoption
+	// reservation/MarkTerminal state machine, AppendIntentOutcome seam, and
+	// AmbiguousAppendHandoff wiring (measured 67702; ~198 headroom).
+	// Raised from 67900 to 68500 for task 3.6 remediation B: process-owned
+	// AmbiguousAppendReconciler worker and IntentService handoff (measured
+	// 68303; ~197 headroom).
+	// Raised from 68500 to 68700 for versioned-runtime-reload task 4.4+4.5:
+	// generation-scoped CircuitBreakerState/CircuitBreakerPolicy split
+	// (internal/core/policy) and route-selector backend-ID enumeration for
+	// default-route/alias validation (internal/core/routing) (measured
+	// 68608; ~92 headroom).
+	// Raised from 68700 to 68850 for versioned-runtime-reload task 5.1:
+	// configreload trigger/result vocabulary and load-failure mapping used by
+	// the serialized reload coordinator (measured 68780; ~70 headroom).
+	// Raised from 68850 to 69350 for versioned-runtime-reload task 5.4:
+	// secret-safe reload sanitizers, bounded status history ring, and protected
+	// reload diagnostics DTOs (measured 69194; ~156 headroom).
+	{"internal/core", 69350},
 	{"internal/pluginreg", 4500},
-	{"internal/stdhttp", 3500},
+	// Raised from 3500 to 3800 for versioned-runtime-reload task 3.3: App-less
+	// generation request-plane composer (ComposeRequestPlane) without listener
+	// bind (measured non-test total 3668; ~132 lines headroom).
+	// Raised from 3800 to 3950 for versioned-runtime-reload task 3.4: stable
+	// generation-host runner (RunWithGenerationHost) behind one http.Server
+	// (measured non-test total 3801; ~149 lines headroom).
+	// Raised from 3950 to 4000 for versioned-runtime-reload task 4.3: frontend/
+	// feature generation route-conflict isolation on ComposeRequestPlane mounts
+	// (measured non-test total 3970; ~30 lines headroom).
+	// Raised from 4000 to 4650 for versioned-runtime-reload task 5.3: process-owned
+	// management HTTP adapter (admin/configreload listener, auth, browser guard,
+	// DTOs, and lifecycle) outside the swappable request plane
+	// (measured non-test total 4587; ~63 lines headroom).
+	// Raised from 4650 to 4750 for versioned-runtime-reload task 5.6: generation
+	// host shutdown ordering (coordinator BeginShutdown + management close).
+	{"internal/stdhttp", 4750},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -195,7 +252,39 @@ var lineBudgets = []struct {
 	// uncertain-set reconcile, and settle-release pending counts at composition
 	// root. Post-merge measured non-test total is 6477; cap keeps ~48 lines of
 	// headroom.
-	{"internal/infra/runtimebundle", 6525},
+	// Raised from 6525 to 7020 for versioned-runtime-reload task 2.3: explicit
+	// ProcessServices construction, candidate compilation inputs, and Build
+	// compatibility wrapper (measured non-test total 6967; ~53 lines headroom).
+	// Raised from 7020 to 7600 for versioned-runtime-reload task 2.4: hoist
+	// process-capacity / shared mutable continuity (A-leg, affinity/health views,
+	// extension state, accounting/metering stores, BackendStateIdentity keys).
+	// Raised from 7600 to 8200 for versioned-runtime-reload task 3.2: candidate
+	// ResourceLedger, backend instance wrapper, and lifecycle adaption
+	// (measured non-test total ~8100; ~100 lines headroom).
+	// Raised from 8200 to 8350 for task 3.2 final production wiring: feature
+	// lifecycle classify/adapt, backend optional hooks, catalog PhaseQuiesce,
+	// and generation-owned HTTP idle cleanup (measured 8238; ~112 lines headroom).
+	// Raised from 8350 to 9100 for versioned-runtime-reload task 3.3: complete
+	// generation compilation, immutable GenerationBundle, RequestPlane view, and
+	// config freeze (measured non-test total 8982; ~118 lines headroom).
+	// Raised from 9100 to 9350 for versioned-runtime-reload task 3.4: initial
+	// generation bootstrap host (ProcessServices + CompileGeneration + Manager
+	// publish of generation 1) without Built (measured non-test total 9211;
+	// ~139 lines headroom).
+	// Raised from 9350 to 9550 for task 3.6: generation-local terminal provider
+	// resolver + GenerationBundle provider snapshot (measured 9417; ~133 headroom).
+	// Raised from 9550 to 9650 for versioned-runtime-reload task 4.4+4.5:
+	// candidate-vs-process Classify wiring, default-route/alias-vs-backend-set
+	// validation, and generation-scoped health-policy wiring in
+	// candidateRoutingViews (measured 9578; ~72 headroom).
+	// Raised from 9650 to 9700 for versioned-runtime-reload task 5.1:
+	// GenerationBundle.BackendFactoryKindCounts for LiveFactoryKinds admission
+	// (measured 9666; ~34 headroom).
+	// Raised from 9700 to 9950 for versioned-runtime-reload tasks 5.5–5.6:
+	// shared ReloadHost composition (fixed source, effective loader, generation
+	// compiler adapter, coordinator bind) and ActiveSource bootstrap retention
+	// used by lipruntime and lipstd (measured non-test total ~9849; ~100 headroom).
+	{"internal/infra/runtimebundle", 9950},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

@@ -1,6 +1,7 @@
 package diag
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -69,5 +70,25 @@ func TestRouteTraceEntry_catalogJSON(t *testing.T) {
 	}
 	if got.Catalog.MatchKind != "exact" || got.Catalog.FactSource != "catalog" {
 		t.Fatalf("catalog: %#v", got.Catalog)
+	}
+}
+
+func TestRouteTraceEntry_modelViewJSON(t *testing.T) {
+	t.Parallel()
+	e := RouteTraceEntry{
+		TraceID: "t-model", Decision: "plan_candidate", Detail: "be:model",
+		ModelView: &RouteTraceModelView{
+			Digest: "digest", ConfigGeneration: 7, ConfigFingerprint: "fp-safe",
+			RegistryGeneration: "reg-1", CatalogGeneration: "cat-1",
+		},
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"digest":"digest"`, `"config_generation":7`, `"registry_generation":"reg-1"`, `"catalog_generation":"cat-1"`} {
+		if !bytes.Contains(b, []byte(want)) {
+			t.Fatalf("route trace JSON %s missing %s", b, want)
+		}
 	}
 }

@@ -68,7 +68,7 @@ func TestBuildRuntimeSnapshot_featureBundlePortsReachSnap(t *testing.T) {
 			StreamObserverFactories: merged.StreamObserverFactories,
 		},
 	}
-	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{})
+	snap := buildRuntimeSnapshot(bus, &config.Config{}, opts, time.Now, nil, nil, policydecision.NoopObserver{}, extensions.SecretGuardPlane{}, nil)
 	gotAT := snap.AttemptTransforms()
 	if len(gotAT) != 2 || gotAT[0].ID() != "a" || gotAT[1].ID() != "z" {
 		t.Fatalf("Snap.AttemptTransforms IDs=%v want [a z]", portAttemptIDs(gotAT))

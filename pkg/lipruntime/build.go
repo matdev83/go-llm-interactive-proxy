@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
+	"sync"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -16,19 +19,28 @@ import (
 
 // Runtime is an opaque handle over a successfully built OSS composition.
 // It does not expose internal Executor or runtimebundle types.
+// Facade pointers (host/executor/reload) remain immutable after Build so
+// concurrent Reload/Status/ExecutorView remain safe across Close (req 13.7-13.8).
 type Runtime struct {
-	built                    *runtimebundle.Built
+	host                     *runtimebundle.ReloadHost
+	executor                 lipsdk.ExecutorView
 	shutdownTracing          func(context.Context) error
-	closers                  []func() error
 	trafficObserversAttached bool
 	usageObserversAttached   bool
 	evidenceSinkAttached     bool
 	raterAttached            bool
+	meteringAttached         bool
 	meteringQuerierAttached  bool
+	reload                   *ReloadControl
+
+	closeMu sync.Mutex
+	closed  bool
 }
 
 // Build constructs a production runtime from public options. The standard
 // plugin registry is installed internally; callers must not import internal packages.
+// Build binds the same reload coordinator/compiler/manager as cmd/lipstd and
+// returns a stable GenerationExecutor facade (req 16.1, 16.12-16.13).
 func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("lipruntime: nil context")
@@ -46,6 +58,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		logOut = io.Discard
 	}
 	raterAttached := len(norm.RaterRegistrations) > 0
+	compose := stdhttp.ComposeRequestPlane
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: path,
 		Mode:       runtimebundle.BootstrapServe,
@@ -66,49 +79,68 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			UsageObservers:            opts.UsageObservers,
 			PolicyObservers:           opts.PolicyObservers,
 		},
+		HandlerComposer: compose,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if res.Built == nil {
+	fail := func(err error) (*Runtime, error) {
+		if res.GenerationManager != nil {
+			_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+		}
+		if res.ProcessServices != nil {
+			_ = res.ProcessServices.Close()
+		}
 		if res.ShutdownTracing != nil {
 			_ = res.ShutdownTracing(context.WithoutCancel(ctx))
 		}
-		return nil, fmt.Errorf("lipruntime: bootstrap returned nil runtime")
+		return nil, err
 	}
-	return &Runtime{
-		built:                    res.Built,
+	if res.GenerationManager == nil || res.ProcessServices == nil {
+		return fail(fmt.Errorf("lipruntime: bootstrap returned nil generation host"))
+	}
+	host, err := runtimebundle.AttachReloadHost(ctx, res, path, compose)
+	if err != nil {
+		return fail(err)
+	}
+	rt := &Runtime{
+		host:                     host,
+		executor:                 host.Executor,
 		shutdownTracing:          res.ShutdownTracing,
-		closers:                  append([]func() error(nil), res.Built.Closers...),
 		trafficObserversAttached: len(opts.TrafficObservers) > 0,
 		usageObserversAttached:   len(opts.UsageObservers) > 0,
 		evidenceSinkAttached:     opts.EvidenceSink != nil,
 		raterAttached:            raterAttached,
+		meteringAttached:         opts.MeteringRecorder != nil,
 		meteringQuerierAttached:  opts.MeteringQuerier != nil,
-	}, nil
+	}
+	rt.bindReloadQuery(host.Coordinator)
+	return rt, nil
 }
 
-// ExecutorView returns the public executor surface for request execution.
-// The concrete Executor type remains unexported.
+// ExecutorView returns the stable generation-dispatching executor facade.
 func (r *Runtime) ExecutorView() lipsdk.ExecutorView {
-	if r == nil || r.built == nil {
+	if r == nil {
 		return nil
 	}
-	return r.built.Executor
+	return r.executor
 }
 
-// Ready reports whether the runtime has a usable executor.
+// Ready reports whether the runtime has a usable active-generation executor.
 func (r *Runtime) Ready() bool {
-	return r != nil && r.built != nil && r.built.Executor != nil
+	if r == nil || r.host == nil || r.host.Manager == nil || r.executor == nil {
+		return false
+	}
+	return r.host.Manager.Active() != nil
 }
 
 // HasProductionMetering reports whether a production metering recorder was wired
-// onto the executor (requirement 12.4 visibility for tests/fixtures).
+// onto the active generation executor (requirement 12.4 visibility for tests/fixtures).
 func (r *Runtime) HasProductionMetering() bool {
-	if r == nil || r.built == nil || r.built.Executor == nil {
+	if r == nil || r.host == nil {
 		return false
 	}
-	return r.built.Executor.MeteringRecorder != nil
+	return r.host.ActiveHasProductionMetering()
 }
 
 // HasTrafficObservers reports whether production traffic observers were supplied
@@ -128,20 +160,21 @@ func (r *Runtime) HasProductionEvidenceSink() bool {
 	return r != nil && r.evidenceSinkAttached
 }
 
-// HasProductionRater reports whether a production Rater was wired onto the executor.
+// HasProductionRater reports whether a production operator Rater was wired onto
+// the active generation executor.
 func (r *Runtime) HasProductionRater() bool {
-	if r == nil || r.built == nil || r.built.Executor == nil {
+	if r == nil || r.host == nil {
 		return false
 	}
-	return r.raterAttached && r.built.Executor.EconomicsRater != nil
+	return r.host.ActiveHasProductionRater()
 }
 
 // MeteringQuerier returns the production metering query mount, or nil.
 func (r *Runtime) MeteringQuerier() metering.Querier {
-	if r == nil || r.built == nil {
+	if r == nil || r.host == nil || r.host.Process == nil {
 		return nil
 	}
-	return r.built.MeteringQuerier
+	return r.host.Process.MeteringQuerier
 }
 
 // HasProductionMeteringQuerier reports whether a metering Querier was supplied.
@@ -149,21 +182,32 @@ func (r *Runtime) HasProductionMeteringQuerier() bool {
 	return r != nil && r.meteringQuerierAttached && r.MeteringQuerier() != nil
 }
 
-// ReadinessReport returns the composite readiness report reader, or nil.
+// ReadinessReport returns the active generation readiness report reader, or nil.
 func (r *Runtime) ReadinessReport() controlplane.ReadinessReportReader {
-	if r == nil || r.built == nil {
+	if r == nil || r.host == nil || r.host.Manager == nil {
 		return nil
 	}
-	return r.built.ReadinessReport
+	g := r.host.Manager.Active()
+	if g == nil {
+		return nil
+	}
+	type readinessProvider interface {
+		ReadinessReport() controlplane.ReadinessReportReader
+	}
+	if p, ok := g.RequestPlane().(readinessProvider); ok {
+		return p.ReadinessReport()
+	}
+	return nil
 }
 
 // SnapshotGenerationID returns the published metadata compatibility generation
 // id, or 0 when absent. Prefer [ExecutableGenerationID] for enforcement identity.
 func (r *Runtime) SnapshotGenerationID() int64 {
-	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+	pub := snapshotPublisher(r)
+	if pub == nil {
 		return 0
 	}
-	cur := r.built.SnapshotGeneration.Current()
+	cur := pub.Current()
 	if cur == nil {
 		return 0
 	}
@@ -173,10 +217,11 @@ func (r *Runtime) SnapshotGenerationID() int64 {
 // SnapshotUsageVersion returns the active usage-authority source-fetch metadata
 // version, or "".
 func (r *Runtime) SnapshotUsageVersion() string {
-	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+	pub := snapshotPublisher(r)
+	if pub == nil {
 		return ""
 	}
-	cur := r.built.SnapshotGeneration.Current()
+	cur := pub.Current()
 	if cur == nil {
 		return ""
 	}
@@ -185,10 +230,11 @@ func (r *Runtime) SnapshotUsageVersion() string {
 
 // ExecutableGenerationID returns the active executable generation id, or 0.
 func (r *Runtime) ExecutableGenerationID() int64 {
-	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+	pub := snapshotPublisher(r)
+	if pub == nil {
 		return 0
 	}
-	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	exec := pub.CurrentExecutable()
 	if exec == nil {
 		return 0
 	}
@@ -197,10 +243,11 @@ func (r *Runtime) ExecutableGenerationID() int64 {
 
 // ExecutableGenerationVersion returns the active executable generation version.
 func (r *Runtime) ExecutableGenerationVersion() string {
-	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+	pub := snapshotPublisher(r)
+	if pub == nil {
 		return ""
 	}
-	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	exec := pub.CurrentExecutable()
 	if exec == nil {
 		return ""
 	}
@@ -210,10 +257,11 @@ func (r *Runtime) ExecutableGenerationVersion() string {
 // ExecutableGenerationState returns executable generation readiness as a public
 // capability state (separate from source-fetch metadata planes).
 func (r *Runtime) ExecutableGenerationState() controlplane.CapabilityState {
-	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+	pub := snapshotPublisher(r)
+	if pub == nil {
 		return controlplane.CapabilityDisabled
 	}
-	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	exec := pub.CurrentExecutable()
 	if exec == nil {
 		return controlplane.CapabilityDisabled
 	}
@@ -234,10 +282,11 @@ func (r *Runtime) ExecutableGenerationState() controlplane.CapabilityState {
 // ExecutableEvidenceObjectID returns the evaluator object identity used in
 // settlement/admission evidence (requirement 9.9), not a metadata-only label.
 func (r *Runtime) ExecutableEvidenceObjectID() string {
-	if r == nil || r.built == nil || r.built.SnapshotGeneration == nil {
+	pub := snapshotPublisher(r)
+	if pub == nil {
 		return ""
 	}
-	exec := r.built.SnapshotGeneration.CurrentExecutable()
+	exec := pub.CurrentExecutable()
 	if exec == nil {
 		return ""
 	}
@@ -246,21 +295,26 @@ func (r *Runtime) ExecutableEvidenceObjectID() string {
 
 // RefreshSnapshots re-reads injectable source-fetch metadata views and, when
 // sources succeed, republishes an executable generation for subsequent
-// admissions (requirements 9.6–9.9, 11.3, 11.6). In-flight requests keep their
-// previously bound generation pointers. Source failures expose
-// degraded/unavailable metadata posture without replacing the prior executable
-// generation or substituting an unrelated policy version (requirement 11.7).
+// admissions. This remains a subordinate explicit policy refresh, not
+// whole-config reload (task 5.5).
 func (r *Runtime) RefreshSnapshots(ctx context.Context) error {
-	if r == nil || r.built == nil || r.built.SnapshotController == nil {
+	if r == nil || r.host == nil || r.host.Process == nil || r.host.Process.SnapshotController == nil {
 		return fmt.Errorf("lipruntime: snapshot refresh not available")
 	}
 	if ctx == nil {
 		return fmt.Errorf("lipruntime: nil context")
 	}
-	return r.built.SnapshotController.Refresh(ctx)
+	return r.host.Process.SnapshotController.Refresh(ctx)
 }
 
-// Close releases runtime resources and tracing.
+// Close releases runtime resources and tracing using ownership order:
+// begin reload shutdown → await candidate idle → drain generations →
+// close process services → tracing. The supplied context deadline bounds drain
+// and tracing; it is not stripped. Calls are serialized. A successful Close is
+// idempotent; a deadline or teardown failure remains retryable after the caller
+// releases outstanding pins or otherwise resolves the blocker. Facade pointers
+// remain immutable so concurrent Reload/Status/ExecutorView fail through
+// manager/coordinator shutdown state rather than racing with nil assignments.
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {
 		return nil
@@ -268,22 +322,46 @@ func (r *Runtime) Close(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var first error
-	for _, v := range slices.Backward(r.closers) {
-		if v == nil {
-			continue
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	if r.closed {
+		return nil
+	}
+
+	host := r.host
+	if host != nil {
+		host.BeginShutdown()
+		// Candidate work must be canceled and rolled back before generation or
+		// process-service teardown can advance.
+		if err := host.WaitForIdle(ctx); err != nil {
+			return err
 		}
-		if err := v(); err != nil && first == nil {
-			first = err
+		if host.Manager != nil {
+			if err := host.Manager.ShutdownDetached(ctx, runtimehost.NewLifecycleWorker()); err != nil {
+				return err
+			}
+			if host.Manager.HasOpenGenerations() {
+				return fmt.Errorf("lipruntime: generations remain open after shutdown")
+			}
+		}
+		if host.Process != nil {
+			if err := host.Process.Close(); err != nil {
+				return err
+			}
 		}
 	}
-	r.closers = nil
 	if r.shutdownTracing != nil {
-		if err := r.shutdownTracing(context.WithoutCancel(ctx)); err != nil && first == nil {
-			first = err
+		if err := r.shutdownTracing(ctx); err != nil {
+			return err
 		}
-		r.shutdownTracing = nil
 	}
-	r.built = nil
-	return first
+	r.closed = true
+	return nil
+}
+
+func snapshotPublisher(r *Runtime) *snapshotgen.Publisher {
+	if r == nil || r.host == nil || r.host.Process == nil {
+		return nil
+	}
+	return r.host.Process.SnapshotGeneration
 }

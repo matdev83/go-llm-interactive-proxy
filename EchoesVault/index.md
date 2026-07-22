@@ -24,4 +24,5 @@ This index tracks all structured pages in the vault.
 - [[postgres-transaction-pooling]]: PostgreSQL admin/runtime separation, shared pool ownership, schema lifecycle, and pooled release gates.
 - [[tool-call-repair]]: Canonical native tool-call repair (ADR 0007): finalizer seam, deterministic V1 matrix, buffering, and config defaults.
 - [[decode-qos-admission]]: Shared frontend decode admission limiter: finite defaults, 413 vs 429, handler order, inventory numbers.
+- [[runtime-config-reload]]: Explicit SIGHUP/management-API runtime config reload — no watcher, atomic source replace, generation publication, `LIP_RELOAD_MANAGEMENT_ADDRESS` opt-in.
 - [[reasoning-output-preservation]]: Standard-distribution default-on, catalog-gated (`compatible-auto.v2`) historical reasoning capture/restore (issue #157); installed≠active; observe/restore actions; exact OpenAI Responses Opaque + four FE×BE combinations; privacy/dialect posture; full HTTP E2E suite topology (default Chat+Responses / precommit Chat matrix / env-gated soak; release gates pending).

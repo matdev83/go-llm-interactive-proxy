@@ -12,6 +12,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
+	sdkterminal "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
 func TestRetryRecvStream_Recv_nilContext(t *testing.T) {
@@ -134,6 +135,24 @@ func TestRetryRecvStream_Close_concurrentWhileRecvBlocked(t *testing.T) {
 	}
 	closes.Wait()
 	wg.Wait()
+
+	req, att := s.snapshotTerminals()
+	if req == nil || att == nil {
+		t.Fatal("terminal owners must be initialized after concurrent Close")
+	}
+	if !req.Owner().State().IsTerminal() {
+		t.Fatalf("request terminal state=%q want terminal", req.Owner().State())
+	}
+	if !att.Owner().State().IsTerminal() {
+		t.Fatalf("attempt terminal state=%q want terminal", att.Owner().State())
+	}
+	out, ok := req.Owner().Outcome()
+	if !ok || out.Command != sdkterminal.CommandClose {
+		t.Fatalf("request outcome=%+v ok=%v want CommandClose", out, ok)
+	}
+	if !s.isFinished() {
+		t.Fatal("stream must be finished after concurrent Close")
+	}
 }
 
 func TestCancellationAttemptReason(t *testing.T) {

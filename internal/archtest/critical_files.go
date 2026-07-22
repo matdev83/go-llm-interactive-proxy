@@ -48,7 +48,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 150},
 	{Path: "internal/infra/runtimebundle/build.go", Max: 220},
 	// Raised from 200 for issue #151 Phase 3 secret-guard compose fields on ExtensionsOptions.
-	{Path: "internal/infra/runtimebundle/options.go", Max: 220},
+	// Raised from 220 to 240 for versioned-runtime-reload task 3.2: FeatureLifecycles
+	// carrier on BuildOptions (measured 227; ~13 lines headroom).
+	{Path: "internal/infra/runtimebundle/options.go", Max: 240},
 	{Path: "internal/standardplugins/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
 	{Path: "internal/stdhttp/server.go", Max: 300},

@@ -52,8 +52,11 @@ func TestBuild_circuitBreakerEnabledWiresPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := b.Executor.CandidateHealth.(*policy.CircuitBreaker); !ok {
-		t.Fatalf("want *policy.CircuitBreaker, got %T", b.Executor.CandidateHealth)
+	if b.Executor.CandidateHealth == nil {
+		t.Fatal("expected CandidateHealth when circuit breaker enabled")
+	}
+	if _, ok := b.Executor.CandidateHealth.(policy.RoutingAttemptOutcomeSink); !ok {
+		t.Fatalf("want RoutingAttemptOutcomeSink (namespaced process health view), got %T", b.Executor.CandidateHealth)
 	}
 }
 

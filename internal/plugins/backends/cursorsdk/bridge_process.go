@@ -532,6 +532,38 @@ func (b *bridgeProcess) Call(ctx context.Context, method string, params json.Raw
 	return b.callOnProc(ctx, proc, gen, method, params)
 }
 
+// cancelRun issues run/cancel pinned to generation. When generation > 0 and the
+// live bridge has advanced, returns nil without writing to the newer process.
+func (b *bridgeProcess) cancelRun(ctx context.Context, runID string, generation int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil
+	}
+	b.mu.Lock()
+	if b.state != bridgeReady || b.proc == nil {
+		b.mu.Unlock()
+		return errors.New("cursorsdk: bridge not ready")
+	}
+	if generation > 0 && b.gen != generation {
+		b.mu.Unlock()
+		return nil
+	}
+	proc := b.proc
+	gen := b.gen
+	b.mu.Unlock()
+	frame, err := b.callOnProc(ctx, proc, gen, protocol.MethodRunCancel, mustJSON(protocol.RunCancelParams{RunID: runID}))
+	if err != nil {
+		return err
+	}
+	if frame != nil && frame.Error != nil {
+		return fmt.Errorf("cursorsdk: run/cancel: %s: %s", frame.Error.Code, frame.Error.Message)
+	}
+	return nil
+}
+
 func (b *bridgeProcess) callOnProc(ctx context.Context, proc Process, gen int64, method string, params json.RawMessage) (*protocol.Frame, error) {
 	if params == nil {
 		params = json.RawMessage(`{}`)
@@ -599,7 +631,11 @@ func (b *bridgeProcess) SubscribeRun(runID string) (<-chan *protocol.Frame, func
 			delete(b.runs, runID)
 			stale = existing
 		} else if existing.isClosed() {
-			if existing.buffered() > 0 {
+			// Preserve closed same-generation terminal faults (BridgeExited /
+			// protocol overflow) even with zero buffered frames so a late
+			// SubscribeRun observes the fault instead of resurrecting an open
+			// channel that nothing will ever close.
+			if existing.buffered() > 0 || existing.TerminalErr() != nil {
 				existing.markClaimed()
 				b.mu.Unlock()
 				return existing.ch, b.runSubCancel(runID, existing), existing.TerminalErr
@@ -987,7 +1023,13 @@ func (b *bridgeProcess) closeRunsForGenerationLocked(gen int64, terminal error) 
 		if sub.generation != gen {
 			continue
 		}
-		delete(b.runs, id)
+		// When stamping a terminal process/protocol fault, keep the closed
+		// runSub in the map so SubscribeRun can hand it to the first claimant
+		// (including zero-buffer BridgeExited after agent/send). Plain close
+		// without a fault still removes the entry.
+		if terminal == nil {
+			delete(b.runs, id)
+		}
 		subs = append(subs, sub)
 	}
 	for _, sub := range subs {

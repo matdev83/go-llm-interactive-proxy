@@ -28,6 +28,9 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/interleavedstate"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/leglifecycle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/metering/checkpoint"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelview"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/safety"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/stream"
@@ -93,6 +96,17 @@ type retryRecvStream struct {
 	lastParent  context.Context
 	cachedCtx   context.Context
 
+	// boundRegistry / boundCatalog / nativeResolver freeze the request-bound
+	// model views captured at assemble time so recv-phase replacement with a
+	// bare context cannot fall back to a live catalog/registry after refresh.
+	boundRegistry   modelregistry.BoundView
+	boundRegistryOK bool
+	boundCatalog    modelcatalog.BoundView
+	boundCatalogOK  bool
+	nativeResolver  routing.NativeModelResolver
+	modelViewID     modelview.Identity
+	modelViewIDOK   bool
+
 	// metering retains the prepare-time RequestHolder so Recv/terminal paths can
 	// reattach it when callers pass a bare context (auxiliary child streams).
 	metering *checkpoint.RequestHolder
@@ -151,6 +165,9 @@ type retryRecvStream struct {
 
 	// requestTerm / attemptTerm are CAS terminal owners for this stream lifecycle
 	// (phase 4.2). Lazy-initialized via ensureTerminals for test-constructed streams.
+	// termMu guards pointer publish/replace; callers snapshot under the lock and
+	// must not hold termMu across Terminalize/effects.
+	termMu      sync.Mutex
 	requestTerm *streamTerminal
 	attemptTerm *streamTerminal
 	// eventsMu guards seenEvents / visibleText against Close concurrent with Recv.
@@ -315,6 +332,18 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	if len(s.routePrefs) > 0 {
 		ctx = execctx.WithRouteCandidatePreferences(ctx, s.routePrefs)
 	}
+	if s.boundRegistryOK {
+		ctx = modelregistry.WithBoundView(ctx, s.boundRegistry)
+	}
+	if s.boundCatalogOK {
+		ctx = modelcatalog.WithBoundView(ctx, s.boundCatalog)
+	}
+	if s.nativeResolver != nil {
+		ctx = routing.WithNativeModelResolver(ctx, s.nativeResolver)
+	}
+	if s.modelViewIDOK {
+		ctx = modelview.WithIdentity(ctx, s.modelViewID)
+	}
 	if s.executor != nil && s.executor.Log != nil {
 		ctx = hooks.WithDiagnosticsLogger(ctx, s.executor.Log)
 	}
@@ -323,6 +352,45 @@ func (s *retryRecvStream) recvExecContext(parent context.Context) context.Contex
 	s.lastParent = parent
 	s.cachedCtx = ctx
 	return ctx
+}
+
+// captureBoundModelViews freezes request-bound registry/catalog/resolver/identity
+// onto the stream exactly once from the prepare/assemble context. Recv-phase
+// replacement must reattach these views rather than loading a second live view.
+func captureBoundModelViews(ctx context.Context, s *retryRecvStream) {
+	if s == nil {
+		return
+	}
+	if v, ok := modelregistry.BoundViewFromContext(ctx); ok {
+		s.boundRegistry = v
+		s.boundRegistryOK = true
+	}
+	if v, ok := modelcatalog.BoundViewFromContext(ctx); ok {
+		s.boundCatalog = v
+		s.boundCatalogOK = true
+	}
+	if r, ok := routing.NativeModelResolverFromContext(ctx); ok {
+		s.nativeResolver = r
+	}
+	if id, ok := modelview.FromContext(ctx); ok {
+		s.modelViewID = id
+		s.modelViewIDOK = true
+	}
+}
+
+// copyBoundModelViews copies frozen model-view fields from src onto dst (parallel
+// / interleaved continuation streams must retain the same immutable view).
+func copyBoundModelViews(dst, src *retryRecvStream) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.boundRegistry = src.boundRegistry
+	dst.boundRegistryOK = src.boundRegistryOK
+	dst.boundCatalog = src.boundCatalog
+	dst.boundCatalogOK = src.boundCatalogOK
+	dst.nativeResolver = src.nativeResolver
+	dst.modelViewID = src.modelViewID
+	dst.modelViewIDOK = src.modelViewIDOK
 }
 
 func (s *retryRecvStream) recvHookMeta() (sdk.PartMeta, sdk.ToolMeta) {

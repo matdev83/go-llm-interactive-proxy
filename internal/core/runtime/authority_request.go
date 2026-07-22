@@ -415,9 +415,6 @@ func (e *Executor) acceptSettleDurableIntents(ctx context.Context, st *requestAu
 			acceptErrs = append(acceptErrs, err)
 			continue
 		}
-		if st.ExecutableGen != nil {
-			st.ExecutableGen.AddPendingProvider(providerID)
-		}
 		accepted++
 	}
 	if accepted == 0 {
@@ -521,9 +518,6 @@ func (e *Executor) acceptReleaseDurableIntents(ctx context.Context, st *requestA
 		}); err != nil {
 			acceptErrs = append(acceptErrs, err)
 			continue
-		}
-		if st.ExecutableGen != nil {
-			st.ExecutableGen.AddPendingProvider(providerID)
 		}
 		accepted++
 	}

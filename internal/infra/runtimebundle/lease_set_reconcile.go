@@ -7,6 +7,7 @@ import (
 	"time"
 
 	concurrencyapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/concurrencyauthority/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/snapshotgen"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 )
@@ -17,8 +18,9 @@ func buildTerminalWorkWithSetReconcile(
 	clock func() time.Time,
 	bundle *metrics.Bundle,
 	conc *concurrencyapp.Service,
+	snapshotPub *snapshotgen.Publisher,
 ) (*terminalWorkRuntime, []func() error, error) {
-	twRT, closers, err := buildTerminalWorkFromProduction(prod, clock, bundle)
+	twRT, closers, err := buildTerminalWorkFromProduction(prod, clock, bundle, snapshotPub)
 	if err != nil {
 		return nil, closers, err
 	}

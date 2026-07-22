@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/codexcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
@@ -79,6 +80,11 @@ type Registry struct {
 	mu                 sync.RWMutex
 	backends           map[string]BackendFactory
 	backendProfiles    map[string]BackendSecurityProfile
+	reloadPolicies     map[string]BackendReloadPolicy
+	discovered         map[string]struct{}
+	discoveryFrozen    bool
+	rescanAttempts     atomic.Int64
+	installAttempts    atomic.Int64
 	frontends          map[string]FrontendMount
 	features           map[string]FeatureFactory
 	authErrorRenderers map[string]lipsdk.AuthErrorRenderer
@@ -89,6 +95,8 @@ func NewRegistry() *Registry {
 	return &Registry{
 		backends:           map[string]BackendFactory{},
 		backendProfiles:    map[string]BackendSecurityProfile{},
+		reloadPolicies:     map[string]BackendReloadPolicy{},
+		discovered:         map[string]struct{}{},
 		frontends:          map[string]FrontendMount{},
 		features:           map[string]FeatureFactory{},
 		authErrorRenderers: map[string]lipsdk.AuthErrorRenderer{},
@@ -101,6 +109,12 @@ func (r *Registry) ensureMaps() {
 	}
 	if r.backendProfiles == nil {
 		r.backendProfiles = map[string]BackendSecurityProfile{}
+	}
+	if r.reloadPolicies == nil {
+		r.reloadPolicies = map[string]BackendReloadPolicy{}
+	}
+	if r.discovered == nil {
+		r.discovered = map[string]struct{}{}
 	}
 	if r.frontends == nil {
 		r.frontends = map[string]FrontendMount{}

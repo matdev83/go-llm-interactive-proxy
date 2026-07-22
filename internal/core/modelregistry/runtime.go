@@ -42,16 +42,17 @@ type RuntimeConfig struct {
 	Log *slog.Logger
 }
 
-// published is the atomic unit of registry visibility: Diagnostics (snap) and
-// Lookup/All (reg) always observe the same generation. modelsJSON is the
-// immutable OpenAI /v1/models body for this generation; fingerprint skips
-// allowlist rebuilds when catalog content is unchanged.
+// published is the atomic unit of registry visibility: Diagnostics snapshot,
+// Lookup/All (reg), modelsJSON, and publication-tied discoveries always observe
+// the same generation. fingerprint skips allowlist rebuilds when catalog content
+// is unchanged. Live last-refresh failures stay on Runtime.mu separately.
 type published struct {
 	reg                *Registry
 	snap               Snapshot
 	modelsJSON         []byte
 	fingerprint        uint64
 	backendModelCounts map[string]int
+	discoveries        []BackendDiscovery
 }
 
 type Runtime struct {
@@ -63,7 +64,10 @@ type Runtime struct {
 	mu          sync.Mutex
 	lastFail    RefreshFailureCategory
 	cacheFail   RefreshFailureCategory
-	discoveries []BackendDiscovery
+	discoveries []BackendDiscovery // live mirror for Runtime.Diagnostics; published holds frozen copy
+	// acceptedUnion retains every accepted native row for this Runtime/config
+	// generation so provider gates stay monotonic across refreshes (req 9.5/9.9).
+	acceptedUnion map[string]map[string]modelinventory.Model // backendID -> nativeID -> model
 }
 
 type Diagnostics struct {
@@ -177,19 +181,28 @@ func (r *Runtime) Diagnostics() Diagnostics {
 	r.mu.Lock()
 	out.LastRefreshErrorCategory = r.lastFail
 	out.LastCacheErrorCategory = r.cacheFail
-	out.BackendDiscoveries = slices.Clone(r.discoveries)
+	liveDisc := slices.Clone(r.discoveries)
 	r.mu.Unlock()
+	if pub != nil {
+		out.Active = true
+		out.Generation = pub.snap.Generation
+		out.RefreshedAt = pub.snap.RefreshedAt
+		out.ModelCount = len(pub.snap.Models)
+		out.BackendModelCounts = cloneIntMap(pub.backendModelCounts)
+		// Publication-tied discoveries are the default coherent pair. After a
+		// retain-last-good refresh failure, live discoveries describe the failed
+		// attempt and are preferred for operator Diagnostics (not BoundView).
+		if out.LastRefreshErrorCategory != RefreshFailureNone && len(liveDisc) > 0 {
+			out.BackendDiscoveries = liveDisc
+		} else {
+			out.BackendDiscoveries = slices.Clone(pub.discoveries)
+		}
+	} else {
+		out.BackendDiscoveries = liveDisc
+	}
 	if out.BackendDiscoveries == nil {
 		out.BackendDiscoveries = []BackendDiscovery{}
 	}
-	if pub == nil {
-		return out
-	}
-	out.Active = true
-	out.Generation = pub.snap.Generation
-	out.RefreshedAt = pub.snap.RefreshedAt
-	out.ModelCount = len(pub.snap.Models)
-	out.BackendModelCounts = cloneIntMap(pub.backendModelCounts)
 	return out
 }
 
@@ -309,13 +322,14 @@ func (r *Runtime) validateSnapshotBackends(snap Snapshot) error {
 	return nil
 }
 
-// publish flips registry+snapshot atomically, then records discoveries, then
-// commits connector allowlists when catalog content changed. Order is intentional:
-//  1. published Store — /v1/models and Lookup see one generation together
-//  2. discoveries — diagnostics match that generation (not a prior Build)
-//  3. syncAllowlists — allowlists never advance before the registry (Open must
-//     not reject models still advertised). Brief lag after Store where new
-//     models are listed before Open allowlists catch up is fail-closed.
+// publish applies provider allowlist unions before advertising the new
+// publication so Open acceptance never lags advertisement, and never revokes
+// previously accepted natives within this Runtime generation.
+//
+// Order is intentional:
+//  1. prepare published object (registry + discoveries + models JSON)
+//  2. syncAllowlistsUnion — provider gates receive union(A∪new) first
+//  3. published Store — /v1/models and Lookup advertise the new generation
 func (r *Runtime) publish(reg *Registry, snap Snapshot, discoveries []BackendDiscovery) {
 	fp := fingerprintModels(snap.Models)
 	prev := r.published.Load()
@@ -346,44 +360,87 @@ func (r *Runtime) publish(reg *Registry, snap Snapshot, discoveries []BackendDis
 	for _, row := range models {
 		counts[row.BackendID]++
 	}
-	r.published.Store(&published{
+	discCopy := slices.Clone(discoveries)
+	if discCopy == nil {
+		discCopy = []BackendDiscovery{}
+	}
+	next := &published{
 		reg:                reg,
 		snap:               cp,
 		modelsJSON:         modelsJSON,
 		fingerprint:        fp,
 		backendModelCounts: counts,
-	})
-	r.setDiscoveries(discoveries)
-	if contentChanged {
-		r.syncAllowlists(cp.Models)
+		discoveries:        discCopy,
 	}
+	// Provider acceptance before advertisement (and always on first publish).
+	if contentChanged || prev == nil {
+		r.syncAllowlistsUnion(cp.Models)
+	}
+	r.published.Store(next)
+	r.setDiscoveries(discCopy)
 }
 
-// syncAllowlists aligns provider-local allowlists with the published registry.
-// Backends present in models receive those rows; configured backends absent from
-// the snapshot receive an empty AcceptInventory (clear). Providers that do not
-// implement AcceptedInventory are skipped.
-func (r *Runtime) syncAllowlists(models []BackendModel) {
+// syncAllowlistsUnion merges models into the generation-lifetime accepted union
+// and pushes the full union to each AcceptedInventory provider. Previously
+// accepted native IDs are never removed during a refresh in this Runtime.
+func (r *Runtime) syncAllowlistsUnion(models []BackendModel) {
 	if r == nil {
 		return
 	}
-	byBackend := make(map[string][]modelinventory.Model, len(r.cfg.Inventories))
+	r.mu.Lock()
+	if r.acceptedUnion == nil {
+		r.acceptedUnion = make(map[string]map[string]modelinventory.Model, len(r.cfg.Inventories))
+	}
 	for _, m := range models {
-		id := strings.TrimSpace(m.BackendID)
-		byBackend[id] = append(byBackend[id], modelinventory.Model{
+		backendID := strings.TrimSpace(m.BackendID)
+		nativeID := strings.TrimSpace(m.NativeID)
+		if backendID == "" || nativeID == "" {
+			continue
+		}
+		byNative := r.acceptedUnion[backendID]
+		if byNative == nil {
+			byNative = make(map[string]modelinventory.Model)
+			r.acceptedUnion[backendID] = byNative
+		}
+		byNative[nativeID] = modelinventory.Model{
 			CanonicalID: m.CanonicalID,
 			NativeID:    m.NativeID,
 			DisplayName: m.DisplayName,
-		})
+		}
 	}
+	// Snapshot unions under lock, then release before provider callbacks.
+	unionByBackend := make(map[string][]modelinventory.Model, len(r.cfg.Inventories))
+	for _, inv := range r.cfg.Inventories {
+		id := strings.TrimSpace(inv.BackendID)
+		byNative := r.acceptedUnion[id]
+		rows := make([]modelinventory.Model, 0, len(byNative))
+		for _, m := range byNative {
+			rows = append(rows, m)
+		}
+		slices.SortFunc(rows, func(a, b modelinventory.Model) int {
+			if c := strings.Compare(a.CanonicalID, b.CanonicalID); c != 0 {
+				return c
+			}
+			return strings.Compare(a.NativeID, b.NativeID)
+		})
+		unionByBackend[id] = rows
+	}
+	r.mu.Unlock()
+
 	for _, inv := range r.cfg.Inventories {
 		a, ok := inv.Provider.(modelinventory.AcceptedInventory)
 		if !ok {
 			continue
 		}
 		id := strings.TrimSpace(inv.BackendID)
-		a.AcceptInventory(byBackend[id]) // nil clears allowlist (len==0)
+		a.AcceptInventory(unionByBackend[id])
 	}
+}
+
+// syncAllowlists is retained for tests that call the union path under the
+// historical name; it never clears previously accepted natives.
+func (r *Runtime) syncAllowlists(models []BackendModel) {
+	r.syncAllowlistsUnion(models)
 }
 
 func (r *Runtime) setFailure(cat RefreshFailureCategory) {

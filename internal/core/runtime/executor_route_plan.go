@@ -46,6 +46,14 @@ func (e *Executor) buildRoutePlan(prep *preparedRequest) (*routePlanState, error
 	if routing.SelectorHasEmptyBackend(sel) {
 		return nil, fmt.Errorf("executor: %w", lipapi.ErrUnresolvedModelOnlySelector)
 	}
+	// Bind-time registry view: set NativeModel on every leaf without rewriting
+	// Primary.Model so catalog/affinity/traces keep logical identity (req 9.4, 9.10).
+	// Wrong-backend canonical leaves fail closed with a typed error.
+	if resolver, ok := routing.NativeModelResolverFromContext(prep.ctx); ok {
+		if err := routing.BindNativeModelIDs(sel, resolver); err != nil {
+			return nil, fmt.Errorf("executor: bind native model ids: %w", err)
+		}
+	}
 	affinityKey, affinityKeyOK, err := e.resolveAffinityKey(sel, prep.recvViews, prep.recvViewsOK)
 	if err != nil {
 		return nil, fmt.Errorf("executor: affinity identity: %w", err)

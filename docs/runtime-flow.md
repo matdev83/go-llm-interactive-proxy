@@ -14,10 +14,10 @@ This document expands the request lifecycle in `docs/architecture.md` for agents
 6. `standardplugins.InstallStandardBundleOn` installs official backend, frontend, feature, and auth-renderer factories.
 7. `config.RegistrationsFromConfig` selects configured plugin instances.
 8. `featurebundle.MergeFeatureSurface` builds hook and extension chains from configured feature plugins.
-9. `runtimebundle.NewBootstrapApp` and `runtimebundle.Build` assemble the executor, stores, model catalog, metrics, tracing client, health, diagnostics, and HTTP-facing runtime bundle.
-10. `stdhttp.RunWithRuntime` mounts frontends and diagnostics and serves until context cancellation.
+9. `runtimebundle` bootstrap assembles process services and publishes request-plane generation 1 (executor, stores, model catalog, metrics, tracing, health, diagnostics, handler graph).
+10. `AttachReloadHost` binds the startup-fixed config source, effective loader, generation compiler, and reload coordinator; `stdhttp` serves through a generation dispatcher until context cancellation. Optional management reload HTTP starts only when `LIP_RELOAD_MANAGEMENT_ADDRESS` is set; Unix `SIGHUP` invokes the same coordinator.
 
-Custom tests and future alternate distributions should follow the same shape: construct an explicit registry or bundle, build an immutable runtime snapshot, then serve.
+Custom tests and future alternate distributions should follow the same shape: construct an explicit registry or bundle, publish an immutable generation, then serve. Operator reload contract: [`runtime-config-reload.md`](runtime-config-reload.md).
 
 ## Request flow
 
@@ -31,7 +31,7 @@ HTTP auth is a transport concern in `internal/stdhttp`. Stable identity crosses 
 
 ### 3. Canonical validation and runtime snapshot
 
-The executor validates `lipapi.Call` before orchestration. When present, `extensions.RequestRuntimeSnapshot` is attached to the context. A snapshot is immutable for the request lifetime; reload/rebind behavior must publish a new snapshot instead of mutating an existing one.
+The executor validates `lipapi.Call` before orchestration. When present, `extensions.RequestRuntimeSnapshot` is attached to the context. A snapshot is immutable for the request lifetime; runtime config reload publishes a new generation (and snapshot) for **new** admissions instead of mutating objects reachable by in-flight work.
 
 ### 4. Session, workspace, and A-leg authority
 
@@ -79,6 +79,10 @@ Frontend adapters translate protocol-specific cancel operations into `lipapi.ALe
 - Extension failures follow stage-specific failure policy; fail-open stages log and continue, fail-closed stages reject.
 - Panics at extension/backend boundaries are isolated and mapped to structured errors or fail-open skips according to the boundary and stage.
 
+## Runtime config reload (process host)
+
+Reload is operator-triggered only (`SIGHUP` and/or management `POST /admin/config/reload`). File edits alone do nothing. The coordinator re-reads the fixed startup path under a 2 MiB strict YAML bound, requires atomic path replacement for changed content, classifies restart-required vs reloadable fields, compiles a candidate generation, and atomically swaps the active pointer. Failures keep last-good; correction requires another explicit trigger. Details, status fields, retention (default budget 8), and management opt-in live in [`runtime-config-reload.md`](runtime-config-reload.md).
+
 ## Where to change behavior
 
 - Change frontend wire decoding or encoding in `internal/plugins/frontends/<id>`.
@@ -87,3 +91,4 @@ Frontend adapters translate protocol-specific cancel operations into `lipapi.ALe
 - Change plugin author contracts in `pkg/lipsdk`.
 - Change route planning, B2BUA, secure-session, or no-retry semantics in `internal/core`.
 - Change standard wiring in `cmd/lipstd`, `internal/pluginreg`, `internal/infra/runtimebundle`, or `internal/stdhttp`.
+- Change reload policy/triggers in `internal/core/configreload`, `internal/infra/runtimehost`, `internal/infra/configsource`, and `internal/stdhttp/admin/configreload` (see ADR 0008).

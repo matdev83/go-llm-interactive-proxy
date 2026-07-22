@@ -284,7 +284,7 @@ func (p *SessionPool) PrepareSend(ctx context.Context, in PrepareSendInput) (*Ag
 	if err != nil {
 		p.failSend(idHash, agentID)
 		p.emitClassifiedPoolRun(ctx, "send_failed", InvalidateSendFail, err, in.Create.APIKey)
-		return nil, fmt.Errorf("cursorsdk: agent send failed: %w", redactSecret(err, in.Create.APIKey))
+		return nil, fmt.Errorf("cursorsdk: agent send failed: %w", ClassifyAndMap(err, false, in.Create.APIKey))
 	}
 
 	leaseSeq := p.leaseN.Add(1)

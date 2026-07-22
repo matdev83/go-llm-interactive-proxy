@@ -11,8 +11,19 @@ if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
 # Exact-path allowlist for intentional owned workers / stream pumps only.
 # internal/core/terminalwork/app/processor.go: Start/Run/Shutdown owner, ProcessDue
 # claim fan-out, per-claim renew loop, and tick/renew ticker pumps (Phase 4.4).
+# internal/core/terminalwork/app/ambiguous_append_reconciler.go: one process-owned
+# worker draining WorkID-keyed ambiguous append ownership (task 3.6 remediation B).
+# internal/infra/runtimehost/shutdown.go: bounded fan-out retiring retained
+# generations concurrently so one pinned generation cannot stall unrelated drains.
+# internal/stdhttp/admin/configreload/server.go: process-owned management HTTP
+# listen/serve worker (task 5.3; separate from data-plane generation host).
+# cmd/lipstd/reload_signal_adapter_unix.go: one process-owned SIGHUP worker
+# delivering bounded reload triggers into the coordinator sink (task 5.2).
 $allowed = @(
     "internal/stdhttp/server.go"
+    "internal/stdhttp/generation_host.go"
+    "internal/stdhttp/admin/configreload/server.go"
+    "internal/infra/runtimehost/shutdown.go"
     "internal/core/stream/keepalive.go"
     "internal/core/runtime/parallel_race.go"
     "internal/core/runtime/lease_heartbeat.go"
@@ -23,6 +34,8 @@ $allowed = @(
     "internal/plugins/backends/cursorsdk/bridge_process.go"
     "internal/plugins/backends/cursorsdk/fakebridge/harness.go"
     "internal/core/terminalwork/app/processor.go"
+    "internal/core/terminalwork/app/ambiguous_append_reconciler.go"
+    "cmd/lipstd/reload_signal_adapter_unix.go"
 )
 
 $raw = @(rg --files-with-matches --glob "!*_test.go" "^\s+go\s" internal pkg cmd 2>$null)

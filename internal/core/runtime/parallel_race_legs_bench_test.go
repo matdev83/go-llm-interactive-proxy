@@ -85,6 +85,10 @@ func BenchmarkParallelRaceLegsAuthority(b *testing.B) {
 							Operation:    lipapi.OperationOpenAIChatCompletions,
 							DeliveryMode: lipapi.DeliveryModeStreaming,
 						},
+						Messages: []lipapi.Message{{
+							Role:  lipapi.RoleUser,
+							Parts: []lipapi.Part{lipapi.TextPart("benchmark")},
+						}},
 					},
 				}
 				out, err := ex.tryOpenParallelGroup(p, candidates, nil, "", false)

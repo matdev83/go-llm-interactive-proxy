@@ -36,7 +36,7 @@ func LookPathCached(file string) (string, error) {
 // ResetLookPathCache clears cached LookPath results. Tests that mutate PATH
 // must call this so subsequent LookPathCached calls observe the new PATH.
 func ResetLookPathCache() {
-	lookPathCache = sync.Map{}
+	lookPathCache.Clear()
 }
 
 // CheckExecutable verifies if the candidate is a valid executable. If it's an
