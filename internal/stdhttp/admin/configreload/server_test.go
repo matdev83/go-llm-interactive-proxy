@@ -2,6 +2,7 @@ package configreload_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -48,6 +49,75 @@ func TestManagement_ServerLifecycle(t *testing.T) {
 	defer cancel()
 	if err := srv.Shutdown(shutCtx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagement_ServerShutdownAppliesConfiguredTimeout(t *testing.T) {
+	t.Parallel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	coord := newFakeCoordinator("/fixed/startup/config.yaml", func(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
+		close(entered)
+		<-release
+		return configreload.ReloadResult{Category: configreload.ResultNoop, ActiveGeneration: 1}
+	})
+	srv, err := mgmtreload.New(mgmtreload.Options{
+		Address:         "127.0.0.1:0",
+		AuthMode:        mgmtreload.AuthModeBearer,
+		BearerToken:     "test-management-secret",
+		ShutdownTimeout: 25 * time.Millisecond,
+	}, coord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	addr := srv.Addr()
+
+	reqErr := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, "http://"+addr+mgmtreload.ReloadPath, http.NoBody)
+		if err != nil {
+			reqErr <- err
+			return
+		}
+		req.Header.Set("Authorization", "Bearer test-management-secret")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			reqErr <- err
+			return
+		}
+		res.Body.Close()
+		reqErr <- nil
+	}()
+
+	select {
+	case <-entered:
+	case err := <-reqErr:
+		t.Fatalf("reload request failed before coordinator entry: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for reload handler entry")
+	}
+
+	start := time.Now()
+	err = srv.Shutdown(context.Background())
+	elapsed := time.Since(start)
+	close(release)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("shutdown error=%v want context deadline exceeded", err)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("shutdown ignored configured timeout: elapsed=%s", elapsed)
+	}
+
+	select {
+	case err := <-reqErr:
+		if err != nil {
+			t.Fatalf("reload request did not complete cleanly after release: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for reload request cleanup")
 	}
 }
 
