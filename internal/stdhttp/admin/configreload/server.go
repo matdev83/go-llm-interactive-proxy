@@ -111,12 +111,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if !started || srv == nil {
 		return nil
 	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-		defer cancel()
+	if timeout <= 0 {
+		timeout = DefaultShutdownTimeout
 	}
-	err := srv.Shutdown(ctx)
+	baseCtx := ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	shutdownCtx, cancel := context.WithTimeout(baseCtx, timeout)
+	defer cancel()
+
+	err := srv.Shutdown(shutdownCtx)
 	s.mu.Lock()
 	ch := s.serveErr
 	s.started = false
@@ -127,8 +132,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 				err = errors.Join(err, serveErr)
 			}
-		case <-ctx.Done():
-			err = errors.Join(err, ctx.Err())
+		case <-shutdownCtx.Done():
+			err = errors.Join(err, shutdownCtx.Err())
 		}
 	}
 	return err
