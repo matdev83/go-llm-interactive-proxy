@@ -26,7 +26,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.1_
   - _Validation: `go test ./internal/archtest/... -run 'CriticalFile|LineComplexity'`_
 
-- [ ] 1.3 Add behavior characterization matrix for deletion seams (P)
+- [x] 1.3 Add behavior characterization matrix for deletion seams (P)
   - Map existing tests covering standard startup, legacy `Build`, generation startup, HTTP mounts, reload, public facade, validation, and shutdown.
   - Add only missing characterization for middleware/mount parity, partial bootstrap cleanup, public Close retry, capability reporting, and check-config non-public behavior.
   - Keep protocol, routing, streaming, auth, management, accounting, and provider behavior assertions unchanged.

@@ -85,6 +85,20 @@ func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
 
 func TestInitialGeneration_CompileFailureRollsBackProcessServices(t *testing.T) {
 	t.Parallel()
+	assertBootstrapPartialCleanupOnComposeFailure(t)
+}
+
+// TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce characterizes Task 1.3
+// partial bootstrap cleanup: after a later compose step fails, already-acquired
+// ProcessServices are closed, generation handles are absent, and tracing handoff
+// is cleared so callers cannot double-close.
+func TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce(t *testing.T) {
+	t.Parallel()
+	assertBootstrapPartialCleanupOnComposeFailure(t)
+}
+
+func assertBootstrapPartialCleanupOnComposeFailure(t *testing.T) {
+	t.Helper()
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
 	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
 		ConfigPath: cfgPath,
@@ -103,6 +117,11 @@ func TestInitialGeneration_CompileFailureRollsBackProcessServices(t *testing.T) 
 	}
 	if res.Built != nil || res.GenerationManager != nil || res.InitialGeneration != nil {
 		t.Fatal("failed bootstrap must not leave generation host handles")
+	}
+	// Failure owns tracing teardown and clears the handoff so callers cannot
+	// double-close (joinInitialFailureCleanup reverse-order contract).
+	if res.ShutdownTracing != nil {
+		t.Fatal("failed bootstrap must clear ShutdownTracing after owned cleanup")
 	}
 }
 

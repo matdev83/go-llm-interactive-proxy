@@ -330,6 +330,24 @@ func validateServeMultiUserGate(ctx context.Context, configPath string, multiUse
 	return accessmode.ValidateServeModeGate(mode, multiUserFlag)
 }
 
+// cleanupCheckConfigBootstrapOwners retires the private generation manager and
+// closes process services after a successful check-config validation.
+func cleanupCheckConfigBootstrapOwners(ctx context.Context, res *runtimebundle.BootstrapResult) {
+	if res == nil {
+		return
+	}
+	if res.GenerationManager != nil {
+		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
+	}
+	if res.ProcessServices != nil {
+		_ = res.ProcessServices.Close()
+	}
+}
+
+// cleanupCheckConfigBootstrap is the check-config private-owner cleanup seam.
+// Tests may wrap it (not parallel-safe; restore via t.Cleanup).
+var cleanupCheckConfigBootstrap = cleanupCheckConfigBootstrapOwners
+
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
 	compose := stdhttp.ComposeRequestPlane
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
@@ -347,12 +365,7 @@ func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
 	defer func() { deferBootstrapTracingShutdown(ctx, &res) }()
 	// check-config uses the same CompileGeneration path as serve/reload, then
 	// rolls back without listening (design ValidationDryRun).
-	if res.GenerationManager != nil {
-		_ = res.GenerationManager.ShutdownDetached(context.WithoutCancel(ctx), runtimehost.NewLifecycleWorker())
-	}
-	if res.ProcessServices != nil {
-		_ = res.ProcessServices.Close()
-	}
+	cleanupCheckConfigBootstrap(ctx, &res)
 	_, _ = fmt.Fprintln(opts.Output, "configuration is valid")
 	return 0
 }
