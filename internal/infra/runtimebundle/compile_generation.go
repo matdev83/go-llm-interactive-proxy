@@ -168,8 +168,7 @@ func composeStandardHTTPIsolated(ctx context.Context, compose HandlerComposer, c
 
 // buildStandardHTTPInput projects one compiled candidate plus its frozen
 // config/registrations directly into the focused HTTP composition input
-// (task 3.4). It mirrors the retired standardHTTPInputFromRequestPlane field
-// mapping but never allocates a RequestPlane.
+// (task 3.4–3.5). It never allocates a legacy RequestPlane or Built aggregate.
 func buildStandardHTTPInput(cand *CandidateRuntime, frozen *config.Config, regs []lipsdk.Registration, route string) httpcontract.StandardHTTPInput {
 	var maxBody int64
 	var preKA lipsdk.FrontendKeepaliveConfig

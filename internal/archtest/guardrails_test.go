@@ -228,7 +228,9 @@ var lineBudgets = []struct {
 	// of http_input.go so runtimebundle can build the focused input without
 	// importing root stdhttp) plus the canonical ComposeStandardHTTP composer
 	// (measured non-test total 4897; zero headroom).
-	{"internal/stdhttp", 4897},
+	// Ratcheted from 4897 to 4811 for Task 3.5: deleted ComposeRequestPlane and
+	// standardHTTPInputFromRequestPlane (measured 4811; zero headroom).
+	{"internal/stdhttp", 4811},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -308,7 +310,10 @@ var lineBudgets = []struct {
 	// clones canonical frozen config before lending it to the injected
 	// HandlerComposer so composition cannot mutate the immutable generation
 	// source used for publication (measured 10206; zero headroom).
-	{"internal/infra/runtimebundle", 10206},
+	// Ratcheted from 10206 to 9969 for Task 3.5: deleted broad RequestPlane
+	// aggregate/getter wall and NewCompatRequestPlane; HandlerComposer +
+	// FrozenRoutingView moved to handler_composer.go (measured 9969; zero headroom).
+	{"internal/infra/runtimebundle", 9969},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

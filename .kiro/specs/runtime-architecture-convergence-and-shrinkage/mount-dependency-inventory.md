@@ -1,8 +1,9 @@
-# Task 3.1 — stdhttp mount dependency inventory
+# Task 3.1 / 3.5 — stdhttp mount dependency inventory
 
-Deterministic inventory of production HTTP mount helpers and their current
-`runtimebundle.Built` / composition dependencies. Desired cohesive groups follow
-approved `design.md` names (`StandardHTTPInput` / `HTTP*Input`).
+Deterministic inventory of production HTTP mount helpers and composition roots
+after Task 3.5 deleted the broad `runtimebundle.RequestPlane` compatibility
+direction. Desired cohesive groups follow approved `design.md` names
+(`StandardHTTPInput` / `HTTP*Input`).
 
 Lifecycle/closer at every mount boundary: **none** (ownership stays in
 generation/process composers; mounts must not accept closers).
@@ -17,16 +18,16 @@ generation/process composers; mounts must not accept closers).
 | `Models` | `HTTPModelInput` | catalog / inventory diagnostic surfaces only |
 | `Frontends` | `HTTPFrontendInput` | executor / registry / default-route / frontend configuration only |
 
-Prohibited in every group: `*runtimebundle.Built`, `runtimebundle.RequestPlane`,
+Prohibited in every group: `*runtimebundle.Built`, broad `runtimebundle.RequestPlane`,
 resource ledger, generic closer list, `io.Closer`, close/shutdown callbacks,
 host/coordinator lifecycle owner, generic dependency getter.
 
 ## Mount helpers
 
-| Helper | Source | Current Built / RequestPlane fields read | Desired group(s) + capability | Route(s) | Behavior test(s) | Lifecycle at mount |
+| Helper | Source | Historical Built fields (pre-3.2) | Desired group(s) + capability | Route(s) | Behavior test(s) | Lifecycle at mount |
 | --- | --- | --- | --- | --- | --- | --- |
 | `mountMetrics` | `internal/stdhttp/mount_metrics.go` / `mountMetricsInput` | `Built.Metrics` (Registry, HTTP) | `Operations`: Metrics bundle | configured metrics path (default `/metrics`) | `TestRunWithRuntime_metricsEnabledRequiresBuiltMetrics`; `TestStackHTTPHandler_recoveredPanic_combinedMetricsAccessAndSafeBody` | none |
-| `mountDiagnostics` | `internal/stdhttp/mount_diagnostics.go` / `mountDiagnosticsInput` | `Built.Store`; `Built.SecretGuardInventory`; also `Exec`, `Reg`, `App`/`Registrations` (non-Built params) | `Operations`: Store, SecretGuardInventory, inventory/route-trace/pprof sinks; `Core`: Executor route-trace attach | health / attempts / inventory / route-trace / pprof (config paths) | `TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack`; diagnostics suites under `internal/stdhttp` | none |
+| `mountDiagnostics` | `internal/stdhttp/mount_diagnostics.go` / `mountDiagnosticsInput` | `Built.Store`; `Built.SecretGuardInventory`; also `Exec`, `Reg`, `App`/`Registrations` (non-Built params) | `Operations`: Store, SecretGuardInventory, inventory/route-trace/pprof sinks; `Core`: Executor route-trace attach | health / attempts / inventory / route-trace / pprof (config paths) | `TestStandardMiddlewareMountParity_ComposeStandardHTTPRouteSetAndStack`; diagnostics suites under `internal/stdhttp` | none |
 | `mountModelCatalogDiagnostics` | `internal/stdhttp/mount_diagnostics.go` / `diagnosticsMount` | `Built.CatalogRuntime` | `Models`: CatalogRuntime | `model_catalog.diagnostics_path` | `TestModelCatalogDiagnostics_*` | none |
 | `mountModelInventoryDiagnostics` | `internal/stdhttp/mount_diagnostics.go` / `diagnosticsMount` | `Built.ModelRegistryRuntime` | `Models`: ModelRegistryRuntime | `model_inventory.diagnostics_path` | `TestModelRegistryStatusHandler_*`; `TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted` | none |
 | `mountSecureSessionDiagnostics` | `internal/stdhttp/mount_securesession.go` / `mountSecureSessionDiagnosticsInput` | `Built.SecureSessionStore` | `Security`: SecureSessionStore | `secure_session.diagnostics_path_prefix` (`GET` base + `/`) | `TestSecureSessionDiagnostics_mount_matchesRunWithRuntimePattern` | none |
@@ -40,21 +41,16 @@ host/coordinator lifecycle owner, generic dependency getter.
 
 ## Composition roots (consume mounts)
 
-Composition roots are inventoried separately from mount helpers. Task 3.2
-requires mounts and the focused composer to stop accepting broad bags; it does
-**not** require every composition root to accept `StandardHTTPInput` yet.
-
 | Helper | Source | Current broad input | Desired after focused seam | Migration status | Behavior test(s) | Lifecycle at mount |
 | --- | --- | --- | --- | --- | --- | --- |
-| `prepareStandardHandler` | `internal/stdhttp/handler.go` | `*runtimebundle.Built` (+ reads Closers, Executor, EffectiveDefaultRoute, PluginRegistry, DecodeAdmission, RuntimeSnapshot, RoutePrefixes, ModelRegistryRuntime) | `StandardHTTPInput` groups; closers owned by caller/generation | **strict Task 3.2 target** — focused composer/preparer; must accept `StandardHTTPInput` and no lifecycle owner | `TestNewStandardHandler_*`; mount parity | closers owned **above** mount boundary |
-| `NewStandardHandler` | `internal/stdhttp/handler.go` | `*runtimebundle.Built` | project to `StandardHTTPInput` then invoke focused composer; mounts never see `Built` after 3.2 | **transitional legacy adapter** — broad source `*Built` input allowed until Phase 4 caller migration/deletion; not a Task 3.2 strict mount-signature failure | same | closers owned above |
-| `ComposeRequestPlane` | `internal/stdhttp/request_plane.go` | `runtimebundle.RequestPlane` → `requestPlaneAsBuilt` | project directly to focused groups / `StandardHTTPInput`; mounts never see `RequestPlane`/`Built` after 3.2 | **transitional generation adapter** — source `RequestPlane` allowed until Task 3.5; `requestPlaneAsBuilt` remains explicitly scheduled for Task 3.5 (Task 3.2 may delete it naturally); not a Task 3.1 BuiltDependency mount-signature failure | `TestComposeRequestPlane_RouteConflictRejects_Transitional`; `TestStandardMiddlewareMountParity_*` | none at mount; generation owns resources |
-| `ComposeStandardHTTP` | `internal/stdhttp/request_plane.go` | `StandardHTTPInput` (+ explicit `cfg`/`log` params) | already the canonical `HandlerComposer` target | **canonical Task 3.4 composer** — the sole `runtimebundle.HandlerComposer` invoked by `CompileGeneration`/`GenerationCompiler`; `ComposeRequestPlane` is not assignable to `HandlerComposer` and must not reach this path | `TestComposeStandardHTTP_RouteConflictRejects`; `TestComposeStandardHTTP_ManagementRoutesNotMounted`; `TestStandardMiddlewareMountParity_*` | none at mount; generation owns resources |
+| `prepareStandardHandler` | `internal/stdhttp/handler.go` | focused `StandardHTTPInput` only | already focused; closers owned by caller/generation | **strict Task 3.2 target** — focused composer/preparer; must accept `StandardHTTPInput` and no lifecycle owner | `TestNewStandardHandler_*`; mount parity | closers owned **above** mount boundary |
+| `NewStandardHandler` | `internal/stdhttp/handler.go` | `*runtimebundle.Built` | project to `StandardHTTPInput` then invoke focused composer; mounts never see `Built` | **Phase 4 Built compatibility** — broad source `*Built` input allowed until Phase 4 caller migration/deletion (Tasks 4.1–4.3); not a Task 3.5 mount-signature failure | same | closers owned above |
+| `ComposeStandardHTTP` | `internal/stdhttp/request_plane.go` | `StandardHTTPInput` (+ explicit `cfg`/`log` params) | already the canonical `HandlerComposer` target | **canonical Task 3.4 composer** — the sole `runtimebundle.HandlerComposer` invoked by `CompileGeneration`/`GenerationCompiler`; RequestPlane compatibility composers are deleted (Task 3.5) | `TestComposeStandardHTTP_RouteConflictRejects`; `TestComposeStandardHTTP_ManagementRoutesNotMounted`; `TestComposeStandardHTTP_NilInputsRejected`; `TestStandardMiddlewareMountParity_*` | none at mount; generation owns resources |
 
-Task 3.2 live architecture gates fail only on strict surfaces (mount helpers +
-`prepareStandardHandler`). Scanner detection of transitional adapter bags remains
-for capability proofs; Task 3.5 / Phase 4 own final adapter source-signature
-prohibition and deletion.
+Task 3.5 deleted `ComposeRequestPlane`, `standardHTTPInputFromRequestPlane`, broad
+`runtimebundle.RequestPlane`, and `NewCompatRequestPlane`. Architecture gates
+prohibit their reintroduction. Phase 4 still owns `Built` / `Build` /
+`RunWithRuntime` / `NewStandardHandler` retirement.
 
 ## Middleware order (outer → inner; frozen)
 

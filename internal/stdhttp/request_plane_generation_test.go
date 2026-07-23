@@ -22,7 +22,7 @@ import (
 
 // TestComposeStandardHTTP_RouteConflictRejects proves the canonical composer
 // (invoked by CompileGeneration on the production path) preserves
-// route-conflict rejection behavior (task 3.4, req 9.1-9.7).
+// route-conflict rejection behavior (task 3.4–3.5, req 9.1-9.7).
 func TestComposeStandardHTTP_RouteConflictRejects(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
@@ -66,25 +66,46 @@ func TestComposeStandardHTTP_ManagementRoutesNotMounted(t *testing.T) {
 	}
 }
 
-// TestComposeRequestPlane_RouteConflictRejects_Transitional proves the
-// transitional RequestPlane composer independently preserves route-conflict
-// rejection (task 3.4: "Transitional ComposeRequestPlane tests stay").
-func TestComposeRequestPlane_RouteConflictRejects_Transitional(t *testing.T) {
+func TestComposeStandardHTTP_NilInputsRejected(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
-	cfg := stubPlaneConfig(t, "rc-t", "x", "rc-t:stub-default", []config.PluginConfig{
+	cfg := stubPlaneConfig(t, "nil", "ok", "nil:stub-default", []config.PluginConfig{
 		{ID: "openai-responses", Enabled: true},
-		{ID: "responses-dup", Kind: "openai-responses", Enabled: true},
 	})
 	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
 	if err != nil {
 		t.Fatalf("CompileCandidate: %v", err)
 	}
 	t.Cleanup(func() { _ = cand.Close() })
-	plane := runtimebundle.NewCompatRequestPlane(cand, cfg, testkit.DiscardLogger(), config.RegistrationsFromConfig(cfg), runtimebundle.FrozenRoutingView{DefaultRoute: cand.EffectiveDefaultRoute, RoutePrefixes: cand.RoutePrefixes})
-	_, err = stdhttp.ComposeRequestPlane(context.Background(), plane)
-	if !errors.Is(err, stdhttp.ErrRouteConflict) {
-		t.Fatalf("want ErrRouteConflict, got %v", err)
+	in := stdhttp.StandardHTTPInput{
+		Core:      stdhttp.HTTPCoreInput{Executor: cand.Executor},
+		Frontends: stdhttp.HTTPFrontendInput{Registry: cand.PluginRegistry, Executor: cand.Executor},
+	}
+	log := testkit.DiscardLogger()
+	cases := []struct {
+		name string
+		ctx  context.Context
+		cfg  *config.Config
+		in   stdhttp.StandardHTTPInput
+		want string
+	}{
+		{name: "nil_ctx", ctx: nil, cfg: cfg, in: in, want: "nil context"},
+		{name: "nil_cfg", ctx: context.Background(), cfg: nil, in: in, want: "nil config"},
+		{name: "nil_executor", ctx: context.Background(), cfg: cfg, in: stdhttp.StandardHTTPInput{Frontends: in.Frontends}, want: "nil executor"},
+		{name: "nil_registry", ctx: context.Background(), cfg: cfg, in: stdhttp.StandardHTTPInput{Core: in.Core}, want: "nil plugin registry"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := stdhttp.ComposeStandardHTTP(tc.ctx, tc.cfg, log, tc.in)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v want substring %q", err, tc.want)
+			}
+		})
+	}
+	_, err = stdhttp.ComposeStandardHTTP(context.Background(), cfg, nil, in)
+	if err == nil || !strings.Contains(err.Error(), "nil logger") {
+		t.Fatalf("nil logger: err=%v", err)
 	}
 }
 

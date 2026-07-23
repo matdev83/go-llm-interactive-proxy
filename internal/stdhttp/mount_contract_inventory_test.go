@@ -24,7 +24,7 @@ var mountContractInventory = []mountInventoryRow{
 	{
 		Helper: "mountDiagnostics", File: "mount_diagnostics.go", Input: "mountDiagnosticsInput",
 		BuiltFields: []string{"Store", "SecretGuardInventory"}, DesiredGroups: []string{"Operations", "Core"},
-		Lifecycle: "none", BehaviorTests: []string{"TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack"},
+		Lifecycle: "none", BehaviorTests: []string{"TestStandardMiddlewareMountParity_ComposeStandardHTTPRouteSetAndStack"},
 	},
 	{
 		Helper: "mountModelCatalogDiagnostics", File: "mount_diagnostics.go", Input: "diagnosticsMount",
@@ -97,15 +97,9 @@ var compositionRootInventory = []mountInventoryRow{
 		MigrationStatus: "transitional_legacy_phase4",
 	},
 	{
-		Helper: "ComposeRequestPlane", File: "request_plane.go", Input: "RequestPlane",
-		BuiltFields: []string{"RequestPlane"}, DesiredGroups: []string{"StandardHTTPInput"},
-		Lifecycle: "none", BehaviorTests: []string{"TestComposeRequestPlane_RouteConflictRejects_Transitional"},
-		MigrationStatus: "transitional_generation_task35",
-	},
-	{
 		Helper: "ComposeStandardHTTP", File: "request_plane.go", Input: "StandardHTTPInput",
 		BuiltFields: nil, DesiredGroups: []string{"StandardHTTPInput"},
-		Lifecycle: "none", BehaviorTests: []string{"TestComposeStandardHTTP_RouteConflictRejects", "TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack"},
+		Lifecycle: "none", BehaviorTests: []string{"TestComposeStandardHTTP_RouteConflictRejects", "TestComposeStandardHTTP_ManagementRoutesNotMounted", "TestStandardMiddlewareMountParity_ComposeStandardHTTPRouteSetAndStack"},
 		MigrationStatus: "canonical_task34",
 	},
 }
@@ -142,17 +136,15 @@ var expectedProductionMountHelpers = map[string]bool{
 var expectedCompositionRoots = map[string]bool{
 	"prepareStandardHandler": true,
 	"NewStandardHandler":     true,
-	"ComposeRequestPlane":    true,
 	"ComposeStandardHTTP":    true,
 }
 
 // migrationStatusMarkdownPhrase maps composition-root MigrationStatus codes to
 // distinctive phrases that must appear in mount-dependency-inventory.md.
 var migrationStatusMarkdownPhrase = map[string]string{
-	"strict_task_32":                 "strict Task 3.2 target",
-	"transitional_legacy_phase4":     "transitional legacy adapter",
-	"transitional_generation_task35": "transitional generation adapter",
-	"canonical_task34":               "canonical Task 3.4 composer",
+	"strict_task_32":             "strict Task 3.2 target",
+	"transitional_legacy_phase4": "Phase 4 Built compatibility",
+	"canonical_task34":           "canonical Task 3.4 composer",
 }
 
 // mountDiscoveryExclusions is intentionally empty: every discovered mount-scoped
@@ -368,7 +360,7 @@ func discoverProductionMountSurface(pkgDir string) (mounts, roots map[string]boo
 
 func isCompositionRootName(name string) bool {
 	switch name {
-	case "prepareStandardHandler", "NewStandardHandler", "ComposeRequestPlane", "ComposeStandardHTTP":
+	case "prepareStandardHandler", "NewStandardHandler", "ComposeStandardHTTP":
 		return true
 	default:
 		return false

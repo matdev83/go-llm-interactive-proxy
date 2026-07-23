@@ -47,19 +47,18 @@ var mountHelpersStrictContract = map[string]bool{
 	"mountALegCancel":                true,
 	"stackHTTPHandler":               true,
 	"prepareStandardHandler":         true,
+	"ComposeStandardHTTP":            true,
 }
 
 // mountHelpersTransitionalAdapters are compatibility composition roots whose
 // source input signature may remain broad until later tasks:
 //   - NewStandardHandler: legacy *Built until Phase 4 (must project to
 //     StandardHTTPInput before mounts after Task 3.2)
-//   - ComposeRequestPlane: RequestPlane until Task 3.5 (must project to focused
-//     groups before mounts after Task 3.2)
 //
-// Scanner still detects their bags; live Task 3.2 strict failure sets exclude them.
+// ComposeRequestPlane was deleted in Task 3.5. Scanner still detects Built bags
+// on NewStandardHandler; live Task 3.2 strict failure sets exclude it.
 var mountHelpersTransitionalAdapters = map[string]bool{
-	"NewStandardHandler":  true,
-	"ComposeRequestPlane": true,
+	"NewStandardHandler": true,
 }
 
 // mountHelpersUnderContract is the full scanned set (strict ∪ transitional).
@@ -93,7 +92,7 @@ var mountHelperAllowedGroups = map[string]map[string]bool{
 	"stackHTTPHandler":               {"HTTPSecurityInput": true, "HTTPOperationsInput": true},
 	"prepareStandardHandler":         {"StandardHTTPInput": true},
 	"NewStandardHandler":             {"StandardHTTPInput": true},
-	"ComposeRequestPlane":            {"StandardHTTPInput": true},
+	"ComposeStandardHTTP":            {"StandardHTTPInput": true},
 }
 
 var prohibitedLifecycleFieldNames = map[string]bool{
@@ -176,8 +175,8 @@ func collectFindingsByKinds(fs []mountContractFinding, kinds map[string]bool) []
 
 // collectStrictTask32Findings returns Task 3.2 live-gate failures limited to
 // strict mount/composer surfaces. Transitional adapter source-signature bags
-// (NewStandardHandler Built, ComposeRequestPlane RequestPlane) are tracked by
-// the scanner but excluded from this strict failure set.
+// (NewStandardHandler Built) are tracked by the scanner but excluded from this
+// strict failure set. ComposeRequestPlane was deleted in Task 3.5.
 func collectStrictTask32Findings(fs []mountContractFinding, kinds map[string]bool) []string {
 	var out []string
 	for _, f := range fs {
@@ -408,7 +407,7 @@ func scanMountContractSource(filename, src string) (mountContractScanResult, err
 }
 
 func isStdhttpMountHelperName(name string) bool {
-	if name == "stackHTTPHandler" || name == "prepareStandardHandler" || name == "ComposeRequestPlane" || name == "NewStandardHandler" {
+	if name == "stackHTTPHandler" || name == "prepareStandardHandler" || name == "ComposeStandardHTTP" || name == "NewStandardHandler" {
 		return true
 	}
 	return strings.HasPrefix(name, "mount") || strings.HasPrefix(name, "Mount")

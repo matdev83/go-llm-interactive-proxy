@@ -30,15 +30,15 @@ func TestMountContract_SyntheticRequestPlaneParamDetected(t *testing.T) {
 	t.Parallel()
 	src := `package stdhttp
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-func ComposeRequestPlane(plane runtimebundle.RequestPlane) {}
+func ComposeStandardHTTP(plane runtimebundle.RequestPlane) {}
 `
 	got, err := scanMountContractSource("internal/stdhttp/synthetic_compose.go", src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !findingsContainKindHelper(got.Findings, "request_plane_dependency", "ComposeRequestPlane") &&
-		!findingsContainKindHelper(got.Findings, "built_dependency", "ComposeRequestPlane") {
-		t.Fatalf("expected RequestPlane detection, got %#v", got.Findings)
+	if !findingsContainKindHelper(got.Findings, "request_plane_dependency", "ComposeStandardHTTP") &&
+		!findingsContainKindHelper(got.Findings, "built_dependency", "ComposeStandardHTTP") {
+		t.Fatalf("expected RequestPlane detection on ComposeStandardHTTP, got %#v", got.Findings)
 	}
 }
 
@@ -118,7 +118,7 @@ type StandardHTTPInput struct {
 func mountMetrics(ops HTTPOperationsInput) {}
 func stackHTTPHandler(sec HTTPSecurityInput) {}
 func MountBundledFrontends(fe HTTPFrontendInput) {}
-func ComposeRequestPlane(in StandardHTTPInput) {}
+func ComposeStandardHTTP(in StandardHTTPInput) {}
 `
 	got, err := scanMountContractSource("internal/stdhttp/synthetic_clean.go", src)
 	if err != nil {
@@ -281,10 +281,10 @@ func mountMetrics(in StandardHTTPInput) {}
 			wantBad: true,
 		},
 		{
-			name: "ComposeRequestPlane_StandardHTTPInput_clean",
+			name: "ComposeStandardHTTP_StandardHTTPInput_clean",
 			src: `package stdhttp
 type StandardHTTPInput struct{}
-func ComposeRequestPlane(in StandardHTTPInput) {}
+func ComposeStandardHTTP(in StandardHTTPInput) {}
 `,
 			wantBad: false,
 		},
@@ -528,12 +528,12 @@ func prepareStandardHandler(built *runtimebundle.Built) {}
 	}
 }
 
-func TestMountContract_Policy_TransitionalAdaptersTrackedNotStrict(t *testing.T) {
+func TestMountContract_Policy_TransitionalBuiltAdapterTrackedNotStrict(t *testing.T) {
 	t.Parallel()
 	src := `package stdhttp
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 func NewStandardHandler(built *runtimebundle.Built) {}
-func ComposeRequestPlane(plane runtimebundle.RequestPlane) {}
+func ComposeStandardHTTP(plane runtimebundle.RequestPlane) {}
 `
 	got, err := scanMountContractSource("internal/stdhttp/policy_adapters.go", src)
 	if err != nil {
@@ -542,16 +542,19 @@ func ComposeRequestPlane(plane runtimebundle.RequestPlane) {}
 	if !findingsContainKindHelper(got.Findings, "built_dependency", "NewStandardHandler") {
 		t.Fatalf("scanner must still detect NewStandardHandler Built, got %#v", got.Findings)
 	}
-	if !findingsContainKindHelper(got.Findings, "request_plane_dependency", "ComposeRequestPlane") {
-		t.Fatalf("scanner must still detect ComposeRequestPlane RequestPlane, got %#v", got.Findings)
+	if !findingsContainKindHelper(got.Findings, "request_plane_dependency", "ComposeStandardHTTP") {
+		t.Fatalf("scanner must detect RequestPlane on ComposeStandardHTTP, got %#v", got.Findings)
 	}
 	tracked := collectTransitionalAdapterFindings(got.Findings, broadBagFindingKinds)
-	if len(tracked) < 2 {
-		t.Fatalf("expected tracked transitional findings, got %v (all=%#v)", tracked, got.Findings)
+	if len(tracked) != 1 || !strings.Contains(strings.Join(tracked, "\n"), "NewStandardHandler") {
+		t.Fatalf("expected only NewStandardHandler tracked as transitional, got %v (all=%#v)", tracked, got.Findings)
 	}
 	strict := collectStrictTask32Findings(got.Findings, task32StrictFailureKinds)
-	if len(strict) != 0 {
-		t.Fatalf("transitional adapter source bags must not be Task 3.2 strict failures, got %v", strict)
+	if len(strict) == 0 || !strings.Contains(strings.Join(strict, "\n"), "ComposeStandardHTTP") {
+		t.Fatalf("ComposeStandardHTTP RequestPlane must be a Task 3.2/3.5 strict failure, got %v", strict)
+	}
+	if strings.Contains(strings.Join(strict, "\n"), "NewStandardHandler") {
+		t.Fatalf("NewStandardHandler Built must remain non-strict until Phase 4, got %v", strict)
 	}
 }
 
@@ -564,7 +567,6 @@ import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundl
 type mountMetricsInput struct{ Built *runtimebundle.Built }
 func mountMetrics(in mountMetricsInput) {}
 func NewStandardHandler(built *runtimebundle.Built) {}
-func ComposeRequestPlane(plane runtimebundle.RequestPlane) {}
 func prepareStandardHandler(in StandardHTTPInput) {}
 type StandardHTTPInput struct{}
 `
@@ -580,8 +582,8 @@ type StandardHTTPInput struct{}
 	if !strings.Contains(joined, "mountMetrics") {
 		t.Fatalf("strict set must include mountMetrics, got %v", strict)
 	}
-	if strings.Contains(joined, "NewStandardHandler") || strings.Contains(joined, "ComposeRequestPlane") {
-		t.Fatalf("strict set must exclude transitional adapters, got %v", strict)
+	if strings.Contains(joined, "NewStandardHandler") {
+		t.Fatalf("strict set must exclude Phase 4 Built adapter, got %v", strict)
 	}
 	if strings.Contains(joined, "prepareStandardHandler") {
 		t.Fatalf("focused prepareStandardHandler(StandardHTTPInput) must not be strict-failed, got %v", strict)

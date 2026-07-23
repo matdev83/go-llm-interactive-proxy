@@ -72,8 +72,14 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// Freeze 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3 (generation lifecycle).
 	{Path: "internal/infra/runtimehost/generation.go", Max: 575},
 	// Freeze 440 → contracted to 400 in Task 3.3 (lifecycle/transfer extracted to
-	// candidate_lifecycle.go); final ≤350 (Req 11.3). Lower further via Phase 3 task 3.5.
+	// candidate_lifecycle.go); final ≤350 (Req 11.3). Task 3.5 did not further
+	// contract this file (RequestPlane lived in request_plane.go); keep exact freeze.
 	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 400},
+	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
+	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
+	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 296},
+	{Path: "internal/stdhttp/request_plane.go", Max: 52},
+	{Path: "internal/stdhttp/http_input.go", Max: 99},
 	// Freeze 364 → final ≤300 (Req 11.3). Lower via Phase 5 task 5.5 (process construction).
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
 	// Freeze 367 → final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).

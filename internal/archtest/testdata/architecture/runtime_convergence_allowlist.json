@@ -193,6 +193,94 @@
       "classification": "declaration",
       "retirement_task": "4.3",
       "rationale": "Legacy Built serve declaration; production callers already absent"
+    },
+    {
+      "gate": "stdhttp_built",
+      "path": "internal/stdhttp/handler.go",
+      "identity": "func:NewStandardHandler",
+      "classification": "declaration",
+      "retirement_task": "4.1",
+      "rationale": "Phase 4 legacy Built handler adapter; projects to StandardHTTPInput then prepareStandardHandler"
+    },
+    {
+      "gate": "stdhttp_built",
+      "path": "internal/stdhttp/http_input.go",
+      "identity": "func:standardHTTPInputFromBuilt",
+      "classification": "declaration",
+      "retirement_task": "4.1",
+      "rationale": "Phase 4 Built→StandardHTTPInput projector required only by NewStandardHandler/RunWithRuntime"
+    },
+    {
+      "gate": "stdhttp_built",
+      "path": "internal/stdhttp/server.go",
+      "identity": "func:RunWithRuntime",
+      "classification": "declaration",
+      "retirement_task": "4.3",
+      "rationale": "Phase 4 legacy Built serve helper; release path retained until Task 4.3"
+    },
+    {
+      "gate": "stdhttp_built",
+      "path": "internal/stdhttp/server.go",
+      "identity": "func:releaseBuiltResources",
+      "classification": "declaration",
+      "retirement_task": "4.3",
+      "rationale": "Phase 4 Built closer-release helper shared by RunWithRuntime and NewStandardHandler"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/build.go",
+      "identity": "func:Build",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Compatibility Build still projects cand.Closers into Built.Closers aggregate"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/candidate_compile.go",
+      "identity": "type:CandidateRuntime",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Exported CandidateRuntime.Closers legacy closer bag retained until Task 4.2 deletion"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/candidate_compile.go",
+      "identity": "func:CompileCandidate",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "CompileCandidate still materializes LegacyClosers into CandidateRuntime.Closers"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/resource_ledger.go",
+      "identity": "method:ResourceLedger.LegacyClosers",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "LegacyClosers projection API retained for Built/CandidateRuntime compatibility"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/candidate_lifecycle.go",
+      "identity": "func:NewCandidateRuntimeForTest",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Test helper seeds CandidateRuntime.Closers via LegacyClosers"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/candidate_lifecycle.go",
+      "identity": "method:CandidateRuntime.transferLedgerOwnership",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Ownership transfer clears legacy Closers bag alongside Ledger"
+    },
+    {
+      "gate": "candidate_legacy_closers",
+      "path": "internal/infra/runtimebundle/candidate_lifecycle.go",
+      "identity": "method:CandidateRuntime.Close",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Close still falls back to disposeClosers on CandidateRuntime.Closers when Ledger is nil"
     }
   ]
 }

@@ -20,7 +20,7 @@ import (
 // HTTP middleware. Mount order is load-bearing and preserved exactly.
 //
 // The focused composer accepts only [StandardHTTPInput]: it owns neither app start/shutdown nor
-// resource closers. Callers ([NewStandardHandler], [RunWithRuntime], [ComposeRequestPlane]) project
+// resource closers. Callers ([NewStandardHandler], [RunWithRuntime], [ComposeStandardHTTP]) project
 // broad sources into groups and own lifecycle above this seam.
 func prepareStandardHandler(
 	ctx context.Context,

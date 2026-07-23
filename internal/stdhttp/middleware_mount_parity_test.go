@@ -12,11 +12,11 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 )
 
-// TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack freezes the
+// TestStandardMiddlewareMountParity_ComposeStandardHTTPRouteSetAndStack freezes the
 // generation-host route set and outer middleware behavior that Built→capability
 // migration (tasks 3.1–3.5) must preserve. Assertions use deterministic HTTP
 // outcomes only — no unstable internal stack snapshots.
-func TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack(t *testing.T) {
+func TestStandardMiddlewareMountParity_ComposeStandardHTTPRouteSetAndStack(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	frontends := []config.PluginConfig{
@@ -60,7 +60,7 @@ func TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack(t *te
 			rr := httptest.NewRecorder()
 			h.ServeHTTP(rr, tc.req)
 			if rr.Code == http.StatusNotFound {
-				t.Fatalf("%s must be mounted on ComposeRequestPlane graph", tc.name)
+				t.Fatalf("%s must be mounted on ComposeStandardHTTP graph", tc.name)
 			}
 		})
 	}

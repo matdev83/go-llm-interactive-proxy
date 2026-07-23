@@ -41,9 +41,10 @@ func TestMountContract_DesiredStandardHTTPInputGroupsDeclared(t *testing.T) {
 // TestBuiltDependency_StdhttpMountSignaturesProhibitBuilt is a ratchet gate:
 // fails while strict mount helpers / focused composer / their input structs still
 // accept *runtimebundle.Built or RequestPlane; passes once Task 3.2 clears those
-// findings. Transitional adapters (NewStandardHandler, ComposeRequestPlane) may
-// retain broad source signatures until Phase 4 / Task 3.5 and are excluded from
-// this strict failure set. Intentionally not allowlisted — evidence for Task 3.2.
+// findings. Transitional adapters (NewStandardHandler) may retain broad source
+// signatures until Phase 4 and are excluded from this strict failure set.
+// ComposeRequestPlane was deleted in Task 3.5. Intentionally not allowlisted —
+// evidence for Task 3.2 / 3.5.
 func TestBuiltDependency_StdhttpMountSignaturesProhibitBuilt(t *testing.T) {
 	t.Parallel()
 	got := scanStdhttpMountContract(t)

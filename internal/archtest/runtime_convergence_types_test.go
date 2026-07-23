@@ -3,6 +3,8 @@ package archtest
 import "fmt"
 
 // Convergence gate identifiers for Task 1.4 RED architecture gates.
+// Task 3.5 adds http/generation contraction gates (broad RequestPlane deletion,
+// focused HTTP lifecycle, Phase 4 Built grandfathering).
 const (
 	gateRuntimeConvergence = "runtime_convergence"
 	gateReloadContract     = "reload_contract"
@@ -19,10 +21,17 @@ const (
 )
 
 var knownConvergenceGates = map[string]bool{
-	gateRuntimeConvergence: true,
-	gateReloadContract:     true,
-	gateHostPath:           true,
-	gateConfigLoad:         true,
+	gateRuntimeConvergence:   true,
+	gateReloadContract:       true,
+	gateHostPath:             true,
+	gateConfigLoad:           true,
+	gateBroadRequestPlane:    true,
+	gateCompatHTTPSymbols:    true,
+	gateFocusedHTTPLifecycle: true,
+	gateStdhttpBuilt:           true,
+	gateCanonicalClosers:       true,
+	gateCandidateLegacyClosers: true,
+	gateComposeInventory:       true,
 }
 
 var knownConvergenceClasses = map[string]bool{

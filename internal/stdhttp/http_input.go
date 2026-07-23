@@ -79,55 +79,6 @@ func standardHTTPInputFromBuilt(built *runtimebundle.Built, cfg *config.Config, 
 	}
 }
 
-func standardHTTPInputFromRequestPlane(plane runtimebundle.RequestPlane) StandardHTTPInput {
-	cfg := plane.StackConfig()
-	route := strings.TrimSpace(plane.Routing().DefaultRoute)
-	if route == "" && cfg != nil {
-		route = DefaultRouteSelector(cfg)
-	}
-	var maxBody int64
-	var preKA lipsdk.FrontendKeepaliveConfig
-	if cfg != nil {
-		maxBody = cfg.Server.EffectiveMaxRequestBodyBytes()
-		ka := cfg.Server.EffectivePreRequestKeepalive()
-		preKA = lipsdk.FrontendKeepaliveConfig{Enabled: ka.Enabled, Interval: ka.Interval}
-	}
-	routing := plane.Routing()
-	return StandardHTTPInput{
-		Core: HTTPCoreInput{Executor: plane.Executor()},
-		Security: HTTPSecurityInput{
-			HTTPAuthProviders:    cloneHTTPAuthProviders(plane.HTTPAuthProviders()),
-			SecureSessionStore:   plane.SecureSessionStore(),
-			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(plane.UsageAuthority()),
-			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(plane.ConcurrencyAuthority()),
-		},
-		Operations: HTTPOperationsInput{
-			Metrics:              plane.Metrics(),
-			Store:                plane.Store(),
-			SecretGuardInventory: plane.SecretGuardInventory(),
-			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(plane.ControlPlaneQueries()),
-			ReadinessReport:      cpadmin.AdaptReadinessReport(plane.ReadinessReport()),
-			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(plane.TokenAccountingAdmin()),
-			Registrations:        cloneRegistrations(plane.Registrations()),
-		},
-		Models: HTTPModelInput{
-			CatalogRuntime:       plane.CatalogRuntime(),
-			ModelRegistryRuntime: plane.ModelRegistryRuntime(),
-		},
-		Frontends: HTTPFrontendInput{
-			Executor:             plane.Executor(),
-			Registry:             plane.PluginRegistry(),
-			DefaultRouteSelector: route,
-			RoutePrefixes:        cloneStrings(routing.RoutePrefixes),
-			Plugins:              clonePluginConfigs(plane.Frontends()),
-			MaxRequestBodyBytes:  maxBody,
-			DecodeAdmission:      plane.DecodeAdmission(),
-			TrafficPorts:         trafficPortsFromSnapshot(plane.RuntimeSnapshot()),
-			PreRequestKeepalive:  preKA,
-		},
-	}
-}
-
 func trafficPortsFromSnapshot(snap trafficSnapshot) traffic.PortBundle {
 	return httpcontract.TrafficPortsFromSnapshot(snap)
 }

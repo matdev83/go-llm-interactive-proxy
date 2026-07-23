@@ -28,9 +28,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
@@ -252,95 +250,6 @@ func TestStandardHTTPInputFromBuilt_defensiveClones(t *testing.T) {
 	}
 }
 
-func TestStandardHTTPInputFromRequestPlane_defensiveClones(t *testing.T) {
-	t.Parallel()
-	ps := newProjectionProcess(t)
-	frontends := []config.PluginConfig{{ID: "openai-responses", Enabled: true}}
-	cfg := stubProjectionConfig(t, "proj", "ok", "proj:stub-default", frontends)
-	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
-	if err != nil {
-		t.Fatalf("CompileCandidate: %v", err)
-	}
-	t.Cleanup(func() { _ = cand.Close() })
-	captured := runtimebundle.NewCompatRequestPlane(cand, cfg, testkit.DiscardLogger(), config.RegistrationsFromConfig(cfg), runtimebundle.FrozenRoutingView{DefaultRoute: cand.EffectiveDefaultRoute, RoutePrefixes: cand.RoutePrefixes})
-	got := standardHTTPInputFromRequestPlane(captured)
-	got2 := standardHTTPInputFromRequestPlane(captured)
-
-	if len(got.Frontends.Plugins) == 0 {
-		t.Fatal("expected projected frontends")
-	}
-	origPluginID := got.Frontends.Plugins[0].ID
-	origPrefixes := append([]string(nil), got.Frontends.RoutePrefixes...)
-	origRegs := append([]lipsdk.Registration(nil), got.Operations.Registrations...)
-	origAuthLen := len(got.Security.HTTPAuthProviders)
-
-	// Mutate projected collections.
-	got.Frontends.Plugins[0].ID = "projected-mut"
-	if len(got.Frontends.RoutePrefixes) > 0 {
-		got.Frontends.RoutePrefixes[0] = "projected-mut"
-	}
-	if len(got.Operations.Registrations) > 0 {
-		got.Operations.Registrations[0].ID = "projected-mut"
-	}
-	if len(got.Security.HTTPAuthProviders) > 0 {
-		got.Security.HTTPAuthProviders[0] = nil
-	}
-	if len(got.Frontends.TrafficPorts.Red) > 0 {
-		got.Frontends.TrafficPorts.Red[0] = stubProjectionRedactor{id: "projected-mut"}
-	}
-
-	// Source plane getters must remain unchanged.
-	againPlugins := captured.Frontends()
-	if len(againPlugins) == 0 || againPlugins[0].ID != origPluginID {
-		t.Fatalf("RequestPlane Frontends mutated via projection: %v", againPlugins)
-	}
-	againRoute := captured.Routing()
-	if len(origPrefixes) > 0 && (len(againRoute.RoutePrefixes) == 0 || againRoute.RoutePrefixes[0] == "projected-mut") {
-		t.Fatalf("RequestPlane RoutePrefixes mutated via projection: %v", againRoute.RoutePrefixes)
-	}
-	againRegs := captured.Registrations()
-	if len(origRegs) > 0 && (len(againRegs) == 0 || againRegs[0].ID == "projected-mut") {
-		t.Fatalf("RequestPlane Registrations mutated via projection: %v", againRegs)
-	}
-	againAuth := captured.HTTPAuthProviders()
-	if origAuthLen > 0 && len(againAuth) != origAuthLen {
-		t.Fatalf("RequestPlane HTTPAuthProviders length changed: %d", len(againAuth))
-	}
-
-	// Mutate plane getter copies / stack config clone and ensure prior projection stable.
-	stack := captured.StackConfig()
-	if stack != nil && len(stack.Plugins.Frontends) > 0 {
-		stack.Plugins.Frontends[0].ID = "stack-mut"
-	}
-	getterPlugins := captured.Frontends()
-	if len(getterPlugins) > 0 {
-		getterPlugins[0].ID = "getter-mut"
-	}
-	if got2.Frontends.Plugins[0].ID != origPluginID {
-		t.Fatalf("second projection contaminated: %s", got2.Frontends.Plugins[0].ID)
-	}
-
-	// Repeated projection must not share mutable backing arrays.
-	if len(got.Frontends.RoutePrefixes) > 0 && len(got2.Frontends.RoutePrefixes) > 0 {
-		got.Frontends.RoutePrefixes[0] = "only-got"
-		if got2.Frontends.RoutePrefixes[0] == "only-got" {
-			t.Fatal("repeated RequestPlane projections share RoutePrefixes backing array")
-		}
-	}
-	if len(got.Operations.Registrations) > 0 && len(got2.Operations.Registrations) > 0 {
-		got.Operations.Registrations[0].ID = "only-got"
-		if got2.Operations.Registrations[0].ID == "only-got" {
-			t.Fatal("repeated RequestPlane projections share Registrations backing array")
-		}
-	}
-	if len(got.Frontends.TrafficPorts.Red) > 0 && len(got2.Frontends.TrafficPorts.Red) > 0 {
-		got.Frontends.TrafficPorts.Red[0] = stubProjectionRedactor{id: "only-got"}
-		if got2.Frontends.TrafficPorts.Red[0].ID() == "only-got" {
-			t.Fatal("repeated RequestPlane projections share TrafficPorts.Red backing array")
-		}
-	}
-}
-
 func TestTrafficPortsFromSnapshot_clonesRedactors(t *testing.T) {
 	t.Parallel()
 	reds := []traffic.Redactor{stubProjectionRedactor{id: "a"}}
@@ -427,11 +336,11 @@ func typeExprIsAny(expr ast.Expr) bool {
 	}
 }
 
-// TestTransitionalAdapters_projectToFocusedComposer is an AST proof that
-// NewStandardHandler / RunWithRuntime / ComposeRequestPlane project into
-// StandardHTTPInput and invoke prepareStandardHandler, while strict mounts are
-// never called with Built/RequestPlane and requestPlaneAsBuilt is gone.
-func TestTransitionalAdapters_projectToFocusedComposer(t *testing.T) {
+// TestLegacyBuiltAdapters_projectToFocusedComposer is an AST proof that
+// NewStandardHandler / RunWithRuntime (Phase 4) project into StandardHTTPInput
+// and invoke prepareStandardHandler, while strict mounts are never called with
+// Built/RequestPlane and RequestPlane compatibility symbols stay deleted.
+func TestLegacyBuiltAdapters_projectToFocusedComposer(t *testing.T) {
 	t.Parallel()
 	dir, err := os.Getwd()
 	if err != nil {
@@ -441,10 +350,14 @@ func TestTransitionalAdapters_projectToFocusedComposer(t *testing.T) {
 		"handler.go":       mustReadFile(t, filepath.Join(dir, "handler.go")),
 		"server.go":        mustReadFile(t, filepath.Join(dir, "server.go")),
 		"request_plane.go": mustReadFile(t, filepath.Join(dir, "request_plane.go")),
+		"http_input.go":    mustReadFile(t, filepath.Join(dir, "http_input.go")),
 	}
 	for name, src := range files {
 		if strings.Contains(src, "requestPlaneAsBuilt") {
 			t.Fatalf("%s must not reference requestPlaneAsBuilt after Task 3.2", name)
+		}
+		if strings.Contains(src, "ComposeRequestPlane") || strings.Contains(src, "standardHTTPInputFromRequestPlane") {
+			t.Fatalf("%s must not reference deleted RequestPlane compatibility symbols after Task 3.5", name)
 		}
 	}
 	assertFuncCalls(t, files["handler.go"], "NewStandardHandler", []string{
@@ -453,8 +366,8 @@ func TestTransitionalAdapters_projectToFocusedComposer(t *testing.T) {
 	assertFuncCalls(t, files["server.go"], "RunWithRuntime", []string{
 		"standardHTTPInputFromBuilt", "prepareStandardHandler",
 	})
-	assertFuncCalls(t, files["request_plane.go"], "ComposeRequestPlane", []string{
-		"standardHTTPInputFromRequestPlane", "prepareStandardHandler",
+	assertFuncCalls(t, files["request_plane.go"], "ComposeStandardHTTP", []string{
+		"prepareStandardHandler",
 	})
 
 	// Strict mounts / prepareStandardHandler must not accept Built param.
@@ -478,7 +391,7 @@ func TestTransitionalAdapters_projectToFocusedComposer(t *testing.T) {
 				"mountModelInventoryDiagnostics", "mountSecureSessionDiagnostics",
 				"mountAccountingAdmin", "mountControlPlaneQuery", "mountAccountingAuthorityQuery",
 				"MountBundledFrontends", "MountBundledFrontendsLegacy", "mountALegCancel",
-				"stackHTTPHandler", "prepareStandardHandler":
+				"stackHTTPHandler", "prepareStandardHandler", "ComposeStandardHTTP":
 			default:
 				continue
 			}
@@ -586,74 +499,6 @@ func (f fakeTrafficSnapshot) TrafficRedactors() []traffic.Redactor {
 	return f.red
 }
 
-func newProjectionProcess(t *testing.T) *runtimebundle.ProcessServices {
-	t.Helper()
-	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
-		t.Fatal(err)
-	}
-	cfg := &config.Config{
-		Routing:     config.RoutingConfig{MaxAttempts: 3},
-		Continuity:  config.ContinuityConfig{InMemory: true, Store: "memory"},
-		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
-		Server: config.ServerConfig{
-			MaxRequestBodyBytes:    1024,
-			MaxConcurrentDecodes:   4,
-			MaxInflightDecodeBytes: 4096,
-		},
-		Plugins: config.PluginsConfig{
-			Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}},
-		},
-	}
-	if err := config.Validate(cfg); err != nil {
-		t.Fatal(err)
-	}
-	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
-		Cfg:  cfg,
-		Log:  testkit.DiscardLogger(),
-		Opts: &runtimebundle.BuildOptions{PluginRegistry: reg},
-		Tracing: runtimebundle.ProcessTracing{
-			Shutdown: func(context.Context) error { return nil },
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ps.Close() })
-	return ps
-}
-
-func stubProjectionConfig(t *testing.T, backendID, text, defaultRoute string, frontends []config.PluginConfig) *config.Config {
-	t.Helper()
-	var n yaml.Node
-	if err := yaml.Unmarshal([]byte("text: \""+text+"\"\ninput_tokens: 1\noutput_tokens: 1\n"), &n); err != nil {
-		t.Fatal(err)
-	}
-	for n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
-		n = *n.Content[0]
-	}
-	cfg := &config.Config{
-		Routing:    config.RoutingConfig{MaxAttempts: 3, DefaultRoute: defaultRoute},
-		Continuity: config.ContinuityConfig{InMemory: true, Store: "memory"},
-		Server: config.ServerConfig{
-			MaxRequestBodyBytes:    1024,
-			MaxConcurrentDecodes:   4,
-			MaxInflightDecodeBytes: 4096,
-		},
-		Diagnostics: config.DiagnosticsConfig{Enabled: true, HealthPath: "/healthz"},
-		Plugins: config.PluginsConfig{
-			Frontends: frontends,
-			Backends: []config.PluginConfig{{
-				Kind: "local-stub", ID: backendID, Enabled: true, Config: n,
-			}},
-		},
-	}
-	if err := config.Validate(cfg); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
-	return cfg
-}
-
 // Ensure typed adminaccounting.Service is what Operations holds (compile-time).
 var _ adminaccounting.Service = adminaccounting.AdaptCountCallService((*accountingapp.Service)(nil))
 
@@ -686,31 +531,6 @@ func TestStandardHTTPInputFromBuilt_typedNilAuthoritiesProjectToNil(t *testing.T
 	}
 	if got.Operations.TokenAccountingAdmin != nil {
 		t.Fatal("typed-nil TokenAccountingAdmin must project to nil interface")
-	}
-}
-
-func TestStandardHTTPInputFromRequestPlane_nilAuthoritiesProjectToNil(t *testing.T) {
-	t.Parallel()
-	ps := newProjectionProcess(t)
-	cfg := stubProjectionConfig(t, "proj-auth", "ok", "proj-auth:stub-default", []config.PluginConfig{
-		{ID: "openai-responses", Enabled: true},
-	})
-	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
-	if err != nil {
-		t.Fatalf("CompileCandidate: %v", err)
-	}
-	t.Cleanup(func() { _ = cand.Close() })
-	// Concrete nil pointers from plane getters must adapt to true nil interfaces.
-	plane := runtimebundle.NewCompatRequestPlane(cand, cfg, testkit.DiscardLogger(), config.RegistrationsFromConfig(cfg), runtimebundle.FrozenRoutingView{DefaultRoute: cand.EffectiveDefaultRoute, RoutePrefixes: cand.RoutePrefixes})
-	got := standardHTTPInputFromRequestPlane(plane)
-	if got.Security.UsageAuthority != nil {
-		t.Fatal("RequestPlane nil UsageAuthority must project to nil interface")
-	}
-	if got.Security.ConcurrencyAuthority != nil {
-		t.Fatal("RequestPlane nil ConcurrencyAuthority must project to nil interface")
-	}
-	if got.Operations.TokenAccountingAdmin != nil {
-		t.Fatal("RequestPlane nil TokenAccountingAdmin must project to nil interface")
 	}
 }
 

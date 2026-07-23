@@ -129,7 +129,7 @@ func TestCompileGeneration_BodyNeverConstructsRequestPlane(t *testing.T) {
 func TestHandlerComposer_TakesStandardHTTPInputNotRequestPlane(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	path := filepath.Join(root, "internal", "infra", "runtimebundle", "request_plane.go")
+	path := filepath.Join(root, "internal", "infra", "runtimebundle", "handler_composer.go")
 	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestHandlerComposer_TakesStandardHTTPInputNotRequestPlane(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatal("HandlerComposer type declaration not found in request_plane.go")
+		t.Fatal("HandlerComposer type declaration not found in handler_composer.go")
 	}
 	if found.Params == nil {
 		t.Fatal("HandlerComposer has no parameters")

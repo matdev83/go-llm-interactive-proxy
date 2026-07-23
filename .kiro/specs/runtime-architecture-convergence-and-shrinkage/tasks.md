@@ -83,7 +83,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 3: Introduce Focused HTTP Composition and the Canonical Generation Runtime
 
-- [ ] 3. Replace broad runtime bags at the HTTP boundary
+- [x] 3. Replace broad runtime bags at the HTTP boundary
 
 - [x] 3.1 Add focused HTTP mount contract RED tests
   - Characterize every mount helper's actual dependency usage, middleware order, route set, route-conflict behavior, auth order, metrics/tracing, and frontend configuration.
@@ -128,7 +128,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.3_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/stdhttp/... -run 'CompileGeneration|Coexist|Fault|Rollback|Handler'`_
 
-- [ ] 3.5 Activate HTTP and generation architecture gates
+- [x] 3.5 Activate HTTP and generation architecture gates
   - Prohibit production `requestPlaneAsBuilt`, broad RequestPlane getters, stdhttp `Built` dependencies, and candidate legacy closer projections.
   - Delete compatibility-only request-plane mapping tests after replacing them with handler behavior tests.
   - Lower candidate compilation and relevant stdhttp file budgets.
