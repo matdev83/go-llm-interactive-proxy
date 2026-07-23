@@ -1,0 +1,4723 @@
+{
+  "reviewed_sha": "efe4624909cea318c7211d5cb3734059d3210802",
+  "generator": "baseline/capture_baseline.py",
+  "scan_method": "deterministic Python walk of *.go under --repo-root; fixed identifier patterns; roles assigned by line heuristics in capture_baseline.py; comments classified separately; production_caller reserved for production file_class only",
+  "summary": {
+    "Built": {
+      "hit_count": 181,
+      "file_count": 60,
+      "files": {
+        "internal/archtest/guardrails_test.go": {
+          "file_class": "architecture_check",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 242,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 272,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/archtest/reload_ownership_gates_test.go": {
+          "file_class": "architecture_check",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 656,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/archtest/reload_ownership_scan.go": {
+          "file_class": "architecture_check",
+          "roles": [
+            "code_reference",
+            "field_usage"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 560,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 565,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 574,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/core/runtime/secret_guard_real_feature_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 40,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 289,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/core/terminalwork/app/generation_pin_tracker.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 377,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_compatibility_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "comment_mention",
+            "field_usage"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 307,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 321,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 322,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_host.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 138,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_plan.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention",
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 54,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 66,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 245,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_plan_internal_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "field_usage"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 64,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 65,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 121,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 122,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_plan_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "field_usage"
+          ],
+          "line_count": 8,
+          "lines": [
+            {
+              "line": 38,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 39,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 63,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 64,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 100,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 103,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 106,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 109,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention",
+            "construction",
+            "type_usage"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 15,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 21,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 70,
+              "role": "construction",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_extension.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 32,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_model.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 94,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_modelcatalog_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 182,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_policy_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 170,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 65,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 68,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/built.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention",
+            "declaration"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 28,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 29,
+              "role": "declaration",
+              "is_comment": false
+            },
+            {
+              "line": 42,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 50,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/candidate_compile.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 334,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/catalog_ownership_order_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 44,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/compile_generation_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "field_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 392,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 393,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/control_plane_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 24,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/generation_bundle.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 32,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/initial_generation_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "field_usage"
+          ],
+          "line_count": 9,
+          "lines": [
+            {
+              "line": 47,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 48,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 104,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 122,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 123,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 124,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 125,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 133,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 134,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/modelregistry_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 500,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/options.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 197,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/ownership_inventory_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "comment_mention",
+            "field_usage"
+          ],
+          "line_count": 16,
+          "lines": [
+            {
+              "line": 65,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 102,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 104,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 107,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 217,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 228,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 282,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 285,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 288,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 295,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 297,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 300,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 303,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 502,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 507,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 517,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase45_process_metrics_prom_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 91,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/pooled_postgres_runtime_integration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 155,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/production_options_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 87,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/readiness_report_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 27,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/reasoning_preservation_bootstrap_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference",
+            "field_usage"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 39,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 40,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 42,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 43,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/request_plane.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 43,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/resource_ledger.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 280,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/secure_session_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 49,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 195,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 228,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/secure_session_restart_e2e_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 5,
+          "lines": [
+            {
+              "line": 105,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 144,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 180,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 207,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 219,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/terminal_work.go": {
+          "file_class": "production",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 516,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 569,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/token_accounting_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 100,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/generation.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 50,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimehost/request_binding.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 14,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimehost/request_plane.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 9,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/authority_mount_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 199,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 211,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/control_plane_mount_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 39,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 52,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/dogfood_smoke_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 57,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/handler.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 11,
+          "lines": [
+            {
+              "line": 39,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 61,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 69,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 76,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 80,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 87,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 90,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 93,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 96,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 141,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 155,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/identity_frontend_passthrough_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 113,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/middleware.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 20,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 42,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 44,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/modelcatalog_diag_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 159,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 165,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 168,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/mount_admin.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 22,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 29,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 57,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 70,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 118,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 125,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/mount_diagnostics.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 27,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 39,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 61,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 104,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 108,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 138,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/mount_metrics.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 22,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 30,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/mount_securesession.go": {
+          "file_class": "production",
+          "roles": [
+            "field_usage",
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 22,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 30,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/mount_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 5,
+          "lines": [
+            {
+              "line": 65,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 102,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 126,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 230,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 284,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/outer_recovery_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 110,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 114,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 150,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 154,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/reasoning_preservation_http_harness_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 344,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/request_plane.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention",
+            "compatibility_adapter",
+            "field_usage"
+          ],
+          "line_count": 12,
+          "lines": [
+            {
+              "line": 58,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 65,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 72,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 76,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 82,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 85,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 88,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 91,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 135,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 139,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 141,
+              "role": "compatibility_adapter",
+              "is_comment": false
+            },
+            {
+              "line": 142,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/route.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 12,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/server.go": {
+          "file_class": "production",
+          "roles": [
+            "type_usage"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 30,
+              "role": "type_usage",
+              "is_comment": false
+            },
+            {
+              "line": 125,
+              "role": "type_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/server_identity_stack_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 10,
+          "lines": [
+            {
+              "line": 83,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 116,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 134,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 150,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 168,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 195,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 201,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 215,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 221,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 521,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/stack_http_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "field_usage"
+          ],
+          "line_count": 8,
+          "lines": [
+            {
+              "line": 32,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 34,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 84,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 86,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 141,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 143,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 245,
+              "role": "field_usage",
+              "is_comment": false
+            },
+            {
+              "line": 247,
+              "role": "field_usage",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/reload_facade_external_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 260,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "Build_compat": {
+      "hit_count": 204,
+      "file_count": 67,
+      "files": {
+        "internal/core/runtime/secret_guard_real_feature_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 202,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/auth_compose_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 13,
+          "lines": [
+            {
+              "line": 57,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 99,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 151,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 196,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 241,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 287,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 317,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 381,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 438,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 483,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 532,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 581,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 625,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/auth_events_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 7,
+          "lines": [
+            {
+              "line": 24,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 43,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 74,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 98,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 115,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 134,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 151,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/auth_secret_leak_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 68,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/authority_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 7,
+          "lines": [
+            {
+              "line": 29,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 46,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 54,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 79,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 90,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 116,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 141,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/authority_coord_registration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 36,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 85,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 110,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 172,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 229,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 249,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/authority_evidence_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 112,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 200,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 242,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/backend_closer_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 48,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 105,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 159,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 210,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_plan.go": {
+          "file_class": "production",
+          "roles": [
+            "production_caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 209,
+              "role": "production_caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build.go": {
+          "file_class": "production",
+          "roles": [
+            "declaration_runtimebundle"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 21,
+              "role": "declaration_runtimebundle",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_modelcatalog_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 49,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 104,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 161,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_policy_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 5,
+          "lines": [
+            {
+              "line": 52,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 82,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 117,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 136,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 157,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_registry_required_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 20,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 35,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 50,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 68,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 7,
+          "lines": [
+            {
+              "line": 36,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 91,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 123,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 161,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 195,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 215,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 242,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/circuit_and_observer_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 24,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 51,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 71,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/codex_catalog_access_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 9,
+          "lines": [
+            {
+              "line": 70,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 125,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 177,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 230,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 276,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 319,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 369,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 420,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 470,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/concurrency_authority_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 19,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 54,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 105,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/control_plane_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 26,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/control_plane_clock_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 51,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/control_plane_closer_leak_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 51,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 85,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 122,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/cursorsdk_close_rollback_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 92,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 152,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/cursorsdk_coexistence_integration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 79,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/dual_backend_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 39,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 77,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 106,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/exclusive_registry_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 63,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/interleaved_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 64,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 86,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 121,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 138,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/managed_postgres_runtime_integration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 48,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/managed_postgres_runtime_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 4,
+          "lines": [
+            {
+              "line": 37,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 70,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 105,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 136,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/minimal_registry_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 42,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/modelcatalog_override_set_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 110,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/modelregistry_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 10,
+          "lines": [
+            {
+              "line": 48,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 75,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 111,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 161,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 205,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 263,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 314,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 352,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 397,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 438,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/opencode_zen_registry_live_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 54,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/pending_wire_default_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 21,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase45_composition_effect_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 108,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 205,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase45_process_metrics_prom_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 40,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase45_readiness_safe_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 56,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 137,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase45_terminal_wiring_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 41,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase53_executable_generation_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 98,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase55_executable_readiness_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 37,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 90,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/phase5_remediation_e2e_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 55,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 140,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/pooled_postgres_runtime_integration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 210,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/postgres_pool_build_abort_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 73,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/process_services_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 225,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/production_options_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 71,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/readiness_report_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 17,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/secret_guard_leak_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 93,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/secure_session_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 35,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 65,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 86,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 131,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 172,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 214,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/secure_session_restart_e2e_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 75,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 85,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 95,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/security_policy_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 97,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 132,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 176,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 201,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 225,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 255,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/snapshot_generation_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 5,
+          "lines": [
+            {
+              "line": 21,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 119,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 166,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 217,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 248,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/sqlite_closer_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 34,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/terminal_work_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 47,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 86,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 137,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/token_accounting_build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 93,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 177,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 263,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 308,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 365,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 410,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/backend_closer_shutdown_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 79,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/cursorsdk_composed_integration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 80,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/decode_admission_shared_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 24,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/default_route_frontends_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 190,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/registry_required_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 92,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/server_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 9,
+          "lines": [
+            {
+              "line": 66,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 115,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 159,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 202,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 248,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 283,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 321,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 366,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 428,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/standard_wiring_roundtrip_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 63,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/build.go": {
+          "file_class": "production",
+          "roles": [
+            "declaration_lipruntime"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 44,
+              "role": "declaration_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 75,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 184,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 214,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/compatibility_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 23,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 47,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/observer_compat_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 25,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 53,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 76,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/phase55_facade_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 23,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/registration_compose_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 13,
+          "lines": [
+            {
+              "line": 18,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 66,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 83,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 107,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 119,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 148,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 169,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 196,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 213,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 246,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 272,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 299,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 339,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/reload_host_integration_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 5,
+          "lines": [
+            {
+              "line": 19,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 57,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 75,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 117,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            },
+            {
+              "line": 175,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        },
+        "testdata/enterprise_module/main.go": {
+          "file_class": "sample_external_module",
+          "roles": [
+            "caller_lipruntime"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 133,
+              "role": "caller_lipruntime",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "RunWithRuntime": {
+      "hit_count": 32,
+      "file_count": 13,
+      "files": {
+        "internal/core/config/diagnostics_posture.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 37,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/core/runtime/app.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 62,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 107,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/built.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 47,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/ownership_inventory_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 132,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 133,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 134,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/handler.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 21,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 33,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 146,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/middleware.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 16,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 30,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/mount_diagnostics.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 37,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/mount_metrics.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 28,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/mount_securesession.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 28,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/registry_required_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 99,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/runwithruntime_posture_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller",
+            "comment_mention"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 13,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 39,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/server.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention",
+            "declaration"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 23,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 25,
+              "role": "declaration",
+              "is_comment": false
+            },
+            {
+              "line": 90,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/stdhttp/server_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller",
+            "code_reference",
+            "comment_mention"
+          ],
+          "line_count": 11,
+          "lines": [
+            {
+              "line": 77,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 126,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 166,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 208,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 254,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 256,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 288,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 297,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 325,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 341,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 370,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "RequestPlane": {
+      "hit_count": 71,
+      "file_count": 19,
+      "files": {
+        "internal/archtest/guardrails_test.go": {
+          "file_class": "architecture_check",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 268,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/compile_generation.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 108,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 170,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/compile_generation_repair_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 7,
+          "lines": [
+            {
+              "line": 40,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 79,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 173,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 217,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 238,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 361,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 380,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/compile_generation_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 290,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 402,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 409,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/frontend_feature_generation_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 301,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 352,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/generation_provider_resolver.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 62,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/initial_generation_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 94,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/reload_backend_recomposition_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 221,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/reload_host.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 157,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/request_plane.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference",
+            "comment_mention",
+            "declaration"
+          ],
+          "line_count": 36,
+          "lines": [
+            {
+              "line": 33,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 41,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 46,
+              "role": "declaration",
+              "is_comment": false
+            },
+            {
+              "line": 83,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 86,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 94,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 102,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 110,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 113,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 116,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 119,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 122,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 125,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 128,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 131,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 139,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 142,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 145,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 148,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 151,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 154,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 157,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 160,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 163,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 166,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 169,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 172,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 175,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 178,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 181,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 184,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 187,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 190,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 193,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 196,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 203,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/coordinator.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 741,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/generation.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference",
+            "comment_mention"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 247,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 248,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 259,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/generation_dispatcher.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 47,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/generation_executor.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 113,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/lease.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference",
+            "comment_mention"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 31,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 32,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 36,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/lifecycle_worker.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 85,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimehost/request_plane_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 46,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 68,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/request_plane.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference",
+            "comment_mention",
+            "composer"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 25,
+              "role": "composer",
+              "is_comment": false
+            },
+            {
+              "line": 139,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 141,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/build.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 197,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "requestPlaneAsBuilt": {
+      "hit_count": 3,
+      "file_count": 1,
+      "files": {
+        "internal/stdhttp/request_plane.go": {
+          "file_class": "production",
+          "roles": [
+            "caller",
+            "comment_mention",
+            "declaration"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 49,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 139,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 141,
+              "role": "declaration",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "AttachReloadHost": {
+      "hit_count": 11,
+      "file_count": 7,
+      "files": {
+        "cmd/lipstd/command.go": {
+          "file_class": "production",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 286,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        },
+        "cmd/lipstd/serve_rollback.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 37,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/bootstrap_plan.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 74,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/reload_host.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention",
+            "declaration"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 50,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 54,
+              "role": "declaration",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/infra/runtimebundle/reload_host_stream_recovery_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller",
+            "code_reference",
+            "comment_mention"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 54,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 58,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 60,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/runtime_config_reload_nodrop_cert_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "caller",
+            "code_reference"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 345,
+              "role": "caller",
+              "is_comment": false
+            },
+            {
+              "line": 347,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/build.go": {
+          "file_class": "production",
+          "roles": [
+            "caller"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 102,
+              "role": "caller",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "reload_contract": {
+      "hit_count": 33,
+      "file_count": 5,
+      "files": {
+        "internal/core/configreload/history.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 12,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/core/configreload/model.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 11,
+          "lines": [
+            {
+              "line": 9,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 12,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 13,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 17,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 24,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 27,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 28,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 41,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 42,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 55,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 68,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "internal/stdhttp/config_reload_management_ref_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 3,
+          "lines": [
+            {
+              "line": 40,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 46,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 57,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/reload.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 12,
+          "lines": [
+            {
+              "line": 12,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 15,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 16,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 20,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 27,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 30,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 31,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 44,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 45,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 58,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 70,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 86,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/reload_map.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 6,
+          "lines": [
+            {
+              "line": 7,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 26,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 55,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 66,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 82,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 105,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    },
+    "deprecated_Options": {
+      "hit_count": 68,
+      "file_count": 7,
+      "files": {
+        "pkg/lipruntime/build.go": {
+          "file_class": "production",
+          "roles": [
+            "comment_mention"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 163,
+              "role": "comment_mention",
+              "is_comment": true
+            }
+          ]
+        },
+        "pkg/lipruntime/build_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 81,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/normalize.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 30,
+          "lines": [
+            {
+              "line": 23,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 24,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 37,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 38,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 40,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 41,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 43,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 44,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 46,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 47,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 50,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 51,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 52,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 54,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 55,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 61,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 62,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 68,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 69,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 75,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 79,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 213,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 218,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 223,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 234,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 239,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 244,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 255,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 257,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 260,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/observer_compat_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 2,
+          "lines": [
+            {
+              "line": 29,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 55,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/options.go": {
+          "file_class": "production",
+          "roles": [
+            "code_reference",
+            "comment_mention"
+          ],
+          "line_count": 12,
+          "lines": [
+            {
+              "line": 37,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 38,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 40,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 41,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 42,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 44,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 45,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 48,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 59,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 61,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 73,
+              "role": "comment_mention",
+              "is_comment": true
+            },
+            {
+              "line": 76,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/phase55_facade_red_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 1,
+          "lines": [
+            {
+              "line": 37,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        },
+        "pkg/lipruntime/registration_compose_test.go": {
+          "file_class": "test_only",
+          "roles": [
+            "code_reference"
+          ],
+          "line_count": 21,
+          "lines": [
+            {
+              "line": 85,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 101,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 109,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 112,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 121,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 122,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 150,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 151,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 174,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 198,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 202,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 206,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 258,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 304,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 342,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 343,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 381,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 383,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 387,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 391,
+              "role": "code_reference",
+              "is_comment": false
+            },
+            {
+              "line": 395,
+              "role": "code_reference",
+              "is_comment": false
+            }
+          ]
+        }
+      }
+    }
+  }
+}

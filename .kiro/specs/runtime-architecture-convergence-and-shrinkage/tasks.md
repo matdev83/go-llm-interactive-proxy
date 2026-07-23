@@ -6,7 +6,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 1. Establish the contraction safety envelope
 
-- [ ] 1.1 Record exact architecture and behavior baselines
+- [x] 1.1 Record exact architecture and behavior baselines
   - Run `make arch-report` at reviewed commit `efe4624909cea318c7211d5cb3734059d3210802` and record affected package/file non-test lines, fan-out/fan-in, exported public symbols, and current compatibility symbols.
   - Record repeated benchmark baselines for generation acquire/release, publish, dispatcher, candidate compilation, and successful/no-op reload using equivalent-host `benchstat`.
   - Inventory production and test callers of `Built`, `Build`, `RunWithRuntime`, `RequestPlane`, `requestPlaneAsBuilt`, `AttachReloadHost`, duplicate reload contracts, and deprecated public Options.
