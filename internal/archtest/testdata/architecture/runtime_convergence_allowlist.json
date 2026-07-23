@@ -1,0 +1,518 @@
+{
+  "schema_version": 1,
+  "description": "Task 1.4 migration allowlist for runtime architecture convergence RED gates. Each entry is an exact current production exception keyed by gate+path+site-unique structural identity (call sites use per-function/per-callee occurrence ordinals, e.g. call:fn->runtimebundle.Build#1). Remove the entry in the named retirement task when the violation disappears; stale or duplicate entries fail the gate.",
+  "entries": [
+    {
+      "gate": "config_load",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:validateServeMultiUserGate->LoadBootstrapEffective#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "Duplicate serve-path effective load before BuildBootstrap"
+    },
+    {
+      "gate": "config_load",
+      "path": "internal/infra/runtimebundle/bootstrap_effective.go",
+      "identity": "call:LoadBootstrapEffective->LoadBootstrapEffectiveWithSource#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "Owner wrapper delegates to WithSource"
+    },
+    {
+      "gate": "config_load",
+      "path": "internal/infra/runtimebundle/bootstrap_effective.go",
+      "identity": "call:LoadBootstrapEffectiveWithSource->config.LoadEffective#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "Owner performs the singular strict LoadEffective for startup"
+    },
+    {
+      "gate": "config_load",
+      "path": "internal/infra/runtimebundle/bootstrap_effective.go",
+      "identity": "func:LoadBootstrapEffective",
+      "classification": "owner",
+      "retirement_task": "5.2",
+      "rationale": "Startup effective-load owner wrapper"
+    },
+    {
+      "gate": "config_load",
+      "path": "internal/infra/runtimebundle/bootstrap_effective.go",
+      "identity": "func:LoadBootstrapEffectiveWithSource",
+      "classification": "owner",
+      "retirement_task": "5.2",
+      "rationale": "Primary startup effective-load owner"
+    },
+    {
+      "gate": "config_load",
+      "path": "internal/infra/runtimebundle/bootstrap_plan.go",
+      "identity": "call:buildBootstrap->LoadBootstrapEffectiveWithSource#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "BuildBootstrap startup load call"
+    },
+    {
+      "gate": "host_path",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:runCheckConfigCommand->runtimebundle.BuildBootstrap#1",
+      "classification": "call",
+      "retirement_task": "5.4",
+      "rationale": "check-config uses BootstrapServe; replace with ValidateDistribution"
+    },
+    {
+      "gate": "host_path",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:runInventoryCommand->runtimebundle.BuildBootstrap#1",
+      "classification": "call",
+      "retirement_task": "5.3",
+      "rationale": "inventory inspect still goes through BuildBootstrap"
+    },
+    {
+      "gate": "host_path",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:runRoutesCommand->runtimebundle.BuildBootstrap#1",
+      "classification": "call",
+      "retirement_task": "5.3",
+      "rationale": "routes inspect still goes through BuildBootstrap"
+    },
+    {
+      "gate": "host_path",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:runServeCommand->runtimebundle.AttachReloadHost#1",
+      "classification": "call",
+      "retirement_task": "5.5",
+      "rationale": "Serve two-step AttachReloadHost caller"
+    },
+    {
+      "gate": "host_path",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:runServeCommand->runtimebundle.BuildBootstrap#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "Standard serve bootstrap caller"
+    },
+    {
+      "gate": "host_path",
+      "path": "cmd/lipstd/command.go",
+      "identity": "call:runServeCommand->stdhttp.RunWithGenerationHost#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "Serve generation-host runner caller"
+    },
+    {
+      "gate": "host_path",
+      "path": "internal/infra/runtimebundle/bootstrap_plan.go",
+      "identity": "call:buildBootstrap->runtimebundle.Build#1",
+      "classification": "call",
+      "retirement_task": "4.2",
+      "rationale": "Legacy BootstrapServe Built construction"
+    },
+    {
+      "gate": "host_path",
+      "path": "internal/infra/runtimebundle/bootstrap_plan.go",
+      "identity": "func:BuildBootstrap",
+      "classification": "declaration",
+      "retirement_task": "5.2",
+      "rationale": "Current multi-mode host builder; replace with BuildHost"
+    },
+    {
+      "gate": "host_path",
+      "path": "internal/infra/runtimebundle/build.go",
+      "identity": "func:Build",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Compatibility Build declaration on host path inventory"
+    },
+    {
+      "gate": "host_path",
+      "path": "internal/infra/runtimebundle/reload_host.go",
+      "identity": "func:AttachReloadHost",
+      "classification": "declaration",
+      "retirement_task": "5.5",
+      "rationale": "Two-step reload host attachment declaration"
+    },
+    {
+      "gate": "host_path",
+      "path": "internal/stdhttp/generation_host.go",
+      "identity": "func:RunWithGenerationHost",
+      "classification": "declaration",
+      "retirement_task": "5.2",
+      "rationale": "Current generation-host serve helper; freeze callers until BuildHost owns assembly"
+    },
+    {
+      "gate": "host_path",
+      "path": "internal/stdhttp/server.go",
+      "identity": "func:RunWithRuntime",
+      "classification": "declaration",
+      "retirement_task": "4.3",
+      "rationale": "Legacy serve host declaration"
+    },
+    {
+      "gate": "host_path",
+      "path": "pkg/lipruntime/build.go",
+      "identity": "call:Build->runtimebundle.AttachReloadHost#1",
+      "classification": "call",
+      "retirement_task": "5.5",
+      "rationale": "Public Build two-step AttachReloadHost caller"
+    },
+    {
+      "gate": "host_path",
+      "path": "pkg/lipruntime/build.go",
+      "identity": "call:Build->runtimebundle.BuildBootstrap#1",
+      "classification": "call",
+      "retirement_task": "5.2",
+      "rationale": "Public Build bootstrap caller"
+    },
+    {
+      "gate": "host_path",
+      "path": "pkg/lipruntime/build.go",
+      "identity": "func:Build",
+      "classification": "declaration",
+      "retirement_task": "5.2",
+      "rationale": "Public Build still performs BuildBootstrap+AttachReloadHost two-step"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/history.go",
+      "identity": "type:HistoryEntry",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultBusy",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultCanceled",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultInternalFailed",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultInvalid",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultNoop",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultPreparationFailed",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultPublished",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultRestartRequired",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultRetentionBlocked",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:ResultSourceIntegrity",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:TriggerAPI",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "const:TriggerSIGHUP",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "type:ReloadResult",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "type:ReloadStatus",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "type:ReloadTrigger",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "type:ResultCategory",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "type:TriggerKind",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "internal/core/configreload/model.go",
+      "identity": "var:AllResultCategories",
+      "classification": "declaration",
+      "retirement_task": "2.1",
+      "rationale": "Internal mirrored vocabulary; migrate to pkg/lipsdk/configreload"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultBusy",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultCanceled",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultInternalFailed",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultInvalid",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultNoop",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultPreparationFailed",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultPublished",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultRestartRequired",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultRetentionBlocked",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:ResultSourceIntegrity",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:TriggerAPI",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "const:TriggerSIGHUP",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "type:HistoryEntry",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "type:ReloadResult",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "type:ReloadStatus",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "type:ReloadTrigger",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "type:ResultCategory",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "type:TriggerKind",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "reload_contract",
+      "path": "pkg/lipruntime/reload.go",
+      "identity": "var:AllResultCategories",
+      "classification": "declaration",
+      "retirement_task": "2.3",
+      "rationale": "Public mirrored vocabulary; replace with aliases and delete duplicates"
+    },
+    {
+      "gate": "runtime_convergence",
+      "path": "internal/infra/runtimebundle/bootstrap_plan.go",
+      "identity": "call:buildBootstrap->runtimebundle.Build#1",
+      "classification": "call",
+      "retirement_task": "4.2",
+      "rationale": "Sole production caller of compatibility Build (legacy BootstrapServe path)"
+    },
+    {
+      "gate": "runtime_convergence",
+      "path": "internal/infra/runtimebundle/build.go",
+      "identity": "func:Build",
+      "classification": "declaration",
+      "retirement_task": "4.2",
+      "rationale": "Compatibility Build declaration retained until callers migrate"
+    },
+    {
+      "gate": "runtime_convergence",
+      "path": "internal/stdhttp/request_plane.go",
+      "identity": "call:ComposeRequestPlane->requestPlaneAsBuilt#1",
+      "classification": "call",
+      "retirement_task": "3.5",
+      "rationale": "Sole production call site of requestPlaneAsBuilt"
+    },
+    {
+      "gate": "runtime_convergence",
+      "path": "internal/stdhttp/request_plane.go",
+      "identity": "func:requestPlaneAsBuilt",
+      "classification": "adapter",
+      "retirement_task": "3.5",
+      "rationale": "Canonical RequestPlane\u2192Built rehydration adapter; delete after focused mount inputs"
+    },
+    {
+      "gate": "runtime_convergence",
+      "path": "internal/stdhttp/server.go",
+      "identity": "func:RunWithRuntime",
+      "classification": "declaration",
+      "retirement_task": "4.3",
+      "rationale": "Legacy Built serve declaration; production callers already absent"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 ## Phase 1: Freeze Behavior, Measure the Baseline, and Block Further Growth
 
-- [ ] 1. Establish the contraction safety envelope
+- [x] 1. Establish the contraction safety envelope
 
 - [x] 1.1 Record exact architecture and behavior baselines
   - Run `make arch-report` at reviewed commit `efe4624909cea318c7211d5cb3734059d3210802` and record affected package/file non-test lines, fan-out/fan-in, exported public symbols, and current compatibility symbols.
@@ -36,7 +36,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.1_
   - _Validation: `go test ./cmd/lipstd/... ./internal/stdhttp/... ./internal/infra/runtimebundle/... ./pkg/lipruntime/... -run 'Compatibility|Standard|Bootstrap|Close|Capability|CheckConfig'`_
 
-- [ ] 1.4 Add RED architecture gates for final convergence
+- [x] 1.4 Add RED architecture gates for final convergence
   - Add initially targeted tests for no production `requestPlaneAsBuilt`, no canonical-to-legacy runtime adapter, one reload contract declaration, one serve host builder, and one startup effective-load owner.
   - Keep gates scoped or allowlisted until their corresponding conversion task removes the current violation.
   - Prohibit new legacy path call sites immediately.
