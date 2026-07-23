@@ -13,15 +13,19 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// GenerationCompiler adapts CompileGeneration to runtimehost.CandidateCompiler
-// so startup, reload, check-config dry-run, lipstd, and lipruntime share one path.
+// GenerationCompiler is the canonical composition-root compiler: it returns
+// only GenerationRuntime (task 3.4, req 2.2-2.8). It does not implement
+// runtimehost.CandidateCompiler directly — Go lacks covariant return types, so
+// candidateCompilerAdapter below is the one narrow, explicit adapter that
+// invokes GenerationCompiler and republishes its result as
+// runtimehost.PublishedRequestPlane (GenerationRuntime already embeds it).
 type GenerationCompiler struct {
 	Process *ProcessServices
 	Compose HandlerComposer
 }
 
-// Compile implements runtimehost.CandidateCompiler.
-func (c GenerationCompiler) Compile(ctx context.Context, candidate *config.Config, liveFactoryKinds map[string]int) (runtimehost.PublishedRequestPlane, error) {
+// Compile builds one isolated generation runtime against the process.
+func (c GenerationCompiler) Compile(ctx context.Context, candidate *config.Config, liveFactoryKinds map[string]int) (GenerationRuntime, error) {
 	if c.Process == nil {
 		return nil, fmt.Errorf("runtimebundle: nil ProcessServices")
 	}
@@ -34,6 +38,22 @@ func (c GenerationCompiler) Compile(ctx context.Context, candidate *config.Confi
 		Compose:          c.Compose,
 		LiveFactoryKinds: liveFactoryKinds,
 	})
+}
+
+// candidateCompilerAdapter is the sole explicit boundary adapter satisfying
+// runtimehost.CandidateCompiler by delegating to GenerationCompiler. It
+// performs no compilation logic of its own — only the return-type widening
+// Go's lack of covariant returns requires (task 3.4, req 2.2-2.8).
+type candidateCompilerAdapter struct {
+	inner GenerationCompiler
+}
+
+func (a candidateCompilerAdapter) Compile(ctx context.Context, candidate *config.Config, liveFactoryKinds map[string]int) (runtimehost.PublishedRequestPlane, error) {
+	rt, err := a.inner.Compile(ctx, candidate, liveFactoryKinds)
+	if err != nil {
+		return nil, err
+	}
+	return rt, nil
 }
 
 // ReloadHost is the process-owned composition binding manager, coordinator,
@@ -95,7 +115,7 @@ func AttachReloadHost(
 		Source:          src,
 		Loader:          loader,
 		Classify:        configreload.ClassifyEffective,
-		Compile:         GenerationCompiler{Process: res.ProcessServices, Compose: compose},
+		Compile:         candidateCompilerAdapter{inner: GenerationCompiler{Process: res.ProcessServices, Compose: compose}},
 		Manager:         res.GenerationManager,
 		Timeout:         runtimehost.DefaultReloadTimeout,
 		ActiveEffective: res.Effective,

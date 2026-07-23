@@ -124,7 +124,7 @@ func TestRunWithGenerationHost_HTTPShutdownFailureDoesNotRetire(t *testing.T) {
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: ComposeRequestPlane,
+		HandlerComposer: ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
@@ -212,7 +212,7 @@ func TestRunWithGenerationHost_CancellationPreservesConcurrentListenerFailure(t 
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: ComposeRequestPlane,
+		HandlerComposer: ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
@@ -274,7 +274,7 @@ func TestRunWithGenerationHost_ShutdownListenerErrorStillDrainsHTTP(t *testing.T
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: ComposeRequestPlane,
+		HandlerComposer: ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)

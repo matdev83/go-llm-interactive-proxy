@@ -3,6 +3,7 @@ package runtimebundle_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,7 +47,7 @@ func TestCompileGeneration_RouteConflictRollsBackBeforePublication(t *testing.T)
 	_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected route conflict rejection")
@@ -63,7 +64,7 @@ func TestCompileGeneration_RouteConflictRollsBackBeforePublication(t *testing.T)
 		Candidate: stubCandidateConfig(t, "rc-ok", "ok-text", "rc-ok:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("recompile after conflict rollback: %v", err)
@@ -92,7 +93,7 @@ func TestCompileGeneration_FeatureUniquenessRejectsSecretsGuardDuplicates(t *tes
 	_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected feature uniqueness rejection")
@@ -123,7 +124,7 @@ func TestCompileGeneration_LifecycleStartFailureRollsBackOnce(t *testing.T) {
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{life},
 		},
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected lifecycle start failure")
@@ -150,7 +151,7 @@ func TestCompileGeneration_LifecycleStartFailureRollsBackOnce(t *testing.T) {
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{okLife},
 		},
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("recompile after lifecycle rollback: %v", err)
@@ -177,7 +178,7 @@ func TestCompileGeneration_FrontendFeatureCoexistAcrossPublish(t *testing.T) {
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: oldCfg,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile old: %v", err)
@@ -185,7 +186,7 @@ func TestCompileGeneration_FrontendFeatureCoexistAcrossPublish(t *testing.T) {
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: newCfg,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile new: %v", err)
@@ -245,7 +246,7 @@ func TestCompileGeneration_ManagementRoutesOutsideSwappableGraph(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "mgmt", "m", "mgmt:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -272,7 +273,7 @@ func TestCompileGeneration_ManagementRoutesOutsideSwappableGraph(t *testing.T) {
 			{ID: "openai-responses", Enabled: true},
 			{ID: "openai-legacy", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile next: %v", err)
@@ -298,10 +299,10 @@ func TestCompileGeneration_AuthRendererRebuildPerCandidate(t *testing.T) {
 	ps := newProcessForGeneration(t)
 
 	var seen int
-	composeProbe := func(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
+	composeProbe := func(ctx context.Context, cfg *config.Config, log *slog.Logger, in stdhttp.StandardHTTPInput) (http.Handler, error) {
 		seen++
-		_ = plane.HTTPAuthProviders() // auth renderers/providers rebuilt per candidate
-		return stdhttp.ComposeRequestPlane(ctx, plane)
+		_ = in.Security.HTTPAuthProviders // auth renderers/providers rebuilt per candidate
+		return stdhttp.ComposeStandardHTTP(ctx, cfg, log, in)
 	}
 
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
@@ -349,7 +350,7 @@ func TestCompileGeneration_ComposePanicRollsBackCandidate(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "panic", "x", "panic:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: func(context.Context, runtimebundle.RequestPlane) (http.Handler, error) {
+		Compose: func(context.Context, *config.Config, *slog.Logger, stdhttp.StandardHTTPInput) (http.Handler, error) {
 			panic("compose boom")
 		},
 	})
@@ -399,7 +400,7 @@ func TestCompileGeneration_CustomFrontendRouteConflictWithDiagnostics(t *testing
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected healthz route conflict with diagnostics")

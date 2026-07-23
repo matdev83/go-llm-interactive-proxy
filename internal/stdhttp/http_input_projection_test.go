@@ -256,23 +256,15 @@ func TestStandardHTTPInputFromRequestPlane_defensiveClones(t *testing.T) {
 	t.Parallel()
 	ps := newProjectionProcess(t)
 	frontends := []config.PluginConfig{{ID: "openai-responses", Enabled: true}}
-	cand := stubProjectionConfig(t, "proj", "ok", "proj:stub-default", frontends)
-	var captured runtimebundle.RequestPlane
-	var got, got2 StandardHTTPInput
-	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process:   ps,
-		Candidate: cand,
-		Compose: func(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
-			captured = plane
-			got = standardHTTPInputFromRequestPlane(plane)
-			got2 = standardHTTPInputFromRequestPlane(plane)
-			return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), nil
-		},
-	})
+	cfg := stubProjectionConfig(t, "proj", "ok", "proj:stub-default", frontends)
+	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
 	if err != nil {
-		t.Fatalf("CompileGeneration: %v", err)
+		t.Fatalf("CompileCandidate: %v", err)
 	}
-	t.Cleanup(func() { _ = bundle.Close() })
+	t.Cleanup(func() { _ = cand.Close() })
+	captured := runtimebundle.NewCompatRequestPlane(cand, cfg, testkit.DiscardLogger(), config.RegistrationsFromConfig(cfg), runtimebundle.FrozenRoutingView{DefaultRoute: cand.EffectiveDefaultRoute, RoutePrefixes: cand.RoutePrefixes})
+	got := standardHTTPInputFromRequestPlane(captured)
+	got2 := standardHTTPInputFromRequestPlane(captured)
 
 	if len(got.Frontends.Plugins) == 0 {
 		t.Fatal("expected projected frontends")
@@ -375,12 +367,15 @@ func assertNoLifecycleFieldsOnGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := os.ReadFile(filepath.Join(dir, "http_input.go"))
+	// Group definitions live in the cycle-neutral contract package (task 3.4);
+	// root stdhttp only holds aliases.
+	contractPath := filepath.Join(dir, "contract", "http_input.go")
+	src, err := os.ReadFile(contractPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "http_input.go", src, 0)
+	f, err := parser.ParseFile(fset, "contract/http_input.go", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -697,23 +692,17 @@ func TestStandardHTTPInputFromBuilt_typedNilAuthoritiesProjectToNil(t *testing.T
 func TestStandardHTTPInputFromRequestPlane_nilAuthoritiesProjectToNil(t *testing.T) {
 	t.Parallel()
 	ps := newProjectionProcess(t)
-	cand := stubProjectionConfig(t, "proj-auth", "ok", "proj-auth:stub-default", []config.PluginConfig{
+	cfg := stubProjectionConfig(t, "proj-auth", "ok", "proj-auth:stub-default", []config.PluginConfig{
 		{ID: "openai-responses", Enabled: true},
 	})
-	var got StandardHTTPInput
-	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process:   ps,
-		Candidate: cand,
-		Compose: func(ctx context.Context, plane runtimebundle.RequestPlane) (http.Handler, error) {
-			// Concrete nil pointers from plane getters must adapt to true nil interfaces.
-			got = standardHTTPInputFromRequestPlane(plane)
-			return http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), nil
-		},
-	})
+	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
 	if err != nil {
-		t.Fatalf("CompileGeneration: %v", err)
+		t.Fatalf("CompileCandidate: %v", err)
 	}
-	t.Cleanup(func() { _ = bundle.Close() })
+	t.Cleanup(func() { _ = cand.Close() })
+	// Concrete nil pointers from plane getters must adapt to true nil interfaces.
+	plane := runtimebundle.NewCompatRequestPlane(cand, cfg, testkit.DiscardLogger(), config.RegistrationsFromConfig(cfg), runtimebundle.FrozenRoutingView{DefaultRoute: cand.EffectiveDefaultRoute, RoutePrefixes: cand.RoutePrefixes})
+	got := standardHTTPInputFromRequestPlane(plane)
 	if got.Security.UsageAuthority != nil {
 		t.Fatal("RequestPlane nil UsageAuthority must project to nil interface")
 	}

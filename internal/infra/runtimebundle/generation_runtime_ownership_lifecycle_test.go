@@ -28,13 +28,13 @@ func TestOwnership_TransferDetachesCandidateFromLedger(t *testing.T) {
 			{ID: "openai-responses", Enabled: true},
 		}),
 		CandidateOpts: &runtimebundle.BuildOptions{FeatureLifecycles: []lipplugin.Lifecycle{life}},
-		Compose:       stdhttp.ComposeRequestPlane,
+		Compose:       stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 
-	assertNoCandidateOwnerField(t, bundle)
+	assertNoCandidateOwnerField(t, bundle.(*runtimebundle.GenerationBundle))
 
 	// Direct transfer proof against a detached candidate handle.
 	ledger := runtimebundle.NewResourceLedger()
@@ -435,7 +435,7 @@ func TestLifecycle_ProcessOwnerRemainsOpen(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "life", "life-text", "life:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)

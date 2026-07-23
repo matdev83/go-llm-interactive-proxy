@@ -15,9 +15,9 @@ import (
 	mgmtreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	adminreload "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
-	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 )
 
 // TestManagement_RemainsReachableAfterInvalidCandidate proves the management
@@ -90,7 +90,7 @@ func TestManagement_RemainsReachableAfterInvalidCandidate(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand("m1", "a", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   mgmtreload.ComposeRequestPlane,
+		Compose:   mgmtreload.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)

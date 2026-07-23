@@ -22,15 +22,20 @@ import (
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// HandlerComposer builds a complete standard request-plane http.Handler without
-// binding a listener or owning process services. Implemented by stdhttp to avoid
-// an import cycle with this package (design Generation Compiler).
-type HandlerComposer func(ctx context.Context, plane RequestPlane) (http.Handler, error)
+// HandlerComposer builds a complete standard http.Handler from one focused,
+// lifecycle-free StandardHTTPInput projection without binding a listener or
+// owning process services. cfg/log are explicit parameters (not carried on the
+// input) because prepareStandardHandler needs the frozen candidate config and
+// process logger for middleware composition outside the mount groups.
+// Implemented by stdhttp to avoid an import cycle with this package (design
+// Generation Compiler; task 3.4).
+type HandlerComposer func(ctx context.Context, cfg *config.Config, log *slog.Logger, in httpcontract.StandardHTTPInput) (http.Handler, error)
 
 // FrozenRoutingView is an immutable routing projection for a generation.
 type FrozenRoutingView struct {
@@ -209,4 +214,48 @@ func (p RequestPlane) StackConfig() *config.Config {
 		return nil
 	}
 	return cloned
+}
+
+// NewCompatRequestPlane builds a transitional RequestPlane projection directly
+// from one already-compiled candidate for stdhttp.ComposeRequestPlane
+// compatibility tests only. The canonical CompileGeneration path never calls
+// this; it disappears together with RequestPlane at task 3.5.
+func NewCompatRequestPlane(cand *CandidateRuntime, frozen *config.Config, log *slog.Logger, registrations []lipsdk.Registration, route FrozenRoutingView) RequestPlane {
+	if cand == nil {
+		return RequestPlane{}
+	}
+	return RequestPlane{
+		log:             log,
+		frozen:          frozen,
+		registrations:   freezeRegistrations(registrations),
+		route:           FrozenRoutingView{DefaultRoute: route.DefaultRoute, RoutePrefixes: append([]string(nil), route.RoutePrefixes...)},
+		executor:        cand.Executor,
+		store:           cand.Store,
+		upstreamHTTP:    cand.UpstreamHTTP,
+		decodeAdmission: cand.DecodeAdmission,
+		pluginRegistry:  cand.PluginRegistry,
+		metrics:         cand.Metrics,
+		runtimeSnap:     cand.RuntimeSnapshot,
+		httpAuth:        append([]httpauth.Provider(nil), cand.HTTPAuthProviders...),
+		secureSessions:  cand.SecureSessionStore,
+		authEvents:      cand.AuthEventDispatcher,
+		catalog:         cand.CatalogRuntime,
+		modelRegistry:   cand.ModelRegistry,
+		modelRuntime:    cand.ModelRegistryRuntime,
+		tokenAdmin:      cand.TokenAccountingAdmin,
+		cpQueries:       cand.ControlPlaneQueries,
+		cpStatus:        cand.ControlPlaneStatus,
+		cpRetention:     cand.ControlPlaneRetention,
+		usageAuthority:  cand.UsageAuthority,
+		concurrency:     cand.ConcurrencyAuthority,
+		snapshots:       cand.SnapshotGeneration,
+		snapshotCtrl:    cand.SnapshotController,
+		meteringQuerier: cand.MeteringQuerier,
+		readiness:       cand.ReadinessReport,
+		secretGuardInv:  cand.SecretGuardInventory,
+		terminalProc:    cand.TerminalWorkProcessor,
+		terminalReg:     cand.TerminalWorkRegistry,
+		terminalQueries: cand.TerminalWorkQueries,
+		terminalMetrics: cand.TerminalWorkMetrics,
+	}
 }

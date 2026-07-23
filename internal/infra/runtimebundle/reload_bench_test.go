@@ -21,7 +21,7 @@ func BenchmarkCandidateCompilation(b *testing.B) {
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeRequestPlane,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		b.Fatalf("bootstrap: %v", err)
@@ -39,7 +39,7 @@ func BenchmarkCandidateCompilation(b *testing.B) {
 	})
 	compiler := runtimebundle.GenerationCompiler{
 		Process: res.ProcessServices,
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	}
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -30,7 +30,7 @@ func TestInitialGeneration_RunWithGenerationHostShutdown(t *testing.T) {
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeRequestPlane,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/submitnoop"
@@ -27,7 +29,7 @@ func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeRequestPlane,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("BuildBootstrap: %v", err)
@@ -105,7 +107,7 @@ func assertBootstrapPartialCleanupOnComposeFailure(t *testing.T) {
 		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
-		HandlerComposer: func(context.Context, runtimebundle.RequestPlane) (http.Handler, error) {
+		HandlerComposer: func(context.Context, *config.Config, *slog.Logger, stdhttp.StandardHTTPInput) (http.Handler, error) {
 			return nil, errors.New("compose boom")
 		},
 	})
@@ -169,7 +171,7 @@ func TestInitialGeneration_FeatureLifecycleStartStopOnceNoAppOwnership(t *testin
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeRequestPlane,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("BuildBootstrap: %v", err)

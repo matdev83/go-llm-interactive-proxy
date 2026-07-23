@@ -99,8 +99,14 @@ var compositionRootInventory = []mountInventoryRow{
 	{
 		Helper: "ComposeRequestPlane", File: "request_plane.go", Input: "RequestPlane",
 		BuiltFields: []string{"RequestPlane"}, DesiredGroups: []string{"StandardHTTPInput"},
-		Lifecycle: "none", BehaviorTests: []string{"TestComposeRequestPlane_RouteConflictRejects", "TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack"},
+		Lifecycle: "none", BehaviorTests: []string{"TestComposeRequestPlane_RouteConflictRejects_Transitional"},
 		MigrationStatus: "transitional_generation_task35",
+	},
+	{
+		Helper: "ComposeStandardHTTP", File: "request_plane.go", Input: "StandardHTTPInput",
+		BuiltFields: nil, DesiredGroups: []string{"StandardHTTPInput"},
+		Lifecycle: "none", BehaviorTests: []string{"TestComposeStandardHTTP_RouteConflictRejects", "TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack"},
+		MigrationStatus: "canonical_task34",
 	},
 }
 
@@ -137,6 +143,7 @@ var expectedCompositionRoots = map[string]bool{
 	"prepareStandardHandler": true,
 	"NewStandardHandler":     true,
 	"ComposeRequestPlane":    true,
+	"ComposeStandardHTTP":    true,
 }
 
 // migrationStatusMarkdownPhrase maps composition-root MigrationStatus codes to
@@ -145,6 +152,7 @@ var migrationStatusMarkdownPhrase = map[string]string{
 	"strict_task_32":                 "strict Task 3.2 target",
 	"transitional_legacy_phase4":     "transitional legacy adapter",
 	"transitional_generation_task35": "transitional generation adapter",
+	"canonical_task34":               "canonical Task 3.4 composer",
 }
 
 // mountDiscoveryExclusions is intentionally empty: every discovered mount-scoped
@@ -360,7 +368,7 @@ func discoverProductionMountSurface(pkgDir string) (mounts, roots map[string]boo
 
 func isCompositionRootName(name string) bool {
 	switch name {
-	case "prepareStandardHandler", "NewStandardHandler", "ComposeRequestPlane":
+	case "prepareStandardHandler", "NewStandardHandler", "ComposeRequestPlane", "ComposeStandardHTTP":
 		return true
 	default:
 		return false

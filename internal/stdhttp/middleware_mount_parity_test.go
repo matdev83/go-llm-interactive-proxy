@@ -31,7 +31,7 @@ func TestStandardMiddlewareMountParity_ComposeRequestPlaneRouteSetAndStack(t *te
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)

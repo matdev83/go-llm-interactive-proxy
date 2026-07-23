@@ -36,12 +36,13 @@ func TestImmutable_GroupAccessorsDefensiveCopies(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
+	gb := bundle.(*runtimebundle.GenerationBundle)
 
 	// Nested YAML / config source must not leak into published snapshots.
 	cand.Routing.DefaultRoute = "mutated:gone"
@@ -50,35 +51,35 @@ func TestImmutable_GroupAccessorsDefensiveCopies(t *testing.T) {
 		cand.Plugins.Backends[0].Config = genYAMLNode(t, `text: "mutated-after-compile"`)
 	}
 
-	routing := bundle.Routing()
+	routing := gb.Routing()
 	routing.DefaultRoute = "mutated-route"
 	routing.RoutePrefixes = append(routing.RoutePrefixes, "x")
-	if bundle.Routing().DefaultRoute != "imm2:stub-default" {
-		t.Fatalf("routing not frozen: %q", bundle.Routing().DefaultRoute)
+	if gb.Routing().DefaultRoute != "imm2:stub-default" {
+		t.Fatalf("routing not frozen: %q", gb.Routing().DefaultRoute)
 	}
 
-	prefixes := bundle.RoutePrefixes()
+	prefixes := gb.RoutePrefixes()
 	if len(prefixes) == 0 {
 		t.Fatal("expected route prefixes")
 	}
 	origPrefix := prefixes[0]
 	prefixes[0] = "mutated-prefix"
-	if bundle.RoutePrefixes()[0] != origPrefix {
+	if gb.RoutePrefixes()[0] != origPrefix {
 		t.Fatal("RoutePrefixes not defensive")
 	}
 
-	frontends := bundle.FrozenFrontends()
+	frontends := gb.FrozenFrontends()
 	if len(frontends) == 0 {
 		t.Fatal("expected frontends")
 	}
 	origFE := frontends[0].ID
 	frontends[0].ID = "mutated-frontend"
 	frontends[0].Config = yaml.Node{Kind: yaml.ScalarNode, Value: "mutated"}
-	if bundle.FrozenFrontends()[0].ID != origFE {
+	if gb.FrozenFrontends()[0].ID != origFE {
 		t.Fatal("FrozenFrontends not defensive")
 	}
 
-	regs := bundle.Registrations()
+	regs := gb.Registrations()
 	if len(regs) == 0 {
 		t.Fatal("expected registrations")
 	}
@@ -90,7 +91,7 @@ func TestImmutable_GroupAccessorsDefensiveCopies(t *testing.T) {
 	if len(regs[0].Config.Node.Content) > 0 {
 		regs[0].Config.Node.Content[0].Value = "nested-poison"
 	}
-	freshRegs := bundle.Registrations()
+	freshRegs := gb.Registrations()
 	if freshRegs[0].ID != origReg {
 		t.Fatal("Registrations not defensive")
 	}
@@ -114,13 +115,13 @@ func TestImmutable_GroupAccessorsDefensiveCopies(t *testing.T) {
 		}
 	}
 
-	ids := bundle.BackendIDs()
+	ids := gb.BackendIDs()
 	if len(ids) == 0 {
 		t.Fatal("expected backend IDs")
 	}
 	origID := ids[0]
 	ids[0] = "mutated-backend"
-	if bundle.BackendIDs()[0] != origID {
+	if gb.BackendIDs()[0] != origID {
 		t.Fatal("BackendIDs not defensive")
 	}
 

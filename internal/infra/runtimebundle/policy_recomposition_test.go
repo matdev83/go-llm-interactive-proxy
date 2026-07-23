@@ -374,14 +374,14 @@ func TestCompileGeneration_MaxRequestBodyBytesDiffersPerCandidate(t *testing.T) 
 	roomyCand.Server.MaxRequestBodyBytes = 1 << 20
 
 	tiny, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: tinyCand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: tinyCand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile tiny: %v", err)
 	}
 	defer func() { _ = tiny.Close() }()
 	roomy, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: roomyCand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: roomyCand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile roomy: %v", err)

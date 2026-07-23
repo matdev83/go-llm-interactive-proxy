@@ -55,6 +55,7 @@ var mountHelpersStrictContract = map[string]bool{
 //     StandardHTTPInput before mounts after Task 3.2)
 //   - ComposeRequestPlane: RequestPlane until Task 3.5 (must project to focused
 //     groups before mounts after Task 3.2)
+//
 // Scanner still detects their bags; live Task 3.2 strict failure sets exclude them.
 var mountHelpersTransitionalAdapters = map[string]bool{
 	"NewStandardHandler":  true,
@@ -760,46 +761,59 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
+// stdhttpMountContractSourceDirs are scanned to assemble one aggregate mount
+// contract view. Task 3.4 moved the StandardHTTPInput/HTTP*Input group
+// declarations into the cycle-neutral internal/stdhttp/contract package;
+// root stdhttp holds only aliases and mount/composer function signatures, so
+// both directories must be scanned to see the real group shapes and the
+// production mount surface together.
+var stdhttpMountContractSourceDirs = []string{
+	filepath.Join("internal", "stdhttp"),
+	filepath.Join("internal", "stdhttp", "contract"),
+}
+
 func scanStdhttpMountContract(t *testing.T) mountContractScanResult {
 	t.Helper()
 	root := repoRoot(t)
-	dir := filepath.Join(root, "internal", "stdhttp")
-	entries, err := filepath.Glob(filepath.Join(dir, "*.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	agg := mountContractScanResult{
 		DeclaredTypes:              map[string]bool{},
 		StandardHTTPFields:         map[string]string{},
 		StandardHTTPFieldIsPointer: map[string]bool{},
 		GroupFieldNames:            map[string][]string{},
 	}
-	for _, abs := range entries {
-		base := filepath.Base(abs)
-		if strings.HasSuffix(base, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(abs)
+	for _, relDir := range stdhttpMountContractSourceDirs {
+		dir := filepath.Join(root, relDir)
+		entries, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		rel := filepath.ToSlash(filepath.Join("internal/stdhttp", base))
-		got, err := scanMountContractSource(rel, string(src))
-		if err != nil {
-			t.Fatalf("scan %s: %v", rel, err)
-		}
-		agg.Findings = append(agg.Findings, got.Findings...)
-		for k, v := range got.DeclaredTypes {
-			agg.DeclaredTypes[k] = v
-		}
-		for k, v := range got.StandardHTTPFields {
-			agg.StandardHTTPFields[k] = v
-		}
-		for k, v := range got.StandardHTTPFieldIsPointer {
-			agg.StandardHTTPFieldIsPointer[k] = v
-		}
-		for k, v := range got.GroupFieldNames {
-			agg.GroupFieldNames[k] = v
+		for _, abs := range entries {
+			base := filepath.Base(abs)
+			if strings.HasSuffix(base, "_test.go") {
+				continue
+			}
+			src, err := os.ReadFile(abs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rel := filepath.ToSlash(filepath.Join(relDir, base))
+			got, err := scanMountContractSource(rel, string(src))
+			if err != nil {
+				t.Fatalf("scan %s: %v", rel, err)
+			}
+			agg.Findings = append(agg.Findings, got.Findings...)
+			for k, v := range got.DeclaredTypes {
+				agg.DeclaredTypes[k] = v
+			}
+			for k, v := range got.StandardHTTPFields {
+				agg.StandardHTTPFields[k] = v
+			}
+			for k, v := range got.StandardHTTPFieldIsPointer {
+				agg.StandardHTTPFieldIsPointer[k] = v
+			}
+			for k, v := range got.GroupFieldNames {
+				agg.GroupFieldNames[k] = v
+			}
 		}
 	}
 	sort.Slice(agg.Findings, func(i, j int) bool {

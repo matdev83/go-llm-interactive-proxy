@@ -20,7 +20,7 @@ func TestAttachReloadHost_UsesStartupFixedStreamRecoverySnapshot(t *testing.T) {
 	t.Setenv("LIP_AUTO_RESUME_IDLE_TIMEOUT", "12s")
 
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	compose := stdhttp.ComposeRequestPlane
+	compose := stdhttp.ComposeStandardHTTP
 	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
 		ConfigPath:      cfgPath,
 		Mode:            runtimebundle.BootstrapServe,

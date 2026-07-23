@@ -264,7 +264,7 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 		_, _ = fmt.Fprintf(opts.ErrorOut, "bootstrap failed: %v\n", err)
 		return 1
 	}
-	compose := stdhttp.ComposeRequestPlane
+	compose := stdhttp.ComposeStandardHTTP
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath:              opts.ConfigPath,
 		Mode:                    runtimebundle.BootstrapServe,
@@ -349,7 +349,7 @@ func cleanupCheckConfigBootstrapOwners(ctx context.Context, res *runtimebundle.B
 var cleanupCheckConfigBootstrap = cleanupCheckConfigBootstrapOwners
 
 func runCheckConfigCommand(ctx context.Context, opts CommandOptions) int {
-	compose := stdhttp.ComposeRequestPlane
+	compose := stdhttp.ComposeStandardHTTP
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath:              opts.ConfigPath,
 		Mode:                    runtimebundle.BootstrapServe,

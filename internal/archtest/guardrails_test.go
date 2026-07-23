@@ -223,7 +223,12 @@ var lineBudgets = []struct {
 	// Ratcheted to the exact runtime-architecture-convergence task 3.2 total:
 	// StandardHTTPInput focused projection groups, typed-nil adapter boundaries,
 	// and defensive clones (measured non-test total 4793; zero headroom).
-	{"internal/stdhttp", 4793},
+	// Raised from 4793 to 4897 for task 3.4: cycle-neutral internal/stdhttp/contract
+	// package (StandardHTTPInput/HTTP*Input groups + shared clone helpers moved out
+	// of http_input.go so runtimebundle can build the focused input without
+	// importing root stdhttp) plus the canonical ComposeStandardHTTP composer
+	// (measured non-test total 4897; zero headroom).
+	{"internal/stdhttp", 4897},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -292,7 +297,18 @@ var lineBudgets = []struct {
 	// ownership transfer from CandidateRuntime, and race-safe Quiesce/Close state
 	// machine replacing dual generationOwner+Once wrappers; candidate lifecycle
 	// extracted to candidate_lifecycle.go (measured 10101; zero headroom).
-	{"internal/infra/runtimebundle", 10101},
+	// Raised from 10101 to 10196 for Task 3.4: CompileGeneration now builds the
+	// focused StandardHTTPInput directly from the contract package (no
+	// RequestPlane construction on the canonical path), GenerationCompiler
+	// widens its return via the one explicit candidateCompilerAdapter, and the
+	// transitional NewCompatRequestPlane constructor keeps ComposeRequestPlane
+	// compatibility tests independent of CompileGeneration (measured 10196;
+	// zero headroom).
+	// Raised from 10196 to 10206 for Task 3.4 repair: CompileGeneration deep-
+	// clones canonical frozen config before lending it to the injected
+	// HandlerComposer so composition cannot mutate the immutable generation
+	// source used for publication (measured 10206; zero headroom).
+	{"internal/infra/runtimebundle", 10206},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

@@ -33,19 +33,20 @@ func TestReloadBackend_AddAbsentAtStartup(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration add: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
+	gb := bundle.(*runtimebundle.GenerationBundle)
 
 	ids := map[string]bool{}
-	for _, id := range bundle.BackendIDs() {
+	for _, id := range gb.BackendIDs() {
 		ids[id] = true
 	}
 	if !ids["added-stub"] {
-		t.Fatalf("expected added-stub in backends, got %v", bundle.BackendIDs())
+		t.Fatalf("expected added-stub in backends, got %v", gb.BackendIDs())
 	}
 	body := postResponses(t, bundle.Handler(), "stub-default")
 	if !strings.Contains(body, "new-backend-text") {
@@ -68,13 +69,13 @@ func TestReloadBackend_ReplaceSameIDChangedConfig(t *testing.T) {
 	})
 
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfgOld, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfgOld, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile old: %v", err)
 	}
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfgNew, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfgNew, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile new: %v", err)
@@ -155,7 +156,7 @@ func TestReloadBackend_RemoveAndDisable(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfgBoth, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfgBoth, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile both: %v", err)
@@ -174,7 +175,7 @@ func TestReloadBackend_RemoveAndDisable(t *testing.T) {
 	}
 
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfgRemoved, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfgRemoved, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile removed: %v", err)
@@ -200,7 +201,7 @@ func TestReloadBackend_RemoveAndDisable(t *testing.T) {
 	}
 
 	newIDs := map[string]bool{}
-	for _, id := range newBundle.BackendIDs() {
+	for _, id := range newBundle.(*runtimebundle.GenerationBundle).BackendIDs() {
 		newIDs[id] = true
 	}
 	if newIDs["drop"] {
@@ -212,7 +213,7 @@ func TestReloadBackend_RemoveAndDisable(t *testing.T) {
 
 	// Retired generation still has drop for bound work.
 	oldIDs := map[string]bool{}
-	for _, id := range oldBundle.BackendIDs() {
+	for _, id := range oldBundle.(*runtimebundle.GenerationBundle).BackendIDs() {
 		oldIDs[id] = true
 	}
 	if !oldIDs["drop"] {
@@ -277,20 +278,21 @@ models:
 	}
 
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile generic kinds: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
+	gb := bundle.(*runtimebundle.GenerationBundle)
 
 	got := map[string]bool{}
-	for _, id := range bundle.BackendIDs() {
+	for _, id := range gb.BackendIDs() {
 		got[id] = true
 	}
 	for _, k := range kinds {
 		if !got[k.id] {
-			t.Fatalf("missing generic kind instance %s (%s); have %v", k.id, k.kind, bundle.BackendIDs())
+			t.Fatalf("missing generic kind instance %s (%s); have %v", k.id, k.kind, gb.BackendIDs())
 		}
 	}
 }
@@ -357,7 +359,7 @@ func TestReloadBackend_CandidateFactoryFailureRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	okBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: okCand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: okCand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("first compile: %v", err)
@@ -385,7 +387,7 @@ func TestReloadBackend_CandidateFactoryFailureRollback(t *testing.T) {
 
 	closesBefore := closes.Load()
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: badCand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: badCand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected factory failure")
@@ -401,7 +403,7 @@ func TestReloadBackend_CandidateFactoryFailureRollback(t *testing.T) {
 		t.Fatal("process must not mutate/close on candidate failure")
 	}
 	// Active/old bundle still works.
-	if len(okBundle.BackendIDs()) == 0 {
+	if len(okBundle.(*runtimebundle.GenerationBundle).BackendIDs()) == 0 {
 		t.Fatal("active generation backends lost")
 	}
 }

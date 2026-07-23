@@ -20,7 +20,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestComposeRequestPlane_RouteConflictRejects(t *testing.T) {
+// TestComposeStandardHTTP_RouteConflictRejects proves the canonical composer
+// (invoked by CompileGeneration on the production path) preserves
+// route-conflict rejection behavior (task 3.4, req 9.1-9.7).
+func TestComposeStandardHTTP_RouteConflictRejects(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	_, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
@@ -29,7 +32,7 @@ func TestComposeRequestPlane_RouteConflictRejects(t *testing.T) {
 			{ID: "openai-responses", Enabled: true},
 			{ID: "responses-dup", Kind: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
 		t.Fatal("expected route conflict")
@@ -39,7 +42,7 @@ func TestComposeRequestPlane_RouteConflictRejects(t *testing.T) {
 	}
 }
 
-func TestComposeRequestPlane_ManagementRoutesNotMounted(t *testing.T) {
+func TestComposeStandardHTTP_ManagementRoutesNotMounted(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
@@ -47,7 +50,7 @@ func TestComposeRequestPlane_ManagementRoutesNotMounted(t *testing.T) {
 		Candidate: stubPlaneConfig(t, "mgmt", "m", "mgmt:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -63,13 +66,35 @@ func TestComposeRequestPlane_ManagementRoutesNotMounted(t *testing.T) {
 	}
 }
 
+// TestComposeRequestPlane_RouteConflictRejects_Transitional proves the
+// transitional RequestPlane composer independently preserves route-conflict
+// rejection (task 3.4: "Transitional ComposeRequestPlane tests stay").
+func TestComposeRequestPlane_RouteConflictRejects_Transitional(t *testing.T) {
+	t.Parallel()
+	ps := newStdProcess(t)
+	cfg := stubPlaneConfig(t, "rc-t", "x", "rc-t:stub-default", []config.PluginConfig{
+		{ID: "openai-responses", Enabled: true},
+		{ID: "responses-dup", Kind: "openai-responses", Enabled: true},
+	})
+	cand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{Process: ps, Candidate: cfg})
+	if err != nil {
+		t.Fatalf("CompileCandidate: %v", err)
+	}
+	t.Cleanup(func() { _ = cand.Close() })
+	plane := runtimebundle.NewCompatRequestPlane(cand, cfg, testkit.DiscardLogger(), config.RegistrationsFromConfig(cfg), runtimebundle.FrozenRoutingView{DefaultRoute: cand.EffectiveDefaultRoute, RoutePrefixes: cand.RoutePrefixes})
+	_, err = stdhttp.ComposeRequestPlane(context.Background(), plane)
+	if !errors.Is(err, stdhttp.ErrRouteConflict) {
+		t.Fatalf("want ErrRouteConflict, got %v", err)
+	}
+}
+
 func TestGenerationDispatcher_CoexistOldNewHandlers(t *testing.T) {
 	t.Parallel()
 	ps := newStdProcess(t)
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: stubPlaneConfig(t, "old", "OLD", "old:stub-default", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +102,7 @@ func TestGenerationDispatcher_CoexistOldNewHandlers(t *testing.T) {
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: stubPlaneConfig(t, "new", "NEW", "new:stub-default", []config.PluginConfig{{ID: "openai-responses", Enabled: true}}),
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)

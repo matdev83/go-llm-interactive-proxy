@@ -93,24 +93,25 @@ models:
 	}
 
 	oldBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: oldCfg, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: oldCfg, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile old: %v", err)
 	}
 	newBundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: newCfg, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: newCfg, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile new: %v", err)
 	}
 
 	ids := map[string]bool{}
-	for _, id := range newBundle.BackendIDs() {
+	newGB := newBundle.(*runtimebundle.GenerationBundle)
+	for _, id := range newGB.BackendIDs() {
 		ids[id] = true
 	}
 	if !ids["dyn-new"] || !ids["dyn-generic"] {
-		t.Fatalf("new backends missing: %v", newBundle.BackendIDs())
+		t.Fatalf("new backends missing: %v", newGB.BackendIDs())
 	}
 	limitCand, err := runtimebundle.CompileCandidate(context.Background(), runtimebundle.GenerationCompileInput{
 		Process: ps, Bus: hooks.New(hooks.Config{}), Candidate: newCfg,
@@ -242,7 +243,7 @@ func TestReloadDynamic_DiscoveredFrozen_NoInstallNoWatcher(t *testing.T) {
 	}
 
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("activate discovered kind: %v", err)

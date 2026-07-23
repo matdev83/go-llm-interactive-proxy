@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -150,12 +151,13 @@ func TestCompileGeneration_CreatesHandlerWithoutListener(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
+	gb := bundle.(*runtimebundle.GenerationBundle)
 
 	if bundle.Handler() == nil {
 		t.Fatal("expected handler")
@@ -163,10 +165,10 @@ func TestCompileGeneration_CreatesHandlerWithoutListener(t *testing.T) {
 	if bundle.ExecutorView() == nil {
 		t.Fatal("expected executor view")
 	}
-	if bundle.ResourceCount() == 0 {
+	if gb.ResourceCount() == 0 {
 		t.Fatal("expected generation-owned ledger entries")
 	}
-	if len(bundle.BackendIDs()) == 0 {
+	if len(gb.BackendIDs()) == 0 {
 		t.Fatal("expected backend IDs")
 	}
 
@@ -203,7 +205,7 @@ func TestCompileGeneration_CoexistTwoCandidatesDifferentPlanes(t *testing.T) {
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cfgA,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile A: %v", err)
@@ -211,18 +213,20 @@ func TestCompileGeneration_CoexistTwoCandidatesDifferentPlanes(t *testing.T) {
 	b, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cfgB,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile B: %v", err)
 	}
+	ga := a.(*runtimebundle.GenerationBundle)
+	gb := b.(*runtimebundle.GenerationBundle)
 
 	aIDs := map[string]bool{}
-	for _, id := range a.BackendIDs() {
+	for _, id := range ga.BackendIDs() {
 		aIDs[id] = true
 	}
 	bIDs := map[string]bool{}
-	for _, id := range b.BackendIDs() {
+	for _, id := range gb.BackendIDs() {
 		bIDs[id] = true
 	}
 	if !aIDs["backend-a"] {
@@ -253,11 +257,11 @@ func TestCompileGeneration_CoexistTwoCandidatesDifferentPlanes(t *testing.T) {
 		t.Fatalf("B leaked A: %s", bodyB)
 	}
 
-	if a.Routing().DefaultRoute == b.Routing().DefaultRoute {
-		t.Fatalf("expected different default routes, both %q", a.Routing().DefaultRoute)
+	if ga.Routing().DefaultRoute == gb.Routing().DefaultRoute {
+		t.Fatalf("expected different default routes, both %q", ga.Routing().DefaultRoute)
 	}
-	if len(b.FrozenFrontends()) < 2 {
-		t.Fatalf("B frontends=%d", len(b.FrozenFrontends()))
+	if len(gb.FrozenFrontends()) < 2 {
+		t.Fatalf("B frontends=%d", len(gb.FrozenFrontends()))
 	}
 
 	if err := a.Close(); err != nil {
@@ -287,7 +291,7 @@ func TestCompileGeneration_HandlerFailureRollsBackCandidate(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "ok", "x", "ok:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: func(context.Context, runtimebundle.RequestPlane) (http.Handler, error) {
+		Compose: func(context.Context, *config.Config, *slog.Logger, stdhttp.StandardHTTPInput) (http.Handler, error) {
 			return nil, fmt.Errorf("injected handler failure")
 		},
 	})
@@ -306,7 +310,7 @@ func TestCompileGeneration_HandlerFailureRollsBackCandidate(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "ok2", "y", "ok2:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("recompile after rollback: %v", err)
@@ -328,12 +332,13 @@ func TestCompileGeneration_ImmutableAccessorsDefensive(t *testing.T) {
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
 		Process:   ps,
 		Candidate: cand,
-		Compose:   stdhttp.ComposeRequestPlane,
+		Compose:   stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
 	}
 	t.Cleanup(func() { _ = bundle.Close() })
+	gb := bundle.(*runtimebundle.GenerationBundle)
 
 	cand.Routing.DefaultRoute = "mutated:gone"
 	cand.Plugins.Frontends = nil
@@ -343,23 +348,23 @@ func TestCompileGeneration_ImmutableAccessorsDefensive(t *testing.T) {
 	if !strings.Contains(body, "immutable-text") {
 		t.Fatalf("handler followed mutated config: %s", body)
 	}
-	if bundle.Routing().DefaultRoute != "imm:stub-default" {
-		t.Fatalf("routing mutated: %q", bundle.Routing().DefaultRoute)
+	if gb.Routing().DefaultRoute != "imm:stub-default" {
+		t.Fatalf("routing mutated: %q", gb.Routing().DefaultRoute)
 	}
 
-	frontends := bundle.FrozenFrontends()
+	frontends := gb.FrozenFrontends()
 	frontends[0].ID = "mutated-frontend"
-	frontends2 := bundle.FrozenFrontends()
+	frontends2 := gb.FrozenFrontends()
 	if frontends2[0].ID != "openai-responses" {
 		t.Fatalf("frontend slice not defensive: %q", frontends2[0].ID)
 	}
 
-	prefixes := bundle.RoutePrefixes()
+	prefixes := gb.RoutePrefixes()
 	if len(prefixes) == 0 {
 		t.Fatal("expected route prefixes")
 	}
 	prefixes[0] = "mutated-prefix"
-	if bundle.RoutePrefixes()[0] == "mutated-prefix" {
+	if gb.RoutePrefixes()[0] == "mutated-prefix" {
 		t.Fatal("route prefixes not defensive")
 	}
 }
@@ -372,7 +377,7 @@ func TestCompileGeneration_BundleContractNoConfigAppBuilt(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "c", "t", "c:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -435,7 +440,7 @@ func TestCompileGeneration_LifecycleNotStartedTwice(t *testing.T) {
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{life},
 		},
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)

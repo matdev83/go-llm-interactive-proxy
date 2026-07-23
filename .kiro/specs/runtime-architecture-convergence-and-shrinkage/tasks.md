@@ -117,7 +117,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.2_
   - _Validation: `go test -race ./internal/infra/runtimebundle/... ./internal/infra/runtimehost/... -run 'GenerationRuntime|Ownership|Immutable|Capability|Lifecycle'`_
 
-- [ ] 3.4 Make GenerationCompiler return only GenerationRuntime
+- [x] 3.4 Make GenerationCompiler return only GenerationRuntime
   - Merge feature surface once per candidate.
   - Construct the grouped HTTP input and compose the handler during generation compilation.
   - Remove duplicate candidate/request-plane/publication field projections as consumers migrate.

@@ -4,76 +4,28 @@ import (
 	"strings"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelregistry"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	ssessiondiag "github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/adapters/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
+	httpcontract "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/contract"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	lipcp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 	"gopkg.in/yaml.v3"
 )
 
-// StandardHTTPInput is the focused, lifecycle-free HTTP composition projection.
-type StandardHTTPInput struct {
-	Core       HTTPCoreInput
-	Security   HTTPSecurityInput
-	Operations HTTPOperationsInput
-	Models     HTTPModelInput
-	Frontends  HTTPFrontendInput
-}
+// StandardHTTPInput and its groups are exact aliases of the cycle-neutral
+// internal/stdhttp/contract definitions (task 3.4). runtimebundle builds the
+// same types directly from internal/stdhttp/contract without importing root
+// stdhttp; both packages share this one shape.
+type StandardHTTPInput = httpcontract.StandardHTTPInput
+type HTTPCoreInput = httpcontract.HTTPCoreInput
+type HTTPSecurityInput = httpcontract.HTTPSecurityInput
+type HTTPOperationsInput = httpcontract.HTTPOperationsInput
+type HTTPModelInput = httpcontract.HTTPModelInput
+type HTTPFrontendInput = httpcontract.HTTPFrontendInput
 
-type HTTPCoreInput struct {
-	Executor *runtime.Executor
-}
-
-// HTTPSecurityInput uses adapter-owned narrow interfaces (no root core app imports).
-type HTTPSecurityInput struct {
-	HTTPAuthProviders    []httpauth.Provider
-	SecureSessionStore   ssessiondiag.Store
-	UsageAuthority       cpadmin.AccountingAuthorityQueries
-	ConcurrencyAuthority cpadmin.ConcurrencyAuthorityQueries
-}
-
-type HTTPOperationsInput struct {
-	Metrics              *metrics.Bundle
-	Store                diag.AttemptLoader
-	SecretGuardInventory *diag.InventoryExtras
-	ControlPlaneQueries  lipcp.Queries
-	ReadinessReport      lipcp.ReadinessReportReader
-	TokenAccountingAdmin adminaccounting.Service
-	Registrations        []lipsdk.Registration
-}
-
-type HTTPModelInput struct {
-	CatalogRuntime       *modelcatalog.CatalogRuntime
-	ModelRegistryRuntime *modelregistry.Runtime
-}
-
-type HTTPFrontendInput struct {
-	Executor             *runtime.Executor
-	Registry             *pluginreg.Registry
-	DefaultRouteSelector string
-	RoutePrefixes        []string
-	Plugins              []config.PluginConfig
-	MaxRequestBodyBytes  int64
-	DecodeAdmission      lipsdk.DecodeAdmission
-	TrafficPorts         traffic.PortBundle
-	PreRequestKeepalive  lipsdk.FrontendKeepaliveConfig
-}
-
-type trafficSnapshot interface {
-	RawCapture() traffic.RawCaptureSink
-	TrafficObserver() traffic.Observer
-	TrafficRedactors() []traffic.Redactor
-}
+type trafficSnapshot = httpcontract.TrafficSnapshot
 
 func standardHTTPInputFromBuilt(built *runtimebundle.Built, cfg *config.Config, registrations []lipsdk.Registration) StandardHTTPInput {
 	if built == nil {
@@ -177,69 +129,20 @@ func standardHTTPInputFromRequestPlane(plane runtimebundle.RequestPlane) Standar
 }
 
 func trafficPortsFromSnapshot(snap trafficSnapshot) traffic.PortBundle {
-	if snap == nil {
-		return traffic.PortBundle{}
-	}
-	return traffic.PortBundle{Raw: snap.RawCapture(), Obs: snap.TrafficObserver(), Red: cloneTrafficRedactors(snap.TrafficRedactors())}
+	return httpcontract.TrafficPortsFromSnapshot(snap)
 }
 
 func cloneHTTPAuthProviders(in []httpauth.Provider) []httpauth.Provider {
-	if in == nil {
-		return nil
-	}
-	return append([]httpauth.Provider(nil), in...)
+	return httpcontract.CloneHTTPAuthProviders(in)
 }
-func cloneStrings(in []string) []string {
-	if in == nil {
-		return nil
-	}
-	return append([]string(nil), in...)
-}
+func cloneStrings(in []string) []string { return httpcontract.CloneStrings(in) }
 func cloneTrafficRedactors(in []traffic.Redactor) []traffic.Redactor {
-	if in == nil {
-		return nil
-	}
-	return append([]traffic.Redactor(nil), in...)
+	return httpcontract.CloneTrafficRedactors(in)
 }
 func clonePluginConfigs(in []config.PluginConfig) []config.PluginConfig {
-	if in == nil {
-		return nil
-	}
-	out := make([]config.PluginConfig, len(in))
-	for i := range in {
-		out[i] = in[i]
-		out[i].Config = cloneYAMLNode(in[i].Config)
-	}
-	return out
+	return httpcontract.ClonePluginConfigs(in)
 }
 func cloneRegistrations(in []lipsdk.Registration) []lipsdk.Registration {
-	if in == nil {
-		return nil
-	}
-	out := make([]lipsdk.Registration, len(in))
-	for i := range in {
-		out[i] = in[i]
-		out[i].Config.Node = cloneYAMLNode(in[i].Config.Node)
-	}
-	return out
+	return httpcontract.CloneRegistrations(in)
 }
-func cloneYAMLNode(n yaml.Node) yaml.Node {
-	out := n
-	if n.Alias != nil {
-		cloned := cloneYAMLNode(*n.Alias)
-		out.Alias = &cloned
-	}
-	if len(n.Content) == 0 {
-		out.Content = nil
-		return out
-	}
-	out.Content = make([]*yaml.Node, len(n.Content))
-	for i, c := range n.Content {
-		if c == nil {
-			continue
-		}
-		cloned := cloneYAMLNode(*c)
-		out.Content[i] = &cloned
-	}
-	return out
-}
+func cloneYAMLNode(n yaml.Node) yaml.Node { return httpcontract.CloneYAMLNode(n) }

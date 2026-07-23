@@ -332,7 +332,7 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 		Mode:            runtimebundle.BootstrapServe,
 		Mandatory:       lipsdk.StandardDistributionRequirements(),
 		LogWriter:       io.Discard,
-		HandlerComposer: stdhttp.ComposeRequestPlane,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("BuildBootstrap: %v", err)
@@ -342,7 +342,7 @@ func TestRuntimeConfigReload_NoDrop_FullHost_ValidInvalidCancelALeg(t *testing.T
 			_ = res.ShutdownTracing(context.Background())
 		}
 	})
-	host, err := runtimebundle.AttachReloadHost(ctx, res, path, stdhttp.ComposeRequestPlane)
+	host, err := runtimebundle.AttachReloadHost(ctx, res, path, stdhttp.ComposeStandardHTTP)
 	if err != nil {
 		t.Fatalf("AttachReloadHost: %v", err)
 	}

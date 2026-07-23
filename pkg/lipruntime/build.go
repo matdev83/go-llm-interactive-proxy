@@ -58,7 +58,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		logOut = io.Discard
 	}
 	raterAttached := len(norm.RaterRegistrations) > 0
-	compose := stdhttp.ComposeRequestPlane
+	compose := stdhttp.ComposeStandardHTTP
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
 		ConfigPath: path,
 		Mode:       runtimebundle.BootstrapServe,

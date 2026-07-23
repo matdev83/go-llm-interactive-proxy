@@ -92,19 +92,21 @@ func TestCompileGeneration_ModelsAndRoutingAgreeWithCandidateBackendSet(t *testi
 	ps := newProcessForGeneration(t)
 
 	a, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: inventoryCandidateConfig(t, "alpha"), Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: inventoryCandidateConfig(t, "alpha"), Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile A: %v", err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
 	b, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: inventoryCandidateConfig(t, "beta"), Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: inventoryCandidateConfig(t, "beta"), Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile B: %v", err)
 	}
 	t.Cleanup(func() { _ = b.Close() })
+	ga := a.(*runtimebundle.GenerationBundle)
+	gb := b.(*runtimebundle.GenerationBundle)
 
 	ctxA := a.BindModelViews(context.Background())
 	ctxB := b.BindModelViews(context.Background())
@@ -118,14 +120,14 @@ func TestCompileGeneration_ModelsAndRoutingAgreeWithCandidateBackendSet(t *testi
 	if !containsModelID(idsB, "beta:local-stub/stub-default") || containsModelID(idsB, "alpha:local-stub/stub-default") {
 		t.Fatalf("generation B models must be beta-only, got %v", idsB)
 	}
-	if a.Routing().DefaultRoute != "alpha:stub-default" || b.Routing().DefaultRoute != "beta:stub-default" {
-		t.Fatalf("routing disagreement: A=%q B=%q", a.Routing().DefaultRoute, b.Routing().DefaultRoute)
+	if ga.Routing().DefaultRoute != "alpha:stub-default" || gb.Routing().DefaultRoute != "beta:stub-default" {
+		t.Fatalf("routing disagreement: A=%q B=%q", ga.Routing().DefaultRoute, gb.Routing().DefaultRoute)
 	}
-	if len(a.BackendIDs()) != 1 || a.BackendIDs()[0] != "alpha" {
-		t.Fatalf("A backend IDs = %v", a.BackendIDs())
+	if len(ga.BackendIDs()) != 1 || ga.BackendIDs()[0] != "alpha" {
+		t.Fatalf("A backend IDs = %v", ga.BackendIDs())
 	}
-	if len(b.BackendIDs()) != 1 || b.BackendIDs()[0] != "beta" {
-		t.Fatalf("B backend IDs = %v", b.BackendIDs())
+	if len(gb.BackendIDs()) != 1 || gb.BackendIDs()[0] != "beta" {
+		t.Fatalf("B backend IDs = %v", gb.BackendIDs())
 	}
 
 	rrA := httptest.NewRecorder()
@@ -150,7 +152,7 @@ func TestGenerationBundle_BackendRemovalOmitsModelsButOldBoundViewRetainsThem(t 
 	ps := newProcessForGeneration(t)
 
 	old, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: inventoryCandidateConfig(t, "removable"), Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: inventoryCandidateConfig(t, "removable"), Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile old: %v", err)
@@ -166,7 +168,7 @@ func TestGenerationBundle_BackendRemovalOmitsModelsButOldBoundViewRetainsThem(t 
 
 	// New generation removes "removable" and adds "kept" instead.
 	newer, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: inventoryCandidateConfig(t, "kept"), Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: inventoryCandidateConfig(t, "kept"), Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("compile newer: %v", err)
@@ -239,7 +241,7 @@ func TestGenerationBundle_QuiesceStopsRefreshLoopButRetainsBoundView(t *testing.
 	t.Cleanup(func() { _ = ps.Close() })
 
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cfg, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cfg, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -317,7 +319,7 @@ func TestCompileGeneration_StaleCacheForRemovedBackendNotAdvertised(t *testing.T
 	t.Cleanup(func() { _ = ps.Close() })
 
 	bundle, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: cand, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: cand, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -381,7 +383,7 @@ func TestCompileGeneration_InvalidInventoryFailsCompileProcessSurvives(t *testin
 	}
 
 	_, err = runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: badCfg, Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: badCfg, Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if !errors.Is(err, modelregistry.ErrMissingProvider) {
 		t.Fatalf("CompileGeneration error = %v, want ErrMissingProvider", err)
@@ -391,7 +393,7 @@ func TestCompileGeneration_InvalidInventoryFailsCompileProcessSurvives(t *testin
 	}
 
 	ok, err := runtimebundle.CompileGeneration(context.Background(), runtimebundle.GenerationCompileInput{
-		Process: ps, Candidate: inventoryCandidateConfig(t, "recovered"), Compose: stdhttp.ComposeRequestPlane,
+		Process: ps, Candidate: inventoryCandidateConfig(t, "recovered"), Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("recover compile after invalid-inventory rejection: %v", err)

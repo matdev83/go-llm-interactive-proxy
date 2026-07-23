@@ -2,6 +2,7 @@ package runtimebundle_test
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -26,7 +27,7 @@ func TestGenerationRuntime_ExactCapabilitySatisfaction(t *testing.T) {
 		Candidate: stubCandidateConfig(t, "cap", "capability-text", "cap:stub-default", []config.PluginConfig{
 			{ID: "openai-responses", Enabled: true},
 		}),
-		Compose: stdhttp.ComposeRequestPlane,
+		Compose: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("CompileGeneration: %v", err)
@@ -80,7 +81,7 @@ func TestGenerationRuntime_UnpublishedCompilesServesAndClosesOnce(t *testing.T) 
 		CandidateOpts: &runtimebundle.BuildOptions{
 			FeatureLifecycles: []lipplugin.Lifecycle{life},
 		},
-		Compose: func(context.Context, runtimebundle.RequestPlane) (http.Handler, error) {
+		Compose: func(context.Context, *config.Config, *slog.Logger, stdhttp.StandardHTTPInput) (http.Handler, error) {
 			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte("ok-unpublished"))
 			}), nil
