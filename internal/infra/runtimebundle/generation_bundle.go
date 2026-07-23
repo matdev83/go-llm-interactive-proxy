@@ -19,47 +19,171 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/transport/httpauth"
 )
 
-// generationOwner is the narrow quiesce/close surface held by a GenerationBundle.
-// CandidateRuntime satisfies it; the concrete type stays private to composition.
-type generationOwner interface {
-	Quiesce(ctx context.Context) error
-	Close() error
+// GenerationRuntime is the canonical immutable publication and generation-resource
+// ownership contract (design GenerationRuntime; Task 3.3). Concrete runtimes
+// satisfy it directly — no generationOwner delegate, CandidateRuntime owner, or
+// generic dependency lookup surface.
+type GenerationRuntime interface {
+	runtimehost.PublishedRequestPlane
+	runtimehost.ExecutorProvider
+	runtimehost.ModelViewBinder
+	runtimehost.BackendFactoryKindCounter
+	TerminalProviders() terminalworkapp.TerminalProviderView
+	ReadinessReport() controlplane.ReadinessReportReader
 }
 
-// GenerationBundle is the immutable publication unit for one request-plane
-// generation (design Immutable Generation Bundle). Fields are unexported;
-// accessors return narrow interfaces, immutable values, or defensive copies.
-// It never stores or exposes mutable *config.Config, *runtime.App, *Built, or
-// process-owned closers / ProcessServices ownership.
-type GenerationBundle struct {
+type generationExecution struct {
+	executor   *runtime.Executor
+	backendIDs []string
+}
+
+type generationHTTPPublication struct {
 	handler       http.Handler
-	executor      *runtime.Executor // private; exposed only via ExecutorView / BackendIDs
 	routing       FrozenRoutingView
 	frontends     []config.PluginConfig
 	registrations []lipsdk.Registration
 	httpAuth      []httpauth.Provider
-	models        *modelregistry.Runtime
-	catalog       *modelcatalog.CatalogRuntime
-	backendIDs    []string
-	ledger        *ResourceLedger // private; ResourceCount only
-	owner         generationOwner
-	// terminalProviders is an immutable snapshot of terminal effect providers
-	// captured at compile time (task 3.6). It must not share mutable registry state.
+}
+
+type generationModelViews struct {
+	models  *modelregistry.Runtime
+	catalog *modelcatalog.CatalogRuntime
+}
+
+type generationOperations struct {
 	terminalProviders *terminalworkapp.FrozenTerminalProviders
 	readiness         controlplane.ReadinessReportReader
+}
 
-	quiesceOnce sync.Once
-	quiesceErr  error
-	closeOnce   sync.Once
-	closeErr    error
+type generationLifeState uint8
+
+const (
+	genLifeOpen generationLifeState = iota
+	genLifeQuiesced
+	genLifeClosed
+)
+
+// generationOwnership is the sole lifecycle state machine for one generation
+// ledger. Quiesce/Close are serialized under mu; wrappers must not add Once.
+type generationOwnership struct {
+	ledger *ResourceLedger
+
+	mu         sync.Mutex
+	cond       *sync.Cond
+	state      generationLifeState
+	quiescing  bool
+	closing    bool
+	quiesceErr error
+	closeErr   error
+}
+
+func (o *generationOwnership) Quiesce(ctx context.Context) error {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	if o.cond == nil {
+		o.cond = sync.NewCond(&o.mu)
+	}
+	for o.quiescing || o.closing {
+		o.cond.Wait()
+	}
+	switch o.state {
+	case genLifeClosed:
+		err := o.closeErr
+		o.mu.Unlock()
+		return err
+	case genLifeQuiesced:
+		err := o.quiesceErr
+		o.mu.Unlock()
+		return err
+	}
+	o.quiescing = true
+	ledger := o.ledger
+	o.mu.Unlock()
+
+	var err error
+	if ledger != nil {
+		err = ledger.Quiesce(ctx)
+	}
+
+	o.mu.Lock()
+	o.quiesceErr = err
+	o.state = genLifeQuiesced
+	o.quiescing = false
+	o.cond.Broadcast()
+	o.mu.Unlock()
+	return err
+}
+
+func (o *generationOwnership) Close() error {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	if o.cond == nil {
+		o.cond = sync.NewCond(&o.mu)
+	}
+	for o.quiescing || o.closing {
+		o.cond.Wait()
+	}
+	if o.state == genLifeClosed {
+		err := o.closeErr
+		o.mu.Unlock()
+		return err
+	}
+	wasQuiesced := o.state == genLifeQuiesced
+	o.closing = true
+	ledger := o.ledger
+	o.mu.Unlock()
+
+	var err error
+	if ledger != nil {
+		if wasQuiesced {
+			err = ledger.Close(context.Background())
+		} else {
+			err = ledger.Rollback(context.Background())
+		}
+	}
+
+	o.mu.Lock()
+	o.closeErr = err
+	o.state = genLifeClosed
+	o.closing = false
+	o.cond.Broadcast()
+	o.mu.Unlock()
+	return err
+}
+
+func (o *generationOwnership) resourceCount() int {
+	if o == nil || o.ledger == nil {
+		return 0
+	}
+	return o.ledger.Len()
+}
+
+// GenerationBundle is the concrete GenerationRuntime: immutable publication unit
+// for one request-plane generation. Fields are private cohesive groups; accessors
+// return narrow interfaces, immutable values, or defensive copies. It never stores
+// CandidateRuntime, generationOwner, mutable *config.Config, *runtime.App,
+// *Built, RequestPlane, ProcessServices ownership, or a dependency map.
+type GenerationBundle struct {
+	execution   generationExecution
+	publication generationHTTPPublication
+	models      generationModelViews
+	operations  generationOperations
+	ownership   generationOwnership
 }
 
 var (
-	_ runtimehost.OwnedCloser           = (*GenerationBundle)(nil)
-	_ runtimehost.QuiesceCloser         = (*GenerationBundle)(nil)
-	_ runtimehost.PublishedRequestPlane = (*GenerationBundle)(nil)
-	_ runtimehost.ModelViewBinder       = (*GenerationBundle)(nil)
-	_ routing.NativeModelResolver       = modelregistry.BoundView{}
+	_ GenerationRuntime                     = (*GenerationBundle)(nil)
+	_ runtimehost.OwnedCloser               = (*GenerationBundle)(nil)
+	_ runtimehost.QuiesceCloser             = (*GenerationBundle)(nil)
+	_ runtimehost.PublishedRequestPlane     = (*GenerationBundle)(nil)
+	_ runtimehost.ModelViewBinder           = (*GenerationBundle)(nil)
+	_ runtimehost.ExecutorProvider          = (*GenerationBundle)(nil)
+	_ runtimehost.BackendFactoryKindCounter = (*GenerationBundle)(nil)
+	_ routing.NativeModelResolver           = modelregistry.BoundView{}
 )
 
 // BindModelViews captures this generation's model-registry and catalog
@@ -72,8 +196,8 @@ func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
 	if b == nil {
 		return ctx
 	}
-	regView := b.models.BoundView()
-	catView := b.catalog.BoundView()
+	regView := b.models.models.BoundView()
+	catView := b.models.catalog.BoundView()
 	var configGen int64
 	var configFP string
 	if rb, ok := runtimehost.BindingFromContext(ctx); ok {
@@ -93,10 +217,10 @@ func (b *GenerationBundle) BindModelViews(ctx context.Context) context.Context {
 
 // TerminalProviders returns this generation's immutable terminal-effect provider view.
 func (b *GenerationBundle) TerminalProviders() terminalworkapp.TerminalProviderView {
-	if b == nil || b.terminalProviders == nil {
+	if b == nil || b.operations.terminalProviders == nil {
 		return terminalworkapp.SnapshotTerminalProviders(nil)
 	}
-	return b.terminalProviders
+	return b.operations.terminalProviders
 }
 
 // Handler returns the generation request-plane handler (no listener).
@@ -104,15 +228,15 @@ func (b *GenerationBundle) Handler() http.Handler {
 	if b == nil {
 		return nil
 	}
-	return b.handler
+	return b.publication.handler
 }
 
 // ExecutorView returns the narrow SDK executor view.
 func (b *GenerationBundle) ExecutorView() lipsdk.ExecutorView {
-	if b == nil || b.executor == nil {
+	if b == nil || b.execution.executor == nil {
 		return nil
 	}
-	return b.executor
+	return b.execution.executor
 }
 
 // ReadinessReport returns the generation readiness report service, or nil.
@@ -120,7 +244,7 @@ func (b *GenerationBundle) ReadinessReport() controlplane.ReadinessReportReader 
 	if b == nil {
 		return nil
 	}
-	return b.readiness
+	return b.operations.readiness
 }
 
 // BackendIDs returns a defensive copy of generation backend instance IDs.
@@ -128,17 +252,17 @@ func (b *GenerationBundle) BackendIDs() []string {
 	if b == nil {
 		return nil
 	}
-	return append([]string(nil), b.backendIDs...)
+	return append([]string(nil), b.execution.backendIDs...)
 }
 
 // BackendFactoryKindCounts returns enabled backend factory-kind occurrence
 // counts for LiveFactoryKinds admission (task 5.1 / req 8.8).
 func (b *GenerationBundle) BackendFactoryKindCounts() map[string]int {
-	if b == nil || len(b.registrations) == 0 {
+	if b == nil || len(b.publication.registrations) == 0 {
 		return nil
 	}
 	out := make(map[string]int)
-	for _, r := range b.registrations {
+	for _, r := range b.publication.registrations {
 		if !r.Enabled || r.Kind != lipsdk.PluginKindBackend {
 			continue
 		}
@@ -160,8 +284,8 @@ func (b *GenerationBundle) Routing() FrozenRoutingView {
 		return FrozenRoutingView{}
 	}
 	return FrozenRoutingView{
-		DefaultRoute:  b.routing.DefaultRoute,
-		RoutePrefixes: append([]string(nil), b.routing.RoutePrefixes...),
+		DefaultRoute:  b.publication.routing.DefaultRoute,
+		RoutePrefixes: append([]string(nil), b.publication.routing.RoutePrefixes...),
 	}
 }
 
@@ -170,7 +294,7 @@ func (b *GenerationBundle) RoutePrefixes() []string {
 	if b == nil {
 		return nil
 	}
-	return append([]string(nil), b.routing.RoutePrefixes...)
+	return append([]string(nil), b.publication.routing.RoutePrefixes...)
 }
 
 // FrozenFrontends returns a defensive copy of frontend plugin rows.
@@ -178,7 +302,7 @@ func (b *GenerationBundle) FrozenFrontends() []config.PluginConfig {
 	if b == nil {
 		return nil
 	}
-	return freezePluginConfigs(b.frontends)
+	return freezePluginConfigs(b.publication.frontends)
 }
 
 // Registrations returns a defensive deep copy of plugin registrations.
@@ -186,38 +310,33 @@ func (b *GenerationBundle) Registrations() []lipsdk.Registration {
 	if b == nil {
 		return nil
 	}
-	return freezeRegistrations(b.registrations)
+	return freezeRegistrations(b.publication.registrations)
 }
 
 // HTTPAuthProviders returns a defensive copy of transport-auth providers.
 func (b *GenerationBundle) HTTPAuthProviders() []httpauth.Provider {
-	if b == nil || b.httpAuth == nil {
+	if b == nil || b.publication.httpAuth == nil {
 		return nil
 	}
-	return append([]httpauth.Provider(nil), b.httpAuth...)
+	return append([]httpauth.Provider(nil), b.publication.httpAuth...)
 }
 
 // ResourceCount returns the current generation-owned ledger entry count.
 // Intended for tests and diagnostics; it does not expose mutation controls.
 func (b *GenerationBundle) ResourceCount() int {
-	if b == nil || b.ledger == nil {
+	if b == nil {
 		return 0
 	}
-	return b.ledger.Len()
+	return b.ownership.resourceCount()
 }
 
-// Quiesce stops admission-independent generation workers exactly once by
-// forwarding to the candidate/ledger owner (req 10.5).
+// Quiesce stops admission-independent generation workers exactly once via the
+// ownership state machine (req 10.5 / 8.3-8.4).
 func (b *GenerationBundle) Quiesce(ctx context.Context) error {
 	if b == nil {
 		return nil
 	}
-	b.quiesceOnce.Do(func() {
-		if b.owner != nil {
-			b.quiesceErr = b.owner.Quiesce(ctx)
-		}
-	})
-	return b.quiesceErr
+	return b.ownership.Quiesce(ctx)
 }
 
 // Close rolls back/closes generation-owned resources exactly once.
@@ -226,16 +345,7 @@ func (b *GenerationBundle) Close() error {
 	if b == nil {
 		return nil
 	}
-	b.closeOnce.Do(func() {
-		if b.owner != nil {
-			b.closeErr = b.owner.Close()
-			return
-		}
-		if b.ledger != nil {
-			b.closeErr = b.ledger.Rollback(context.Background())
-		}
-	})
-	return b.closeErr
+	return b.ownership.Close()
 }
 
 func backendIDsOf(exec *runtime.Executor) []string {
@@ -248,4 +358,46 @@ func backendIDsOf(exec *runtime.Executor) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func newGenerationBundle(in generationBundleInput) *GenerationBundle {
+	b := &GenerationBundle{
+		execution: generationExecution{
+			executor:   in.executor,
+			backendIDs: append([]string(nil), in.backendIDs...),
+		},
+		publication: generationHTTPPublication{
+			handler:       in.handler,
+			routing:       in.routing,
+			frontends:     freezePluginConfigs(in.frontends),
+			registrations: freezeRegistrations(in.registrations),
+			httpAuth:      append([]httpauth.Provider(nil), in.httpAuth...),
+		},
+		models: generationModelViews{
+			models:  in.models,
+			catalog: in.catalog,
+		},
+		operations: generationOperations{
+			terminalProviders: in.terminalProviders,
+			readiness:         in.readiness,
+		},
+		ownership: generationOwnership{ledger: in.ledger},
+	}
+	b.ownership.cond = sync.NewCond(&b.ownership.mu)
+	return b
+}
+
+type generationBundleInput struct {
+	handler           http.Handler
+	executor          *runtime.Executor
+	routing           FrozenRoutingView
+	frontends         []config.PluginConfig
+	registrations     []lipsdk.Registration
+	httpAuth          []httpauth.Provider
+	models            *modelregistry.Runtime
+	catalog           *modelcatalog.CatalogRuntime
+	backendIDs        []string
+	ledger            *ResourceLedger
+	terminalProviders *terminalworkapp.FrozenTerminalProviders
+	readiness         controlplane.ReadinessReportReader
 }

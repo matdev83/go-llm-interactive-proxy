@@ -33,7 +33,7 @@ var expectedMigrationHotspotFreezes = []struct {
 	},
 	{
 		Path:         "internal/infra/runtimebundle/candidate_compile.go",
-		FreezeMax:    440,
+		FreezeMax:    400,
 		FinalTarget:  350,
 		LoweringTask: "3.5",
 	},

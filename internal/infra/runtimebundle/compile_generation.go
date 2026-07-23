@@ -84,7 +84,8 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 		return nil, err
 	}
 
-	fail := func(err error) (*GenerationBundle, error) {
+	// fail rolls back through CandidateRuntime before ownership transfer.
+	failBeforeTransfer := func(err error) (*GenerationBundle, error) {
 		if rollErr := cand.Close(); rollErr != nil {
 			return nil, errors.Join(err, rollErr)
 		}
@@ -92,7 +93,7 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 	}
 
 	if err := injectCandidateFault(in.FaultInject, "handler"); err != nil {
-		return fail(err)
+		return failBeforeTransfer(err)
 	}
 
 	wireModel := ps.opts.WireModel
@@ -144,27 +145,30 @@ func CompileGeneration(ctx context.Context, in GenerationCompileInput) (*Generat
 	// ProcessServices stay up (req 3.9).
 	handler, err := composeRequestPlaneIsolated(ctx, in.Compose, plane)
 	if err != nil {
-		return fail(fmt.Errorf("runtimebundle: compose request plane: %w", err))
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: compose request plane: %w", err))
 	}
 	if handler == nil {
-		return fail(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
+		return failBeforeTransfer(fmt.Errorf("runtimebundle: handler composer returned nil handler"))
 	}
 
-	return &GenerationBundle{
+	// Successful path: transfer ledger ownership to the canonical GenerationRuntime.
+	// After transfer, CandidateRuntime must not close generation resources.
+	ledger := cand.transferLedgerOwnership()
+	bundle := newGenerationBundle(generationBundleInput{
 		handler:           handler,
 		executor:          cand.Executor,
 		routing:           FrozenRoutingView{DefaultRoute: route, RoutePrefixes: append([]string(nil), cand.RoutePrefixes...)},
-		frontends:         freezePluginConfigs(frozen.Plugins.Frontends),
-		registrations:     freezeRegistrations(regs),
-		httpAuth:          append([]httpauth.Provider(nil), authProviders...),
+		frontends:         frozen.Plugins.Frontends,
+		registrations:     regs,
+		httpAuth:          authProviders,
 		models:            cand.ModelRegistryRuntime,
 		catalog:           cand.CatalogRuntime,
 		backendIDs:        backendIDsOf(cand.Executor),
-		ledger:            cand.Ledger,
-		owner:             cand,
+		ledger:            ledger,
 		terminalProviders: terminalworkapp.SnapshotTerminalProviders(cand.TerminalWorkRegistry),
 		readiness:         cand.ReadinessReport,
-	}, nil
+	})
+	return bundle, nil
 }
 
 func composeRequestPlaneIsolated(ctx context.Context, compose HandlerComposer, plane RequestPlane) (handler http.Handler, err error) {

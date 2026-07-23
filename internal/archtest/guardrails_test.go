@@ -287,7 +287,12 @@ var lineBudgets = []struct {
 	// shared ReloadHost composition (fixed source, effective loader, generation
 	// compiler adapter, coordinator bind) and ActiveSource bootstrap retention
 	// used by lipruntime and lipstd (measured non-test total ~9849; ~100 headroom).
-	{"internal/infra/runtimebundle", 9950},
+	// Raised from 9950 to 10101 for runtime-architecture-convergence Task 3.3:
+	// GenerationRuntime contract, cohesive private groups, singular ledger
+	// ownership transfer from CandidateRuntime, and race-safe Quiesce/Close state
+	// machine replacing dual generationOwner+Once wrappers; candidate lifecycle
+	// extracted to candidate_lifecycle.go (measured 10101; zero headroom).
+	{"internal/infra/runtimebundle", 10101},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

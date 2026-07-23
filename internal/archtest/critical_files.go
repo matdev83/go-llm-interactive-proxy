@@ -71,8 +71,9 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/infra/runtimehost/coordinator.go", Max: 797},
 	// Freeze 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3 (generation lifecycle).
 	{Path: "internal/infra/runtimehost/generation.go", Max: 575},
-	// Freeze 440 → final ≤350 (Req 11.3). Lower via Phase 3 task 3.5 (candidate compilation).
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 440},
+	// Freeze 440 → contracted to 400 in Task 3.3 (lifecycle/transfer extracted to
+	// candidate_lifecycle.go); final ≤350 (Req 11.3). Lower further via Phase 3 task 3.5.
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 400},
 	// Freeze 364 → final ≤300 (Req 11.3). Lower via Phase 5 task 5.5 (process construction).
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
 	// Freeze 367 → final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).

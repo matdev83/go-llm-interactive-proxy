@@ -106,7 +106,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.1_
   - _Validation: `go test ./internal/stdhttp/... -run 'Mount|Middleware|Frontend|Diagnostics|Admin|Auth|Metrics'`_
 
-- [ ] 3.3 Define the canonical GenerationRuntime ownership contract
+- [x] 3.3 Define the canonical GenerationRuntime ownership contract
   - Add RED tests for one generation owner, immutable groups, narrow runtimehost capabilities, no generic dependency lookup, and exact rollback/quiesce/close ownership.
   - Build the canonical generation runtime around the existing resource ledger and grouped sub-runtimes.
   - Make it directly satisfy handler, executor view, model binder, terminal provider, readiness, and backend-kind capabilities.

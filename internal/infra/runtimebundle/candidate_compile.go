@@ -104,6 +104,7 @@ type CandidateRuntime struct {
 	// Closers contains generation-owned teardown only (legacy view of Ledger).
 	Closers []func() error
 	// Ledger owns generation resources for rollback/quiesce/close (task 3.2).
+	// Nil after transferLedgerOwnership (Task 3.3).
 	Ledger *ResourceLedger
 
 	closeOnce   sync.Once
@@ -112,52 +113,11 @@ type CandidateRuntime struct {
 	quiesceErr  error
 	didQuiesce  atomic.Bool
 
+	lifeMu            sync.Mutex
+	ledgerTransferred bool
+
 	terminalWorkReady func(context.Context) error
 	terminalWorkRT    *terminalWorkRuntime
-}
-
-// NewCandidateRuntimeForTest builds a minimal candidate bound to ledger (tests).
-func NewCandidateRuntimeForTest(ledger *ResourceLedger) *CandidateRuntime {
-	c := &CandidateRuntime{Ledger: ledger}
-	if ledger != nil {
-		c.Closers = ledger.LegacyClosers()
-	}
-	return c
-}
-
-// Quiesce stops admission-independent generation workers once (req 10.5).
-func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
-	if c == nil {
-		return nil
-	}
-	c.quiesceOnce.Do(func() {
-		c.didQuiesce.Store(true)
-		if c.Ledger != nil {
-			c.quiesceErr = c.Ledger.Quiesce(ctx)
-		}
-	})
-	return c.quiesceErr
-}
-
-// Close disposes generation-owned resources in reverse order.
-// Unpublished discard / compile failure uses full ledger rollback; after Quiesce,
-// only remaining close-phase resources are released. Never closes ProcessServices.
-func (c *CandidateRuntime) Close() error {
-	if c == nil {
-		return nil
-	}
-	c.closeOnce.Do(func() {
-		if c.Ledger != nil {
-			if c.didQuiesce.Load() {
-				c.closeErr = c.Ledger.Close(context.Background())
-			} else {
-				c.closeErr = c.Ledger.Rollback(context.Background())
-			}
-			return
-		}
-		c.closeErr = disposeClosers(c.Closers)
-	})
-	return c.closeErr
 }
 
 // CompileCandidate builds one generation-owned candidate against shared process services.
