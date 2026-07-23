@@ -66,7 +66,7 @@ func resultDTO(res configreload.ReloadResult) ResultDTO {
 	}
 }
 
-func statusDTO(st configreload.ReloadStatus) StatusDTO {
+func statusDTO(st configreload.ReloadStatus, fixedSourcePath string) StatusDTO {
 	return StatusDTO{
 		ActiveGeneration:    st.ActiveGeneration,
 		LastResult:          resultDTO(st.LastResult),
@@ -78,15 +78,16 @@ func statusDTO(st configreload.ReloadStatus) StatusDTO {
 		ControlDegraded:     st.ControlDegraded,
 		ModelGeneration:     st.ModelGeneration,
 		Busy:                st.Busy,
-		FixedSourcePath:     st.FixedSourcePath,
+		FixedSourcePath:     fixedSourcePath,
 		PendingSignal:       st.PendingSignal,
 		CoalescedSignals:    st.CoalescedSignals,
 	}
 }
 
-// StatusFrom projects a coordinator status snapshot into the management DTO.
-func StatusFrom(st configreload.ReloadStatus) StatusDTO {
-	return statusDTO(st)
+// StatusFrom projects a coordinator status snapshot and fixed-source capability
+// into the management DTO. fixedSourcePath is HTTP-transport-only.
+func StatusFrom(st configreload.ReloadStatus, fixedSourcePath string) StatusDTO {
+	return statusDTO(st, fixedSourcePath)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

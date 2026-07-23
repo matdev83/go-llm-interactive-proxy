@@ -2,28 +2,13 @@ package configreload
 
 import (
 	"sync"
-	"time"
 )
 
 // DefaultStatusHistoryCap is the default bounded ring capacity for reload status history.
 const DefaultStatusHistoryCap = 32
 
-// HistoryEntry is one bounded, secret-safe reload attempt/status record (req 14.1-14.2).
-type HistoryEntry struct {
-	AttemptID           int64
-	Trigger             TriggerKind
-	Stage               string
-	Category            ResultCategory
-	ActiveGeneration    int64
-	CandidateGeneration int64
-	DurationMs          int64
-	RestartFieldCount   int
-	ReasonCategory      string
-	SafeActor           string
-	RecordedAt          time.Time
-}
-
 // StatusHistory is a process-owned bounded ring of reload history entries.
+// Entry shape is the canonical HistoryEntry from pkg/lipsdk/configreload (aliased here).
 type StatusHistory struct {
 	mu    sync.Mutex
 	cap   int

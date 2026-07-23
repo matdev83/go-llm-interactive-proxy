@@ -50,7 +50,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 2. Define one secret-safe reload vocabulary
 
-- [ ] 2.1 Add canonical reload contract tests and public package
+- [x] 2.1 Add canonical reload contract tests and public package
   - Add RED tests for trigger kinds, result categories, result/history/status defensive copying, closed vocabulary, and secret-safe field inventory.
   - Create dependency-neutral `pkg/lipsdk/configreload` contract types with no internal imports.
   - Preserve the existing category strings and safe fields.

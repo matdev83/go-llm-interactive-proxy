@@ -1031,3 +1031,153 @@ func TestCoordinator_RestartRequired_MixedNoPartialApply_RequiresRetrigger(t *te
 		t.Fatalf("compile calls=%d want 1", compile.calls.Load())
 	}
 }
+
+// TestCoordinator_StatusReturnsDefensiveCopy proves (*Coordinator).Status() is a
+// real query-boundary defensive snapshot: mutating one returned Status must not
+// alter coordinator-owned state or a subsequent Status() snapshot, and two
+// snapshots must not share mutable nested storage (RestartFields / History /
+// CurrentAttempt).
+//
+// Nested population notes:
+//   - RestartFields: populated via RestartRequiredError on a completed attempt.
+//   - CurrentAttempt: populated while a follow-up attempt is held busy; it
+//     mirrors the prior last result (including RestartFields) while busy.
+//   - History: populated via ReloadObserver StatusHistory on terminal attempts.
+//   - HistoryEntry values have no nested mutable slices; only the History slice
+//     header is independently owned after the boundary copy.
+func TestCoordinator_StatusReturnsDefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	digest := [32]byte{9, 9, 9}
+	src := &fakeSource{
+		path: "/fixed/startup/config.yaml",
+		snap: configsource.SourceSnapshot{
+			Bytes:         []byte("x: 1"),
+			PrivateDigest: digest,
+		},
+		atomic: configsource.AtomicEligible,
+	}
+	loader := runtimehost.FuncEffectiveLoader(func(context.Context, []byte) (*config.EffectiveConfig, error) {
+		return &config.EffectiveConfig{
+			Config:   &config.Config{Routing: config.RoutingConfig{MaxAttempts: 3}},
+			Identity: config.EffectiveIdentity{PrivateDigest: digest, PublicFingerprint: "fp-cand"},
+			LoadedAt: time.Unix(2, 0).UTC(),
+		}, nil
+	})
+	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{
+		History: configreload.NewStatusHistory(8),
+	})
+	mgr := runtimehost.NewManager(4, nil)
+	plane := newFakePlane(map[string]int{"local-stub": 1})
+	initial := mgr.PrepareRequestPlane("boot", plane)
+	initial.SetMetaHints(runtimehost.MetaHints{PublicFingerprint: "fp-boot"})
+	if err := mgr.Publish(initial); err != nil {
+		t.Fatal(err)
+	}
+	c, err := runtimehost.NewCoordinator(runtimehost.CoordinatorDeps{
+		Source:   src,
+		Loader:   loader,
+		Compile:  &controllableCompiler{kinds: map[string]int{"local-stub": 1}},
+		Manager:  mgr,
+		Timeout:  time.Second,
+		Observer: obs,
+		ActiveEffective: &config.EffectiveConfig{
+			Config:   &config.Config{Routing: config.RoutingConfig{MaxAttempts: 1}},
+			Identity: config.EffectiveIdentity{PrivateDigest: [32]byte{1}, PublicFingerprint: "fp-old"},
+		},
+		Classify: func(_, _ *config.EffectiveConfig) ([]configreload.SafeChange, error) {
+			return nil, &configreload.RestartRequiredError{
+				RestartRequiredFields: []string{"server.address", "tls.cert"},
+				TotalBlocked:          2,
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+
+	res := c.Reload(context.Background(), configreload.ReloadTrigger{
+		Kind:      configreload.TriggerAPI,
+		SafeActor: "status-copy-actor",
+	})
+	if res.Category != configreload.ResultRestartRequired {
+		t.Fatalf("setup category=%q want restart-required", res.Category)
+	}
+	if len(res.RestartFields) < 2 {
+		t.Fatalf("setup RestartFields=%v", res.RestartFields)
+	}
+
+	gate := newStageGate()
+	src.gate = gate
+	done := make(chan configreload.ReloadResult, 1)
+	go func() {
+		done <- c.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
+	}()
+	gate.WaitEnter(t)
+	t.Cleanup(func() {
+		gate.Release()
+		<-done
+	})
+
+	st1 := c.Status()
+	if !st1.Busy || st1.CurrentAttempt == nil {
+		t.Fatalf("expected busy CurrentAttempt, status=%+v", st1)
+	}
+	if len(st1.LastResult.RestartFields) < 2 {
+		t.Fatalf("expected LastResult.RestartFields, got %v", st1.LastResult.RestartFields)
+	}
+	if len(st1.CurrentAttempt.RestartFields) < 2 {
+		t.Fatalf("expected CurrentAttempt.RestartFields, got %v", st1.CurrentAttempt.RestartFields)
+	}
+	if len(st1.History) == 0 {
+		t.Fatal("expected History from observer")
+	}
+	origField0 := st1.LastResult.RestartFields[0]
+	origField1 := st1.LastResult.RestartFields[1]
+	origActor := st1.History[0].SafeActor
+	origCur0 := st1.CurrentAttempt.RestartFields[0]
+
+	st1.LastResult.RestartFields[0] = "mutated-last"
+	st1.CurrentAttempt.RestartFields[0] = "mutated-current"
+	st1.History[0].SafeActor = "mutated-actor"
+	st1.LastResult.Category = configreload.ResultPublished
+	st1.CurrentAttempt.Category = configreload.ResultPublished
+
+	st2 := c.Status()
+	if st2.LastResult.RestartFields[0] != origField0 || st2.LastResult.RestartFields[1] != origField1 {
+		t.Fatalf("mutating first Status leaked into coordinator/second snapshot RestartFields: %v", st2.LastResult.RestartFields)
+	}
+	if st2.LastResult.Category != configreload.ResultRestartRequired {
+		t.Fatalf("mutating first Status leaked LastResult.Category=%q", st2.LastResult.Category)
+	}
+	if st2.CurrentAttempt == nil {
+		t.Fatal("second snapshot missing CurrentAttempt")
+	}
+	if st2.CurrentAttempt.RestartFields[0] != origCur0 {
+		t.Fatalf("mutating first CurrentAttempt leaked: %v", st2.CurrentAttempt.RestartFields)
+	}
+	if st2.CurrentAttempt.Category != configreload.ResultRestartRequired {
+		t.Fatalf("mutating first CurrentAttempt.Category leaked: %q", st2.CurrentAttempt.Category)
+	}
+	if st2.History[0].SafeActor != origActor {
+		t.Fatalf("mutating first History leaked SafeActor=%q want %q", st2.History[0].SafeActor, origActor)
+	}
+
+	// Distinct mutable nested storage between the two returned snapshots.
+	if len(st1.LastResult.RestartFields) > 0 && len(st2.LastResult.RestartFields) > 0 &&
+		&st1.LastResult.RestartFields[0] == &st2.LastResult.RestartFields[0] {
+		t.Fatal("Status snapshots must not share LastResult.RestartFields backing array")
+	}
+	if st1.CurrentAttempt != nil && st2.CurrentAttempt != nil {
+		if st1.CurrentAttempt == st2.CurrentAttempt {
+			t.Fatal("Status snapshots must not share CurrentAttempt pointer")
+		}
+		if len(st1.CurrentAttempt.RestartFields) > 0 && len(st2.CurrentAttempt.RestartFields) > 0 &&
+			&st1.CurrentAttempt.RestartFields[0] == &st2.CurrentAttempt.RestartFields[0] {
+			t.Fatal("Status snapshots must not share CurrentAttempt.RestartFields backing array")
+		}
+	}
+	if len(st1.History) > 0 && len(st2.History) > 0 && &st1.History[0] == &st2.History[0] {
+		t.Fatal("Status snapshots must not share History backing array")
+	}
+}

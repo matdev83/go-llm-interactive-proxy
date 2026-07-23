@@ -11,4 +11,7 @@ import (
 type ReloadCoordinator interface {
 	Reload(ctx context.Context, trigger configreload.ReloadTrigger) configreload.ReloadResult
 	Status() configreload.ReloadStatus
+	// FixedSourcePath is the HTTP-only capability for the fixed startup source.
+	// It must not appear on the canonical Status contract.
+	FixedSourcePath() string
 }

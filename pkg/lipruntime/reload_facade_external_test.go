@@ -279,7 +279,6 @@ func TestReloadFacade_NoSensitiveFields(t *testing.T) {
 	q := &fakeReloadQuery{
 		status: configreload.ReloadStatus{
 			ActiveGeneration: 1,
-			FixedSourcePath:  "/var/secrets/config.yaml",
 			LastResult: configreload.ReloadResult{
 				Category:       configreload.ResultPublished,
 				ReasonCategory: "ok",

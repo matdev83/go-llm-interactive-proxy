@@ -44,7 +44,6 @@ func (c *fakeCoordinator) Status() configreload.ReloadStatus {
 		ActiveGeneration: c.activeGen.Load(),
 		LastResult:       c.last,
 		Busy:             c.busy,
-		FixedSourcePath:  c.fixedSource,
 	}
 }
 

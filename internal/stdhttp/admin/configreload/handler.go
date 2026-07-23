@@ -59,7 +59,7 @@ func (h *Handler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r) || !h.browserGuard(w, r, true) {
 		return
 	}
-	writeJSON(w, http.StatusOK, statusDTO(h.coord.Status()))
+	writeJSON(w, http.StatusOK, statusDTO(h.coord.Status(), h.coord.FixedSourcePath()))
 }
 
 func (h *Handler) handleReload(w http.ResponseWriter, r *http.Request) {

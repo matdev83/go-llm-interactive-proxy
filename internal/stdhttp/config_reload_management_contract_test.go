@@ -358,6 +358,10 @@ func (a *prodCoordAdapter) Reload(ctx context.Context, trigger coreconfigreload.
 	}
 }
 
+func (a *prodCoordAdapter) FixedSourcePath() string {
+	return a.coord.FixedSourcePath()
+}
+
 func (a *prodCoordAdapter) Status() coreconfigreload.ReloadStatus {
 	st := a.coord.Status()
 	return coreconfigreload.ReloadStatus{
@@ -372,7 +376,6 @@ func (a *prodCoordAdapter) Status() coreconfigreload.ReloadStatus {
 			ReasonCategory:     st.LastResult.ReasonCategory,
 			CoalescedSignals:   st.LastResult.CoalescedSignals,
 		},
-		Busy:            st.Busy,
-		FixedSourcePath: st.FixedSourcePath,
+		Busy: st.Busy,
 	}
 }

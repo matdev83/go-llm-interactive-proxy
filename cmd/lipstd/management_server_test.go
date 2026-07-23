@@ -20,7 +20,8 @@ import (
 )
 
 type stubReloadCoord struct {
-	status configreload.ReloadStatus
+	status     configreload.ReloadStatus
+	fixedSource string
 }
 
 func (s *stubReloadCoord) Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult {
@@ -32,6 +33,13 @@ func (s *stubReloadCoord) Status() configreload.ReloadStatus {
 		return configreload.ReloadStatus{ActiveGeneration: 1}
 	}
 	return s.status
+}
+
+func (s *stubReloadCoord) FixedSourcePath() string {
+	if s.fixedSource != "" {
+		return s.fixedSource
+	}
+	return "/fixed/config.yaml"
 }
 
 func TestResolveManagementOptions_multiUserAbsentTokenDisabled(t *testing.T) {

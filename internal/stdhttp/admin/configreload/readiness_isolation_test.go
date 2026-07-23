@@ -50,9 +50,11 @@ func TestReadiness_IndependentOfReloadControlFailure(t *testing.T) {
 		SourceIntegrity:     "ok",
 		RetainedGenerations: 1,
 		ControlDegraded:     true,
-		FixedSourcePath:     "/fixed/config.yaml",
 	}
-	dto := mgmtreload.StatusFrom(st)
+	dto := mgmtreload.StatusFrom(st, "/fixed/config.yaml")
+	if dto.FixedSourcePath != "/fixed/config.yaml" {
+		t.Fatalf("fixed_source_path=%q", dto.FixedSourcePath)
+	}
 	if dto.ActiveGeneration != 11 {
 		t.Fatalf("active=%d", dto.ActiveGeneration)
 	}

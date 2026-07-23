@@ -109,6 +109,334 @@ var AllResultCategories = []ResultCategory{ResultPublished}
 	}
 }
 
+func TestReloadContract_CanonicalPackageExempt(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+type TriggerKind string
+type ResultCategory string
+type HistoryEntry struct{}
+const TriggerAPI TriggerKind = "api"
+var AllResultCategories = []ResultCategory{}
+`
+	got, err := scanReloadContractSource("pkg/lipsdk/configreload/contract.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("canonical package must be exempt, got %v", got)
+	}
+}
+
+func TestReloadContract_TypeAliasAndSDKReexportExempt(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type TriggerKind = sdkreload.TriggerKind
+type ResultCategory = sdkreload.ResultCategory
+type Trigger = sdkreload.Trigger
+type Result = sdkreload.Result
+type Status = sdkreload.Status
+type HistoryEntry = sdkreload.HistoryEntry
+type ReloadTrigger = sdkreload.Trigger
+type ReloadResult = sdkreload.Result
+type ReloadStatus = sdkreload.Status
+const TriggerAPI = sdkreload.TriggerAPI
+var AllResultCategories = sdkreload.AllResultCategories
+`
+	got, err := scanReloadContractSource("internal/core/configreload/model.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("aliases/re-exports must not be findings, got %v", got)
+	}
+}
+
+func TestReloadContract_HermesReviewNonCanonicalReloadAliasesAreRejected(t *testing.T) {
+	t.Parallel()
+	// Hermes bypass: type alias to a non-canonical package previously skipped
+	// every Assign form, concealing mirrored reload declarations.
+	src := `package mirror
+import legacy "example.com/legacy/reload"
+type ReloadTrigger = legacy.ReloadTrigger
+type ReloadResult = legacy.ReloadResult
+type ReloadStatus = legacy.ReloadStatus
+type TriggerKind = legacy.TriggerKind
+type ResultCategory = legacy.ResultCategory
+type HistoryEntry = legacy.HistoryEntry
+`
+	got, err := scanReloadContractSource("internal/extra/legacy_alias.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{
+		"type:ReloadTrigger", "type:ReloadResult", "type:ReloadStatus",
+		"type:TriggerKind", "type:ResultCategory", "type:HistoryEntry",
+	} {
+		if !findingsContainIdentity(got, id) {
+			t.Fatalf("non-canonical aliases concealed mirrored reload declarations: missing %s, got %v", id, got)
+		}
+	}
+}
+
+func TestReloadContract_HermesReviewArbitraryReloadAliasesAreRejected(t *testing.T) {
+	t.Parallel()
+	// Hermes bypass: builtin/anonymous aliases previously skipped via Assign.
+	src := `package mirror
+type ReloadTrigger = string
+type ReloadResult = struct{ Secret string }
+type ReloadStatus = map[string]any
+type TriggerKind = string
+type ResultCategory = struct{}
+type HistoryEntry = interface{ ID() int64 }
+`
+	got, err := scanReloadContractSource("internal/extra/arbitrary_alias.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{
+		"type:ReloadTrigger", "type:ReloadResult", "type:ReloadStatus",
+		"type:TriggerKind", "type:ResultCategory", "type:HistoryEntry",
+	} {
+		if !findingsContainIdentity(got, id) {
+			t.Fatalf("arbitrary aliases concealed reload contract declarations: missing %s, got %v", id, got)
+		}
+	}
+}
+
+func TestReloadContract_CanonicalAliasWithRenamedImportExempt(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+import canon "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type TriggerKind = canon.TriggerKind
+type ResultCategory = canon.ResultCategory
+type Trigger = canon.Trigger
+type Result = canon.Result
+type Status = canon.Status
+type HistoryEntry = canon.HistoryEntry
+type ReloadTrigger = canon.Trigger
+type ReloadResult = canon.Result
+type ReloadStatus = canon.Status
+`
+	got, err := scanReloadContractSource("internal/core/configreload/renamed.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("canonical renamed-import aliases must be exempt, got %v", got)
+	}
+}
+
+func TestReloadContract_WrongCanonicalTargetPairingRejected(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type ReloadStatus = sdkreload.Result
+type ReloadTrigger = sdkreload.Status
+type ReloadResult = sdkreload.Trigger
+type TriggerKind = sdkreload.ResultCategory
+type ResultCategory = sdkreload.TriggerKind
+type HistoryEntry = sdkreload.Status
+`
+	got, err := scanReloadContractSource("internal/core/configreload/wrong_target.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{
+		"type:ReloadStatus", "type:ReloadTrigger", "type:ReloadResult",
+		"type:TriggerKind", "type:ResultCategory", "type:HistoryEntry",
+	} {
+		if !findingsContainIdentity(got, id) {
+			t.Fatalf("wrong canonical target must be a finding: missing %s, got %v", id, got)
+		}
+	}
+}
+
+func TestReloadContract_IndirectLocalAliasChainRejected(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type Inner = sdkreload.Trigger
+type ReloadTrigger = Inner
+`
+	got, err := scanReloadContractSource("internal/core/configreload/indirect.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if !findingsContainIdentity(got, "type:ReloadTrigger") {
+		t.Fatalf("indirect local alias chain must remain a finding, got %v", got)
+	}
+}
+
+func TestReloadContract_UnrelatedTypesOutsideVocabularyNotFlagged(t *testing.T) {
+	t.Parallel()
+	src := `package other
+import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type MyWidget = string
+type Handler struct{ Secret string }
+type Result struct{ N int }
+type Status struct{ OK bool }
+type Trigger struct{}
+type Cache = map[string]any
+type NotReload = sdkreload.Result
+const WidgetMax = 3
+var Handlers []Handler
+`
+	got, err := scanReloadContractSource("internal/extra/unrelated.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unrelated types outside reload vocabulary must not be findings, got %v", got)
+	}
+}
+
+func TestReloadContract_HermesReviewNeutralDefinedTypesInConfigreloadRejected(t *testing.T) {
+	t.Parallel()
+	// Hermes bypass: omitting bare Trigger/Result/Status from the global name set
+	// let noncanonical package configreload redefine the canonical short types.
+	src := `package configreload
+type Trigger struct{ Kind TriggerKind }
+type Result struct{ Category ResultCategory }
+type Status struct{ LastResult Result }
+type TriggerKind string
+type ResultCategory string
+`
+	got, err := scanReloadContractSource("internal/core/configreload/duplicate_neutral.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{"type:Trigger", "type:Result", "type:Status"} {
+		if !findingsContainIdentity(got, id) {
+			t.Fatalf("defined neutral reload types in package configreload must be findings: missing %s, got %v", id, got)
+		}
+	}
+}
+
+func TestReloadContract_HermesReviewNeutralWrongAliasesInConfigreloadRejected(t *testing.T) {
+	t.Parallel()
+	// Wrong/noncanonical/builtin aliases of the neutral LHS names.
+	src := `package configreload
+import (
+	legacy "example.com/legacy/reload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+)
+type Trigger = legacy.Trigger
+type Result = sdkreload.Status
+type Status = string
+`
+	got, err := scanReloadContractSource("internal/core/configreload/neutral_wrong_alias.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{"type:Trigger", "type:Result", "type:Status"} {
+		if !findingsContainIdentity(got, id) {
+			t.Fatalf("wrong/noncanonical/builtin neutral aliases must be findings: missing %s, got %v", id, got)
+		}
+	}
+
+	// Anonymous + indirect aliases of neutral LHS names.
+	src2 := `package configreload
+import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type Trigger = struct{ Kind string }
+type Inner = sdkreload.Result
+type Result = Inner
+type Status = map[string]any
+`
+	got2, err := scanReloadContractSource("internal/stdhttp/admin/configreload/neutral_anon.go", src2)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{"type:Trigger", "type:Result", "type:Status"} {
+		if !findingsContainIdentity(got2, id) {
+			t.Fatalf("anonymous/indirect neutral aliases must be findings: missing %s, got %v", id, got2)
+		}
+	}
+}
+
+func TestReloadContract_NeutralExactCanonicalAliasesInConfigreloadExempt(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+import sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
+type Trigger = sdkreload.Trigger
+type Result = sdkreload.Result
+type Status = sdkreload.Status
+`
+	got, err := scanReloadContractSource("internal/core/configreload/neutral_exact.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("exact direct neutral aliases to SDK canonical targets must be exempt, got %v", got)
+	}
+}
+
+func TestReloadContract_NeutralNamesInUnrelatedPackagesNotFlagged(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		path string
+		pkg  string
+	}{
+		{name: "jsonguard", path: "internal/core/jsonguard/result.go", pkg: "jsonguard"},
+		{name: "routing", path: "internal/core/routing/status.go", pkg: "routing"},
+		{name: "other", path: "internal/extra/other/trigger.go", pkg: "other"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := "package " + tc.pkg + "\n" +
+				"type Trigger struct{}\n" +
+				"type Result struct{ N int }\n" +
+				"type Status struct{ OK bool }\n"
+			got, err := scanReloadContractSource(tc.path, src)
+			if err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			if len(got) != 0 {
+				t.Fatalf("unrelated package %s must not flag neutral names, got %v", tc.pkg, got)
+			}
+		})
+	}
+}
+
+func TestReloadContract_NeutralNamesViaPathSegmentConfigreloadRejected(t *testing.T) {
+	t.Parallel()
+	// Path segment configreload alone is enough even when the package name differs.
+	src := `package sneaky
+type Trigger struct{}
+type Result struct{}
+type Status struct{}
+`
+	got, err := scanReloadContractSource("internal/extra/configreload/sneaky.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, id := range []string{"type:Trigger", "type:Result", "type:Status"} {
+		if !findingsContainIdentity(got, id) {
+			t.Fatalf("path-segment configreload must flag neutral types: missing %s, got %v", id, got)
+		}
+	}
+}
+
+func TestReloadContract_CanonicalOwnerNeutralTypesRemainExempt(t *testing.T) {
+	t.Parallel()
+	src := `package configreload
+type Trigger struct{ Kind TriggerKind }
+type Result struct{ Category ResultCategory }
+type Status struct{ LastResult Result }
+type TriggerKind string
+type ResultCategory string
+`
+	got, err := scanReloadContractSource("pkg/lipsdk/configreload/contract.go", src)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("canonical owner path must remain exempt for neutral types, got %v", got)
+	}
+}
+
 func TestReloadContract_SyntheticVocabularyExpansionRejected(t *testing.T) {
 	t.Parallel()
 	src := `package configreload

@@ -236,6 +236,11 @@ func (c *Coordinator) releaseAttempt(done chan struct{}, cancel context.CancelFu
 }
 
 // Status returns a bounded safe snapshot (req 13.1-13.2, 14.1, 14.8).
+//
+// The snapshot is secret-safe and must not include filesystem paths.
+// Management adapters that need the fixed startup source should call
+// FixedSourcePath and map it into transport DTOs only
+// (canonical Status stays path-free).
 func (c *Coordinator) Status() configreload.ReloadStatus {
 	if c == nil {
 		return configreload.ReloadStatus{}
@@ -252,10 +257,6 @@ func (c *Coordinator) Status() configreload.ReloadStatus {
 		snap := c.mgr.ObservabilitySnapshot()
 		retained = snap.Retired
 		pressure = snap.RetentionWouldBlock
-	}
-	path := ""
-	if c.source != nil {
-		path = c.source.AbsolutePath()
 	}
 	var history []configreload.HistoryEntry
 	if c.observer != nil && c.observer.History() != nil {
@@ -286,10 +287,9 @@ func (c *Coordinator) Status() configreload.ReloadStatus {
 		ModelGeneration:     c.modelGen,
 		History:             history,
 		Busy:                c.busy,
-		FixedSourcePath:     path,
 		PendingSignal:       c.pendingSignal,
 		CoalescedSignals:    c.coalesced,
-	}
+	}.Clone()
 }
 
 // Reload runs one serialized attempt. API callers receive Busy when an attempt is

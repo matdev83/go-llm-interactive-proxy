@@ -93,6 +93,7 @@ func resolveManagementOptions(cfg *config.Config) (mgmtreload.Options, bool, err
 func startManagementServer(ctx context.Context, res runtimebundle.BootstrapResult, coord interface {
 	Reload(context.Context, configreload.ReloadTrigger) configreload.ReloadResult
 	Status() configreload.ReloadStatus
+	FixedSourcePath() string
 },
 ) (*mgmtreload.Server, error) {
 	if coord == nil {

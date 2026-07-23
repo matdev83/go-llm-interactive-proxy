@@ -27,6 +27,7 @@ Around the core and plugins sit explicit **standard distribution** packages (`in
 - frontend/backend/hook interfaces
 - feature SDK facades for auth, session, workspace, request shaping, route hints, tools, completion gates, auxiliary calls, state, traffic, usage, model inventory, and continuity
 - `secretguard/` — opaque ingress secret-guard contracts (`Guard`, `Matcher`, `MatcherResolver`, `DecisionEvent`)
+- `configreload/` — dependency-neutral secret-safe reload contract (`Trigger`, `Result`, `Status`, `HistoryEntry`, closed categories; no paths/credentials/YAML)
 - plugin metadata, factory inputs, and standard distribution requirements
 - no core implementation details
 
