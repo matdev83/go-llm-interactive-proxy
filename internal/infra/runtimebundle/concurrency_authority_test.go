@@ -6,9 +6,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
 )
@@ -16,15 +13,7 @@ import (
 func TestBuildConcurrencyAuthorityDisabledIsNoop(t *testing.T) {
 	t.Parallel()
 	cfg := baseAuthorityConfig(false, "fail_closed")
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, closer := range built.Closers {
-			_ = closer()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
 	if built.Executor.ConcurrencyProvider != nil {
 		t.Fatal("concurrency provider must be nil when disabled")
 	}
@@ -51,15 +40,7 @@ func TestBuildConcurrencyAuthorityWiresProvider(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, closer := range built.Closers {
-			_ = closer()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
 	if built.Executor.ConcurrencyProvider == nil {
 		t.Fatal("expected concurrency provider")
 	}
@@ -102,15 +83,7 @@ func TestBuildConcurrencyAuthoritySQLite(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, closer := range built.Closers {
-			_ = closer()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
 	if built.Executor.ConcurrencyProvider == nil {
 		t.Fatal("expected sqlite concurrency provider")
 	}

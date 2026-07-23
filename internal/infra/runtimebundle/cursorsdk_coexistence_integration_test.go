@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
@@ -14,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk/fakebridge"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,20 +74,9 @@ models:
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for i := len(built.Closers) - 1; i >= 0; i-- {
-			if built.Closers[i] != nil {
-				_ = built.Closers[i]()
-			}
-		}
-	})
-
 	refs, ok := built.ModelRegistry.Lookup("cursor/composer-2-fast")
 	if !ok {
 		t.Fatal("canonical row missing")

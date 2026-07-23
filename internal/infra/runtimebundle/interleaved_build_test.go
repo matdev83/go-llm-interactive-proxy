@@ -10,11 +10,9 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -61,12 +59,9 @@ func interleavedBuildTestConfig(t *testing.T, interleaved config.InterleavedConf
 func TestBuild_interleavedDisabled_leavesExecutorInert(t *testing.T) {
 	t.Parallel()
 	cfg := interleavedBuildTestConfig(t, config.InterleavedConfig{Enabled: false}, "")
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if built.Executor.MemoStore != nil {
 		t.Fatal("disabled interleaved must not wire MemoStore")
 	}
@@ -83,12 +78,9 @@ func TestBuild_interleavedEnabled_wiresExecutor(t *testing.T) {
 		RegularTurnsRemaining: 5,
 		MaxMemoBytes:          4096,
 	}, "")
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if built.Executor.MemoStore == nil {
 		t.Fatal("enabled interleaved must wire MemoStore")
 	}
@@ -118,12 +110,9 @@ func TestBuild_interleavedEnabled_loadsInstructionsFile(t *testing.T) {
 		Enabled:          true,
 		InstructionsFile: "thinker.md",
 	}, dir)
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if got := strings.TrimSpace(built.Executor.InterleavedConfig.Instructions); got != want {
 		t.Fatalf("Instructions = %q, want %q", got, want)
 	}
@@ -135,7 +124,7 @@ func TestBuild_interleavedEnabled_missingInstructionsFileFails(t *testing.T) {
 		Enabled:          true,
 		InstructionsFile: filepath.Join("missing.md"),
 	}, t.TempDir())
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: interleavedBuildTestRegistry(t),
 	})
 	if err == nil {

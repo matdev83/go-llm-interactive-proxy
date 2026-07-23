@@ -7,12 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
@@ -105,15 +103,7 @@ func TestPhase45_BuildDerivesEffectProvidersFromRequestRegistrations(t *testing.
 		TerminalWorkTickInterval: time.Hour,
 		TerminalWorkClaimLimit:   10,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.TerminalWorkProcessor == nil || !built.TerminalWorkProcessor.Running() {
 		t.Fatal("processor must auto-start")
 	}
@@ -202,15 +192,7 @@ func TestPhase45_ExplicitTerminalWorkProviderOverridesDerived(t *testing.T) {
 		TerminalWorkTickInterval: time.Hour,
 		TerminalWorkClaimLimit:   10,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-override",
 		AttemptID:  "a-1",

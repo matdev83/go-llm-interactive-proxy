@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/anthropicmessages"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/gemini"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/refclient/openaichat"
@@ -39,34 +40,38 @@ func startDogfoodHarness(tb testing.TB, configAbsPath string) dogfoodHarness {
 	tb.Helper()
 	ctx := context.Background()
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: configAbsPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      configAbsPath,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		tb.Fatalf("BuildBootstrap: %v", err)
 	}
-	tb.Cleanup(func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(shutdownCtx)
-		}
-	})
-	h, cleanup, err := stdhttp.NewStandardHandler(ctx, res.Config, res.App, res.Logger, res.Built)
-	if err != nil {
-		tb.Fatalf("NewStandardHandler: %v", err)
+	lease, ok := res.GenerationManager.Acquire()
+	if !ok || lease.Handler() == nil {
+		tb.Fatalf("Acquire generation handler")
 	}
+	h := lease.Handler()
 	srv := httptest.NewServer(h)
 	out := dogfoodHarness{
 		baseURL: srv.URL,
 		srv:     srv,
 		cleanup: func() {
 			srv.Close()
+			lease.Release()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			cleanup(shutdownCtx)
+			if res.GenerationManager != nil {
+				_ = res.GenerationManager.ShutdownDetached(shutdownCtx, runtimehost.NewLifecycleWorker())
+			}
+			if res.ProcessServices != nil {
+				_ = res.ProcessServices.Close()
+			}
+			if res.ShutdownTracing != nil {
+				_ = res.ShutdownTracing(shutdownCtx)
+			}
 		},
 	}
 	tb.Cleanup(out.cleanup)

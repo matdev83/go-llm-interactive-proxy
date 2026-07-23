@@ -6,10 +6,8 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 )
@@ -21,12 +19,9 @@ func TestBuild_authEventDispatcher_nonNil(t *testing.T) {
 		Plugins:    config.PluginsConfig{Backends: []config.PluginConfig{{ID: "openai-responses", Enabled: false}}},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if b.AuthEventDispatcher == nil {
 		t.Fatal("expected AuthEventDispatcher")
 	}
@@ -40,7 +35,7 @@ func TestBuild_authEventDelivery_customRequiresAuthEventSink(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 		Auth:       config.AuthConfig{EventDelivery: "custom"},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
 	if err == nil || !errors.Is(err, runtimebundle.ErrAuthEventSinkRequired) {
@@ -71,13 +66,10 @@ func TestBuild_authEventDelivery_customUsesInjectedSink(t *testing.T) {
 		Auth:       config.AuthConfig{EventDelivery: "custom"},
 	}
 	custom := &sliceSink{}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: custom},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := context.Background()
 	if err := b.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -95,7 +87,7 @@ func TestBuild_authEventDelivery_defaultRejectsAuthEventSink(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 		// default / empty event_delivery
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: &sliceSink{}},
 	})
@@ -112,7 +104,7 @@ func TestBuild_authEventDelivery_disabledRejectsAuthEventSink(t *testing.T) {
 		Continuity: config.ContinuityConfig{InMemory: true},
 		Auth:       config.AuthConfig{EventDelivery: "disabled"},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: &sliceSink{}},
 	})
@@ -131,13 +123,9 @@ func TestBuild_authEventFailurePolicy_failClosed(t *testing.T) {
 			EventFailurePolicy: "fail_closed",
 		},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// default delivery uses internal slog sink — use custom + err sink to test fail_closed policy.
+	}) // default delivery uses internal slog sink — use custom + err sink to test fail_closed policy.
 	errSink := &errSink{}
 	cfg2 := &config.Config{
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
@@ -148,13 +136,10 @@ func TestBuild_authEventFailurePolicy_failClosed(t *testing.T) {
 			EventFailurePolicy: "fail_closed",
 		},
 	}
-	b2, err := runtimebundle.Build(cfg2, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b2 := mustProcessAndCandidate(t, cfg2, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Auth:           runtimebundle.AuthOptions{AuthEventSink: errSink},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := context.Background()
 	if err := b2.AuthEventDispatcher.DispatchAuthDecision(ctx, sdkauth.AuthDecisionEvent{}); err == nil {
 		t.Fatal("expected fail_closed sink error")

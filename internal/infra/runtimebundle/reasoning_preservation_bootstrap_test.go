@@ -10,6 +10,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/reasoningpreservation"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -19,28 +20,43 @@ func TestBuildBootstrap_absentReasoningPreservationInjectsDefaultParticipants(t 
 	for _, mode := range []runtimebundle.BootstrapMode{runtimebundle.BootstrapInspect, runtimebundle.BootstrapServe} {
 		t.Run(modeName(mode), func(t *testing.T) {
 			t.Parallel()
-			res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+			in := runtimebundle.BuildBootstrapInput{
 				ConfigPath: path,
 				Mode:       mode,
 				Mandatory:  lipsdk.StandardDistributionRequirements(),
 				LogWriter:  io.Discard,
-			})
+			}
+			if mode == runtimebundle.BootstrapServe {
+				in.HandlerComposer = stdhttp.ComposeStandardHTTP
+			}
+			res, err := runtimebundle.BuildBootstrap(t.Context(), in)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer func() {
-				if res.ShutdownTracing != nil {
-					_ = res.ShutdownTracing(t.Context())
-				}
-			}()
+			if mode == runtimebundle.BootstrapServe {
+				bootstrapServeCleanup(t, res)
+			} else {
+				t.Cleanup(func() {
+					if res.ShutdownTracing != nil {
+						_ = res.ShutdownTracing(t.Context())
+					}
+				})
+			}
 			assertFeatureRowEnabled(t, res, standardplugins.ReasoningOutputPreservationFeatureID, true)
 			assertReasoningRegistrationEnabled(t, res, true)
 			assertHasReasoningParticipants(t, res, true)
-			if mode == runtimebundle.BootstrapServe && (res.Built == nil || res.Built.Executor == nil) {
-				t.Fatal("BootstrapServe must produce Built with Executor")
+			if mode == runtimebundle.BootstrapServe {
+				if res.ProcessServices == nil || res.InitialGeneration == nil {
+					t.Fatal("BootstrapServe must publish generation host handles")
+				}
+				lease, ok := res.GenerationManager.Acquire()
+				if !ok || lease.Handler() == nil {
+					t.Fatal("BootstrapServe must publish an acquireable handler")
+				}
+				lease.Release()
 			}
-			if mode == runtimebundle.BootstrapInspect && res.Built != nil {
-				t.Fatal("BootstrapInspect must leave Built nil")
+			if mode == runtimebundle.BootstrapInspect && (res.ProcessServices != nil || res.GenerationManager != nil) {
+				t.Fatal("BootstrapInspect must not compile process services or publish a generation")
 			}
 		})
 	}
@@ -65,20 +81,28 @@ func TestBuildBootstrap_explicitReasoningPreservationFalseNoParticipants(t *test
 	for _, mode := range []runtimebundle.BootstrapMode{runtimebundle.BootstrapInspect, runtimebundle.BootstrapServe} {
 		t.Run(modeName(mode), func(t *testing.T) {
 			t.Parallel()
-			res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
+			in := runtimebundle.BuildBootstrapInput{
 				ConfigPath: path,
 				Mode:       mode,
 				Mandatory:  lipsdk.StandardDistributionRequirements(),
 				LogWriter:  io.Discard,
-			})
+			}
+			if mode == runtimebundle.BootstrapServe {
+				in.HandlerComposer = stdhttp.ComposeStandardHTTP
+			}
+			res, err := runtimebundle.BuildBootstrap(t.Context(), in)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer func() {
-				if res.ShutdownTracing != nil {
-					_ = res.ShutdownTracing(t.Context())
-				}
-			}()
+			if mode == runtimebundle.BootstrapServe {
+				bootstrapServeCleanup(t, res)
+			} else {
+				t.Cleanup(func() {
+					if res.ShutdownTracing != nil {
+						_ = res.ShutdownTracing(t.Context())
+					}
+				})
+			}
 			assertFeatureRowEnabled(t, res, standardplugins.ReasoningOutputPreservationFeatureID, false)
 			assertReasoningRegistrationEnabled(t, res, false)
 			assertHasReasoningParticipants(t, res, false)

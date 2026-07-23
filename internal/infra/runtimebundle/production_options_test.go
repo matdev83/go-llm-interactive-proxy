@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -68,15 +66,7 @@ func TestBuild_ProductionOptionsOutsideTesting(t *testing.T) {
 		EvidenceSink:    prodEvidence{},
 		MeteringQuerier: prodQuerier{},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.Executor == nil || built.Executor.MeteringRecorder == nil {
 		t.Fatal("production metering must attach on executor")
 	}

@@ -11,12 +11,10 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelcatalog/modelsdev"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,12 +44,9 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if b.CatalogRuntime != nil {
 		t.Fatalf("expected nil CatalogRuntime")
 	}
@@ -101,13 +96,10 @@ func TestBuild_openCodeWithModelCatalogDisabledUsesStaticVendorResolver(t *testi
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Infra:          runtimebundle.InfraOptions{HTTPClient: srv.Client()},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(func() { closeRuntimeBuilt(t, b) })
 	if b.CatalogRuntime != nil {
 		t.Fatalf("expected nil CatalogRuntime")
@@ -158,12 +150,9 @@ func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if b.CatalogRuntime == nil {
 		t.Fatal("expected CatalogRuntime")
 	}
@@ -179,7 +168,7 @@ func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.
 	closeRuntimeBuilt(t, b)
 }
 
-func closeRuntimeBuilt(t *testing.T, b *runtimebundle.Built) {
+func closeRuntimeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	t.Helper()
 	if b == nil {
 		return

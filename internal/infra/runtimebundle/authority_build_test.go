@@ -11,13 +11,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -26,10 +24,7 @@ import (
 
 func TestBuildUsageAuthorityDisabledIsNoop(t *testing.T) {
 	t.Parallel()
-	built, err := runtimebundle.Build(baseAuthorityConfig(false, "fail_closed"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(false, "fail_closed"), baseAuthorityOptions(t, nil))
 	if built.UsageAuthority != nil {
 		t.Fatal("usage authority should be nil when disabled")
 	}
@@ -43,7 +38,7 @@ func TestBuildRejectsRequiredAuthorityEvidenceWithoutControlPlane(t *testing.T) 
 	cfg := baseAuthorityConfig(true, "fail_closed")
 	cfg.ControlPlane.RecordingPolicy = "required_pre_work"
 	cfg.ControlPlane.RequiredCategories = []string{"accounting_authority"}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
+	_, _, err := processAndCandidateErr(t, cfg, baseAuthorityOptions(t, nil))
 	if err == nil || !strings.Contains(err.Error(), "control_plane.enabled") {
 		t.Fatalf("Build must reject required authority evidence without control plane, got %v", err)
 	}
@@ -51,10 +46,7 @@ func TestBuildRejectsRequiredAuthorityEvidenceWithoutControlPlane(t *testing.T) 
 
 func TestBuildUsageAuthorityWiresService(t *testing.T) {
 	t.Parallel()
-	built, err := runtimebundle.Build(baseAuthorityConfig(true, "fail_closed"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(true, "fail_closed"), baseAuthorityOptions(t, nil))
 	if built.UsageAuthority == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
@@ -76,7 +68,7 @@ func TestBuildUsageAuthorityStrictUnavailableFailsClosed(t *testing.T) {
 		readiness:    authoritydomain.AuthorityStatus{State: authoritydomain.AuthorityStateUnavailable, Reason: authoritydomain.StatusReasonBackingUnavailable},
 		readinessErr: errors.New("backend not available"),
 	}
-	_, err := runtimebundle.Build(baseAuthorityConfig(true, "fail_closed"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, override))
+	_, _, err := processAndCandidateErr(t, baseAuthorityConfig(true, "fail_closed"), baseAuthorityOptions(t, override))
 	if err == nil {
 		t.Fatal("expected strict authority startup to fail closed")
 	}
@@ -87,10 +79,7 @@ func TestBuildUsageAuthorityStrictUnavailableFailsClosed(t *testing.T) {
 
 func TestBuildUsageAuthorityAdmitReserveUsesSeededLimitRows(t *testing.T) {
 	t.Parallel()
-	built, err := runtimebundle.Build(baseAuthorityConfig(true, "fail_closed"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(true, "fail_closed"), baseAuthorityOptions(t, nil))
 	if built.UsageAuthority == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
@@ -113,10 +102,7 @@ func TestBuildUsageAuthorityFailOpenStartsAdvisory(t *testing.T) {
 		readiness:    authoritydomain.AuthorityStatus{State: authoritydomain.AuthorityStateUnavailable, Reason: authoritydomain.StatusReasonBackingUnavailable},
 		readinessErr: errors.New("backend not available"),
 	}
-	built, err := runtimebundle.Build(baseAuthorityConfig(true, "fail_open"), hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, override))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, baseAuthorityConfig(true, "fail_open"), baseAuthorityOptions(t, override))
 	if built.UsageAuthority == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
@@ -138,9 +124,14 @@ func TestBuildUsageAuthorityFailClosedPostgresLogsCauseWithoutLeakingDSN(t *test
 
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelError}))
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, baseAuthorityOptions(t, nil))
+	ps, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg:  cfg,
+		Log:  log,
+		Opts: baseAuthorityOptions(t, nil),
+	})
 	if err == nil {
-		t.Fatal("expected fail-closed postgres open to fail Build")
+		_ = ps.Close()
+		t.Fatal("expected fail-closed postgres open to fail process services")
 	}
 	msg := err.Error()
 	if strings.Contains(msg, secret) {

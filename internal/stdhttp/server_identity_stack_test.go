@@ -16,7 +16,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -192,13 +191,11 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 		mux.HandleFunc("/ok", func(w http.ResponseWriter, _ *http.Request) {
 			t.Fatal("inner must not run")
 		})
-		built := &runtimebundle.Built{
-			HTTPAuthProviders: []httpauth.Provider{
-				rejectAuthProvider{status: http.StatusForbidden, body: []byte("denied")},
-			},
+		providers := []httpauth.Provider{
+			rejectAuthProvider{status: http.StatusForbidden, body: []byte("denied")},
 		}
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders},
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: providers},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()
@@ -212,13 +209,11 @@ func TestStackHTTPHandler_serverIdentity_errorPaths(t *testing.T) {
 	t.Run("auth_reject_401", func(t *testing.T) {
 		t.Parallel()
 		mux := http.NewServeMux()
-		built := &runtimebundle.Built{
-			HTTPAuthProviders: []httpauth.Provider{
-				rejectAuthProvider{status: http.StatusUnauthorized, body: []byte("auth")},
-			},
+		providers := []httpauth.Provider{
+			rejectAuthProvider{status: http.StatusUnauthorized, body: []byte("auth")},
 		}
 		h := stackHTTPHandler(stackHTTPInput{
-			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: built.HTTPAuthProviders},
+			Cfg: cfgBase(), Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{HTTPAuthProviders: providers},
 			TraceGen: diag.NewTraceIDGenerator(), Inner: mux,
 		})
 		rec := httptest.NewRecorder()
@@ -245,15 +240,17 @@ func (p rejectAuthProvider) Authenticate(_ context.Context, _ http.ResponseWrite
 
 func TestNewStandardHandler_serverIdentity_frontends(t *testing.T) {
 	t.Parallel()
-	h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+	cfg, reg := serverIdentityTestConfig(identity.Config{
 		Downstream: identity.DownstreamPolicy{
 			Server: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "FrontGW"},
 		},
 		Upstream: identity.UpstreamPolicy{
 			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "BLegUA/1"},
 		},
-	}, nil)
-	t.Cleanup(cleanup)
+	})
+	app := mustRuntimeApp(t, cfg)
+	startTestApp(t, context.Background(), app)
+	h := composeServerIdentityHandler(t, cfg, nil, reg)
 
 	cases := []struct {
 		name            string
@@ -381,13 +378,15 @@ func TestNewStandardHandler_serverIdentity_realHTTPServer_modes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+			cfg, reg := serverIdentityTestConfig(identity.Config{
 				Downstream: identity.DownstreamPolicy{Server: tc.server},
 				Upstream: identity.UpstreamPolicy{
 					UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "ShouldNotAffect"},
 				},
-			}, nil)
-			t.Cleanup(cleanup)
+			})
+			app := mustRuntimeApp(t, cfg)
+			startTestApp(t, context.Background(), app)
+			h := composeServerIdentityHandler(t, cfg, nil, reg)
 			srv := httptest.NewServer(h)
 			t.Cleanup(srv.Close)
 
@@ -419,15 +418,17 @@ func TestNewStandardHandler_serverIdentity_realHTTPServer_modes(t *testing.T) {
 
 func TestNewStandardHandler_serverIdentity_independentOfUpstreamAndDrop(t *testing.T) {
 	t.Parallel()
-	h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+	cfg, reg := serverIdentityTestConfig(identity.Config{
 		Downstream: identity.DownstreamPolicy{
 			Server: identity.FieldPolicy{Mode: identity.ModeDrop},
 		},
 		Upstream: identity.UpstreamPolicy{
 			UserAgent: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "ShouldNotAffectALeg"},
 		},
-	}, nil)
-	t.Cleanup(cleanup)
+	})
+	app := mustRuntimeApp(t, cfg)
+	startTestApp(t, context.Background(), app)
+	h := composeServerIdentityHandler(t, cfg, nil, reg)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
 		`{"model":"model","stream":false,"input":[{"role":"user","content":"ping"}]}`,
@@ -461,12 +462,14 @@ func TestNewStandardHandler_serverIdentity_independentOfBackendWinner(t *testing
 		"stub-a": {Caps: caps, Open: open("from-a")},
 		"stub-b": {Caps: caps, Open: open("from-b")},
 	}
-	h, cleanup := newServerIdentityFrontendHandler(t, identity.Config{
+	cfg, reg := serverIdentityTestConfig(identity.Config{
 		Downstream: identity.DownstreamPolicy{
 			Server: identity.FieldPolicy{Mode: identity.ModeCustom, Value: "SameALeg"},
 		},
-	}, ex)
-	t.Cleanup(cleanup)
+	})
+	app := mustRuntimeApp(t, cfg)
+	startTestApp(t, context.Background(), app)
+	h := composeServerIdentityHandler(t, cfg, ex, reg)
 
 	for _, route := range []string{"stub-a:model", "stub-b:model"} {
 		t.Run(route, func(t *testing.T) {
@@ -494,15 +497,8 @@ func TestNewStandardHandler_serverIdentity_independentOfBackendWinner(t *testing
 	}
 }
 
-func newServerIdentityFrontendHandler(t *testing.T, idCfg identity.Config, ex *runtime.Executor) (http.Handler, func()) {
-	t.Helper()
+func serverIdentityTestConfig(idCfg identity.Config) (*config.Config, *pluginreg.Registry) {
 	reg := pluginreg.NewRegistry()
-	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
-		t.Fatal(err)
-	}
-	if ex == nil {
-		ex = testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "server-id-ok", nil)
-	}
 	cfg := &config.Config{
 		Server:     config.ServerConfig{Address: "127.0.0.1:0"},
 		Routing:    config.RoutingConfig{DefaultRoute: "stub:model", MaxAttempts: 3},
@@ -518,11 +514,25 @@ func newServerIdentityFrontendHandler(t *testing.T, idCfg identity.Config, ex *r
 			},
 		},
 	}
-	built := &runtimebundle.Built{Executor: ex, PluginRegistry: reg}
-	app := mustRuntimeApp(t, cfg)
-	h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
-	if err != nil {
-		t.Fatalf("NewStandardHandler: %v", err)
+	return cfg, reg
+}
+
+// composeServerIdentityHandler builds the handler only; callers start/stop App separately.
+func composeServerIdentityHandler(t *testing.T, cfg *config.Config, ex *runtime.Executor, reg *pluginreg.Registry) http.Handler {
+	t.Helper()
+	if err := standardplugins.InstallStandardBundleOn(reg, standardplugins.UpstreamAPIKeys{}); err != nil {
+		t.Fatal(err)
 	}
-	return h, func() { cleanup(context.Background()) }
+	if ex == nil {
+		ex = testkit.NewStubExecutor(t, lipapi.NewBackendCaps(lipapi.CapabilityStreaming), "server-id-ok", nil)
+	}
+	in := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(cfg, ex, reg),
+	}
+	h, err := ComposeStandardHTTP(context.Background(), cfg, slog.Default(), in)
+	if err != nil {
+		t.Fatalf("ComposeStandardHTTP: %v", err)
+	}
+	return h
 }

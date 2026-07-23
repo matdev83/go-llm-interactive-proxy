@@ -26,8 +26,8 @@ import (
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
+	cpadmin "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/controlplane"
 	adminaccounting "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/admin/tokenaccounting"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
@@ -36,10 +36,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestStandardHTTPInputFromBuilt_mapsInventoryFieldsOnce proves Built→group
+// TestStandardHTTPInput_mapsInventoryFieldsOnce proves focused runtime field
 // projection maps every mount-inventory capability exactly once and omits
 // lifecycle/ownership fields (Closers, host, ledger).
-func TestStandardHTTPInputFromBuilt_mapsInventoryFieldsOnce(t *testing.T) {
+func TestStandardHTTPInput_mapsInventoryFieldsOnce(t *testing.T) {
 	t.Parallel()
 	exec := runtime.TestExecutor()
 	reg := pluginreg.NewRegistry()
@@ -70,29 +70,36 @@ func TestStandardHTTPInputFromBuilt_mapsInventoryFieldsOnce(t *testing.T) {
 			PreRequestKeepalive: config.PreRequestKeepaliveConfig{Enabled: true, Interval: "1s"},
 		},
 	}
-	built := &runtimebundle.Built{
-		Executor:              exec,
-		Store:                 store,
-		Closers:               []func() error{func() error { return nil }},
-		EffectiveDefaultRoute: "stub:route",
-		RoutePrefixes:         []string{"stub"},
-		DecodeAdmission:       decode,
-		PluginRegistry:        reg,
-		Metrics:               metricsBundle,
-		RuntimeSnapshot:       snap,
-		HTTPAuthProviders:     providers,
-		SecureSessionStore:    nil,
-		CatalogRuntime:        catalog,
-		ModelRegistryRuntime:  modelRT,
-		TokenAccountingAdmin:  tokenAdmin,
-		ControlPlaneQueries:   cpQueries,
-		UsageAuthority:        usage,
-		ConcurrencyAuthority:  concurrency,
-		ReadinessReport:       readiness,
-		SecretGuardInventory:  secretGuard,
+	ka := cfg.Server.EffectivePreRequestKeepalive()
+	got := StandardHTTPInput{
+		Core: HTTPCoreInput{Executor: exec},
+		Security: HTTPSecurityInput{
+			HTTPAuthProviders:    cloneHTTPAuthProviders(providers),
+			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(usage),
+			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(concurrency),
+		},
+		Operations: HTTPOperationsInput{
+			Metrics:              metricsBundle,
+			Store:                store,
+			SecretGuardInventory: secretGuard,
+			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(cpQueries),
+			ReadinessReport:      cpadmin.AdaptReadinessReport(readiness),
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(tokenAdmin),
+			Registrations:        cloneRegistrations(regs),
+		},
+		Models: HTTPModelInput{CatalogRuntime: catalog, ModelRegistryRuntime: modelRT},
+		Frontends: HTTPFrontendInput{
+			Executor:             exec,
+			Registry:             reg,
+			DefaultRouteSelector: "stub:route",
+			RoutePrefixes:        cloneStrings([]string{"stub"}),
+			Plugins:              clonePluginConfigs(cfg.Plugins.Frontends),
+			MaxRequestBodyBytes:  cfg.Server.EffectiveMaxRequestBodyBytes(),
+			DecodeAdmission:      decode,
+			TrafficPorts:         trafficPortsFromSnapshot(snap),
+			PreRequestKeepalive:  lipsdk.FrontendKeepaliveConfig{Enabled: ka.Enabled, Interval: ka.Interval},
+		},
 	}
-
-	got := standardHTTPInputFromBuilt(built, cfg, regs)
 
 	// Core
 	if got.Core.Executor != exec {
@@ -114,7 +121,7 @@ func TestStandardHTTPInputFromBuilt_mapsInventoryFieldsOnce(t *testing.T) {
 		t.Fatal("Operations query surfaces not projected")
 	}
 	if ops.TokenAccountingAdmin == nil {
-		t.Fatal("Operations.TokenAccountingAdmin must be adapted from Built")
+		t.Fatal("Operations.TokenAccountingAdmin must be adapted from accounting service")
 	}
 	if len(ops.Registrations) != 1 || ops.Registrations[0].ID != "feat-a" {
 		t.Fatalf("Operations.Registrations=%v", ops.Registrations)
@@ -145,22 +152,20 @@ func TestStandardHTTPInputFromBuilt_mapsInventoryFieldsOnce(t *testing.T) {
 	assertNoLifecycleFieldsOnGroups(t)
 }
 
-func TestStandardHTTPInputFromBuilt_nilBuiltAndOptionalCapabilities(t *testing.T) {
+func TestStandardHTTPInput_nilFieldsAndOptionalCapabilities(t *testing.T) {
 	t.Parallel()
-	got := standardHTTPInputFromBuilt(nil, &config.Config{}, nil)
+	got := StandardHTTPInput{}
 	if got.Core.Executor != nil || got.Operations.Metrics != nil || got.Models.CatalogRuntime != nil {
-		t.Fatalf("nil Built must project zero optional capabilities, got %+v", got)
+		t.Fatalf("empty fields must project zero optional capabilities, got %+v", got)
 	}
-	// Empty EffectiveDefaultRoute falls back to DefaultRouteSelector(cfg).
-	got2 := standardHTTPInputFromBuilt(&runtimebundle.Built{}, &config.Config{
-		Routing: config.RoutingConfig{DefaultRoute: "stub:fallback"},
-	}, nil)
+	cfg := &config.Config{Routing: config.RoutingConfig{DefaultRoute: "stub:fallback"}}
+	got2 := StandardHTTPInput{Frontends: frontendInputForTest(cfg, nil, nil)}
 	if got2.Frontends.DefaultRouteSelector == "" {
-		t.Fatal("empty Built route must fall back via DefaultRouteSelector")
+		t.Fatal("empty route must fall back via DefaultRouteSelector")
 	}
 }
 
-func TestStandardHTTPInputFromBuilt_defensiveClones(t *testing.T) {
+func TestStandardHTTPInput_defensiveClones(t *testing.T) {
 	t.Parallel()
 	providers := []httpauth.Provider{rejectAllAuthProvider{}}
 	prefixes := []string{"stub"}
@@ -179,14 +184,24 @@ func TestStandardHTTPInputFromBuilt_defensiveClones(t *testing.T) {
 		TrafficRedactors: reds,
 	})
 	cfg := &config.Config{Plugins: config.PluginsConfig{Frontends: plugins}}
-	built := &runtimebundle.Built{
-		HTTPAuthProviders: providers,
-		RoutePrefixes:     prefixes,
-		RuntimeSnapshot:   snap,
+	got := StandardHTTPInput{
+		Security: HTTPSecurityInput{HTTPAuthProviders: cloneHTTPAuthProviders(providers)},
+		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(regs)},
+		Frontends: HTTPFrontendInput{
+			RoutePrefixes: cloneStrings(prefixes),
+			Plugins:       clonePluginConfigs(cfg.Plugins.Frontends),
+			TrafficPorts:  trafficPortsFromSnapshot(snap),
+		},
 	}
-
-	got := standardHTTPInputFromBuilt(built, cfg, regs)
-	got2 := standardHTTPInputFromBuilt(built, cfg, regs)
+	got2 := StandardHTTPInput{
+		Security: HTTPSecurityInput{HTTPAuthProviders: cloneHTTPAuthProviders(providers)},
+		Operations: HTTPOperationsInput{Registrations: cloneRegistrations(regs)},
+		Frontends: HTTPFrontendInput{
+			RoutePrefixes: cloneStrings(prefixes),
+			Plugins:       clonePluginConfigs(cfg.Plugins.Frontends),
+			TrafficPorts:  trafficPortsFromSnapshot(snap),
+		},
+	}
 
 	// Mutate sources.
 	providers[0] = nil
@@ -221,12 +236,8 @@ func TestStandardHTTPInputFromBuilt_defensiveClones(t *testing.T) {
 	got.Operations.Registrations[0].ID = "projected-mut"
 	got.Frontends.TrafficPorts.Red[0] = stubProjectionRedactor{id: "projected-mut"}
 
-	if built.RoutePrefixes[0] != "mutated" && built.RoutePrefixes[0] != "stub" {
-		// source was mutated earlier to "mutated"; projected mutation must not change it further.
-		t.Fatalf("unexpected built prefixes %v", built.RoutePrefixes)
-	}
-	if built.RoutePrefixes[0] == "projected-mut" {
-		t.Fatal("projected RoutePrefixes mutation leaked into Built")
+	if prefixes[0] == "projected-mut" {
+		t.Fatal("projected RoutePrefixes mutation leaked into source prefixes")
 	}
 	if cfg.Plugins.Frontends[0].ID == "projected-mut" {
 		t.Fatal("projected Plugins mutation leaked into cfg")
@@ -239,13 +250,13 @@ func TestStandardHTTPInputFromBuilt_defensiveClones(t *testing.T) {
 	if len(got.Frontends.RoutePrefixes) > 0 && len(got2.Frontends.RoutePrefixes) > 0 {
 		got.Frontends.RoutePrefixes[0] = "only-got"
 		if got2.Frontends.RoutePrefixes[0] == "only-got" {
-			t.Fatal("repeated Built projections share RoutePrefixes backing array")
+			t.Fatal("repeated projections share RoutePrefixes backing array")
 		}
 	}
 	if len(got.Frontends.TrafficPorts.Red) > 0 && len(got2.Frontends.TrafficPorts.Red) > 0 {
 		got.Frontends.TrafficPorts.Red[0] = stubProjectionRedactor{id: "only-got"}
 		if got2.Frontends.TrafficPorts.Red[0].ID() == "only-got" {
-			t.Fatal("repeated Built projections share TrafficPorts.Red backing array")
+			t.Fatal("repeated projections share TrafficPorts.Red backing array")
 		}
 	}
 }
@@ -502,21 +513,24 @@ func (f fakeTrafficSnapshot) TrafficRedactors() []traffic.Redactor {
 // Ensure typed adminaccounting.Service is what Operations holds (compile-time).
 var _ adminaccounting.Service = adminaccounting.AdaptCountCallService((*accountingapp.Service)(nil))
 
-func TestStandardHTTPInputFromBuilt_typedNilAuthoritiesProjectToNil(t *testing.T) {
+func TestStandardHTTPInput_typedNilAuthoritiesProjectToNil(t *testing.T) {
 	t.Parallel()
 	var typedUsage *authorityapp.Service
 	var typedConcurrency *concurrencyapp.Service
 	var typedCP *controlplane.QueryService
 	var typedReady *controlplane.ReadinessReportService
 	var typedToken *accountingapp.Service
-	built := &runtimebundle.Built{
-		UsageAuthority:       typedUsage,
-		ConcurrencyAuthority: typedConcurrency,
-		ControlPlaneQueries:  typedCP,
-		ReadinessReport:      typedReady,
-		TokenAccountingAdmin: typedToken,
+	got := StandardHTTPInput{
+		Security: HTTPSecurityInput{
+			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(typedUsage),
+			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(typedConcurrency),
+		},
+		Operations: HTTPOperationsInput{
+			ControlPlaneQueries:  cpadmin.AdaptControlPlaneQueries(typedCP),
+			ReadinessReport:      cpadmin.AdaptReadinessReport(typedReady),
+			TokenAccountingAdmin: adminaccounting.AdaptCountCallService(typedToken),
+		},
 	}
-	got := standardHTTPInputFromBuilt(built, &config.Config{}, nil)
 	if got.Security.UsageAuthority != nil {
 		t.Fatal("typed-nil UsageAuthority must project to nil interface")
 	}
@@ -534,17 +548,20 @@ func TestStandardHTTPInputFromBuilt_typedNilAuthoritiesProjectToNil(t *testing.T
 	}
 }
 
-func TestStandardHTTPInputFromBuilt_typedNilAuthoritiesLeaveOptionalRoutesDisabled(t *testing.T) {
+func TestStandardHTTPInput_typedNilAuthoritiesLeaveOptionalRoutesDisabled(t *testing.T) {
 	t.Parallel()
 	var typedUsage *authorityapp.Service
 	var typedConcurrency *concurrencyapp.Service
-	built := &runtimebundle.Built{
-		Executor:             runtime.TestExecutor(),
-		PluginRegistry:       pluginreg.NewRegistry(),
-		UsageAuthority:       typedUsage,
-		ConcurrencyAuthority: typedConcurrency,
+	ex := runtime.TestExecutor()
+	reg := pluginreg.NewRegistry()
+	got := StandardHTTPInput{
+		Core:      HTTPCoreInput{Executor: ex},
+		Frontends: frontendInputForTest(&config.Config{}, ex, reg),
+		Security: HTTPSecurityInput{
+			UsageAuthority:       cpadmin.AdaptAccountingAuthorityQueries(typedUsage),
+			ConcurrencyAuthority: cpadmin.AdaptConcurrencyAuthorityQueries(typedConcurrency),
+		},
 	}
-	got := standardHTTPInputFromBuilt(built, &config.Config{}, nil)
 	if got.Security.UsageAuthority != nil || got.Security.ConcurrencyAuthority != nil {
 		t.Fatal("typed-nil authorities must remain nil after projection")
 	}

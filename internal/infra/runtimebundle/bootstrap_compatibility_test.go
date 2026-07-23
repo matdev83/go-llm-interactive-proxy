@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -307,19 +308,18 @@ func TestBootstrapCompatibility_BuildPartialCleanupOnCandidateFailure(t *testing
 	// returning a Built aggregate.
 	path := writeConfigWithUnknownBackendKind(t)
 	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      path,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err == nil {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
+		bootstrapServeCleanup(t, res)
 		t.Fatal("expected candidate compile failure")
 	}
-	if res.Built != nil {
-		t.Fatal("failed serve bootstrap must not return Built")
+	if res.GenerationManager != nil || res.InitialGeneration != nil {
+		t.Fatal("failed serve bootstrap must not publish generation host handles")
 	}
 	if !strings.Contains(err.Error(), "runtime assembly") && !strings.Contains(err.Error(), "backend") {
 		t.Fatalf("unexpected error: %v", err)

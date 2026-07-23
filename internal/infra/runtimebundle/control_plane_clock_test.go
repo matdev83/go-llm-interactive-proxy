@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 
 	sdkauth "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/auth"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
@@ -48,25 +46,11 @@ func TestBuild_ControlPlaneClockFlowsToRecorder(t *testing.T) {
 		Auth:        config.AuthConfig{EventDelivery: "custom"},
 	}
 
-	built, err := runtimebundle.Build(
-		cfg,
-		hooks.New(hooks.Config{}),
-		testkit.DiscardLogger(),
-		&runtimebundle.BuildOptions{
-			PluginRegistry: pluginreg.NewRegistry(),
-			Auth:           runtimebundle.AuthOptions{AuthEventSink: noopAuthSink{}},
-			Testing:        runtimebundle.TestingOptions{Clock: clockFn},
-		},
-	)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	defer func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	}()
-
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
+		PluginRegistry: pluginreg.NewRegistry(),
+		Auth:           runtimebundle.AuthOptions{AuthEventSink: noopAuthSink{}},
+		Testing:        runtimebundle.TestingOptions{Clock: clockFn},
+	})
 	if built.ControlPlaneQueries == nil {
 		t.Fatal("expected ControlPlaneQueries to be wired")
 	}

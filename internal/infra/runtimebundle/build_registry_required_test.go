@@ -1,14 +1,13 @@
 package runtimebundle_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestBuild_nilPluginRegistry(t *testing.T) {
@@ -17,7 +16,7 @@ func TestBuild_nilPluginRegistry(t *testing.T) {
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, nil)
+	_, _, err := processAndCandidateErr(t, cfg, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -32,7 +31,7 @@ func TestBuild_nilPluginRegistryInOptions(t *testing.T) {
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{})
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -47,8 +46,10 @@ func TestBuild_nilLogger(t *testing.T) {
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), nil, &runtimebundle.BuildOptions{
-		PluginRegistry: pluginreg.NewRegistry(),
+	_, err := runtimebundle.NewProcessServices(context.Background(), runtimebundle.ProcessServicesInput{
+		Cfg:  cfg,
+		Log:  nil,
+		Opts: &runtimebundle.BuildOptions{PluginRegistry: pluginreg.NewRegistry()},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -65,12 +66,9 @@ func TestBuild_usesProvidedRegistryOnly(t *testing.T) {
 		Routing:    config.RoutingConfig{MaxAttempts: 3},
 		Continuity: config.ContinuityConfig{InMemory: true},
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if b.PluginRegistry != reg {
 		t.Fatalf("PluginRegistry pointer: got %p want %p", b.PluginRegistry, reg)
 	}

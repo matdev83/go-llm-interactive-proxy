@@ -8,13 +8,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	accountingapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/app"
 	accountingpreflight "github.com/matdev83/go-llm-interactive-proxy/internal/core/tokenaccounting/preflight"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -90,12 +88,9 @@ func TestBuildWiresTokenAccountingContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if built.TokenAccountingAdmin == nil {
 		t.Fatal("Built.TokenAccountingAdmin is nil")
 	}
@@ -174,7 +169,7 @@ func TestBuildWiresIngressCountingWhenAccountingAdminDisabled(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Production: runtimebundle.ProductionOptions{
 			RequestRegistrations: []authority.RequestRegistration{{
@@ -192,9 +187,6 @@ func TestBuildWiresIngressCountingWhenAccountingAdminDisabled(t *testing.T) {
 			}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if built.TokenAccountingAdmin != nil {
 		t.Fatal("public token accounting admin must remain disabled")
 	}
@@ -260,10 +252,7 @@ func TestBuildTokenAccountingUsesDefaultCountTimeoutWhenOmitted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatalf("Build() error = %v, want omitted count_timeout to use default", err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if built.Executor.Preflight == nil {
 		t.Fatal("Executor.Preflight is nil")
 	}
@@ -305,10 +294,7 @@ func TestBuildWiresConfiguredAccountingPreflightLimits(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 
 	decision := built.Executor.Preflight.Check(context.Background(), accountingpreflight.Input{
 		Backend: "stub",
@@ -362,7 +348,7 @@ func TestBuildProviderRequiredFailsWithoutProviderCounter(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if err == nil {
 		t.Fatal("expected provider_required build to fail without provider counter")
 	}
@@ -407,10 +393,7 @@ func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{PluginRegistry: reg})
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{PluginRegistry: reg})
 	if built.Executor.Ledger == nil {
 		t.Fatal("Executor.Ledger is nil")
 	}

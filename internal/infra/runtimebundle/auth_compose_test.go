@@ -10,7 +10,6 @@ import (
 
 	coreauth "github.com/matdev83/go-llm-interactive-proxy/internal/core/auth"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -54,12 +53,9 @@ func TestBuild_defaultComposedLocalNoop_principalNotEmpty(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var pid string
 	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		p, ok := httpauth.PrincipalFromContext(r.Context())
@@ -96,12 +92,9 @@ func TestBuild_minimalSingleUser_HTTPAuthProviders_nonEmpty(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(b.HTTPAuthProviders) == 0 || b.HTTPAuthProviders[0] == nil {
 		t.Fatalf("HTTPAuthProviders: want at least one non-nil provider, got %#v", b.HTTPAuthProviders)
 	}
@@ -148,12 +141,9 @@ func TestBuild_registryAuthErrorRendererByFrontend_wiresPolicyProvider(t *testin
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
 	if !ok {
 		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
@@ -193,12 +183,9 @@ func TestBuild_authErrorRenderers_registryIdCaseFoldsToLower(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
 	if !ok {
 		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
@@ -238,7 +225,7 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth: runtimebundle.AuthOptions{
 			AuthErrorRenderersByFrontend: map[string]httpauth.AuthErrorRenderer{
@@ -246,9 +233,6 @@ func TestBuild_optsAuthErrorRenderersByFrontend_overridesRegistry(t *testing.T) 
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	pp, ok := b.HTTPAuthProviders[0].(*stdhttpauth.PolicyProvider)
 	if !ok {
 		t.Fatalf("want *stdhttpauth.PolicyProvider, got %T", b.HTTPAuthProviders[0])
@@ -284,7 +268,7 @@ func TestBuild_remoteAuthPolicyRequiresRemoteDecider(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, _, err := processAndCandidateErr(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
 	if err == nil || !errors.Is(err, runtimebundle.ErrRemoteDeciderRequired) {
@@ -314,7 +298,7 @@ func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth: runtimebundle.AuthOptions{
 			OSIdentity: fixedOSIdentity{snap: coreauth.OSIdentitySnapshot{
@@ -322,9 +306,6 @@ func TestBuild_composedLocalNoop_setsPrincipalOnRequest(t *testing.T) {
 			}},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(b.HTTPAuthProviders) != 1 {
 		t.Fatalf("HTTPAuthProviders: want 1, got %d", len(b.HTTPAuthProviders))
 	}
@@ -378,12 +359,9 @@ func TestBuild_multiUserLocalAPIKey_middlewareAllowsValidBearer(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var inner int
 	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		inner++
@@ -435,12 +413,9 @@ func TestBuild_multiUserLocalAPIKey_middlewareDeniesWithoutBearer(t *testing.T) 
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var inner int
 	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ }))
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/models", nil))
@@ -480,15 +455,12 @@ func TestBuild_HTTPAuthProvidersOnlyNil_fallsBackToComposedAuth(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth: runtimebundle.AuthOptions{
 			HTTPAuthProviders: []httpauth.Provider{nil},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(b.HTTPAuthProviders) != 1 {
 		t.Fatalf("composed providers: want 1, got %d", len(b.HTTPAuthProviders))
 	}
@@ -529,7 +501,7 @@ func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth: runtimebundle.AuthOptions{
 			RemoteDecider: &testkit.StubRemoteDecider{
@@ -540,9 +512,6 @@ func TestBuild_remoteStub_allowReachesInner(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var innerPID string
 	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		p, _ := httpauth.PrincipalFromContext(r.Context())
@@ -578,7 +547,7 @@ func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth: runtimebundle.AuthOptions{
 			RemoteDecider: &testkit.StubRemoteDecider{
@@ -586,9 +555,6 @@ func TestBuild_remoteStub_denySkipsInner(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var inner int
 	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).
 		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/", nil))
@@ -622,7 +588,7 @@ func TestBuild_remoteStub_challengeTerminates(t *testing.T) {
 	if err := config.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 		Auth: runtimebundle.AuthOptions{
 			RemoteDecider: &testkit.StubRemoteDecider{
@@ -633,9 +599,6 @@ func TestBuild_remoteStub_challengeTerminates(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var inner int
 	rec := httptest.NewRecorder()
 	stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { inner++ })).

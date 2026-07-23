@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
@@ -186,18 +185,13 @@ func TestOmittedRoute_anthropic_usesEffectiveDefaultRoute(t *testing.T) {
 	}
 }
 
-func TestBuild_defaultBackendFromEffectiveRoute(t *testing.T) {
+func TestCompileCandidate_defaultBackendFromEffectiveRoute(t *testing.T) {
 	t.Parallel()
 	reg := testRegistryWithStdBundle(t)
 	cfg := policyConfig()
 	cfg.Continuity = config.ContinuityConfig{InMemory: true}
-	b, err := runtimebundle.Build(cfg, nil, testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Executor.DefaultBackend != "stub" {
-		t.Fatalf("DefaultBackend %q want stub", b.Executor.DefaultBackend)
+	_, cand := compileTestCandidate(t, cfg, reg)
+	if cand.Executor.DefaultBackend != "stub" {
+		t.Fatalf("DefaultBackend %q want stub", cand.Executor.DefaultBackend)
 	}
 }

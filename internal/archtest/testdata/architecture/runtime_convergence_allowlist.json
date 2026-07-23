@@ -101,14 +101,6 @@
     {
       "gate": "host_path",
       "path": "internal/infra/runtimebundle/bootstrap_plan.go",
-      "identity": "call:buildBootstrap->runtimebundle.Build#1",
-      "classification": "call",
-      "retirement_task": "4.2",
-      "rationale": "Legacy BootstrapServe Built construction"
-    },
-    {
-      "gate": "host_path",
-      "path": "internal/infra/runtimebundle/bootstrap_plan.go",
       "identity": "func:BuildBootstrap",
       "classification": "declaration",
       "retirement_task": "5.2",
@@ -172,14 +164,6 @@
     },
     {
       "gate": "runtime_convergence",
-      "path": "internal/infra/runtimebundle/bootstrap_plan.go",
-      "identity": "call:buildBootstrap->runtimebundle.Build#1",
-      "classification": "call",
-      "retirement_task": "4.2",
-      "rationale": "Sole production caller of compatibility Build (legacy BootstrapServe path)"
-    },
-    {
-      "gate": "runtime_convergence",
       "path": "internal/infra/runtimebundle/build.go",
       "identity": "func:Build",
       "classification": "declaration",
@@ -208,7 +192,7 @@
       "identity": "func:standardHTTPInputFromBuilt",
       "classification": "declaration",
       "retirement_task": "4.1",
-      "rationale": "Phase 4 Built→StandardHTTPInput projector required only by NewStandardHandler/RunWithRuntime"
+      "rationale": "Phase 4 Built\u2192StandardHTTPInput projector required only by NewStandardHandler/RunWithRuntime"
     },
     {
       "gate": "stdhttp_built",

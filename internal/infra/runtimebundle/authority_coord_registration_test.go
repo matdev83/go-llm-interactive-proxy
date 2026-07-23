@@ -5,9 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -33,15 +31,7 @@ func TestBuild_RequestRegistration_NoIndexGeneratedIDs(t *testing.T) {
 			Provider: prodAllowRequest{},
 		}},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	slots := built.Executor.RequestCoordinator.Slots
 	if len(slots) == 0 {
 		t.Fatal("expected request slots from registration")
@@ -82,7 +72,7 @@ func TestBuild_RejectsDuplicateRegistrationIDs(t *testing.T) {
 			{Descriptor: desc, Priority: authority.RequestPriorityQuotaBudgetRate, Provider: prodAllowRequest{}},
 		},
 	}
-	_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	_, _, err := processAndCandidateErr(t, cfg, opts)
 	if err == nil {
 		t.Fatal("duplicate registration IDs must fail Build")
 	}
@@ -107,15 +97,7 @@ func TestBuild_RegistrationReadinessProviderIDs(t *testing.T) {
 			Provider: prodAllowRequest{},
 		}},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.ReadinessReport == nil {
 		t.Fatal("expected readiness report")
 	}
@@ -169,15 +151,7 @@ func TestBuild_AttemptAndConcurrencyRegistrations(t *testing.T) {
 			Provider: prodAllowConcurrency{},
 		},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.Executor.ConcurrencyProvider == nil {
 		t.Fatal("concurrency registration must wire ConcurrencyProvider")
 	}
@@ -226,7 +200,7 @@ func TestBuild_RejectsUnboundLegacyAuthoritySlices(t *testing.T) {
 			t.Parallel()
 			opts := baseAuthorityOptions(t, nil)
 			opts.Production = tc.prod
-			_, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+			_, _, err := processAndCandidateErr(t, cfg, opts)
 			if err == nil {
 				t.Fatal("unbound legacy authority must fail Build")
 			}
@@ -246,15 +220,7 @@ func TestBuild_CustomerOnlyRater_NotEconomicsRater(t *testing.T) {
 			ID: "cust-only", Perspective: metering.PerspectiveCustomer, Rater: prodRater{},
 		}},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.Executor.EconomicsRater != nil {
 		t.Fatal("customer-only rater must not fill EconomicsRater")
 	}

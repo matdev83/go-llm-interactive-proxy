@@ -13,14 +13,11 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/acp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorcliacp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/cursorsdk/fakebridge"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"gopkg.in/yaml.v3"
 )
@@ -77,18 +74,12 @@ models:
 		t.Fatalf("validate: %v", err)
 	}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
-		PluginRegistry: reg,
-	})
-	if err != nil {
-		t.Fatalf("runtimebundle.Build: %v", err)
-	}
-	t.Cleanup(func() { runClosers(testkit.DiscardLogger(), built.Closers) })
+	_, cand := compileTestCandidate(t, cfg, reg)
 
-	if len(built.Executor.Backends) != 2 {
-		t.Fatalf("backends=%d want 2", len(built.Executor.Backends))
+	if len(cand.Executor.Backends) != 2 {
+		t.Fatalf("backends=%d want 2", len(cand.Executor.Backends))
 	}
-	refs, ok := built.ModelRegistry.Lookup("cursor/gpt-5.3-codex")
+	refs, ok := cand.ModelRegistry.Lookup("cursor/gpt-5.3-codex")
 	if !ok {
 		t.Fatal("Lookup(cursor/gpt-5.3-codex) missing")
 	}
@@ -104,16 +95,16 @@ models:
 	}
 
 	var sdkOpens, acpOpens atomic.Int32
-	sdkBE := built.Executor.Backends["cursor-sdk"]
+	sdkBE := cand.Executor.Backends["cursor-sdk"]
 	origSDK := sdkBE.Open
 	sdkBE.Open = func(ctx context.Context, call lipapi.Call, cand routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
 		sdkOpens.Add(1)
 		return origSDK(ctx, call, cand)
 	}
-	built.Executor.Backends["cursor-sdk"] = sdkBE
+	cand.Executor.Backends["cursor-sdk"] = sdkBE
 
 	// Deterministic ACP stub under the real instance id (not live ACP wire).
-	built.Executor.Backends["cursor-acp"] = execbackend.Backend{
+	cand.Executor.Backends["cursor-acp"] = execbackend.Backend{
 		Caps:            lipapi.NewBackendCaps(lipapi.CapabilityStreaming),
 		BackendPrefixes: []string{cursorcliacp.ID},
 		Open: func(context.Context, lipapi.Call, routing.AttemptCandidate) (lipapi.ManagedEventStream, error) {
@@ -132,10 +123,10 @@ models:
 		mux := http.NewServeMux()
 		if err := MountBundledFrontends(MountBundledFrontendsInput{Mux: mux,
 			Frontends: HTTPFrontendInput{
-				Executor:             built.Executor,
+				Executor:             cand.Executor,
 				DefaultRouteSelector: route,
 				Plugins:              []config.PluginConfig{{ID: "openai-responses", Enabled: true}},
-				RoutePrefixes:        built.RoutePrefixes,
+				RoutePrefixes:        cand.RoutePrefixes,
 				Registry:             reg,
 			},
 		}); err != nil {
@@ -189,7 +180,7 @@ models:
 	t.Run("model_only_ambiguous_rejected_no_connector_fallback", func(t *testing.T) {
 		sdkOpens.Store(0)
 		acpOpens.Store(0)
-		built.Executor.DefaultBackend = ""
+		cand.Executor.DefaultBackend = ""
 		rr := serve(t, "gpt-5.3-codex")
 		if rr.Code == http.StatusOK {
 			t.Fatalf("model-only ambiguous route must fail, got OK: %s", rr.Body.String())

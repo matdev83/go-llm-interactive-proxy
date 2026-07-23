@@ -7,10 +7,8 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/metering"
@@ -52,15 +50,7 @@ func TestPhase5Remediation_BuildFiveToTwoAndBoundEvidence(t *testing.T) {
 	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
 		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
 	}}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	g1 := built.SnapshotGeneration.CurrentExecutable()
 	if g1 == nil || g1.RequestCoord == nil || g1.EnforcementMaxActive() != 5 {
 		t.Fatalf("build executable must enforce max=5 via live coordinator: %+v", g1)
@@ -137,15 +127,7 @@ func TestPhase5Remediation_PendingClearAndCanRemoveProvider(t *testing.T) {
 	opts.Production.RaterRegistrations = []economics.RaterRegistration{{
 		ID: "op-r1", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-r1"},
 	}}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.TerminalWorkProcessor == nil {
 		t.Fatal("expected terminal work processor wired by Build")
 	}

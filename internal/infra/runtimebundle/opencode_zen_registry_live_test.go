@@ -7,11 +7,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
 func TestOpenCodeZenLive_modelsAreVendorEnrichedInCentralRegistry(t *testing.T) {
@@ -51,12 +49,9 @@ func TestOpenCodeZenLive_modelsAreVendorEnrichedInCentralRegistry(t *testing.T) 
 			},
 		},
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer closeRuntimeBuilt(t, built)
 
 	rows := built.ModelRegistry.All()

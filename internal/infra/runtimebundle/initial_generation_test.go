@@ -34,21 +34,8 @@ func TestInitialGeneration_BootstrapPublishesGenerationOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildBootstrap: %v", err)
 	}
-	t.Cleanup(func() {
-		if res.GenerationManager != nil {
-			_ = res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
-		}
-		if res.ProcessServices != nil {
-			_ = res.ProcessServices.Close()
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
+	bootstrapServeCleanup(t, res)
 
-	if res.Built != nil {
-		t.Fatal("generation-host mode must not produce Built")
-	}
 	if res.ProcessServices == nil || res.GenerationManager == nil || res.InitialGeneration == nil {
 		t.Fatal("expected process services, manager, and initial generation")
 	}
@@ -99,6 +86,24 @@ func TestBootstrapPartialCleanup_ComposeFailureClosesOwnersOnce(t *testing.T) {
 	assertBootstrapPartialCleanupOnComposeFailure(t)
 }
 
+func TestInitialGeneration_BootstrapServeRequiresHandlerComposer(t *testing.T) {
+	t.Parallel()
+	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
+	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
+		ConfigPath: cfgPath,
+		Mode:       runtimebundle.BootstrapServe,
+		Mandatory:  lipsdk.StandardDistributionRequirements(),
+		LogWriter:  io.Discard,
+	})
+	if err == nil {
+		bootstrapServeCleanup(t, res)
+		t.Fatal("expected nil HandlerComposer failure")
+	}
+	if !strings.Contains(err.Error(), "HandlerComposer") {
+		t.Fatalf("error=%v want HandlerComposer requirement", err)
+	}
+}
+
 func assertBootstrapPartialCleanupOnComposeFailure(t *testing.T) {
 	t.Helper()
 	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
@@ -117,45 +122,13 @@ func assertBootstrapPartialCleanupOnComposeFailure(t *testing.T) {
 	if res.ProcessServices != nil && !res.ProcessServices.Closed() {
 		t.Fatal("process services must close on compile failure")
 	}
-	if res.Built != nil || res.GenerationManager != nil || res.InitialGeneration != nil {
+	if res.GenerationManager != nil || res.InitialGeneration != nil {
 		t.Fatal("failed bootstrap must not leave generation host handles")
 	}
 	// Failure owns tracing teardown and clears the handoff so callers cannot
 	// double-close (joinInitialFailureCleanup reverse-order contract).
 	if res.ShutdownTracing != nil {
 		t.Fatal("failed bootstrap must clear ShutdownTracing after owned cleanup")
-	}
-}
-
-func TestInitialGeneration_LegacyServeStillBuildsBuilt(t *testing.T) {
-	t.Parallel()
-	cfgPath := filepath.Join("..", "..", "..", "config", "examples", "dogfood-local-stub.yaml")
-	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
-	})
-	if err != nil {
-		t.Fatalf("legacy BuildBootstrap: %v", err)
-	}
-	t.Cleanup(func() {
-		if res.Built != nil {
-			for i := len(res.Built.Closers) - 1; i >= 0; i-- {
-				if res.Built.Closers[i] != nil {
-					_ = res.Built.Closers[i]()
-				}
-			}
-		}
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(context.Background())
-		}
-	})
-	if res.Built == nil {
-		t.Fatal("legacy serve path must produce Built")
-	}
-	if res.GenerationManager != nil || res.InitialGeneration != nil {
-		t.Fatal("legacy path must not publish generation host handles")
 	}
 }
 

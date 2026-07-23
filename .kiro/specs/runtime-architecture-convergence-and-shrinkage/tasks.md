@@ -142,7 +142,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
 
 - [ ] 4. Remove the old runtime graph after consumers migrate
 
-- [ ] 4.1 Migrate remaining internal and test callers from `Build` and `Built`
+- [x] 4.1 Migrate remaining internal and test callers from `Build` and `Built`
   - Convert supported tests and helper constructors to ProcessRuntime plus GenerationRuntime or focused test builders.
   - Replace legacy runtime behavior assertions with canonical host/generation assertions.
   - Identify and delete dead compatibility callers rather than wrapping them.

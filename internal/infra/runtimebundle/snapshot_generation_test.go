@@ -7,9 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
 )
 
@@ -18,15 +16,7 @@ func TestBuild_PublishesSnapshotGeneration(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	cfg.Accounting.Pricing.CatalogVersion = "prices-v3"
 	cfg.Accounting.Pricing.Currency = "USD"
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), baseAuthorityOptions(t, nil))
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, closer := range built.Closers {
-			_ = closer()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, baseAuthorityOptions(t, nil))
 	if built.SnapshotGeneration == nil || built.SnapshotGeneration.Current() == nil {
 		t.Fatal("expected published snapshot generation")
 	}
@@ -116,15 +106,7 @@ func TestSnapshotController_RefreshPublishesNewerSourceVersions(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.SnapshotController == nil {
 		t.Fatal("expected SnapshotController for injectable sources")
 	}
@@ -163,15 +145,7 @@ func TestSnapshotController_ConcurrentRefreshesPublishInInvocationOrder(t *testi
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	<-src.started
 
 	src.setVersion("ent-v2")
@@ -214,15 +188,7 @@ func TestSnapshotController_StartupSourceErrorExposesUnavailablePosture(t *testi
 	cfg.Accounting.Authority.SnapshotVersion = "yaml-static-v1"
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	cur := built.SnapshotGeneration.Current()
 	if cur == nil {
 		t.Fatal("expected a published generation with explicit posture")
@@ -245,15 +211,7 @@ func TestSnapshotController_RefreshFailurePreservesPriorVersion(t *testing.T) {
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
 	opts.Production = runtimebundle.ProductionOptions{UsageSnapshotSource: src}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built, err := processAndCandidateErr(t, cfg, opts)
 	before := built.SnapshotGeneration.Current()
 	src.set("", errors.New("refresh boom"))
 	err = built.SnapshotController.Refresh(context.Background())

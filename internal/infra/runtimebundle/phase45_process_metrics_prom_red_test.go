@@ -5,12 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -37,15 +35,7 @@ func TestPhase45_ProcessDueUpdatesPromGaugesAndTransitionCounters(t *testing.T) 
 		TerminalWorkTickInterval: time.Hour,
 		TerminalWorkClaimLimit:   10,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-prom-proc",
 		AttemptID:  "a-1",
@@ -88,7 +78,7 @@ type twGather struct {
 	transitionsTotal float64
 }
 
-func gatherTerminalWork(t *testing.T, built *runtimebundle.Built) twGather {
+func gatherTerminalWork(t *testing.T, built *runtimebundle.CandidateRuntime) twGather {
 	t.Helper()
 	families, err := built.Metrics.Registry.Gather()
 	if err != nil {

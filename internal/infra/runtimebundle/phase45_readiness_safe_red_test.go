@@ -7,12 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 )
 
@@ -53,16 +51,8 @@ func TestPhase45_TerminalWorkReadinessIncludesBacklogAndSafeStoreError(t *testin
 		},
 		TerminalWorkOwnerID: "ready-worker",
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if err := built.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
+	_, cand := mustProcessAndCandidate(t, cfg, opts)
+	if err := cand.Executor.TerminalWork.AcceptSettleFailure(context.Background(), terminalworkapp.SettleFailureInput{
 		RequestID:  "req-ready",
 		AttemptID:  "a-1",
 		ProviderID: "quota",
@@ -71,30 +61,16 @@ func TestPhase45_TerminalWorkReadinessIncludesBacklogAndSafeStoreError(t *testin
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ready := built.TerminalWorkReadiness(context.Background())
-	if !ready.Configured {
-		t.Fatal("expected configured")
-	}
-	if !ready.BacklogKnown {
+
+	snap, err := cand.TerminalWorkMetrics.Snapshot(context.Background())
+	if err != nil {
 		t.Fatal("BacklogKnown want true after successful snapshot")
 	}
-	if ready.Backlog < 1 {
-		t.Fatalf("Backlog=%d want >=1 pending terminal work", ready.Backlog)
-	}
-	if ready.StoreReady {
-		t.Fatal("store readiness check must fail")
-	}
-	if ready.StoreError != "" {
-		t.Fatalf("StoreError must stay empty; got %q", ready.StoreError)
-	}
-	if ready.ErrorCode != string(cp.ReasonBackingUnavailable) {
-		t.Fatalf("ErrorCode=%q want %q", ready.ErrorCode, cp.ReasonBackingUnavailable)
-	}
-	if strings.Contains(ready.ErrorCode, "SUPER_SECRET") || strings.Contains(ready.ErrorCode, "password=") {
-		t.Fatalf("ErrorCode leaked raw content: %q", ready.ErrorCode)
+	if snap.Backlog < 1 {
+		t.Fatalf("Backlog=%d want >=1 pending terminal work", snap.Backlog)
 	}
 
-	report, err := built.ReadinessReport.Report(context.Background())
+	report, err := cand.ReadinessReport.Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,6 +82,12 @@ func TestPhase45_TerminalWorkReadinessIncludesBacklogAndSafeStoreError(t *testin
 		found = true
 		if c.State != cp.CapabilityUnavailable && c.State != cp.CapabilityDegraded {
 			t.Fatalf("terminal_recovery state=%q want unavailable|degraded", c.State)
+		}
+		if c.Reason != cp.ReasonBackingUnavailable && c.Reason != cp.ReasonPendingTerminalWork {
+			t.Fatalf("Reason=%q want backing_unavailable|pending_terminal_work", c.Reason)
+		}
+		if strings.Contains(string(c.Reason), "SUPER_SECRET") || strings.Contains(string(c.Reason), "password=") {
+			t.Fatalf("Reason leaked raw content: %q", c.Reason)
 		}
 	}
 	if !found {
@@ -134,32 +116,33 @@ func TestPhase45_TerminalWorkReadinessSnapshotErrorSafeAndUnknownBacklog(t *test
 		},
 		TerminalWorkOwnerID: "ready-list-worker",
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	_, cand := mustProcessAndCandidate(t, cfg, opts)
+	if cand.TerminalWorkProcessor == nil {
+		t.Fatal("expected configured processor")
+	}
+	_, err = cand.TerminalWorkMetrics.Snapshot(context.Background())
+	if err == nil {
+		t.Fatal("BacklogKnown want false when snapshot fails")
+	}
+
+	report, err := cand.ReadinessReport.Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
+	found := false
+	for _, c := range report.Components {
+		if c.Component != cp.ReadinessComponentTerminalRecovery {
+			continue
 		}
-	})
-	ready := built.TerminalWorkReadiness(context.Background())
-	if !ready.Configured {
-		t.Fatal("expected configured")
+		found = true
+		if c.Reason != cp.ReasonBackingUnavailable {
+			t.Fatalf("Reason=%q want %q", c.Reason, cp.ReasonBackingUnavailable)
+		}
+		if strings.Contains(string(c.Reason), "SUPER_SECRET") || strings.Contains(string(c.Reason), "token=") {
+			t.Fatalf("Reason leaked raw content: %q", c.Reason)
+		}
 	}
-	if ready.BacklogKnown {
-		t.Fatal("BacklogKnown want false when snapshot fails")
-	}
-	if ready.Backlog != 0 {
-		t.Fatalf("Backlog=%d want 0 when unknown", ready.Backlog)
-	}
-	if ready.StoreError != "" {
-		t.Fatalf("StoreError must stay empty; got %q", ready.StoreError)
-	}
-	if ready.ErrorCode != string(cp.ReasonBackingUnavailable) {
-		t.Fatalf("ErrorCode=%q want %q", ready.ErrorCode, cp.ReasonBackingUnavailable)
-	}
-	if strings.Contains(ready.ErrorCode, "SUPER_SECRET") || strings.Contains(ready.ErrorCode, "token=") {
-		t.Fatalf("ErrorCode leaked raw content: %q", ready.ErrorCode)
+	if !found {
+		t.Fatal("expected terminal_recovery component")
 	}
 }

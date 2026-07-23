@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/concurrencyauthority/leasestore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metering/journalstore"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -65,7 +64,7 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 		t.Fatal("expected metering recorder on built executor")
 	}
 	if b.ReadinessReport == nil {
-		t.Fatal("expected readiness report on built runtime")
+		t.Fatal("expected readiness report on CandidateRuntime")
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -152,7 +151,7 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 	}
 }
 
-func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runtimebundle.Built {
+func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runtimebundle.CandidateRuntime {
 	t.Helper()
 	concurrencyStoreID := testkit.UniquePostgresStoreID("rtbundle-concurrency")
 	t.Cleanup(func() {
@@ -207,13 +206,10 @@ func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runt
 		},
 	}
 
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 		Startup:        runtimebundle.StartupOptions{StartupContext: t.Context()},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if b.Metrics == nil || b.Metrics.Registry == nil || b.Metrics.PostgresPool == nil {
 		t.Fatal("expected postgres pool metrics bundle")
 	}

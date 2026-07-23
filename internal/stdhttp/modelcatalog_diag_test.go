@@ -13,7 +13,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/modelcatalog"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/modelcatalog/modelsdev"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 )
 
@@ -156,13 +155,12 @@ func TestModelCatalogDiagnostics_mount_stackHTTPHandler_wiring(t *testing.T) {
 			SourceURL:              "https://api.example.com/models.json",
 		},
 	}
-	built := &runtimebundle.Built{CatalogRuntime: rt}
 	mux := http.NewServeMux()
 	mountModelCatalogDiagnostics(context.Background(), diagnosticsMount{
 		Mux:    mux,
 		Cfg:    cfg,
 		Log:    testkit.DiscardLogger(),
-		Models: HTTPModelInput{CatalogRuntime: built.CatalogRuntime},
+		Models: HTTPModelInput{CatalogRuntime: rt},
 	})
 	outer := stackHTTPHandler(stackHTTPInput{
 		Cfg: cfg, Log: testkit.DiscardLogger(), Security: HTTPSecurityInput{}, TraceGen: diag.NewTraceIDGenerator(), Inner: mux, HTTPProm: nil,

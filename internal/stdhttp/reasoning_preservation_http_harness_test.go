@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
 	refanth "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/anthropicmessages"
 	refchat "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openaichat"
 	refresponses "github.com/matdev83/go-llm-interactive-proxy/internal/refbackend/openairesponses"
@@ -333,29 +334,42 @@ func startRPBootstrapProxy(t *testing.T, cfgPath string) *httptest.Server {
 func startRPBootstrapProxyErr(cfgPath string) (*httptest.Server, func(), error) {
 	ctx := context.Background()
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      cfgPath,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("BuildBootstrap: %w", err)
 	}
-	h, handlerCleanup, err := stdhttp.NewStandardHandler(ctx, res.Config, res.App, res.Logger, res.Built)
-	if err != nil {
+	lease, ok := res.GenerationManager.Acquire()
+	if !ok || lease.Handler() == nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		defer cancel()
+		if res.GenerationManager != nil {
+			_ = res.GenerationManager.ShutdownDetached(shutdownCtx, runtimehost.NewLifecycleWorker())
+		}
+		if res.ProcessServices != nil {
+			_ = res.ProcessServices.Close()
+		}
 		if res.ShutdownTracing != nil {
 			_ = res.ShutdownTracing(shutdownCtx)
 		}
-		return nil, nil, fmt.Errorf("NewStandardHandler: %w", err)
+		return nil, nil, fmt.Errorf("Acquire generation handler")
 	}
-	srv := httptest.NewServer(h)
+	srv := httptest.NewServer(lease.Handler())
 	cleanup := func() {
 		srv.Close()
+		lease.Release()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		handlerCleanup(shutdownCtx)
+		if res.GenerationManager != nil {
+			_ = res.GenerationManager.ShutdownDetached(shutdownCtx, runtimehost.NewLifecycleWorker())
+		}
+		if res.ProcessServices != nil {
+			_ = res.ProcessServices.Close()
+		}
 		if res.ShutdownTracing != nil {
 			_ = res.ShutdownTracing(shutdownCtx)
 		}

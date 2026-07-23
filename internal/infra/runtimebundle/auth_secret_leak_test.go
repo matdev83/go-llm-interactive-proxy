@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
@@ -64,14 +63,10 @@ func TestBuild_authPaths_noFixtureSecretLeakageInLogsOrHTTPBodies(t *testing.T) 
 	}
 
 	var logBuf bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, &runtimebundle.BuildOptions{
+	_ = slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	h := stdhttpauth.Middleware(nil, b.HTTPAuthProviders, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("inner handler must not run for deny cases in this test")
 	}))

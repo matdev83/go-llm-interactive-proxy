@@ -101,7 +101,9 @@ var builtFieldOwnership = []ownershipEntry{
 
 // bootstrapResourceOwnership classifies BuildBootstrap resources beyond Built fields.
 var bootstrapResourceOwnership = []ownershipEntry{
-	{Symbol: "BootstrapResult.Built", Kind: ownershipKindMixedAggregate, Source: "runtimebundle.BuildBootstrap → Build", ConstructorID: "runtimebundle.Build", Notes: "Mixed-ownership non-publishable composition aggregate; mechanically forbidden from generation publication (req 4.9)."},
+	{Symbol: "BootstrapResult.ProcessServices", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → NewProcessServices", Notes: "Process-owned shared services for BootstrapServe (Task 4.1)."},
+	{Symbol: "BootstrapResult.GenerationManager", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → runtimehost.NewManager", Notes: "Process-owned generation publication manager."},
+	{Symbol: "BootstrapResult.InitialGeneration", Class: ownershipGeneration, Source: "runtimebundle.BuildBootstrap → Manager.Publish", Notes: "Generation 1 publication handle for serve mode."},
 	{Symbol: "BootstrapResult.Config", Kind: ownershipKindMixedConfigAggregate, Source: "runtimebundle.BuildBootstrap → config.LoadFile", Notes: "Mutable *config.Config mixes process-topology and generation settings; unsuitable for generation publication (design: no mutable *config.Config in published generations)."},
 	{Symbol: "Logger", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → logging.NewLogger", Notes: "Process logger sink (req 6.4)."},
 	{Symbol: "Registry", Class: ownershipProcess, Source: "runtimebundle.BuildBootstrap → pluginreg.NewRegistry", Notes: "Same process factory catalog as Built.PluginRegistry."},
@@ -292,15 +294,15 @@ func TestOwnershipInventory_MixedAggregatesAreNotResourceClasses(t *testing.T) {
 	for _, e := range bootstrapResourceOwnership {
 		bootIdx[e.Symbol] = e
 	}
-	builtAgg, ok := bootIdx["BootstrapResult.Built"]
+	ps, ok := bootIdx["BootstrapResult.ProcessServices"]
 	if !ok {
-		t.Fatal("BootstrapResult.Built missing from inventory")
+		t.Fatal("BootstrapResult.ProcessServices missing from inventory")
 	}
-	if builtAgg.Kind != ownershipKindMixedAggregate {
-		t.Fatalf("BootstrapResult.Built must be mixed aggregate kind, got class=%q kind=%q", builtAgg.Class, builtAgg.Kind)
+	if ps.Class != ownershipProcess {
+		t.Fatalf("BootstrapResult.ProcessServices must be process-owned, got class=%q kind=%q", ps.Class, ps.Kind)
 	}
-	if builtAgg.Class.valid() {
-		t.Fatalf("BootstrapResult.Built must not be forced into a resource class, got %q", builtAgg.Class)
+	if _, ok := bootIdx["BootstrapResult.Built"]; ok {
+		t.Fatal("BootstrapResult.Built must be removed from inventory after Task 4.1")
 	}
 
 	cfg, ok := bootIdx["BootstrapResult.Config"]

@@ -6,12 +6,9 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	authorityapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/app"
 	authoritydomain "github.com/matdev83/go-llm-interactive-proxy/internal/core/usageauthority/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/controlplane/ledgerstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/policydecision"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/scope"
@@ -109,10 +106,7 @@ func TestUsageAuthority_EvidenceProjectedThroughRealBundle(t *testing.T) {
 	opts.Testing.ControlPlaneStoreOverride = cpStore
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.UsageAuthority == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}
@@ -197,10 +191,7 @@ func TestUsageAuthority_DenialEvidenceProjectedThroughRealBundle(t *testing.T) {
 	opts.Testing.ControlPlaneStoreOverride = cpStore
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 
 	admitRes, err := built.UsageAuthority.Admit(ctx, authorityAdmissionInput())
 	if err != nil {
@@ -239,10 +230,7 @@ func TestUsageAuthority_EvidenceFansToObserversWhenControlPlaneDisabled(t *testi
 	opts := baseAuthorityOptions(t, nil)
 	opts.Policy.PolicyObservers = []policydecision.Observer{cap}
 
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.UsageAuthority == nil {
 		t.Fatal("expected usage authority service when enabled")
 	}

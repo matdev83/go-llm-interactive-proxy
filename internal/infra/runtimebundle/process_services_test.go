@@ -222,12 +222,9 @@ func TestProcessServices_BuildCompatibilityRetainsAggregateCleanup(t *testing.T)
 	t.Parallel()
 
 	cfg := processServicesTestConfig()
-	b, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), &runtimebundle.BuildOptions{
+	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if b.Metrics == nil {
 		t.Fatal("Build compatibility must still expose Metrics")
 	}

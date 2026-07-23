@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
@@ -18,7 +19,7 @@ func testConfigPath(t *testing.T) string {
 	return filepath.Join("..", "..", "..", "config", "config.yaml")
 }
 
-func TestBuildBootstrap_inspectLeavesBuiltNil(t *testing.T) {
+func TestBuildBootstrap_inspectLeavesGenerationNil(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
@@ -35,33 +36,52 @@ func TestBuildBootstrap_inspectLeavesBuiltNil(t *testing.T) {
 			_ = res.ShutdownTracing(t.Context())
 		}
 	}()
-	if res.Built != nil {
-		t.Fatal("BootstrapInspect must not call Build; Built must be nil")
+	if res.ProcessServices != nil || res.GenerationManager != nil || res.InitialGeneration != nil {
+		t.Fatal("BootstrapInspect must not compile process services or publish a generation")
 	}
 	if res.Config == nil || res.Registry == nil || res.App == nil {
 		t.Fatalf("expected config, registry, and app: cfg=%v reg=%v app=%v", res.Config != nil, res.Registry != nil, res.App != nil)
 	}
 }
 
-func TestBuildBootstrap_serveSetsBuiltExecutor(t *testing.T) {
+func TestBuildBootstrap_servePublishesInitialGeneration(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	res, err := runtimebundle.BuildBootstrap(ctx, runtimebundle.BuildBootstrapInput{
+		ConfigPath:      testConfigPath(t),
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapServeCleanup(t, res)
+	if res.ProcessServices == nil || res.GenerationManager == nil || res.InitialGeneration == nil {
+		t.Fatal("BootstrapServe must publish process services and generation 1")
+	}
+	lease, ok := res.GenerationManager.Acquire()
+	if !ok || lease.Handler() == nil {
+		t.Fatal("BootstrapServe must publish an acquireable handler")
+	}
+	lease.Release()
+}
+
+func TestBuildBootstrap_serveRequiresHandlerComposer(t *testing.T) {
+	t.Parallel()
+	res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
 		ConfigPath: testConfigPath(t),
 		Mode:       runtimebundle.BootstrapServe,
 		Mandatory:  lipsdk.StandardDistributionRequirements(),
 		LogWriter:  io.Discard,
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		bootstrapServeCleanup(t, res)
+		t.Fatal("expected nil HandlerComposer failure")
 	}
-	defer func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(t.Context())
-		}
-	}()
-	if res.Built == nil || res.Built.Executor == nil {
-		t.Fatal("BootstrapServe must produce Built with Executor")
+	if !strings.Contains(err.Error(), "HandlerComposer") {
+		t.Fatalf("error=%v want HandlerComposer requirement", err)
 	}
 }
 
@@ -84,29 +104,28 @@ func TestBuildBootstrap_serveSingleUserSecretGuardSnapshotsProcessEnv(t *testing
 	}
 
 	res, err := runtimebundle.BuildBootstrap(t.Context(), runtimebundle.BuildBootstrapInput{
-		ConfigPath: path,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      path,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if res.ShutdownTracing != nil {
-			_ = res.ShutdownTracing(t.Context())
-		}
-	}()
-	if res.Built == nil || res.Built.SecretGuardInventory == nil {
-		t.Fatal("BootstrapServe must build secret-guard inventory")
+	bootstrapServeCleanup(t, res)
+
+	cand := compileCandidateAfterBootstrap(t, res)
+	if cand.SecretGuardInventory == nil {
+		t.Fatal("BootstrapServe candidate must build secret-guard inventory")
 	}
-	if res.Built.SecretGuardInventory.SecretGuardCatalogEntryCount == 0 {
+	if cand.SecretGuardInventory.SecretGuardCatalogEntryCount == 0 {
 		t.Fatal("single-user serve must snapshot process env into a nonzero secret catalog")
 	}
-	if res.Built.RuntimeSnapshot == nil {
+	if cand.RuntimeSnapshot == nil {
 		t.Fatal("expected runtime snapshot")
 	}
-	m, err := res.Built.RuntimeSnapshot.SecretGuardPlane().MatcherResolver.Resolve(t.Context())
+	m, err := cand.RuntimeSnapshot.SecretGuardPlane().MatcherResolver.Resolve(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

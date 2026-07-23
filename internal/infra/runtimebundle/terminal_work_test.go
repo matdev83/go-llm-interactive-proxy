@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork"
 	terminalworkapp "github.com/matdev83/go-llm-interactive-proxy/internal/core/terminalwork/app"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/terminalwork/workstore"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
+	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	sdk "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/terminal"
 )
 
@@ -44,37 +44,26 @@ func TestBuild_TerminalWorkOwnershipFromProductionOptions(t *testing.T) {
 		TerminalWorkTickInterval:  50 * time.Millisecond,
 		TerminalWorkRenewInterval: 25 * time.Millisecond,
 	}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if built.TerminalWorkProcessor == nil {
+	_, cand := mustProcessAndCandidate(t, cfg, opts)
+	if cand.TerminalWorkProcessor == nil {
 		t.Fatal("expected TerminalWorkProcessor ownership")
 	}
-	if built.TerminalWorkRegistry == nil {
+	if cand.TerminalWorkRegistry == nil {
 		t.Fatal("expected TerminalWorkRegistry ownership")
 	}
-	if _, err := built.TerminalWorkRegistry.Resolve("prov-a", sdk.WorkKindSettleRequestProvider); err != nil {
+	if _, err := cand.TerminalWorkRegistry.Resolve("prov-a", sdk.WorkKindSettleRequestProvider); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	ready := built.TerminalWorkReadiness(context.Background())
-	if !ready.Configured || !ready.StoreReady {
-		t.Fatalf("readiness=%+v", ready)
+	if !cand.TerminalWorkProcessor.Running() {
+		t.Fatal("expected running after CompileCandidate (composition-root owns Start)")
 	}
-	if !ready.Running {
-		t.Fatal("expected running after Build (composition-root owns Start)")
-	}
-	if built.TerminalWorkQueries == nil || built.TerminalWorkMetrics == nil {
+	assertTerminalRecoveryConfiguredReady(t, cand)
+	if cand.TerminalWorkQueries == nil || cand.TerminalWorkMetrics == nil {
 		t.Fatal("expected QueryService and MetricsObserver ownership")
 	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := built.TerminalWorkProcessor.Shutdown(shutCtx); err != nil {
+	if err := cand.TerminalWorkProcessor.Shutdown(shutCtx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -83,21 +72,11 @@ func TestBuild_TerminalWorkAbsentWithoutStore(t *testing.T) {
 	t.Parallel()
 	cfg := baseAuthorityConfig(false, "fail_closed")
 	opts := baseAuthorityOptions(t, nil)
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
-	if built.TerminalWorkProcessor != nil || built.TerminalWorkRegistry != nil {
+	_, cand := mustProcessAndCandidate(t, cfg, opts)
+	if cand.TerminalWorkProcessor != nil || cand.TerminalWorkRegistry != nil {
 		t.Fatal("terminal work must stay nil without injected store")
 	}
-	if built.TerminalWorkReadiness(context.Background()).Configured {
-		t.Fatal("readiness must be unconfigured without store")
-	}
+	assertTerminalRecoveryDisabled(t, cand)
 }
 
 func TestBuild_TerminalWorkUnresolvedProviders(t *testing.T) {
@@ -134,20 +113,102 @@ func TestBuild_TerminalWorkUnresolvedProviders(t *testing.T) {
 		TerminalWorkOwnerID: "bundle-worker",
 	}
 	opts.Testing.Clock = func() time.Time { return clock }
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
+	_, cand := mustProcessAndCandidate(t, cfg, opts)
+	if err := cand.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ids := cand.TerminalWorkProcessor.UnresolvedProviderIDs()
+	if len(ids) != 1 || ids[0] != "ghost" {
+		t.Fatalf("unresolved=%v", ids)
+	}
+	report, err := cand.ReadinessReport.Report(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
+	found := false
+	for _, c := range report.Components {
+		if c.Component != cp.ReadinessComponentTerminalRecovery {
+			continue
 		}
-	})
-	if err := built.TerminalWorkProcessor.ProcessDue(context.Background()); err != nil {
+		found = true
+		if c.State != cp.CapabilityDegraded || c.Reason != cp.ReasonPendingTerminalWork {
+			t.Fatalf("terminal_recovery=%+v want degraded/pending_terminal_work", c)
+		}
+		if len(c.ProviderIDs) != 1 || c.ProviderIDs[0] != "ghost" {
+			t.Fatalf("ProviderIDs=%v", c.ProviderIDs)
+		}
+	}
+	if !found {
+		t.Fatal("expected terminal_recovery component")
+	}
+}
+
+func assertTerminalRecoveryConfiguredReady(t *testing.T, cand *runtimebundle.CandidateRuntime) {
+	t.Helper()
+	if cand.ReadinessReport == nil {
+		t.Fatal("expected ReadinessReport")
+	}
+	report, err := cand.ReadinessReport.Report(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-	ready := built.TerminalWorkReadiness(context.Background())
-	if len(ready.UnresolvedProviderIDs) != 1 || ready.UnresolvedProviderIDs[0] != "ghost" {
-		t.Fatalf("unresolved=%v", ready.UnresolvedProviderIDs)
+	found := false
+	for _, c := range report.Components {
+		if c.Component != cp.ReadinessComponentTerminalRecovery {
+			continue
+		}
+		found = true
+		if c.State != cp.CapabilityReady && c.State != cp.CapabilityDegraded {
+			t.Fatalf("terminal_recovery state=%q want ready|degraded", c.State)
+		}
+		if c.Reason == cp.ReasonBackingUnavailable {
+			t.Fatalf("store must be ready; got reason=%q", c.Reason)
+		}
 	}
+	if !found {
+		t.Fatal("expected terminal_recovery component")
+	}
+}
+
+func assertTerminalRecoveryDisabled(t *testing.T, cand *runtimebundle.CandidateRuntime) {
+	t.Helper()
+	if cand.ReadinessReport == nil {
+		t.Fatal("expected ReadinessReport")
+	}
+	report, err := cand.ReadinessReport.Report(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range report.Components {
+		if c.Component != cp.ReadinessComponentTerminalRecovery {
+			continue
+		}
+		if c.State != cp.CapabilityDisabled {
+			t.Fatalf("terminal_recovery state=%q want disabled", c.State)
+		}
+		return
+	}
+	t.Fatal("expected terminal_recovery component")
+}
+
+// publishCandidateTerminalWorkMetrics applies MetricsObserver snapshot gauges onto
+// the candidate metrics.Bundle TerminalWorkProm series (canonical observer path).
+func publishCandidateTerminalWorkMetrics(t *testing.T, cand *runtimebundle.CandidateRuntime) {
+	t.Helper()
+	if cand == nil || cand.TerminalWorkMetrics == nil || cand.Metrics == nil || cand.Metrics.TerminalWork == nil {
+		return
+	}
+	snap, err := cand.TerminalWorkMetrics.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("TerminalWorkMetrics.Snapshot: %v", err)
+	}
+	cand.Metrics.TerminalWork.ApplySnapshot(metrics.TerminalWorkSnapshot{
+		Backlog:      snap.Backlog,
+		OldestAgeSec: snap.OldestAge.Seconds(),
+		Pending:      snap.Pending,
+		Retrying:     snap.Retrying,
+		Quarantined:  snap.Quarantined,
+		Completed:    snap.Completed,
+		Claimed:      snap.Claimed,
+	})
 }

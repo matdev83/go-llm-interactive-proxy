@@ -20,9 +20,6 @@ import (
 	featuresg "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/features/secretsguard"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/standardplugins"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
-	lipplugin "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/plugin"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/traffic"
-	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/usage"
 )
 
 // BootstrapMode selects how much runtime assembly [BuildBootstrap] performs.
@@ -33,9 +30,10 @@ const (
 	// [BootstrapInspect] or [BootstrapServe].
 	BootstrapUnspecified BootstrapMode = iota
 	// BootstrapInspect loads config, installs the standard registry, merges feature hooks, and
-	// constructs the core app without calling [Build] (no executor, no listener).
+	// constructs the core app without compiling a generation (no executor, no listener).
 	BootstrapInspect
-	// BootstrapServe performs the inspect steps and then calls [Build] for stdhttp serving.
+	// BootstrapServe performs the inspect steps and then publishes generation 1
+	// through ProcessServices + CompileGeneration (requires HandlerComposer).
 	BootstrapServe
 )
 
@@ -49,9 +47,9 @@ type BuildBootstrapInput struct {
 	StreamRecoveryOverrides config.StreamRecoveryOverrides
 	// Production carries first-class enterprise injection seams (requirement 12.4).
 	Production ProductionOptions
-	// HandlerComposer enables generation-host serve mode: ProcessServices once,
+	// HandlerComposer is required for BootstrapServe: ProcessServices once,
 	// CompileGeneration, and publish generation 1 through a runtimehost.Manager.
-	// When nil, BootstrapServe keeps the legacy Built path for compatibility.
+	// Nil composer fails closed before resource acquisition (Task 4.1).
 	HandlerComposer HandlerComposer
 }
 
@@ -63,7 +61,6 @@ type BootstrapResult struct {
 	Registrations     []lipsdk.Registration
 	FeatureSurface    featurebundle.MergedFeatureSurface
 	App               *BootstrapApp
-	Built             *Built
 	ProcessServices   *ProcessServices
 	GenerationManager *runtimehost.Manager
 	InitialGeneration *runtimehost.Generation
@@ -167,9 +164,7 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	// Serve mode: candidate ledger owns feature lifecycles (singular Start/Stop).
 	// Inspect mode: keep lifecycles on App for compatibility (no CompileCandidate).
 	appLifecycles := merged.Lifecycles
-	var candidateLifecycles []lipplugin.Lifecycle
 	if in.Mode == BootstrapServe {
-		candidateLifecycles = merged.Lifecycles
 		appLifecycles = nil
 	}
 
@@ -193,56 +188,21 @@ func buildBootstrap(ctx context.Context, in BuildBootstrapInput, secretEnv cores
 	out.App = app
 
 	if in.Mode == BootstrapServe {
-		if in.HandlerComposer != nil {
-			return publishInitialGeneration(ctx, out, publishInitialGenerationInput{
-				Cfg:           cfg,
-				Effective:     effective,
-				Logger:        logger,
-				Registry:      reg,
-				SecretEnv:     secretEnv,
-				Production:    in.Production,
-				Compose:       in.HandlerComposer,
-				TraceActive:   traceRes.Active,
-				TraceShutdown: traceRes.Shutdown,
-			})
-		}
-		built, err := Build(cfg, app.HookBus(), logger, &BuildOptions{
-			PluginRegistry:    reg,
-			FeatureLifecycles: candidateLifecycles,
-			Infra: InfraOptions{
-				OutboundTracing: traceRes.Active,
-				ProcessTracing: ProcessTracing{
-					Shutdown: traceRes.Shutdown,
-					Active:   traceRes.Active,
-				},
-			},
-			Extensions: ExtensionsOptions{
-				SessionOpeners:                   merged.SessionOpeners,
-				WorkspaceResolvers:               merged.WorkspaceResolvers,
-				ToolCatalogFilters:               merged.ToolCatalogFilters,
-				ToolCallPolicies:                 merged.ToolCallPolicies,
-				ToolCallFinalizers:               merged.ToolCallFinalizers,
-				ToolCallFinalizationMaxArgsBytes: merged.ToolCallFinalizationMaxArgsBytes,
-				RequestTransforms:                merged.RequestTransforms,
-				PreRequestHandlers:               merged.PreRequestHandlers,
-				RouteHintProviders:               merged.RouteHintProviders,
-				CompletionGates:                  merged.CompletionGates,
-				AttemptTransforms:                merged.AttemptTransforms,
-				StreamObserverFactories:          merged.StreamObserverFactories,
-				TrafficObservers:                 append(append([]traffic.Observer(nil), merged.TrafficObservers...), in.Production.TrafficObservers...),
-				UsageObservers:                   append(append([]usage.Observer(nil), merged.UsageObservers...), in.Production.UsageObservers...),
-				RawCaptureSinks:                  merged.RawCaptureSinks,
-				TrafficRedactors:                 merged.TrafficRedactors,
-				SecretGuards:                     merged.SecretGuards,
-				SecretGuardEnvironment:           secretEnv,
-			},
-			Production: in.Production,
-		})
-		if err != nil {
+		if in.HandlerComposer == nil {
 			shutdownTracing(ctx, traceRes.Shutdown)
-			return out, fmt.Errorf("runtimebundle: runtime assembly: %w", err)
+			return out, fmt.Errorf("runtimebundle: BootstrapServe requires HandlerComposer")
 		}
-		out.Built = built
+		return publishInitialGeneration(ctx, out, publishInitialGenerationInput{
+			Cfg:           cfg,
+			Effective:     effective,
+			Logger:        logger,
+			Registry:      reg,
+			SecretEnv:     secretEnv,
+			Production:    in.Production,
+			Compose:       in.HandlerComposer,
+			TraceActive:   traceRes.Active,
+			TraceShutdown: traceRes.Shutdown,
+		})
 	}
 
 	return out, nil

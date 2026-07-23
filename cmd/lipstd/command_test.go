@@ -15,6 +15,8 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/accessmode"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	"github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk"
 )
 
@@ -598,13 +600,20 @@ func TestBuildBootstrap_multiUserConfigLocalStubPassesPosture(t *testing.T) {
 	t.Parallel()
 	cfgPath := writeMultiUserTempConfig(t)
 	res, err := runtimebundle.BuildBootstrap(context.Background(), runtimebundle.BuildBootstrapInput{
-		ConfigPath: cfgPath,
-		Mode:       runtimebundle.BootstrapServe,
-		Mandatory:  lipsdk.StandardDistributionRequirements(),
-		LogWriter:  io.Discard,
+		ConfigPath:      cfgPath,
+		Mode:            runtimebundle.BootstrapServe,
+		Mandatory:       lipsdk.StandardDistributionRequirements(),
+		LogWriter:       io.Discard,
+		HandlerComposer: stdhttp.ComposeStandardHTTP,
 	})
 	if err != nil {
 		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if res.GenerationManager != nil {
+		_ = res.GenerationManager.ShutdownDetached(context.Background(), runtimehost.NewLifecycleWorker())
+	}
+	if res.ProcessServices != nil {
+		_ = res.ProcessServices.Close()
 	}
 	if res.ShutdownTracing != nil {
 		_ = res.ShutdownTracing(context.Background())

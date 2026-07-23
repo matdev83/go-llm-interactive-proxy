@@ -12,7 +12,6 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/identity"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/backends/openairesponses"
 	feopenairesponses "github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
@@ -110,13 +109,17 @@ func TestNewStandardHandler_ID147_openaiResponsesUserAgentPassthroughToUpstream(
 					},
 				},
 			}
-			built := &runtimebundle.Built{Executor: ex, PluginRegistry: reg}
 			app := mustRuntimeApp(t, cfg)
-			h, cleanup, err := NewStandardHandler(context.Background(), cfg, app, slog.Default(), built)
-			if err != nil {
-				t.Fatalf("NewStandardHandler: %v", err)
+			ctx := context.Background()
+			startTestApp(t, ctx, app)
+			in := StandardHTTPInput{
+				Core:      HTTPCoreInput{Executor: ex},
+				Frontends: frontendInputForTest(cfg, ex, reg),
 			}
-			t.Cleanup(func() { cleanup(context.Background()) })
+			h, err := ComposeStandardHTTP(ctx, cfg, slog.Default(), in)
+			if err != nil {
+				t.Fatalf("ComposeStandardHTTP: %v", err)
+			}
 
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
 				`{"model":"gpt-4o-mini","stream":false,"input":[{"role":"user","content":"ping"}]}`,

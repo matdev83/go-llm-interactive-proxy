@@ -135,7 +135,6 @@ func publishInitialGeneration(ctx context.Context, out BootstrapResult, in publi
 	out.ProcessServices = ps
 	out.GenerationManager = mgr
 	out.InitialGeneration = gen
-	out.Built = nil
 	if ps.terminalWorkRT != nil {
 		ps.terminalWorkRT.BindGenerationManager(mgr)
 	}

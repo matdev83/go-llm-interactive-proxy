@@ -6,9 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/authority"
 	cp "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/controlplane"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/economics"
@@ -34,15 +31,7 @@ func TestPhase55_ReadinessSeparatesExecutableSourceAndTerminal(t *testing.T) {
 		ID: "op-rater", Perspective: metering.PerspectiveOperator, Rater: phase53Rater{id: "op-rater"},
 	}}
 	opts.Production.UsageSnapshotSource = phase55FailingUsageSource{}
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	if built.ReadinessReport == nil {
 		t.Fatal("expected readiness report")
 	}
@@ -87,15 +76,7 @@ func TestPhase55_RefreshKeepsPriorExecutableOnSourceFailure(t *testing.T) {
 	}}
 	src := &mutablePhase55UsageSource{ver: "u1"}
 	opts.Production.UsageSnapshotSource = src
-	built, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), testkit.DiscardLogger(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		for _, c := range built.Closers {
-			_ = c()
-		}
-	})
+	_, built := mustProcessAndCandidate(t, cfg, opts)
 	before := built.SnapshotGeneration.CurrentExecutable()
 	if before == nil || before.EvidenceObjectID() != "op-rater" {
 		t.Fatalf("before=%v", before)

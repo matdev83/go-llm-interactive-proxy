@@ -313,7 +313,9 @@ var lineBudgets = []struct {
 	// Ratcheted from 10206 to 9969 for Task 3.5: deleted broad RequestPlane
 	// aggregate/getter wall and NewCompatRequestPlane; HandlerComposer +
 	// FrozenRoutingView moved to handler_composer.go (measured 9969; zero headroom).
-	{"internal/infra/runtimebundle", 9969},
+	// Task 4.1: exact measured post-deletion of Candidate terminal-work detour
+	// (candidate_terminal_work.go + terminal_work.go shared-helper extraction).
+	{"internal/infra/runtimebundle", 9928},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

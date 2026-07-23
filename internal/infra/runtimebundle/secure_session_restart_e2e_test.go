@@ -13,14 +13,12 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/execbackend"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/hooks"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/routing"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/securesession/domain"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/pluginreg"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/openairesponses"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/plugins/frontends/sessionwire"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/testkit"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipapi"
 	"github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/execview"
 )
@@ -64,7 +62,6 @@ func TestSecureSessionE2E_sqliteRestart_resumeSurvivesProcessClose(t *testing.T)
 			ResumeWindow:        "24h",
 		},
 	}
-	log := testkit.DiscardLogger()
 	buildOpts := func() *runtimebundle.BuildOptions {
 		return &runtimebundle.BuildOptions{
 			PluginRegistry: pluginreg.NewRegistry(),
@@ -72,37 +69,28 @@ func TestSecureSessionE2E_sqliteRestart_resumeSurvivesProcessClose(t *testing.T)
 		}
 	}
 
-	b1, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, buildOpts())
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, b1 := mustProcessAndCandidate(t, cfg, buildOpts())
 	injectStubBackend(t, b1)
 	s1, sid, tok, aleg := runCreatePhase(t, b1)
 	s1.Close()
 	closeBuilt(t, b1)
 
 	ch.t = ch.t.Add(2 * time.Minute)
-	b2, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, buildOpts())
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, b2 := mustProcessAndCandidate(t, cfg, buildOpts())
 	injectStubBackend(t, b2)
 	s2 := runResumePhase(t, b2, sid, tok, aleg)
 	s2.Close()
 	closeBuilt(t, b2)
 
 	ch.t = ch.t.Add(2 * time.Minute)
-	b3, err := runtimebundle.Build(cfg, hooks.New(hooks.Config{}), log, buildOpts())
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, b3 := mustProcessAndCandidate(t, cfg, buildOpts())
 	injectStubBackend(t, b3)
 	s3 := runWrongOwnerPhase(t, b3, sid, tok)
 	s3.Close()
 	closeBuilt(t, b3)
 }
 
-func runCreatePhase(t *testing.T, b *runtimebundle.Built) (*httptest.Server, string, string, string) {
+func runCreatePhase(t *testing.T, b *runtimebundle.CandidateRuntime) (*httptest.Server, string, string, string) {
 	t.Helper()
 	h := &openairesponses.Handler{Exec: b.Executor, DefaultRouteSelector: "stub:gpt-4o-mini"}
 	mux := http.NewServeMux()
@@ -141,7 +129,7 @@ func runCreatePhase(t *testing.T, b *runtimebundle.Built) (*httptest.Server, str
 	return srv, sid, tok, rec.ALegID
 }
 
-func runResumePhase(t *testing.T, b *runtimebundle.Built, sid, tok, wantALeg string) *httptest.Server {
+func runResumePhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, tok, wantALeg string) *httptest.Server {
 	t.Helper()
 	h := &openairesponses.Handler{Exec: b.Executor, DefaultRouteSelector: "stub:gpt-4o-mini"}
 	mux := http.NewServeMux()
@@ -177,7 +165,7 @@ func runResumePhase(t *testing.T, b *runtimebundle.Built, sid, tok, wantALeg str
 	return srv
 }
 
-func runWrongOwnerPhase(t *testing.T, b *runtimebundle.Built, sid, tok string) *httptest.Server {
+func runWrongOwnerPhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, tok string) *httptest.Server {
 	t.Helper()
 	h := &openairesponses.Handler{Exec: b.Executor, DefaultRouteSelector: "stub:gpt-4o-mini"}
 	mux := http.NewServeMux()
@@ -204,7 +192,7 @@ func runWrongOwnerPhase(t *testing.T, b *runtimebundle.Built, sid, tok string) *
 	return srv
 }
 
-func closeBuilt(t *testing.T, b *runtimebundle.Built) {
+func closeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	t.Helper()
 	for _, c := range b.Closers {
 		if c == nil {
@@ -216,7 +204,7 @@ func closeBuilt(t *testing.T, b *runtimebundle.Built) {
 	}
 }
 
-func injectStubBackend(t *testing.T, b *runtimebundle.Built) {
+func injectStubBackend(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	t.Helper()
 	if b.Executor.Backends == nil {
 		b.Executor.Backends = map[string]execbackend.Backend{}

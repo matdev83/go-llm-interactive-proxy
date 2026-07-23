@@ -21,17 +21,21 @@ const (
 )
 
 var knownConvergenceGates = map[string]bool{
-	gateRuntimeConvergence:   true,
-	gateReloadContract:       true,
-	gateHostPath:             true,
-	gateConfigLoad:           true,
-	gateBroadRequestPlane:    true,
-	gateCompatHTTPSymbols:    true,
-	gateFocusedHTTPLifecycle: true,
-	gateStdhttpBuilt:           true,
-	gateCanonicalClosers:       true,
-	gateCandidateLegacyClosers: true,
-	gateComposeInventory:       true,
+	gateRuntimeConvergence:         true,
+	gateReloadContract:             true,
+	gateHostPath:                   true,
+	gateConfigLoad:                 true,
+	gateBroadRequestPlane:          true,
+	gateCompatHTTPSymbols:          true,
+	gateFocusedHTTPLifecycle:       true,
+	gateStdhttpBuilt:               true,
+	gateCanonicalClosers:           true,
+	gateCandidateLegacyClosers:     true,
+	gateComposeInventory:           true,
+	gateTask41BuildCall:            true,
+	gateTask41BuiltCarrier:         true,
+	gateTask41TestLegacyCaller:     true,
+	gateTask41ReplacementAggregate: true,
 }
 
 var knownConvergenceClasses = map[string]bool{
