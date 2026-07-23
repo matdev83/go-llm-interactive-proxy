@@ -85,16 +85,10 @@ var mountContractInventory = []mountInventoryRow{
 var compositionRootInventory = []mountInventoryRow{
 	{
 		Helper: "prepareStandardHandler", File: "handler.go", Input: "",
-		BuiltFields:   []string{"Closers", "Executor", "EffectiveDefaultRoute", "PluginRegistry", "DecodeAdmission", "RuntimeSnapshot", "RoutePrefixes", "ModelRegistryRuntime"},
+		BuiltFields:   []string{"Executor", "EffectiveDefaultRoute", "PluginRegistry", "DecodeAdmission", "RuntimeSnapshot", "RoutePrefixes", "ModelRegistryRuntime"},
 		DesiredGroups: []string{"StandardHTTPInput"},
 		Lifecycle:     "owned_above", BehaviorTests: []string{"TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted"},
 		MigrationStatus: "strict_task_32",
-	},
-	{
-		Helper: "NewStandardHandler", File: "handler.go", Input: "",
-		BuiltFields: []string{"Built"}, DesiredGroups: []string{"StandardHTTPInput"},
-		Lifecycle: "owned_above", BehaviorTests: []string{"TestNewStandardHandler_openAIModelsAndModelRegistryDiagMounted"},
-		MigrationStatus: "transitional_legacy_phase4",
 	},
 	{
 		Helper: "ComposeStandardHTTP", File: "request_plane.go", Input: "StandardHTTPInput",
@@ -135,16 +129,14 @@ var expectedProductionMountHelpers = map[string]bool{
 
 var expectedCompositionRoots = map[string]bool{
 	"prepareStandardHandler": true,
-	"NewStandardHandler":     true,
 	"ComposeStandardHTTP":    true,
 }
 
 // migrationStatusMarkdownPhrase maps composition-root MigrationStatus codes to
 // distinctive phrases that must appear in mount-dependency-inventory.md.
 var migrationStatusMarkdownPhrase = map[string]string{
-	"strict_task_32":             "strict Task 3.2 target",
-	"transitional_legacy_phase4": "Phase 4 Built compatibility",
-	"canonical_task34":           "canonical Task 3.4 composer",
+	"strict_task_32":   "strict Task 3.2 target",
+	"canonical_task34": "canonical Task 3.4 composer",
 }
 
 // mountDiscoveryExclusions is intentionally empty: every discovered mount-scoped
@@ -360,7 +352,7 @@ func discoverProductionMountSurface(pkgDir string) (mounts, roots map[string]boo
 
 func isCompositionRootName(name string) bool {
 	switch name {
-	case "prepareStandardHandler", "NewStandardHandler", "ComposeStandardHTTP":
+	case "prepareStandardHandler", "ComposeStandardHTTP":
 		return true
 	default:
 		return false

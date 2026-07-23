@@ -24,14 +24,14 @@ type mountMetricsInput struct {
 // mountMetrics mounts the Prometheus metrics endpoint when observability.metrics.enabled is
 // true and returns the HTTP metrics handle (nil when disabled) for the outer middleware stack.
 // On misconfiguration (enabled without Operations.Metrics) it returns the same error the inline
-// block previously returned so [RunWithRuntime]'s error wrapping stays identical.
+// block previously returned so ComposeStandardHTTP's error wrapping stays identical.
 func mountMetrics(in mountMetricsInput) (*metrics.HTTPMetrics, error) {
 	cfg, log, ops, mux := in.Cfg, in.Log, in.Operations, in.Mux
 	if !cfg.Observability.Metrics.Enabled {
 		return nil, nil
 	}
 	if ops.Metrics == nil || ops.Metrics.Registry == nil {
-		return nil, fmt.Errorf("stdhttp: observability.metrics.enabled requires built.Metrics from runtimebundle.Build")
+		return nil, fmt.Errorf("stdhttp: observability.metrics.enabled requires Operations.Metrics from generation composition")
 	}
 	promReg := ops.Metrics.Registry
 	httpProm := ops.Metrics.HTTP

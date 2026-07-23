@@ -12,7 +12,7 @@ import (
 	stdauth "github.com/matdev83/go-llm-interactive-proxy/internal/stdhttp/auth"
 )
 
-// stackHTTPInput carries dependencies for [stackHTTPHandler] (same stack as [RunWithRuntime]).
+// stackHTTPInput carries dependencies for [stackHTTPHandler] (same stack as [ComposeStandardHTTP] / generation host).
 type stackHTTPInput struct {
 	Cfg      *config.Config
 	Log      *slog.Logger
@@ -26,7 +26,7 @@ type stackHTTPInput struct {
 	testOuterWrap func(http.Handler) http.Handler
 }
 
-// stackHTTPHandler assembles the same middleware stack as [RunWithRuntime] (outer→inner:
+// stackHTTPHandler assembles the same middleware stack as [ComposeStandardHTTP] (outer→inner:
 // DownstreamServerMiddleware, final outer recovery, optional OpenTelemetry HTTP, optional
 // Prometheus, trace + request ID, access log, inner recovery, transport auth, route mux).
 // Innermost is the shared [http.ServeMux] from mounting.

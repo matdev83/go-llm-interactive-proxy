@@ -24,7 +24,7 @@ type mountSecureSessionDiagnosticsInput struct {
 // mountSecureSessionDiagnostics mounts the secure-session diagnostics summary endpoints when
 // secure sessions are effectively enabled, summary exposure is requested, and a store is wired.
 // Errors are returned with the same wrapping the inline block previously used so
-// [RunWithRuntime]'s error chain stays identical.
+// ComposeStandardHTTP's error chain stays identical.
 func mountSecureSessionDiagnostics(in mountSecureSessionDiagnosticsInput) error {
 	mux, cfg, log, sec := in.Mux, in.Cfg, in.Log, in.Security
 	logCtx := in.LogCtx

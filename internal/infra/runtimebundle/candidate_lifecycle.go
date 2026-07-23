@@ -8,27 +8,18 @@ import (
 
 // CandidateRuntime satisfies runtimehost.OwnedCloser / QuiesceCloser so a
 // generation may own candidate teardown without receiving ProcessServices
-// (task 3.1 / req 4.9). CompileCandidate callers retain this lifecycle until
-// Phase 4; successful CompileGeneration transfers the ledger away.
+// (task 3.1 / req 4.9). CompileCandidate callers retain this lifecycle;
+// successful CompileGeneration transfers the ledger away. The ledger is the
+// sole generation-owned resource; there is no aggregate closer view (task 4.2).
 var (
 	_ runtimehost.OwnedCloser   = (*CandidateRuntime)(nil)
 	_ runtimehost.QuiesceCloser = (*CandidateRuntime)(nil)
 )
 
-// NewCandidateRuntimeForTest builds a minimal candidate bound to ledger (tests).
-func NewCandidateRuntimeForTest(ledger *ResourceLedger) *CandidateRuntime {
-	c := &CandidateRuntime{Ledger: ledger}
-	if ledger != nil {
-		c.Closers = ledger.LegacyClosers()
-	}
-	return c
-}
-
 // transferLedgerOwnership detaches the resource ledger from this candidate and
 // returns it for GenerationRuntime ownership. After transfer, Quiesce/Close on
 // the candidate are no-ops and must not close generation resources. Package-
-// private for CompileGeneration only (Task 3.3); CompileCandidate callers keep
-// candidate lifecycle ownership until Phase 4.
+// private for CompileGeneration only (Task 3.3).
 func (c *CandidateRuntime) transferLedgerOwnership() *ResourceLedger {
 	if c == nil {
 		return nil
@@ -40,7 +31,6 @@ func (c *CandidateRuntime) transferLedgerOwnership() *ResourceLedger {
 	}
 	ledger := c.Ledger
 	c.Ledger = nil
-	c.Closers = nil
 	c.ledgerTransferred = true
 	return ledger
 }
@@ -66,10 +56,11 @@ func (c *CandidateRuntime) Quiesce(ctx context.Context) error {
 	return c.quiesceErr
 }
 
-// Close disposes generation-owned resources in reverse order.
-// Unpublished discard / compile failure uses full ledger rollback; after Quiesce,
-// only remaining close-phase resources are released. Never closes ProcessServices.
-// After transferLedgerOwnership, Close is a no-op.
+// Close disposes generation-owned resources in reverse order via the ledger.
+// Unpublished discard / compile failure uses full ledger rollback; after
+// Quiesce, only remaining close-phase resources are released. Never closes
+// ProcessServices. After transferLedgerOwnership, Close is a no-op. A nil or
+// zero-value ledger makes Close a safe no-op (req 2.8, 3.8, 8.3-8.4).
 func (c *CandidateRuntime) Close() error {
 	if c == nil {
 		return nil
@@ -78,21 +69,16 @@ func (c *CandidateRuntime) Close() error {
 		c.lifeMu.Lock()
 		transferred := c.ledgerTransferred
 		ledger := c.Ledger
-		closers := c.Closers
 		didQ := c.didQuiesce.Load()
 		c.lifeMu.Unlock()
-		if transferred {
+		if transferred || ledger == nil {
 			return
 		}
-		if ledger != nil {
-			if didQ {
-				c.closeErr = ledger.Close(context.Background())
-			} else {
-				c.closeErr = ledger.Rollback(context.Background())
-			}
-			return
+		if didQ {
+			c.closeErr = ledger.Close(context.Background())
+		} else {
+			c.closeErr = ledger.Rollback(context.Background())
 		}
-		c.closeErr = disposeClosers(closers)
 	})
 	return c.closeErr
 }

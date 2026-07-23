@@ -66,7 +66,11 @@ func Use() { Build() }
 	}
 }
 
-func TestTask41Detector_BuiltCarrierIgnoresScheduledProducers(t *testing.T) {
+// TestTask41Detector_BuiltCarrierScheduleIsEmptyAfterTask42 proves the Task
+// 4.1 scheduled-producer allowance is fully retired: no path is exempt from
+// the Built-carrier gate any more, including former Phase 4 grandfather
+// paths (handler.go, http_input.go, server.go).
+func TestTask41Detector_BuiltCarrierScheduleIsEmptyAfterTask42(t *testing.T) {
 	t.Parallel()
 	foreign := `package lipstd
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
@@ -81,15 +85,22 @@ func Take(b *runtimebundle.Built) {}
 		t.Fatalf("expected Built carrier findings, got %#v", got)
 	}
 
-	scheduled, err := scanTask41BuiltCarrierSource("internal/stdhttp/handler.go", `package stdhttp
+	if len(scheduledBuiltDeclarationFiles) != 0 {
+		t.Fatalf("scheduledBuiltDeclarationFiles must be empty after Task 4.2, got %v", scheduledBuiltDeclarationFiles)
+	}
+	if len(scheduledBuildDeclarationFiles) != 0 {
+		t.Fatalf("scheduledBuildDeclarationFiles must be empty after Task 4.2, got %v", scheduledBuildDeclarationFiles)
+	}
+
+	formerlyScheduled, err := scanTask41BuiltCarrierSource("internal/stdhttp/handler.go", `package stdhttp
 import "github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
-func NewStandardHandler(b *runtimebundle.Built) {}
+func NewExtraHandlerAdapter(b *runtimebundle.Built) {}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scheduled) != 0 {
-		t.Fatalf("scheduled stdhttp producer must be excluded, got %#v", scheduled)
+	if !findingsContainIdentity(formerlyScheduled, "func:NewExtraHandlerAdapter") {
+		t.Fatalf("former Phase 4 grandfather path must now be flagged like any other file, got %#v", formerlyScheduled)
 	}
 }
 

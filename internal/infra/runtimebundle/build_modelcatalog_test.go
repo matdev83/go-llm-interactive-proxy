@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -56,8 +55,8 @@ func TestBuild_modelCatalog_disabledDoesNotStartRuntime(t *testing.T) {
 	if b.Executor.RequestTokenEstimator != nil {
 		t.Fatalf("expected nil RequestTokenEstimator")
 	}
-	if len(b.Closers) != 1 {
-		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", len(b.Closers))
+	if b.Ledger.Len() != 1 {
+		t.Fatalf("expected generation-owned upstream idle closer only (disabled catalog, in-memory continuity), got %d", b.Ledger.Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -162,7 +161,7 @@ func TestBuild_modelCatalog_enabled_wiresResolversEstimatorAndCloser(t *testing.
 			b.Executor.EligibilityResolver != nil,
 			b.Executor.RequestTokenEstimator != nil)
 	}
-	if len(b.Closers) == 0 {
+	if b.Ledger.Len() == 0 {
 		t.Fatal("expected closers")
 	}
 	closeRuntimeBuilt(t, b)
@@ -173,10 +172,8 @@ func closeRuntimeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	if b == nil {
 		return
 	}
-	for i, v := range slices.Backward(b.Closers) {
-		if err := v(); err != nil {
-			t.Fatalf("closer %d: %v", i, err)
-		}
+	if err := b.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }
 

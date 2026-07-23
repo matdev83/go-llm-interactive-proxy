@@ -218,7 +218,7 @@ func TestProcessServices_PartialStartupDisposesReverseOrder(t *testing.T) {
 	}
 }
 
-func TestProcessServices_BuildCompatibilityRetainsAggregateCleanup(t *testing.T) {
+func TestProcessServices_CandidateExposesCoreCapabilitiesAndClosesCleanly(t *testing.T) {
 	t.Parallel()
 
 	cfg := processServicesTestConfig()
@@ -226,20 +226,18 @@ func TestProcessServices_BuildCompatibilityRetainsAggregateCleanup(t *testing.T)
 		PluginRegistry: pluginreg.NewRegistry(),
 	})
 	if b.Metrics == nil {
-		t.Fatal("Build compatibility must still expose Metrics")
+		t.Fatal("candidate must still expose Metrics")
 	}
 	if b.DecodeAdmission == nil {
-		t.Fatal("Build compatibility must still expose DecodeAdmission")
+		t.Fatal("candidate must still expose DecodeAdmission")
 	}
 	if b.Store == nil {
-		t.Fatal("Build compatibility must still expose Store")
+		t.Fatal("candidate must still expose Store")
 	}
-	// Pure in-memory builds may have an empty closer bag (historical semantics).
-	// When closers exist, reverse-order disposal must remain safe.
-	for _, c := range reverseClosers(b.Closers) {
-		if err := c(); err != nil {
-			t.Fatalf("aggregate closer: %v", err)
-		}
+	// Pure in-memory builds may have an empty ledger (historical semantics).
+	// When ledger entries exist, reverse-order disposal must remain safe.
+	if err := b.Close(); err != nil {
+		t.Fatalf("candidate close: %v", err)
 	}
 }
 
@@ -326,12 +324,4 @@ func TestBootstrap_ProcessServicesCompatibility(t *testing.T) {
 	if pt.Shutdown == nil {
 		t.Fatal("ProcessTracing must accept tracing.Result fields")
 	}
-}
-
-func reverseClosers(in []func() error) []func() error {
-	out := make([]func() error, len(in))
-	for i := range in {
-		out[len(in)-1-i] = in[i]
-	}
-	return out
 }

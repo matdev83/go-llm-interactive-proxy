@@ -397,12 +397,10 @@ func TestBuildWiresSQLiteTokenAccountingLedger(t *testing.T) {
 	if built.Executor.Ledger == nil {
 		t.Fatal("Executor.Ledger is nil")
 	}
-	if len(built.Closers) < 1 {
+	if built.Ledger.Len() < 1 {
 		t.Fatal("expected ledger closer to be registered")
 	}
-	for _, closeFn := range built.Closers {
-		if err := closeFn(); err != nil {
-			t.Fatalf("closer: %v", err)
-		}
+	if err := built.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }

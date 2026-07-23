@@ -155,10 +155,8 @@ func TestBuild_cursorSDKCloserIdempotentOnSuccessfulBuild(t *testing.T) {
 		t.Fatal("expected cursor-sdk Close")
 	}
 	for i := range 2 {
-		for _, c := range built.Closers {
-			if err := c(); err != nil {
-				t.Fatalf("closer pass %d: %v", i, err)
-			}
+		if err := built.Close(); err != nil {
+			t.Fatalf("close pass %d: %v", i, err)
 		}
 	}
 }

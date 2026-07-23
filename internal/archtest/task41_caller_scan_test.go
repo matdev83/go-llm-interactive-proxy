@@ -16,21 +16,15 @@ const (
 	gateTask41LifecycleComposeHelper = "task41_lifecycle_compose_helper"
 )
 
-// scheduledBuildDeclarationFiles may declare compatibility Build; callers may not.
-var scheduledBuildDeclarationFiles = map[string]bool{
-	"internal/infra/runtimebundle/build.go": true,
-}
+// scheduledBuildDeclarationFiles is empty after Task 4.2: compatibility Build
+// was deleted and production runtimebundle.Build is unconditionally forbidden.
+var scheduledBuildDeclarationFiles = map[string]bool{}
 
-// scheduledBuiltDeclarationFiles may declare/reference Built as the producer
-// surface retained until Task 4.2/4.3. Production consumers outside these
-// paths (and exact Task 3.5 stdhttp grandfather sites) are forbidden.
-var scheduledBuiltDeclarationFiles = map[string]bool{
-	"internal/infra/runtimebundle/built.go": true,
-	"internal/infra/runtimebundle/build.go": true,
-	"internal/stdhttp/handler.go":           true,
-	"internal/stdhttp/http_input.go":        true,
-	"internal/stdhttp/server.go":            true,
-}
+// scheduledBuiltDeclarationFiles is empty after Task 4.2: Built and every
+// scheduled producer/declaration site (built.go, build.go, stdhttp
+// handler.go/http_input.go/server.go Built dependents) were deleted.
+// Production Built is unconditionally forbidden everywhere.
+var scheduledBuiltDeclarationFiles = map[string]bool{}
 
 func isScheduledBuiltProducer(rel string) bool {
 	return scheduledBuiltDeclarationFiles[slashPath(rel)]

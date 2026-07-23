@@ -28,7 +28,7 @@ type mountDiagnosticsInput struct {
 
 // mountDiagnostics mounts health, attempts, inventory, route-trace, and pprof endpoints when
 // diagnostics is enabled. Errors are returned with the same wrapping the inline block previously
-// used so [RunWithRuntime]'s error chain (and tests asserting on it) stay identical.
+// used so ComposeStandardHTTP's error chain (and tests asserting on it) stay identical.
 func mountDiagnostics(in mountDiagnosticsInput) error {
 	mux, cfg, log, ops := in.Mux, in.Cfg, in.Log, in.Operations
 	logCtx := in.LogCtx

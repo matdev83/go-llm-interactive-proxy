@@ -209,14 +209,9 @@ func TestBuild_secureSessionSQLite_wiresRecorderAndMandatoryWhenAuditDurable(t *
 		t.Fatal("expected recording mandatory when audit_durability is durable")
 	}
 	if b.SecureSessionStore == nil {
-		t.Fatal("expected Built.SecureSessionStore")
+		t.Fatal("expected CandidateRuntime.SecureSessionStore")
 	}
-	for i, c := range b.Closers {
-		if c == nil {
-			t.Fatalf("closer %d nil", i)
-		}
-		if err := c(); err != nil {
-			t.Fatalf("closer %d: %v", i, err)
-		}
+	if err := b.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }

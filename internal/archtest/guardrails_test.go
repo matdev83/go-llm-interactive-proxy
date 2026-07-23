@@ -230,7 +230,10 @@ var lineBudgets = []struct {
 	// (measured non-test total 4897; zero headroom).
 	// Ratcheted from 4897 to 4811 for Task 3.5: deleted ComposeRequestPlane and
 	// standardHTTPInputFromRequestPlane (measured 4811; zero headroom).
-	{"internal/stdhttp", 4811},
+	// Ratcheted from 4811 to 4522 for Task 4.2: deleted NewStandardHandler,
+	// RunWithRuntime, standardHTTPInputFromBuilt, releaseBuiltResources, and
+	// runClosers (measured 4522; zero headroom).
+	{"internal/stdhttp", 4522},
 	// Raised from 4650 to 4800 for dynamic snapshot SnapshotController refresh
 	// lifecycle (requirements 11.3, 11.6, 11.7).
 	// Raised from 4800 to 5200 for build-local PostgreSQL pool ownership,
@@ -315,7 +318,10 @@ var lineBudgets = []struct {
 	// FrozenRoutingView moved to handler_composer.go (measured 9969; zero headroom).
 	// Task 4.1: exact measured post-deletion of Candidate terminal-work detour
 	// (candidate_terminal_work.go + terminal_work.go shared-helper extraction).
-	{"internal/infra/runtimebundle", 9928},
+	// Ratcheted from 9928 to 9603 for Task 4.2: deleted built.go, build.go,
+	// candidate Closers field, ResourceLedger.LegacyClosers, and the Built-only
+	// terminal-work methods (measured 9603; zero headroom).
+	{"internal/infra/runtimebundle", 9603},
 }
 
 func TestLineComplexityBudgets(t *testing.T) {

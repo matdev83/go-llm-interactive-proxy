@@ -275,19 +275,3 @@ func safeLedgerStop(ctx context.Context, e *ledgerEntry) (err error) {
 	}()
 	return e.stopCtx(ctx)
 }
-
-// LegacyClosers returns once-wrapped no-arg closers in acquisition order for
-// Built.Closers compatibility. Prefer Rollback/Quiesce/Close on the ledger.
-func (l *ResourceLedger) LegacyClosers() []func() error {
-	if l == nil {
-		return nil
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	out := make([]func() error, 0, len(l.entries))
-	for _, e := range l.entries {
-		entry := e
-		out = append(out, entry.syncStop)
-	}
-	return out
-}

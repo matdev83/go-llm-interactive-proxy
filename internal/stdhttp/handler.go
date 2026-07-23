@@ -2,17 +2,12 @@ package stdhttp
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/config"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/diag"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/core/runtime"
-	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimebundle"
 )
 
 // prepareStandardHandler mounts metrics, diagnostics, admin, secure-session diagnostics,
@@ -20,8 +15,8 @@ import (
 // HTTP middleware. Mount order is load-bearing and preserved exactly.
 //
 // The focused composer accepts only [StandardHTTPInput]: it owns neither app start/shutdown nor
-// resource closers. Callers ([NewStandardHandler], [RunWithRuntime], [ComposeStandardHTTP]) project
-// broad sources into groups and own lifecycle above this seam.
+// resource closers. Callers ([ComposeStandardHTTP]) project focused groups and own lifecycle
+// above this seam.
 func prepareStandardHandler(
 	ctx context.Context,
 	cfg *config.Config,
@@ -87,64 +82,4 @@ func prepareStandardHandler(
 	return stackHTTPHandler(stackHTTPInput{
 		Cfg: cfg, Log: log, Security: in.Security, TraceGen: traceGen, Inner: mux, HTTPProm: httpProm,
 	}), nil
-}
-
-// NewStandardHandler returns the same composed [http.Handler] as [RunWithRuntime] uses for client
-// requests (including [stackHTTPHandler] and bundled frontend mounts), without binding a listener.
-// The cleanup function must be called when the handler is no longer needed; it shuts down app
-// feature lifecycles then runs resource closers (same teardown ordering as serve shutdown).
-func NewStandardHandler(
-	ctx context.Context,
-	cfg *config.Config,
-	app *runtime.App,
-	log *slog.Logger,
-	built *runtimebundle.Built,
-) (http.Handler, func(context.Context), error) {
-	var releaseBuilt sync.Once
-	if cfg == nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, errors.New("stdhttp: nil config")
-	}
-	if ctx == nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, errors.New("stdhttp: nil context")
-	}
-	if err := validateStartupSecurity(cfg); err != nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, err
-	}
-	if app == nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, errors.New("stdhttp: nil app")
-	}
-	if log == nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, errors.New("stdhttp: nil logger")
-	}
-	if built == nil || built.Executor == nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, errors.New("stdhttp: nil built runtime")
-	}
-	if built.PluginRegistry == nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, errors.New("stdhttp: nil plugin registry in built runtime")
-	}
-	input := standardHTTPInputFromBuilt(built, cfg, app.Registrations())
-	handler, err := prepareStandardHandler(ctx, cfg, log, input)
-	if err != nil {
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, err
-	}
-	if err := app.Start(ctx); err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		app.Shutdown(shutdownCtx)
-		releaseBuiltResources(log, built, &releaseBuilt)
-		return nil, nil, fmt.Errorf("stdhttp: start app: %w", err)
-	}
-	cleanup := func(shutdownCtx context.Context) {
-		app.Shutdown(shutdownCtx)
-		releaseBuilt.Do(func() { runClosers(log, built.Closers) })
-	}
-	return handler, cleanup, nil
 }

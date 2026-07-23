@@ -1,6 +1,7 @@
 package runtimebundle_test
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 
@@ -11,14 +12,12 @@ import (
 func TestCandidateRuntime_GenerationOwnedClose_DoesNotCloseProcess(t *testing.T) {
 	t.Parallel()
 	var candidateClosed, processClosed atomic.Int32
-	cand := &runtimebundle.CandidateRuntime{
-		Closers: []func() error{
-			func() error {
-				candidateClosed.Add(1)
-				return nil
-			},
-		},
-	}
+	ledger := runtimebundle.NewResourceLedger()
+	ledger.Add("candidate-resource", runtimebundle.PhaseClose, func(context.Context) error {
+		candidateClosed.Add(1)
+		return nil
+	})
+	cand := runtimebundle.NewCandidateRuntimeForTest(ledger)
 	processCloser := func() error {
 		processClosed.Add(1)
 		return nil

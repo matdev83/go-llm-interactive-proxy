@@ -512,47 +512,6 @@ func (rt *terminalWorkRuntime) readinessComponent(ctx context.Context) (controlp
 	return row, nil
 }
 
-// TerminalWorkReadiness returns terminal-work status when the bundle owns a processor.
-func (b *Built) TerminalWorkReadiness(ctx context.Context) TerminalWorkReadiness {
-	if b == nil || b.terminalWorkRT == nil {
-		if b == nil || b.TerminalWorkProcessor == nil {
-			return TerminalWorkReadiness{}
-		}
-		// Fallback when runtime pointer not retained (should not happen after Build).
-		safeUnavailable := string(controlplane.ReasonBackingUnavailable)
-		out := TerminalWorkReadiness{
-			Configured:            true,
-			Running:               b.TerminalWorkProcessor.Running(),
-			UnresolvedProviderIDs: b.TerminalWorkProcessor.UnresolvedProviderIDs(),
-			StoreReady:            true,
-		}
-		if !out.Running {
-			out.ErrorCode = safeUnavailable
-		}
-		if b.TerminalWorkMetrics == nil {
-			out.BacklogKnown = false
-			out.ErrorCode = safeUnavailable
-		} else if snap, err := b.TerminalWorkMetrics.Snapshot(ctx); err != nil {
-			out.BacklogKnown = false
-			out.ErrorCode = safeUnavailable
-		} else {
-			out.BacklogKnown = true
-			out.Backlog = snap.Backlog
-		}
-		if b.terminalWorkReady != nil {
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			if err := b.terminalWorkReady(ctx); err != nil {
-				out.StoreReady = false
-				out.ErrorCode = safeUnavailable
-			}
-		}
-		return out
-	}
-	return b.terminalWorkRT.Readiness(ctx)
-}
-
 func appendUniqueString(values []string, value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -562,32 +521,4 @@ func appendUniqueString(values []string, value string) []string {
 		return values
 	}
 	return append(values, value)
-}
-
-// PublishTerminalWorkMetrics pushes MetricsObserver snapshot gauges onto the
-// metrics.Bundle TerminalWorkProm series.
-func (b *Built) PublishTerminalWorkMetrics(ctx context.Context) error {
-	if b == nil {
-		return nil
-	}
-	if b.terminalWorkRT != nil {
-		return b.terminalWorkRT.publishMetrics(ctx)
-	}
-	if b.TerminalWorkMetrics == nil || b.Metrics == nil || b.Metrics.TerminalWork == nil {
-		return nil
-	}
-	snap, err := b.TerminalWorkMetrics.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	b.Metrics.TerminalWork.ApplySnapshot(metrics.TerminalWorkSnapshot{
-		Backlog:      snap.Backlog,
-		OldestAgeSec: snap.OldestAge.Seconds(),
-		Pending:      snap.Pending,
-		Retrying:     snap.Retrying,
-		Quarantined:  snap.Quarantined,
-		Completed:    snap.Completed,
-		Claimed:      snap.Claimed,
-	})
-	return nil
 }

@@ -59,17 +59,6 @@ func TestTask41_NoLifecycleComposeHelpers(t *testing.T) {
 	}
 }
 
-func TestTask41_Task35GrandfatherEntriesRemainExact(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	allow := loadConvergenceAllowlist(t, root)
-	// Prove Task 3.5 grandfather sites still match exactly so 4.2/4.3 can delete cleanly.
-	built := scanProductionConvergenceGate(t, root, gateStdhttpBuilt, scanStdhttpBuiltSource)
-	assertConvergenceAllowlistMatch(t, gateStdhttpBuilt, built, allow)
-	closers := scanProductionConvergenceGate(t, root, gateCandidateLegacyClosers, scanCandidateLegacyClosersSource)
-	assertConvergenceAllowlistMatch(t, gateCandidateLegacyClosers, closers, allow)
-}
-
 func formatFindings(fs []convergenceFinding) string {
 	var b strings.Builder
 	for _, f := range fs {

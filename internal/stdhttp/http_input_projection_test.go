@@ -347,11 +347,11 @@ func typeExprIsAny(expr ast.Expr) bool {
 	}
 }
 
-// TestLegacyBuiltAdapters_projectToFocusedComposer is an AST proof that
-// NewStandardHandler / RunWithRuntime (Phase 4) project into StandardHTTPInput
-// and invoke prepareStandardHandler, while strict mounts are never called with
-// Built/RequestPlane and RequestPlane compatibility symbols stay deleted.
-func TestLegacyBuiltAdapters_projectToFocusedComposer(t *testing.T) {
+// TestNoLegacyBuiltCompatibilitySymbols is an AST proof that Built/Build/
+// RunWithRuntime/NewStandardHandler/standardHTTPInputFromBuilt stay deleted
+// (Task 4.2) alongside the earlier Task 3.2/3.5 RequestPlane compatibility
+// deletions, and that strict mounts are never called with Built/RequestPlane.
+func TestNoLegacyBuiltCompatibilitySymbols(t *testing.T) {
 	t.Parallel()
 	dir, err := os.Getwd()
 	if err != nil {
@@ -370,13 +370,15 @@ func TestLegacyBuiltAdapters_projectToFocusedComposer(t *testing.T) {
 		if strings.Contains(src, "ComposeRequestPlane") || strings.Contains(src, "standardHTTPInputFromRequestPlane") {
 			t.Fatalf("%s must not reference deleted RequestPlane compatibility symbols after Task 3.5", name)
 		}
+		for _, sym := range []string{
+			"NewStandardHandler", "RunWithRuntime", "standardHTTPInputFromBuilt",
+			"releaseBuiltResources", "runtimebundle.Built", "runtimebundle.Build(",
+		} {
+			if strings.Contains(src, sym) {
+				t.Fatalf("%s must not reference deleted Built/Build compatibility symbol %q after Task 4.2", name, sym)
+			}
+		}
 	}
-	assertFuncCalls(t, files["handler.go"], "NewStandardHandler", []string{
-		"standardHTTPInputFromBuilt", "prepareStandardHandler",
-	})
-	assertFuncCalls(t, files["server.go"], "RunWithRuntime", []string{
-		"standardHTTPInputFromBuilt", "prepareStandardHandler",
-	})
 	assertFuncCalls(t, files["request_plane.go"], "ComposeStandardHTTP", []string{
 		"prepareStandardHandler",
 	})

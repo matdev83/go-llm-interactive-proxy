@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -332,8 +331,8 @@ func TestBuild_modelRegistryStaticInventoryDoesNotStartRefreshCloser(t *testing.
 	_, b := mustProcessAndCandidate(t, modelRegistryTestConfig("test-inventory"), &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if len(b.Closers) != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", len(b.Closers))
+	if b.Ledger.Len() != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with static inventory", b.Ledger.Len())
 	}
 	closeRuntimeBuilt(t, b)
 }
@@ -374,8 +373,8 @@ func TestBuild_modelRegistryErrorProviderWithCacheDoesNotStartRefreshCloser(t *t
 	_, b := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if len(b.Closers) != 1 {
-		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", len(b.Closers))
+	if b.Ledger.Len() != 1 {
+		t.Fatalf("closers = %d, want 1 upstream-idle closer for disabled model catalog with cached model registry", b.Ledger.Len())
 	}
 	defer closeRuntimeBuilt(t, b)
 	if b.ModelRegistryRuntime == nil {
@@ -471,10 +470,11 @@ func readModelRegistryCache(t *testing.T, path string) modelregistry.Snapshot {
 func closeModelRegistryBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) func() {
 	t.Helper()
 	return func() {
-		for _, v := range slices.Backward(b.Closers) {
-			if err := v(); err != nil {
-				t.Fatalf("closer: %v", err)
-			}
+		if b == nil {
+			return
+		}
+		if err := b.Close(); err != nil {
+			t.Fatalf("close: %v", err)
 		}
 	}
 }

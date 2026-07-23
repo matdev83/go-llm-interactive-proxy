@@ -46,14 +46,12 @@ func TestBuild_collectsBackendCloseAfterConstruction(t *testing.T) {
 	_, built := mustProcessAndCandidate(t, cfg, &runtimebundle.BuildOptions{
 		PluginRegistry: reg,
 	})
-	if len(built.Closers) < 2 {
-		t.Fatalf("Closers len=%d, want at least backend closers", len(built.Closers))
+	if built.Ledger.Len() < 2 {
+		t.Fatalf("Ledger.Len=%d, want at least backend closers", built.Ledger.Len())
 	}
 
-	for _, closer := range slices.Backward(built.Closers) {
-		if err := closer(); err != nil {
-			t.Fatalf("closer: %v", err)
-		}
+	if err := built.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 
 	mu.Lock()
@@ -107,10 +105,8 @@ func TestBuild_nilBackendCloseRemainsNoOp(t *testing.T) {
 	if be.Close != nil {
 		t.Fatal("nil Close must remain nil for backends without persistent resources")
 	}
-	for _, closer := range built.Closers {
-		if err := closer(); err != nil {
-			t.Fatalf("existing closers must remain safe: %v", err)
-		}
+	if err := built.Close(); err != nil {
+		t.Fatalf("existing closers must remain safe: %v", err)
 	}
 }
 

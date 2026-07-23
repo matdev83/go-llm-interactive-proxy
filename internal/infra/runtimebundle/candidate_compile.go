@@ -101,10 +101,9 @@ type CandidateRuntime struct {
 	// tracing ownership stays on ProcessServices / bootstrap (req 6.4, 6.10).
 	ProcessTracingShutdown func(context.Context) error
 
-	// Closers contains generation-owned teardown only (legacy view of Ledger).
-	Closers []func() error
 	// Ledger owns generation resources for rollback/quiesce/close (task 3.2).
-	// Nil after transferLedgerOwnership (Task 3.3).
+	// Nil after transferLedgerOwnership (Task 3.3). It is the sole generation
+	// lifecycle owner (task 4.2); no aggregate []func() error view exists.
 	Ledger *ResourceLedger
 
 	closeOnce   sync.Once
@@ -248,7 +247,7 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 	if err != nil {
 		return fail(err)
 	}
-	execRun, closers, err := buildExecutorRuntime(executorBuildInput{
+	execRun, _, err := buildExecutorRuntime(executorBuildInput{
 		Bctx:               bctx,
 		NowFn:              nowFn,
 		Ext:                ext,
@@ -291,15 +290,9 @@ func CompileCandidate(ctx context.Context, in GenerationCompileInput) (*Candidat
 		twReady = ps.terminalWorkRT.checkReady
 	}
 
-	// Prefer ledger-backed closers so Built/Close stay idempotent with Rollback.
-	if n := ledger.Len(); n > 0 {
-		closers = ledger.LegacyClosers()
-	}
-
 	return &CandidateRuntime{
 		Executor:               execRun.Exec,
 		Store:                  ps.Continuity,
-		Closers:                closers,
 		Ledger:                 ledger,
 		UpstreamHTTP:           obs.Upstream,
 		RoutePrefixes:          model.RoutePrefixes,

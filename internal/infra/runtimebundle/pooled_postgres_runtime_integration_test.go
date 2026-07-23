@@ -34,10 +34,10 @@ func TestPostgresPooled_BuildRuntimeSharesRegistryAndClosesCleanly(t *testing.T)
 		if closed {
 			return
 		}
-		closeBundleClosers(t, b.Closers)
+		closeBundleClosers(t, b)
 	})
 
-	closeBundleClosers(t, b.Closers)
+	closeBundleClosers(t, b)
 	closed = true
 
 	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 0 {
@@ -54,7 +54,7 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 		if closed {
 			return
 		}
-		closeBundleClosers(t, b.Closers)
+		closeBundleClosers(t, b)
 	})
 
 	if b.Executor == nil || b.Executor.ConcurrencyProvider == nil {
@@ -144,7 +144,7 @@ func TestPostgresPooled_BuildRuntimeLeaseAndJournalSmoke(t *testing.T) {
 	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 1 {
 		t.Fatalf("open postgres runtime connections = %v want 1", got)
 	}
-	closeBundleClosers(t, b.Closers)
+	closeBundleClosers(t, b)
 	closed = true
 	if got := gatheredGauge(t, b.Metrics.Registry, "lip_postgres_pool_open_connections"); got != 0 {
 		t.Fatalf("open postgres runtime connections after close = %v want 0", got)
@@ -216,15 +216,13 @@ func buildPooledPostgresRuntime(t *testing.T, adminDSN, runtimeDSN string) *runt
 	return b
 }
 
-func closeBundleClosers(t *testing.T, closers []func() error) {
+func closeBundleClosers(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	t.Helper()
-	for i := len(closers) - 1; i >= 0; i-- {
-		if closers[i] == nil {
-			continue
-		}
-		if err := closers[i](); err != nil {
-			t.Fatalf("closer %d: %v", i, err)
-		}
+	if b == nil {
+		return
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }
 

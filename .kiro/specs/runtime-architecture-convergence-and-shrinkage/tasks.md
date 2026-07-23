@@ -152,7 +152,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 3.5_
   - _Validation: `go test ./internal/infra/runtimebundle/... ./internal/stdhttp/... ./internal/testkit/... -run 'Build|Compatibility|Generation'`_
 
-- [ ] 4.2 Delete `Built`, compatibility `Build`, and legacy closer views
+- [x] 4.2 Delete `Built`, compatibility `Build`, and legacy closer views
   - Remove `built.go`, the compatibility `Build` implementation, candidate `Closers`, and ledger `LegacyClosers` if no remaining supported consumer exists.
   - Preserve the resource ledger as the canonical lifecycle owner.
   - Remove obsolete comments, docs, and test fixtures.

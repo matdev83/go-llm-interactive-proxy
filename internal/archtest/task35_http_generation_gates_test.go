@@ -52,12 +52,18 @@ func TestTask35_FocusedHTTPLifecycle_ProductionForbidden(t *testing.T) {
 	}
 }
 
+// TestTask35_StdhttpBuilt_Phase4GrandfatherOnly requires zero findings: Task
+// 4.2 deleted every Phase 4 grandfather site (NewStandardHandler,
+// standardHTTPInputFromBuilt, RunWithRuntime, releaseBuiltResources). There is
+// no longer an allowlist for this gate; any new reference to
+// runtimebundle.Built in stdhttp production code fails immediately.
 func TestTask35_StdhttpBuilt_Phase4GrandfatherOnly(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	allow := loadConvergenceAllowlist(t, root)
 	got := scanProductionConvergenceGate(t, root, gateStdhttpBuilt, scanStdhttpBuiltSource)
-	assertConvergenceAllowlistMatch(t, gateStdhttpBuilt, got, allow)
+	if len(got) > 0 {
+		t.Fatalf("Task 4.2: stdhttp_built grandfather sites are fully retired; zero findings required (%d findings):\n%s", len(got), formatFindings(got))
+	}
 }
 
 func TestTask35_CanonicalGeneration_NoCloserOrLegacyAggregate(t *testing.T) {
@@ -74,12 +80,17 @@ func TestTask35_CanonicalGeneration_NoCloserOrLegacyAggregate(t *testing.T) {
 	}
 }
 
+// TestTask35_CandidateLegacyClosers_Phase4GrandfatherOnly requires zero
+// findings: Task 4.2 deleted candidate Closers, ResourceLedger.LegacyClosers,
+// and the compatibility Build declaration that projected them. There is no
+// longer an allowlist for this gate.
 func TestTask35_CandidateLegacyClosers_Phase4GrandfatherOnly(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	allow := loadConvergenceAllowlist(t, root)
 	got := scanProductionConvergenceGate(t, root, gateCandidateLegacyClosers, scanCandidateLegacyClosersSource)
-	assertConvergenceAllowlistMatch(t, gateCandidateLegacyClosers, got, allow)
+	if len(got) > 0 {
+		t.Fatalf("Task 4.2: candidate_legacy_closers grandfather sites are fully retired; zero findings required (%d findings):\n%s", len(got), formatFindings(got))
+	}
 }
 
 func TestTask35_ComposeInventory_NoComposeRequestPlane(t *testing.T) {

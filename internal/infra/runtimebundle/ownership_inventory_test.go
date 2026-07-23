@@ -62,15 +62,26 @@ type ownershipEntry struct {
 	Notes         string
 }
 
-// builtFieldOwnership classifies every field of Built.
+// candidateRuntimeInternalFields are CandidateRuntime lifecycle-bookkeeping
+// fields (sync primitives / transfer flags), not resources; they are excluded
+// from ownership classification (task 4.2 post-deletion truth).
+var candidateRuntimeInternalFields = map[string]bool{
+	"closeOnce": true, "closeErr": true, "quiesceOnce": true, "quiesceErr": true,
+	"didQuiesce": true, "lifeMu": true, "ledgerTransferred": true,
+}
+
+// builtFieldOwnership classifies every ownership-relevant field of
+// CandidateRuntime (renamed from the deleted Built struct; task 4.2).
 var builtFieldOwnership = []ownershipEntry{
 	{Symbol: "Executor", Class: ownershipGeneration, Source: "runtimebundle.buildExecutorRuntime → runtime.NewExecutor", Notes: "Privately owned by a generation bundle; never mutate after construction."},
 	{Symbol: "Store", Class: ownershipProcess, Source: "runtimebundle.buildPersistenceRuntime", Notes: "Continuity/B2BUA store remains process-owned (req 6.2)."},
-	{Symbol: "Closers", Kind: ownershipKindMixedContainer, Source: "runtimebundle.Build closer registration", Notes: "Mixed closer container; individual entries classified in closerAcquisitionOwnership (req 4.9). Not a process/generation/request-async resource."},
+	{Symbol: "DatabasePools", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices \u2192 db.NewPoolRegistry", Notes: "Non-owning process pool registry reference threaded onto the candidate (req 6.2)."},
+	{Symbol: "Ledger", Class: ownershipGeneration, Source: "runtimebundle.CompileCandidate \u2192 NewResourceLedger", Notes: "Sole generation-owned resource lifecycle owner: rollback/quiesce/close (req 2.8, 3.8, 8.3-8.4). No aggregate closer-list view exists."},
+	{Symbol: "ProcessTracingShutdown", Class: ownershipProcess, Source: "runtimebundle.ProcessServices / bootstrap tracing.Init", Notes: "Always nil on candidates; tracing lifecycle stays process-owned (req 6.4, 6.10)."},
 	{Symbol: "EffectiveDefaultRoute", Class: ownershipGeneration, Source: "runtimebundle.buildExecutorRuntime", Notes: "Frozen routing projection per generation."},
 	{Symbol: "UpstreamHTTP", Class: ownershipGeneration, Source: "runtimebundle.buildObservabilityRuntime → httpclient.StandardWithTune", Notes: "Generation-owned HTTP client/tuning."},
 	{Symbol: "RoutePrefixes", Class: ownershipGeneration, Source: "runtimebundle.buildModelRuntime → buildBackends", Notes: "Frozen backend route-selector prefixes."},
-	{Symbol: "DecodeAdmission", Class: ownershipProcess, Source: "runtimebundle.Build → decodeqos.New", Notes: "Process-capacity limiter (req 6.5)."},
+	{Symbol: "DecodeAdmission", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices → decodeqos.New", Notes: "Process-capacity limiter (req 6.5)."},
 	{Symbol: "PluginRegistry", Class: ownershipProcess, Source: "BuildBootstrap → pluginreg.NewRegistry", Notes: "Factory catalog/discovery trust is startup-fixed (req 6.4, 8.7)."},
 	{Symbol: "Metrics", Class: ownershipProcess, Source: "runtimebundle.buildObservabilityRuntime → metrics.NewBundle", Notes: "One process Prometheus registry/bundle (req 6.4)."},
 	{Symbol: "RuntimeSnapshot", Class: ownershipGeneration, Source: "runtimebundle.buildExtensionRuntime", Notes: "Immutable feature/hook surface projection."},
@@ -127,13 +138,10 @@ var compositionResourceOwnership = []ownershipEntry{
 	{Symbol: "stdhttp.mountedFrontends", Class: ownershipGeneration, Source: "stdhttp.MountBundledFrontends", Notes: "Frontend instances/handlers mounted per generation."},
 	{Symbol: "stdhttp.metricsHTTPInstrumentation", Class: ownershipProcess, Source: "stdhttp.mountMetrics", Notes: "Uses process Prometheus registry; instrumentation wiring follows generation mount."},
 	{Symbol: "stdhttp.modelRegistryHandler", Class: ownershipGeneration, Source: "stdhttp.prepareStandardHandler → NewModelRegistryHandler", Notes: "Bound to candidate ModelRegistryRuntime."},
-	{Symbol: "stdhttp.featureAppLifecycle", Class: ownershipGeneration, Source: "stdhttp.prepareStandardHandler → app.Start/Shutdown", Notes: "Feature runtime.App lifecycle owned with generation teardown."},
-	{Symbol: "stdhttp.releaseClosersOnce", Class: ownershipProcess, Source: "stdhttp.prepareStandardHandler / NewStandardHandler sync.Once", Notes: "Once-only teardown ownership for process closer bag until split."},
-	{Symbol: "stdhttp.cleanupClosure", Kind: ownershipKindMixedTeardownAggregate, Source: "stdhttp.NewStandardHandler cleanup", Notes: "Mixed teardown aggregate: closes generation app/lifecycle resources and process-owned closers; cannot be classified as one resource owner."},
 	{Symbol: "stdhttp.TraceIDGenerator", Class: ownershipProcess, Source: "stdhttp.prepareStandardHandler → diag.NewTraceIDGenerator", Notes: "Process-scoped ID generator."},
-	{Symbol: "stdhttp.http.Server", Class: ownershipProcess, Source: "stdhttp.RunWithRuntime", Notes: "Data-plane listener/server never restarts for reload (req 6.4)."},
-	{Symbol: "stdhttp.serveWorker", Class: ownershipProcess, Source: "stdhttp.RunWithRuntime listenAndServe goroutine + errCh", Notes: "Serve worker and error channel are process-owned with server."},
-	{Symbol: "stdhttp.serverShutdownLifecycle", Class: ownershipProcess, Source: "stdhttp.RunWithRuntime Shutdown ordering", Notes: "Server stop → app shutdown → closers."},
+	{Symbol: "stdhttp.http.Server", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost", Notes: "Data-plane listener/server never restarts for reload (req 6.4)."},
+	{Symbol: "stdhttp.serveWorker", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost listenAndServe goroutine + errCh", Notes: "Serve worker and error channel are process-owned with server."},
+	{Symbol: "stdhttp.serverShutdownLifecycle", Class: ownershipProcess, Source: "stdhttp.RunWithGenerationHost shutdownGenerationHost ordering", Notes: "Server stop → coordinator idle → generation drain → management → process services."},
 
 	// executor nested mutable services (process identity per req 6.6)
 	{Symbol: "executor.ALegLifecycle", Class: ownershipProcess, Source: "process_services.go → buildSharedMutableRuntime → leglifecycle.NewCoordinator", Notes: "A-leg lifecycle/cancellation identity is process-owned (req 6.6)."},
@@ -165,7 +173,7 @@ var compositionResourceOwnership = []ownershipEntry{
 	// terminal work / Build subcomponents
 	{Symbol: "terminalWork.store", Class: ownershipProcess, Source: "buildTerminalWorkWithSetReconcile", ConstructorID: "buildTerminalWorkWithSetReconcile.Store", Notes: "Durable terminal-work store (req 6.2–6.3)."},
 	{Symbol: "terminalWork.workerGoroutines", Class: ownershipProcess, Source: "terminalworkapp.Processor tick/renew", ConstructorID: "terminalworkapp.Processor.Start", Notes: "Process worker goroutine/lifecycle resources."},
-	{Symbol: "postgresPools", Class: ownershipProcess, Source: "runtimebundle.Build → db.NewPoolRegistry", ConstructorID: "db.NewPoolRegistry", Notes: "Database pool registry is process-owned (req 6.2)."},
+	{Symbol: "postgresPools", Class: ownershipProcess, Source: "runtimebundle.NewProcessServices → db.NewPoolRegistry", ConstructorID: "db.NewPoolRegistry", Notes: "Database pool registry is process-owned (req 6.2)."},
 	{Symbol: "controlPlane.store", Class: ownershipProcess, Source: "runtimebundle.buildControlPlaneRuntime", ConstructorID: "buildControlPlaneRuntime.store", Notes: "Durable control-plane store."},
 
 	// stdhttp remaining middleware resources
@@ -279,15 +287,15 @@ func TestOwnershipInventory_MixedAggregatesAreNotResourceClasses(t *testing.T) {
 	for _, e := range builtFieldOwnership {
 		builtIdx[e.Symbol] = e
 	}
-	closers, ok := builtIdx["Closers"]
+	if _, ok := builtIdx["Closers"]; ok {
+		t.Fatal("CandidateRuntime.Closers must be removed from inventory after Task 4.2 deletion")
+	}
+	ledger, ok := builtIdx["Ledger"]
 	if !ok {
-		t.Fatal("Built.Closers missing from inventory")
+		t.Fatal("CandidateRuntime.Ledger missing from inventory")
 	}
-	if closers.Kind != ownershipKindMixedContainer {
-		t.Fatalf("Built.Closers must be mixed container kind, got class=%q kind=%q", closers.Class, closers.Kind)
-	}
-	if closers.Class.valid() {
-		t.Fatalf("Built.Closers must not be forced into a resource class, got %q", closers.Class)
+	if ledger.Class != ownershipGeneration {
+		t.Fatalf("CandidateRuntime.Ledger must be generation-owned, got class=%q kind=%q", ledger.Class, ledger.Kind)
 	}
 
 	bootIdx := map[string]ownershipEntry{}
@@ -320,15 +328,8 @@ func TestOwnershipInventory_MixedAggregatesAreNotResourceClasses(t *testing.T) {
 	for _, e := range compositionResourceOwnership {
 		compIdx[e.Symbol] = e
 	}
-	cleanup, ok := compIdx["stdhttp.cleanupClosure"]
-	if !ok {
-		t.Fatal("stdhttp.cleanupClosure missing from inventory")
-	}
-	if cleanup.Kind != ownershipKindMixedTeardownAggregate {
-		t.Fatalf("stdhttp.cleanupClosure must be mixed_teardown_aggregate (closes generation app/lifecycle and process-owned closers), got class=%q kind=%q", cleanup.Class, cleanup.Kind)
-	}
-	if cleanup.Class.valid() {
-		t.Fatalf("stdhttp.cleanupClosure must not carry a resource class, got %q", cleanup.Class)
+	if _, ok := compIdx["stdhttp.cleanupClosure"]; ok {
+		t.Fatal("stdhttp.cleanupClosure must be removed from inventory after Task 4.2 deleted NewStandardHandler/RunWithRuntime")
 	}
 
 	all := append(append(append([]ownershipEntry{}, builtFieldOwnership...), bootstrapResourceOwnership...), compositionResourceOwnership...)
@@ -481,17 +482,21 @@ func TestOwnershipInventory_ConstructorIDDriftCheck(t *testing.T) {
 	}
 }
 
+// builtStructFieldNames returns CandidateRuntime's ownership-relevant field
+// names (the replacement for the deleted Built struct; task 4.2). Internal
+// lifecycle-bookkeeping fields (sync primitives / transfer flags) are excluded
+// because they are not resources requiring ownership classification.
 func builtStructFieldNames(t *testing.T) []string {
 	t.Helper()
-	path := filepath.Join("built.go")
+	path := filepath.Join("candidate_compile.go")
 	src, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read built.go: %v", err)
+		t.Fatalf("read candidate_compile.go: %v", err)
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
 	if err != nil {
-		t.Fatalf("parse built.go: %v", err)
+		t.Fatalf("parse candidate_compile.go: %v", err)
 	}
 	var names []string
 	for _, decl := range f.Decls {
@@ -501,22 +506,25 @@ func builtStructFieldNames(t *testing.T) []string {
 		}
 		for _, spec := range gen.Specs {
 			ts, ok := spec.(*ast.TypeSpec)
-			if !ok || ts.Name == nil || ts.Name.Name != "Built" {
+			if !ok || ts.Name == nil || ts.Name.Name != "CandidateRuntime" {
 				continue
 			}
 			st, ok := ts.Type.(*ast.StructType)
 			if !ok || st.Fields == nil {
-				t.Fatal("Built is not a struct")
+				t.Fatal("CandidateRuntime is not a struct")
 			}
 			for _, field := range st.Fields.List {
 				for _, name := range field.Names {
+					if candidateRuntimeInternalFields[name.Name] {
+						continue
+					}
 					names = append(names, name.Name)
 				}
 			}
 		}
 	}
 	if len(names) == 0 {
-		t.Fatal("no Built fields found")
+		t.Fatal("no CandidateRuntime fields found")
 	}
 	return names
 }

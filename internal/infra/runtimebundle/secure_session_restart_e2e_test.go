@@ -194,13 +194,11 @@ func runWrongOwnerPhase(t *testing.T, b *runtimebundle.CandidateRuntime, sid, to
 
 func closeBuilt(t *testing.T, b *runtimebundle.CandidateRuntime) {
 	t.Helper()
-	for _, c := range b.Closers {
-		if c == nil {
-			continue
-		}
-		if err := c(); err != nil {
-			t.Fatal(err)
-		}
+	if b == nil {
+		return
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

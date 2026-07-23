@@ -25,19 +25,12 @@ func criticalFileExceedsBudget(lines, max int) bool {
 //
 // server.go is a special case: the 608-line figure is the pre-split historical
 // size. After arch review Task 1.3 split listener/lifecycle wiring out of
-// internal/stdhttp/server.go, the remaining file is ~206 lines. The 300-line
-// budget is therefore calibrated against the reduced post-split scope, not the
-// historical 608-line value, to lock the reduction and prevent re-bloat.
+// internal/stdhttp/server.go, the remaining file is ~206 lines. Task 4.2
+// deleted RunWithRuntime/releaseBuiltResources/runClosers entirely, leaving
+// only the overridable listenAndServe var (measured 8; zero headroom).
 //
-// build.go is a special case: the 591-line figure is the pre-decomposition
-// historical size. After arch review Phase 2 (Tasks 2.2-2.7) extracted the
-// observability/security/model/persistence/extension/executor build units out of
-// internal/infra/runtimebundle/build.go, the remaining file is the ~180-line
-// Build orchestrator; lifecycle validation and disposer helpers live in
-// build_lifecycle.go. The 220-line budget is calibrated against this reduced
-// post-decomposition scope (raised from 200 for Phase 8 concurrency authority
-// wiring) to lock the reduction and prevent the orchestrator from re-absorbing
-// build-unit logic.
+// internal/infra/runtimebundle/build.go (the compatibility Build orchestrator)
+// was deleted in Task 4.2; its budget entry is removed.
 //
 // options.go is a special case: the 106-line figure is the pre-grouping size.
 // After arch review Task 2.8 grouped the flat ~30-field BuildOptions bag into
@@ -53,14 +46,16 @@ func criticalFileExceedsBudget(lines, max int) bool {
 // locks the reduction and prevents re-bloat.
 var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/core/runtime/executor.go", Max: 150},
-	{Path: "internal/infra/runtimebundle/build.go", Max: 220},
 	// Raised from 200 for issue #151 Phase 3 secret-guard compose fields on ExtensionsOptions.
 	// Raised from 220 to 240 for versioned-runtime-reload task 3.2: FeatureLifecycles
 	// carrier on BuildOptions (measured 227; ~13 lines headroom).
 	{Path: "internal/infra/runtimebundle/options.go", Max: 240},
 	{Path: "internal/standardplugins/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
-	{Path: "internal/stdhttp/server.go", Max: 300},
+	// Ratcheted from 300 to 8 for Task 4.2: RunWithRuntime, releaseBuiltResources,
+	// and runClosers deleted; only the overridable listenAndServe var remains
+	// (measured 8; zero headroom).
+	{Path: "internal/stdhttp/server.go", Max: 8},
 
 	// --- runtime-architecture-convergence-and-shrinkage Task 1.2 migration freezes ---
 	// Reviewed baseline SHA efe4624909cea318c7211d5cb3734059d3210802 (Task 1.1).
@@ -72,14 +67,16 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	// Freeze 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3 (generation lifecycle).
 	{Path: "internal/infra/runtimehost/generation.go", Max: 575},
 	// Freeze 440 → contracted to 400 in Task 3.3 (lifecycle/transfer extracted to
-	// candidate_lifecycle.go); final ≤350 (Req 11.3). Task 3.5 did not further
-	// contract this file (RequestPlane lived in request_plane.go); keep exact freeze.
-	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 400},
+	// candidate_lifecycle.go); ratcheted to 393 in Task 4.2 (Closers field and
+	// legacy-closer overwrite block deleted); final ≤350 (Req 11.3).
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 393},
 	// Task 3.5: freeze post-deletion composer/input surfaces at measured sizes.
 	{Path: "internal/infra/runtimebundle/handler_composer.go", Max: 25},
 	{Path: "internal/infra/runtimebundle/compile_generation.go", Max: 296},
 	{Path: "internal/stdhttp/request_plane.go", Max: 52},
-	{Path: "internal/stdhttp/http_input.go", Max: 99},
+	// Ratcheted from 99 to 42 for Task 4.2: standardHTTPInputFromBuilt deleted
+	// (measured 42; zero headroom).
+	{Path: "internal/stdhttp/http_input.go", Max: 42},
 	// Freeze 364 → final ≤300 (Req 11.3). Lower via Phase 5 task 5.5 (process construction).
 	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
 	// Freeze 367 → final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).

@@ -317,7 +317,7 @@ func runServeCommand(ctx context.Context, opts CommandOptions) int {
 // config through the shared strict effective pipeline, resolves the effective
 // access mode, and applies [accessmode.ValidateServeModeGate] before heavy
 // runtime assembly in [runtimebundle.BuildBootstrap]. Runtime posture/security
-// validation (backend access scopes, credential modes) stays in runtimebundle.Build.
+// validation (backend access scopes, credential modes) stays in ProcessServices / CompileCandidate.
 func validateServeMultiUserGate(ctx context.Context, configPath string, multiUserFlag *bool, streamOverrides config.StreamRecoveryOverrides) error {
 	eff, err := runtimebundle.LoadBootstrapEffective(ctx, configPath, streamOverrides)
 	if err != nil {

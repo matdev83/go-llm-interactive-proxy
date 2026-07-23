@@ -43,14 +43,17 @@ host/coordinator lifecycle owner, generic dependency getter.
 
 | Helper | Source | Current broad input | Desired after focused seam | Migration status | Behavior test(s) | Lifecycle at mount |
 | --- | --- | --- | --- | --- | --- | --- |
-| `prepareStandardHandler` | `internal/stdhttp/handler.go` | focused `StandardHTTPInput` only | already focused; closers owned by caller/generation | **strict Task 3.2 target** — focused composer/preparer; must accept `StandardHTTPInput` and no lifecycle owner | `TestNewStandardHandler_*`; mount parity | closers owned **above** mount boundary |
-| `NewStandardHandler` | `internal/stdhttp/handler.go` | `*runtimebundle.Built` | project to `StandardHTTPInput` then invoke focused composer; mounts never see `Built` | **Phase 4 Built compatibility** — broad source `*Built` input allowed until Phase 4 caller migration/deletion (Tasks 4.1–4.3); not a Task 3.5 mount-signature failure | same | closers owned above |
+| `prepareStandardHandler` | `internal/stdhttp/handler.go` | focused `StandardHTTPInput` only | already focused; closers owned by caller/generation | **strict Task 3.2 target** — focused composer/preparer; must accept `StandardHTTPInput` and no lifecycle owner | `TestComposeStandardHTTP_projectsWithoutBuiltRehydration`; `TestComposeStandardHTTP_diagnosticsHealthzMounted`; `TestComposeStandardHTTP_openAIModelsAndModelRegistryDiagMounted`; `TestStandardMiddlewareMountParity_*` | closers owned **above** mount boundary |
 | `ComposeStandardHTTP` | `internal/stdhttp/request_plane.go` | `StandardHTTPInput` (+ explicit `cfg`/`log` params) | already the canonical `HandlerComposer` target | **canonical Task 3.4 composer** — the sole `runtimebundle.HandlerComposer` invoked by `CompileGeneration`/`GenerationCompiler`; RequestPlane compatibility composers are deleted (Task 3.5) | `TestComposeStandardHTTP_RouteConflictRejects`; `TestComposeStandardHTTP_ManagementRoutesNotMounted`; `TestComposeStandardHTTP_NilInputsRejected`; `TestStandardMiddlewareMountParity_*` | none at mount; generation owns resources |
 
 Task 3.5 deleted `ComposeRequestPlane`, `standardHTTPInputFromRequestPlane`, broad
-`runtimebundle.RequestPlane`, and `NewCompatRequestPlane`. Architecture gates
-prohibit their reintroduction. Phase 4 still owns `Built` / `Build` /
-`RunWithRuntime` / `NewStandardHandler` retirement.
+`runtimebundle.RequestPlane`, and `NewCompatRequestPlane`. Task 4.2 deleted
+`runtimebundle.Built`, compatibility `runtimebundle.Build`, `NewStandardHandler`,
+`standardHTTPInputFromBuilt`, `releaseBuiltResources`, `runClosers`, candidate
+`Closers`, and `ResourceLedger.LegacyClosers`. `ComposeStandardHTTP` (via
+`prepareStandardHandler`) is the sole composition root; `stdhttp.RunWithGenerationHost`
+is the sole production serve path. Architecture gates prohibit reintroduction of
+any deleted symbol or an equivalent structural shape.
 
 ## Middleware order (outer → inner; frozen)
 

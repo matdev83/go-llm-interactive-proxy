@@ -45,3 +45,10 @@ func NewGenerationBundleWithPublicationForTest(auth []httpauth.Provider, regs []
 func TransferLedgerOwnershipForTest(c *CandidateRuntime) *ResourceLedger {
 	return c.transferLedgerOwnership()
 }
+
+// NewCandidateRuntimeForTest builds a minimal candidate bound to ledger
+// (tests). Test-only: the ledger is the sole generation-owned resource on
+// CandidateRuntime (task 4.2); there is no legacy closer bag to seed.
+func NewCandidateRuntimeForTest(ledger *ResourceLedger) *CandidateRuntime {
+	return &CandidateRuntime{Ledger: ledger}
+}
