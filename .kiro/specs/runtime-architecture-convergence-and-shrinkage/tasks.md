@@ -60,7 +60,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: 1.4_
   - _Validation: `go test ./pkg/lipsdk/configreload/... ./internal/archtest/... -run 'ReloadContract|PublicContract'`_
 
-- [ ] 2.2 Migrate runtimehost and observers to the canonical contract
+- [x] 2.2 Migrate runtimehost and observers to the canonical contract
   - Replace internal trigger/result/status declarations used by orchestration with canonical types.
   - Keep reloadability policy, safe failure mapping, sanitizers, and private active-source/effective state internal.
   - Update metrics, tracing, history, and diagnostics projections without changing labels or categories.

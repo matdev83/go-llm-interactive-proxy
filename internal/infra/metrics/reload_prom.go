@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -29,19 +30,27 @@ type ReloadGenerationSnapshot struct {
 
 var (
 	reloadTriggerAllow = map[string]bool{
-		string(configreload.TriggerSIGHUP): true,
-		string(configreload.TriggerAPI):    true,
+		string(sdkreload.TriggerSIGHUP): true,
+		string(sdkreload.TriggerAPI):    true,
 	}
-	reloadResultAllow = func() map[string]bool {
-		m := make(map[string]bool, len(configreload.AllResultCategories)+4)
-		for _, c := range configreload.AllResultCategories {
-			m[string(c)] = true
-		}
-		m["quiesce_failed"] = true
-		m["cleanup_failed"] = true
-		m["other"] = true
-		return m
-	}()
+	// Built from canonical ResultCategory constants only — never from the
+	// exported mutable compatibility enumeration — so package-init ordering
+	// cannot inject labels.
+	reloadResultAllow = map[string]bool{
+		string(sdkreload.ResultPublished):         true,
+		string(sdkreload.ResultNoop):              true,
+		string(sdkreload.ResultBusy):              true,
+		string(sdkreload.ResultRestartRequired):   true,
+		string(sdkreload.ResultRetentionBlocked):  true,
+		string(sdkreload.ResultInvalid):           true,
+		string(sdkreload.ResultSourceIntegrity):   true,
+		string(sdkreload.ResultCanceled):          true,
+		string(sdkreload.ResultPreparationFailed): true,
+		string(sdkreload.ResultInternalFailed):    true,
+		"quiesce_failed":                          true,
+		"cleanup_failed":                          true,
+		"other":                                   true,
+	}
 	reloadStageAllow = map[string]bool{
 		configreload.StageRead:      true,
 		configreload.StageLoad:      true,
@@ -201,17 +210,17 @@ func boundReloadResult(v string) string {
 	}
 	switch v {
 	case "no-op", "noop":
-		return string(configreload.ResultNoop)
+		return string(sdkreload.ResultNoop)
 	case "restart_required", "restart-required":
-		return string(configreload.ResultRestartRequired)
+		return string(sdkreload.ResultRestartRequired)
 	case "retention_blocked", "retention-blocked":
-		return string(configreload.ResultRetentionBlocked)
+		return string(sdkreload.ResultRetentionBlocked)
 	case "source_integrity_failed", "source-integrity-failed", "source_integrity":
-		return string(configreload.ResultSourceIntegrity)
+		return string(sdkreload.ResultSourceIntegrity)
 	case "preparation_failed", "preparation-failed":
-		return string(configreload.ResultPreparationFailed)
+		return string(sdkreload.ResultPreparationFailed)
 	case "internal_failed", "internal-failed":
-		return string(configreload.ResultInternalFailed)
+		return string(sdkreload.ResultInternalFailed)
 	}
 	// Strip hostile suffixes after first '/' or ':'.
 	if i := strings.IndexAny(v, "/:"); i > 0 {

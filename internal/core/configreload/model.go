@@ -42,7 +42,8 @@ const (
 // Transitional constant aliases — these are thin re-exports, not a second vocabulary.
 // Architecture gates exempt only direct type aliases that select the approved
 // canonical target through a pkg/lipsdk/configreload import; value aliases remain
-// until call sites import pkg/lipsdk/configreload directly (Task 2.2).
+// until remaining public/HTTP/cmd call sites import pkg/lipsdk/configreload directly
+// (Task 2.3). Orchestration/observability already consumes the canonical package.
 const (
 	TriggerSIGHUP = sdkreload.TriggerSIGHUP
 	TriggerAPI    = sdkreload.TriggerAPI

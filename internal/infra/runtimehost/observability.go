@@ -7,6 +7,7 @@ import (
 
 	"github.com/matdev83/go-llm-interactive-proxy/internal/core/configreload"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -54,7 +55,7 @@ func (o *ReloadObserver) History() *configreload.StatusHistory {
 type attemptScope struct {
 	obs       *ReloadObserver
 	attemptID int64
-	trigger   configreload.TriggerKind
+	trigger   sdkreload.TriggerKind
 	actor     string
 	start     time.Time
 	active    int64
@@ -63,8 +64,8 @@ type attemptScope struct {
 }
 
 // BeginAttempt starts process-owned reload spans and returns an end callback.
-func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger configreload.ReloadTrigger, attemptID, activeGen int64) (outCtx context.Context, end func(configreload.ReloadResult)) {
-	outCtx, end = ctx, func(configreload.ReloadResult) {}
+func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger sdkreload.Trigger, attemptID, activeGen int64) (outCtx context.Context, end func(sdkreload.Result)) {
+	outCtx, end = ctx, func(sdkreload.Result) {}
 	if o == nil {
 		return outCtx, end
 	}
@@ -74,7 +75,7 @@ func (o *ReloadObserver) BeginAttempt(ctx context.Context, trigger configreload.
 			if span != nil {
 				span.End()
 			}
-			outCtx, end = ctx, func(configreload.ReloadResult) {}
+			outCtx, end = ctx, func(sdkreload.Result) {}
 		}
 	}()
 	start := time.Now()
@@ -128,7 +129,7 @@ func (o *ReloadObserver) BeginStage(ctx context.Context, stage string) (outCtx c
 		d := time.Since(start)
 		res := boundResultName(result)
 		span.SetAttributes(attribute.String("result", res))
-		if res != string(configreload.ResultPublished) && res != string(configreload.ResultNoop) && res != "ok" && res != "" {
+		if res != string(sdkreload.ResultPublished) && res != string(sdkreload.ResultNoop) && res != "ok" && res != "" {
 			if res != "accepted" {
 				span.SetStatus(codes.Error, res)
 			}
@@ -141,7 +142,7 @@ func (o *ReloadObserver) BeginStage(ctx context.Context, stage string) (outCtx c
 }
 
 // RecordTerminal records logs, metrics, and history for a finished attempt.
-func (scope *attemptScope) End(res configreload.ReloadResult) {
+func (scope *attemptScope) End(res sdkreload.Result) {
 	defer func() { _ = recover() }()
 	if scope == nil || scope.obs == nil {
 		return
@@ -175,7 +176,7 @@ func (scope *attemptScope) End(res configreload.ReloadResult) {
 		o.metrics.ObserveAttempt(string(scope.trigger), string(res.Category), d)
 	}
 	if o.history != nil {
-		o.history.Append(configreload.HistoryEntry{
+		o.history.Append(sdkreload.HistoryEntry{
 			AttemptID:           res.AttemptID,
 			Trigger:             scope.trigger,
 			Stage:               stage,
@@ -194,7 +195,7 @@ func (scope *attemptScope) End(res configreload.ReloadResult) {
 			attribute.String("result", string(res.Category)),
 			attribute.Int64("active_generation", res.ActiveGeneration),
 		)
-		if res.Category != configreload.ResultPublished && res.Category != configreload.ResultNoop {
+		if res.Category != sdkreload.ResultPublished && res.Category != sdkreload.ResultNoop {
 			scope.parent.SetStatus(codes.Error, string(res.Category))
 		}
 		scope.parent.End()
@@ -246,8 +247,8 @@ func (o *ReloadObserver) RefreshGauges(mgr *Manager) {
 	})
 }
 
-func candidateGeneration(res configreload.ReloadResult) int64 {
-	if res.Category == configreload.ResultPublished {
+func candidateGeneration(res sdkreload.Result) int64 {
+	if res.Category == sdkreload.ResultPublished {
 		return res.ActiveGeneration
 	}
 	return 0
@@ -289,10 +290,12 @@ func boundResultName(s string) string {
 	if s == "" {
 		return "other"
 	}
-	for _, c := range configreload.AllResultCategories {
-		if string(c) == s {
-			return s
-		}
+	// Immutable closed policy: accept only when NormalizeResultCategory leaves
+	// the value unchanged. Unknown inputs normalize to ResultInternalFailed —
+	// do not map arbitrary unknowns onto internal-failed telemetry labels.
+	cat := sdkreload.ResultCategory(s)
+	if sdkreload.NormalizeResultCategory(cat) == cat {
+		return s
 	}
 	switch s {
 	case "ok", "accepted", "quiesce_failed", "cleanup_failed", "other":

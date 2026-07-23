@@ -13,6 +13,7 @@ import (
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/configsource"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/metrics"
 	"github.com/matdev83/go-llm-interactive-proxy/internal/infra/runtimehost"
+	sdkreload "github.com/matdev83/go-llm-interactive-proxy/pkg/lipsdk/configreload"
 	"github.com/prometheus/client_golang/prometheus"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -97,17 +98,17 @@ func TestReloadObservability_LogsSpansHistoryAndMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := coord.Reload(context.Background(), configreload.ReloadTrigger{
-		Kind:       configreload.TriggerAPI,
+	res := coord.Reload(context.Background(), sdkreload.Trigger{
+		Kind:       sdkreload.TriggerAPI,
 		AcceptedAt: time.Now().UTC(),
 		SafeActor:  "test-actor",
 	})
-	if res.Category != configreload.ResultPublished {
+	if res.Category != sdkreload.ResultPublished {
 		t.Fatalf("category=%q want published", res.Category)
 	}
 
 	st := coord.Status()
-	if st.LastSuccess.Category != configreload.ResultPublished {
+	if st.LastSuccess.Category != sdkreload.ResultPublished {
 		t.Fatalf("LastSuccess=%q", st.LastSuccess.Category)
 	}
 	if st.RetainedGenerations < 1 {
@@ -169,17 +170,50 @@ func TestReloadObservability_PanickingSinkCannotEscape(t *testing.T) {
 	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{
 		Logger: slog.New(panicLogHandler{}),
 	})
-	ctx, endAttempt := obs.BeginAttempt(context.Background(), configreload.ReloadTrigger{
-		Kind: configreload.TriggerAPI,
+	ctx, endAttempt := obs.BeginAttempt(context.Background(), sdkreload.Trigger{
+		Kind: sdkreload.TriggerAPI,
 	}, 1, 1)
 	_, endStage := obs.BeginStage(ctx, configreload.StagePublish)
-	endStage(string(configreload.ResultPublished))
-	endAttempt(configreload.ReloadResult{
-		Category:         configreload.ResultPublished,
+	endStage(string(sdkreload.ResultPublished))
+	endAttempt(sdkreload.Result{
+		Category:         sdkreload.ResultPublished,
 		AttemptID:        1,
 		ActiveGeneration: 2,
 	})
 	obs.ObserveLifecycle(ctx, "cleanup", "ok", time.Millisecond)
+}
+
+func TestReloadObservability_CanonicalHistoryEntryCategoryLabels(t *testing.T) {
+	t.Parallel()
+	hist := configreload.NewStatusHistory(4)
+	obs := runtimehost.NewReloadObserver(runtimehost.ReloadObserverDeps{History: hist})
+	_, end := obs.BeginAttempt(context.Background(), sdkreload.Trigger{
+		Kind:      sdkreload.TriggerSIGHUP,
+		SafeActor: "sighup",
+	}, 9, 3)
+	end(sdkreload.Result{
+		Category:         sdkreload.ResultNoop,
+		AttemptID:        9,
+		ActiveGeneration: 3,
+		ReasonCategory:   configreload.StageNoop,
+	})
+	snap := hist.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("history len=%d want 1", len(snap))
+	}
+	e := snap[0]
+	if e.Trigger != sdkreload.TriggerSIGHUP {
+		t.Fatalf("trigger=%q", e.Trigger)
+	}
+	if e.Category != sdkreload.ResultNoop {
+		t.Fatalf("category=%q want %q", e.Category, sdkreload.ResultNoop)
+	}
+	if string(e.Category) != "no-op" {
+		t.Fatalf("category label drifted to %q", e.Category)
+	}
+	if e.Stage != configreload.StageNoop {
+		t.Fatalf("stage=%q", e.Stage)
+	}
 }
 
 func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing.T) {
@@ -217,8 +251,8 @@ func TestReloadObservability_FailedReloadDoesNotChangeActiveReadiness(t *testing
 	}
 
 	readyBefore := runtimehost.DataPlaneReady(mgr)
-	res := coord.Reload(context.Background(), configreload.ReloadTrigger{Kind: configreload.TriggerAPI})
-	if res.Category != configreload.ResultSourceIntegrity && res.Category != configreload.ResultInvalid {
+	res := coord.Reload(context.Background(), sdkreload.Trigger{Kind: sdkreload.TriggerAPI})
+	if res.Category != sdkreload.ResultSourceIntegrity && res.Category != sdkreload.ResultInvalid {
 		t.Fatalf("category=%q want source-integrity/invalid", res.Category)
 	}
 	if mgr.Active() == nil || mgr.Active().ID() != activeBefore {
