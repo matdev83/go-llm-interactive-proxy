@@ -16,7 +16,7 @@ Implementation is TDD-first and deletion-oriented. Every phase begins with chara
   - _Depends: none_
   - _Validation: `make arch-report && make bench`_
 
-- [ ] 1.2 Add critical-file freeze budgets for current hotspots (P)
+- [x] 1.2 Add critical-file freeze budgets for current hotspots (P)
   - Add budgets for reload coordinator, generation state, candidate compilation, process runtime construction, and public runtime build/facade.
   - Set initial ceilings to current measured values with no growth headroom beyond formatter variance.
   - Add comments containing final target ceilings and the phase that must lower each budget.

@@ -8,6 +8,13 @@ type CriticalFileBudget struct {
 	Max  int
 }
 
+// criticalFileExceedsBudget reports whether a measured physical line count
+// violates a critical-file ceiling. Equality is allowed (exact freeze); Max+1
+// fails so there is no silent growth headroom.
+func criticalFileExceedsBudget(lines, max int) bool {
+	return lines > max
+}
+
 // CriticalFileBudgets is the single source of truth for both the architecture
 // guardrails test and the arch-report hotspot table. Order is preserved for
 // stable report output.
@@ -54,4 +61,20 @@ var CriticalFileBudgets = []CriticalFileBudget{
 	{Path: "internal/standardplugins/standard_table.go", Max: 320},
 	{Path: "internal/pluginreg/reg.go", Max: 320},
 	{Path: "internal/stdhttp/server.go", Max: 300},
+
+	// --- runtime-architecture-convergence-and-shrinkage Task 1.2 migration freezes ---
+	// Reviewed baseline SHA efe4624909cea318c7211d5cb3734059d3210802 (Task 1.1).
+	// Initial Max values are exact measured physical line counts with no growth
+	// headroom. Final targets are Requirement 11.3; named tasks must lower Max.
+
+	// Freeze 797 → final ≤300 (Req 11.3). Lower via Phase 6 task 6.5 (thin coordinator).
+	{Path: "internal/infra/runtimehost/coordinator.go", Max: 797},
+	// Freeze 575 → final ≤400 (Req 11.3). Lower via Phase 7 task 7.3 (generation lifecycle).
+	{Path: "internal/infra/runtimehost/generation.go", Max: 575},
+	// Freeze 440 → final ≤350 (Req 11.3). Lower via Phase 3 task 3.5 (candidate compilation).
+	{Path: "internal/infra/runtimebundle/candidate_compile.go", Max: 440},
+	// Freeze 364 → final ≤300 (Req 11.3). Lower via Phase 5 task 5.5 (process construction).
+	{Path: "internal/infra/runtimebundle/process_services.go", Max: 364},
+	// Freeze 367 → final ≤150 (Req 11.3). Lower via Phase 8 task 8.1 (public build/facade).
+	{Path: "pkg/lipruntime/build.go", Max: 367},
 }

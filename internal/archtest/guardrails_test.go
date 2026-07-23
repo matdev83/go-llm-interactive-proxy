@@ -321,7 +321,7 @@ func TestCriticalFileLineBudgets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", b.Path, err)
 			}
-			if n > b.Max {
+			if criticalFileExceedsBudget(n, b.Max) {
 				t.Fatalf("%s: %d non-test lines exceeds critical-file budget %d (see docs/architecture-guardrails.md)", b.Path, n, b.Max)
 			}
 			t.Logf("%s: %d/%d lines", b.Path, n, b.Max)
